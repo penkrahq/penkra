@@ -489,6 +489,7 @@ const dependencies = Layer.mergeAll(
         if (projectedForkSourceThreadId !== null) order.push("fork-discard-empty");
       }),
     finalize: () => Effect.void,
+    discardThreadState: () => Effect.void,
   }),
   Layer.succeed(OrchestrationEngineService, {
     dispatch: (

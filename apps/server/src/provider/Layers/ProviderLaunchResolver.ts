@@ -11,10 +11,7 @@ import { ProviderInstallationRepository } from "../../persistence/Services/Provi
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { buildProviderChildEnvironment } from "../../providerChildEnvironment.ts";
 import { ProviderCredentialBroker } from "../providerCredentialBroker.ts";
-import {
-  resolveClaudeSessionCandidate,
-  synchronizeClaudeSession,
-} from "../claudeManagedNativeState.ts";
+import { prepareClaudeThreadProject } from "../claudeThreadNativeState.ts";
 import {
   providerConnectionProfileRoot,
   providerCredentialProfileIdentity,
@@ -72,6 +69,9 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
 
       let credentialEnvironment: NodeJS.ProcessEnv = {};
       let profileIdentity: string = input.connectionId ?? `anonymous:${input.harness}`;
+      let claudeAccount:
+        | { readonly authenticationMethodId: string; readonly providerIdentityId: string | null }
+        | undefined;
       if (input.connectionId === null) {
         if (!manifest.anonymous?.authorizesInternalProvider(input.internalProviderId)) {
           return yield* fail("The selected route requires a Connection.");
@@ -103,6 +103,10 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
           authenticationTargetId: connection.value.authenticationTargetId,
           authenticationMethodId: connection.value.authenticationMethodId,
         });
+        claudeAccount = {
+          authenticationMethodId: connection.value.authenticationMethodId,
+          providerIdentityId: connection.value.providerIdentityId,
+        };
         const method = staticMethod ?? managedMethod;
         if (!method || !method.authorizesInternalProvider(input.internalProviderId)) {
           return yield* fail("The selected Connection cannot authorize this route.");
@@ -165,6 +169,24 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
           }),
       });
 
+      const claudeProjectName =
+        input.harness === "claudeAgent" && input.claudeThreadId !== undefined
+          ? yield* Effect.tryPromise({
+              try: () =>
+                prepareClaudeThreadProject({
+                  stateDir: config.stateDir,
+                  threadId: input.claudeThreadId!,
+                  configDir: `${profileRoot}/claude-config`,
+                  ...(claudeAccount === undefined ? {} : { account: claudeAccount }),
+                }),
+              catch: (cause) =>
+                new ProviderLaunchResolutionError({
+                  detail: "Could not link the Thread-owned Claude conversation.",
+                  cause,
+                }),
+            })
+          : null;
+
       return {
         binaryPath: installation.value.executablePath,
         profileRoot,
@@ -174,8 +196,8 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
         ),
         connectionId: input.connectionId,
         installationId: input.installationId,
-        childEnvironment: (baseEnv, overrides) =>
-          buildProviderChildEnvironment({
+        childEnvironment: (baseEnv, overrides) => ({
+          ...buildProviderChildEnvironment({
             provider: manifest.childKind,
             baseEnv,
             managedConnection: true,
@@ -186,6 +208,10 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
             overrides: { ...environment.overrides, ...overrides },
             credentialOverrides: credentialEnvironment,
           }),
+          ...(claudeProjectName === null
+            ? {}
+            : { CLAUDE_CODE_PROJECT_DIR_NAME: claudeProjectName }),
+        }),
       };
     });
 
@@ -210,60 +236,9 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
         installationId: input.installationId,
         internalProviderId: input.internalProviderId,
         nativeStateIdentity: nativeStateGenerationId,
+        claudeThreadId: input.threadId,
         allowRetiredInstallation: true,
       });
-      if (
-        state.value.harness === "claudeAgent" &&
-        state.value.providerSessionId !== null &&
-        input.connectionId !== null
-      ) {
-        const profiles = yield* connections
-          .listManagedProfilesForConnection(input.connectionId)
-          .pipe(
-            Effect.mapError(
-              (cause) =>
-                new ProviderLaunchResolutionError({
-                  detail: "Could not inspect Claude credential-profile lineage.",
-                  cause,
-                }),
-            ),
-          );
-        const lineageRoots = [
-          launch.profileRoot,
-          ...profiles.flatMap((profile) => {
-            const identity = providerCredentialProfileIdentity(profile.profileRef);
-            return identity === null
-              ? []
-              : [providerConnectionProfileRoot(config.stateDir, identity)];
-          }),
-        ].filter((root, index, roots) => roots.indexOf(root) === index);
-        const reconciliation = yield* Effect.tryPromise({
-          try: async () => {
-            const source = await resolveClaudeSessionCandidate({
-              profileRoots: lineageRoots,
-              providerSessionId: state.value.providerSessionId!,
-            });
-            const outcome = await synchronizeClaudeSession({
-              sourceProfileRoot: source.profileRoot,
-              targetProfileRoot: launch.profileRoot,
-              providerSessionId: state.value.providerSessionId!,
-            });
-            return { sourceProfileRoot: source.profileRoot, outcome };
-          },
-          catch: (cause) =>
-            new ProviderLaunchResolutionError({
-              detail: "Could not prepare the exact Claude conversation for resume.",
-              cause,
-            }),
-        });
-        yield* Effect.logInfo("provider.claude_native_state.resume_prepared", {
-          threadId: input.threadId,
-          providerSessionId: state.value.providerSessionId,
-          sourceWasActiveProfile: reconciliation.sourceProfileRoot === launch.profileRoot,
-          inspectedProfileCount: lineageRoots.length,
-          outcome: reconciliation.outcome,
-        });
-      }
       return launch;
     });
 

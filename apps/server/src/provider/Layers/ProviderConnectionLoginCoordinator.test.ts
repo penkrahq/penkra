@@ -1,9 +1,14 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ProviderConnectionId, ProviderInstallationId } from "@penkra/contracts";
+import {
+  ProviderConnectionId,
+  ProviderInstallationId,
+  ProviderNativeStateGenerationId,
+  ThreadId,
+} from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, readlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { ServerConfig } from "../../config.ts";
@@ -11,12 +16,14 @@ import { ProviderConnectionLoginRepositoryLive } from "../../persistence/Layers/
 import { ProviderConnectionRepositoryLive } from "../../persistence/Layers/ProviderConnections.ts";
 import { ConnectionUsageFactRepositoryLive } from "../../persistence/Layers/ConnectionUsageFacts.ts";
 import { ProviderInstallationRepositoryLive } from "../../persistence/Layers/ProviderInstallations.ts";
+import { ThreadProviderBindingRepositoryLive } from "../../persistence/Layers/ThreadProviderBindings.ts";
 import { runMigrations } from "../../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../../persistence/NodeSqliteClient.ts";
 import { ProviderConnectionLoginRepository } from "../../persistence/Services/ProviderConnectionLogins.ts";
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 import { ConnectionUsageFactRepository } from "../../persistence/Services/ConnectionUsageFacts.ts";
 import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
+import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import type {
   CodexManagedAccountSnapshot,
   CodexManagedLoginHandle,
@@ -29,6 +36,12 @@ import type {
   ClaudeManagedAccountSnapshot,
   ClaudeManagedLoginHandle,
 } from "../claudeManagedAccountLogin.ts";
+import {
+  claudeThreadProjectName,
+  claudeThreadTranscriptPath,
+  prepareClaudeThreadProject,
+  readClaudeThreadAccount,
+} from "../claudeThreadNativeState.ts";
 import { providerCredentialProfileRoot } from "../providerNativeStatePaths.ts";
 import {
   ProviderCredentialBroker,
@@ -121,6 +134,7 @@ const repositories = Layer.mergeAll(
   ProviderConnectionRepositoryLive.pipe(Layer.provide(sqlLayer)),
   ProviderInstallationRepositoryLive.pipe(Layer.provide(sqlLayer)),
   ConnectionUsageFactRepositoryLive.pipe(Layer.provide(sqlLayer)),
+  ThreadProviderBindingRepositoryLive.pipe(Layer.provide(sqlLayer)),
 );
 const dependencies = Layer.mergeAll(
   repositories,
@@ -510,7 +524,7 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
     }),
   );
 
-  it.effect("preserves Claude conversations before rotating the logical Connection profile", () =>
+  it.effect("rotates the Claude login without copying conversations into the new profile", () =>
     Effect.gen(function* () {
       yield* runMigrations();
       yield* activateClaude;
@@ -574,14 +588,195 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
         Option.getOrThrow(yield* connections.getRecord(first.connectionId)).profileRef,
         `provider-profile:${reauthenticated.connectionId}`,
       );
-      assert.strictEqual(
-        yield* Effect.promise(() => readFile(path.join(targetRoot!, relativeTranscript), "utf8")),
-        sourceBytes,
+      assert.isFalse(
+        yield* Effect.promise(() =>
+          access(path.join(targetRoot!, relativeTranscript)).then(
+            () => true,
+            () => false,
+          ),
+        ),
       );
     }),
   );
 
-  it.effect("rejects divergent Claude history without advancing the logical Connection", () =>
+  it.effect("keeps a Claude Thread after switch, disconnect, and same-account reconnect", () =>
+    Effect.gen(function* () {
+      yield* runMigrations();
+      yield* activateClaude;
+      const coordinator = yield* ProviderConnectionLoginCoordinator;
+      const connections = yield* ProviderConnectionRepository;
+      const config = yield* ServerConfig;
+      const threadId = "claude-disconnect-thread";
+      const sessionId = "550e8400-e29b-41d4-a716-446655440011";
+      const first = yield* coordinator.begin({
+        harness: "claudeAgent",
+        authenticationTargetId: "anthropic-first-party",
+        authenticationMethodId: "claude-account",
+      });
+      pendingClaudeLogin?.resolve({
+        type: "claude-account",
+        email: "same@example.com",
+        subscriptionType: "max",
+      });
+      const completed = yield* waitForCompleted(first.operationId);
+      const firstProfile = providerCredentialProfileRoot(
+        config.stateDir,
+        Option.getOrThrow(yield* connections.getRecord(completed.connectionId)).profileRef!,
+      )!;
+      const firstConfig = path.join(firstProfile, "claude-config");
+      const projectName = yield* Effect.promise(() =>
+        prepareClaudeThreadProject({ stateDir: config.stateDir, threadId, configDir: firstConfig }),
+      );
+      const transcript = claudeThreadTranscriptPath(config.stateDir, threadId, sessionId);
+      const bytes = '{"type":"user","message":{"role":"user","content":"hello"}}\n';
+      yield* Effect.promise(() => writeFile(transcript, bytes));
+
+      yield* coordinator.terminateProfile({
+        connectionId: completed.connectionId,
+        reason: "disconnected",
+      });
+      assert.strictEqual(
+        Option.getOrThrow(yield* connections.getRecord(completed.connectionId)).lifecycle,
+        "terminated",
+      );
+      assert.strictEqual(yield* Effect.promise(() => readFile(transcript, "utf8")), bytes);
+      assert.isTrue(
+        yield* Effect.promise(() =>
+          access(firstProfile).then(
+            () => true,
+            () => false,
+          ),
+        ),
+      );
+
+      const reconnected = yield* coordinator.begin({
+        harness: "claudeAgent",
+        authenticationTargetId: "anthropic-first-party",
+        authenticationMethodId: "claude-account",
+      });
+      pendingClaudeLogin?.resolve({
+        type: "claude-account",
+        email: "same@example.com",
+        subscriptionType: "max",
+      });
+      const resumed = yield* waitForCompleted(reconnected.operationId);
+      assert.strictEqual(resumed.connectionId, completed.connectionId);
+      const newProfile = providerCredentialProfileRoot(
+        config.stateDir,
+        Option.getOrThrow(yield* connections.getRecord(resumed.connectionId)).profileRef!,
+      )!;
+      assert.notStrictEqual(newProfile, firstProfile);
+      yield* Effect.promise(() =>
+        prepareClaudeThreadProject({
+          stateDir: config.stateDir,
+          threadId,
+          configDir: path.join(newProfile, "claude-config"),
+        }),
+      );
+      assert.strictEqual(
+        yield* Effect.promise(() =>
+          readlink(path.join(newProfile, "claude-config", "projects", projectName)),
+        ),
+        path.dirname(transcript),
+      );
+      assert.strictEqual(yield* Effect.promise(() => readFile(transcript, "utf8")), bytes);
+      assert.strictEqual(projectName, claudeThreadProjectName(threadId));
+    }),
+  );
+
+  it.effect("disconnect records the Claude account but does not adopt an old profile session", () =>
+    Effect.gen(function* () {
+      yield* runMigrations();
+      yield* activateClaude;
+      const coordinator = yield* ProviderConnectionLoginCoordinator;
+      const connections = yield* ProviderConnectionRepository;
+      const bindings = yield* ThreadProviderBindingRepository;
+      const sql = yield* SqlClient.SqlClient;
+      const config = yield* ServerConfig;
+      const threadId = ThreadId.makeUnsafe("legacy-disconnect-thread");
+      const sessionId = "550e8400-e29b-41d4-a716-446655440015";
+      const login = yield* coordinator.begin({
+        harness: "claudeAgent",
+        authenticationTargetId: "anthropic-first-party",
+        authenticationMethodId: "claude-account",
+      });
+      pendingClaudeLogin?.resolve({
+        type: "claude-account",
+        email: "legacy@example.com",
+        subscriptionType: "max",
+      });
+      const completed = yield* waitForCompleted(login.operationId);
+      const connection = Option.getOrThrow(yield* connections.getRecord(completed.connectionId));
+      const profile = providerCredentialProfileRoot(config.stateDir, connection.profileRef!)!;
+      const legacy = path.join(
+        profile,
+        "claude-config",
+        "projects",
+        "old-cwd",
+        `${sessionId}.jsonl`,
+      );
+      const bytes = '{"type":"user","message":{"role":"user","content":"legacy"}}\n';
+      yield* Effect.promise(async () => {
+        await mkdir(path.dirname(legacy), { recursive: true });
+        await writeFile(legacy, bytes);
+      });
+      yield* sql`INSERT INTO projection_spaces (space_id, name, icon, sort_order, created_at, updated_at)
+        VALUES ('legacy-space', 'Personal', '', 0, ${timestamp}, ${timestamp})`;
+      yield* sql`INSERT INTO projection_folders (folder_id, kind, title, workspace_root, scripts_json, created_at, updated_at, space_id)
+        VALUES ('legacy-folder', 'project', 'Folder', NULL, '[]', ${timestamp}, ${timestamp}, 'legacy-space')`;
+      yield* sql`INSERT INTO projection_threads (thread_id, folder_id, title, runtime_mode, created_at, updated_at)
+        VALUES (${threadId}, 'legacy-folder', 'Legacy', 'full-access', ${timestamp}, ${timestamp})`;
+      const generationId = ProviderNativeStateGenerationId.makeUnsafe(
+        "legacy-disconnect-generation",
+      );
+      yield* bindings.createNativeStateGeneration({
+        id: generationId,
+        ownerThreadId: threadId,
+        harness: "claudeAgent",
+        adapterSchemaVersion: "1",
+        stateManifestJson: "{}",
+        createdAt: timestamp,
+      });
+      yield* bindings.bindThread({
+        threadId,
+        harness: "claudeAgent",
+        nativeStateGenerationId: generationId,
+        providerSessionId: sessionId,
+        nativeStateLocatorJson: "{}",
+        connectionId: completed.connectionId,
+        installationId: ProviderInstallationId.makeUnsafe("managed-claude-installation"),
+        internalProviderId: null,
+        modelId: "claude-sonnet",
+        createdAt: timestamp,
+      });
+      yield* coordinator.terminateProfile({
+        connectionId: completed.connectionId,
+        reason: "disconnected",
+      });
+      assert.isFalse(
+        yield* Effect.promise(() =>
+          access(claudeThreadTranscriptPath(config.stateDir, threadId, sessionId)).then(
+            () => true,
+            () => false,
+          ),
+        ),
+      );
+      assert.deepStrictEqual(
+        yield* Effect.promise(() => readClaudeThreadAccount(config.stateDir, threadId)),
+        { authenticationMethodId: "claude-account", providerIdentityId: "legacy@example.com" },
+      );
+      assert.isTrue(
+        yield* Effect.promise(() =>
+          access(profile).then(
+            () => true,
+            () => false,
+          ),
+        ),
+      );
+    }),
+  );
+
+  it.effect("ignores old profile transcripts when rotating Claude credentials", () =>
     Effect.gen(function* () {
       yield* runMigrations();
       yield* activateClaude;
@@ -636,14 +831,99 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
         email: "divergent@example.com",
         subscriptionType: "max",
       });
-      const failed = yield* waitForFailed(reauthenticated.operationId);
+      const completed = yield* waitForCompleted(reauthenticated.operationId);
 
-      assert.match(failed.failureReason ?? "", /preserve Claude conversations/i);
+      assert.strictEqual(completed.connectionId, first.connectionId);
       assert.strictEqual(
         Option.getOrThrow(yield* connections.getRecord(first.connectionId)).profileRef,
-        sourceProfileRef,
+        targetProfileRef,
       );
       assert.isTrue(Option.isNone(yield* connections.getRecord(reauthenticated.connectionId)));
+    }),
+  );
+
+  it.effect("keeps retired Claude profile conversations and sidecars during cleanup", () =>
+    Effect.gen(function* () {
+      yield* runMigrations();
+      yield* activateClaude;
+      const coordinator = yield* ProviderConnectionLoginCoordinator;
+      const connections = yield* ProviderConnectionRepository;
+      const config = yield* ServerConfig;
+      const login = yield* coordinator.begin({
+        harness: "claudeAgent",
+        authenticationTargetId: "anthropic-first-party",
+        authenticationMethodId: "claude-account",
+      });
+      pendingClaudeLogin?.resolve({
+        type: "claude-account",
+        email: "retired-cleanup@example.com",
+        subscriptionType: "max",
+      });
+      const completed = yield* waitForCompleted(login.operationId);
+      const connection = Option.getOrThrow(yield* connections.getRecord(completed.connectionId));
+      const profileRoot = providerCredentialProfileRoot(config.stateDir, connection.profileRef!)!;
+      const projectsRoot = path.join(profileRoot, "claude-config", "projects");
+      const transcript = path.join(projectsRoot, "-workspace", "retired-session.jsonl");
+      const transcriptSidecar = `${transcript}.lock`;
+      const sessionSidecar = path.join(projectsRoot, "-workspace", "retired-session", "tool.txt");
+      const credentialFile = path.join(profileRoot, "claude-config", ".credentials.json");
+      const disposableState = path.join(profileRoot, "home", "cache", "runtime-cache.json");
+      yield* Effect.promise(async () => {
+        await Promise.all([
+          mkdir(path.dirname(transcript), { recursive: true }),
+          mkdir(path.dirname(sessionSidecar), { recursive: true }),
+          mkdir(path.dirname(credentialFile), { recursive: true }),
+          mkdir(path.dirname(disposableState), { recursive: true }),
+        ]);
+        await Promise.all([
+          writeFile(transcript, "conversation bytes\n"),
+          writeFile(transcriptSidecar, "session sidecar bytes\n"),
+          writeFile(sessionSidecar, "tool sidecar bytes\n"),
+          writeFile(credentialFile, "credential material\n"),
+          writeFile(disposableState, "disposable cache\n"),
+        ]);
+      });
+
+      yield* connections.terminate({
+        id: connection.id,
+        reason: "disconnected",
+        terminatedAt: timestamp,
+      });
+      yield* connections.retireManagedProfile({
+        profileRef: connection.profileRef!,
+        retiredAt: timestamp,
+      });
+
+      yield* coordinator.recover;
+
+      assert.strictEqual(
+        yield* Effect.promise(() => readFile(transcript, "utf8")),
+        "conversation bytes\n",
+      );
+      assert.strictEqual(
+        yield* Effect.promise(() => readFile(transcriptSidecar, "utf8")),
+        "session sidecar bytes\n",
+      );
+      assert.strictEqual(
+        yield* Effect.promise(() => readFile(sessionSidecar, "utf8")),
+        "tool sidecar bytes\n",
+      );
+      assert.isFalse(
+        yield* Effect.promise(() =>
+          access(credentialFile).then(
+            () => true,
+            () => false,
+          ),
+        ),
+      );
+      assert.isFalse(
+        yield* Effect.promise(() =>
+          access(disposableState).then(
+            () => true,
+            () => false,
+          ),
+        ),
+      );
     }),
   );
 

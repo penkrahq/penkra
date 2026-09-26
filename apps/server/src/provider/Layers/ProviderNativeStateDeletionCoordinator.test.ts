@@ -29,6 +29,7 @@ it.effect("removes filesystem state before finalizing durable deletion work", ()
       clone: () => Effect.die("not used"),
       discard: () => Effect.sync(() => order.push("discard")),
       finalize: () => Effect.die("not used"),
+      discardThreadState: () => Effect.sync(() => order.push("discard-thread")),
     }),
   );
   const coordinatorLayer = Layer.effect(
@@ -38,6 +39,6 @@ it.effect("removes filesystem state before finalizing durable deletion work", ()
   return Effect.gen(function* () {
     const coordinator = yield* ProviderNativeStateDeletionCoordinator;
     yield* coordinator.recover;
-    assert.deepStrictEqual(order, ["claim", "discard", "finalize"]);
+    assert.deepStrictEqual(order, ["claim", "discard", "discard-thread", "finalize"]);
   }).pipe(Effect.provide(Layer.mergeAll(dependencies, coordinatorLayer)));
 });

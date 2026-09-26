@@ -69,6 +69,7 @@ import {
 } from "@penkra/shared/model";
 import { buildClaudeSubagentPrompt } from "@penkra/shared/agentMentions";
 import { prepareWindowsSafeProcess } from "@penkra/shared/windowsProcess";
+import { prepareClaudeThreadSidecars } from "../claudeThreadNativeState.ts";
 import {
   Cause,
   DateTime,
@@ -4738,6 +4739,24 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 detail: "Managed Claude launch is missing CLAUDE_CONFIG_DIR.",
               }),
             );
+          }
+          const projectName = claudeSdkEnv.CLAUDE_CODE_PROJECT_DIR_NAME;
+          if (projectName && sessionId) {
+            yield* Effect.tryPromise({
+              try: () =>
+                prepareClaudeThreadSidecars({
+                  configDir: targetConfigDir,
+                  projectName,
+                  sessionId,
+                }),
+              catch: (cause) =>
+                new ProviderAdapterProcessError({
+                  provider: PROVIDER,
+                  threadId,
+                  detail: "Could not link Claude's session state to its Thread.",
+                  cause,
+                }),
+            });
           }
           yield* Effect.tryPromise({
             try: () =>
