@@ -537,6 +537,9 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               ...(event.payload.modelSelection !== undefined
                 ? { modelSelection: event.payload.modelSelection }
                 : {}),
+              ...(event.payload.connectionId !== undefined
+                ? { connectionId: event.payload.connectionId }
+                : {}),
               ...(event.payload.workingDirectory !== undefined
                 ? { workingDirectory: event.payload.workingDirectory }
                 : {}),

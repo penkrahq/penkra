@@ -36,10 +36,6 @@ import {
   createDesktopComposerDraftStorage,
 } from "./lib/desktopComposerDraftStorage";
 import { measureChatPerformanceWork } from "./chatPerformanceDiagnostics";
-import {
-  createComposerEditRecoverySync,
-  type ComposerEditRecoveryTransport,
-} from "./lib/composerEditRecoverySync";
 
 export {
   findSupersededComposerImageBlobAttachments,
@@ -140,54 +136,6 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
     },
   ),
 );
-
-function createComposerEditRecoveryTransport(): ComposerEditRecoveryTransport | null {
-  const bridge = typeof window === "undefined" ? undefined : window.desktopBridge?.composerDrafts;
-  if (bridge?.publishEditRecovery && bridge.onEditRecovery) {
-    return {
-      publish: (recovery) => bridge.publishEditRecovery!(recovery),
-      subscribe: (listener) => bridge.onEditRecovery!(listener),
-    };
-  }
-  if (typeof window === "undefined" || typeof BroadcastChannel === "undefined") return null;
-  const channel = new BroadcastChannel("penkra:composer-edit-recovery:v1");
-  return {
-    publish: (recovery) => channel.postMessage(recovery),
-    subscribe: (listener) => {
-      const onMessage = (event: MessageEvent<unknown>) => listener(event.data as never);
-      channel.addEventListener("message", onMessage);
-      return () => {
-        channel.removeEventListener("message", onMessage);
-        channel.close();
-      };
-    },
-  };
-}
-
-const composerEditRecoveryTransport = createComposerEditRecoveryTransport();
-const composerEditRecoverySync = composerEditRecoveryTransport
-  ? createComposerEditRecoverySync({
-      transport: composerEditRecoveryTransport,
-      recover: (threadId, queuedTurn) => {
-        // The origin window owns the durable checkpoint for this shared action.
-        // Prevent an older debounced snapshot in this receiver from overwriting it.
-        composerPersistStorage.discardPending();
-        suppressComposerPersistence = true;
-        try {
-          return useComposerDraftStore.getState().recoverCancelledQueuedTurn(threadId, queuedTurn);
-        } finally {
-          suppressComposerPersistence = false;
-        }
-      },
-    })
-  : null;
-
-export function publishComposerEditRecovery(
-  threadId: ThreadId,
-  queuedTurn: import("./composerDraftDomain").QueuedComposerTurn,
-): boolean {
-  return composerEditRecoverySync?.publish(threadId, queuedTurn) ?? false;
-}
 
 export async function flushComposerDraftsDurably(): Promise<void> {
   composerPersistStorage.flush();
