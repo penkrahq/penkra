@@ -4,12 +4,18 @@
 import { Effect, Layer, Option } from "effect";
 import type { ProviderConnectionId, ProviderInstallationId } from "@penkra/contracts";
 
+import { ServerConfig } from "../../config.ts";
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
 import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
+import {
+  claudeAccountsMatch,
+  readClaudeThreadAccount,
+  rememberClaudeThreadAccount,
+} from "../claudeThreadNativeState.ts";
 import { parseOpenCodeModelSlug } from "../opencodeRuntime.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { resolveDefaultConnection } from "../defaultConnection.ts";
@@ -48,7 +54,15 @@ function internalProviderIdForModel(
   return Effect.succeed(null);
 }
 
+export function claudeConnectionsShareAccount(
+  previous: { readonly authenticationMethodId: string; readonly providerIdentityId: string | null },
+  target: { readonly authenticationMethodId: string; readonly providerIdentityId: string | null },
+): boolean {
+  return claudeAccountsMatch(previous, target);
+}
+
 export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
+  const config = yield* ServerConfig;
   const connections = yield* ProviderConnectionRepository;
   const installations = yield* ProviderInstallationRepository;
   const threads = yield* ThreadProviderBindingRepository;
@@ -464,6 +478,60 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
           internalProviderId,
         });
         connectionLabel = connection.label;
+        if (state.value.harness === "claudeAgent") {
+          // A Thread's Claude conversation belongs to one provider account. The
+          // owner is recorded when the Thread is created, so it is compared on
+          // every turn, not only when the Connection id changes: re-authenticating
+          // the same Connection as another account must not expose the transcript.
+          const recorded = yield* Effect.tryPromise({
+            try: () => readClaudeThreadAccount(config.stateDir, input.threadId),
+            catch: (cause) =>
+              new ProviderTurnSelectionResolutionError({
+                detail: "Could not read the Thread's Claude account.",
+                cause,
+              }),
+          });
+          if (recorded !== null && !claudeConnectionsShareAccount(recorded, connection)) {
+            return yield* fail("Claude subscription continuation requires the same account.");
+          }
+          if (connectionId !== binding.value.connectionId && binding.value.connectionId !== null) {
+            const previous = yield* connections.getRecord(binding.value.connectionId).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProviderTurnSelectionResolutionError({
+                    detail: "Could not verify the Claude subscription account.",
+                    cause,
+                  }),
+              ),
+            );
+            if (
+              Option.isNone(previous) ||
+              !claudeConnectionsShareAccount(previous.value, connection)
+            ) {
+              return yield* fail("Claude subscription continuation requires the same account.");
+            }
+          }
+          if (recorded === null) {
+            // For pre-upgrade Threads, verify the source Connection before
+            // assigning ownership. A rejected switch must not claim the Thread.
+            yield* Effect.tryPromise({
+              try: () =>
+                rememberClaudeThreadAccount({
+                  stateDir: config.stateDir,
+                  threadId: input.threadId,
+                  account: {
+                    authenticationMethodId: connection.authenticationMethodId,
+                    providerIdentityId: connection.providerIdentityId,
+                  },
+                }),
+              catch: (cause) =>
+                new ProviderTurnSelectionResolutionError({
+                  detail: "Could not record the Thread's Claude account.",
+                  cause,
+                }),
+            });
+          }
+        }
       }
       let modelLabel = modelId;
       if (changed) {

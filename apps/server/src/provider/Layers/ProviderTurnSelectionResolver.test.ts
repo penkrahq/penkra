@@ -6,6 +6,8 @@ import {
 } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { ServerConfig } from "../../config.ts";
 
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
@@ -14,7 +16,10 @@ import { ProjectionSnapshotQuery } from "../../orchestration/Services/Projection
 import { ProviderTurnSelectionResolver } from "../Services/ProviderTurnSelectionResolver.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
 import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
-import { ProviderTurnSelectionResolverLive } from "./ProviderTurnSelectionResolver.ts";
+import {
+  claudeConnectionsShareAccount,
+  ProviderTurnSelectionResolverLive,
+} from "./ProviderTurnSelectionResolver.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 
 const threadId = ThreadId.makeUnsafe("selection-thread");
@@ -24,6 +29,23 @@ const installationId = ProviderInstallationId.makeUnsafe("selection-installation
 const activeInstallationId = ProviderInstallationId.makeUnsafe("selection-active-installation");
 const timestamp = "2026-08-08T00:00:00.000Z";
 
+it("allows Claude subscription continuation only with the same account identity", () => {
+  const account = {
+    authenticationMethodId: "claude-account",
+    providerIdentityId: "same@example.com",
+  };
+  const other = {
+    authenticationMethodId: "claude-account",
+    providerIdentityId: "other@example.com",
+  };
+  const apiKey = { authenticationMethodId: "api-key", providerIdentityId: null };
+  assert.isTrue(claudeConnectionsShareAccount(account, account));
+  assert.isFalse(claudeConnectionsShareAccount(account, other));
+  assert.isFalse(claudeConnectionsShareAccount(account, apiKey));
+  assert.isFalse(claudeConnectionsShareAccount(apiKey, account));
+  assert.isTrue(claudeConnectionsShareAccount(apiKey, apiKey));
+});
+
 let connectionLifecycle: "active" | "terminated" = "active";
 let modelAvailable = true;
 let hasRuntimeBinding = true;
@@ -31,6 +53,9 @@ let installationLifecycle: "active" | "retired" = "active";
 let resolvedNativeStateIdentities: string[] = [];
 
 const dependencies = Layer.mergeAll(
+  ServerConfig.layerTest(process.cwd(), { prefix: "penkra-turn-selection-test-" }).pipe(
+    Layer.provide(NodeServices.layer),
+  ),
   ServerSettingsService.layerTest(),
   Layer.succeed(ProviderAdapterRegistry, {
     getByProvider: () =>
