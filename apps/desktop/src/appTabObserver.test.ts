@@ -1133,9 +1133,9 @@ describe("AppTabObserver", () => {
       code: "CLICK_NOT_DELIVERED",
       message: expect.stringContaining("Present the tab in a window"),
     });
-    expect(
-      sendCommand.mock.calls.some(([method]) => method === "Input.dispatchMouseEvent"),
-    ).toBe(false);
+    expect(sendCommand.mock.calls.some(([method]) => method === "Input.dispatchMouseEvent")).toBe(
+      false,
+    );
   });
 
   it("hit-tests through an open shadow root", () => {

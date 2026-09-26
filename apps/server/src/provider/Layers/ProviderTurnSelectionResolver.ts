@@ -271,10 +271,7 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
         });
         if (requestedConnectionId === null) {
           if (manifest.anonymous?.authorizesInternalProvider(internalProviderId)) return null;
-          return yield* fail(
-            "This model needs a signed-in Connection.",
-            "connection_unauthorized",
-          );
+          return yield* fail("This model needs a signed-in Connection.", "connection_unauthorized");
         }
         yield* requireAuthorizedConnection({
           harness,
@@ -325,10 +322,7 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
       let connectionLabel: string | null = null;
       if (connectionId === null) {
         if (!manifest.anonymous?.authorizesInternalProvider(internalProviderId)) {
-          return yield* fail(
-            "This model needs a signed-in Connection.",
-            "connection_unauthorized",
-          );
+          return yield* fail("This model needs a signed-in Connection.", "connection_unauthorized");
         }
       } else {
         const connection = yield* requireAuthorizedConnection({
@@ -420,10 +414,7 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
         ),
       );
       if (Option.isNone(state) || Option.isNone(binding)) {
-        return yield* fail(
-          "This thread has no provider set.",
-          "thread_binding_missing",
-        );
+        return yield* fail("This thread has no provider set.", "thread_binding_missing");
       }
 
       const manifest = getProviderConnectionManifest(state.value.harness);
@@ -513,10 +504,7 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
       let connectionLabel: string | null = null;
       if (connectionId === null) {
         if (!manifest.anonymous?.authorizesInternalProvider(internalProviderId)) {
-          return yield* fail(
-            "This model needs a signed-in Connection.",
-            "connection_unauthorized",
-          );
+          return yield* fail("This model needs a signed-in Connection.", "connection_unauthorized");
         }
       } else {
         const connection = yield* requireAuthorizedConnection({

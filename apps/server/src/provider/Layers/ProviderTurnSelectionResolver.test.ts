@@ -448,7 +448,10 @@ layer("ProviderTurnSelectionResolver", (it) => {
       );
       assert.strictEqual(currentConnectionUnauthorized._tag, "Failure");
       if (currentConnectionUnauthorized._tag === "Failure") {
-        assert.strictEqual(failedWithCode(currentConnectionUnauthorized), "connection_unauthorized");
+        assert.strictEqual(
+          failedWithCode(currentConnectionUnauthorized),
+          "connection_unauthorized",
+        );
       }
 
       const missingRevision = yield* Effect.exit(

@@ -2216,7 +2216,7 @@ export default function ChatView({
   const [selectedConnectionByThread, setSelectedConnectionByThread] = useState<
     Partial<Record<ThreadId, PendingConnectionSelection>>
   >({});
-  const selectedConnectionByProvider = useMemo(() => {
+  const selectedConnectionByProvider = (() => {
     const pendingConnectionByProvider = selectedConnectionByThread[threadId] ?? {};
     const defaults = { ...stickyConnectionByProvider };
     if (serverSettings) {
@@ -2236,16 +2236,7 @@ export default function ChatView({
         : defaults;
     }
     return { ...defaults, ...pendingConnectionByProvider };
-  }, [
-    hasThreadStarted,
-    selectedConnectionByThread,
-    stickyConnectionByProvider,
-    threadId,
-    serverSettings,
-    serverThread?.connectionId,
-    serverThread?.modelSelection.provider,
-    threadProviderBindingQuery.data?.binding?.connectionId,
-  ]);
+  })();
   const setSelectedConnectionByProvider = useCallback(
     (update: (current: PendingConnectionSelection) => PendingConnectionSelection) => {
       setSelectedConnectionByThread((current) => ({
@@ -6016,78 +6007,64 @@ export default function ChatView({
     ) => Promise<boolean>
   >(async () => false);
 
-  const restorePendingTurnStart = useCallback(
-    async (pendingTurn: QueuedComposerChatTurn): Promise<boolean> => {
-      if (!activeThread) {
-        return false;
-      }
-      const liveDraft = useComposerDraftStore.getState().draftsByThreadId[activeThread.id];
-      const livePrompt = composerEditorRef.current?.readSnapshot().value ?? liveDraft?.prompt ?? "";
-      const liveImages = liveDraft?.images ?? [];
-      const liveFiles = liveDraft?.files ?? [];
-      const liveAssistantSelections = liveDraft?.assistantSelections ?? [];
-      const liveFileComments = liveDraft?.fileComments ?? [];
-      const liveTerminalContexts = liveDraft?.terminalContexts ?? [];
-      const livePastedTexts = liveDraft?.pastedTexts ?? [];
-      const liveSkills = liveDraft?.skills ?? [];
-      const liveMentions = liveDraft?.mentions ?? [];
-      const liveSendState = deriveComposerSendState({
-        prompt: livePrompt,
-        imageCount: liveImages.length,
-        fileCount: liveFiles.length,
-        assistantSelectionCount: liveAssistantSelections.length,
-        fileCommentCount: liveFileComments.length,
-        terminalContexts: liveTerminalContexts,
-        pastedTexts: livePastedTexts,
-      });
-      const liveMatchesPendingTurn =
-        livePrompt === pendingTurn.prompt &&
-        liveImages.length === pendingTurn.images.length &&
-        liveImages.every((image, index) => image.id === pendingTurn.images[index]?.id) &&
-        liveFiles.length === pendingTurn.files.length &&
-        liveFiles.every((file, index) => file.id === pendingTurn.files[index]?.id) &&
-        liveAssistantSelections.length === pendingTurn.assistantSelections.length &&
-        liveAssistantSelections.every(
-          (selection, index) => selection.id === pendingTurn.assistantSelections[index]?.id,
-        ) &&
-        liveFileComments.length === pendingTurn.fileComments.length &&
-        liveTerminalContexts.length === pendingTurn.terminalContexts.length &&
-        livePastedTexts.length === pendingTurn.pastedTexts.length;
-      const shouldQueueLiveDraft = liveSendState.hasSendableContent && !liveMatchesPendingTurn;
-      const resolvedLiveConnectionId = resolveSelectedConnection(
-        selectedModelSelection.provider,
-        selectedModelSelection.model,
-      );
-      const liveConnectionId =
-        resolvedLiveConnectionId === undefined
-          ? threadProviderBindingQuery.data?.binding?.connectionId
-          : resolvedLiveConnectionId;
-      if (shouldQueueLiveDraft && liveConnectionId === undefined) {
-        setThreadError(activeThread.id, "Choose a Connection before restoring this message.");
-        return false;
-      }
+  const restorePendingTurnStart = async (pendingTurn: QueuedComposerChatTurn): Promise<boolean> => {
+    if (!activeThread) {
+      return false;
+    }
+    const liveDraft = useComposerDraftStore.getState().draftsByThreadId[activeThread.id];
+    const livePrompt = composerEditorRef.current?.readSnapshot().value ?? liveDraft?.prompt ?? "";
+    const liveImages = liveDraft?.images ?? [];
+    const liveFiles = liveDraft?.files ?? [];
+    const liveAssistantSelections = liveDraft?.assistantSelections ?? [];
+    const liveFileComments = liveDraft?.fileComments ?? [];
+    const liveTerminalContexts = liveDraft?.terminalContexts ?? [];
+    const livePastedTexts = liveDraft?.pastedTexts ?? [];
+    const liveSkills = liveDraft?.skills ?? [];
+    const liveMentions = liveDraft?.mentions ?? [];
+    const liveSendState = deriveComposerSendState({
+      prompt: livePrompt,
+      imageCount: liveImages.length,
+      fileCount: liveFiles.length,
+      assistantSelectionCount: liveAssistantSelections.length,
+      fileCommentCount: liveFileComments.length,
+      terminalContexts: liveTerminalContexts,
+      pastedTexts: livePastedTexts,
+    });
+    const liveMatchesPendingTurn =
+      livePrompt === pendingTurn.prompt &&
+      liveImages.length === pendingTurn.images.length &&
+      liveImages.every((image, index) => image.id === pendingTurn.images[index]?.id) &&
+      liveFiles.length === pendingTurn.files.length &&
+      liveFiles.every((file, index) => file.id === pendingTurn.files[index]?.id) &&
+      liveAssistantSelections.length === pendingTurn.assistantSelections.length &&
+      liveAssistantSelections.every(
+        (selection, index) => selection.id === pendingTurn.assistantSelections[index]?.id,
+      ) &&
+      liveFileComments.length === pendingTurn.fileComments.length &&
+      liveTerminalContexts.length === pendingTurn.terminalContexts.length &&
+      livePastedTexts.length === pendingTurn.pastedTexts.length;
+    const shouldQueueLiveDraft = liveSendState.hasSendableContent && !liveMatchesPendingTurn;
+    const resolvedLiveConnectionId = resolveSelectedConnection(
+      selectedModelSelection.provider,
+      selectedModelSelection.model,
+    );
+    const liveConnectionId =
+      resolvedLiveConnectionId === undefined
+        ? threadProviderBindingQuery.data?.binding?.connectionId
+        : resolvedLiveConnectionId;
+    if (shouldQueueLiveDraft && liveConnectionId === undefined) {
+      setThreadError(activeThread.id, "Choose a Connection before restoring this message.");
+      return false;
+    }
 
-      // Submit a newer composition through the server before restoring the
-      // failed message. This preserves both messages without a renderer queue.
-      if (shouldQueueLiveDraft && !(await onSendRef.current())) {
-        return false;
-      }
-      restoreQueuedTurnToComposer(pendingTurn);
-      return true;
-    },
-    [
-      activeThread,
-      resolveSelectedConnection,
-      recoverCancelledQueuedTurn,
-      runtimeMode,
-      selectedModel,
-      selectedModelSelection,
-      selectedPromptEffort,
-      selectedProvider,
-      setThreadError,
-      threadProviderBindingQuery.data?.binding?.connectionId,
-    ],
-  );
+    // Submit a newer composition through the server before restoring the
+    // failed message. This preserves both messages without a renderer queue.
+    if (shouldQueueLiveDraft && !(await onSendRef.current())) {
+      return false;
+    }
+    restoreQueuedTurnToComposer(pendingTurn);
+    return true;
+  };
   useLayoutEffect(() => {
     restorePendingTurnStartRef.current = restorePendingTurnStart;
     for (const {
@@ -6186,8 +6163,10 @@ export default function ChatView({
           setThreadError(threadId, null);
           return true;
         }
-        if (restoreForEdit && outcome === "sent") {
-          setThreadError(threadId, "This message was already sent, so it can't be edited.");
+        if (restoreForEdit) {
+          if (outcome === "sent") {
+            setThreadError(threadId, "This message was already sent, so it can't be edited.");
+          }
         }
         return false;
       } catch (error) {
