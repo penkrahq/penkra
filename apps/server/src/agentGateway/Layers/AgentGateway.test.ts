@@ -28,6 +28,7 @@ import { Deferred, Effect, Layer, Option, Stream } from "effect";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
+import { OrchestrationCommandInvariantError } from "../../orchestration/Errors.ts";
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { QueuedTurnPromotionRepository } from "../../persistence/Services/QueuedTurnPromotions.ts";
@@ -237,6 +238,8 @@ function makeHarnessLayer(
     readonly resolveConnection?: (input: unknown) => void;
     readonly discoverModels?: (input: unknown) => void;
     readonly failDispatch?: (command: OrchestrationCommand) => boolean;
+    readonly rejectArchivedCommands?: boolean;
+    readonly rejectRunningArchive?: boolean;
     readonly sendSelectionError?: {
       readonly code:
         | "connection_unavailable"
@@ -726,6 +729,24 @@ function makeHarnessLayer(
       Effect.sleep(options.dispatchDelayMs ?? 0).pipe(
         Effect.flatMap(() =>
           Effect.suspend(() => {
+            if (options.rejectArchivedCommands && command.type === "thread.turn.start") {
+              return Effect.fail(
+                new OrchestrationCommandInvariantError({
+                  commandType: command.type,
+                  code: "thread_archived",
+                  detail: "This thread is archived. Unarchive it to send messages.",
+                }),
+              );
+            }
+            if (options.rejectRunningArchive && command.type === "thread.archive") {
+              return Effect.fail(
+                new OrchestrationCommandInvariantError({
+                  commandType: command.type,
+                  code: "thread_running",
+                  detail: "This thread is still running. Stop it before archiving.",
+                }),
+              );
+            }
             dispatched.push(command);
             if (command.type === "thread.turn.cancel-queued" && command.turnId !== undefined) {
               const key = `${command.threadId}:${command.turnId}`;
@@ -3574,6 +3595,48 @@ describe("AgentGateway", () => {
         args: { threadId: "thread-child" },
       });
       assert.equal(harness.dispatched[0]?.type, "thread.archive");
+    }).pipe(Effect.provide(gatewayLayer));
+  });
+
+  it.effect("returns thread_archived synchronously from threads send", () => {
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
+      rejectArchivedCommands: true,
+    });
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_send_message",
+        args: { threadId: "thread-child", message: "Continue." },
+      });
+      assert.isTrue(isToolError(response.result));
+      assert.deepStrictEqual(toolResultJson(response.result).error, {
+        code: "thread_archived",
+        message: "This thread is archived. Unarchive it to send messages.",
+      });
+      assert.equal(
+        harness.dispatched.filter((command) => command.type === "thread.turn.start").length,
+        0,
+      );
+    }).pipe(Effect.provide(gatewayLayer));
+  });
+
+  it.effect("returns thread_running synchronously from threads archive", () => {
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
+      rejectRunningArchive: true,
+    });
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_archive_thread",
+        args: { threadId: "thread-child" },
+      });
+      assert.isTrue(isToolError(response.result));
+      assert.deepStrictEqual(toolResultJson(response.result).error, {
+        code: "thread_running",
+        message: "This thread is still running. Stop it before archiving.",
+      });
     }).pipe(Effect.provide(gatewayLayer));
   });
 

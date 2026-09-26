@@ -566,6 +566,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       case "thread.message.edit-and-resend":
       case "thread.message.assistant.complete":
       case "thread.turn.recover":
+      case "thread.archive":
         return loadThreadDetailForDecider(command, commandReadModel, command.threadId);
       default:
         return Effect.succeed(commandReadModel);
@@ -1056,6 +1057,15 @@ const makeOrchestrationEngine = Effect.gen(function* () {
               detail: `Managed attachment claim was rejected: ${claim.reason}.`,
             });
           }
+        }
+
+        if (command.type === "thread.archive") {
+          yield* sql`
+            UPDATE queued_turn_promotions
+            SET state = 'cancelled', claim_owner = NULL, claimed_at = NULL,
+                claim_expires_at = NULL, updated_at = ${new Date().toISOString()}
+            WHERE thread_id = ${command.threadId} AND state IN ('queued', 'promoting')
+          `;
         }
 
         for (const nextEvent of admittedEventBases) {
