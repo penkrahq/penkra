@@ -153,6 +153,7 @@ import {
   resolveProjectScriptTerminalTarget,
   resolvePromptHistoryNavigation,
   resolveThreadDetailHydration,
+  shouldShowComposerContinue,
   shouldRenderTranscriptDuringHydration,
   shouldHandlePromptHistoryNavigationKey,
   shouldEnableComposerPastedTextCollapse,
@@ -3954,6 +3955,102 @@ export default function ChatView({
     [setStoreThreadError],
   );
 
+  const [continueInFlight, setContinueInFlight] = useState<{
+    threadId: ThreadId;
+    turnId: TurnId;
+    requestedAt: string;
+    sessionUpdatedAt: string | null;
+  } | null>(null);
+  const continueInFlightRef = useRef(false);
+  const pendingContinueCommandIdRef = useRef<string | null>(null);
+  const [hiddenContinueTurnId, setHiddenContinueTurnId] = useState<TurnId | null>(null);
+  useEffect(() => {
+    const commandId = pendingContinueCommandIdRef.current;
+    if (commandId === null) return;
+    const failed = threadActivities.some(
+      (activity) =>
+        activity.kind === "provider.turn.start.failed" &&
+        activity.payload !== null &&
+        typeof activity.payload === "object" &&
+        "responseCommandId" in activity.payload &&
+        activity.payload.responseCommandId === commandId,
+    );
+    if (!failed || activeThreadId === null) return;
+    pendingContinueCommandIdRef.current = null;
+    continueInFlightRef.current = false;
+    setContinueInFlight(null);
+    setThreadError(activeThreadId, "Couldn't continue this turn.");
+  }, [activeThreadId, setThreadError, threadActivities]);
+  useEffect(() => {
+    if (!continueInFlight) return;
+    if (
+      activeThreadId !== continueInFlight.threadId ||
+      activeLatestTurn?.turnId !== continueInFlight.turnId ||
+      activeLatestTurn?.state === "running" ||
+      activeLatestTurn?.requestedAt !== continueInFlight.requestedAt ||
+      (activeThread?.session?.updatedAt ?? null) !== continueInFlight.sessionUpdatedAt
+    ) {
+      continueInFlightRef.current = false;
+      setContinueInFlight(null);
+    }
+  }, [activeLatestTurn, activeThread?.session?.updatedAt, activeThreadId, continueInFlight]);
+  const bindingForContinue = threadProviderBindingQuery.data?.binding;
+  const canShowContinue = shouldShowComposerContinue({
+    thread: activeThread,
+    isServerThread,
+    hydration: threadDetailHydration,
+    binding: bindingForContinue,
+    hiddenTurnId: hiddenContinueTurnId,
+    continueInFlight: continueInFlight !== null,
+    sendBusy: isSendBusy,
+    sendPreflight: hasSendPreflight,
+    connecting: isConnecting,
+    hasSendableContent: composerSendState.hasSendableContent,
+  });
+  const onContinue = useCallback(async () => {
+    if (!canShowContinue || !activeThread || !activeLatestTurn || !bindingForContinue) return;
+    if (continueInFlightRef.current) return;
+    const api = readNativeApi();
+    if (!api) return;
+    continueInFlightRef.current = true;
+    const target = {
+      threadId: activeThread.id,
+      turnId: activeLatestTurn.turnId,
+      requestedAt: activeLatestTurn.requestedAt,
+      sessionUpdatedAt: activeThread.session?.updatedAt ?? null,
+    };
+    setContinueInFlight(target);
+    const commandId = newCommandId();
+    pendingContinueCommandIdRef.current = commandId;
+    try {
+      await api.orchestration.dispatchCommand({
+        type: "thread.turn.recover",
+        reason: "play",
+        commandId,
+        threadId: target.threadId,
+        turnId: target.turnId,
+        interruptedTurnId: target.turnId,
+        recoveryMessageId: newMessageId(),
+        connectionId: bindingForContinue.connectionId,
+        bindingRevision: bindingForContinue.revision,
+        createdAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      pendingContinueCommandIdRef.current = null;
+      continueInFlightRef.current = false;
+      setContinueInFlight(null);
+      if (
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        error.code === "THREAD_CONTINUE_STALE"
+      ) {
+        setHiddenContinueTurnId(target.turnId);
+      } else {
+        setThreadError(target.threadId, "Couldn't continue this turn.");
+      }
+    }
+  }, [activeLatestTurn, activeThread, bindingForContinue, canShowContinue, setThreadError]);
   const focusComposer = useCallback(() => {
     // Secondary chrome is deferred during thread switches; replay focus once it
     // mounts. A disabled editor (dispatch connecting, pending approval) cannot
@@ -9014,6 +9111,17 @@ export default function ChatView({
                               onClick={() => void onInterrupt()}
                               aria-label="Stop generation"
                               title="Stop the current response. On Mac, press Ctrl+C to interrupt."
+                            />
+                          </>
+                        ) : canShowContinue ? (
+                          <>
+                            {idleComposerVoiceControl}
+                            <ButtonSend
+                              type="button"
+                              visualState="play"
+                              aria-label="Continue"
+                              title="Continue"
+                              onClick={() => void onContinue()}
                             />
                           </>
                         ) : pendingUserInputs.length === 0 &&

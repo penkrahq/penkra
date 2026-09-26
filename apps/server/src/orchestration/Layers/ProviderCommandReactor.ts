@@ -130,7 +130,7 @@ import {
   type ProviderIntentEvent,
 } from "../providerIntentClassification.ts";
 import { deriveTurnStartSession } from "../turnStartSession.ts";
-import { RESTART_TURN_RECOVERY_PROMPT } from "../restartTurnRecovery.ts";
+import { PLAY_TURN_RECOVERY_PROMPT, RESTART_TURN_RECOVERY_PROMPT } from "../restartTurnRecovery.ts";
 import { resolveProviderSessionThread as resolveProviderSessionThreadFromProjection } from "../providerSessionThread.ts";
 
 type ProviderQueueDrainEvent = Extract<
@@ -1857,7 +1857,10 @@ const make = Effect.gen(function* () {
         ? {
             id: event.payload.messageId,
             role: "user" as const,
-            text: RESTART_TURN_RECOVERY_PROMPT,
+            text:
+              event.payload.recoveryReason === "play"
+                ? PLAY_TURN_RECOVERY_PROMPT
+                : RESTART_TURN_RECOVERY_PROMPT,
             attachments: [] as ReadonlyArray<ChatAttachment>,
             skills: undefined,
             mentions: undefined,
@@ -1929,6 +1932,35 @@ const make = Effect.gen(function* () {
         providerSupportsNativeTurnSteering(providerName) &&
         hasLiveTurn;
       if (isRestartRecovery && hasLiveTurn) {
+        if (event.payload.recoveryReason === "play") {
+          const failedAt = new Date().toISOString();
+          yield* orchestrationEngine.dispatch({
+            type: "thread.message.delivery.set",
+            commandId: replaySafeServerCommandId("play-recovery-live-turn", event.eventId),
+            threadId: event.payload.threadId,
+            messageId: event.payload.messageId,
+            ...(event.payload.turnId !== undefined ? { turnId: event.payload.turnId } : {}),
+            state: "failed",
+            failurePhase: "before-provider-dispatch",
+            failureDetail: "Couldn't continue this turn.",
+            createdAt: failedAt,
+          });
+          yield* appendProviderFailureActivity({
+            threadId: event.payload.threadId,
+            kind: "provider.turn.start.failed",
+            summary: "Provider turn start failed",
+            detail: "Couldn't continue this turn.",
+            turnId: event.payload.turnId ?? null,
+            createdAt: failedAt,
+            ...(event.commandId === null ? {} : { responseCommandId: event.commandId }),
+          });
+          yield* setThreadSessionError({
+            threadId: event.payload.threadId,
+            detail: "Couldn't continue this turn.",
+            createdAt: failedAt,
+          });
+          return;
+        }
         // Recovery admission only follows restart reconciliation, which settles
         // the dead turn first. If a newer live turn won the race, it is already
         // the continuation and must not receive a duplicate internal prompt.
@@ -2056,7 +2088,7 @@ const make = Effect.gen(function* () {
                 const failedBeforeProviderDispatch =
                   failure instanceof ProviderSessionStartupBeforeDispatchError;
                 const failedAt = new Date().toISOString();
-                if (!isRestartRecovery) {
+                if (!isRestartRecovery || event.payload.recoveryReason === "play") {
                   yield* orchestrationEngine.dispatch({
                     type: "thread.message.delivery.set",
                     commandId: replaySafeServerCommandId("message-delivery-failed", event.eventId),
@@ -2064,7 +2096,7 @@ const make = Effect.gen(function* () {
                     messageId: event.payload.messageId,
                     ...(event.payload.turnId !== undefined ? { turnId: event.payload.turnId } : {}),
                     state: "failed",
-                    ...(failedBeforeProviderDispatch
+                    ...(failedBeforeProviderDispatch || event.payload.recoveryReason === "play"
                       ? {
                           failurePhase: "before-provider-dispatch" as const,
                           failureDetail: detail,
@@ -2080,8 +2112,11 @@ const make = Effect.gen(function* () {
                   detail,
                   turnId: null,
                   createdAt: event.payload.createdAt,
+                  ...(event.payload.recoveryReason === "play" && event.commandId !== null
+                    ? { responseCommandId: event.commandId }
+                    : {}),
                 });
-                if (!failedBeforeProviderDispatch) {
+                if (!failedBeforeProviderDispatch || event.payload.recoveryReason === "play") {
                   yield* setThreadSessionError({
                     threadId: event.payload.threadId,
                     runtimeMode: event.payload.runtimeMode,
@@ -2945,7 +2980,7 @@ const make = Effect.gen(function* () {
       readonly failureCode?: typeof PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE;
     },
   ) =>
-    (event.commandId === null
+    event.commandId === null
       ? Effect.void
       : appendProviderFailureActivity({
           threadId: event.payload.threadId,
@@ -2970,7 +3005,7 @@ const make = Effect.gen(function* () {
           ...(event.payload.lifecycleGeneration === undefined
             ? {}
             : { lifecycleGeneration: event.payload.lifecycleGeneration }),
-        }).pipe(Effect.asVoid));
+        }).pipe(Effect.asVoid);
 
   const claimInteractionResponse = Effect.fnUntraced(function* (input: {
     readonly event: InteractionResponseEvent;

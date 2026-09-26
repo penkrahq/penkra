@@ -31,6 +31,7 @@ export class OrchestrationCommandInvariantError extends Schema.TaggedErrorClass<
   {
     commandType: Schema.String,
     detail: Schema.String,
+    code: Schema.optional(Schema.String),
     cause: Schema.optional(Schema.Defect),
   },
 ) {
