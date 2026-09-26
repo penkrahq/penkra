@@ -29,13 +29,19 @@ import {
 import {
   ProviderTurnSelectionResolutionError,
   ProviderTurnSelectionResolver,
+  type ProviderTurnSelectionFailureCode,
   type ResolvedProviderTurnSelection,
   type ProviderTurnSelectionResolverShape,
 } from "../Services/ProviderTurnSelectionResolver.ts";
 
-const fail = (detail: string, cause?: unknown) =>
+const fail = (
+  detail: string,
+  code: ProviderTurnSelectionFailureCode = "selection_failed",
+  cause?: unknown,
+) =>
   Effect.fail(
     new ProviderTurnSelectionResolutionError({
+      code,
       detail,
       ...(cause === undefined ? {} : { cause }),
     }),
@@ -48,7 +54,7 @@ function internalProviderIdForModel(
   if (harness === "opencode") {
     const parsed = parseOpenCodeModelSlug(modelId);
     return parsed === null
-      ? fail("The OpenCode model must include its exact internal provider ID.")
+      ? fail("The OpenCode model must include its exact internal provider ID.", "model_unavailable")
       : Effect.succeed(parsed.providerID);
   }
   return Effect.succeed(null);
@@ -137,7 +143,10 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
         catalogSource: catalog.source,
         catalogCached: catalog.cached,
       });
-      return yield* fail("The selected model is unavailable for this Connection.");
+      return yield* fail(
+        "The selected model is unavailable for this Connection.",
+        "model_unavailable",
+      );
     }
     return selectedModel;
   });
@@ -158,16 +167,24 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
           }),
       ),
     );
-    if (
-      Option.isNone(connection) ||
-      connection.value.lifecycle !== "active" ||
-      connection.value.harness !== input.harness
-    ) {
-      return yield* fail("The selected Connection is unavailable for this thread.");
+    if (Option.isNone(connection) || connection.value.lifecycle !== "active") {
+      return yield* fail(
+        "The selected Connection is unavailable for this thread.",
+        "connection_unavailable",
+      );
+    }
+    if (connection.value.harness !== input.harness) {
+      return yield* fail(
+        "The selected Connection is unavailable for this thread.",
+        "provider_mismatch",
+      );
     }
     const method = findConnectionAuthenticationMethod(connection.value);
     if (method === null || !method.authorizesInternalProvider(input.internalProviderId)) {
-      return yield* fail("The selected Connection cannot authorize this model route.");
+      return yield* fail(
+        "The selected Connection cannot authorize this model route.",
+        "connection_unauthorized",
+      );
     }
     if (
       (findStaticCredentialMethod(connection.value) !== null &&
@@ -175,7 +192,10 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
       (findManagedLoginMethod(connection.value) !== null &&
         (connection.value.credentialRef !== null || connection.value.profileRef === null))
     ) {
-      return yield* fail("The selected Connection credential backend is incompatible.");
+      return yield* fail(
+        "The selected Connection credential backend is incompatible.",
+        "connection_unauthorized",
+      );
     }
     return connection.value;
   });
@@ -248,7 +268,10 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
         });
         if (requestedConnectionId === null) {
           if (manifest.anonymous?.authorizesInternalProvider(internalProviderId)) return null;
-          return yield* fail("The selected anonymous route cannot authorize this model.");
+          return yield* fail(
+            "The selected anonymous route cannot authorize this model.",
+            "connection_unauthorized",
+          );
         }
         yield* requireAuthorizedConnection({
           harness,
@@ -277,7 +300,10 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
       }
       const modelSelection = input.modelSelection ?? thread.value.modelSelection;
       if (modelSelection.provider !== thread.value.modelSelection.provider) {
-        return yield* fail("The first message cannot change the thread's provider harness.");
+        return yield* fail(
+          "The first message cannot change the thread's provider harness.",
+          "provider_mismatch",
+        );
       }
       const harness = modelSelection.provider;
       const manifest = getProviderConnectionManifest(harness);
@@ -296,7 +322,10 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
       let connectionLabel: string | null = null;
       if (connectionId === null) {
         if (!manifest.anonymous?.authorizesInternalProvider(internalProviderId)) {
-          return yield* fail("The selected model route requires a Connection.");
+          return yield* fail(
+            "The selected model route requires a Connection.",
+            "connection_unauthorized",
+          );
         }
       } else {
         const connection = yield* requireAuthorizedConnection({
@@ -388,7 +417,10 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
         ),
       );
       if (Option.isNone(state) || Option.isNone(binding)) {
-        return yield* fail("The thread has no committed provider binding.");
+        return yield* fail(
+          "The thread has no committed provider binding.",
+          "thread_binding_missing",
+        );
       }
 
       const manifest = getProviderConnectionManifest(state.value.harness);
@@ -399,12 +431,15 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
         input.modelSelection !== undefined &&
         input.modelSelection.provider !== state.value.harness
       ) {
-        return yield* fail("A started thread cannot change its provider harness.");
+        return yield* fail(
+          "A started thread cannot change its provider harness.",
+          "provider_mismatch",
+        );
       }
 
       const modelId = input.modelSelection?.model ?? binding.value.modelId;
       if (modelId === null) {
-        return yield* fail("The thread has no exact model binding.");
+        return yield* fail("The thread has no exact model binding.", "model_unavailable");
       }
       const internalProviderId = yield* internalProviderIdForModel(state.value.harness, modelId);
       const connectionId =
@@ -417,12 +452,14 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
       if (selectionChanged) {
         if (input.bindingRevision === undefined) {
           return yield* new ProviderTurnSelectionResolutionError({
+            code: "binding_revision_required",
             detail: "Changing a thread selection requires its exact binding revision.",
             reason: "binding-revision-required",
           });
         }
         if (input.bindingRevision !== binding.value.revision) {
           return yield* new ProviderTurnSelectionResolutionError({
+            code: "binding_revision_stale",
             detail: "The thread binding changed before this selection was accepted.",
             reason: "binding-revision-stale",
           });
@@ -432,6 +469,7 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
         input.bindingRevision !== binding.value.revision
       ) {
         return yield* new ProviderTurnSelectionResolutionError({
+          code: "binding_revision_stale",
           detail: "The supplied thread binding revision is stale.",
           reason: "binding-revision-stale",
         });
@@ -469,7 +507,10 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
       let connectionLabel: string | null = null;
       if (connectionId === null) {
         if (!manifest.anonymous?.authorizesInternalProvider(internalProviderId)) {
-          return yield* fail("The selected model route requires a Connection.");
+          return yield* fail(
+            "The selected model route requires a Connection.",
+            "connection_unauthorized",
+          );
         }
       } else {
         const connection = yield* requireAuthorizedConnection({
@@ -492,7 +533,10 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
               }),
           });
           if (recorded !== null && !claudeConnectionsShareAccount(recorded, connection)) {
-            return yield* fail("Claude subscription continuation requires the same account.");
+            return yield* fail(
+              "Claude subscription continuation requires the same account.",
+              "connection_unauthorized",
+            );
           }
           if (connectionId !== binding.value.connectionId && binding.value.connectionId !== null) {
             const previous = yield* connections.getRecord(binding.value.connectionId).pipe(
@@ -508,7 +552,10 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
               Option.isNone(previous) ||
               !claudeConnectionsShareAccount(previous.value, connection)
             ) {
-              return yield* fail("Claude subscription continuation requires the same account.");
+              return yield* fail(
+                "Claude subscription continuation requires the same account.",
+                "connection_unauthorized",
+              );
             }
           }
           if (recorded === null) {
