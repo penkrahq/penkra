@@ -279,6 +279,30 @@ function makeHarnessLayer(
 ) {
   const dispatched: Array<OrchestrationCommand> = [];
   const revokedTokens = new Set<string>();
+  const writeAuthoritySessions = new Map<
+    string,
+    { readonly threadId: ThreadIdType; readonly provider: "codex" | "claudeAgent" | "opencode" }
+  >();
+  const resolveSessionIdentity = (token: string) => {
+    if (revokedTokens.has(token)) return null;
+    const threadId = VALID_TOKENS[token];
+    if (!threadId) return null;
+    return {
+      sessionKey: `session-for-${threadId}`,
+      threadId: ThreadId.makeUnsafe(threadId),
+      provider:
+        token === "token-parent-claude"
+          ? ("claudeAgent" as const)
+          : token === "token-parent-opencode"
+            ? ("opencode" as const)
+            : ("codex" as const),
+      issuedAt: 0,
+      capabilities:
+        token === "token-parent-readonly"
+          ? new Set(["thread:read"] as const)
+          : new Set(["thread:read", "thread:write", "diagnostics:read"] as const),
+    };
+  };
   const creationAdmissions = new Map<string, AgentGatewayCreationAdmission>();
   const creationAdmissionsLayer = Layer.succeed(AgentGatewayCreationAdmissionRepository, {
     get: (operationId: string) =>
@@ -299,30 +323,32 @@ function makeHarnessLayer(
   const credentialsLayer = Layer.succeed(AgentGatewayCredentials, {
     mcpEndpointUrl: "http://127.0.0.1:3773/mcp",
     setListeningPort: () => undefined,
+    bindWriteAuthority: (token: string, turnId: string) => {
+      const identity = resolveSessionIdentity(token);
+      if (!identity) return null;
+      writeAuthoritySessions.set(identity.sessionKey, {
+        threadId: identity.threadId,
+        provider: identity.provider,
+      });
+      return {
+        sessionKey: identity.sessionKey,
+        threadId: identity.threadId,
+        provider: identity.provider,
+        turnId,
+      };
+    },
+    verifyWriteAuthority: (authority) => {
+      const identity = writeAuthoritySessions.get(authority.sessionKey);
+      return (
+        identity !== undefined &&
+        identity.threadId === authority.threadId &&
+        identity.provider === authority.provider
+      );
+    },
     issueSessionToken: (threadId: ThreadIdType) => `token-for-${threadId}`,
     verifySessionToken: (token: string) =>
       revokedTokens.has(token) ? null : (VALID_TOKENS[token] ?? null),
-    verifySession: (token: string) => {
-      if (revokedTokens.has(token)) return null;
-      const threadId = VALID_TOKENS[token];
-      return threadId
-        ? {
-            sessionKey: `session-for-${threadId}`,
-            threadId: ThreadId.makeUnsafe(threadId),
-            provider:
-              token === "token-parent-claude"
-                ? ("claudeAgent" as const)
-                : token === "token-parent-opencode"
-                  ? ("opencode" as const)
-                  : ("codex" as const),
-            issuedAt: 0,
-            capabilities:
-              token === "token-parent-readonly"
-                ? new Set(["thread:read"] as const)
-                : new Set(["thread:read", "thread:write", "diagnostics:read"] as const),
-          }
-        : null;
-    },
+    verifySession: resolveSessionIdentity,
     revokeSessionToken: (token: string) => {
       revokedTokens.add(token);
     },
