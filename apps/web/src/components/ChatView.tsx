@@ -1086,6 +1086,12 @@ export default function ChatView({
     Record<ThreadId, string | null>
   >({});
   const [localDispatch, setLocalDispatch] = useState<LocalDispatchSnapshot | null>(null);
+  const [continueInFlight, setContinueInFlight] = useState<{
+    threadId: ThreadId;
+    turnId: TurnId;
+    requestedAt: string;
+    sessionUpdatedAt: string | null;
+  } | null>(null);
   const pendingTurnStartMessageRef = useRef<
     (QueuedComposerChatTurn & { readonly messageId: MessageId }) | null
   >(null);
@@ -3079,7 +3085,7 @@ export default function ChatView({
   const isTurnWorking = chatActivity.controllable || hasSendPreflight;
   // One admitted/active-work predicate owns both Stop and transcript status.
   // Provider transport connection is deliberately not a user-visible turn.
-  const isWorking = chatActivity.busy || hasSendPreflight;
+  const isWorking = chatActivity.busy || hasSendPreflight || continueInFlight !== null;
   const showThinking = isWorking;
   const hasControllableTurn = isTurnWorking;
   useEffect(() => {
@@ -3947,12 +3953,6 @@ export default function ChatView({
     [setStoreThreadError],
   );
 
-  const [continueInFlight, setContinueInFlight] = useState<{
-    threadId: ThreadId;
-    turnId: TurnId;
-    requestedAt: string;
-    sessionUpdatedAt: string | null;
-  } | null>(null);
   const continueInFlightRef = useRef(false);
   const pendingContinueCommandIdRef = useRef<string | null>(null);
   const [hiddenContinueTurnId, setHiddenContinueTurnId] = useState<TurnId | null>(null);
@@ -4086,18 +4086,34 @@ export default function ChatView({
       pendingContinueCommandIdRef.current = null;
       continueInFlightRef.current = false;
       setContinueInFlight(null);
-      if (
-        error &&
-        typeof error === "object" &&
-        "code" in error &&
-        error.code === "THREAD_CONTINUE_STALE"
-      ) {
+      const errorCode =
+        error && typeof error === "object" && "code" in error && typeof error.code === "string"
+          ? error.code
+          : null;
+      recordChatLifecycleUiDiagnostic({
+        event: "composer-continue-rejected",
+        threadId: target.threadId,
+        activeTurnId: activeSessionTurnId,
+        activeTurnStartedAt: activeLatestTurn.startedAt,
+        isWorking,
+        commandId,
+        targetTurnId: target.turnId,
+        errorCode,
+      });
+      if (errorCode === "THREAD_CONTINUE_STALE") {
         setHiddenContinueTurnId(target.turnId);
-      } else {
-        setThreadError(target.threadId, "Couldn't continue this turn.");
       }
+      setThreadError(target.threadId, "Couldn't continue this turn.");
     }
-  }, [activeLatestTurn, activeThread, bindingForContinue, canShowContinue, setThreadError]);
+  }, [
+    activeLatestTurn,
+    activeSessionTurnId,
+    activeThread,
+    bindingForContinue,
+    canShowContinue,
+    isWorking,
+    setThreadError,
+  ]);
   const focusComposer = useCallback(() => {
     // Secondary chrome is deferred during thread switches; replay focus once it
     // mounts. A disabled editor (dispatch connecting, pending approval) cannot
