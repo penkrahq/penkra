@@ -17,6 +17,7 @@ import {
 import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
 
 import { isSessionRunningTurn, latestTurnMatchesTurnId } from "./session-logic";
+import { shouldInterruptProvisionalCompletion } from "@penkra/shared/turnContinuation";
 import {
   MAX_THREAD_MESSAGES,
   arraysShallowEqual,
@@ -257,6 +258,24 @@ function reconcileLatestTurnFromSession(
   session: NonNullable<ReadModelThread["session"]>,
   error: string | null,
 ): Thread["latestTurn"] {
+  if (
+    shouldInterruptProvisionalCompletion({
+      previousSession: thread.session,
+      nextSession: session,
+      turn: thread.latestTurn,
+    }) &&
+    thread.latestTurn
+  ) {
+    return buildLatestTurn({
+      previous: thread.latestTurn,
+      turnId: thread.latestTurn.turnId,
+      state: "interrupted",
+      requestedAt: thread.latestTurn.requestedAt,
+      startedAt: thread.latestTurn.startedAt,
+      completedAt: session.updatedAt,
+      assistantMessageId: thread.latestTurn.assistantMessageId,
+    });
+  }
   if (isSessionRunningTurn(session)) {
     const matchedLatestTurn = latestTurnMatchesTurnId(thread.latestTurn, session.activeTurnId)
       ? thread.latestTurn
@@ -294,10 +313,7 @@ function reconcileLatestTurnFromSession(
     thread.latestTurn !== null &&
     ((thread.latestTurn.state === "running" &&
       (session.activeTurnId == null || settledState === "error")) ||
-      // The provider can finish an assistant message before reporting that a
-      // user Stop interrupted its turn. Message completion is provisional in
-      // that ordering; the terminal session state owns the outcome.
-      ((settledState === "interrupted" || settledState === "error") &&
+      (settledState === "error" &&
         thread.latestTurn.state === "completed" &&
         isSessionRunningTurn(thread.session) &&
         latestTurnMatchesTurnId(thread.latestTurn, thread.session.activeTurnId)))

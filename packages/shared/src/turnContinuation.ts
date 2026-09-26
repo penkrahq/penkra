@@ -4,6 +4,34 @@ import type {
   TurnId,
 } from "@penkra/contracts";
 
+/** An assistant completion is provisional until the owning provider session settles. */
+export function shouldInterruptProvisionalCompletion(input: {
+  readonly previousSession: {
+    readonly status: string;
+    readonly activeTurnId?: string | null | undefined;
+  } | null;
+  readonly nextSession: {
+    readonly status: string;
+    readonly activeTurnId?: string | null | undefined;
+  };
+  readonly turn: {
+    readonly turnId: string;
+    readonly providerTurnId?: string | null | undefined;
+    readonly state: string;
+  } | null;
+}): boolean {
+  const { previousSession, nextSession, turn } = input;
+  return (
+    turn?.state === "completed" &&
+    (previousSession?.status === "running" || previousSession?.status === "starting") &&
+    previousSession.activeTurnId != null &&
+    (turn.turnId === previousSession.activeTurnId ||
+      turn.providerTurnId === previousSession.activeTurnId) &&
+    (nextSession.status === "interrupted" || nextSession.status === "stopped") &&
+    nextSession.activeTurnId == null
+  );
+}
+
 /** The projection conditions shared by command admission and the composer. */
 export function canContinueLatestTurn(
   thread: {
