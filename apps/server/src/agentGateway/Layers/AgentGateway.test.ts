@@ -3145,11 +3145,10 @@ describe("AgentGateway", () => {
         assert.equal(turn.dispatchOrigin, "agent");
         assert.equal(turn.senderThreadId, ThreadId.makeUnsafe("thread-parent"));
         assert.equal(turn.dispatchMode, "steer");
-        assert.equal(turn.connectionId, CONNECTION_ID);
+        assert.isUndefined(turn.connectionId);
         assert.deepEqual(turn.modelSelection, {
           provider: "codex",
           model: "gpt-5.5",
-          options: { reasoningEffort: "high" },
         });
         assert.equal(turn.threadId, "thread-child");
         assert.equal(toolResultJson(response.result).turnId, turn.turnId);
