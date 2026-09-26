@@ -3689,6 +3689,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const requestedThreadId = this.readString(params, "threadId");
       const activeProviderThreadId = readResumeCursorThreadId(context.session.resumeCursor);
       const toolName = this.readString(params, "tool");
+      const toolTurnId = toTurnId(this.readString(params, "turnId"));
       const namespace = params?.namespace;
       const rawArguments = params?.arguments;
       if (
@@ -3720,12 +3721,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         bearerToken: context.gatewaySessionLease.connection.bearerToken,
         name: toolName,
         arguments: rawArguments as Record<string, unknown>,
+        ...(toolTurnId ? { originTurnId: toolTurnId } : {}),
       });
       const contentItems: Array<
         { type: "inputText"; text: string } | { type: "inputImage"; imageUrl: string }
       > = [];
-      const toolTurnId =
-        toTurnId(this.readString(params, "turnId")) ?? context.session.activeTurnId;
       for (const item of result.content) {
         if (item.type === "text") {
           contentItems.push({ type: "inputText", text: item.text });

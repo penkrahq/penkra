@@ -107,7 +107,6 @@ const CALLER: OrchestrationThreadShell = {
 const operationId = `gateway:create:${stableGatewayDigest({
   principalKind: "provider-session",
   principalId: CALLER_THREAD_ID,
-  callerTurnId: CALLER_TURN_ID,
   requestId: INPUT.requestId,
 })}`;
 const ids = makeAgentCreationIds(operationId, 0);

@@ -2,8 +2,6 @@ import { ThreadId, type OrchestrationThreadShell } from "@penkra/contracts";
 import { Effect, Option } from "effect";
 
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import type { ProjectionTurnRepositoryShape } from "../persistence/Services/ProjectionTurns.ts";
-import type { ProviderRuntimeEventRepositoryShape } from "../persistence/Services/ProviderRuntimeEvents.ts";
 import type { AgentGatewayShape } from "./Services/AgentGateway.ts";
 import type { AgentGatewayCredentialsShape } from "./Services/AgentGatewayCredentials.ts";
 import { extractBearerToken } from "./bearerToken.ts";
@@ -18,7 +16,6 @@ import {
   parseMcpMessage,
   type JsonRpcRequest,
 } from "./protocol.ts";
-import { resolveAuthoritativeActiveTurn } from "./activeExecution.ts";
 import {
   GatewayToolError,
   gatewayToolErrorResult,
@@ -32,11 +29,6 @@ const MCP_MAX_BATCH_MESSAGES = 50;
 export function makeAgentGatewayMcpTransport(input: {
   readonly credentials: AgentGatewayCredentialsShape;
   readonly snapshotQuery: ProjectionSnapshotQueryShape;
-  readonly projectionTurns: ProjectionTurnRepositoryShape;
-  readonly providerRuntimeEvents: Pick<
-    ProviderRuntimeEventRepositoryShape,
-    "listOpenTurnsByThreadId"
-  >;
   readonly tools: ReadonlyArray<ToolEntry>;
   readonly instructions:
     | string
@@ -46,103 +38,6 @@ export function makeAgentGatewayMcpTransport(input: {
   ) => Effect.Effect<OrchestrationThreadShell, unknown>;
 }): AgentGatewayShape["handleMcpPost"] {
   const toolsByName = new Map(input.tools.map((tool) => [tool.definition.name, tool]));
-
-  const resolveCallerTurnId = (thread: OrchestrationThreadShell) =>
-    Effect.gen(function* () {
-      const [projectedTurn, openTurns] = yield* Effect.all([
-        resolveAuthoritativeActiveTurn({
-          threadId: thread.id,
-          session: thread.session,
-          projectionTurns: input.projectionTurns,
-        }),
-        input.providerRuntimeEvents.listOpenTurnsByThreadId(thread.id),
-      ]);
-      const projectedTurnId = projectedTurn?.turnId ?? null;
-      const projectedProviderTurnId = projectedTurn?.providerTurnId ?? null;
-      const openTurnIds: string[] = openTurns.map((turn) => turn.turnId);
-      const sessionTurnId = thread.session?.activeTurnId ?? null;
-      const projectedAliases: string[] = [];
-      if (projectedTurnId !== null) projectedAliases.push(projectedTurnId);
-      if (projectedProviderTurnId !== null) projectedAliases.push(projectedProviderTurnId);
-
-      if (
-        thread.session?.status === "running" &&
-        sessionTurnId !== null &&
-        openTurnIds.includes(sessionTurnId)
-      ) {
-        if (
-          projectedTurnId !== null &&
-          (sessionTurnId === projectedTurnId || sessionTurnId === projectedProviderTurnId)
-        ) {
-          return {
-            turnId: projectedTurnId,
-            activeTurnIds: projectedAliases,
-            projectedTurnId,
-            projectedProviderTurnId,
-            openTurnIds,
-          };
-        }
-        return {
-          turnId: sessionTurnId,
-          activeTurnIds: [sessionTurnId],
-          projectedTurnId,
-          projectedProviderTurnId,
-          openTurnIds,
-        };
-      }
-      if (projectedTurnId !== null && openTurnIds.length === 0) {
-        return {
-          turnId: projectedTurnId,
-          activeTurnIds: projectedAliases,
-          projectedTurnId,
-          projectedProviderTurnId,
-          openTurnIds,
-        };
-      }
-      if (
-        projectedTurnId !== null &&
-        openTurnIds.some(
-          (turnId) => turnId === projectedTurnId || turnId === projectedProviderTurnId,
-        )
-      ) {
-        return {
-          turnId: projectedTurnId,
-          activeTurnIds: projectedAliases,
-          projectedTurnId,
-          projectedProviderTurnId,
-          openTurnIds,
-        };
-      }
-      if (projectedTurnId === null && openTurnIds.length === 1) {
-        const openTurnId = openTurnIds[0] ?? null;
-        if (
-          thread.session?.status !== "running" ||
-          (sessionTurnId !== null && sessionTurnId !== openTurnId)
-        ) {
-          return {
-            turnId: null,
-            activeTurnIds: [],
-            projectedTurnId,
-            projectedProviderTurnId,
-            openTurnIds,
-          };
-        }
-        return {
-          turnId: openTurnId,
-          activeTurnIds: openTurnId === null ? [] : [openTurnId],
-          projectedTurnId,
-          projectedProviderTurnId,
-          openTurnIds,
-        };
-      }
-      return {
-        turnId: null,
-        activeTurnIds: [],
-        projectedTurnId,
-        projectedProviderTurnId,
-        openTurnIds,
-      };
-    });
 
   const handleRequest = (request: JsonRpcRequest, context: Omit<ToolContext, "jsonRpcRequestId">) =>
     Effect.gen(function* () {
@@ -197,16 +92,14 @@ export function makeAgentGatewayMcpTransport(input: {
             ...context,
             jsonRpcRequestId: request.id,
           };
-          if (tool.requiresActiveTurn) {
-            const authorityError = yield* context.assertCallerTurnActive().pipe(
-              Effect.match({
-                onFailure: (error) => error,
-                onSuccess: () => null,
-              }),
-            );
-            if (authorityError !== null) {
-              return jsonRpcResult(request.id, gatewayToolErrorResult(authorityError));
-            }
+          const authorityError = yield* context.assertCallerThreadAuthorized().pipe(
+            Effect.match({
+              onFailure: (error) => error,
+              onSuccess: () => null,
+            }),
+          );
+          if (authorityError !== null) {
+            return jsonRpcResult(request.id, gatewayToolErrorResult(authorityError));
           }
           const result = yield* Effect.suspend(() => tool.handler(args, invocationContext)).pipe(
             Effect.catchDefect((defect) => Effect.succeed(mcpToolResultError(errorText(defect)))),
@@ -250,8 +143,18 @@ export function makeAgentGatewayMcpTransport(input: {
           ),
         };
       }
+      if (callerThread.value.archivedAt !== null) {
+        return {
+          status: 401,
+          body: jsonRpcError(
+            null,
+            JSON_RPC_INVALID_REQUEST,
+            "caller_thread_inactive: The caller thread is archived.",
+          ),
+        };
+      }
       const liveProvider = callerThread.value.session?.providerName;
-      if ((liveProvider ?? callerThread.value.modelSelection.provider) !== callerSession.provider) {
+      if (liveProvider !== undefined && liveProvider !== callerSession.provider) {
         return {
           status: 401,
           body: jsonRpcError(
@@ -261,49 +164,16 @@ export function makeAgentGatewayMcpTransport(input: {
           ),
         };
       }
-      const ingressAuthority = yield* resolveCallerTurnId(callerThread.value).pipe(
-        Effect.catch(() =>
-          Effect.succeed({
-            turnId: null,
-            activeTurnIds: [],
-            projectedTurnId: null,
-            projectedProviderTurnId: null,
-            openTurnIds: [],
-          }),
-        ),
-      );
-      if (
-        callerThread.value.session?.status === "running" &&
-        callerThread.value.session.activeTurnId !== null &&
-        ingressAuthority.turnId === null
-      ) {
-        yield* Effect.logWarning("agent_gateway.active_turn_projection_mismatch", {
-          callerThreadId,
-          sessionActiveTurnId: callerThread.value.session.activeTurnId,
-          latestTurnId: callerThread.value.latestTurn?.turnId ?? null,
-          latestProviderTurnId: callerThread.value.latestTurn?.providerTurnId ?? null,
-          latestTurnState: callerThread.value.latestTurn?.state ?? null,
-          projectedTurnId: ingressAuthority.projectedTurnId,
-          projectedProviderTurnId: ingressAuthority.projectedProviderTurnId,
-          openRuntimeTurnIds: ingressAuthority.openTurnIds,
-        });
-      }
-      const callerWriteAuthority =
-        ingressAuthority.turnId === null
-          ? null
-          : input.credentials.bindWriteAuthority(token, ingressAuthority.turnId);
-      const assertCallerTurnActive = () =>
+      const callerTurnId =
+        requestInput.originTurnId?.trim() ||
+        (callerThread.value.session?.status === "running"
+          ? callerThread.value.session.activeTurnId
+          : null) ||
+        null;
+      const assertCallerThreadAuthorized = () =>
         Effect.gen(function* () {
-          if (callerWriteAuthority === null) {
-            return yield* Effect.fail(
-              new GatewayToolError(
-                "caller_turn_inactive",
-                "This Penkra write was rejected because no caller turn was active when the MCP request arrived.",
-                { callerThreadId },
-              ),
-            );
-          }
-          if (!input.credentials.verifyWriteAuthority(callerWriteAuthority)) {
+          const currentSession = input.credentials.verifySession(token);
+          if (currentSession?.sessionKey !== callerSession.sessionKey) {
             return yield* Effect.fail(
               new GatewayToolError(
                 "caller_session_inactive",
@@ -312,46 +182,43 @@ export function makeAgentGatewayMcpTransport(input: {
               ),
             );
           }
+          if (currentSession.provider !== callerSession.provider) {
+            return yield* Effect.fail(new GatewayToolError(
+              "caller_session_inactive",
+              "This Penkra write was rejected because the provider session no longer matches its thread.",
+              { callerThreadId },
+            ));
+          }
           const caller = yield* input
             .requireThreadShell(callerThreadId)
             .pipe(
               Effect.mapError(
                 (error) =>
                   new GatewayToolError(
-                    "caller_turn_inactive",
+                    "caller_thread_inactive",
                     "This Penkra write was rejected because the caller thread could no longer be verified.",
                     { callerThreadId, error: errorText(error) },
                   ),
               ),
             );
-          const activeAuthority = yield* resolveCallerTurnId(caller).pipe(
-            Effect.mapError(
-              (error) =>
-                new GatewayToolError(
-                  "caller_turn_inactive",
-                  "This Penkra write was rejected because the active execution could not be verified.",
-                  { callerThreadId, error: errorText(error) },
-                ),
-            ),
-          );
-          const activeTurnIds: ReadonlyArray<string> = activeAuthority.activeTurnIds;
-          if (!activeTurnIds.includes(callerWriteAuthority.turnId)) {
+          if (caller.archivedAt !== null) {
             return yield* Effect.fail(
               new GatewayToolError(
-                "caller_turn_inactive",
-                "This Penkra write was rejected because the turn that received this MCP request is no longer active. In-flight requests cannot inherit authority from a later turn.",
-                {
-                  callerThreadId,
-                  authorizedTurnId: callerWriteAuthority.turnId,
-                  sessionStatus: caller.session?.status ?? null,
-                  sessionActiveTurnId: caller.session?.activeTurnId ?? null,
-                  latestTurnId: caller.latestTurn?.turnId ?? null,
-                  latestProviderTurnId: caller.latestTurn?.providerTurnId ?? null,
-                  latestTurnState: caller.latestTurn?.state ?? null,
-                  projectedTurnId: activeAuthority.projectedTurnId,
-                  projectedProviderTurnId: activeAuthority.projectedProviderTurnId,
-                  openRuntimeTurnIds: activeAuthority.openTurnIds,
-                },
+                "caller_thread_inactive",
+                "This Penkra write was rejected because the caller thread is archived.",
+                { callerThreadId },
+              ),
+            );
+          }
+          if (
+            caller.session?.providerName !== undefined &&
+            caller.session.providerName !== callerSession.provider
+          ) {
+            return yield* Effect.fail(
+              new GatewayToolError(
+                "caller_session_inactive",
+                "This Penkra write was rejected because the provider session no longer owns its thread.",
+                { callerThreadId },
               ),
             );
           }
@@ -362,14 +229,14 @@ export function makeAgentGatewayMcpTransport(input: {
           sessionKey: callerSession.sessionKey,
           threadId: callerThreadId,
           provider: callerSession.provider,
-          turnId: callerWriteAuthority?.turnId ?? null,
+          turnId: callerTurnId,
         },
         callerThreadId,
         callerSessionKey: callerSession.sessionKey,
         callerProvider: callerSession.provider,
         callerCapabilities: callerSession.capabilities,
-        callerTurnId: callerWriteAuthority?.turnId ?? null,
-        assertCallerTurnActive,
+        callerTurnId,
+        assertCallerThreadAuthorized,
       };
 
       const rawMessages = Array.isArray(requestInput.body)
