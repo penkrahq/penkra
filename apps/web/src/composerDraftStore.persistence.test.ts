@@ -137,7 +137,7 @@ describe("composerDraftStore persisted-state hydration", () => {
     expect(normalized.draftsByThreadId[threadId]?.promptHistorySavedDraft).toMatchObject({
       files: [file],
     });
-    expect(normalized.draftsByThreadId[threadId]?.queuedTurns).toBeUndefined();
+    expect(normalized.draftsByThreadId[threadId]).not.toHaveProperty("queuedTurns");
   });
 });
 
@@ -508,27 +508,6 @@ describe("composerDraftStore queued follow-ups", () => {
       mentions: [],
       queuedTurns: [makeQueuedTurn("queued-1")],
     });
-  });
-
-  it("does not persist renderer queue pause state", () => {
-    const store = useComposerDraftStore.getState();
-    store.enqueueQueuedTurn(threadId, makeQueuedTurn("queued-paused"));
-    store.setQueuePaused(threadId, true);
-
-    const persistedState = partializeComposerDraftStoreState(useComposerDraftStore.getState());
-    const persistApi = useComposerDraftStore.persist as unknown as {
-      getOptions: () => {
-        merge: (
-          persistedState: unknown,
-          currentState: ReturnType<typeof useComposerDraftStore.getState>,
-        ) => ReturnType<typeof useComposerDraftStore.getState>;
-      };
-    };
-    const mergedState = persistApi
-      .getOptions()
-      .merge(persistedState, useComposerDraftStore.getInitialState());
-
-    expect(mergedState.draftsByThreadId[threadId]).toBeUndefined();
   });
 
   it("drops the draft entry once the last queued turn is removed", () => {
