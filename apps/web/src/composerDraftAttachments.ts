@@ -130,9 +130,6 @@ export function revokeDraftPreviewUrls(draft: ComposerThreadDraftState | undefin
   for (const image of draft.images) {
     revokeObjectPreviewUrl(image.previewUrl);
   }
-  for (const queuedTurn of draft.queuedTurns) {
-    revokeQueuedTurnPreviewUrls(queuedTurn);
-  }
   revokePromptHistorySavedDraftPreviewUrls(draft.promptHistorySavedDraft);
 }
 

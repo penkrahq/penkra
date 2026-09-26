@@ -1569,6 +1569,7 @@ export function normalizeThreadFromReadModel(
     (previous.sidebarSortOrder ?? 0) === (incoming.sidebarSortOrder ?? 0) &&
     previous.title === incoming.title &&
     previous.modelSelection === modelSelection &&
+    previous.connectionId === incoming.connectionId &&
     previous.runtimeMode === incoming.runtimeMode &&
     previous.session === session &&
     previous.messages === messages &&
@@ -1613,6 +1614,7 @@ export function normalizeThreadFromReadModel(
     sidebarSortOrder: incoming.sidebarSortOrder ?? 0,
     title: incoming.title,
     modelSelection,
+    ...(incoming.connectionId !== undefined ? { connectionId: incoming.connectionId } : {}),
     runtimeMode: incoming.runtimeMode,
     session,
     messages,
@@ -1674,6 +1676,7 @@ export function normalizeThreadShellSnapshot(
     sidebarSortOrder: incoming.sidebarSortOrder ?? 0,
     title: incoming.title,
     modelSelection,
+    ...(incoming.connectionId !== undefined ? { connectionId: incoming.connectionId } : {}),
     runtimeMode: incoming.runtimeMode,
     error,
     createdAt: incoming.createdAt,

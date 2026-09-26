@@ -263,6 +263,7 @@ import {
   useAppSettings,
 } from "../appSettings";
 import { isTerminalFocused } from "../lib/terminalFocus";
+import { toAttachmentPreviewUrl } from "../lib/wsHttpUrl";
 import { isEditableEventTarget } from "../lib/editableEventTarget";
 import {
   type ComposerFileAttachment,
@@ -934,9 +935,6 @@ export default function ChatView({
   const setComposerDraftRuntimeMode = useComposerDraftStore((store) => store.setRuntimeMode);
   const recoverCancelledQueuedTurn = useComposerDraftStore(
     (store) => store.recoverCancelledQueuedTurn,
-  );
-  const removeQueuedComposerTurnFromDraft = useComposerDraftStore(
-    (store) => store.removeQueuedTurn,
   );
   const capturePendingStartRecovery = useComposerDraftStore(
     (store) => store.capturePendingStartRecovery,
@@ -2229,9 +2227,14 @@ export default function ChatView({
     if (serverThread?.connectionId !== undefined) {
       return { ...defaults, [serverThread.modelSelection.provider]: serverThread.connectionId };
     }
-    return hasThreadStarted
-      ? pendingConnectionByProvider
-      : { ...defaults, ...pendingConnectionByProvider };
+    if (hasThreadStarted) {
+      const provider = serverThread?.modelSelection.provider;
+      const bindingConnectionId = threadProviderBindingQuery.data?.binding?.connectionId;
+      return provider
+        ? { ...defaults, [provider]: bindingConnectionId ?? defaults[provider] ?? null }
+        : defaults;
+    }
+    return { ...defaults, ...pendingConnectionByProvider };
   }, [
     hasThreadStarted,
     selectedConnectionByThread,
@@ -2240,6 +2243,7 @@ export default function ChatView({
     serverSettings,
     serverThread?.connectionId,
     serverThread?.modelSelection.provider,
+    threadProviderBindingQuery.data?.binding?.connectionId,
   ]);
   const setSelectedConnectionByProvider = useCallback(
     (update: (current: PendingConnectionSelection) => PendingConnectionSelection) => {
@@ -2561,7 +2565,7 @@ export default function ChatView({
           .catch((error: unknown) =>
             setStoreThreadError(
               serverThread.id,
-              error instanceof Error ? error.message : "Could not update thread Connection.",
+              error instanceof Error ? error.message : "Couldn't change this thread's Connection.",
             ),
           );
       }
@@ -5126,6 +5130,33 @@ export default function ChatView({
       if (message.role !== "user") {
         return [];
       }
+      const attachments = message.attachments ?? [];
+      const images = attachments.flatMap((attachment) =>
+        attachment.type === "image"
+          ? [
+              {
+                ...attachment,
+                previewUrl: toAttachmentPreviewUrl(
+                  `/attachments/${encodeURIComponent(attachment.id)}`,
+                ),
+                file: new File([], attachment.name, { type: attachment.mimeType }),
+              },
+            ]
+          : [],
+      );
+      const files = attachments.flatMap((attachment) =>
+        attachment.type === "file"
+          ? [
+              {
+                ...attachment,
+                file: new File([], attachment.name, { type: attachment.mimeType }),
+              },
+            ]
+          : [],
+      );
+      const assistantSelections = attachments.filter(
+        (attachment) => attachment.type === "assistant-selection",
+      );
       return [
         {
           id: `server:${messageId}`,
@@ -5135,9 +5166,9 @@ export default function ChatView({
           serverMessageId: messageId,
           previewText: message.text,
           prompt: message.text,
-          images: [],
-          files: [],
-          assistantSelections: [],
+          images,
+          files,
+          assistantSelections,
           terminalContexts: [],
           fileComments: [],
           pastedTexts: [],
@@ -5521,6 +5552,7 @@ export default function ChatView({
         provider,
         model: resolvedModel,
       };
+      const nextConnectionId = resolveSelectedConnection(provider, resolvedModel) ?? null;
       useComposerDraftStore.getState().setStickyModelSelection(nextModelSelection);
       if (serverThread) {
         const api = readNativeApi();
@@ -5531,11 +5563,12 @@ export default function ChatView({
               commandId: newCommandId(),
               threadId: activeThread.id,
               modelSelection: nextModelSelection,
+              ...(!hasThreadStarted ? { connectionId: nextConnectionId } : {}),
             })
             .catch((error: unknown) =>
               setStoreThreadError(
                 activeThread.id,
-                error instanceof Error ? error.message : "Could not update thread model.",
+                error instanceof Error ? error.message : "Couldn't change this thread's model.",
               ),
             );
         }
@@ -5552,6 +5585,8 @@ export default function ChatView({
       customModelsByProvider,
       selectableModelOptionsByProvider,
       serverThread,
+      hasThreadStarted,
+      resolveSelectedConnection,
       setStoreThreadError,
     ],
   );
@@ -5858,63 +5893,21 @@ export default function ChatView({
 
   const restoreQueuedTurnToComposer = useCallback(
     (queuedTurn: QueuedComposerTurn) => {
-      if (!activeThread) {
-        return;
-      }
-      const nextPrompt = queuedTurn.prompt;
-      const restoredImages = queuedTurn.images.map(cloneComposerImageAttachment);
-      const restoredFiles = queuedTurn.files;
-      const restoredAssistantSelections = queuedTurn.assistantSelections;
-      const restoredFileComments = queuedTurn.fileComments;
-      promptRef.current = nextPrompt;
+      if (!activeThread) return;
       cancelPendingPromptPersistence();
-      clearComposerDraftContent(activeThread.id);
-      setComposerDraftPrompt(activeThread.id, nextPrompt);
-      // Restore the unsent content while keeping the current thread model and connection.
-      setDraftThreadContext(activeThread.id, {
-        runtimeMode: queuedTurn.runtimeMode,
-      });
-      if (restoredImages.length > 0) {
-        addComposerImagesToDraft(restoredImages);
-      }
-      if (restoredFiles.length > 0) {
-        addComposerFilesToDraft(restoredFiles);
-      }
-      for (const selection of restoredAssistantSelections) {
-        addComposerAssistantSelectionToDraft(selection);
-      }
-      for (const comment of restoredFileComments) {
-        addComposerFileCommentToDraft(comment);
-      }
-      if (queuedTurn.terminalContexts.length > 0) {
-        addComposerTerminalContextsToDraft(queuedTurn.terminalContexts);
-      }
-      if (queuedTurn.pastedTexts.length > 0) {
-        addComposerPastedTextsToDraft(queuedTurn.pastedTexts);
-      }
-      updateSelectedComposerSkills(queuedTurn.skills);
-      updateSelectedComposerMentions(queuedTurn.mentions);
-      setComposerDraftRuntimeMode(activeThread.id, queuedTurn.runtimeMode);
+      if (!recoverCancelledQueuedTurn(activeThread.id, queuedTurn)) return;
+      const nextPrompt =
+        useComposerDraftStore.getState().draftsByThreadId[activeThread.id]?.prompt ?? "";
+      promptRef.current = nextPrompt;
       setComposerCursor(collapseExpandedComposerCursor(nextPrompt, nextPrompt.length));
       setComposerTrigger(detectComposerTrigger(nextPrompt, nextPrompt.length));
       scheduleComposerFocus();
     },
     [
       activeThread,
-      addComposerAssistantSelectionToDraft,
-      addComposerFileCommentToDraft,
-      addComposerFilesToDraft,
-      addComposerImagesToDraft,
-      addComposerTerminalContextsToDraft,
-      addComposerPastedTextsToDraft,
       cancelPendingPromptPersistence,
-      clearComposerDraftContent,
+      recoverCancelledQueuedTurn,
       scheduleComposerFocus,
-      setDraftThreadContext,
-      setComposerDraftPrompt,
-      setComposerDraftRuntimeMode,
-      updateSelectedComposerMentions,
-      updateSelectedComposerSkills,
     ],
   );
 
@@ -6013,6 +6006,37 @@ export default function ChatView({
     };
   }, [restorePendingTurnStart, revalidatePendingStartOutcome, threadId]);
 
+  const waitForQueuedActionOutcome = useCallback(
+    (messageId: MessageId): Promise<"cancelled" | "sent" | "unknown"> => {
+      return new Promise((resolve) => {
+        let settled = false;
+        let unsubscribe: (() => void) | undefined;
+        const finish = (outcome: "cancelled" | "sent" | "unknown") => {
+          if (settled) return;
+          settled = true;
+          unsubscribe?.();
+          clearTimeout(timeout);
+          resolve(outcome);
+        };
+        const inspect = () => {
+          const thread = getThreadFromState(useStore.getState(), threadId);
+          if (!thread) return;
+          const message = thread.messages.find((candidate) => candidate.id === messageId);
+          if (!message) return finish("cancelled");
+          const queued =
+            message.delivery === undefined
+              ? (thread.queuedMessageIds ?? []).includes(messageId)
+              : message.delivery.queued === true && message.delivery.state === "queued";
+          if (!queued) return finish("sent");
+        };
+        const timeout = setTimeout(() => finish("unknown"), 10_000);
+        unsubscribe = useStore.subscribe(inspect);
+        inspect();
+      });
+    },
+    [threadId],
+  );
+
   const cancelQueuedComposerTurn = useCallback(
     async (queuedTurn: QueuedComposerTurn, restoreForEdit = false): Promise<boolean> => {
       const resolvedQueuedTurn = queuedTurn;
@@ -6030,6 +6054,28 @@ export default function ChatView({
         return false;
       }
       try {
+        let restoredTurn = resolvedQueuedTurn;
+        if (restoreForEdit) {
+          const hydratedImages = await Promise.all(
+            resolvedQueuedTurn.images.map(async (image) => {
+              const response = await fetch(image.previewUrl);
+              if (!response.ok) throw new Error("Failed to cancel queued message.");
+              const blob = await response.blob();
+              return { ...image, file: new File([blob], image.name, { type: image.mimeType }) };
+            }),
+          );
+          const hydratedFiles = await Promise.all(
+            resolvedQueuedTurn.files.map(async (file) => {
+              const response = await fetch(
+                toAttachmentPreviewUrl(`/attachments/${encodeURIComponent(file.id)}`),
+              );
+              if (!response.ok) throw new Error("Failed to cancel queued message.");
+              const blob = await response.blob();
+              return { ...file, file: new File([blob], file.name, { type: file.mimeType }) };
+            }),
+          );
+          restoredTurn = { ...resolvedQueuedTurn, images: hydratedImages, files: hydratedFiles };
+        }
         await api.orchestration.dispatchCommand({
           type: "thread.turn.cancel-queued",
           commandId: newCommandId(),
@@ -6037,14 +6083,16 @@ export default function ChatView({
           messageId,
           createdAt: new Date().toISOString(),
         });
-        // Suppress reconstruction only after the server accepted cancellation.
-        if (restoreForEdit) {
-          recoverCancelledQueuedTurn(threadId, resolvedQueuedTurn);
-        } else {
-          removeQueuedComposerTurnFromDraft(threadId, resolvedQueuedTurn.id);
+        const outcome = await waitForQueuedActionOutcome(messageId);
+        if (outcome === "cancelled") {
+          if (restoreForEdit) restoreQueuedTurnToComposer(restoredTurn);
+          setThreadError(threadId, null);
+          return true;
         }
-        setThreadError(threadId, null);
-        return true;
+        if (restoreForEdit && outcome === "sent") {
+          setThreadError(threadId, "This message was already sent, so it can't be edited.");
+        }
+        return false;
       } catch (error) {
         setThreadError(
           threadId,
@@ -6058,7 +6106,8 @@ export default function ChatView({
       serverDeliveryByMessageId,
       setThreadError,
       threadId,
-      recoverCancelledQueuedTurn,
+      waitForQueuedActionOutcome,
+      restoreQueuedTurnToComposer,
     ],
   );
 
