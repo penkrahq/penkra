@@ -96,7 +96,7 @@ import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeInge
 import { ProviderThreadSwitchCoordinator } from "../Services/ProviderThreadSwitchCoordinator.ts";
 import { attachmentRelativePath } from "../../attachmentStore.ts";
 import { resolveProviderAttachmentPath } from "../../provider/providerAttachmentPaths.ts";
-import { clampMentionTitle } from "../../provider/threadMentionContext.ts";
+import { clampMentionTitle } from "@penkra/shared/threadMentions";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
@@ -2336,6 +2336,8 @@ describe("ProviderCommandReactor", () => {
           "",
         ].join("\n"),
       );
+      expect(sentInput?.match(/<agent_message_sender>/g)).toHaveLength(1);
+      expect(sentInput?.match(/<\/agent_message_sender>/g)).toHaveLength(1);
       expect(sentInput).toContain(messageText);
       expect(sentInput).not.toContain("\n title");
 
@@ -2542,11 +2544,16 @@ describe("ProviderCommandReactor", () => {
           skills: [skill],
           mentions: [mention],
         },
+        dispatchOrigin: "agent",
+        senderThreadId: ThreadId.makeUnsafe("agent-editor-thread"),
         runtimeMode: "approval-required",
         createdAt: now,
       }),
     );
     await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect(
+      harness.sendTurn.mock.calls[0]?.[0].input?.match(/<agent_message_sender>/g),
+    ).toHaveLength(1);
     harness.sendTurn.mockClear();
     harness.startSession.mockClear();
     await Effect.runPromise(
@@ -2595,6 +2602,7 @@ describe("ProviderCommandReactor", () => {
       skills: [skill],
       mentions: [mention],
     });
+    expect(harness.sendTurn.mock.calls[0]?.[0].input).not.toContain("<agent_message_sender>");
 
     const readModel = await Effect.runPromise(harness.engine.getReadModel());
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
@@ -2603,7 +2611,9 @@ describe("ProviderCommandReactor", () => {
       attachments: [imageAttachment],
       skills: [skill],
       mentions: [mention],
+      dispatchOrigin: "user",
     });
+    expect(thread?.messages[0]?.senderThreadId).toBeUndefined();
   });
 
   it("dispatches managed attachments from their repository object paths", async () => {
@@ -5583,6 +5593,8 @@ describe("ProviderCommandReactor", () => {
       readonly text: string;
       readonly providerName?: "codex" | "opencode";
       readonly attachments?: ReadonlyArray<ChatAttachment>;
+      readonly dispatchOrigin?: "user" | "automation" | "agent";
+      readonly senderThreadId?: ThreadId;
     },
   ) {
     const now = new Date().toISOString();
@@ -5622,6 +5634,8 @@ describe("ProviderCommandReactor", () => {
           text: input.text,
           attachments: [...(input.attachments ?? [])],
         },
+        ...(input.dispatchOrigin !== undefined ? { dispatchOrigin: input.dispatchOrigin } : {}),
+        ...(input.senderThreadId !== undefined ? { senderThreadId: input.senderThreadId } : {}),
         runtimeMode: "approval-required",
         createdAt: now,
       }),
@@ -5662,6 +5676,44 @@ describe("ProviderCommandReactor", () => {
       providerRefs: {},
     } as ProviderRuntimeEvent);
   };
+
+  it("preserves agent sender context through queued promotion", async () => {
+    const harness = await createHarness();
+    const senderThreadId = ThreadId.makeUnsafe("queued-agent-sender");
+    const liveTurnId = asTurnId("turn-live-before-agent-promotion");
+    await seedQueuedTurnBehindLiveTurn(harness, {
+      liveTurnId,
+      messageId: asMessageId("msg-agent-queued-promotion"),
+      text: "queued agent message",
+      dispatchOrigin: "agent",
+      senderThreadId,
+    });
+
+    await settleLiveTurn(harness, {
+      turnId: liveTurnId,
+      eventId: "evt-live-before-agent-promotion-completed",
+    });
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    const input = harness.sendTurn.mock.calls[0]?.[0].input ?? "";
+    expect(input).toContain("Thread ID: queued-agent-sender");
+    expect(input.match(/<agent_message_sender>/g)).toHaveLength(1);
+    expect(input.match(/<\/agent_message_sender>/g)).toHaveLength(1);
+    const events = await Effect.runPromise(
+      Stream.runCollect(harness.engine.readEvents(0)).pipe(
+        Effect.map((collected) => Array.from(collected)),
+      ),
+    );
+    expect(
+      events.find(
+        (event) =>
+          event.type === "thread.turn-start-requested" &&
+          event.payload.messageId === "msg-agent-queued-promotion",
+      ),
+    ).toMatchObject({
+      payload: { dispatchOrigin: "agent", senderThreadId },
+    });
+  });
 
   it("cancels one durable queued turn without interrupting the active turn", async () => {
     const harness = await createHarness();
@@ -6040,6 +6092,8 @@ describe("ProviderCommandReactor", () => {
       liveTurnId: interruptedTurnId,
       messageId: asMessageId("msg-after-restart-continuation"),
       text: "queued after restart continuation",
+      dispatchOrigin: "agent",
+      senderThreadId: ThreadId.makeUnsafe("restart-sender-thread"),
     });
     await harness.setRestartRecoveryMarker({
       threadId,
@@ -6072,8 +6126,14 @@ describe("ProviderCommandReactor", () => {
     await waitFor(() => harness.sendTurn.mock.calls.length === 1);
     expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
       threadId,
-      input: "queued after restart continuation",
     });
+    expect(harness.sendTurn.mock.calls[0]?.[0].input).toContain("Thread ID: restart-sender-thread");
+    expect(
+      harness.sendTurn.mock.calls[0]?.[0].input?.match(/<agent_message_sender>/g),
+    ).toHaveLength(1);
+    expect(
+      harness.sendTurn.mock.calls[0]?.[0].input?.match(/<\/agent_message_sender>/g),
+    ).toHaveLength(1);
   });
 
   it("keeps queued work behind a restart marker before stopped-session reconciliation", async () => {
@@ -7348,6 +7408,8 @@ describe("ProviderCommandReactor", () => {
           text: "pivot now",
           attachments: [],
         },
+        dispatchOrigin: "agent",
+        senderThreadId: ThreadId.makeUnsafe("steer-sender-thread"),
         dispatchMode: "steer",
         runtimeMode: "approval-required",
         createdAt: now,
@@ -7360,8 +7422,14 @@ describe("ProviderCommandReactor", () => {
     expect(harness.steerTurn.mock.calls[0]?.[0]).toMatchObject({
       threadId: ThreadId.makeUnsafe("thread-1"),
       clientMessageId: asMessageId("msg-steer-codex"),
-      input: "pivot now",
     });
+    const steerInput = String(
+      (harness.steerTurn.mock.calls[0]?.[0] as { readonly input?: unknown } | undefined)?.input ??
+        "",
+    );
+    expect(steerInput).toContain("Thread ID: steer-sender-thread");
+    expect(steerInput.match(/<agent_message_sender>/g)).toHaveLength(1);
+    expect(steerInput.match(/<\/agent_message_sender>/g)).toHaveLength(1);
     await waitFor(async () => {
       const thread = await readHarnessThread(harness);
       return (
@@ -9130,6 +9198,8 @@ describe("ProviderCommandReactor", () => {
           text: "",
           attachments: [attachment],
         },
+        dispatchOrigin: "agent",
+        senderThreadId: ThreadId.makeUnsafe("subagent-sender-thread"),
         runtimeMode: "approval-required",
         createdAt: now,
       }),
@@ -9140,7 +9210,14 @@ describe("ProviderCommandReactor", () => {
       threadId: ThreadId.makeUnsafe("thread-1"),
       providerThreadId: "child-provider-steer",
       attachments: [attachment],
+      input: expect.stringContaining("Thread ID: subagent-sender-thread"),
     });
+    expect(
+      harness.steerSubagent.mock.calls[0]?.[0].input?.match(/<agent_message_sender>/g),
+    ).toHaveLength(1);
+    expect(
+      harness.steerSubagent.mock.calls[0]?.[0].input?.match(/<\/agent_message_sender>/g),
+    ).toHaveLength(1);
     expect(harness.startSession).not.toHaveBeenCalledWith(
       ThreadId.makeUnsafe("subagent:thread-1:child-provider-steer"),
       expect.anything(),

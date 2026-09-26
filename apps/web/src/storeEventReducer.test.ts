@@ -38,6 +38,59 @@ import { createSidebarTreeThreadsSelector } from "./storeSelectors";
 import { resolveThreadStatusPill } from "./components/Sidebar.logic";
 
 describe("store event reducer", () => {
+  it("keeps agent sender metadata and clears it on a user-origin resend", () => {
+    const threadId = ThreadId.makeUnsafe("thread-agent-message-edit");
+    const messageId = MessageId.makeUnsafe("message-agent-message-edit");
+    const senderThreadId = ThreadId.makeUnsafe("source-agent-thread");
+    const createdAt = "2026-09-26T12:00:00.000Z";
+    const original = makeDomainEvent(
+      "thread.message-sent",
+      {
+        threadId,
+        messageId,
+        role: "user",
+        text: "original agent prompt",
+        dispatchOrigin: "agent",
+        senderThreadId,
+        turnId: null,
+        streaming: false,
+        source: "native",
+        createdAt,
+        updatedAt: createdAt,
+        attachments: [],
+      },
+      { sequence: 1 },
+    );
+    const agentState = applyOrchestrationEvents(makeState(makeThread({ id: threadId })), [
+      original,
+    ]);
+    expect(threadsOf(agentState)[0]?.messages[0]?.senderThreadId).toBe(senderThreadId);
+
+    const edited = makeDomainEvent(
+      "thread.message-sent",
+      {
+        threadId,
+        messageId,
+        role: "user",
+        text: "edited by user",
+        dispatchOrigin: "user",
+        turnId: null,
+        streaming: false,
+        source: "native",
+        createdAt,
+        updatedAt: createdAt,
+        attachments: [],
+      },
+      { sequence: 2 },
+    );
+    const editedState = applyOrchestrationEvents(agentState, [edited]);
+    expect(threadsOf(editedState)[0]?.messages[0]).toMatchObject({
+      text: "edited by user",
+      dispatchOrigin: "user",
+    });
+    expect(threadsOf(editedState)[0]?.messages[0]?.senderThreadId).toBeUndefined();
+  });
+
   it("projects raw deck reorder and cross-deck move events into deck and thread shell order", () => {
     const spaceId = SpaceId.makeUnsafe("space-test");
     const sourceDeckId = ThreadDeckId.makeUnsafe("deck-source");

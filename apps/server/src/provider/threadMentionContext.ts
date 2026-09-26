@@ -7,7 +7,12 @@ import {
   type OrchestrationThread,
   type ProviderMentionReference,
 } from "@penkra/contracts";
-import { isThreadMentionPath, threadIdFromThreadMentionPath } from "@penkra/shared/threadMentions";
+import {
+  clampMentionTitle,
+  isThreadMentionPath,
+  THREAD_MENTION_MAX_TITLE_CHARS,
+  threadIdFromThreadMentionPath,
+} from "@penkra/shared/threadMentions";
 import { Effect, Option } from "effect";
 
 import { paginateThreadMessages } from "../agentGateway/threadSummary.ts";
@@ -17,7 +22,7 @@ export const THREAD_MENTION_MESSAGE_LIMIT = 20;
 export const THREAD_MENTION_MAX_MESSAGE_CHARS = 1_500;
 export const THREAD_MENTION_MAX_CONTEXT_CHARS = 8_000;
 export const THREAD_MENTION_MAX_TOTAL_CONTEXT_CHARS = 16_000;
-export const THREAD_MENTION_MAX_TITLE_CHARS = 200;
+export { clampMentionTitle, THREAD_MENTION_MAX_TITLE_CHARS };
 
 const EARLIER_CONTEXT_TRUNCATION_MARKER = "[... earlier transcript context truncated]\n";
 const THREAD_MENTION_MIN_CONTEXT_CHARS = 256;
@@ -31,12 +36,6 @@ export function isThreadMentionReference(reference: ProviderMentionReference): b
 
 export function threadIdFromMentionReference(reference: ProviderMentionReference): string | null {
   return threadIdFromThreadMentionPath(reference.path);
-}
-
-export function clampMentionTitle(title: string): string {
-  return title.length > THREAD_MENTION_MAX_TITLE_CHARS
-    ? `${title.slice(0, THREAD_MENTION_MAX_TITLE_CHARS - 1)}…`
-    : title;
 }
 
 function truncateTranscriptTail(text: string, maxChars: number): string {

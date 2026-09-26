@@ -10,6 +10,7 @@ import {
   type TurnId,
 } from "@penkra/contracts";
 import { resolveLatestTailUserMessageEditTarget } from "@penkra/shared/conversationEdit";
+import { clampMentionTitle } from "@penkra/shared/threadMentions";
 import {
   memo,
   useCallback,
@@ -221,13 +222,17 @@ function UserDispatchModeChip({
 
   const { Icon, label } = USER_TURN_MARKER_PRESENTATION[markerKind];
   const senderTitle = senderThread?.title;
-  const hasKnownSenderTitle = Boolean(senderTitle?.trim());
+  const clampedSenderTitle = senderTitle?.trim() ? clampMentionTitle(senderTitle) : undefined;
+  const hasKnownSenderTitle = clampedSenderTitle !== undefined;
   const senderLabel =
     markerKind === "agent" && hasKnownSenderTitle ? `Sent by ${senderTitle}` : label;
   const content = (
     <>
       <Icon className="size-3 shrink-0 text-muted-foreground/75" />
-      <span className="min-w-0 max-w-full truncate" title={senderTitle || undefined}>
+      <span
+        className="min-w-0 max-w-full truncate"
+        title={senderThread?.archivedAt ? senderTitle : undefined}
+      >
         {senderLabel}
       </span>
     </>
@@ -244,12 +249,12 @@ function UserDispatchModeChip({
       <button
         type="button"
         className={cn(
-          "inline-flex max-w-full min-w-0 items-center gap-1.5 self-end px-0 text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/78 hover:text-foreground/82",
+          "inline-flex max-w-full min-w-0 items-center gap-1.5 self-end px-0 text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/78 hover:text-foreground/82 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
           hasLeadingMedia ? "mb-3" : "mb-1.5",
         )}
         onClick={() => onOpenThread(senderThreadId)}
-        aria-label={`Open ${senderTitle}`}
-        title={senderTitle}
+        aria-label={`Open ${clampedSenderTitle}`}
+        title={clampedSenderTitle}
       >
         {content}
       </button>

@@ -1008,7 +1008,8 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             ...(event.payload.dispatchOrigin !== undefined
               ? { dispatchOrigin: event.payload.dispatchOrigin }
               : {}),
-            ...(event.payload.senderThreadId !== undefined
+            ...(event.payload.dispatchOrigin === "agent" &&
+            event.payload.senderThreadId !== undefined
               ? { senderThreadId: event.payload.senderThreadId }
               : {}),
             ...(event.payload.delivery !== undefined
