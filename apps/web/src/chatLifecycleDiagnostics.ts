@@ -102,7 +102,8 @@ export type ChatLifecycleUiEvent =
   | "interrupt-dispatch-failed"
   | "composer-submission-claimed"
   | "composer-visible-cleared"
-  | "composer-submission-restored";
+  | "composer-submission-restored"
+  | "composer-continue-rejected";
 
 export interface ChatLifecycleUiDiagnosticSample {
   readonly event: ChatLifecycleUiEvent;
@@ -123,6 +124,8 @@ export interface ChatLifecycleUiDiagnosticSample {
   readonly receiptSequence?: number;
   readonly composerPromptLength?: number;
   readonly composerOwnership?: "active" | "old-thread" | "none";
+  readonly targetTurnId?: string;
+  readonly errorCode?: string | null;
 }
 
 export interface ChatLifecycleSyncDiagnosticSample {
