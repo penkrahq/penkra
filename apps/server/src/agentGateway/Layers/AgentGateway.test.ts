@@ -1174,13 +1174,68 @@ describe("AgentGateway", () => {
             assert.equal(turnStarts.length, 1);
           } else {
             assert.isTrue(isToolError(response.result));
-            assert.include(toolErrorText(response.result), "no longer active");
+            assert.equal(
+              (toolResultJson(response.result).error as { code: string }).code,
+              "caller_turn_inactive",
+            );
             assert.equal(turnStarts.length, 0);
+            const create = harness.dispatched.filter((command) => command.type === "thread.create");
+            const deleted = new Set(
+              harness.dispatched
+                .filter((command) => command.type === "thread.delete")
+                .map((command) => command.threadId),
+            );
+            assert.equal(create.length, 1);
+            assert.isTrue(create.every((command) => deleted.has(command.threadId)));
           }
         }).pipe(Effect.provide(gatewayLayer));
       }),
     );
   }
+
+  it.effect("does not create a child when the caller turn ends before admission dispatch", () => {
+    let harness: GatewayHarness;
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
+      resolveConnection: () => {
+        harness.setProjectionTurn({
+          threadId: "thread-parent",
+          turnId: "turn-parent-active",
+          state: "completed",
+        });
+        harness.setProjectionTurn({
+          threadId: "thread-parent",
+          turnId: "zz-followup",
+          state: "running",
+        });
+      },
+    });
+    return Effect.gen(function* () {
+      harness = yield* makeHarness;
+      harness.setProjectionTurn({
+        threadId: "thread-parent",
+        turnId: "turn-parent-active",
+        state: "running",
+      });
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_create_thread",
+        args: {
+          requestId: "expired-before-dispatch",
+          prompt: "Summarize the weather",
+          target: { provider: "codex", model: "gpt-5.5" },
+        },
+      });
+      assert.isTrue(isToolError(response.result));
+      assert.equal(
+        (toolResultJson(response.result).error as { code: string }).code,
+        "caller_turn_inactive",
+      );
+      assert.equal(
+        harness.dispatched.filter((command) => command.type === "thread.create").length,
+        0,
+      );
+    }).pipe(Effect.provide(gatewayLayer));
+  });
 
   it.effect("allows a handoff write after an accepted steer shares the running invocation", () => {
     const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
@@ -3028,6 +3083,26 @@ describe("AgentGateway", () => {
       assert.equal(
         (toolResultJson(duringLag.result).caller as { turnId?: unknown }).turnId,
         "native-turn-ahead-of-projection",
+      );
+    }).pipe(Effect.provide(gatewayLayer));
+  });
+
+  it.effect("rejects retry-projection from an idle caller turn", () => {
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      harness.setThreadDetail(
+        makeThreadDetail(makeThreadShell("thread-parent", { session: null, latestTurn: null })),
+      );
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_retry_thread_projection",
+        args: { threadId: "thread-parent" },
+      });
+      assert.isTrue(isToolError(response.result));
+      assert.equal(
+        (toolResultJson(response.result).error as { code: string }).code,
+        "caller_turn_inactive",
       );
     }).pipe(Effect.provide(gatewayLayer));
   });

@@ -759,7 +759,7 @@ export const makeAgentGateway = Effect.gen(function* () {
               stateDir: serverConfig.stateDir,
               repository: managedAttachments,
               engine: orchestrationEngine,
-              assertActive: context.assertCallerThreadAuthorized,
+              assertActive: context.assertCallerTurnActive,
               ...(presentationId === undefined ? {} : { presentationId, presentationIndex: index }),
             }),
           );
