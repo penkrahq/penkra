@@ -27,6 +27,10 @@ const SIDEBAR_WIDTH = "16rem";
 const SIDEBAR_WIDTH_MOBILE = "calc(100vw - var(--spacing(3)))";
 const SIDEBAR_WIDTH_ICON = "3rem";
 const SIDEBAR_RESIZE_DEFAULT_MIN_WIDTH = 16 * 16;
+// Matches the rail's `w-4` hit area below.
+export const SIDEBAR_RAIL_HIT_AREA_PX = 16;
+const lastNativeAppBounds = new WeakMap<HTMLElement, string>();
+
 export function appDockBoundsForElement(surface: HTMLElement) {
   const host = surface.getBoundingClientRect();
   const panel = (
@@ -34,32 +38,70 @@ export function appDockBoundsForElement(surface: HTMLElement) {
     surface.closest<HTMLElement>("[data-slot='sidebar-wrapper']")
   )?.getBoundingClientRect();
   if (!panel) return null;
-  const x = Math.ceil(Math.max(0, host.left, panel.left));
-  const y = Math.ceil(Math.max(0, host.top, panel.top));
-  const right = Math.floor(Math.min(window.innerWidth, host.right, panel.right));
-  const bottom = Math.floor(Math.min(window.innerHeight, host.bottom, panel.bottom));
+  // DOM geometry is in CSS pixels; Electron child-view bounds are in screen DIP.
+  const zoom = window.desktopBridge?.getZoomFactor?.() ?? 1;
+  const scale = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+  const x = Math.ceil(Math.max(0, host.left, panel.left) * scale);
+  const y = Math.ceil(Math.max(0, host.top, panel.top) * scale);
+  const right = Math.floor(Math.min(window.innerWidth, host.right, panel.right) * scale);
+  const bottom = Math.floor(Math.min(window.innerHeight, host.bottom, panel.bottom) * scale);
   if (right <= x || bottom <= y) return null;
   return { x, y, width: right - x, height: bottom - y };
 }
 
+export function forgetNativeAppBounds(surface: HTMLElement): void {
+  lastNativeAppBounds.delete(surface);
+}
+
+export function sendNativeAppBounds(input: {
+  surface: HTMLElement;
+  tabId: string;
+  deckId: string;
+  threadId: string;
+  bounds: NonNullable<ReturnType<typeof appDockBoundsForElement>>;
+  animate?: boolean;
+  animationStartedAtEpochMs?: number;
+  force?: boolean;
+}): boolean {
+  const bridge = window.desktopBridge?.appTabs;
+  if (!bridge) return false;
+  const { surface, tabId, deckId, threadId, bounds, animate, animationStartedAtEpochMs, force } =
+    input;
+  const key = `${tabId}:${deckId}:${threadId}:${bounds.x},${bounds.y},${bounds.width},${bounds.height}`;
+  if (!force && lastNativeAppBounds.get(surface) === key) return false;
+  lastNativeAppBounds.set(surface, key);
+  void bridge
+    .present({
+      tabId,
+      deckId,
+      threadId,
+      bounds,
+      ...(animate === undefined ? {} : { animate }),
+      ...(animationStartedAtEpochMs === undefined ? {} : { animationStartedAtEpochMs }),
+    })
+    .catch(() => {
+      if (lastNativeAppBounds.get(surface) === key) lastNativeAppBounds.delete(surface);
+    });
+  return true;
+}
+
 export function publishNativeAppBounds(wrapper: HTMLElement): boolean {
   const surface = wrapper.querySelector<HTMLElement>("[data-app-tab-id]");
-  const bridge = window.desktopBridge?.appTabs;
-  if (!surface || !bridge) return false;
+  if (!surface) return false;
   const tabId = surface.dataset.appTabId;
   if (!tabId) return false;
   const bounds = appDockBoundsForElement(surface);
   if (!bounds) {
-    void bridge.hide({ tabId });
+    forgetNativeAppBounds(surface);
     return false;
   }
-  void bridge.present({
+  return sendNativeAppBounds({
+    surface,
     tabId,
     deckId: surface.dataset.appDeckId ?? "",
     threadId: surface.dataset.appThreadId ?? "",
     bounds,
   });
-  return true;
 }
 
 /**

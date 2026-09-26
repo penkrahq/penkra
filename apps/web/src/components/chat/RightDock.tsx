@@ -22,6 +22,7 @@ import {
   SIDEBAR_OFFCANVAS_MOTION_SUPPRESSED_CLASS,
   SidebarProvider,
   SidebarRail,
+  SIDEBAR_RAIL_HIT_AREA_PX,
   publishNativeAppBounds,
 } from "../ui/sidebar";
 import { CHAT_BACKGROUND_CLASS_NAME } from "./composerPickerStyles";
@@ -146,9 +147,14 @@ export function RightDock(props: RightDockProps) {
     const applyAvailableWidth = () => {
       const shellWidth = wrapper.parentElement?.clientWidth ?? window.innerWidth;
       const preferredWidth = props.state.width ?? Math.round(shellWidth / 2);
-      const maximumWidth = Math.max(0, shellWidth - (props.contentMinWidth ?? 0));
+      const maximumWidth = Math.max(
+        SIDEBAR_RAIL_HIT_AREA_PX,
+        shellWidth - (props.contentMinWidth ?? 0),
+      );
       const nextWidth = Math.min(Math.max(minWidth, preferredWidth), maximumWidth);
-      wrapper.style.setProperty("--sidebar-width", `${nextWidth}px`);
+      if (wrapper.style.getPropertyValue("--sidebar-width") !== `${nextWidth}px`) {
+        wrapper.style.setProperty("--sidebar-width", `${nextWidth}px`);
+      }
       shell.style.setProperty("--right-dock-overlay-inset", `${nextWidth}px`);
       publishNativeAppBounds(wrapper);
     };
@@ -165,17 +171,21 @@ export function RightDock(props: RightDockProps) {
     // switching shell layouts, changing the left rail, and leaving fullscreen
     // all resize this parent. Observe that element so the CSS dock and the
     // native App bounds are reconciled in the same frame.
-    const resizeObserver = new ResizeObserver(scheduleAvailableWidth);
+    const resizeObserver = new ResizeObserver(applyAvailableWidth);
     resizeObserver.observe(shell);
     if (contentRef.current) resizeObserver.observe(contentRef.current);
     window.addEventListener("resize", scheduleAvailableWidth);
     const removeWindowStateListener = window.desktopBridge?.windowControls?.onState(() =>
       scheduleAvailableWidth(),
     );
+    const removeZoomListener = window.desktopBridge?.onZoomFactorChange?.(() =>
+      scheduleAvailableWidth(),
+    );
     return () => {
       resizeObserver.disconnect();
       window.removeEventListener("resize", scheduleAvailableWidth);
       removeWindowStateListener?.();
+      removeZoomListener?.();
       if (resizeFrameId !== null) {
         window.cancelAnimationFrame(resizeFrameId);
       }
@@ -234,7 +244,7 @@ export function RightDock(props: RightDockProps) {
         transparentSurface
         resizable={{
           // The saved resize floor yields when the shell cannot fit both panes.
-          minWidth: props.contentMinWidth === undefined ? props.minWidth : 0,
+          minWidth: props.contentMinWidth === undefined ? props.minWidth : SIDEBAR_RAIL_HIT_AREA_PX,
           ...(props.onResize ? { onResize: props.onResize } : {}),
           shouldAcceptWidth: props.shouldAcceptWidth,
         }}
