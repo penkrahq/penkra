@@ -780,6 +780,9 @@ export interface DesktopBridge {
     onState: (listener: (state: DesktopWindowState) => void) => () => void;
   };
   onMenuAction: (listener: (action: string) => void) => () => void;
+  panelFocus?: {
+    onClosePanelTab: (listener: (input: { deckId: string }) => void) => () => void;
+  };
   /** Current `webContents` page zoom (1 = 100%). Used to keep macOS traffic-light gutter aligned. */
   getZoomFactor: () => number;
   onZoomFactorChange: (listener: (zoomFactor: number) => void) => () => void;
