@@ -282,9 +282,9 @@ function deriveEffectiveOptions(input: {
 }): ProviderModelOptions | null {
   const result: Partial<Record<ProviderKind, ProviderModelOptions[ProviderKind]>> = {};
   for (const selection of [
+    ...Object.values(input.draft?.modelSelectionByProvider ?? {}),
     input.projectModelSelection,
     input.threadModelSelection,
-    ...Object.values(input.draft?.modelSelectionByProvider ?? {}),
   ]) {
     if (!selection) continue;
     if (selection.options) result[selection.provider] = selection.options;
@@ -335,8 +335,8 @@ export function deriveEffectiveComposerModelState(input: {
   );
   const providerDeclaredDefault = availableOptions?.find((option) => option.isDefault)?.slug;
   const selectedModel =
-    available(draftSelection?.model) ??
     available(threadSelection?.model) ??
+    available(draftSelection?.model) ??
     available(projectSelection?.model) ??
     available(selectedDraftModel) ??
     (authoritativeCodex

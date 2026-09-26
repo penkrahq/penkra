@@ -753,6 +753,10 @@ function applyOrchestrationEvent(
             event.payload.modelSelection !== undefined
               ? normalizeModelSelection(event.payload.modelSelection, thread.modelSelection)
               : thread.modelSelection;
+          const connectionId =
+            event.payload.connectionId !== undefined
+              ? event.payload.connectionId
+              : (thread.connectionId ?? null);
           const nextWorkingDirectory =
             event.payload.workingDirectory !== undefined
               ? event.payload.workingDirectory
@@ -766,6 +770,7 @@ function applyOrchestrationEvent(
           if (
             (event.payload.title === undefined || event.payload.title === thread.title) &&
             modelSelection === thread.modelSelection &&
+            connectionId === (thread.connectionId ?? null) &&
             nextWorkingDirectory === (thread.workingDirectory ?? null) &&
             (event.payload.isPinned === undefined ||
               event.payload.isPinned === (thread.isPinned ?? false)) &&
@@ -791,6 +796,7 @@ function applyOrchestrationEvent(
             ...thread,
             ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
             modelSelection,
+            connectionId,
             workingDirectory: nextWorkingDirectory,
             ...(event.payload.isPinned !== undefined ? { isPinned: event.payload.isPinned } : {}),
             ...(event.payload.parentThreadId !== undefined
