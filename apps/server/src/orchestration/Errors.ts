@@ -40,6 +40,21 @@ export class OrchestrationCommandInvariantError extends Schema.TaggedErrorClass<
   }
 }
 
+export function findThreadGuardInvariant(
+  cause: unknown,
+): OrchestrationCommandInvariantError | null {
+  let current = cause;
+  while (current instanceof Error) {
+    if (
+      current instanceof OrchestrationCommandInvariantError &&
+      (current.code === "thread_archived" || current.code === "thread_running")
+    )
+      return current;
+    current = current.cause;
+  }
+  return null;
+}
+
 export class OrchestrationCommandPreviouslyRejectedError extends Schema.TaggedErrorClass<OrchestrationCommandPreviouslyRejectedError>()(
   "OrchestrationCommandPreviouslyRejectedError",
   {

@@ -107,6 +107,7 @@ import { makeDurableOrchestrationStream } from "./wsDurableOrchestrationStream";
 import { makeCursorSafeSnapshotLiveStream } from "./wsSnapshotLiveStream";
 import { makeSyncAcknowledgements } from "./wsSyncAcknowledgements";
 import { wsRpcErrorCode } from "./wsRpcErrorMapping";
+import { findThreadGuardInvariant } from "./orchestration/Errors.ts";
 
 const MAX_DIAGNOSTIC_CHILD_PROCESSES = 80;
 const MAX_DIAGNOSTIC_ARGS_CHARS = 500;
@@ -215,11 +216,13 @@ function readDescendantProcesses(rootPid: number): Promise<ProcessTableRow[]> {
 
 function toWsRpcError(cause: unknown, fallbackMessage: string) {
   const code = wsRpcErrorCode(cause);
+  const threadGuard = findThreadGuardInvariant(cause);
   return Schema.is(WsRpcError)(cause)
     ? cause
     : new WsRpcError({
         message:
-          cause instanceof Error && cause.message.length > 0 ? cause.message : fallbackMessage,
+          threadGuard?.detail ??
+          (cause instanceof Error && cause.message.length > 0 ? cause.message : fallbackMessage),
         cause,
         ...(code === undefined ? {} : { code, retryable: false }),
       });

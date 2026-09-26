@@ -27,6 +27,10 @@ import { Effect, Layer, Option } from "effect";
 
 import { ServerConfig } from "../../config.ts";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
+import {
+  OrchestrationCommandInvariantError,
+  findThreadGuardInvariant,
+} from "../../orchestration/Errors.ts";
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { QueuedTurnPromotionRepository } from "../../persistence/Services/QueuedTurnPromotions.ts";
@@ -137,6 +141,10 @@ function command(
 
 function sendMessageErrorResult(error: unknown) {
   if (error instanceof GatewayToolError) return gatewayToolErrorResult(error);
+  const threadGuard = findThreadGuardInvariant(error);
+  if (threadGuard?.code === "thread_archived") {
+    return gatewayToolErrorResult(new GatewayToolError(threadGuard.code, threadGuard.detail));
+  }
   if (error instanceof ProviderThreadSwitchCoordinatorError) {
     return gatewayToolErrorResult(new GatewayToolError(error.code, error.message));
   }
@@ -441,35 +449,34 @@ export const makeAgentGateway = Effect.gen(function* () {
         const messageId = MessageId.makeUnsafe(`agent:${suffix}:message`);
         const turnId = TurnId.makeUnsafe(`turn:${commandId}`);
         const cwd = target.workingDirectory;
-        yield* providerThreadSwitchCoordinator
-          .dispatchTurnStart({
-            command: {
-              type: "thread.turn.start",
-              commandId,
-              threadId: target.id,
-              turnId,
-              message: {
-                messageId,
-                role: "user",
-                text: message,
-                attachments: [],
-              },
-              dispatchMode,
-              dispatchOrigin: "agent",
-              senderThreadId: ThreadId.makeUnsafe(context.callerThreadId),
-              runtimeMode: target.runtimeMode,
-              ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
-              ...(input.modelSelection !== undefined
-                ? { modelSelection: input.modelSelection }
-                : Option.isNone(runtimeBinding)
-                  ? { modelSelection: target.modelSelection }
-                  : {}),
-              bindingRevision: Option.isSome(runtimeBinding) ? runtimeBinding.value.revision : 0,
-              createdAt: isoNow(),
+        yield* providerThreadSwitchCoordinator.dispatchTurnStart({
+          command: {
+            type: "thread.turn.start",
+            commandId,
+            threadId: target.id,
+            turnId,
+            message: {
+              messageId,
+              role: "user",
+              text: message,
+              attachments: [],
             },
-            attachmentPrincipal: attachmentPrincipalForSession(context.callerSessionKey),
-            ...(cwd ? { cwd } : {}),
-          });
+            dispatchMode,
+            dispatchOrigin: "agent",
+            senderThreadId: ThreadId.makeUnsafe(context.callerThreadId),
+            runtimeMode: target.runtimeMode,
+            ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
+            ...(input.modelSelection !== undefined
+              ? { modelSelection: input.modelSelection }
+              : Option.isNone(runtimeBinding)
+                ? { modelSelection: target.modelSelection }
+                : {}),
+            bindingRevision: Option.isSome(runtimeBinding) ? runtimeBinding.value.revision : 0,
+            createdAt: isoNow(),
+          },
+          attachmentPrincipal: attachmentPrincipalForSession(context.callerSessionKey),
+          ...(cwd ? { cwd } : {}),
+        });
         return mcpToolResultJson({ threadId: target.id, messageId, turnId });
       }).pipe(Effect.catch((error) => Effect.succeed(sendMessageErrorResult(error)))),
   };
@@ -638,9 +645,23 @@ export const makeAgentGateway = Effect.gen(function* () {
             ),
             threadId: target.id,
           })
-          .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
+          .pipe(
+            Effect.mapError((error) =>
+              error instanceof OrchestrationCommandInvariantError && error.code === "thread_running"
+                ? new GatewayToolError(error.code, error.detail)
+                : new ToolInputError(errorText(error)),
+            ),
+          );
         return mcpToolResultJson({ threadId: target.id, archived });
-      }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
+      }).pipe(
+        Effect.catch((error) =>
+          Effect.succeed(
+            error instanceof GatewayToolError
+              ? gatewayToolErrorResult(error)
+              : mcpToolResultError(errorText(error)),
+          ),
+        ),
+      ),
   });
   const archiveThread = makeSetThreadArchived(true);
   const unarchiveThread = makeSetThreadArchived(false);
