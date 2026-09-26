@@ -61,9 +61,9 @@ function shouldAcceptAppPanelWidth(input: { nextWidth: number; wrapper: HTMLElem
   const nextWidth =
     shellWidth === undefined
       ? input.nextWidth
-      : Math.max(
-          APP_PANEL_MIN_WIDTH,
-          Math.min(input.nextWidth, shellWidth - THREAD_PANEL_MIN_WIDTH),
+      : Math.min(
+          Math.max(APP_PANEL_MIN_WIDTH, input.nextWidth),
+          Math.max(0, shellWidth - THREAD_PANEL_MIN_WIDTH),
         );
 
   const previousSidebarWidth = input.wrapper.style.getPropertyValue("--sidebar-width");

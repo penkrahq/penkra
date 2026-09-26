@@ -20,7 +20,6 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useIsMobile } from "~/hooks/useMediaQuery";
 import { getLocalStorageItem, setLocalStorageItem } from "~/hooks/useLocalStorage";
 import { Schema } from "effect";
-import { CHAT_SURFACE_HEADER_HEIGHT_PX } from "@penkra/shared/desktopChrome";
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
@@ -28,30 +27,37 @@ const SIDEBAR_WIDTH = "16rem";
 const SIDEBAR_WIDTH_MOBILE = "calc(100vw - var(--spacing(3)))";
 const SIDEBAR_WIDTH_ICON = "3rem";
 const SIDEBAR_RESIZE_DEFAULT_MIN_WIDTH = 16 * 16;
-const NATIVE_APP_SPLITTER_CLEARANCE_PX = 1;
-
-export function appDockBoundsForWidth(dockWidth: number) {
-  const x = Math.ceil(window.innerWidth - dockWidth + NATIVE_APP_SPLITTER_CLEARANCE_PX);
-  const y = CHAT_SURFACE_HEADER_HEIGHT_PX;
-  return {
-    x: Math.max(0, x),
-    y,
-    width: Math.max(1, Math.floor(window.innerWidth - x)),
-    height: Math.max(1, Math.floor(window.innerHeight - y)),
-  };
+export function appDockBoundsForElement(surface: HTMLElement) {
+  const host = surface.getBoundingClientRect();
+  const panel = (
+    surface.closest<HTMLElement>("[data-slot='sidebar-container']") ??
+    surface.closest<HTMLElement>("[data-slot='sidebar-wrapper']")
+  )?.getBoundingClientRect();
+  if (!panel) return null;
+  const x = Math.ceil(Math.max(0, host.left, panel.left));
+  const y = Math.ceil(Math.max(0, host.top, panel.top));
+  const right = Math.floor(Math.min(window.innerWidth, host.right, panel.right));
+  const bottom = Math.floor(Math.min(window.innerHeight, host.bottom, panel.bottom));
+  if (right <= x || bottom <= y) return null;
+  return { x, y, width: right - x, height: bottom - y };
 }
 
-export function publishNativeAppBoundsForWidth(wrapper: HTMLElement, dockWidth: number): boolean {
+export function publishNativeAppBounds(wrapper: HTMLElement): boolean {
   const surface = wrapper.querySelector<HTMLElement>("[data-app-tab-id]");
   const bridge = window.desktopBridge?.appTabs;
   if (!surface || !bridge) return false;
   const tabId = surface.dataset.appTabId;
   if (!tabId) return false;
+  const bounds = appDockBoundsForElement(surface);
+  if (!bounds) {
+    void bridge.hide({ tabId });
+    return false;
+  }
   void bridge.present({
     tabId,
     deckId: surface.dataset.appDeckId ?? "",
     threadId: surface.dataset.appThreadId ?? "",
-    bounds: appDockBoundsForWidth(dockWidth),
+    bounds,
   });
   return true;
 }
@@ -511,8 +517,8 @@ function SidebarRail({
 
     const acceptedWidth =
       typeof accepted === "number" ? clampSidebarWidth(accepted, resolvedResizable) : nextWidth;
-    publishNativeAppBoundsForWidth(activeResizeState.wrapper, acceptedWidth);
     activeResizeState.wrapper.style.setProperty("--sidebar-width", `${acceptedWidth}px`);
+    publishNativeAppBounds(activeResizeState.wrapper);
     activeResizeState.width = acceptedWidth;
   }, [resolvedResizable]);
 

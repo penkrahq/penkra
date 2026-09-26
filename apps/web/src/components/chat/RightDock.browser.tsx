@@ -118,4 +118,29 @@ describe("RightDock Thread width", () => {
       expect(wrapper?.style.getPropertyValue("--sidebar-width")).toBe("500px"),
     );
   });
+
+  it("lets the dock yield below its resize floor to preserve the chat minimum", async () => {
+    await page.viewport(1280, 800);
+    const state: RightDockDeckState = {
+      open: true,
+      panes: [pane],
+      activePaneId: pane.id,
+      width: 740,
+    };
+    const view = await render(dock(state, "thread-a", { shellWidth: 900, contentMinWidth: 400 }));
+    const wrapper = document.querySelector<HTMLElement>("[data-slot='sidebar-wrapper']")!;
+    expect(wrapper.style.getPropertyValue("--sidebar-width")).toBe("500px");
+
+    await view.rerender(dock(state, "thread-a", { shellWidth: 600, contentMinWidth: 400 }));
+    await vi.waitFor(() => expect(wrapper.style.getPropertyValue("--sidebar-width")).toBe("200px"));
+    const shell = wrapper.parentElement!;
+    await vi.waitFor(() =>
+      expect(wrapper.getBoundingClientRect().left).toBeGreaterThanOrEqual(
+        shell.getBoundingClientRect().left + 400,
+      ),
+    );
+
+    await view.rerender(dock(state, "thread-a", { shellWidth: 900, contentMinWidth: 400 }));
+    await vi.waitFor(() => expect(wrapper.style.getPropertyValue("--sidebar-width")).toBe("500px"));
+  });
 });
