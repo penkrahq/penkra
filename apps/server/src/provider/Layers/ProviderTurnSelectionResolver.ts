@@ -534,7 +534,7 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
           });
           if (recorded !== null && !claudeConnectionsShareAccount(recorded, connection)) {
             return yield* fail(
-              "Claude subscription continuation requires the same account.",
+              "This thread's Claude conversation belongs to a different Claude account. Use a Connection signed in to that account, or start a new thread.",
               "connection_unauthorized",
             );
           }
@@ -553,7 +553,7 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
               !claudeConnectionsShareAccount(previous.value, connection)
             ) {
               return yield* fail(
-                "Claude subscription continuation requires the same account.",
+                "This thread's Claude conversation belongs to a different Claude account. Use a Connection signed in to that account, or start a new thread.",
                 "connection_unauthorized",
               );
             }
