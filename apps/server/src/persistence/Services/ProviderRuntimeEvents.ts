@@ -52,10 +52,7 @@ export interface ProviderRuntimeEventRepositoryShape {
   ) => Effect.Effect<PersistedProviderRuntimeEvent, ProviderRuntimeEventRepositoryError>;
   readonly appendWithDiagnosticAdmission: (
     event: ProviderRuntimeEvent,
-  ) => Effect.Effect<
-    PersistedProviderRuntimeEvent | null,
-    ProviderRuntimeEventRepositoryError
-  >;
+  ) => Effect.Effect<PersistedProviderRuntimeEvent | null, ProviderRuntimeEventRepositoryError>;
   readonly getHighWaterSequence: Effect.Effect<number, PersistenceSqlError>;
   readonly readAfter: (input: {
     readonly sequenceExclusive: number;

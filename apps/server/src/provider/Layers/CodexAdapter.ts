@@ -322,7 +322,9 @@ function codexProviderErrorWarningClass(
     : undefined;
 }
 
-function codexRuntimeDiagnostic(value: unknown):
+function codexRuntimeDiagnostic(
+  value: unknown,
+):
   | { readonly key: string; readonly fingerprint: string; readonly state: "active" | "resolved" }
   | undefined {
   const diagnostic = asObject(asObject(value)?.diagnostic);
