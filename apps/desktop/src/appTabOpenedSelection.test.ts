@@ -51,6 +51,7 @@ describe("queued App tab opens", () => {
     route: "/",
     status: "ready",
     selection: "activate",
+    initiator: "user",
   };
 
   it("flushes an agent open as preserve after its sole origin window has closed", () => {
