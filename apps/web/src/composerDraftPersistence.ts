@@ -985,13 +985,10 @@ function normalizePersistedDraftsByThreadId(
       activeProvider = modelSelection?.provider ?? null;
     }
 
-    const normalizedQueuedTurns = queuedTurns ?? [];
-    const pendingStartRecoveriesByMessageId = normalizePendingStartRecoveryMap(
-      threadId as ThreadId,
-      draftCandidate.pendingStartRecoveriesByMessageId,
-      draftCandidate.pendingStartRecovery,
-    );
-    const queuePaused = draftCandidate.queuePaused === true;
+    // The server owns queue admission and recovery. Local snapshots may only
+    // contain stale speculative rows; never revive one without server proof.
+    const normalizedQueuedTurns: typeof queuedTurns = [];
+    const pendingStartRecoveriesByMessageId: Record<string, PendingStartRecoveryRecord> = {};
     const pendingMessageEdit = Schema.is(PersistedPendingMessageEdit)(
       draftCandidate.pendingMessageEdit,
     )
@@ -1014,7 +1011,6 @@ function normalizePersistedDraftsByThreadId(
       !hasQueuedTurns &&
       Object.keys(pendingStartRecoveriesByMessageId).length === 0 &&
       pendingMessageEdit === undefined &&
-      !queuePaused &&
       !hasModelData &&
       !runtimeMode
     ) {
@@ -1036,7 +1032,6 @@ function normalizePersistedDraftsByThreadId(
         ? { pendingStartRecoveriesByMessageId }
         : {}),
       ...(pendingMessageEdit ? { pendingMessageEdit } : {}),
-      ...(queuePaused ? { queuePaused: true } : {}),
       ...(hasModelData ? { modelSelectionByProvider, activeProvider } : {}),
       ...(runtimeMode ? { runtimeMode } : {}),
     };
@@ -1074,125 +1069,12 @@ export function partializeComposerDraftStoreState(
     if (typeof threadId !== "string" || threadId.length === 0) {
       continue;
     }
+    // Queue rows and failure recovery now live in the thread projection. Keep no
+    // per-window copy in durable composer storage.
     const persistedQueuedTurns: DeepMutable<
       NonNullable<PersistedComposerThreadDraftState["queuedTurns"]>
     > = [];
-    for (const queuedTurn of draft.queuedTurns) {
-      if (queuedTurn.kind === "chat") {
-        if (queuedTurn.files.some((file) => !file.assetKey)) {
-          continue;
-        }
-        const images = persistQueuedComposerImages(queuedTurn.images);
-        if (images.length !== queuedTurn.images.length) {
-          continue;
-        }
-        persistedQueuedTurns.push({
-          id: queuedTurn.id,
-          kind: "chat",
-          createdAt: queuedTurn.createdAt,
-          ...(queuedTurn.serverAcceptedAt ? { serverAcceptedAt: queuedTurn.serverAcceptedAt } : {}),
-          ...(queuedTurn.serverMessageId ? { serverMessageId: queuedTurn.serverMessageId } : {}),
-          ...(queuedTurn.dispatchAttempt === undefined
-            ? {}
-            : { dispatchAttempt: queuedTurn.dispatchAttempt }),
-          ...(queuedTurn.dispatchBindingRevision === undefined
-            ? {}
-            : { dispatchBindingRevision: queuedTurn.dispatchBindingRevision }),
-          previewText: queuedTurn.previewText,
-          prompt: queuedTurn.prompt,
-          images,
-          files: queuedTurn.files.map((file) => ({
-            id: file.id,
-            name: file.name,
-            mimeType: file.mimeType,
-            sizeBytes: file.sizeBytes,
-            assetKey: file.assetKey!,
-          })),
-          assistantSelections: queuedTurn.assistantSelections.map((selection) => ({
-            id: selection.id,
-            assistantMessageId: selection.assistantMessageId,
-            text: selection.text,
-          })),
-          terminalContexts: queuedTurn.terminalContexts.map((context) => ({
-            id: context.id,
-            threadId: context.threadId,
-            createdAt: context.createdAt,
-            terminalId: context.terminalId,
-            terminalLabel: context.terminalLabel,
-            lineStart: context.lineStart,
-            lineEnd: context.lineEnd,
-            text: context.text,
-          })),
-          ...(queuedTurn.fileComments.length > 0
-            ? {
-                fileComments: queuedTurn.fileComments.map((comment) => ({
-                  id: comment.id,
-                  path: comment.path,
-                  startLine: comment.startLine,
-                  endLine: comment.endLine,
-                  text: comment.text,
-                })),
-              }
-            : {}),
-          ...(queuedTurn.pastedTexts.length > 0
-            ? {
-                pastedTexts: queuedTurn.pastedTexts.map((pasted) => ({
-                  id: pasted.id,
-                  createdAt: pasted.createdAt,
-                  text: pasted.text,
-                  ...(pasted.title ? { title: pasted.title } : {}),
-                })),
-              }
-            : {}),
-          skills: [...queuedTurn.skills],
-          mentions: [...queuedTurn.mentions],
-          selectedProvider: queuedTurn.selectedProvider,
-          selectedModel: queuedTurn.selectedModel,
-          selectedPromptEffort: queuedTurn.selectedPromptEffort,
-          modelSelection: queuedTurn.modelSelection,
-          connectionId: queuedTurn.connectionId,
-          ...(queuedTurn.providerOptionsForDispatch
-            ? {
-                providerOptionsForDispatch: queuedTurn.providerOptionsForDispatch,
-              }
-            : {}),
-          runtimeMode: queuedTurn.runtimeMode,
-        });
-      }
-    }
     const persistedPendingStartRecoveriesByMessageId: Record<string, unknown> = {};
-    for (const [messageId, pendingStartRecovery] of Object.entries(
-      draft.pendingStartRecoveriesByMessageId ?? {},
-    )) {
-      if (!pendingStartRecovery) continue;
-      if ("raw" in pendingStartRecovery) {
-        persistedPendingStartRecoveriesByMessageId[messageId] = pendingStartRecovery.raw;
-      } else {
-        const pendingTurn = serializeQueuedComposerTurn(
-          pendingStartRecovery.pendingTurn as unknown as QueuedComposerTurn,
-          true,
-        );
-        persistedPendingStartRecoveriesByMessageId[messageId] = {
-          schemaVersion: 1,
-          threadId: pendingStartRecovery.threadId,
-          messageId: pendingStartRecovery.messageId,
-          pendingTurn: {
-            ...pendingTurn,
-            messageId: pendingStartRecovery.messageId,
-          },
-          settlement: pendingStartRecovery.settlement,
-          ...(pendingStartRecovery.receiptSequence === undefined
-            ? {}
-            : { receiptSequence: pendingStartRecovery.receiptSequence }),
-          ...(pendingStartRecovery.restorationReceipt === undefined
-            ? {}
-            : { restorationReceipt: pendingStartRecovery.restorationReceipt }),
-          ...(pendingStartRecovery.persistedImages === undefined
-            ? {}
-            : { persistedImages: pendingStartRecovery.persistedImages }),
-        };
-      }
-    }
     const hasModelData =
       Object.keys(draft.modelSelectionByProvider).length > 0 || draft.activeProvider !== null;
     const hasQueuedTurns = persistedQueuedTurns.length > 0;
@@ -1211,7 +1093,6 @@ export function partializeComposerDraftStoreState(
       !hasQueuedTurns &&
       Object.keys(persistedPendingStartRecoveriesByMessageId).length === 0 &&
       draft.pendingMessageEdit === null &&
-      !draft.queuePaused &&
       !hasModelData &&
       draft.runtimeMode === null
     ) {
@@ -1364,7 +1245,6 @@ export function partializeComposerDraftStoreState(
             pendingStartRecoveriesByMessageId: persistedPendingStartRecoveriesByMessageId,
           }),
       ...(draft.pendingMessageEdit ? { pendingMessageEdit: draft.pendingMessageEdit } : {}),
-      ...(draft.queuePaused ? { queuePaused: true } : {}),
       ...(hasModelData
         ? {
             modelSelectionByProvider: draft.modelSelectionByProvider,
