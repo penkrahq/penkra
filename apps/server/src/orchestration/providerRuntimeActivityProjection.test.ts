@@ -56,6 +56,41 @@ function expectSchemaValidActivities(event: ProviderRuntimeEvent): void {
 }
 
 describe("projected activities satisfy the orchestration command schema", () => {
+  it.each([
+    ["codex", "01a0-codex-native"],
+    ["claudeAgent", "01a00000-0000-4000-8000-000000000001"],
+    ["opencode", "opencode-turn-native"],
+  ] as const)("separates %s provider turn ids from Penkra handles", (provider, nativeId) => {
+    const event = {
+      ...runtimeEvent({
+        type: "tool.progress",
+        eventId: "tool-" + provider + "-native-turn",
+        turnId: TurnId.makeUnsafe(nativeId),
+        payload: { toolUseId: "tool-call", toolName: "Read", summary: "Reading" },
+      }),
+      provider,
+    } as ProviderRuntimeEvent;
+    const [unmapped] = projectProviderRuntimeActivities(event);
+    expect(unmapped).toMatchObject({ turnId: null, providerTurnId: nativeId });
+    const logicalTurnId = TurnId.makeUnsafe("turn:agent:" + provider + ":send");
+    const [mapped] = projectProviderRuntimeActivities(event, { turnId: logicalTurnId });
+    expect(mapped).toMatchObject({ turnId: logicalTurnId, providerTurnId: nativeId });
+  });
+
+  it("preserves Penkra handles without relabeling them as provider ids", () => {
+    const logicalTurnId = TurnId.makeUnsafe("turn:agent:codex:send");
+    const [activity] = projectProviderRuntimeActivities(
+      runtimeEvent({
+        type: "tool.progress",
+        eventId: "tool-logical-turn",
+        turnId: logicalTurnId,
+        payload: { toolUseId: "tool-call", toolName: "Read", summary: "Reading" },
+      }),
+    );
+    expect(activity).toMatchObject({ turnId: logicalTurnId });
+    expect(activity).not.toHaveProperty("providerTurnId");
+  });
+
   it("omits an absent approval request id instead of emitting an explicit undefined", () => {
     expectSchemaValidActivities(
       runtimeEvent({
@@ -264,7 +299,7 @@ describe("provider runtime activity projection", () => {
       }),
     ];
 
-    expect(events.map(projectProviderRuntimeActivities)).toEqual([[], [], []]);
+    expect(events.map((event) => projectProviderRuntimeActivities(event))).toEqual([[], [], []]);
   });
 
   it("folders only readable completed Codex-family reasoning summaries", () => {
@@ -296,7 +331,7 @@ describe("provider runtime activity projection", () => {
         payload: { itemType: "reasoning", status: "completed", detail: "Readable" },
       }),
     ];
-    expect(absent.map(projectProviderRuntimeActivities)).toEqual([[], [], []]);
+    expect(absent.map((event) => projectProviderRuntimeActivities(event))).toEqual([[], [], []]);
 
     for (const provider of ["codex"] as const) {
       const [activity] = projectProviderRuntimeActivities(
@@ -410,7 +445,7 @@ describe("provider runtime activity projection", () => {
         requestId: ApprovalRequestId.makeUnsafe("request-2"),
         payload: { answers: { sandbox_mode: "workspace-write" } },
       }),
-    ].flatMap(projectProviderRuntimeActivities);
+    ].flatMap((event) => projectProviderRuntimeActivities(event));
 
     expect(userInput).toMatchObject([
       {
