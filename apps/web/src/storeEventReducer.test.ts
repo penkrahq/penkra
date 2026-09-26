@@ -40,6 +40,7 @@ import { createSidebarTreeThreadsSelector } from "./storeSelectors";
 import { createComposerDraftStoreState } from "./composerDraftActions";
 import type { ComposerDraftStoreState } from "./composerDraftDomain";
 import { resolveThreadStatusPill } from "./components/Sidebar.logic";
+import { shouldShowComposerContinue } from "./components/ChatView.logic";
 
 describe("store event reducer", () => {
   it("keeps agent sender metadata and clears it on a user-origin resend", () => {
@@ -1868,6 +1869,93 @@ describe("store event reducer", () => {
       completedAt: null,
       assistantMessageId: MessageId.makeUnsafe("assistant-running"),
     });
+  });
+
+  it("shows Play when an assistant completion precedes the user Stop terminal session", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const turnId = TurnId.makeUnsafe("turn-stopped-after-assistant-completion");
+    const assistantMessageId = MessageId.makeUnsafe("assistant-stopped-after-completion");
+    const startedAt = "2026-09-26T21:04:38.903Z";
+    const completedAt = "2026-09-26T21:04:49.812Z";
+    const initial = makeState(
+      makeThread({
+        session: {
+          provider: "codex",
+          status: "running",
+          orchestrationStatus: "running",
+          activeTurnId: turnId,
+          createdAt: startedAt,
+          updatedAt: startedAt,
+        },
+        latestTurn: {
+          turnId,
+          state: "running",
+          requestedAt: startedAt,
+          startedAt,
+          completedAt: null,
+          assistantMessageId: null,
+        },
+      }),
+    );
+    const afterStop = applyOrchestrationEvents(initial, [
+      makeDomainEvent(
+        "thread.turn-interrupt-requested",
+        {
+          threadId,
+          turnId,
+          createdAt: "2026-09-26T21:04:49.789Z",
+        },
+        { sequence: 1 },
+      ),
+      makeDomainEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId: assistantMessageId,
+          role: "assistant",
+          text: "Partial reply",
+          turnId,
+          streaming: false,
+          source: "native",
+          createdAt: startedAt,
+          updatedAt: completedAt,
+          attachments: [],
+        },
+        { sequence: 2 },
+      ),
+      makeDomainEvent(
+        "thread.session-set",
+        {
+          threadId,
+          session: {
+            threadId,
+            status: "interrupted",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: completedAt,
+          },
+        },
+        { sequence: 3 },
+      ),
+    ]);
+    const thread = threadsOf(afterStop)[0]!;
+    expect(thread.latestTurn).toMatchObject({ turnId, state: "interrupted", completedAt });
+    expect(
+      shouldShowComposerContinue({
+        thread,
+        isServerThread: true,
+        hydration: "ready",
+        binding: { modelId: "gpt-5-codex" },
+        hiddenTurnId: null,
+        continueInFlight: false,
+        sendBusy: false,
+        sendPreflight: false,
+        connecting: false,
+        hasSendableContent: false,
+      }),
+    ).toBe(true);
   });
 
   it("adopts runtime mode from user-dispatched turns", () => {
