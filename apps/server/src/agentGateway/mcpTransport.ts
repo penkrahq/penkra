@@ -268,6 +268,16 @@ export function makeAgentGatewayMcpTransport(input: {
           ),
         };
       }
+      if (callerThread.value.archivedAt !== null) {
+        return {
+          status: 401,
+          body: jsonRpcError(
+            null,
+            JSON_RPC_INVALID_REQUEST,
+            "caller_thread_inactive: The caller thread is archived.",
+          ),
+        };
+      }
       const liveProvider = callerThread.value.session?.providerName;
       if ((liveProvider ?? callerThread.value.modelSelection.provider) !== callerSession.provider) {
         return {
@@ -315,6 +325,12 @@ export function makeAgentGatewayMcpTransport(input: {
         ingressAuthority.turnId === null
           ? null
           : input.credentials.bindWriteAuthority(token, ingressAuthority.turnId);
+      const callerTurnId =
+        requestInput.originTurnId?.trim() ||
+        (callerThread.value.session?.status === "running"
+          ? callerThread.value.session.activeTurnId
+          : null) ||
+        null;
       const assertCallerThreadAuthorized: ToolContext["assertCallerThreadAuthorized"] = () =>
         Effect.gen(function* () {
           const currentSession = input.credentials.verifySession(token);
@@ -331,16 +347,18 @@ export function makeAgentGatewayMcpTransport(input: {
               ),
             );
           }
-          const caller = yield* input.requireThreadShell(callerThreadId).pipe(
-            Effect.mapError(
-              (error) =>
-                new GatewayToolError(
-                  "caller_thread_inactive",
-                  "This Penkra operation was rejected because the caller thread could no longer be verified.",
-                  { callerThreadId, error: errorText(error) },
-                ),
-            ),
-          );
+          const caller = yield* input
+            .requireThreadShell(callerThreadId)
+            .pipe(
+              Effect.mapError(
+                (error) =>
+                  new GatewayToolError(
+                    "caller_thread_inactive",
+                    "This Penkra operation was rejected because the caller thread could no longer be verified.",
+                    { callerThreadId, error: errorText(error) },
+                  ),
+              ),
+            );
           if (caller.archivedAt !== null) {
             return yield* Effect.fail(
               new GatewayToolError(
@@ -393,16 +411,18 @@ export function makeAgentGatewayMcpTransport(input: {
               ),
             );
           }
-          const caller = yield* input.requireThreadShell(callerThreadId).pipe(
-            Effect.mapError(
-              (error) =>
-                new GatewayToolError(
-                  "caller_turn_inactive",
-                  "This Penkra write was rejected because the caller thread could no longer be verified.",
-                  { callerThreadId, error: errorText(error) },
-                ),
-            ),
-          );
+          const caller = yield* input
+            .requireThreadShell(callerThreadId)
+            .pipe(
+              Effect.mapError(
+                (error) =>
+                  new GatewayToolError(
+                    "caller_turn_inactive",
+                    "This Penkra write was rejected because the caller thread could no longer be verified.",
+                    { callerThreadId, error: errorText(error) },
+                  ),
+              ),
+            );
           const activeAuthority = yield* resolveCallerTurnId(caller).pipe(
             Effect.mapError(
               (error) =>
@@ -441,13 +461,14 @@ export function makeAgentGatewayMcpTransport(input: {
           sessionKey: callerSession.sessionKey,
           threadId: callerThreadId,
           provider: callerSession.provider,
-          turnId: callerWriteAuthority?.turnId ?? null,
+          turnId: callerTurnId,
         },
         callerThreadId,
         callerSessionKey: callerSession.sessionKey,
         callerProvider: callerSession.provider,
         callerCapabilities: callerSession.capabilities,
-        callerTurnId: callerWriteAuthority?.turnId ?? null,
+        callerTurnId,
+        callerWriteTurnId: callerWriteAuthority?.turnId ?? null,
         assertCallerThreadAuthorized,
         assertCallerTurnActive,
       };
