@@ -33,7 +33,7 @@ export function threadIdFromMentionReference(reference: ProviderMentionReference
   return threadIdFromThreadMentionPath(reference.path);
 }
 
-function clampMentionTitle(title: string): string {
+export function clampMentionTitle(title: string): string {
   return title.length > THREAD_MENTION_MAX_TITLE_CHARS
     ? `${title.slice(0, THREAD_MENTION_MAX_TITLE_CHARS - 1)}…`
     : title;

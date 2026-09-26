@@ -96,6 +96,7 @@ import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeInge
 import { ProviderThreadSwitchCoordinator } from "../Services/ProviderThreadSwitchCoordinator.ts";
 import { attachmentRelativePath } from "../../attachmentStore.ts";
 import { resolveProviderAttachmentPath } from "../../provider/providerAttachmentPaths.ts";
+import { clampMentionTitle } from "../../provider/threadMentionContext.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
@@ -2275,6 +2276,84 @@ describe("ProviderCommandReactor", () => {
     expect(input?.input?.length).toBe(PROVIDER_SEND_TURN_MAX_INPUT_CHARS);
     expect(input?.mentions).toBeUndefined();
   });
+
+  it.each(["codex", "claudeAgent", "opencode"] as const)(
+    "adds escaped sender attribution to %s provider input without changing stored text",
+    async (provider) => {
+      const harness = await createHarness({
+        threadModelSelection: { provider, model: "test-model" },
+      });
+      const now = new Date().toISOString();
+      const senderThreadId = ThreadId.makeUnsafe("sender-thread");
+      const title = `Lead [A] "quoted"\n title ${"x".repeat(210)}`;
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.makeUnsafe(`cmd-create-sender-${provider}`),
+          threadId: senderThreadId,
+          deckId: singletonThreadDeckId(senderThreadId),
+          folderId: FolderId.makeUnsafe("project-1"),
+          title,
+          modelSelection: { provider, model: "test-model" },
+          runtimeMode: "approval-required",
+          workingDirectory: "/tmp/provider-project",
+          createdAt: now,
+        }),
+      );
+      const messageText = "Please inspect the latest changes.";
+
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.makeUnsafe(`cmd-agent-sender-${provider}`),
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          senderThreadId,
+          dispatchOrigin: "agent",
+          connectionId: TEST_CONNECTION_ID,
+          bindingRevision: 0,
+          modelSelection: { provider, model: "test-model" },
+          message: {
+            messageId: asMessageId(`message-agent-sender-${provider}`),
+            role: "user",
+            text: messageText,
+            attachments: [],
+          },
+          runtimeMode: "approval-required",
+          createdAt: now,
+        }),
+      );
+
+      await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+      const sentInput = harness.sendTurn.mock.calls[0]?.[0].input;
+      expect(sentInput).toContain(
+        [
+          "<agent_message_sender>",
+          "This message was written by the agent in another Penkra thread, not by the user.",
+          `Thread: ${JSON.stringify(clampMentionTitle(title))}`,
+          "Thread ID: sender-thread",
+          "</agent_message_sender>",
+          "",
+          "",
+        ].join("\n"),
+      );
+      expect(sentInput).toContain(messageText);
+      expect(sentInput).not.toContain("\n title");
+
+      const persistedEvents = await Effect.runPromise(
+        Stream.runCollect(harness.engine.readEvents(0)).pipe(
+          Effect.map((events) => Array.from(events)),
+        ),
+      );
+      const sentMessage = persistedEvents.find(
+        (event) =>
+          event.type === "thread.message-sent" &&
+          event.payload.messageId === asMessageId(`message-agent-sender-${provider}`),
+      );
+      expect(sentMessage?.type === "thread.message-sent" ? sentMessage.payload.text : null).toBe(
+        messageText,
+      );
+    },
+  );
 
   it("does not rebootstrap an empty OpenCode fork after its first native turn", async () => {
     const harness = await createHarness({

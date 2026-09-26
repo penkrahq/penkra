@@ -220,16 +220,21 @@ function UserDispatchModeChip({
   }
 
   const { Icon, label } = USER_TURN_MARKER_PRESENTATION[markerKind];
+  const senderTitle = senderThread?.title;
+  const hasKnownSenderTitle = Boolean(senderTitle?.trim());
   const senderLabel =
-    senderThread && !senderThread.archivedAt ? `Sent by ${senderThread.title}` : label;
+    markerKind === "agent" && hasKnownSenderTitle ? `Sent by ${senderTitle}` : label;
   const content = (
     <>
       <Icon className="size-3 shrink-0 text-muted-foreground/75" />
-      <span>{senderLabel}</span>
+      <span className="min-w-0 max-w-full truncate" title={senderTitle || undefined}>
+        {senderLabel}
+      </span>
     </>
   );
   if (
     markerKind === "agent" &&
+    hasKnownSenderTitle &&
     senderThread &&
     !senderThread.archivedAt &&
     senderThreadId &&
@@ -239,10 +244,12 @@ function UserDispatchModeChip({
       <button
         type="button"
         className={cn(
-          "inline-flex items-center gap-1.5 self-end px-0 text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/78 hover:text-foreground/82",
+          "inline-flex max-w-full min-w-0 items-center gap-1.5 self-end px-0 text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/78 hover:text-foreground/82",
           hasLeadingMedia ? "mb-3" : "mb-1.5",
         )}
         onClick={() => onOpenThread(senderThreadId)}
+        aria-label={`Open ${senderTitle}`}
+        title={senderTitle}
       >
         {content}
       </button>
@@ -251,7 +258,7 @@ function UserDispatchModeChip({
   return (
     <div
       className={cn(
-        "inline-flex items-center gap-1.5 self-end px-0 text-[length:var(--app-font-size-ui-sm,11px)] font-normal tracking-[0.01em] text-muted-foreground/78",
+        "inline-flex max-w-full min-w-0 items-center gap-1.5 self-end px-0 text-[length:var(--app-font-size-ui-sm,11px)] font-normal tracking-[0.01em] text-muted-foreground/78",
         hasLeadingMedia ? "mb-3" : "mb-1.5",
       )}
     >
