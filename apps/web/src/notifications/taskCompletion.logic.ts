@@ -9,6 +9,8 @@ import {
   type TerminalVisualState,
 } from "@penkra/shared/terminalThreads";
 import type { Thread, ThreadSession } from "../types";
+import type { AppState } from "../storeState";
+import { isPersistedThreadOpenable } from "../storeSelectors";
 import {
   derivePendingApprovals,
   derivePendingUserInputs,
@@ -58,6 +60,16 @@ export interface TerminalAttentionCandidate {
 }
 
 type ThreadSessionStatus = ThreadSession["status"];
+
+export function focusAvailableNotificationThread(input: {
+  threadId: Thread["id"];
+  state: Pick<AppState, "threadShellById">;
+  navigate: (threadId: Thread["id"]) => void;
+}): boolean {
+  if (!isPersistedThreadOpenable(input.state, input.threadId)) return false;
+  input.navigate(input.threadId);
+  return true;
+}
 
 // Thread completion toasts are for off-screen work; visible threads already show the result inline.
 export function shouldShowThreadNotificationToast(input: {
