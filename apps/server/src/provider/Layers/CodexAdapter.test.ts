@@ -28,6 +28,7 @@ import {
 } from "../../codexAppServerManager.ts";
 import { ServerConfig } from "../../config.ts";
 import { ProviderAdapterValidationError } from "../Errors.ts";
+import { classifyProviderAuthFailure } from "../providerAuthFailure.ts";
 import { CodexAdapter } from "../Services/CodexAdapter.ts";
 import { ProviderSessionDirectory } from "../Services/ProviderSessionDirectory.ts";
 import { makeCodexAdapterLive } from "./CodexAdapter.ts";
@@ -1249,6 +1250,40 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     }),
   );
 
+  it.effect("classifies a terminal 401 emitted at the Codex adapter boundary", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+      yield* Effect.yieldNow;
+      lifecycleManager.emit("event", {
+        id: asEventId("evt-terminal-401"),
+        kind: "notification",
+        provider: "codex",
+        threadId: asThreadId("thread-1"),
+        createdAt: new Date().toISOString(),
+        method: "error",
+        turnId: asTurnId("turn-401"),
+        payload: {
+          error: {
+            message: "401 Incorrect API key provided: sk-svcac…",
+            codexErrorInfo: "unauthorized",
+          },
+          willRetry: false,
+        },
+      } satisfies ProviderEvent);
+      const result = yield* Fiber.join(firstEventFiber);
+      assert.equal(result._tag, "Some");
+      if (result._tag !== "Some" || result.value.type !== "runtime.error") return;
+      assert.equal(
+        classifyProviderAuthFailure({
+          detail: result.value.payload.message,
+          authenticationMethodId: "chatgpt",
+        })?.kind,
+        "provider-rejected",
+      );
+    }),
+  );
+
   it.effect("drops untyped tool-attempt errors and raw stderr before one actionable warning", () =>
     Effect.gen(function* () {
       const adapter = yield* CodexAdapter;
@@ -1291,6 +1326,13 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         createdAt: new Date().toISOString(),
         method: "mcpServer/startupFailed",
         message: "MCP server “paper” failed to start. Its tools are unavailable for this session.",
+        payload: {
+          diagnostic: {
+            key: "codex:mcp-startup:paper",
+            fingerprint: "paper",
+            state: "active",
+          },
+        },
       } satisfies ProviderEvent);
       lifecycleManager.emit("event", {
         id: asEventId("evt-warning-test-sentinel"),
@@ -1325,6 +1367,13 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         createdAt: new Date().toISOString(),
         method: "mcpServer/startupFailed",
         message: "MCP server “paper” failed to start. Its tools are unavailable for this session.",
+        payload: {
+          diagnostic: {
+            key: "codex:mcp-startup:paper",
+            fingerprint: "paper",
+            state: "active",
+          },
+        },
       } satisfies ProviderEvent);
 
       const firstEvent = yield* Fiber.join(firstEventFiber);
@@ -1335,6 +1384,11 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         firstEvent.value.payload.message,
         "MCP server “paper” failed to start. Its tools are unavailable for this session.",
       );
+      assert.deepStrictEqual(firstEvent.value.payload.diagnostic, {
+        key: "codex:mcp-startup:paper",
+        fingerprint: "paper",
+        state: "active",
+      });
     }),
   );
 

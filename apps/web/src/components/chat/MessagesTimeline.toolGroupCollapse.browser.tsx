@@ -12,7 +12,12 @@ import { render } from "vitest-browser-react";
 import { MessagesTimeline } from "./MessagesTimeline";
 import type { TimelineEntry } from "../../session-logic";
 
-function assistantEntry(id: string, text: string, streaming: boolean): TimelineEntry {
+function assistantEntry(
+  id: string,
+  text: string,
+  streaming: boolean,
+  completedAt?: string,
+): TimelineEntry {
   return {
     id: `entry-${id}`,
     kind: "message",
@@ -22,6 +27,7 @@ function assistantEntry(id: string, text: string, streaming: boolean): TimelineE
       role: "assistant",
       text,
       createdAt: "2026-03-17T19:12:28.000Z",
+      ...(completedAt ? { completedAt } : {}),
       streaming,
     },
   };
@@ -171,6 +177,166 @@ describe("MessagesTimeline tool group collapse", () => {
       await expect
         .poll(() => (document.body.textContent ?? "").includes(SETTLED_COMMANDS[0]!))
         .toBe(false);
+    } finally {
+      await screen.unmount();
+      host.remove();
+    }
+  });
+
+  it("places Worked for above an image presented inside a settled assistant turn", async () => {
+    const host = createTimelineHost();
+    const screen = await render(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        timelineEntries={[
+          {
+            id: "entry-media-user",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:27.000Z",
+            message: {
+              id: MessageId.makeUnsafe("media-user"),
+              role: "user",
+              text: "Make an image",
+              createdAt: "2026-03-17T19:12:27.000Z",
+              streaming: false,
+            },
+          },
+          assistantEntry(
+            "media-preamble",
+            "Preparing the image.",
+            false,
+            "2026-03-17T19:12:28.500Z",
+          ),
+          {
+            id: "entry-presented-media",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:29.000Z",
+            entry: {
+              id: "presented-media",
+              createdAt: "2026-03-17T19:12:29.000Z",
+              label: "Showed concept.png",
+              tone: "info",
+              activityKind: "media.presented",
+              presentedMedia: {
+                attachmentId: "att_v2_media-browser-test",
+                name: "concept.png",
+                mimeType: "image/png",
+                sizeBytes: 200,
+                type: "image",
+              },
+            },
+          },
+          commandEntry("image-generation", "generate-image"),
+          assistantEntry("media-final", "Here it is.", false, "2026-03-17T19:12:30.500Z"),
+        ]}
+        nowIso="2026-03-17T19:12:31.000Z"
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="dark"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+      { container: host },
+    );
+
+    try {
+      const summary = document.querySelector<HTMLElement>(
+        '[data-timeline-row-kind="message"]:has(button[aria-expanded])',
+      );
+      const media = document.querySelector<HTMLElement>(
+        '[data-presented-media-id="att_v2_media-browser-test"]',
+      );
+      const finalAnswer = document.querySelector<HTMLElement>(
+        '[data-assistant-message-id="media-final"]',
+      );
+      expect(summary?.textContent).toContain("Worked for");
+      expect(media).not.toBeNull();
+      expect(finalAnswer).not.toBeNull();
+      expect(summary!.getBoundingClientRect().top).toBeLessThan(media!.getBoundingClientRect().top);
+      expect(media!.getBoundingClientRect().top).toBeLessThan(
+        finalAnswer!.getBoundingClientRect().top,
+      );
+      expect(document.body.textContent).not.toContain("Preparing the image.");
+    } finally {
+      await screen.unmount();
+      host.remove();
+    }
+  });
+
+  it("renders Worked for above media without an empty final assistant row", async () => {
+    const host = createTimelineHost();
+    const screen = await render(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        timelineEntries={[
+          {
+            id: "entry-media-first-user",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:27.000Z",
+            message: {
+              id: MessageId.makeUnsafe("media-first-user"),
+              role: "user",
+              text: "Make an image",
+              createdAt: "2026-03-17T19:12:27.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "entry-media-first-output",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:29.000Z",
+            entry: {
+              id: "media-first-output",
+              createdAt: "2026-03-17T19:12:29.000Z",
+              label: "Showed concept.png",
+              tone: "info",
+              activityKind: "media.presented",
+              presentedMedia: {
+                attachmentId: "att_v2_media-first-browser-test",
+                name: "concept.png",
+                mimeType: "image/png",
+                sizeBytes: 200,
+                type: "image",
+              },
+            },
+          },
+          commandEntry("media-first-work", "generate-image"),
+          assistantEntry("media-first-final", "", false, "2026-03-17T19:12:30.500Z"),
+        ]}
+        nowIso="2026-03-17T19:12:31.000Z"
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="dark"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+      { container: host },
+    );
+
+    try {
+      const mediaRow = document.querySelector<HTMLElement>('[data-timeline-row-kind="media"]');
+      const summary = mediaRow?.querySelector<HTMLElement>("button[aria-expanded]");
+      const image = mediaRow?.querySelector<HTMLElement>(
+        '[data-presented-media-id="att_v2_media-first-browser-test"]',
+      );
+      const finalAnswer = document.querySelector<HTMLElement>(
+        '[data-assistant-message-id="media-first-final"]',
+      );
+      expect(summary?.textContent).toContain("Worked for");
+      expect(image).not.toBeNull();
+      expect(finalAnswer).toBeNull();
+      expect(document.body.textContent).not.toContain("(empty response)");
+      expect(summary!.getBoundingClientRect().top).toBeLessThan(image!.getBoundingClientRect().top);
     } finally {
       await screen.unmount();
       host.remove();

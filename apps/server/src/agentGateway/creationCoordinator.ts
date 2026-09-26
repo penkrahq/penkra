@@ -13,7 +13,7 @@ import {
   type ThreadRuntimeBinding,
 } from "@penkra/contracts";
 import { buildPromptThreadTitleFallback } from "@penkra/shared/chatThreads";
-import { Effect, Option, Schema } from "effect";
+import { Cause, Effect, Option, Schema } from "effect";
 
 import type { ManagedAttachmentPrincipal } from "../managedAttachmentPrincipal.ts";
 import { fingerprintOrchestrationCommand } from "../orchestration/commandFingerprint.ts";
@@ -61,6 +61,10 @@ interface CreationCoordinatorDependencies {
   readonly requireThreadShell: (
     threadId: string,
   ) => Effect.Effect<OrchestrationThreadShell, ToolInputError>;
+  readonly onThreadCreated?: (
+    parentThreadId: string,
+    childThreadId: string,
+  ) => Effect.Effect<void, unknown>;
 }
 
 export interface GatewayCreationContext {
@@ -100,49 +104,21 @@ export const makeCreateThreadHandler = Effect.fn(function* (
   } = dependencies;
 
   return (input: PenkraCreateThreadInput, context: GatewayCreationContext) => {
-    const operationIdForError =
-      context.callerTurnId === null
-        ? null
-        : `gateway:create:${stableGatewayDigest({
-            principalKind: context.kind,
-            principalId: context.callerThreadId,
-            callerTurnId: context.callerTurnId,
-            requestId: input.requestId,
-          })}`;
-    const idsForError =
-      context.callerTurnId === null
-        ? null
-        : makeAgentCreationIds(
-            `gateway:create:${stableGatewayDigest({
-              principalKind: context.kind,
-              principalId: context.callerThreadId,
-              callerTurnId: context.callerTurnId,
-              requestId: input.requestId,
-            })}`,
-            0,
-          );
+    const operationIdForError = `gateway:create:${stableGatewayDigest({
+      principalKind: context.kind,
+      principalId: context.callerThreadId,
+      requestId: input.requestId,
+    })}`;
+    const idsForError = makeAgentCreationIds(operationIdForError, 0);
     let dispatchAttempted = false;
     return Effect.gen(function* () {
-      if (context.callerTurnId === null)
-        return yield* Effect.fail(
-          new GatewayToolError(
-            "caller_turn_inactive",
-            "Thread creation requires an active caller turn.",
-          ),
-        );
       const callerTurnId = context.callerTurnId;
-      const operationId = `gateway:create:${stableGatewayDigest({
-        principalKind: context.kind,
-        principalId: context.callerThreadId,
-        callerTurnId,
-        requestId: input.requestId,
-      })}`;
+      const operationId = operationIdForError;
       const ids = makeAgentCreationIds(operationId, 0);
       const requestFingerprint = stableGatewayDigest(input, 64);
 
       const validateAdmission = (admission: AgentGatewayCreationAdmission) =>
         admission.callerThreadId !== context.callerThreadId ||
-        admission.callerTurnId !== callerTurnId ||
         admission.requestId !== input.requestId ||
         admission.requestFingerprintVersion !== REQUEST_FINGERPRINT_VERSION ||
         admission.requestFingerprint !== requestFingerprint ||
@@ -172,12 +148,14 @@ export const makeCreateThreadHandler = Effect.fn(function* (
           createCommand.commandId !== ids.threadCreateCommandId ||
           turnCommand.commandId !== ids.turnStartCommandId ||
           createCommand.sourceThreadId !== context.callerThreadId ||
-          createCommand.sourceTurnId !== callerTurnId ||
+          createCommand.sourceTurnId !==
+            (admission.callerTurnId === "none" ? undefined : admission.callerTurnId) ||
           createCommand.gatewayOperationId !== operationId ||
           turnCommand.turnId !== result.turnId ||
           turnCommand.message.messageId !== result.messageId ||
           turnCommand.connectionId !== result.connectionId ||
-          recapCommand.activity.turnId !== callerTurnId
+          recapCommand.activity.turnId !==
+            (admission.callerTurnId === "none" ? null : admission.callerTurnId)
         ) {
           return yield* Effect.fail(new ToolInputError("Stored creation plan has invalid scope."));
         }
@@ -231,9 +209,41 @@ export const makeCreateThreadHandler = Effect.fn(function* (
         yield* context.assertAuthority();
         dispatchAttempted = true;
         yield* orchestrationEngine.dispatch(createCommand);
-        yield* context.assertAuthority();
-
+        if (dependencies.onThreadCreated) {
+          yield* Effect.suspend(() =>
+            dependencies.onThreadCreated!(context.callerThreadId, result.threadId),
+          ).pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("agent gateway could not inherit the child Thread's home window", {
+                operationId,
+                parentThreadId: context.callerThreadId,
+                childThreadId: result.threadId,
+                error: Cause.pretty(cause),
+              }),
+            ),
+            Effect.forkDetach({ startImmediately: true }),
+            Effect.asVoid,
+          );
+        }
         const receipt = yield* commandReceipts.getByCommandId({ commandId: turnCommand.commandId });
+        yield* context.assertAuthority().pipe(
+          Effect.catch((error) =>
+            !(Option.isSome(receipt) && receipt.value.status === "accepted")
+              ? orchestrationEngine
+                  .dispatch({
+                    // The child was created but its first turn was not admitted.
+                    type: "thread.delete",
+                    commandId: CommandId.makeUnsafe(
+                      `agent:${stableGatewayDigest({ operationId, kind: "stale-create-abort" })}:abort`,
+                    ),
+                    threadId: result.threadId,
+                    expectedEmptyGatewayOperationId: operationId,
+                  })
+                  .pipe(Effect.andThen(Effect.fail(error)))
+              : Effect.fail(error),
+          ),
+        );
+
         const fingerprint = fingerprintOrchestrationCommand(turnCommand);
         if (
           Option.isSome(receipt) &&
@@ -373,7 +383,7 @@ export const makeCreateThreadHandler = Effect.fn(function* (
         runtimeMode,
         creationSource: "penkra_mcp",
         sourceThreadId: ThreadId.makeUnsafe(context.callerThreadId),
-        sourceTurnId: TurnId.makeUnsafe(callerTurnId),
+        ...(callerTurnId === null ? {} : { sourceTurnId: TurnId.makeUnsafe(callerTurnId) }),
         gatewayOperationId: operationId,
         gatewayOperationIndex: 0,
         createdAt: admittedAt,
@@ -389,6 +399,7 @@ export const makeCreateThreadHandler = Effect.fn(function* (
         bindingRevision: 0,
         dispatchMode: "queue",
         dispatchOrigin: "agent",
+        senderThreadId: ThreadId.makeUnsafe(context.callerThreadId),
         runtimeMode,
         createdAt: admittedAt,
       } satisfies typeof OrchestrationCommand.Type;
@@ -403,7 +414,7 @@ export const makeCreateThreadHandler = Effect.fn(function* (
           kind: "penkra.threads.created",
           summary: "Created 1 Penkra thread",
           payload: Schema.decodeUnknownSync(Schema.Json)({ source: "penkra_mcp", ...result }),
-          turnId: TurnId.makeUnsafe(callerTurnId),
+          turnId: callerTurnId === null ? null : TurnId.makeUnsafe(callerTurnId),
           createdAt: admittedAt,
         },
         createdAt: admittedAt,
@@ -414,7 +425,7 @@ export const makeCreateThreadHandler = Effect.fn(function* (
         .reserve({
           operationId,
           callerThreadId: context.callerThreadId,
-          callerTurnId,
+          callerTurnId: callerTurnId ?? "none",
           requestId: input.requestId,
           requestFingerprintVersion: REQUEST_FINGERPRINT_VERSION,
           requestFingerprint,
@@ -441,8 +452,7 @@ export const makeCreateThreadHandler = Effect.fn(function* (
         }
 
         const provenance = extractGatewayErrorProvenance(error);
-        const retainedThread =
-          dispatchAttempted && idsForError !== null && operationIdForError !== null;
+        const retainedThread = dispatchAttempted;
         const diagnosticWrite: Effect.Effect<"retained" | "write-failed" | null> = retainedThread
           ? diagnostics
               .recordOperationalDiagnostic({

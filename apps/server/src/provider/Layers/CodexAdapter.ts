@@ -322,6 +322,18 @@ function codexProviderErrorWarningClass(
     : undefined;
 }
 
+function codexRuntimeDiagnostic(value: unknown):
+  | { readonly key: string; readonly fingerprint: string; readonly state: "active" | "resolved" }
+  | undefined {
+  const diagnostic = asObject(asObject(value)?.diagnostic);
+  const key = asString(diagnostic?.key)?.trim();
+  const fingerprint = asString(diagnostic?.fingerprint)?.trim();
+  const state = asString(diagnostic?.state);
+  return key && fingerprint && (state === "active" || state === "resolved")
+    ? { key, fingerprint, state }
+    : undefined;
+}
+
 function normalizeCodexTokenUsage(value: unknown): ThreadTokenUsageSnapshot | undefined {
   const usage = asObject(value);
   const totalUsage = asObject(usage?.total_token_usage ?? usage?.total);
@@ -966,17 +978,21 @@ function mapToRuntimeEvents(
     if (!event.message) {
       return [];
     }
-    if (event.method === "process/stderr") {
+    const diagnostic = codexRuntimeDiagnostic(event.payload);
+    if (event.method === "process/stderr" && !diagnostic) {
       return [];
     }
     const warningClass = codexProviderErrorWarningClass(event);
+    const isDiagnosticWarning = diagnostic !== undefined;
+    const isWarning = warningClass !== undefined || isDiagnosticWarning;
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),
-        type: warningClass ? "runtime.warning" : "runtime.error",
+        type: isWarning ? "runtime.warning" : "runtime.error",
         payload: {
           message: event.message,
-          ...(!warningClass ? { class: "provider_error" as const } : {}),
+          ...(!isWarning ? { class: "provider_error" as const } : {}),
+          ...(diagnostic ? { diagnostic } : {}),
           ...(event.payload !== undefined ? { detail: event.payload } : {}),
         },
       },
@@ -2233,6 +2249,18 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
           }),
       }).pipe(Effect.map((result) => result satisfies ProviderListModelsResult));
 
+    const probeTurnEndpoint: NonNullable<CodexAdapterShape["probeTurnEndpoint"]> = (input) =>
+      Effect.tryPromise({
+        try: () => manager.probeResponses(input),
+        catch: (cause) =>
+          new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "auth/probe-responses",
+            detail: toMessage(cause, "Responses probe failed"),
+            cause,
+          }),
+      });
+
     const transcribeVoice: NonNullable<CodexAdapterShape["transcribeVoice"]> = (input) =>
       Effect.tryPromise({
         try: () => manager.transcribeVoice(input),
@@ -2370,6 +2398,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
       listPlugins,
       readPlugin,
       listModels,
+      probeTurnEndpoint,
       transcribeVoice,
       streamEvents: Stream.fromQueue(runtimeEventQueue),
     } satisfies CodexAdapterShape;

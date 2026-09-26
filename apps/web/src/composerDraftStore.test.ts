@@ -112,46 +112,37 @@ describe("composerDraftStore clearComposerContent", () => {
 
 describe("composerDraftStore queued edit reconciliation", () => {
   const threadId = ThreadId.makeUnsafe("thread-queued-edit");
-
   beforeEach(resetComposerDraftStore);
 
-  it("restores the queued content when the exact thread composer is still empty", () => {
-    const queuedTurn = {
-      ...makeQueuedChatTurn("queued-edit"),
-      serverAcceptedAt: "2026-03-13T12:01:00.000Z",
+  it("appends a cancelled turn after existing composer content and merges attachments", () => {
+    const queuedTurn = makeQueuedChatTurn("queued-edit");
+    const image = makeImage({ id: "queued-edit-image", previewUrl: "blob:queued-edit-image" });
+    const terminalContext = {
+      id: "terminal-context",
+      threadId,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      terminalId: "term",
+      terminalLabel: "Terminal",
+      lineStart: 1,
+      lineEnd: 2,
+      text: "terminal output",
     };
-    useComposerDraftStore.getState().enqueueQueuedTurn(threadId, queuedTurn);
-
-    expect(useComposerDraftStore.getState().recoverCancelledQueuedTurn(threadId, queuedTurn)).toBe(
-      true,
-    );
-
-    const draft = useComposerDraftStore.getState().draftsByThreadId[threadId]!;
-    expect(draft.prompt).toBe(queuedTurn.prompt);
-    expect(draft.images).toEqual(queuedTurn.images);
-    expect(draft.queuedTurns).toEqual([]);
-  });
-
-  it("preserves newer prompt and images and retains a local queued copy", () => {
-    const queuedTurn = {
-      ...makeQueuedChatTurn("queued-edit"),
-      serverAcceptedAt: "2026-03-13T12:01:00.000Z",
-    };
-    const newerImage = makeImage({ id: "newer-image", previewUrl: "blob:newer-image" });
     const store = useComposerDraftStore.getState();
-    store.enqueueQueuedTurn(threadId, queuedTurn);
+    const newerImage = makeImage({ id: "newer-image", previewUrl: "blob:newer-image" });
     store.setPrompt(threadId, "newer prompt");
     store.addImage(threadId, newerImage);
-
-    expect(store.recoverCancelledQueuedTurn(threadId, queuedTurn)).toBe(false);
-
+    expect(
+      store.recoverCancelledQueuedTurn(threadId, {
+        ...queuedTurn,
+        prompt: "queued prompt",
+        images: [image],
+        terminalContexts: [terminalContext],
+      }),
+    ).toBe(true);
     const draft = useComposerDraftStore.getState().draftsByThreadId[threadId]!;
-    expect(draft.prompt).toBe("newer prompt");
-    expect(draft.images).toEqual([newerImage]);
-    expect(draft.queuePaused).toBe(true);
-    expect(draft.queuedTurns).toHaveLength(1);
-    expect(draft.queuedTurns[0]?.id).toBe(`${queuedTurn.id}:edit-recovery`);
-    expect(draft.queuedTurns[0]).not.toHaveProperty("serverAcceptedAt");
+    expect(draft.prompt).toBe("newer prompt\n\nqueued prompt");
+    expect(draft.images.map(({ id }) => id)).toEqual(["newer-image", "queued-edit-image"]);
+    expect(draft.terminalContexts).toEqual([terminalContext]);
   });
 });
 
@@ -308,22 +299,6 @@ describe("composerDraftStore project draft thread mapping", () => {
     expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toBeUndefined();
   });
 
-  it("releases queued preview blobs when clearing a draft by project and thread id", () => {
-    const store = useComposerDraftStore.getState();
-    store.setProjectDraftThreadId(folderId, threadId);
-    store.enqueueQueuedTurn(
-      threadId,
-      makeQueuedChatTurn(
-        "queued-project-delete",
-        makeImage({ id: "queued-image-delete", previewUrl: "blob:queued-project-delete" }),
-      ),
-    );
-
-    store.clearProjectDraftThreadById(folderId, threadId);
-
-    expect(revokeSpy).toHaveBeenCalledWith("blob:queued-project-delete");
-  });
-
   it("clears project draft mapping by project id", () => {
     const store = useComposerDraftStore.getState();
     store.setProjectDraftThreadId(folderId, threadId);
@@ -332,22 +307,6 @@ describe("composerDraftStore project draft thread mapping", () => {
     expect(useComposerDraftStore.getState().getDraftThreadByFolderId(folderId)).toBeNull();
     expect(useComposerDraftStore.getState().getDraftThread(threadId)).toBeNull();
     expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toBeUndefined();
-  });
-
-  it("releases queued preview blobs when clearing a project draft by project id", () => {
-    const store = useComposerDraftStore.getState();
-    store.setProjectDraftThreadId(folderId, threadId);
-    store.enqueueQueuedTurn(
-      threadId,
-      makeQueuedChatTurn(
-        "queued-project-clear",
-        makeImage({ id: "queued-image-clear", previewUrl: "blob:queued-project-clear" }),
-      ),
-    );
-
-    store.clearProjectDraftThreadId(folderId);
-
-    expect(revokeSpy).toHaveBeenCalledWith("blob:queued-project-clear");
   });
 
   it("clears orphaned composer drafts when remapping a project to a new draft thread", () => {
@@ -362,48 +321,6 @@ describe("composerDraftStore project draft thread mapping", () => {
     );
     expect(useComposerDraftStore.getState().getDraftThread(threadId)).toBeNull();
     expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toBeUndefined();
-  });
-
-  it("releases queued preview blobs when remapping a project to a new draft thread", () => {
-    const store = useComposerDraftStore.getState();
-    store.setProjectDraftThreadId(folderId, threadId);
-    store.enqueueQueuedTurn(
-      threadId,
-      makeQueuedChatTurn(
-        "queued-remap",
-        makeImage({ id: "queued-image-remap", previewUrl: "blob:queued-remap" }),
-      ),
-    );
-
-    store.setProjectDraftThreadId(folderId, otherThreadId);
-
-    expect(revokeSpy).toHaveBeenCalledWith("blob:queued-remap");
-  });
-
-  it("keeps composer drafts when the thread is still mapped by another project", () => {
-    const store = useComposerDraftStore.getState();
-    store.setProjectDraftThreadId(folderId, threadId);
-    store.setProjectDraftThreadId(otherFolderId, threadId);
-    store.setPrompt(threadId, "keep me");
-    store.enqueueQueuedTurn(
-      threadId,
-      makeQueuedChatTurn(
-        "queued-kept-thread",
-        makeImage({ id: "queued-image-kept", previewUrl: "blob:queued-kept-thread" }),
-      ),
-    );
-
-    store.clearProjectDraftThreadId(folderId);
-
-    expect(useComposerDraftStore.getState().getDraftThreadByFolderId(folderId)).toBeNull();
-    expect(useComposerDraftStore.getState().getDraftThreadByFolderId(otherFolderId)?.threadId).toBe(
-      threadId,
-    );
-    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.prompt).toBe("keep me");
-    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.queuedTurns).toHaveLength(
-      1,
-    );
-    expect(revokeSpy).not.toHaveBeenCalledWith("blob:queued-kept-thread");
   });
 
   it("clears draft registration independently", () => {
@@ -457,20 +374,6 @@ describe("composerDraftStore project draft thread mapping", () => {
     );
   });
 
-  it("retains a follow-up queued while the first turn is being admitted", () => {
-    const store = useComposerDraftStore.getState();
-    store.setProjectDraftThreadId(folderId, threadId);
-    markPromotedDraftThreads(new Set([threadId]));
-    store.enqueueQueuedTurn(threadId, makeQueuedChatTurn("queued-during-first-admission"));
-
-    finalizePromotedDraftThreads(new Set([threadId]));
-
-    expect(useComposerDraftStore.getState().getDraftThread(threadId)).toBeNull();
-    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.queuedTurns).toEqual([
-      expect.objectContaining({ id: "queued-during-first-admission" }),
-    ]);
-  });
-
   it("updates branch context on an existing draft thread", () => {
     const store = useComposerDraftStore.getState();
     store.setProjectDraftThreadId(folderId, threadId, {});
@@ -498,35 +401,6 @@ describe("composerDraftStore project draft thread mapping", () => {
     expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.prompt).toBe(
       "keep this draft",
     );
-  });
-
-  it("clears the replaced target draft when moving a draft to another project", () => {
-    const store = useComposerDraftStore.getState();
-    store.setProjectDraftThreadId(folderId, threadId, {});
-    store.setPrompt(threadId, "move this draft");
-    store.setProjectDraftThreadId(otherFolderId, otherThreadId);
-    store.setPrompt(otherThreadId, "replace this draft");
-    store.enqueueQueuedTurn(
-      otherThreadId,
-      makeQueuedChatTurn(
-        "queued-target-replaced",
-        makeImage({ id: "queued-target-replaced", previewUrl: "blob:queued-target-replaced" }),
-      ),
-    );
-
-    store.moveDraftThreadToProject(threadId, otherFolderId, {});
-
-    expect(useComposerDraftStore.getState().getDraftThreadByFolderId(folderId)).toBeNull();
-    expect(useComposerDraftStore.getState().getDraftThreadByFolderId(otherFolderId)).toMatchObject({
-      threadId,
-      folderId: otherFolderId,
-    });
-    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.prompt).toBe(
-      "move this draft",
-    );
-    expect(useComposerDraftStore.getState().getDraftThread(otherThreadId)).toBeNull();
-    expect(useComposerDraftStore.getState().draftsByThreadId[otherThreadId]).toBeUndefined();
-    expect(revokeSpy).toHaveBeenCalledWith("blob:queued-target-replaced");
   });
 });
 

@@ -20,7 +20,6 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useIsMobile } from "~/hooks/useMediaQuery";
 import { getLocalStorageItem, setLocalStorageItem } from "~/hooks/useLocalStorage";
 import { Schema } from "effect";
-import { CHAT_SURFACE_HEADER_HEIGHT_PX } from "@penkra/shared/desktopChrome";
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
@@ -28,32 +27,81 @@ const SIDEBAR_WIDTH = "16rem";
 const SIDEBAR_WIDTH_MOBILE = "calc(100vw - var(--spacing(3)))";
 const SIDEBAR_WIDTH_ICON = "3rem";
 const SIDEBAR_RESIZE_DEFAULT_MIN_WIDTH = 16 * 16;
-const NATIVE_APP_SPLITTER_CLEARANCE_PX = 1;
+// Matches the rail's `w-4` hit area below.
+export const SIDEBAR_RAIL_HIT_AREA_PX = 16;
+const lastNativeAppBounds = new WeakMap<HTMLElement, string>();
 
-export function appDockBoundsForWidth(dockWidth: number) {
-  const x = Math.ceil(window.innerWidth - dockWidth + NATIVE_APP_SPLITTER_CLEARANCE_PX);
-  const y = CHAT_SURFACE_HEADER_HEIGHT_PX;
-  return {
-    x: Math.max(0, x),
-    y,
-    width: Math.max(1, Math.floor(window.innerWidth - x)),
-    height: Math.max(1, Math.floor(window.innerHeight - y)),
-  };
+export function appDockBoundsForElement(surface: HTMLElement) {
+  const host = surface.getBoundingClientRect();
+  const panel = (
+    surface.closest<HTMLElement>("[data-slot='sidebar-container']") ??
+    surface.closest<HTMLElement>("[data-slot='sidebar-wrapper']")
+  )?.getBoundingClientRect();
+  if (!panel) return null;
+  // DOM geometry is in CSS pixels; Electron child-view bounds are in screen DIP.
+  const zoom = window.desktopBridge?.getZoomFactor?.() ?? 1;
+  const scale = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+  const x = Math.ceil(Math.max(0, host.left, panel.left) * scale);
+  const y = Math.ceil(Math.max(0, host.top, panel.top) * scale);
+  const right = Math.floor(Math.min(window.innerWidth, host.right, panel.right) * scale);
+  const bottom = Math.floor(Math.min(window.innerHeight, host.bottom, panel.bottom) * scale);
+  if (right <= x || bottom <= y) return null;
+  return { x, y, width: right - x, height: bottom - y };
 }
 
-export function publishNativeAppBoundsForWidth(wrapper: HTMLElement, dockWidth: number): boolean {
-  const surface = wrapper.querySelector<HTMLElement>("[data-app-tab-id]");
+export function forgetNativeAppBounds(surface: HTMLElement): void {
+  lastNativeAppBounds.delete(surface);
+}
+
+export function sendNativeAppBounds(input: {
+  surface: HTMLElement;
+  tabId: string;
+  deckId: string;
+  threadId: string;
+  bounds: NonNullable<ReturnType<typeof appDockBoundsForElement>>;
+  animate?: boolean;
+  animationStartedAtEpochMs?: number;
+  force?: boolean;
+}): boolean {
   const bridge = window.desktopBridge?.appTabs;
-  if (!surface || !bridge) return false;
+  if (!bridge) return false;
+  const { surface, tabId, deckId, threadId, bounds, animate, animationStartedAtEpochMs, force } =
+    input;
+  const key = `${tabId}:${deckId}:${threadId}:${bounds.x},${bounds.y},${bounds.width},${bounds.height}`;
+  if (!force && lastNativeAppBounds.get(surface) === key) return false;
+  lastNativeAppBounds.set(surface, key);
+  void bridge
+    .present({
+      tabId,
+      deckId,
+      threadId,
+      bounds,
+      ...(animate === undefined ? {} : { animate }),
+      ...(animationStartedAtEpochMs === undefined ? {} : { animationStartedAtEpochMs }),
+    })
+    .catch(() => {
+      if (lastNativeAppBounds.get(surface) === key) lastNativeAppBounds.delete(surface);
+    });
+  return true;
+}
+
+export function publishNativeAppBounds(wrapper: HTMLElement): boolean {
+  const surface = wrapper.querySelector<HTMLElement>("[data-app-tab-id]");
+  if (!surface) return false;
   const tabId = surface.dataset.appTabId;
   if (!tabId) return false;
-  void bridge.present({
+  const bounds = appDockBoundsForElement(surface);
+  if (!bounds) {
+    forgetNativeAppBounds(surface);
+    return false;
+  }
+  return sendNativeAppBounds({
+    surface,
     tabId,
     deckId: surface.dataset.appDeckId ?? "",
     threadId: surface.dataset.appThreadId ?? "",
-    bounds: appDockBoundsForWidth(dockWidth),
+    bounds,
   });
-  return true;
 }
 
 /**
@@ -511,8 +559,8 @@ function SidebarRail({
 
     const acceptedWidth =
       typeof accepted === "number" ? clampSidebarWidth(accepted, resolvedResizable) : nextWidth;
-    publishNativeAppBoundsForWidth(activeResizeState.wrapper, acceptedWidth);
     activeResizeState.wrapper.style.setProperty("--sidebar-width", `${acceptedWidth}px`);
+    publishNativeAppBounds(activeResizeState.wrapper);
     activeResizeState.width = acceptedWidth;
   }, [resolvedResizable]);
 

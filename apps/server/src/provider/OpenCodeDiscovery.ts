@@ -35,6 +35,7 @@ export interface OpenCodeModelInventory {
           readonly capabilities?: {
             readonly reasoning?: boolean;
           };
+          readonly status?: "alpha" | "beta" | "deprecated" | "active";
           readonly limit?: {
             readonly context?: number;
             readonly output?: number;
@@ -409,6 +410,7 @@ function toOpenCodeModelDescriptor(input: {
   return {
     slug: input.slug,
     name,
+    ...(input.model?.status ? { status: input.model.status } : {}),
     upstreamProviderId: input.provider.id,
     ...(upstreamProviderName.length > 0 ? { upstreamProviderName } : {}),
     ...(reasoningSupport.descriptors.length > 0

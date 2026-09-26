@@ -23,7 +23,6 @@ import {
   revokeDraftPreviewUrls,
   revokeObjectPreviewUrl,
   revokePromptHistorySavedDraftPreviewUrls,
-  revokeQueuedTurnPreviewUrls,
   persistQueuedComposerImages,
   syncPersistedAttachmentsForSlot,
 } from "./composerDraftAttachments";
@@ -34,6 +33,7 @@ import {
   type ComposerThreadDraftState,
   type DraftThreadState,
   type PendingStartRecovery,
+  type QueuedComposerTurn,
   type PendingMessageEdit,
   assistantSelectionDedupKey,
   buildDraftThreadState,
@@ -79,16 +79,11 @@ function draftReferencesComposerAsset(draft: ComposerThreadDraftState, assetKey:
   ) {
     return true;
   }
-  return (
-    draft.queuedTurns.some(
-      (turn) => turn.kind === "chat" && turn.files.some((file) => file.assetKey === assetKey),
-    ) ||
-    Object.values(draft.pendingStartRecoveriesByMessageId ?? {}).some(
-      (recovery) =>
-        recovery &&
-        "pendingTurn" in recovery &&
-        recovery.pendingTurn.files.some((file) => file.assetKey === assetKey),
-    )
+  return Object.values(draft.pendingStartRecoveriesByMessageId ?? {}).some(
+    (recovery) =>
+      recovery &&
+      "pendingTurn" in recovery &&
+      recovery.pendingTurn.files.some((file) => file.assetKey === assetKey),
   );
 }
 
@@ -113,7 +108,6 @@ function composerFileAssetKeys(draft: ComposerThreadDraftState | undefined): str
   return [
     ...draft.files,
     ...(draft.promptHistorySavedDraft?.files ?? []),
-    ...draft.queuedTurns.flatMap((turn) => (turn.kind === "chat" ? turn.files : [])),
     ...Object.values(draft.pendingStartRecoveriesByMessageId ?? {}).flatMap((recovery) =>
       recovery && "pendingTurn" in recovery ? recovery.pendingTurn.files : [],
     ),
@@ -161,6 +155,55 @@ function removeDraftThreadIfUnmapped(input: {
   return {
     draftThreadsByThreadId: nextDraftThreadsByThreadId,
     draftsByThreadId: nextDraftsByThreadId,
+  };
+}
+
+function mergeRecoveredTurnIntoDraft(
+  current: ComposerThreadDraftState,
+  turn: QueuedComposerTurn,
+  threadId: ThreadId,
+): ComposerThreadDraftState {
+  const join = (left: string, right: string) =>
+    left.trim().length === 0
+      ? right
+      : right.trim().length === 0
+        ? left
+        : `${left.trimEnd()}\n\n${right.trimStart()}`;
+  const appendUnique = <T>(
+    left: ReadonlyArray<T>,
+    right: ReadonlyArray<T>,
+    key: (item: T) => string,
+  ): T[] => {
+    const seen = new Set(left.map(key));
+    return [...left, ...right.filter((item) => !seen.has(key(item)))];
+  };
+  return {
+    ...current,
+    prompt: join(current.prompt, turn.prompt),
+    images: appendUnique(current.images, turn.images, (item) => item.id),
+    files: appendUnique(current.files, turn.files, (item) => item.id),
+    persistedAttachments: appendUnique(
+      current.persistedAttachments,
+      persistQueuedComposerImages(turn.images),
+      (item) => item.id,
+    ),
+    assistantSelections: appendUnique(
+      current.assistantSelections,
+      turn.assistantSelections,
+      (item) => item.id,
+    ),
+    terminalContexts: normalizeTerminalContextsForThread(
+      threadId,
+      appendUnique(current.terminalContexts, turn.terminalContexts, (item) => item.id),
+    ),
+    fileComments: normalizeFileComments(
+      appendUnique(current.fileComments, turn.fileComments, (item) => item.id),
+    ),
+    pastedTexts: normalizePastedTexts(
+      appendUnique(current.pastedTexts, turn.pastedTexts, (item) => item.id),
+    ),
+    skills: appendUnique(current.skills, turn.skills, (item) => `${item.name}:${item.path}`),
+    mentions: appendUnique(current.mentions, turn.mentions, (item) => `${item.name}:${item.path}`),
   };
 }
 
@@ -1090,122 +1133,25 @@ export const createComposerDraftStoreState =
         return { draftsByThreadId: nextDraftsByThreadId };
       });
     },
-    // Keep queued follow-ups with the thread draft so route changes do not hide them.
-    enqueueQueuedTurn: (threadId, queuedTurn) => {
-      if (threadId.length === 0) {
-        return;
-      }
-      set((state) => {
-        const existing = state.draftsByThreadId[threadId] ?? createEmptyThreadDraft();
-        return {
-          draftsByThreadId: {
-            ...state.draftsByThreadId,
-            [threadId]: {
-              ...existing,
-              queuedTurns: [...existing.queuedTurns, queuedTurn],
-            },
-          },
-        };
-      });
-    },
-    insertQueuedTurn: (threadId, queuedTurn, index) => {
-      if (threadId.length === 0) {
-        return;
-      }
-      set((state) => {
-        const existing = state.draftsByThreadId[threadId] ?? createEmptyThreadDraft();
-        const boundedIndex = Math.max(0, Math.min(existing.queuedTurns.length, index));
-        return {
-          draftsByThreadId: {
-            ...state.draftsByThreadId,
-            [threadId]: {
-              ...existing,
-              queuedTurns: [
-                ...existing.queuedTurns.slice(0, boundedIndex),
-                queuedTurn,
-                ...existing.queuedTurns.slice(boundedIndex),
-              ],
-            },
-          },
-        };
-      });
-    },
     recoverCancelledQueuedTurn: (threadId, queuedTurnSnapshot) => {
       if (threadId.length === 0 || queuedTurnSnapshot.id.length === 0) return false;
-      let restored = false;
       set((state) => {
         const current = state.draftsByThreadId[threadId] ?? createEmptyThreadDraft();
-        const queuedTurnIndex = current.queuedTurns.findIndex(
-          (entry) => entry.id === queuedTurnSnapshot.id,
-        );
-        const queuedTurn =
-          queuedTurnIndex >= 0 ? current.queuedTurns[queuedTurnIndex]! : queuedTurnSnapshot;
         const {
           serverAcceptedAt: _acceptedAt,
           serverMessageId: _messageId,
           dispatchAttempt: _dispatchAttempt,
           dispatchBindingRevision: _dispatchBindingRevision,
-          ...queuedTurnContent
-        } = queuedTurn;
-        const localTurn = {
-          ...queuedTurnContent,
-          id: `${queuedTurnContent.id}:edit-recovery`,
-        };
-        const hasNewerComposerContent =
-          current.prompt.length > 0 ||
-          current.images.length > 0 ||
-          current.files.length > 0 ||
-          current.assistantSelections.length > 0 ||
-          current.terminalContexts.length > 0 ||
-          current.fileComments.length > 0 ||
-          current.pastedTexts.length > 0 ||
-          current.skills.length > 0 ||
-          current.mentions.length > 0;
-        const queuedTurns = [...current.queuedTurns];
-        if (hasNewerComposerContent) {
-          if (queuedTurnIndex >= 0) queuedTurns[queuedTurnIndex] = localTurn;
-          else queuedTurns.push(localTurn);
-          return {
-            draftsByThreadId: {
-              ...state.draftsByThreadId,
-              // This is cancellation recovery, not a retry request. Keep the
-              // recovered row editable but outside the automatic drain until
-              // the user explicitly chooses what to do with it.
-              [threadId]: { ...current, queuedTurns, queuePaused: true },
-            },
-          };
-        }
-        if (queuedTurnIndex >= 0) queuedTurns.splice(queuedTurnIndex, 1);
-        restored = true;
+          ...turnContent
+        } = queuedTurnSnapshot;
         return {
           draftsByThreadId: {
             ...state.draftsByThreadId,
-            [threadId]: {
-              ...current,
-              prompt: localTurn.prompt,
-              images: localTurn.images,
-              files: localTurn.files,
-              assistantSelections: localTurn.assistantSelections,
-              terminalContexts: normalizeTerminalContextsForThread(
-                threadId,
-                localTurn.terminalContexts,
-              ),
-              fileComments: normalizeFileComments(localTurn.fileComments),
-              pastedTexts: normalizePastedTexts(localTurn.pastedTexts),
-              skills: localTurn.skills,
-              mentions: localTurn.mentions,
-              modelSelectionByProvider: {
-                ...current.modelSelectionByProvider,
-                [localTurn.selectedProvider]: localTurn.modelSelection,
-              },
-              activeProvider: localTurn.selectedProvider,
-              runtimeMode: localTurn.runtimeMode,
-              queuedTurns,
-            },
+            [threadId]: mergeRecoveredTurnIntoDraft(current, turnContent, threadId),
           },
         };
       });
-      return restored;
+      return true;
     },
     capturePendingStartRecovery: (threadId, recovery: PendingStartRecovery) => {
       if (
@@ -1305,9 +1251,6 @@ export const createComposerDraftStoreState =
           restored = true;
           return state;
         }
-        const queuedTurnIndex = current.queuedTurns.findIndex(
-          (turn) => turn.id === recovery.pendingTurn.id,
-        );
         const {
           serverAcceptedAt: _serverAcceptedAt,
           serverMessageId: _serverMessageId,
@@ -1316,81 +1259,19 @@ export const createComposerDraftStoreState =
           messageId: _pendingMessageId,
           ...turnContent
         } = recovery.pendingTurn;
-        const recoveredRow = {
-          ...turnContent,
-          id: `${recovery.pendingTurn.id}:edit-recovery`,
+        const recoveredTurn = turnContent as QueuedComposerTurn;
+        const restoredDraft = mergeRecoveredTurnIntoDraft(current, recoveredTurn, threadId);
+        const nextDraft: ComposerThreadDraftState = {
+          ...restoredDraft,
+          pendingStartRecoveriesByMessageId: {
+            ...(current.pendingStartRecoveriesByMessageId ?? {}),
+            [messageId]: {
+              ...recovery,
+              settlement: "restored",
+              restorationReceipt: { sequence, rowId: "composer", appliedAt },
+            },
+          },
         };
-        const hasNewerComposerContent =
-          current.prompt.length > 0 ||
-          current.images.length > 0 ||
-          current.files.length > 0 ||
-          current.assistantSelections.length > 0 ||
-          current.terminalContexts.length > 0 ||
-          current.fileComments.length > 0 ||
-          current.pastedTexts.length > 0 ||
-          current.skills.length > 0 ||
-          current.mentions.length > 0;
-        const queuedTurns = [...current.queuedTurns];
-        let nextDraft: ComposerThreadDraftState;
-        if (hasNewerComposerContent) {
-          if (queuedTurnIndex >= 0) queuedTurns[queuedTurnIndex] = recoveredRow;
-          else queuedTurns.push(recoveredRow);
-          nextDraft = {
-            ...current,
-            queuedTurns,
-            queuePaused: true,
-            pendingStartRecoveriesByMessageId: {
-              ...(current.pendingStartRecoveriesByMessageId ?? {}),
-              [messageId]: {
-                ...recovery,
-                settlement: "restored",
-                restorationReceipt: {
-                  sequence,
-                  rowId: recoveredRow.id,
-                  appliedAt,
-                },
-              },
-            },
-          };
-        } else {
-          if (queuedTurnIndex >= 0) queuedTurns.splice(queuedTurnIndex, 1);
-          const restoredPersistedAttachments = persistQueuedComposerImages(recoveredRow.images);
-          nextDraft = {
-            ...current,
-            prompt: recoveredRow.prompt,
-            images: recoveredRow.images,
-            persistedAttachments: restoredPersistedAttachments,
-            files: recoveredRow.files,
-            assistantSelections: recoveredRow.assistantSelections,
-            terminalContexts: normalizeTerminalContextsForThread(
-              threadId,
-              recoveredRow.terminalContexts,
-            ),
-            fileComments: normalizeFileComments(recoveredRow.fileComments),
-            pastedTexts: normalizePastedTexts(recoveredRow.pastedTexts),
-            skills: recoveredRow.skills,
-            mentions: recoveredRow.mentions,
-            modelSelectionByProvider: {
-              ...current.modelSelectionByProvider,
-              [recoveredRow.selectedProvider]: recoveredRow.modelSelection,
-            },
-            activeProvider: recoveredRow.selectedProvider,
-            runtimeMode: recoveredRow.runtimeMode,
-            queuedTurns,
-            pendingStartRecoveriesByMessageId: {
-              ...(current.pendingStartRecoveriesByMessageId ?? {}),
-              [messageId]: {
-                ...recovery,
-                settlement: "restored",
-                restorationReceipt: {
-                  sequence,
-                  rowId: "composer",
-                  appliedAt,
-                },
-              },
-            },
-          };
-        }
         restored = true;
         return {
           draftsByThreadId: {
@@ -1531,156 +1412,6 @@ export const createComposerDraftStoreState =
         if (shouldRemoveDraft(nextDraft)) delete draftsByThreadId[threadId];
         else draftsByThreadId[threadId] = nextDraft;
         return { draftsByThreadId };
-      });
-    },
-    markQueuedTurnServerAccepted: (threadId, queuedTurnId, acceptedAt) => {
-      if (threadId.length === 0 || queuedTurnId.length === 0) {
-        return;
-      }
-      set((state) => {
-        const current = state.draftsByThreadId[threadId];
-        const queuedTurnIndex = current?.queuedTurns.findIndex(
-          (entry) => entry.id === queuedTurnId,
-        );
-        if (!current || queuedTurnIndex === undefined || queuedTurnIndex < 0) {
-          return state;
-        }
-        const queuedTurn = current.queuedTurns[queuedTurnIndex]!;
-        if (queuedTurn.serverAcceptedAt === acceptedAt) {
-          return state;
-        }
-        const queuedTurns = [...current.queuedTurns];
-        queuedTurns[queuedTurnIndex] = {
-          ...queuedTurn,
-          serverAcceptedAt: acceptedAt,
-        };
-        return {
-          draftsByThreadId: {
-            ...state.draftsByThreadId,
-            [threadId]: { ...current, queuedTurns },
-          },
-        };
-      });
-    },
-    setQueuedTurnDispatchAdmission: (threadId, queuedTurnId, attempt, bindingRevision) => {
-      if (
-        threadId.length === 0 ||
-        queuedTurnId.length === 0 ||
-        !Number.isSafeInteger(attempt) ||
-        attempt < 0 ||
-        !Number.isSafeInteger(bindingRevision) ||
-        bindingRevision < 0
-      ) {
-        return;
-      }
-      set((state) => {
-        const current = state.draftsByThreadId[threadId];
-        const queuedTurnIndex = current?.queuedTurns.findIndex(
-          (entry) => entry.id === queuedTurnId,
-        );
-        if (!current || queuedTurnIndex === undefined || queuedTurnIndex < 0) {
-          return state;
-        }
-        const queuedTurn = current.queuedTurns[queuedTurnIndex]!;
-        if (
-          queuedTurn.kind !== "chat" ||
-          (queuedTurn.dispatchAttempt === attempt &&
-            queuedTurn.dispatchBindingRevision === bindingRevision)
-        ) {
-          return state;
-        }
-        const queuedTurns = [...current.queuedTurns];
-        queuedTurns[queuedTurnIndex] = {
-          ...queuedTurn,
-          dispatchAttempt: attempt,
-          dispatchBindingRevision: bindingRevision,
-        };
-        return {
-          draftsByThreadId: {
-            ...state.draftsByThreadId,
-            [threadId]: { ...current, queuedTurns },
-          },
-        };
-      });
-    },
-    advanceQueuedTurnDispatchAttempt: (threadId, queuedTurnId) => {
-      if (threadId.length === 0 || queuedTurnId.length === 0) {
-        return;
-      }
-      set((state) => {
-        const current = state.draftsByThreadId[threadId];
-        const queuedTurnIndex = current?.queuedTurns.findIndex(
-          (entry) => entry.id === queuedTurnId,
-        );
-        if (!current || queuedTurnIndex === undefined || queuedTurnIndex < 0) {
-          return state;
-        }
-        const queuedTurn = current.queuedTurns[queuedTurnIndex]!;
-        if (queuedTurn.kind !== "chat") {
-          return state;
-        }
-        const queuedTurns = [...current.queuedTurns];
-        const { dispatchBindingRevision: _discardedRevision, ...retained } = queuedTurn;
-        queuedTurns[queuedTurnIndex] = {
-          ...retained,
-          dispatchAttempt: (queuedTurn.dispatchAttempt ?? 0) + 1,
-        };
-        return {
-          draftsByThreadId: {
-            ...state.draftsByThreadId,
-            [threadId]: { ...current, queuedTurns },
-          },
-        };
-      });
-    },
-    removeQueuedTurn: (threadId, queuedTurnId) => {
-      if (threadId.length === 0 || queuedTurnId.length === 0) {
-        return;
-      }
-      const removedQueuedTurn = get().draftsByThreadId[threadId]?.queuedTurns.find(
-        (entry) => entry.id === queuedTurnId,
-      );
-      if (removedQueuedTurn) {
-        revokeQueuedTurnPreviewUrls(removedQueuedTurn);
-      }
-      set((state) => {
-        const current = state.draftsByThreadId[threadId];
-        if (!current || current.queuedTurns.every((entry) => entry.id !== queuedTurnId)) {
-          return state;
-        }
-        const nextDraft: ComposerThreadDraftState = {
-          ...current,
-          queuedTurns: current.queuedTurns.filter((entry) => entry.id !== queuedTurnId),
-        };
-        const nextDraftsByThreadId = { ...state.draftsByThreadId };
-        if (shouldRemoveDraft(nextDraft)) {
-          delete nextDraftsByThreadId[threadId];
-        } else {
-          nextDraftsByThreadId[threadId] = nextDraft;
-        }
-        return { draftsByThreadId: nextDraftsByThreadId };
-      });
-    },
-    setQueuePaused: (threadId, paused) => {
-      if (threadId.length === 0) {
-        return;
-      }
-      set((state) => {
-        const current = state.draftsByThreadId[threadId] ?? createEmptyThreadDraft();
-        if (current.queuePaused === paused) {
-          return state;
-        }
-        const nextDraft: ComposerThreadDraftState = {
-          ...current,
-          queuePaused: paused,
-        };
-        const nextDraftsByThreadId = { ...state.draftsByThreadId };
-        if (shouldRemoveDraft(nextDraft)) {
-          delete nextDraftsByThreadId[threadId];
-        } else {
-          nextDraftsByThreadId[threadId] = nextDraft;
-        }
-        return { draftsByThreadId: nextDraftsByThreadId };
       });
     },
     addImage: (threadId, image) => {

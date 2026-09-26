@@ -318,6 +318,21 @@ export interface AppThreadSendReceipt {
   acceptedAt: string;
 }
 
+/** Immediate routing result of agent-facing `penkra threads send`; poll turn state for provider progress. */
+export type AgentThreadSendResult = {
+  threadId: string;
+  messageId: string;
+  turnId: string;
+} & (
+  | {
+      delivery: "queued";
+      queuePosition: number;
+      blockingTurnId?: string;
+      blockingTurnStartedAt?: string | null;
+    }
+  | { delivery: "started" | "steered" | "interrupted" }
+);
+
 export interface AppPossibleModelDescriptor {
   provider: string;
   model: string;

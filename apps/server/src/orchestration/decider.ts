@@ -17,6 +17,7 @@ import {
 } from "@penkra/shared/conversationEdit";
 import { Effect } from "effect";
 import { normalizeEntityName } from "@penkra/shared/entityNames";
+import { canContinueLatestTurn } from "@penkra/shared/turnContinuation";
 import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
@@ -1150,6 +1151,22 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         threadId: command.threadId,
       });
       if (
+        command.expectedEmptyGatewayOperationId !== undefined &&
+        (thread.gatewayOperationId !== command.expectedEmptyGatewayOperationId ||
+          thread.latestTurn !== null ||
+          thread.messages.length > 0 ||
+          thread.archivedAt !== null ||
+          thread.updatedAt !== thread.createdAt ||
+          thread.isPinned === true)
+      ) {
+        return yield* Effect.fail(
+          new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `Thread '${command.threadId}' is no longer an empty gateway creation.`,
+          }),
+        );
+      }
+      if (
         command.expectedArchivedAt !== undefined &&
         (thread.archivedAt !== command.expectedArchivedAt || thread.isPinned === true)
       ) {
@@ -1300,6 +1317,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.modelSelection !== undefined
             ? { modelSelection: command.modelSelection }
             : {}),
+          ...(command.connectionId !== undefined ? { connectionId: command.connectionId } : {}),
           ...resolveThreadWorkspaceMetadataPatch(command),
           ...(command.isPinned !== undefined ? { isPinned: command.isPinned } : {}),
           ...(command.isPinned !== undefined && command.isPinned !== thread.isPinned
@@ -1461,7 +1479,29 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         readModel,
         command,
         threadId: command.threadId,
-      });
+      }).pipe(
+        Effect.mapError((error) =>
+          command.reason === "play"
+            ? new OrchestrationCommandInvariantError({
+                commandType: command.type,
+                detail: "Thread changed before continuation.",
+                code: "THREAD_CONTINUE_STALE",
+              })
+            : error,
+        ),
+      );
+      if (
+        command.reason === "play" &&
+        (command.interruptedTurnId === undefined ||
+          command.turnId !== command.interruptedTurnId ||
+          !canContinueLatestTurn(thread, command.interruptedTurnId))
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Thread changed before continuation.",
+          code: "THREAD_CONTINUE_STALE",
+        });
+      }
       if (threadHasInFlightTurn(thread)) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
@@ -1493,6 +1533,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.interruptedTurnId !== undefined
             ? { recoveryOfTurnId: command.interruptedTurnId }
             : {}),
+          recoveryReason: command.reason ?? "restart",
           restartRecovery: true,
           connectionId: command.connectionId,
           bindingRevision: command.bindingRevision,
@@ -1649,6 +1690,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           // originally dispatched by a non-user source must overwrite the
           // stale origin instead of inheriting it.
           dispatchOrigin: command.dispatchOrigin ?? "user",
+          ...(command.dispatchOrigin === "agent" && command.senderThreadId !== undefined
+            ? { senderThreadId: command.senderThreadId }
+            : {}),
           delivery: {
             state: shouldQueue ? "queued" : dispatchMode === "steer" ? "steering" : "starting",
             queued: shouldQueue,
@@ -1676,6 +1720,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         assistantDeliveryMode: command.assistantDeliveryMode ?? DEFAULT_ASSISTANT_DELIVERY_MODE,
         dispatchMode,
         dispatchOrigin: command.dispatchOrigin ?? "user",
+        ...(command.dispatchOrigin === "agent" && command.senderThreadId !== undefined
+          ? { senderThreadId: command.senderThreadId }
+          : {}),
         runtimeMode: command.runtimeMode,
         createdAt: command.createdAt,
       } as const;
@@ -1747,6 +1794,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           assistantDeliveryMode: command.assistantDeliveryMode ?? DEFAULT_ASSISTANT_DELIVERY_MODE,
           dispatchMode: command.dispatchMode ?? "queue",
           dispatchOrigin: command.dispatchOrigin ?? "user",
+          ...(command.dispatchOrigin === "agent" && command.senderThreadId !== undefined
+            ? { senderThreadId: command.senderThreadId }
+            : {}),
           runtimeMode: command.runtimeMode,
           createdAt: command.createdAt,
         },

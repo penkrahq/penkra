@@ -19,6 +19,13 @@ import { extractBearerToken } from "./bearerToken.ts";
 
 export const AGENT_GATEWAY_MCP_MAX_BODY_BYTES = 1024 * 1024;
 
+/**
+ * Header naming the turn that originated an MCP tool call. The gateway
+ * requires an origin for write authority, then checks it against live provider
+ * state. A missing header cannot inherit a successor turn at ingress.
+ */
+export const AGENT_GATEWAY_ORIGIN_TURN_HEADER = "x-penkra-origin-turn-id";
+
 const BODY_TOO_LARGE = Symbol("AgentGatewayMcpBodyTooLarge");
 
 export type McpBodyReadResult =
@@ -108,9 +115,11 @@ const postRouteLayer = HttpRouter.add(
         { status: 400 },
       );
     }
+    const originTurnId = request.headers[AGENT_GATEWAY_ORIGIN_TURN_HEADER];
     const result = yield* gateway.handleMcpPost({
       authorizationHeader: request.headers.authorization,
       body: bodyResult.body,
+      ...(originTurnId ? { originTurnId } : {}),
     });
     if (result.body === undefined) {
       return HttpServerResponse.empty({ status: result.status });

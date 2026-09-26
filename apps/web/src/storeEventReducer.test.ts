@@ -1,3 +1,4 @@
+import { createStore } from "zustand/vanilla";
 // FILE: storeEventReducer.test.ts
 // Purpose: Exercises orchestration domain-event reduction and batching.
 
@@ -6,6 +7,7 @@ import {
   CommandId,
   EventId,
   MessageId,
+  ProviderConnectionId,
   FolderId,
   SpaceId,
   ThreadDeckId,
@@ -35,9 +37,207 @@ import {
 } from "./storeTestFixtures";
 import { DEFAULT_RUNTIME_MODE } from "./types";
 import { createSidebarTreeThreadsSelector } from "./storeSelectors";
+import { createComposerDraftStoreState } from "./composerDraftActions";
+import type { ComposerDraftStoreState } from "./composerDraftDomain";
 import { resolveThreadStatusPill } from "./components/Sidebar.logic";
 
 describe("store event reducer", () => {
+  it("keeps agent sender metadata and clears it on a user-origin resend", () => {
+    const threadId = ThreadId.makeUnsafe("thread-agent-message-edit");
+    const messageId = MessageId.makeUnsafe("message-agent-message-edit");
+    const senderThreadId = ThreadId.makeUnsafe("source-agent-thread");
+    const createdAt = "2026-09-26T12:00:00.000Z";
+    const original = makeDomainEvent(
+      "thread.message-sent",
+      {
+        threadId,
+        messageId,
+        role: "user",
+        text: "original agent prompt",
+        dispatchOrigin: "agent",
+        senderThreadId,
+        turnId: null,
+        streaming: false,
+        source: "native",
+        createdAt,
+        updatedAt: createdAt,
+        attachments: [],
+      },
+      { sequence: 1 },
+    );
+    const agentState = applyOrchestrationEvents(makeState(makeThread({ id: threadId })), [
+      original,
+    ]);
+    expect(threadsOf(agentState)[0]?.messages[0]?.senderThreadId).toBe(senderThreadId);
+
+    const edited = makeDomainEvent(
+      "thread.message-sent",
+      {
+        threadId,
+        messageId,
+        role: "user",
+        text: "edited by user",
+        dispatchOrigin: "user",
+        turnId: null,
+        streaming: false,
+        source: "native",
+        createdAt,
+        updatedAt: createdAt,
+        attachments: [],
+      },
+      { sequence: 2 },
+    );
+    const editedState = applyOrchestrationEvents(agentState, [edited]);
+    expect(threadsOf(editedState)[0]?.messages[0]).toMatchObject({
+      text: "edited by user",
+      dispatchOrigin: "user",
+    });
+    expect(threadsOf(editedState)[0]?.messages[0]?.senderThreadId).toBeUndefined();
+  });
+
+  it("keeps two subscribed renderer projections converged on queued turns and thread selection", () => {
+    const threadId = ThreadId.makeUnsafe("thread-shared-queue");
+    const messageId = MessageId.makeUnsafe("message-shared-queue");
+    const initial = makeState(makeThread({ id: threadId }));
+    const admittedEvents = [
+      makeDomainEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId,
+          role: "user",
+          text: "shared queued prompt",
+          attachments: [],
+          dispatchMode: "queue",
+          delivery: { state: "queued", queued: true },
+          turnId: null,
+          streaming: false,
+          source: "native",
+          createdAt: "2026-09-26T12:00:00.000Z",
+          updatedAt: "2026-09-26T12:00:00.000Z",
+        },
+        { sequence: 1 },
+      ),
+      makeDomainEvent(
+        "thread.turn-queued",
+        {
+          threadId,
+          messageId,
+          turnId: TurnId.makeUnsafe("turn-shared-queue"),
+          dispatchMode: "queue",
+          runtimeMode: "full-access",
+          createdAt: "2026-09-26T12:00:00.000Z",
+        },
+        { sequence: 2 },
+      ),
+      makeDomainEvent(
+        "thread.updated",
+        {
+          threadId,
+          modelSelection: { provider: "opencode", model: "openai/gpt-5.6" },
+          connectionId: ProviderConnectionId.makeUnsafe("connection-shared"),
+          updatedAt: "2026-09-26T12:00:01.000Z",
+        },
+        { sequence: 3 },
+      ),
+      makeDomainEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId,
+          role: "user",
+          text: "edited shared queued prompt",
+          attachments: [],
+          dispatchMode: "queue",
+          delivery: { state: "queued", queued: true },
+          turnId: null,
+          streaming: false,
+          source: "native",
+          createdAt: "2026-09-26T12:00:00.000Z",
+          updatedAt: "2026-09-26T12:00:03.000Z",
+        },
+        { sequence: 4 },
+      ),
+      makeDomainEvent(
+        "thread.turn-start-cancelled",
+        {
+          threadId,
+          messageId,
+          turnId: TurnId.makeUnsafe("turn-shared-queue"),
+          cancelledAt: "2026-09-26T12:00:02.000Z",
+        },
+        { sequence: 6 },
+      ),
+    ];
+
+    const rendererA = createStore<AppState>(() => initial);
+    const rendererB = createStore<AppState>(() => initial);
+    rendererA.setState((state) => applyOrchestrationEvents(state, admittedEvents.slice(0, 4)));
+    rendererB.setState((state) => applyOrchestrationEvents(state, admittedEvents.slice(0, 4)));
+    const localDraftA = createStore<ComposerDraftStoreState>(
+      createComposerDraftStoreState(() => {}),
+    );
+    const localDraftB = createStore<ComposerDraftStoreState>(
+      createComposerDraftStoreState(() => {}),
+    );
+    localDraftA.getState().setPrompt(threadId, "window A unsent text");
+    localDraftB.getState().setPrompt(threadId, "window B unsent text");
+
+    const threadA = threadsOf(rendererA.getState())[0]!;
+    const threadB = threadsOf(rendererB.getState())[0]!;
+    expect(threadA.queuedMessageIds).toEqual([messageId]);
+    expect(threadB.messages).toEqual(threadA.messages);
+    expect(threadA.messages[0]?.text).toBe("edited shared queued prompt");
+    expect(threadA.modelSelection).toEqual({ provider: "opencode", model: "openai/gpt-5.6" });
+    expect(threadB.modelSelection).toEqual(threadA.modelSelection);
+    expect(threadA.connectionId).toBe("connection-shared");
+    expect(threadB.connectionId).toBe(threadA.connectionId);
+
+    // Reconnect snapshot resync catches a renderer that missed the last event.
+    rendererB.setState((state) =>
+      syncServerReadModel(state, {
+        ...makeReadModel(
+          makeReadModelThread({
+            id: threadId,
+            modelSelection: { provider: "opencode", model: "openai/gpt-5.6" },
+            connectionId: ProviderConnectionId.makeUnsafe("connection-shared"),
+            messages: [
+              {
+                id: messageId,
+                role: "user",
+                text: "edited shared queued prompt",
+                attachments: [],
+                dispatchMode: "queue",
+                delivery: { state: "queued", queued: true, sequence: 4 },
+                turnId: null,
+                streaming: false,
+                source: "native",
+                createdAt: "2026-09-26T12:00:00.000Z",
+                updatedAt: "2026-09-26T12:00:03.000Z",
+              },
+            ],
+          }),
+        ),
+        snapshotSequence: 5,
+      }),
+    );
+    expect(threadsOf(rendererB.getState())[0]?.messages.map((message) => message.id)).toEqual(
+      threadA.messages.map((message) => message.id),
+    );
+    expect(threadsOf(rendererB.getState())[0]?.modelSelection).toEqual(threadA.modelSelection);
+    expect(threadsOf(rendererB.getState())[0]?.connectionId).toEqual(threadA.connectionId);
+    expect(localDraftA.getState().draftsByThreadId[threadId]?.prompt).toBe("window A unsent text");
+    expect(localDraftB.getState().draftsByThreadId[threadId]?.prompt).toBe("window B unsent text");
+
+    rendererA.setState((state) => applyOrchestrationEvents(state, [admittedEvents[4]!]));
+    rendererB.setState((state) => applyOrchestrationEvents(state, [admittedEvents[4]!]));
+    expect(threadsOf(rendererA.getState())[0]?.queuedMessageIds).toEqual([]);
+    expect(threadsOf(rendererB.getState())[0]?.queuedMessageIds).toEqual([]);
+    expect(threadsOf(rendererB.getState())[0]?.messages).toEqual(
+      threadsOf(rendererA.getState())[0]?.messages,
+    );
+  });
+
   it("projects raw deck reorder and cross-deck move events into deck and thread shell order", () => {
     const spaceId = SpaceId.makeUnsafe("space-test");
     const sourceDeckId = ThreadDeckId.makeUnsafe("deck-source");

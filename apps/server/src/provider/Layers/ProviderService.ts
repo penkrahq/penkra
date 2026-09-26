@@ -125,7 +125,9 @@ export interface ProviderServiceLiveOptions {
   /** Test/embedding override for the lossless runtime-event fan-out budget. */
   readonly runtimeEventBufferCapacity?: number;
   /** Production journal hook. The event must be durable before this effect returns. */
-  readonly persistRuntimeEvent?: (event: ProviderRuntimeEvent) => Effect.Effect<void, unknown>;
+  readonly persistRuntimeEvent?: (
+    event: ProviderRuntimeEvent,
+  ) => Effect.Effect<ProviderRuntimeEvent | null, unknown>;
   /** Durable fallback for events that can never be accepted by the canonical journal. */
   readonly quarantineRuntimeEvent?: (
     event: ProviderRuntimeEvent,
@@ -610,12 +612,21 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
 
     const publishRuntimeEvent = (event: ProviderRuntimeEvent): Effect.Effect<void, unknown> =>
       Effect.uninterruptible(
-        (options?.persistRuntimeEvent ? options.persistRuntimeEvent(event) : Effect.void).pipe(
-          Effect.andThen(
-            canonicalEventLogger ? canonicalEventLogger.write(event, null) : Effect.void,
+        (options?.persistRuntimeEvent
+          ? options.persistRuntimeEvent(event)
+          : Effect.succeed<ProviderRuntimeEvent | null>(event)
+        ).pipe(
+          Effect.flatMap((admittedEvent) =>
+            admittedEvent === null
+              ? Effect.void
+              : (canonicalEventLogger
+                  ? canonicalEventLogger.write(admittedEvent, null)
+                  : Effect.void
+                ).pipe(
+                  Effect.andThen(PubSub.publish(runtimeEventPubSub, admittedEvent)),
+                  Effect.asVoid,
+                ),
           ),
-          Effect.andThen(PubSub.publish(runtimeEventPubSub, event)),
-          Effect.asVoid,
         ),
       );
 
@@ -1519,7 +1530,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             if (options?.resolveManagedLaunch) {
               return yield* toValidationError(
                 "ProviderService.startSession",
-                "A started thread cannot change its provider harness.",
+                "This thread uses a different provider. To use another provider, start a new thread.",
               );
             }
 
@@ -2722,7 +2733,10 @@ export function makeDurableProviderServiceLive(options?: ProviderServiceLiveOpti
       const runtimeEvents = yield* ProviderRuntimeEventRepository;
       return yield* makeProviderService({
         ...options,
-        persistRuntimeEvent: (event) => runtimeEvents.append(event).pipe(Effect.asVoid),
+        persistRuntimeEvent: (event) =>
+          runtimeEvents
+            .appendWithDiagnosticAdmission(event)
+            .pipe(Effect.map((persisted) => persisted?.event ?? null)),
         quarantineRuntimeEvent: (event, cause) =>
           runtimeEvents
             .append({
@@ -2760,7 +2774,10 @@ export function makeManagedDurableProviderServiceLive(options?: ProviderServiceL
       const launchResolver = yield* ProviderLaunchResolver;
       return yield* makeProviderService({
         ...options,
-        persistRuntimeEvent: (event) => runtimeEvents.append(event).pipe(Effect.asVoid),
+        persistRuntimeEvent: (event) =>
+          runtimeEvents
+            .appendWithDiagnosticAdmission(event)
+            .pipe(Effect.map((persisted) => persisted?.event ?? null)),
         quarantineRuntimeEvent: (event, cause) =>
           runtimeEvents
             .append({

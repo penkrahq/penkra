@@ -537,6 +537,9 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               ...(event.payload.modelSelection !== undefined
                 ? { modelSelection: event.payload.modelSelection }
                 : {}),
+              ...(event.payload.connectionId !== undefined
+                ? { connectionId: event.payload.connectionId }
+                : {}),
               ...(event.payload.workingDirectory !== undefined
                 ? { workingDirectory: event.payload.workingDirectory }
                 : {}),
@@ -1035,6 +1038,10 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             ...(event.payload.dispatchOrigin !== undefined
               ? { dispatchOrigin: event.payload.dispatchOrigin }
               : {}),
+            ...(event.payload.dispatchOrigin === "agent" &&
+            event.payload.senderThreadId !== undefined
+              ? { senderThreadId: event.payload.senderThreadId }
+              : {}),
             ...(event.payload.delivery !== undefined
               ? {
                   deliveryState: event.payload.delivery.state,
@@ -1328,7 +1335,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
                   SELECT 1 FROM projection_turns turn_row
                   WHERE turn_row.thread_id = ${event.payload.threadId}
                     AND turn_row.turn_id = ${event.payload.turnId}
-                    AND turn_row.pending_message_id = ${event.payload.messageId}
                     AND turn_row.state = 'running'
                     AND turn_row.started_at IS NULL
                     AND turn_row.provider_turn_id IS NULL
@@ -1523,7 +1529,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             const failedTurn = turns.find(
               (turn) =>
                 turn.turnId === event.payload.turnId &&
-                turn.pendingMessageId === event.payload.messageId &&
                 turn.state === "running" &&
                 turn.startedAt === null &&
                 turn.providerTurnId === null &&

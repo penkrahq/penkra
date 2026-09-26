@@ -24,7 +24,6 @@ import { DesktopWindowControls } from "../components/DesktopWindowControls";
 import { DesktopActiveWorkPowerSync } from "../components/DesktopActiveWorkPowerSync";
 import { DesktopThreadApiBridge } from "../components/DesktopThreadApiBridge";
 import { DesktopOnboardingGate } from "../components/onboarding/DesktopOnboardingGate";
-import { QueuedComposerTurnDispatcher } from "../components/QueuedComposerTurnDispatcher";
 import { FeedbackDialog } from "../components/FeedbackDialog";
 import { SETTINGS_TARGETS } from "../settingsNavigation";
 import ShortcutsDialog from "../components/ShortcutsDialog";
@@ -234,7 +233,6 @@ function RootRouteView() {
               <TaskCompletionNotifications />
               <ProviderUpdateNotifications />
               <ConnectionDefaultsMigration />
-              <QueuedComposerTurnDispatcher />
               <Outlet />
             </AnchoredToastProvider>
           </VoiceSessionCoordinatorProvider>
@@ -1149,6 +1147,11 @@ function EventRouter() {
       .catch(() => undefined);
 
     const unsubWelcome = onServerWelcome((payload) => {
+      // A new server process has an empty Claude discovery cache and may run a
+      // corrected mapper or a newer managed runtime. Refresh mounted pickers.
+      void queryClient.invalidateQueries({
+        queryKey: providerDiscoveryQueryKeys.modelsForProvider("claudeAgent"),
+      });
       void (async () => {
         setServerWorkspacePaths({
           homeDir: payload.homeDir,

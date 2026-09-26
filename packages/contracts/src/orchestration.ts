@@ -417,6 +417,7 @@ export const OrchestrationMessage = Schema.Struct({
   mentions: Schema.optional(Schema.Array(ProviderMentionReference)),
   dispatchMode: Schema.optional(TurnDispatchMode),
   dispatchOrigin: Schema.optional(MessageDispatchOrigin),
+  senderThreadId: Schema.optional(ThreadId),
   delivery: Schema.optional(MessageDelivery),
   /** First durable message event sequence. Delivery sequence may supersede it for presentation. */
   sequence: Schema.optional(NonNegativeInt),
@@ -465,6 +466,7 @@ export const OrchestrationThreadActivity = Schema.Struct({
   summary: TrimmedNonEmptyString,
   payload: Schema.Json,
   turnId: Schema.NullOr(TurnId),
+  providerTurnId: Schema.optional(Schema.NullOr(TurnId)),
   sequence: Schema.optional(NonNegativeInt),
   createdAt: IsoDateTime,
 });
@@ -555,6 +557,8 @@ export const OrchestrationThread = Schema.Struct({
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
+  /** Thread's current preferred Connection; null means anonymous route. */
+  connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
   runtimeMode: RuntimeMode,
   workingDirectory: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
     Schema.withDecodingDefault(() => null),
@@ -625,6 +629,7 @@ export const OrchestrationThreadShell = Schema.Struct({
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
+  connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
   runtimeMode: RuntimeMode,
   workingDirectory: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
     Schema.withDecodingDefault(() => null),
@@ -949,6 +954,7 @@ const ThreadDeleteCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   expectedArchivedAt: Schema.optional(IsoDateTime),
+  expectedEmptyGatewayOperationId: Schema.optional(TrimmedNonEmptyString),
 });
 
 const ThreadArchiveCommand = Schema.Struct({
@@ -1001,6 +1007,7 @@ const ThreadUpdateCommand = Schema.Struct({
   threadId: ThreadId,
   title: Schema.optional(TrimmedNonEmptyString),
   modelSelection: Schema.optional(ModelSelection),
+  connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
   workingDirectory: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   isPinned: Schema.optional(Schema.Boolean),
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
@@ -1077,6 +1084,7 @@ export const ThreadTurnStartCommand = Schema.Struct({
   // Trusted server paths may set this field. ClientThreadTurnStartCommand omits it,
   // so decoding strips any spoofed value.
   dispatchOrigin: Schema.optional(MessageDispatchOrigin),
+  senderThreadId: Schema.optional(ThreadId),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
   createdAt: IsoDateTime,
 });
@@ -1165,21 +1173,32 @@ const ThreadDispatchQueuedTurnCommand = Schema.Struct({
     Schema.withDecodingDefault(() => DEFAULT_TURN_DISPATCH_MODE),
   ),
   dispatchOrigin: Schema.optional(MessageDispatchOrigin),
+  senderThreadId: Schema.optional(ThreadId),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
   createdAt: IsoDateTime,
 });
 
 const ThreadTurnRecoverCommand = Schema.Struct({
   type: Schema.Literal("thread.turn.recover"),
+  reason: Schema.optional(Schema.Literals(["restart", "play"])).pipe(
+    Schema.withDecodingDefault(() => "restart" as const),
+  ),
   commandId: CommandId,
   threadId: ThreadId,
-  /** Identity of the new continuation turn, distinct from interruptedTurnId. */
+  /** Recovery reopens this logical turn when it matches interruptedTurnId. */
   turnId: Schema.optional(TurnId),
   recoveryMessageId: MessageId,
   interruptedTurnId: Schema.optional(TurnId),
   connectionId: Schema.NullOr(ProviderConnectionId),
   bindingRevision: NonNegativeInt,
   createdAt: IsoDateTime,
+});
+
+const ThreadTurnPlayCommand = Schema.Struct({
+  ...ThreadTurnRecoverCommand.fields,
+  reason: Schema.Literal("play"),
+  turnId: TurnId,
+  interruptedTurnId: TurnId,
 });
 
 const ThreadApprovalRespondCommand = Schema.Struct({
@@ -1275,6 +1294,7 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadPinnedMessageLabelSetCommand,
   ThreadRuntimeModeSetCommand,
   ThreadTurnStartCommand,
+  ThreadTurnPlayCommand,
   ThreadTurnInterruptCommand,
   ThreadQueuedTurnCancelCommand,
   ThreadQueuedTurnSteerCommand,
@@ -1314,6 +1334,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadPinnedMessageLabelSetCommand,
   ThreadRuntimeModeSetCommand,
   ClientThreadTurnStartCommand,
+  ThreadTurnPlayCommand,
   ThreadTurnInterruptCommand,
   ThreadQueuedTurnCancelCommand,
   ThreadQueuedTurnSteerCommand,
@@ -1657,6 +1678,7 @@ export const ThreadUpdatedPayload = Schema.Struct({
   threadId: ThreadId,
   title: Schema.optional(TrimmedNonEmptyString),
   modelSelection: Schema.optional(ModelSelection),
+  connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
   workingDirectory: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   isPinned: Schema.optional(Schema.Boolean),
   sidebarSortOrder: Schema.optional(NonNegativeInt),
@@ -1715,6 +1737,7 @@ export const ThreadMessageSentPayload = Schema.Struct({
   mentions: Schema.optional(Schema.Array(ProviderMentionReference)),
   dispatchMode: Schema.optional(TurnDispatchMode),
   dispatchOrigin: Schema.optional(MessageDispatchOrigin),
+  senderThreadId: Schema.optional(ThreadId),
   delivery: Schema.optional(MessageDeliveryAdmission),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
@@ -1746,7 +1769,10 @@ export const ThreadTurnStartRequestedPayload = Schema.Struct({
   messageId: MessageId,
   /** Server-only continuation source. No user-visible message exists for this id. */
   recoveryOfTurnId: Schema.optional(TurnId),
-  /** Invisible restart continuation, including admission before a provider turn id exists. */
+  recoveryReason: Schema.optional(Schema.Literals(["restart", "play"])).pipe(
+    Schema.withDecodingDefault(() => "restart" as const),
+  ),
+  /** Invisible continuation, including admission before a provider turn id exists. */
   restartRecovery: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
   modelSelection: Schema.optional(ModelSelection),
   connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
@@ -1756,6 +1782,7 @@ export const ThreadTurnStartRequestedPayload = Schema.Struct({
   assistantDeliveryMode: Schema.optional(AssistantDeliveryMode),
   dispatchMode: TurnDispatchMode.pipe(Schema.withDecodingDefault(() => DEFAULT_TURN_DISPATCH_MODE)),
   dispatchOrigin: Schema.optional(MessageDispatchOrigin),
+  senderThreadId: Schema.optional(ThreadId),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
   createdAt: IsoDateTime,
 });

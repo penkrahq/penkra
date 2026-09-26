@@ -1,6 +1,9 @@
-import { NonNegativeInt, ProviderRuntimeEvent } from "@penkra/contracts";
+import { createHash } from "node:crypto";
+
+import { EventId, NonNegativeInt, ProviderRuntimeEvent } from "@penkra/contracts";
 import { Effect, Layer, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { observeRuntimeJournalTiming } from "../runtimeJournalMetrics.ts";
 
 import {
   PersistenceDecodeError,
@@ -47,6 +50,7 @@ const decodeEvent = Schema.decodeUnknownEffect(ProviderRuntimeEventJson);
 const StoredRowSchema = Schema.Struct({
   sequence: NonNegativeInt,
   eventJson: Schema.String,
+  persistedAt: Schema.optional(Schema.String),
 });
 const decodeStoredRow = Schema.decodeUnknownEffect(StoredRowSchema);
 
@@ -160,6 +164,76 @@ const make = Effect.gen(function* () {
   // immutable content, so live delivery does not need an explicit transaction.
   const append: ProviderRuntimeEventRepositoryShape["append"] = appendInCurrentTransaction;
 
+  const appendWithDiagnosticAdmission: ProviderRuntimeEventRepositoryShape["appendWithDiagnosticAdmission"] =
+    (event) => {
+      const diagnostic = event.type === "runtime.warning" ? event.payload.diagnostic : undefined;
+      if (!diagnostic) return append(event);
+
+      return sql
+        .withTransaction(
+          Effect.gen(function* () {
+            const rows = yield* sql<{
+              readonly fingerprint: string;
+              readonly episode: number;
+              readonly state: "active" | "resolved";
+            }>`
+              SELECT fingerprint, episode, state
+              FROM provider_runtime_diagnostic_episodes
+              WHERE thread_id = ${event.threadId}
+                AND provider = ${event.provider}
+                AND diagnostic_key = ${diagnostic.key}
+            `;
+            const previous = rows[0];
+            if (diagnostic.state === "resolved") {
+              if (previous?.state === "active") {
+                yield* sql`
+                  UPDATE provider_runtime_diagnostic_episodes
+                  SET state = 'resolved', updated_at = ${event.createdAt}
+                  WHERE thread_id = ${event.threadId}
+                    AND provider = ${event.provider}
+                    AND diagnostic_key = ${diagnostic.key}
+                `;
+              }
+              return null;
+            }
+            if (previous?.state === "active" && previous.fingerprint === diagnostic.fingerprint) {
+              return null;
+            }
+
+            const episode = (previous?.episode ?? 0) + 1;
+            const digest = createHash("sha256")
+              .update(`${event.threadId}\0${event.provider}\0${diagnostic.key}\0${episode}`)
+              .digest("hex");
+            const admittedEvent = {
+              ...event,
+              eventId: EventId.makeUnsafe(`diagnostic:${event.provider}:${digest}`),
+            } satisfies ProviderRuntimeEvent;
+            yield* sql`
+              INSERT INTO provider_runtime_diagnostic_episodes (
+                thread_id, provider, diagnostic_key, fingerprint, episode,
+                state, active_event_id, updated_at
+              ) VALUES (
+                ${event.threadId}, ${event.provider}, ${diagnostic.key},
+                ${diagnostic.fingerprint}, ${episode}, 'active',
+                ${admittedEvent.eventId}, ${event.createdAt}
+              )
+              ON CONFLICT (thread_id, provider, diagnostic_key) DO UPDATE SET
+                fingerprint = excluded.fingerprint,
+                episode = excluded.episode,
+                state = excluded.state,
+                active_event_id = excluded.active_event_id,
+                updated_at = excluded.updated_at
+            `;
+            return yield* appendInCurrentTransaction(admittedEvent);
+          }),
+        )
+        .pipe(
+          Effect.mapError(
+            toPersistenceSqlError("ProviderRuntimeEvent.appendWithDiagnosticAdmission"),
+          ),
+        );
+    };
+
   const getHighWaterSequence = sql<{ readonly highWaterSequence: number }>`
     SELECT COALESCE(MAX(sequence), 0) AS "highWaterSequence"
     FROM provider_runtime_events
@@ -211,6 +285,7 @@ const make = Effect.gen(function* () {
           SELECT
             event.sequence,
             event.event_json AS "eventJson",
+            event.persisted_at AS "persistedAt",
             ROW_NUMBER() OVER (
               PARTITION BY event.thread_id
               ORDER BY event.sequence ASC
@@ -230,7 +305,7 @@ const make = Effect.gen(function* () {
                 )
             )
         )
-        SELECT sequence, "eventJson"
+        SELECT sequence, "eventJson", "persistedAt"
         FROM eligible
         WHERE thread_position = 1
         ORDER BY sequence ASC
@@ -252,7 +327,11 @@ const make = Effect.gen(function* () {
                 ),
               ),
             );
-            return { sequence: row.sequence, event } satisfies PersistedProviderRuntimeEvent;
+            return {
+              sequence: row.sequence,
+              event,
+              ...(row.persistedAt === undefined ? {} : { persistedAt: row.persistedAt }),
+            } satisfies PersistedProviderRuntimeEvent;
           }),
         { concurrency: 1 },
       );
@@ -271,6 +350,7 @@ const make = Effect.gen(function* () {
           SELECT
             event.sequence,
             event.event_json AS "eventJson",
+            event.persisted_at AS "persistedAt",
             ROW_NUMBER() OVER (
               PARTITION BY event.thread_id
               ORDER BY event.sequence ASC
@@ -290,7 +370,7 @@ const make = Effect.gen(function* () {
                 )
             )
         )
-        SELECT sequence, "eventJson"
+        SELECT sequence, "eventJson", "persistedAt"
         FROM eligible
         WHERE thread_position <= ${maxPerThread}
         ORDER BY sequence ASC
@@ -314,7 +394,11 @@ const make = Effect.gen(function* () {
                 ),
               ),
             );
-            return { sequence: row.sequence, event } satisfies PersistedProviderRuntimeEvent;
+            return {
+              sequence: row.sequence,
+              event,
+              ...(row.persistedAt === undefined ? {} : { persistedAt: row.persistedAt }),
+            } satisfies PersistedProviderRuntimeEvent;
           }),
         { concurrency: 1 },
       );
@@ -453,7 +537,8 @@ const make = Effect.gen(function* () {
         SELECT 1
         FROM projection_turns AS turn
         WHERE turn.thread_id = provider_runtime_open_turns.thread_id
-          AND turn.turn_id = provider_runtime_open_turns.turn_id
+          AND (turn.turn_id = provider_runtime_open_turns.turn_id
+            OR turn.provider_turn_id = provider_runtime_open_turns.turn_id)
           AND (
             turn.state IN ('interrupted', 'completed', 'error')
             OR turn.completed_at IS NOT NULL
@@ -497,7 +582,8 @@ const make = Effect.gen(function* () {
             SELECT 1
             FROM projection_turns AS turn
             WHERE turn.thread_id = ${input.threadId}
-              AND turn.turn_id = ${input.turnId}
+              AND (turn.turn_id = ${input.turnId}
+                OR turn.provider_turn_id = ${input.turnId})
               AND (
                 turn.state IN ('interrupted', 'completed', 'error')
                 OR turn.completed_at IS NOT NULL
@@ -611,7 +697,7 @@ const make = Effect.gen(function* () {
           return true;
         }
         retentionScanSequence = input.eventSequence;
-
+        const retentionStartedAt = performance.now();
         yield* sql`
             DELETE FROM provider_runtime_events AS event
             WHERE EXISTS (
@@ -640,6 +726,7 @@ const make = Effect.gen(function* () {
                 LIMIT ${PROVIDER_RUNTIME_EVENT_RETAIN_ACCEPTED}
               )
           `;
+        observeRuntimeJournalTiming("journalRetentionScan", performance.now() - retentionStartedAt);
         return true;
       }).pipe(
         Effect.tap(() =>
@@ -1016,8 +1103,15 @@ const make = Effect.gen(function* () {
             yield* sql`
               INSERT INTO provider_runtime_open_turns (
                 thread_id, turn_id, first_sequence, updated_at
-              ) VALUES (
-                ${event.threadId}, ${event.turnId}, ${input.eventSequence}, ${input.updatedAt}
+              )
+              SELECT ${event.threadId}, ${event.turnId}, ${input.eventSequence}, ${input.updatedAt}
+              WHERE NOT EXISTS (
+                SELECT 1 FROM projection_turns AS turn
+                WHERE turn.thread_id = ${event.threadId}
+                  AND (turn.turn_id = ${event.turnId}
+                    OR turn.provider_turn_id = ${event.turnId})
+                  AND (turn.state IN ('interrupted', 'completed', 'error')
+                    OR turn.completed_at IS NOT NULL)
               )
               ON CONFLICT (thread_id, turn_id) DO UPDATE SET
                 first_sequence = MIN(
@@ -1060,6 +1154,7 @@ const make = Effect.gen(function* () {
             return true;
           }
           retentionScanSequence = input.eventSequence;
+          const retentionStartedAt = performance.now();
 
           // Pending rows are above the cursor. Accepted rows for an open turn
           // remain replayable until its terminal output is accepted; all other
@@ -1082,6 +1177,10 @@ const make = Effect.gen(function* () {
                 LIMIT ${PROVIDER_RUNTIME_EVENT_RETAIN_ACCEPTED}
               )
           `;
+          observeRuntimeJournalTiming(
+            "journalRetentionScan",
+            performance.now() - retentionStartedAt,
+          );
           return true;
         }),
       )
@@ -1104,6 +1203,7 @@ const make = Effect.gen(function* () {
 
   return {
     append,
+    appendWithDiagnosticAdmission,
     getHighWaterSequence,
     readAfter,
     readPendingThreadHeads,

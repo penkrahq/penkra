@@ -6,9 +6,12 @@ import {
   PenkraCreateThreadInput,
   PenkraCreateThreadResult,
   PenkraGatewayErrorResult,
+  PenkraSendMessageInput,
 } from "./agentGateway";
+import { ThreadId } from "./baseSchemas";
 
 const decodeCreate = Schema.decodeUnknownSync(PenkraCreateThreadInput);
+const decodeSend = Schema.decodeUnknownSync(PenkraSendMessageInput);
 
 const thread = {
   prompt: "Explain this repository",
@@ -27,6 +30,43 @@ describe("agent gateway contracts", () => {
   it("requires a bounded request id", () => {
     assert.throws(() => decodeCreate({ requestId: "", ...thread }));
     assert.throws(() => decodeCreate({ requestId: "x".repeat(257), ...thread }));
+  });
+
+  it("accepts an exact send selection and preserves explicit anonymous routing", () => {
+    const modelSelection = {
+      provider: "codex",
+      model: "gpt-5.6-terra",
+      options: { reasoningEffort: "low" },
+    } as const;
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    assert.deepEqual(
+      decodeSend({
+        threadId,
+        message: "Continue the review.",
+        now: true,
+        connectionId: null,
+        modelSelection,
+      }),
+      {
+        threadId,
+        message: "Continue the review.",
+        now: true,
+        connectionId: null,
+        modelSelection,
+      },
+    );
+  });
+
+  it("rejects malformed and unexpected send selection fields", () => {
+    assert.throws(() => decodeSend({ threadId: "thread-1", message: "" }));
+    assert.throws(() => decodeSend({ threadId: "thread-1", message: "go", extra: true }));
+    assert.throws(() =>
+      decodeSend({
+        threadId: "thread-1",
+        message: "go",
+        modelSelection: { provider: "claudeAgent", model: "opus-4.8", options: { invalid: true } },
+      }),
+    );
   });
 
   it("rejects removed Git environment creation fields", () => {

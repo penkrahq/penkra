@@ -71,7 +71,14 @@ describe("openLocalAppResource", () => {
       },
     });
     expect(fileHandles.list("com.penkra.explorer", "personal")).toEqual([]);
-    expect(present).toHaveBeenCalledWith("explorer-tab");
+    expect(present).toHaveBeenCalledWith(
+      "explorer-tab",
+      undefined,
+      undefined,
+      false,
+      undefined,
+      "user",
+    );
     expect(result).toMatchObject({ destination: "app", appId: "com.penkra.explorer" });
   });
 

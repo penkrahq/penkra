@@ -10,6 +10,8 @@ export interface AgentGatewayNativeToolSurface {
     readonly bearerToken: string;
     readonly name: string;
     readonly arguments: Record<string, unknown>;
+    /** Turn that originated this call, when the invoking adapter observed it. */
+    readonly originTurnId?: string;
   }) => Promise<McpToolCallResult>;
 }
 
