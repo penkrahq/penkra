@@ -4297,6 +4297,65 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             }),
         );
 
+      const probeTurnEndpoint: NonNullable<OpenCodeAdapterShape["probeTurnEndpoint"]> = (input) => {
+        const parsedModel = parseOpenCodeModelSlug(input.model);
+        if (!parsedModel) {
+          return Effect.fail(
+            new ProviderAdapterRequestError({
+              provider,
+              method: "auth/probe",
+              detail: "The selected OpenCode probe model has no provider route.",
+            }),
+          );
+        }
+        return withDiscoveryClient(
+          { cwd: input.cwd, managedLaunch: input.managedLaunch },
+          ({ client }) =>
+            Effect.gen(function* () {
+              const created = yield* runOpenCodeSdk("session.create", () =>
+                client.session.create({
+                  directory: input.cwd,
+                  title: "Penkra connectivity probe",
+                  model: {
+                    providerID: parsedModel.providerID,
+                    id: parsedModel.modelID,
+                    ...(input.effort ? { variant: input.effort } : {}),
+                  },
+                  permission: [{ permission: "*", pattern: "*", action: "deny" }],
+                }),
+              ).pipe(Effect.mapError(toAdapterRequestError));
+              const sessionID = created.data?.id;
+              if (!sessionID) return false;
+              return yield* runOpenCodeSdk("session.prompt", () =>
+                client.session.prompt({
+                  sessionID,
+                  directory: input.cwd,
+                  model: parsedModel,
+                  ...(input.effort ? { variant: input.effort } : {}),
+                  tools: { "*": false },
+                  parts: [{ type: "text", text: "Reply OK." }],
+                }),
+              ).pipe(
+                Effect.map(
+                  (response) =>
+                    response.data?.info !== undefined &&
+                    response.data.info.error === undefined &&
+                    !response.data.parts.some((part) => part.type === "tool"),
+                ),
+                Effect.mapError(toAdapterRequestError),
+                Effect.ensuring(
+                  runOpenCodeSdk("session.delete", () =>
+                    client.session.delete({ sessionID, directory: input.cwd }),
+                  ).pipe(Effect.ignore),
+                ),
+              );
+            }),
+        ).pipe(
+          Effect.timeoutOption(20_000),
+          Effect.map((result) => Option.getOrElse(result, () => false)),
+        );
+      };
+
       const listModels: NonNullable<OpenCodeAdapterShape["listModels"]> = (input) => {
         const binaryPath =
           input.managedLaunch?.binaryPath ??
@@ -4532,6 +4591,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           Queue.size(runtimeEvents).pipe(Effect.map((size) => size === 0)),
         ),
         listModels,
+        probeTurnEndpoint,
         listAgents,
         ...(provider === "opencode" ? { listCommands } : {}),
         getComposerCapabilities,

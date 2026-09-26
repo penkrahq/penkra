@@ -73,6 +73,7 @@ import {
   ProviderService,
   type ProviderServiceShape,
 } from "../../provider/Services/ProviderService.ts";
+import { ProviderDiscoveryService } from "../../provider/Services/ProviderDiscoveryService.ts";
 import {
   TextGeneration,
   type TextGenerationShape,
@@ -546,6 +547,11 @@ describe("ProviderCommandReactor", () => {
         ? { queuedTurnRecoveryInterval: input.queuedTurnRecoveryInterval }
         : {}),
     }).pipe(
+      Layer.provideMerge(
+        Layer.succeed(ProviderDiscoveryService, {
+          probeConnection: () => Effect.succeed(false),
+        } as never),
+      ),
       Layer.provideMerge(ingestionLayer),
       Layer.provideMerge(orchestrationLayer),
       Layer.provideMerge(managedBindingLayer),
@@ -4257,6 +4263,12 @@ describe("ProviderCommandReactor", () => {
       providerRefs: {},
     });
     await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+    await waitFor(
+      async () =>
+        (await readHarnessThread(harness))?.messages.find(
+          (message) => message.id === successorMessageId,
+        )?.delivery?.state === "accepted",
+    );
     const thread = await readHarnessThread(harness);
     expect(thread?.messages.find((message) => message.id === firstMessageId)?.delivery?.state).toBe(
       "accepted",

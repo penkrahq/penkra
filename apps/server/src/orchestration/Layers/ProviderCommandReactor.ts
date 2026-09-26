@@ -81,6 +81,9 @@ import {
 } from "../../textGeneration/Services/TextGeneration.ts";
 import { resolveTextGenerationInputForSelection } from "../../textGeneration/textGenerationSelection.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
+import { ProviderDiscoveryService } from "../../provider/Services/ProviderDiscoveryService.ts";
+import { classifyProviderAuthFailure } from "../../provider/providerAuthFailure.ts";
+import { makeProviderAuthCircuitStore } from "../../provider/providerAuthCircuit.ts";
 import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
 import { ProviderLaunchResolver } from "../../provider/Services/ProviderLaunchResolver.ts";
 import type { ProviderManagedLaunchContext } from "../../provider/Services/ProviderAdapter.ts";
@@ -378,6 +381,8 @@ class ProviderCommandReactorConfig extends ServiceMap.Service<
 const make = Effect.gen(function* () {
   const { commandEventTimeout, queuedTurnRecoveryInterval } = yield* ProviderCommandReactorConfig;
   const sql = yield* SqlClient.SqlClient;
+  const authCircuits = makeProviderAuthCircuitStore(sql);
+  const providerDiscovery = yield* ProviderDiscoveryService;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const providerThreadSwitchCoordinator = yield* ProviderThreadSwitchCoordinator;
   const deliveryRepository = yield* OrchestrationEventDeliveryRepository;
@@ -1849,6 +1854,23 @@ const make = Effect.gen(function* () {
         });
         yield* enqueueQueuedTurnStart(event);
       });
+      const selectedConnectionId =
+        event.payload.connectionId ??
+        (yield* authCircuits.connectionForThread(event.payload.threadId))[0]?.connectionId;
+      const openCircuit = selectedConnectionId
+        ? (yield* authCircuits.get(selectedConnectionId))[0]
+        : undefined;
+      if (openCircuit) {
+        yield* requeueTurnStart();
+        if (!(yield* hasLiveProviderTurn(event.payload.threadId))) {
+          yield* setThreadSessionError({
+            threadId: event.payload.threadId,
+            detail: `${openCircuit.summary}\nProvider detail: ${openCircuit.detail}`,
+            createdAt: new Date().toISOString(),
+          });
+        }
+        return;
+      }
       // A claimed queue head owns the provider-session lane before its adapter
       // has necessarily exposed a live turn id. A newer normal send must append
       // behind that reservation even if projection and provider both look idle
@@ -2339,6 +2361,13 @@ const make = Effect.gen(function* () {
     if (queuePromotionsQuiesced) {
       return;
     }
+    const selectedConnection = (yield* authCircuits.connectionForThread(threadId))[0];
+    if (
+      selectedConnection &&
+      (yield* authCircuits.get(selectedConnection.connectionId)).length > 0
+    ) {
+      return;
+    }
     const providerThread = yield* resolveProviderSessionThread(threadId);
     const sessionThreadId = providerThread?.id ?? threadId;
     // A queued follow-up can arrive while the predecessor is admitted but has
@@ -2470,6 +2499,29 @@ const make = Effect.gen(function* () {
   });
 
   const processQueueDrainEvent = Effect.fnUntraced(function* (event: ProviderQueueDrainEvent) {
+    if (event.type === "turn.completed" && event.payload.state === "completed") {
+      const connection = (yield* authCircuits.connectionForThread(event.threadId))[0];
+      if (connection) {
+        yield* authCircuits.close(connection.connectionId);
+      }
+    }
+    if (event.type === "runtime.error") {
+      const connection = (yield* authCircuits.connectionForThread(event.threadId))[0];
+      const detail = (event.payload as { readonly message?: unknown }).message;
+      if (connection && typeof detail === "string") {
+        const failure = classifyProviderAuthFailure({
+          detail,
+          authenticationMethodId: connection.authenticationMethodId,
+        });
+        if (failure) {
+          yield* authCircuits.open({
+            connectionId: connection.connectionId,
+            failure,
+            now: new Date().toISOString(),
+          });
+        }
+      }
+    }
     // A runtime error may be emitted before an adapter has finished tearing
     // down its active turn. Let that teardown complete; the recovery sweep will
     // promote pending work as soon as no live provider turn remains.
@@ -2540,6 +2592,45 @@ const make = Effect.gen(function* () {
   });
 
   const recoverQueuedTurnPromotions = Effect.gen(function* () {
+    for (const circuit of yield* authCircuits.listDue(new Date().toISOString())) {
+      if (!Schema.is(ProviderKind)(circuit.harness)) continue;
+      const profileChanged = circuit.profileRef !== circuit.currentProfileRef;
+      const probeSucceeded = !profileChanged
+        ? yield* providerDiscovery
+            .probeConnection({ provider: circuit.harness, connectionId: circuit.connectionId })
+            .pipe(Effect.catch(() => Effect.succeed(false)))
+        : false;
+      if (profileChanged || probeSucceeded) {
+        yield* authCircuits.close(circuit.connectionId);
+        for (const binding of yield* authCircuits.listThreadIds(circuit.connectionId)) {
+          const thread = yield* resolveThread(binding.threadId);
+          if (
+            thread?.session?.status === "error" &&
+            thread.session.lastError?.startsWith(circuit.summary)
+          ) {
+            const now = new Date().toISOString();
+            yield* setThreadSession({
+              threadId: binding.threadId,
+              session: {
+                ...thread.session,
+                status: "ready",
+                activeTurnId: null,
+                lastError: null,
+                updatedAt: now,
+              },
+              createdAt: now,
+            });
+          }
+          yield* drainQueuedTurnsForThread(binding.threadId);
+        }
+      } else {
+        yield* authCircuits.recordFailedProbe({
+          connectionId: circuit.connectionId,
+          now: new Date().toISOString(),
+          failureCount: circuit.failureCount,
+        });
+      }
+    }
     yield* Effect.forEach(yield* queuedTurnPromotions.listPendingThreadIds, (rawThreadId) =>
       Effect.gen(function* () {
         const threadId = ThreadId.makeUnsafe(rawThreadId);
@@ -2570,6 +2661,13 @@ const make = Effect.gen(function* () {
         }
         if (yield* hasLiveProviderTurn(threadId)) {
           return;
+        }
+        if (thread.session?.status === "running") {
+          // A manager can clear its live turn before the adapter has published
+          // the error and terminal notifications. Give that boundary a short
+          // chance to settle before recovering a seemingly orphaned queue.
+          yield* Effect.sleep(Duration.millis(250));
+          yield* providerRuntimeIngestion.drain;
         }
         yield* drainQueuedTurnsForThread(threadId);
       }),
@@ -4252,14 +4350,15 @@ const make = Effect.gen(function* () {
           ) {
             return Effect.void;
           }
-          if (event.type !== "session.exited") {
+          if (
+            event.type === "runtime.error" ||
+            (event.type === "turn.completed" && event.payload.state === "completed")
+          ) {
             return processQueueDrainEventSafely(event);
           }
-          // Provider events are journaled before they are published. Drain the
-          // ingestion journal through its current durable high-water mark so a
-          // session exit is projected before its queued successor is promoted.
-          // Otherwise these independent subscribers can race and route the
-          // successor through the session that just exited.
+          // Provider events are journaled before they are published. Ingestion
+          // must project a preceding auth error before a failed/aborted turn
+          // can promote the next queued turn. These are independent subscribers.
           return providerRuntimeIngestion.drain.pipe(
             Effect.andThen(processQueueDrainEventSafely(event)),
           );
@@ -4293,6 +4392,13 @@ const make = Effect.gen(function* () {
     },
   );
 
+  const retryAuthConnection: ProviderCommandReactorShape["retryAuthConnection"] = (connectionId) =>
+    Effect.gen(function* () {
+      if ((yield* authCircuits.get(connectionId)).length === 0) return;
+      yield* sql`UPDATE provider_auth_circuits SET next_probe_at = ${new Date().toISOString()} WHERE connection_id = ${connectionId}`;
+      yield* recoverQueuedTurnPromotions;
+    });
+
   const listBlockingDeliveries: ProviderCommandReactorShape["listBlockingDeliveries"] = (input) =>
     deliveryRepository.listBlockingDeliveries({
       consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
@@ -4311,6 +4417,7 @@ const make = Effect.gen(function* () {
     start,
     drain,
     quiesceQueuePromotions,
+    retryAuthConnection,
     listBlockingDeliveries,
     reconcileDelivery,
   } satisfies ProviderCommandReactorShape;
