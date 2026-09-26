@@ -6,6 +6,7 @@ import {
   setPinnedMessageLabel,
 } from "@penkra/shared/pinnedMessages";
 import { isPendingInteractionNotFoundFailure } from "@penkra/shared/threadSummary";
+import { shouldInterruptProvisionalCompletion } from "@penkra/shared/turnContinuation";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, FileSystem, Layer, Option, Path, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -1360,6 +1361,30 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
 
         case "thread.session-set":
           {
+            const previousSession = yield* projectionThreadSessionRepository.getByThreadId({
+              threadId: event.payload.threadId,
+            });
+            if (Option.isSome(previousSession)) {
+              const turns = yield* projectionTurnRepository.listByThreadId({
+                threadId: event.payload.threadId,
+              });
+              const provisionalTurn = turns
+                .filter((turn) =>
+                  shouldInterruptProvisionalCompletion({
+                    previousSession: previousSession.value,
+                    nextSession: event.payload.session,
+                    turn,
+                  }),
+                )
+                .toSorted((left, right) => right.requestedAt.localeCompare(left.requestedAt))[0];
+              if (provisionalTurn) {
+                yield* projectionTurnRepository.upsertByTurnId({
+                  ...provisionalTurn,
+                  state: "interrupted",
+                  completedAt: event.payload.session.updatedAt,
+                });
+              }
+            }
             yield* projectionThreadSessionRepository.upsert({
               threadId: event.payload.threadId,
               status: event.payload.session.status,

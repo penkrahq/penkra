@@ -961,6 +961,7 @@ const ThreadArchiveCommand = Schema.Struct({
   type: Schema.Literal("thread.archive"),
   commandId: CommandId,
   threadId: ThreadId,
+  createdAt: Schema.optional(IsoDateTime),
   expectedUpdatedAt: Schema.optional(IsoDateTime),
   expectedLastVisitedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
 });

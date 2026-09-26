@@ -438,6 +438,7 @@ export function ThreadDeckBar(props: {
           type: "thread.archive",
           commandId: newCommandId(),
           threadId: removedThreadId,
+          createdAt: new Date().toISOString(),
         });
       },
     });

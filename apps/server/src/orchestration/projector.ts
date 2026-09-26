@@ -20,6 +20,7 @@ import {
   setPinnedMessageLabel,
 } from "@penkra/shared/pinnedMessages";
 import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
+import { shouldInterruptProvisionalCompletion } from "@penkra/shared/turnContinuation";
 import { Effect, Schema } from "effect";
 
 import { OrchestrationProjectorDecodeError, toProjectorDecodeError } from "./Errors.ts";
@@ -87,7 +88,18 @@ function isTerminalLatestTurn(
 function settleLatestTurnForSessionStatus(
   latestTurn: OrchestrationThread["latestTurn"],
   session: Pick<OrchestrationSession, "status" | "activeTurnId" | "updatedAt">,
+  previousSession: OrchestrationThread["session"],
 ): OrchestrationThread["latestTurn"] {
+  if (
+    shouldInterruptProvisionalCompletion({
+      previousSession,
+      nextSession: session,
+      turn: latestTurn,
+    }) &&
+    latestTurn
+  ) {
+    return { ...latestTurn, state: "interrupted", completedAt: session.updatedAt };
+  }
   if (latestTurn?.state !== "running") {
     return latestTurn;
   }
@@ -1288,7 +1300,7 @@ export function projectEvent(
                           ? thread.latestTurn.assistantMessageId
                           : null,
                     }
-                : settleLatestTurnForSessionStatus(thread.latestTurn, session),
+                : settleLatestTurnForSessionStatus(thread.latestTurn, session, thread.session),
             updatedAt: event.occurredAt,
           }),
         };

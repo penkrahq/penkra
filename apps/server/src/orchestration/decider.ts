@@ -1257,7 +1257,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           }),
         );
       }
-      const occurredAt = nowIso();
+      const occurredAt = command.createdAt ?? nowIso();
       const archivedEvent: Omit<OrchestrationEvent, "sequence"> = {
         ...withEventBase({
           aggregateKind: "thread",
@@ -1310,7 +1310,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.update": {
-      const thread = yield* requireThread({
+      const thread = yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -1371,7 +1371,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.pinned-message.add": {
-      const thread = yield* requireThread({
+      const thread = yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -1406,7 +1406,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.pinned-message.remove": {
-      yield* requireThread({
+      yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -1430,7 +1430,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.pinned-message.done.set": {
-      yield* requireThread({
+      yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -1454,7 +1454,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.pinned-message.label.set": {
-      yield* requireThread({
+      yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -1478,7 +1478,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.runtime-mode.set": {
-      yield* requireThread({
+      yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -1885,11 +1885,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
 
     case "thread.turn.cancel-queued":
     case "thread.turn.steer-queued": {
-      yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
+      yield* command.type === "thread.turn.steer-queued"
+        ? requireThreadCanTakeWork({ readModel, command, threadId: command.threadId })
+        : requireThread({ readModel, command, threadId: command.threadId });
       return {
         ...withEventBase({
           aggregateKind: "thread",
@@ -1935,7 +1933,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.task.background": {
-      yield* requireThread({
+      yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -1957,7 +1955,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.approval.respond": {
-      yield* requireThread({
+      yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -1986,7 +1984,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.user-input.respond": {
-      yield* requireThread({
+      yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -2016,7 +2014,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.conversation.rollback": {
-      const thread = yield* requireThread({
+      const thread = yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -2052,7 +2050,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.message.edit-and-resend": {
-      const thread = yield* requireThread({
+      const thread = yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -2199,7 +2197,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.messages.import": {
-      yield* requireThread({
+      yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -2228,7 +2226,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.message.assistant.delta": {
-      const thread = yield* requireThread({
+      const thread = yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -2262,7 +2260,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.message.assistant.complete": {
-      const thread = yield* requireThread({
+      const thread = yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -2293,7 +2291,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.conversation.rollback.complete": {
-      yield* requireThread({
+      yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -2344,7 +2342,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.message.delivery.set": {
-      yield* requireThread({
+      yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -2383,7 +2381,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.activity.append": {
-      yield* requireThread({
+      yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -2413,7 +2411,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.activity-read-model.touch": {
-      yield* requireThread({
+      yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,

@@ -23,6 +23,7 @@ export async function archiveThreadFromClient(
     type: "thread.archive",
     commandId: newCommandId(),
     threadId,
+    createdAt: new Date().toISOString(),
   });
 }
 
