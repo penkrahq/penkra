@@ -467,165 +467,20 @@ describe("composerDraftStore terminal contexts", () => {
   });
 });
 
-describe("composerDraftStore queued follow-ups", () => {
-  const threadId = ThreadId.makeUnsafe("thread-queue");
-  let originalRevokeObjectUrl: typeof URL.revokeObjectURL;
-  let revokeSpy: ReturnType<typeof vi.fn<(url: string) => void>>;
-
-  beforeEach(() => {
-    resetComposerDraftStore();
-    originalRevokeObjectUrl = URL.revokeObjectURL;
-    revokeSpy = vi.fn();
-    URL.revokeObjectURL = revokeSpy;
-  });
-
-  afterEach(() => {
-    URL.revokeObjectURL = originalRevokeObjectUrl;
-  });
-
-  it("stores queued turns per thread so route switches can rehydrate them", () => {
-    const store = useComposerDraftStore.getState();
-
-    store.enqueueQueuedTurn(threadId, makeQueuedTurn("queued-1"));
-
-    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.queuedTurns).toEqual([
-      makeQueuedTurn("queued-1"),
-    ]);
-  });
-
-  it("keeps queued turns when the live composer draft is cleared", () => {
-    const store = useComposerDraftStore.getState();
-
-    store.setPrompt(threadId, "temporary prompt");
-    store.setSkills(threadId, [{ name: "check-code", path: "/skills/check-code" }]);
-    store.setMentions(threadId, [{ name: "linear", path: "plugin://linear" }]);
-    store.enqueueQueuedTurn(threadId, makeQueuedTurn("queued-1"));
-    store.clearComposerContent(threadId);
-
-    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toMatchObject({
-      prompt: "",
-      skills: [],
-      mentions: [],
-      queuedTurns: [makeQueuedTurn("queued-1")],
+describe("server-owned composer queue persistence", () => {
+  const threadId = ThreadId.makeUnsafe("thread-legacy-queue");
+  it("drops legacy renderer-only queue rows while retaining composer content", () => {
+    const legacy = normalizeCurrentPersistedComposerDraftStoreState({
+      draftsByThreadId: {
+        [threadId]: {
+          prompt: "draft",
+          attachments: [],
+          queuedTurns: [{ id: "never-admitted", prompt: "drop" }],
+        },
+      },
     });
-  });
-
-  it("drops the draft entry once the last queued turn is removed", () => {
-    const store = useComposerDraftStore.getState();
-
-    store.enqueueQueuedTurn(threadId, makeQueuedTurn("queued-1"));
-    store.removeQueuedTurn(threadId, "queued-1");
-
-    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toBeUndefined();
-  });
-
-  it("does not persist renderer queue rows for refresh or restart", () => {
-    const queuedImage = makeImage({
-      id: "queued-image-persisted",
-      previewUrl: "data:image/png;base64,AA==",
-      name: "queued.png",
-    });
-    const store = useComposerDraftStore.getState();
-    store.enqueueQueuedTurn(threadId, makeQueuedChatTurn("queued-chat-1", queuedImage));
-
-    const persistApi = useComposerDraftStore.persist as unknown as {
-      getOptions: () => {
-        partialize: (state: ReturnType<typeof useComposerDraftStore.getState>) => unknown;
-        merge: (
-          persistedState: unknown,
-          currentState: ReturnType<typeof useComposerDraftStore.getState>,
-        ) => ReturnType<typeof useComposerDraftStore.getState>;
-      };
-    };
-    const persistedState = partializeComposerDraftStoreState(
-      useComposerDraftStore.getState(),
-    ) as unknown as {
-      draftsByThreadId?: Record<string, { queuedTurns?: Array<Record<string, unknown>> }>;
-    };
-
-    expect(persistedState.draftsByThreadId?.[threadId]?.queuedTurns).toBeUndefined();
-
-    const mergedState = persistApi
-      .getOptions()
-      .merge(persistedState, useComposerDraftStore.getInitialState());
-
-    expect(mergedState.draftsByThreadId[threadId]).toBeUndefined();
-  });
-
-  it("does not persist accepted rows because the thread projection owns them", () => {
-    const serverAcceptedAt = "2026-08-12T18:00:00.000Z";
-    const serverMessageId = MessageId.makeUnsafe("composer-queue:queued-accepted");
-    const store = useComposerDraftStore.getState();
-    store.enqueueQueuedTurn(threadId, {
-      ...makeQueuedChatTurn("queued-accepted"),
-      serverAcceptedAt,
-      serverMessageId,
-      dispatchAttempt: 3,
-      dispatchBindingRevision: 8,
-    });
-
-    const persistedState = partializeComposerDraftStoreState(useComposerDraftStore.getState());
-    const persistApi = useComposerDraftStore.persist as unknown as {
-      getOptions: () => {
-        merge: (
-          persistedState: unknown,
-          currentState: ReturnType<typeof useComposerDraftStore.getState>,
-        ) => ReturnType<typeof useComposerDraftStore.getState>;
-      };
-    };
-    const mergedState = persistApi
-      .getOptions()
-      .merge(persistedState, useComposerDraftStore.getInitialState());
-
-    expect(mergedState.draftsByThreadId[threadId]).toBeUndefined();
-  });
-
-  it("persists exact queue admission identity and advances only after a revision rejection", () => {
-    const store = useComposerDraftStore.getState();
-    store.enqueueQueuedTurn(threadId, makeQueuedChatTurn("queued-admission"));
-
-    store.setQueuedTurnDispatchAdmission(threadId, "queued-admission", 0, 4);
-    expect(
-      useComposerDraftStore.getState().draftsByThreadId[threadId]?.queuedTurns[0],
-    ).toMatchObject({
-      dispatchAttempt: 0,
-      dispatchBindingRevision: 4,
-    });
-
-    store.advanceQueuedTurnDispatchAttempt(threadId, "queued-admission");
-    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.queuedTurns[0]).toEqual(
-      expect.objectContaining({ dispatchAttempt: 1 }),
-    );
-    expect(
-      useComposerDraftStore.getState().draftsByThreadId[threadId]?.queuedTurns[0],
-    ).not.toHaveProperty("dispatchBindingRevision");
-  });
-
-  it("revokes queued chat image blob URLs when a queued turn is removed", () => {
-    const queuedImage = makeImage({
-      id: "queued-image-blob",
-      previewUrl: "blob:queued-image-blob",
-    });
-    const store = useComposerDraftStore.getState();
-
-    store.enqueueQueuedTurn(threadId, makeQueuedChatTurn("queued-chat-blob", queuedImage));
-    store.removeQueuedTurn(threadId, "queued-chat-blob");
-
-    expect(revokeSpy).toHaveBeenCalledWith("blob:queued-image-blob");
-  });
-
-  it("revokes queued chat image blob URLs when a draft thread is cleared", () => {
-    const queuedImage = makeImage({
-      id: "queued-image-thread-clear",
-      previewUrl: "blob:queued-image-thread-clear",
-    });
-    const store = useComposerDraftStore.getState();
-
-    store.setProjectDraftThreadId(FolderId.makeUnsafe("queue-project"), threadId);
-    store.enqueueQueuedTurn(threadId, makeQueuedChatTurn("queued-chat-thread-clear", queuedImage));
-    store.clearDraftThread(threadId);
-
-    expect(revokeSpy).toHaveBeenCalledWith("blob:queued-image-thread-clear");
+    expect(legacy.draftsByThreadId[threadId]?.prompt).toBe("draft");
+    expect(legacy.draftsByThreadId[threadId]).not.toHaveProperty("queuedTurns");
   });
 });
 

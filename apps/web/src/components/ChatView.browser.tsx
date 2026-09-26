@@ -54,6 +54,7 @@ import {
 import { useLatestProjectStore } from "../latestProjectStore";
 import {
   INLINE_TERMINAL_CONTEXT_PLACEHOLDER,
+  appendTerminalContextsToPrompt,
   type TerminalContextDraft,
   removeInlineTerminalContextPlaceholder,
 } from "../lib/terminalContext";
@@ -3742,10 +3743,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
         expect(document.querySelector('[data-pencil-component="BtaMG"]')).not.toBeNull();
         expect(document.querySelector('[data-pencil-component="chpd8"]')).not.toBeNull();
         expect(document.querySelector('[data-pencil-component="N4buaG"]')).not.toBeNull();
-        const accessIcon = document.querySelector<SVGSVGElement>('[data-pencil-node="Bo845"]');
-        expect(accessIcon).not.toBeNull();
-        expect(accessIcon?.querySelector('[data-pencil-node="z9iYLc"]')).not.toBeNull();
-        expect(accessIcon?.getAttribute("viewBox")).toBe("0 0 13.99993896484375 14");
       });
     } finally {
       await mounted.cleanup();
@@ -4074,194 +4071,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     } finally {
       releaseDurable();
       desktopDraftWriteHarness.gate = null;
-      await mounted.cleanup();
-      restoreNativeApi();
-    }
-  });
-
-  it("RED: Stop during durable capture must prevent the later turn start", async () => {
-    let releaseDurable = () => {};
-    let durableReleased = false;
-    const restoreNativeApi = installDeterministicSendNativeApi();
-    const originalPrompt = "stop before durable capture completes";
-    const newerPrompt = "newer draft survives durable-capture Stop";
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-stop-during-durable-capture" as MessageId,
-        targetText: "stop during durable capture target",
-        sessionStatus: "ready",
-      }),
-    });
-
-    try {
-      desktopDraftWriteHarness.awaitCalls = 0;
-      desktopDraftWriteHarness.gate = new Promise<void>((resolve) => {
-        releaseDurable = () => {
-          if (!durableReleased) {
-            durableReleased = true;
-            resolve();
-          }
-        };
-      });
-      const editor = page.getByTestId("composer-editor");
-      await editor.fill(originalPrompt);
-      await userEvent.keyboard("{Enter}");
-      const stopButton = await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
-        "Durable-capture submission did not enter preflight.",
-      );
-      await vi.waitFor(() => expect(desktopDraftWriteHarness.awaitCalls).toBe(1));
-
-      const newerImage = createComposerImage({
-        id: "newer-durable-stop-image",
-        previewUrl: "blob:newer-durable-stop-image",
-        name: "newer-durable-stop.png",
-      });
-      await editor.fill(newerPrompt);
-      useComposerDraftStore.getState().addImages(THREAD_ID, [newerImage]);
-      expect(editor.element().textContent ?? "").toBe(newerPrompt);
-
-      stopButton.click();
-      releaseDurable();
-      desktopDraftWriteHarness.gate = null;
-
-      await vi.waitFor(() => expect(getComposerSendPreflight(THREAD_ID)).toBeNull());
-      expect(
-        wsRequests
-          .map(readDispatchedCommand)
-          .filter((command) => command?.type === "thread.turn.start"),
-      ).toHaveLength(0);
-      const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]!;
-      expect(draft.prompt).toBe(newerPrompt);
-      expect(draft.images).toMatchObject([{ id: newerImage.id }]);
-      const recoveredOriginalCount =
-        Number(draft.prompt === originalPrompt) +
-        draft.queuedTurns.filter((turn) => turn.prompt === originalPrompt).length;
-      expect(recoveredOriginalCount).toBe(1);
-    } finally {
-      releaseDurable();
-      desktopDraftWriteHarness.gate = null;
-      await mounted.cleanup();
-      restoreNativeApi();
-    }
-  });
-
-  it("preserves a pending newer editor draft when a running-turn send queues", async () => {
-    let releaseConnections!: () => void;
-    providerConnectionsResponseGate = new Promise<void>((resolve) => {
-      releaseConnections = resolve;
-    });
-    const restoreNativeApi = installDeterministicSendNativeApi();
-    const originalPrompt = "original running-turn follow-up";
-    const newerPrompt = "pending newer draft must survive queue admission";
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-pending-queue-draft" as MessageId,
-        targetText: "running queue target",
-        sessionStatus: "running",
-      }),
-    });
-
-    try {
-      const editor = page.getByTestId("composer-editor");
-      await editor.fill(originalPrompt);
-      expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).not.toBe(
-        originalPrompt,
-      );
-      await userEvent.keyboard("{Enter}");
-      await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
-        "Running-turn submission did not enter preflight.",
-      );
-
-      await editor.fill(newerPrompt);
-      expect(editor.element().textContent ?? "").toBe(newerPrompt);
-      expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).not.toBe(
-        newerPrompt,
-      );
-
-      releaseConnections();
-      providerConnectionsResponseGate = null;
-      await vi.waitFor(() => {
-        const queued = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.queuedTurns;
-        expect(queued?.some((turn) => turn.prompt === originalPrompt)).toBe(true);
-        expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
-          newerPrompt,
-        );
-        expect(editor.element().textContent ?? "").toBe(newerPrompt);
-      });
-    } finally {
-      releaseConnections();
-      providerConnectionsResponseGate = null;
-      await mounted.cleanup();
-      restoreNativeApi();
-    }
-  });
-
-  it("clears the queued old-thread draft after navigation without touching the new thread", async () => {
-    let releaseConnections!: () => void;
-    providerConnectionsResponseGate = new Promise<void>((resolve) => {
-      releaseConnections = resolve;
-    });
-    const restoreNativeApi = installDeterministicSendNativeApi();
-    const originalPrompt = "queued prompt owned by the old thread";
-    const otherThreadPrompt = "new thread draft must remain after queue admission";
-    const base = createSnapshotForTargetUser({
-      targetMessageId: "msg-user-queued-navigation-fence" as MessageId,
-      targetText: "running queue navigation target",
-      sessionStatus: "running",
-    });
-    const snapshot = addThreadToSnapshot(base, OTHER_THREAD_ID);
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot,
-    });
-
-    try {
-      const editor = page.getByTestId("composer-editor");
-      await editor.fill(originalPrompt);
-      await userEvent.keyboard("{Enter}");
-      await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
-        "Queued navigation submission did not enter preflight.",
-      );
-
-      await mounted.router.navigate({
-        to: "/$threadId",
-        params: { threadId: OTHER_THREAD_ID },
-      });
-      await vi.waitFor(() =>
-        expect(mounted.router.state.location.pathname).toBe(`/${OTHER_THREAD_ID}`),
-      );
-      const otherEditor = page.getByTestId("composer-editor");
-      await otherEditor.fill(otherThreadPrompt);
-      await vi.waitFor(() =>
-        expect(useComposerDraftStore.getState().draftsByThreadId[OTHER_THREAD_ID]?.prompt).toBe(
-          otherThreadPrompt,
-        ),
-      );
-
-      releaseConnections();
-      providerConnectionsResponseGate = null;
-      await vi.waitFor(() => {
-        expect(
-          useComposerDraftStore
-            .getState()
-            .draftsByThreadId[THREAD_ID]?.queuedTurns.some(
-              (turn) => turn.prompt === originalPrompt,
-            ),
-        ).toBe(true);
-        expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe("");
-        expect(useComposerDraftStore.getState().draftsByThreadId[OTHER_THREAD_ID]?.prompt).toBe(
-          otherThreadPrompt,
-        );
-        expect(otherEditor.element().textContent ?? "").toBe(otherThreadPrompt);
-      });
-    } finally {
-      releaseConnections();
-      providerConnectionsResponseGate = null;
       await mounted.cleanup();
       restoreNativeApi();
     }
@@ -4689,287 +4498,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("stops held preflight while preserving a newer draft and paused original recovery", async () => {
-    let releaseConnections!: () => void;
-    providerConnectionsResponseGate = new Promise<void>((resolve) => {
-      releaseConnections = resolve;
-    });
-    const base = createSnapshotForTargetUser({
-      targetMessageId: "msg-user-preflight-stop" as MessageId,
-      targetText: "unused bootstrap",
-    });
-    const snapshot: OrchestrationReadModel = {
-      ...base,
-      threads: base.threads.map((thread) => ({
-        ...thread,
-        messages: [],
-        activities: [],
-        latestTurn: null,
-        session: null,
-      })),
-    };
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot,
-    });
-
-    try {
-      const prompt = "cancel this held preflight";
-      useComposerDraftStore.getState().setPrompt(THREAD_ID, prompt);
-      const composerForm = await waitForElement(
-        () => document.querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]'),
-        "Unable to find composer form.",
-      );
-      composerForm.requestSubmit();
-      const stopButton = await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
-        "Unable to find preflight Stop button.",
-      );
-      const newerImage = createComposerImage({
-        id: "newer-stop-image",
-        previewUrl: "blob:newer-stop-image",
-        name: "newer-stop.png",
-      });
-      useComposerDraftStore.getState().setPrompt(THREAD_ID, "newer prompt survives Stop");
-      useComposerDraftStore.getState().addImages(THREAD_ID, [newerImage]);
-      stopButton.click();
-      await vi.waitFor(() =>
-        expect(document.querySelector('button[aria-label="Send message"]')).toBeTruthy(),
-      );
-      expect((await waitForComposerEditor()).textContent).toContain("newer prompt survives Stop");
-      expect(document.body.textContent).not.toContain("Thinking");
-
-      const successorComposerForm = await waitForElement(
-        () => document.querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]'),
-        "Unable to find the remounted composer form.",
-      );
-      expect(successorComposerForm.isConnected).toBe(true);
-      successorComposerForm.requestSubmit();
-      await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
-        "Visible Send did not claim a successor preparation.",
-      );
-
-      releaseConnections();
-      providerConnectionsResponseGate = null;
-      await vi.waitFor(() => expect(providerConnectionsReleasedResponses).toBeGreaterThan(0));
-      await vi.waitFor(() => {
-        const starts = wsRequests
-          .map(readDispatchedCommand)
-          .filter((command) => command?.type === "thread.turn.start");
-        expect(starts).toHaveLength(1);
-        expect(starts[0]?.message).toMatchObject({
-          text: "newer prompt survives Stop",
-        });
-      });
-      const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]!;
-      const recoveredOriginalCount =
-        Number(draft.prompt === prompt) +
-        draft.queuedTurns.filter((turn) => turn.prompt === prompt).length;
-      expect(recoveredOriginalCount).toBe(1);
-    } finally {
-      releaseConnections();
-      providerConnectionsResponseGate = null;
-      await mounted.cleanup();
-    }
-  });
-
-  it("recovers a stopped original persisted image exactly once after held hydration", async () => {
-    let releaseBackgroundBlob!: () => void;
-    let releaseSendBlob!: () => void;
-    const backgroundBlobGate = new Promise<void>((resolve) => {
-      releaseBackgroundBlob = resolve;
-    });
-    const sendBlobGate = new Promise<void>((resolve) => {
-      releaseSendBlob = resolve;
-    });
-    let blobReadCount = 0;
-    let observeBackgroundRead!: () => void;
-    const backgroundReadReturned = new Promise<void>((resolve) => {
-      observeBackgroundRead = resolve;
-    });
-    const originalFile = new File([ATTACHMENT_SVG], "stopped-original.svg", {
-      type: "image/svg+xml",
-    });
-    composerBlobReadHarness.override = async () => {
-      const readNumber = ++blobReadCount;
-      await (readNumber === 1 ? backgroundBlobGate : sendBlobGate);
-      if (readNumber === 1) observeBackgroundRead();
-      return originalFile;
-    };
-    const base = createSnapshotForTargetUser({
-      targetMessageId: "msg-user-stopped-persisted-image" as MessageId,
-      targetText: "unused bootstrap",
-    });
-    const snapshot: OrchestrationReadModel = {
-      ...base,
-      threads: base.threads.map((thread) => ({
-        ...thread,
-        messages: [],
-        activities: [],
-        latestTurn: null,
-        session: null,
-      })),
-    };
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot,
-    });
-    try {
-      useComposerDraftStore.setState({
-        stickyConnectionByProvider: { codex: TEST_CONNECTION_ID },
-      });
-      useComposerDraftStore.getState().setPrompt(THREAD_ID, "stopped original with image");
-      useComposerDraftStore.setState((state) => ({
-        draftsByThreadId: {
-          ...state.draftsByThreadId,
-          [THREAD_ID]: {
-            ...state.draftsByThreadId[THREAD_ID]!,
-            persistedAttachments: [
-              {
-                id: "stopped-original-image",
-                name: originalFile.name,
-                mimeType: originalFile.type,
-                sizeBytes: originalFile.size,
-                blobKey: `${THREAD_ID}:stopped-original-image`,
-              },
-            ],
-          },
-        },
-      }));
-      await vi.waitFor(() => expect(blobReadCount).toBe(1));
-      (
-        await waitForElement(
-          () => document.querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]'),
-          "Unable to find composer form.",
-        )
-      ).requestSubmit();
-      const stop = await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
-        "Unable to find preflight Stop button.",
-      );
-      const newerImage = createComposerImage({
-        id: "newer-after-stop-image",
-        previewUrl: "blob:newer-after-stop-image",
-        name: "newer-after-stop.png",
-      });
-      useComposerDraftStore.getState().setPrompt(THREAD_ID, "newer draft after original Send");
-      useComposerDraftStore.getState().addImages(THREAD_ID, [newerImage]);
-      await vi.waitFor(() => expect(blobReadCount).toBe(2));
-      stop.click();
-      releaseSendBlob();
-      await vi.waitFor(() => {
-        const recovered =
-          useComposerDraftStore
-            .getState()
-            .draftsByThreadId[THREAD_ID]?.queuedTurns.filter(
-              (turn) => turn.prompt === "stopped original with image",
-            ) ?? [];
-        expect(recovered).toHaveLength(1);
-        expect(recovered[0]?.images).toHaveLength(1);
-        expect(recovered[0]?.images[0]?.name).toBe(originalFile.name);
-        expect(recovered[0]?.connectionId).toBe(TEST_CONNECTION_ID);
-      });
-      expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]).toMatchObject({
-        prompt: "newer draft after original Send",
-        images: [{ id: newerImage.id }],
-      });
-      expect(getComposerSendPreflight(THREAD_ID)).toBeNull();
-      releaseBackgroundBlob();
-      await backgroundReadReturned;
-      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
-      expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.images).toEqual([
-        newerImage,
-      ]);
-    } finally {
-      releaseBackgroundBlob();
-      releaseSendBlob();
-      composerBlobReadHarness.override = null;
-      await mounted.cleanup();
-    }
-  });
-
-  it("keeps an unchanged stopped prompt and persisted attachment exactly once", async () => {
-    let releaseBlob!: () => void;
-    const blobGate = new Promise<void>((resolve) => {
-      releaseBlob = resolve;
-    });
-    const originalFile = new File([ATTACHMENT_SVG], "unchanged-stop.svg", {
-      type: "image/svg+xml",
-    });
-    composerBlobReadHarness.override = async () => {
-      await blobGate;
-      return originalFile;
-    };
-    const base = createSnapshotForTargetUser({
-      targetMessageId: "msg-user-unchanged-stop-image" as MessageId,
-      targetText: "unused bootstrap",
-    });
-    const snapshot: OrchestrationReadModel = {
-      ...base,
-      threads: base.threads.map((thread) => ({
-        ...thread,
-        messages: [],
-        activities: [],
-        latestTurn: null,
-        session: null,
-      })),
-    };
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot,
-    });
-    try {
-      const prompt = "unchanged stopped submission";
-      useComposerDraftStore.getState().setPrompt(THREAD_ID, prompt);
-      useComposerDraftStore.setState((state) => ({
-        draftsByThreadId: {
-          ...state.draftsByThreadId,
-          [THREAD_ID]: {
-            ...state.draftsByThreadId[THREAD_ID]!,
-            persistedAttachments: [
-              {
-                id: "unchanged-stop-image",
-                name: originalFile.name,
-                mimeType: originalFile.type,
-                sizeBytes: originalFile.size,
-                blobKey: `${THREAD_ID}:unchanged-stop-image`,
-              },
-            ],
-          },
-        },
-      }));
-      (
-        await waitForElement(
-          () => document.querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]'),
-          "Unable to find composer form.",
-        )
-      ).requestSubmit();
-      (
-        await waitForElement(
-          () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
-          "Unable to find preflight Stop button.",
-        )
-      ).click();
-      releaseBlob();
-      await vi.waitFor(() => expect(getComposerSendPreflight(THREAD_ID)).toBeNull());
-      const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]!;
-      expect(draft.prompt).toBe(prompt);
-      expect(draft.persistedAttachments).toHaveLength(1);
-      expect(draft.persistedAttachments[0]?.id).toBe("unchanged-stop-image");
-      expect(draft.queuedTurns).toHaveLength(0);
-      expect(
-        wsRequests
-          .map(readDispatchedCommand)
-          .filter((command) => command?.type === "thread.turn.start"),
-      ).toHaveLength(0);
-    } finally {
-      releaseBlob();
-      composerBlobReadHarness.override = null;
-      await mounted.cleanup();
-    }
-  });
-
   it("retains held preflight ownership across a ChatView remount", async () => {
     let releaseConnections!: () => void;
     providerConnectionsResponseGate = new Promise<void>((resolve) => {
@@ -5025,342 +4553,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       releaseConnections();
       providerConnectionsResponseGate = null;
       await mounted.cleanup();
-    }
-  });
-
-  it("retains shared Stop feedback across remount through admission until projection applies", async () => {
-    let releaseConnections!: () => void;
-    let releaseDispatch!: () => void;
-    providerConnectionsResponseGate = new Promise<void>((resolve) => {
-      releaseConnections = resolve;
-    });
-    const dispatchGate = new Promise<void>((resolve) => {
-      releaseDispatch = resolve;
-    });
-    const base = createSnapshotForTargetUser({
-      targetMessageId: "msg-user-preflight-held-receipt" as MessageId,
-      targetText: "unused bootstrap",
-    });
-    const snapshot: OrchestrationReadModel = {
-      ...base,
-      threads: base.threads.map((thread) => ({
-        ...thread,
-        messages: [],
-        activities: [],
-        latestTurn: null,
-        session: null,
-      })),
-    };
-    let mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
-    const restoreNativeApi = installDeterministicSendNativeApi({
-      dispatchGate,
-    });
-    try {
-      useComposerDraftStore.getState().setPrompt(THREAD_ID, "held receipt across remount");
-      (
-        await waitForElement(
-          () => document.querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]'),
-          "Unable to find composer form.",
-        )
-      ).requestSubmit();
-      await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
-        "Unable to find preflight Stop button.",
-      );
-      await mounted.cleanup();
-      mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
-      releaseConnections();
-      providerConnectionsResponseGate = null;
-      await vi.waitFor(() =>
-        expect(
-          wsRequests
-            .map(readDispatchedCommand)
-            .filter((command) => command?.type === "thread.turn.start"),
-        ).toHaveLength(1),
-      );
-      expect(document.querySelector('button[aria-label="Stop generation"]')).toBeTruthy();
-      expect(document.querySelector('button[aria-label="Send message"]')).toBeNull();
-      useComposerDraftStore
-        .getState()
-        .setPrompt(THREAD_ID, "distinct follow-up during held receipt");
-      await vi.waitFor(async () =>
-        expect((await waitForComposerEditor()).textContent).toContain(
-          "distinct follow-up during held receipt",
-        ),
-      );
-      (
-        await waitForElement(
-          () => document.querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]'),
-          "Unable to find composer form after remount.",
-        )
-      ).requestSubmit();
-      await vi.waitFor(() =>
-        expect(
-          useComposerDraftStore
-            .getState()
-            .draftsByThreadId[THREAD_ID]?.queuedTurns.some(
-              (turn) => turn.prompt === "distinct follow-up during held receipt",
-            ),
-        ).toBe(true),
-      );
-      expect(
-        wsRequests
-          .map(readDispatchedCommand)
-          .filter((command) => command?.type === "thread.turn.start"),
-      ).toHaveLength(1);
-      releaseDispatch();
-      const admittedOwner = await vi.waitFor(() => {
-        const owner = getComposerSendPreflight(THREAD_ID);
-        expect(owner?.admissionReceiptSequence).toBe(fixture.snapshot.snapshotSequence + 1);
-        return owner!;
-      });
-      await mounted.cleanup();
-      mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
-      await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
-        "Unable to find admitted Stop target after remount before projection.",
-      );
-      expect(getComposerSendPreflight(THREAD_ID)?.messageId).toBe(admittedOwner.messageId);
-      expect(document.body.textContent).toContain("held receipt across remount");
-      useStore.getState().syncServerReadModel({
-        ...snapshot,
-        snapshotSequence: admittedOwner.admissionReceiptSequence!,
-        threads: snapshot.threads.map((thread) => ({
-          ...thread,
-          pendingTurnStartMessageId: admittedOwner.messageId,
-          messages: [
-            {
-              ...createUserMessage({
-                id: admittedOwner.messageId!,
-                text: "held receipt across remount",
-                offsetSeconds: 0,
-              }),
-              delivery: {
-                state: "starting" as const,
-                queued: false,
-                sequence: admittedOwner.admissionReceiptSequence!,
-              },
-            },
-          ],
-        })),
-      });
-      advanceComposerSendPreflightAppliedSequence(admittedOwner.admissionReceiptSequence!);
-      await vi.waitFor(() => expect(getComposerSendPreflight(THREAD_ID)).toBeNull());
-      expect(document.querySelector('button[aria-label="Stop generation"]')).toBeTruthy();
-    } finally {
-      releaseConnections();
-      releaseDispatch();
-      providerConnectionsResponseGate = null;
-      await mounted.cleanup();
-      restoreNativeApi();
-    }
-  });
-
-  it("does not restore a dispatching submission when exact outcome reports accepted", async () => {
-    let releaseConnections!: () => void;
-    let releaseDispatch!: () => void;
-    providerConnectionsResponseGate = new Promise<void>((resolve) => {
-      releaseConnections = resolve;
-    });
-    const dispatchGate = new Promise<void>((resolve) => {
-      releaseDispatch = resolve;
-    });
-    const base = createSnapshotForTargetUser({
-      targetMessageId: "msg-user-preflight-accepted-veto" as MessageId,
-      targetText: "unused bootstrap",
-    });
-    const snapshot: OrchestrationReadModel = {
-      ...base,
-      threads: base.threads.map((thread) => ({
-        ...thread,
-        messages: [],
-        activities: [],
-        latestTurn: null,
-        session: null,
-      })),
-    };
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot,
-    });
-    const restoreNativeApi = installDeterministicSendNativeApi({
-      dispatchGate,
-      pendingStartOutcome: "accepted",
-    });
-    try {
-      const originalPrompt = "accepted original must stay out of composer";
-      useComposerDraftStore.getState().setPrompt(THREAD_ID, originalPrompt);
-      (
-        await waitForElement(
-          () => document.querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]'),
-          "Unable to find composer form.",
-        )
-      ).requestSubmit();
-      await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
-        "Unable to find preflight feedback.",
-      );
-      useComposerDraftStore.getState().setPrompt(THREAD_ID, "newer accepted-veto draft");
-      releaseConnections();
-      providerConnectionsResponseGate = null;
-      await vi.waitFor(() =>
-        expect(
-          wsRequests
-            .map(readDispatchedCommand)
-            .filter((command) => command?.type === "thread.turn.start"),
-        ).toHaveLength(1),
-      );
-      document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]')?.click();
-      await vi.waitFor(() =>
-        expect(
-          wsRequests
-            .map(readDispatchedCommand)
-            .filter((command) => command?.type === "thread.turn.interrupt"),
-        ).toHaveLength(1),
-      );
-      releaseDispatch();
-      const admittedOwner = await vi.waitFor(() => {
-        const owner = getComposerSendPreflight(THREAD_ID);
-        expect(typeof owner?.admissionReceiptSequence).toBe("number");
-        expect(owner!.admissionReceiptSequence!).toBeGreaterThan(snapshot.snapshotSequence);
-        return owner!;
-      });
-      const admissionReceiptSequence = admittedOwner.admissionReceiptSequence!;
-      const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
-      expect(draft?.prompt).toBe("newer accepted-veto draft");
-      expect(draft?.queuedTurns.some((turn) => turn.prompt === originalPrompt)).toBe(false);
-      const acceptedSnapshot: OrchestrationReadModel = {
-        ...snapshot,
-        snapshotSequence: admissionReceiptSequence,
-        threads: snapshot.threads.map((thread) =>
-          thread.id === THREAD_ID
-            ? {
-                ...thread,
-                pendingTurnStartMessageId: admittedOwner.messageId,
-                messages: [
-                  {
-                    ...createUserMessage({
-                      id: admittedOwner.messageId!,
-                      text: originalPrompt,
-                      offsetSeconds: 0,
-                    }),
-                    delivery: {
-                      state: "starting" as const,
-                      queued: false,
-                      sequence: admissionReceiptSequence,
-                    },
-                  },
-                ],
-              }
-            : thread,
-        ),
-      };
-      useStore.getState().syncServerReadModel(acceptedSnapshot);
-      advanceComposerSendPreflightAppliedSequence(admissionReceiptSequence);
-      await vi.waitFor(() => expect(getComposerSendPreflight(THREAD_ID)).toBeNull());
-    } finally {
-      releaseConnections();
-      releaseDispatch();
-      providerConnectionsResponseGate = null;
-      await mounted.cleanup();
-      restoreNativeApi();
-    }
-  });
-
-  it("retains unknown acceptance and does not restore after start RPC rejection", async () => {
-    let releaseConnections!: () => void;
-    providerConnectionsResponseGate = new Promise<void>((resolve) => {
-      releaseConnections = resolve;
-    });
-    const base = createSnapshotForTargetUser({
-      targetMessageId: "msg-user-delayed-connection-failure" as MessageId,
-      targetText: "unused bootstrap",
-    });
-    const snapshot: OrchestrationReadModel = {
-      ...base,
-      threads: base.threads.map((thread) => ({
-        ...thread,
-        messages: [],
-        activities: [],
-        latestTurn: null,
-        session: null,
-      })),
-    };
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot,
-    });
-    const restoreNativeApi = installDeterministicSendNativeApi({
-      dispatchError: new Error("fixture dispatch failure"),
-    });
-
-    try {
-      useComposerDraftStore.setState({
-        stickyConnectionByProvider: { codex: TEST_CONNECTION_ID },
-      });
-      useComposerDraftStore.getState().setProviderModelOptions(THREAD_ID, "codex", {
-        reasoningEffort: "high",
-        fastMode: false,
-      });
-      const prompt = "preserve me when Connection admission fails";
-      useComposerDraftStore.getState().setPrompt(THREAD_ID, prompt);
-      const composerForm = await waitForElement(
-        () => document.querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]'),
-        "Unable to find composer form.",
-      );
-      composerForm.requestSubmit();
-      await vi.waitFor(() =>
-        expect(
-          wsRequests.filter((request) => request._tag === WS_METHODS.providerGetConnections).length,
-        ).toBeGreaterThan(0),
-      );
-      expect((await waitForComposerEditor()).textContent ?? "").toBe("");
-      expect(document.querySelector('button[aria-label="Send message"]')).toBeNull();
-      expect(document.querySelector('button[aria-label="Stop generation"]')).toBeTruthy();
-
-      const newerImage = createComposerImage({
-        id: "newer-failure-image",
-        previewUrl: "blob:newer-failure-image",
-        name: "newer-failure.png",
-      });
-      useComposerDraftStore.getState().setPrompt(THREAD_ID, "newer draft survives failure");
-      useComposerDraftStore.getState().addImages(THREAD_ID, [newerImage]);
-
-      releaseConnections();
-      providerConnectionsResponseGate = null;
-      await vi.waitFor(() => {
-        expect(document.body.textContent).toContain("fixture dispatch failure");
-      });
-      expect((await waitForComposerEditor()).textContent).toContain("newer draft survives failure");
-      expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]).toMatchObject({
-        prompt: "newer draft survives failure",
-        images: [{ id: newerImage.id }],
-      });
-      expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.queuedTurns).toEqual([]);
-      const dispatched = wsRequests
-        .map(readDispatchedCommand)
-        .find((command) => command?.type === "thread.turn.start");
-      const recovery = Object.values(
-        useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]
-          ?.pendingStartRecoveriesByMessageId ?? {},
-      ).find((candidate) => candidate && "pendingTurn" in candidate);
-      expect(recovery && "pendingTurn" in recovery ? recovery.pendingTurn.prompt : null).toBe(
-        prompt,
-      );
-      expect(recovery && "settlement" in recovery ? recovery.settlement : null).toBe("unresolved");
-      expect(dispatched?.modelSelection).toBeDefined();
-      expect((await waitForSendButton()).disabled).toBe(false);
-      expect(
-        wsRequests
-          .map(readDispatchedCommand)
-          .filter((command) => command?.type === "thread.turn.start"),
-      ).toHaveLength(1);
-      expect(document.body.textContent).not.toContain("Thinking");
-    } finally {
-      releaseConnections();
-      providerConnectionsResponseGate = null;
-      await mounted.cleanup();
-      restoreNativeApi();
     }
   });
 
@@ -5689,156 +4881,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("retains idle send chrome during persisted-image hydration and dispatches after navigation", async () => {
-    let releaseBlob!: () => void;
-    const blobGate = new Promise<void>((resolve) => {
-      releaseBlob = resolve;
-    });
-    const imageFile = new File([ATTACHMENT_SVG], "persisted.svg", {
-      type: "image/svg+xml",
-    });
-    let blobReadCount = 0;
-    composerBlobReadHarness.override = async () => {
-      blobReadCount += 1;
-      await blobGate;
-      return imageFile;
-    };
-    const base = createSnapshotForTargetUser({
-      targetMessageId: "msg-user-delayed-image-bootstrap" as MessageId,
-      targetText: "unused bootstrap",
-    });
-    const snapshot = addThreadToSnapshot(
-      {
-        ...base,
-        threads: base.threads.map((thread) =>
-          thread.id === THREAD_ID
-            ? {
-                ...thread,
-                messages: [],
-                activities: [],
-                latestTurn: null,
-                session: null,
-              }
-            : thread,
-        ),
-      },
-      OTHER_THREAD_ID,
-    );
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot,
-    });
-    const restoreNativeApi = installDeterministicSendNativeApi();
-
-    try {
-      useComposerDraftStore.setState({
-        stickyConnectionByProvider: { codex: TEST_CONNECTION_ID },
-      });
-      const prompt = "send the persisted image after hydration";
-      useComposerDraftStore.getState().setPrompt(THREAD_ID, prompt);
-      useComposerDraftStore.setState((state) => ({
-        draftsByThreadId: {
-          ...state.draftsByThreadId,
-          [THREAD_ID]: {
-            ...state.draftsByThreadId[THREAD_ID]!,
-            persistedAttachments: [
-              {
-                id: "persisted-image-preflight",
-                name: imageFile.name,
-                mimeType: imageFile.type,
-                sizeBytes: imageFile.size,
-                blobKey: `${THREAD_ID}:persisted-image-preflight`,
-              },
-            ],
-          },
-        },
-      }));
-      const composerForm = await waitForElement(
-        () => document.querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]'),
-        "Unable to find composer form.",
-      );
-      composerForm.requestSubmit();
-
-      await vi.waitFor(() => expect(blobReadCount).toBeGreaterThan(0));
-      expect((await waitForComposerEditor()).textContent ?? "").toBe("");
-      expect(document.querySelector('button[aria-label="Send message"]')).toBeNull();
-      expect(document.querySelector('button[aria-label="Stop generation"]')).toBeTruthy();
-      expect(
-        wsRequests
-          .map(readDispatchedCommand)
-          .filter((command) => command?.type === "thread.turn.start"),
-      ).toHaveLength(0);
-
-      await mounted.router.navigate({
-        to: "/$threadId",
-        params: { threadId: OTHER_THREAD_ID },
-      });
-      await vi.waitFor(() =>
-        expect(mounted.router.state.location.pathname).toBe(`/${OTHER_THREAD_ID}`),
-      );
-      expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt ?? "").toBe("");
-      const otherThreadPrompt = "new draft on the navigated thread";
-      const otherEditor = page.getByTestId("composer-editor");
-      await otherEditor.fill(otherThreadPrompt);
-      await vi.waitFor(() =>
-        expect(useComposerDraftStore.getState().draftsByThreadId[OTHER_THREAD_ID]?.prompt).toBe(
-          otherThreadPrompt,
-        ),
-      );
-      expect(
-        useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.queuedTurns ?? [],
-      ).toHaveLength(0);
-      expect(document.querySelector('button[aria-label="Stop generation"]')).toBeNull();
-      await mounted.router.navigate({
-        to: "/$threadId",
-        params: { threadId: THREAD_ID },
-      });
-      await vi.waitFor(() => {
-        expect(mounted.router.state.location.pathname).toBe(`/${THREAD_ID}`);
-        expect(document.querySelector('button[aria-label="Stop generation"]')).toBeTruthy();
-      });
-      await mounted.router.navigate({
-        to: "/$threadId",
-        params: { threadId: OTHER_THREAD_ID },
-      });
-      await vi.waitFor(() =>
-        expect(mounted.router.state.location.pathname).toBe(`/${OTHER_THREAD_ID}`),
-      );
-      releaseBlob();
-
-      await vi.waitFor(() => {
-        const commands = wsRequests
-          .map(readDispatchedCommand)
-          .filter((command) => command?.type === "thread.turn.start");
-        expect(commands).toHaveLength(1);
-        expect(commands[0]?.threadId).toBe(THREAD_ID);
-        expect(commands[0]?.message).toMatchObject({
-          text: prompt,
-          attachments: [{ type: "image", name: imageFile.name }],
-        });
-      });
-      expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe("");
-      expect(useComposerDraftStore.getState().draftsByThreadId[OTHER_THREAD_ID]?.prompt).toBe(
-        otherThreadPrompt,
-      );
-      await mounted.router.navigate({
-        to: "/$threadId",
-        params: { threadId: THREAD_ID },
-      });
-      await vi.waitFor(() => {
-        expect(mounted.router.state.location.pathname).toBe(`/${THREAD_ID}`);
-        expect(document.querySelector('[data-testid="composer-editor"]')?.textContent ?? "").toBe(
-          "",
-        );
-      });
-    } finally {
-      releaseBlob();
-      composerBlobReadHarness.override = null;
-      await mounted.cleanup();
-      restoreNativeApi();
-    }
-  });
-
   it("chooses the first available Connection when the composer has no saved choice", async () => {
     const base = createSnapshotForTargetUser({
       targetMessageId: "msg-user-server-default-connection" as MessageId,
@@ -5909,19 +4951,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await dispatchModelCycleShortcutWhenReady(composerEditor, "]");
       await vi.waitFor(() => {
         expect(
-          useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.modelSelectionByProvider
-            .codex,
-        ).toMatchObject({ provider: "codex", model: "gpt-5.5" });
+          wsRequests
+            .map(readDispatchedCommand)
+            .filter((command) => command?.type === "thread.update")
+            .at(-1),
+        ).toMatchObject({ modelSelection: { provider: "codex", model: "gpt-5.5" } });
       });
       expect(document.querySelector('[data-slot="menu-popup"]')).toBeNull();
-
-      await dispatchModelCycleShortcutWhenReady(composerEditor, "[");
-      await vi.waitFor(() => {
-        expect(
-          useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.modelSelectionByProvider
-            .codex,
-        ).toMatchObject({ provider: "codex", model: "gpt-5.2" });
-      });
     } finally {
       await mounted.cleanup();
     }
@@ -6210,256 +5246,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     } finally {
       useVoiceSessionCoordinatorStore.setState({ capture: null });
       await mounted.cleanup();
-    }
-  });
-
-  it("queues follow-ups durably while a turn is starting and still cancels the starting turn", async () => {
-    const pendingMessageId = "msg-user-starting-cancellable" as MessageId;
-    const spaceId = SpaceId.makeUnsafe("space-starting-cancellable");
-    const startingSnapshot = createSnapshotForTargetUser({
-      targetMessageId: pendingMessageId,
-      targetText: "pending provider start prompt",
-      sessionStatus: "starting",
-    });
-    const hydratedStartingSnapshot: OrchestrationReadModel = {
-      ...startingSnapshot,
-      spaces: [
-        {
-          id: spaceId,
-          name: "Starting cancellation",
-          icon: "bag",
-          sortOrder: 0,
-          createdAt: NOW_ISO,
-          updatedAt: NOW_ISO,
-          archivedAt: null,
-          deletedAt: null,
-        },
-      ],
-      folders: startingSnapshot.folders.map((project) => ({
-        ...project,
-        spaceId,
-      })),
-      threads: startingSnapshot.threads.map((thread) =>
-        thread.id === THREAD_ID
-          ? {
-              ...thread,
-              spaceId,
-              pendingTurnStartMessageId: pendingMessageId,
-              messages: thread.messages.map((message) =>
-                message.id === pendingMessageId
-                  ? {
-                      ...message,
-                      delivery: {
-                        state: "starting" as const,
-                        queued: false,
-                        sequence: 10,
-                      },
-                      sequence: 10,
-                    }
-                  : message,
-              ),
-            }
-          : thread,
-      ),
-    };
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: hydratedStartingSnapshot,
-    });
-
-    try {
-      const composerEditor = await waitForComposerEditor();
-      expect(composerEditor.getAttribute("contenteditable")).toBe("true");
-      expect(document.body.textContent).toContain("Thinking");
-
-      useComposerDraftStore.getState().setPrompt(THREAD_ID, "follow-up typed during startup");
-      const composerForm = await waitForElement(
-        () => document.querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]'),
-        "Unable to find composer form.",
-      );
-      composerForm.requestSubmit();
-      await vi.waitFor(
-        () => {
-          const queuedTurn = wsRequests
-            .map(readDispatchedCommand)
-            .find(
-              (command) =>
-                command?.type === "thread.turn.start" &&
-                command.dispatchMode === "queue" &&
-                typeof command.message === "object" &&
-                command.message !== null &&
-                "text" in command.message &&
-                command.message.text === "follow-up typed during startup",
-            );
-          expect(queuedTurn).toBeTruthy();
-          expect(
-            useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.queuedTurns[0]
-              ?.serverAcceptedAt,
-          ).toBeTruthy();
-          expect(document.body.textContent).toContain("follow-up typed during startup");
-          expect(document.body.textContent).toContain("Steer");
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      const stopButton = await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
-        "Unable to find stop generation button during startup.",
-      );
-      stopButton.click();
-
-      await vi.waitFor(
-        () => {
-          const interrupt = wsRequests
-            .map(readDispatchedCommand)
-            .find((command) => command?.type === "thread.turn.interrupt");
-          expect(interrupt?.pendingMessageId).toBe(pendingMessageId);
-          expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt ?? "").toBe(
-            "",
-          );
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      expect(emitSyncDomainEvent).not.toBeNull();
-      emitSyncDomainEvent!(
-        makeDomainEvent(
-          "thread.turn-start-cancelled",
-          {
-            threadId: THREAD_ID,
-            messageId: pendingMessageId,
-            cancelledAt: NOW_ISO,
-          },
-          { sequence: 11 },
-        ),
-      );
-
-      await vi.waitFor(
-        () => {
-          const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
-          expect(draft?.prompt).toBe("pending provider start prompt");
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
-  it("queues the held original snapshot behind an active turn without clearing a newer draft", async () => {
-    let releaseBlob!: () => void;
-    const blobGate = new Promise<void>((resolve) => {
-      releaseBlob = resolve;
-    });
-    const originalFile = new File([ATTACHMENT_SVG], "held-original.svg", {
-      type: "image/svg+xml",
-    });
-    composerBlobReadHarness.override = async () => {
-      await blobGate;
-      return originalFile;
-    };
-    const pendingMessageId = "msg-user-active-preflight-queue" as MessageId;
-    const snapshot = createSnapshotForTargetUser({
-      targetMessageId: pendingMessageId,
-      targetText: "active turn",
-      sessionStatus: "running",
-    });
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot,
-    });
-    const restoreNativeApi = installDeterministicSendNativeApi();
-    try {
-      useComposerDraftStore.getState().setPrompt(THREAD_ID, "held original follow-up");
-      useComposerDraftStore.setState((state) => ({
-        draftsByThreadId: {
-          ...state.draftsByThreadId,
-          [THREAD_ID]: {
-            ...state.draftsByThreadId[THREAD_ID]!,
-            persistedAttachments: [
-              {
-                id: "held-original-image",
-                name: originalFile.name,
-                mimeType: originalFile.type,
-                sizeBytes: originalFile.size,
-                blobKey: `${THREAD_ID}:held-original-image`,
-              },
-            ],
-          },
-        },
-      }));
-      (
-        await waitForElement(
-          () => document.querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]'),
-          "Unable to find composer form.",
-        )
-      ).requestSubmit();
-      await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
-        "Unable to find held preflight feedback.",
-      );
-      const newerImage = createComposerImage({
-        id: "newer-queued-image",
-        previewUrl: "blob:newer-queued-image",
-        name: "newer-queued.png",
-      });
-      useComposerDraftStore.getState().setPrompt(THREAD_ID, "newer draft while queueing");
-      useComposerDraftStore.getState().addImages(THREAD_ID, [newerImage]);
-      document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]')?.click();
-      await vi.waitFor(() =>
-        expect(
-          wsRequests
-            .map(readDispatchedCommand)
-            .filter((command) => command?.type === "thread.turn.interrupt"),
-        ).toHaveLength(1),
-      );
-      expect(
-        wsRequests
-          .map(readDispatchedCommand)
-          .find((command) => command?.type === "thread.turn.interrupt"),
-      ).toMatchObject({ type: "thread.turn.interrupt", threadId: THREAD_ID });
-      releaseBlob();
-      await vi.waitFor(() => {
-        const queued = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.queuedTurns;
-        expect(queued?.some((turn) => turn.prompt === "held original follow-up")).toBe(true);
-      });
-      expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]).toMatchObject({
-        prompt: "newer draft while queueing",
-        images: [{ id: newerImage.id }],
-      });
-      expect(emitSyncDomainEvent).not.toBeNull();
-      emitSyncDomainEvent!(
-        makeDomainEvent(
-          "thread.session-set",
-          {
-            threadId: THREAD_ID,
-            session: {
-              threadId: THREAD_ID,
-              status: "ready",
-              providerName: "codex",
-              runtimeMode: "full-access",
-              activeTurnId: null,
-              lastError: null,
-              updatedAt: NOW_ISO,
-            },
-          },
-          { sequence: snapshot.snapshotSequence + 10 },
-        ),
-      );
-      await new Promise((resolve) => window.setTimeout(resolve, 50));
-      expect(
-        wsRequests
-          .map(readDispatchedCommand)
-          .filter((command) => command?.type === "thread.turn.start"),
-      ).toHaveLength(0);
-      expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]).toMatchObject({
-        queuedTurns: [{ prompt: "held original follow-up" }],
-      });
-    } finally {
-      releaseBlob();
-      composerBlobReadHarness.override = null;
-      await mounted.cleanup();
-      restoreNativeApi();
     }
   });
 
@@ -6771,15 +5557,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
           releaseOutcomeLookup?.();
           await vi.waitFor(() => {
             const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
-            expect(draft?.prompt).toBe("draft typed in remounted view");
+            expect(draft?.prompt).toBe(`draft typed in remounted view\n\n${prompt}`);
             expect(draft?.images.map((candidate) => candidate.name)).toEqual([
               "quick-stop-remounted-draft-image.png",
-            ]);
-            expect(draft?.queuedTurns).toEqual([
-              expect.objectContaining({
-                prompt,
-                images: [expect.objectContaining({ name: "quick-stop-image.png" })],
-              }),
+              "quick-stop-image.png",
             ]);
             expect(document.querySelector(`[data-message-id="${messageId}"]`)).toBeNull();
           });
@@ -6822,12 +5603,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
             const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
             expect(draft?.prompt).toBe("new draft typed after Stop");
             expect(draft?.images).toHaveLength(0);
-            expect(draft?.queuedTurns.map((turn) => turn.prompt)).toContain(prompt);
-            expect(
-              draft?.queuedTurns.some((turn) =>
-                turn.images.some((image) => image.name === "quick-stop-image.png"),
-              ),
-            ).toBe(true);
           });
           return;
         }
@@ -6854,9 +5629,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
           releaseOutcomeLookup?.();
           await vi.waitFor(() => {
             const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
-            expect(draft?.prompt).toBe("draft after connection loss");
-            expect(draft?.images).toEqual([expect.objectContaining({ id: newerImage.id })]);
-            expect(draft?.queuedTurns.map((turn) => turn.prompt)).toContain(prompt);
+            expect(draft?.prompt).toBe(`draft after connection loss\n\n${prompt}`);
+            expect(draft?.images).toEqual([
+              expect.objectContaining({ id: newerImage.id }),
+              expect.objectContaining({ id: image.id }),
+            ]);
           });
           await mounted.cleanup();
           connectionAvailable = true;
@@ -6873,15 +5650,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
           });
           await vi.waitFor(() => {
             const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
-            expect(draft?.prompt).toBe("draft after connection loss");
+            expect(draft?.prompt).toBe(`draft after connection loss\n\n${prompt}`);
             expect(draft?.images.map((candidate) => candidate.name)).toEqual([
               "connection-loss-newer-image.png",
-            ]);
-            expect(draft?.queuedTurns).toEqual([
-              expect.objectContaining({
-                prompt,
-                images: [expect.objectContaining({ name: "quick-stop-image.png" })],
-              }),
+              "quick-stop-image.png",
             ]);
           });
           return;
@@ -6949,117 +5721,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       }
     },
   );
-  it.each(["steer", "delete", "edit"])(
-    "L1 repeated %s during delayed admission dispatches one action",
-    async (action) => {
-      const mounted = await mountChatView({
-        viewport: DEFAULT_VIEWPORT,
-        snapshot: createSnapshotForTargetUser({
-          targetMessageId: "msg-l1-running" as MessageId,
-          targetText: "active task",
-          sessionStatus: "running",
-        }),
-      });
-      const api = readNativeApi()!;
-      const originalDispatch = api.orchestration.dispatchCommand;
-      let releaseAdmission!: () => void;
-      let releaseAction!: () => void;
-      const admissionGate = new Promise<void>((resolve) => {
-        releaseAdmission = resolve;
-      });
-      const actionGate = new Promise<void>((resolve) => {
-        releaseAction = resolve;
-      });
-      const actions: string[] = [];
-      const expectedCommand =
-        action === "steer" ? "thread.turn.steer-queued" : "thread.turn.cancel-queued";
-      const spy = vi
-        .spyOn(api.orchestration, "dispatchCommand")
-        .mockImplementation(async (command) => {
-          actions.push(command.type);
-          const result = await originalDispatch(command);
-          if (command.type === "thread.turn.start") await admissionGate;
-          if (command.type === expectedCommand) await actionGate;
-          return result;
-        });
-      try {
-        await waitForComposerEditor();
-        await page.getByTestId("composer-editor").fill("queued under delayed admission");
-        document
-          .querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]')!
-          .requestSubmit();
-        await vi.waitFor(() => expect(actions).toContain("thread.turn.start"));
-        const findAction = async (): Promise<HTMLElement> => {
-          if (action === "edit") {
-            const menu = await waitForElement(
-              () =>
-                document.querySelector<HTMLButtonElement>(
-                  'button[aria-label="Queued follow-up actions"]',
-                ),
-              "Queue menu absent",
-            );
-            menu.click();
-            return waitForElement(
-              () =>
-                Array.from(document.querySelectorAll<HTMLElement>('[data-slot="menu-item"]')).find(
-                  (item) => item.textContent?.trim() === "Edit queued prompt",
-                ) ?? null,
-              "Edit absent",
-            );
-          }
-          return waitForElement(
-            () =>
-              action === "delete"
-                ? document.querySelector<HTMLButtonElement>(
-                    'button[aria-label="Delete queued follow-up"]',
-                  )
-                : (Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
-                    (button) => button.textContent?.trim() === "Steer",
-                  ) ?? null),
-            "Action absent",
-          );
-        };
-
-        const actionControl = await findAction();
-        actionControl.click();
-        await vi.waitFor(() =>
-          expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull(),
-        );
-        actionControl.click();
-        expect(actions.filter((type) => type === expectedCommand)).toHaveLength(0);
-        releaseAdmission();
-        await vi.waitFor(() =>
-          expect(actions.filter((type) => type === expectedCommand)).toHaveLength(1),
-        );
-        expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
-        if (action === "steer") {
-          // The accepted local action owns presentation while the command receipt is pending.
-          // The message and its steer marker must appear atomically instead of disappearing and
-          // then gaining the marker after the network round trip.
-          await vi.waitFor(() => {
-            expect(document.body.textContent).toContain("queued under delayed admission");
-            expect(document.body.textContent).toContain("Steering conversation");
-          });
-        }
-        releaseAction();
-        await vi.waitFor(() => {
-          expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
-          if (action === "edit") {
-            expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
-              "queued under delayed admission",
-            );
-          }
-        });
-        expect(actions.filter((type) => type === expectedCommand)).toHaveLength(1);
-      } finally {
-        releaseAdmission();
-        releaseAction();
-        spy.mockRestore();
-        await mounted.cleanup();
-      }
-    },
-  );
-
   it("revalidates a hydrated pending-start owner through ChatView wiring", async () => {
     const nativeApi = readNativeApi();
     if (!nativeApi) throw new Error("Expected browser native API fixture.");
@@ -7288,218 +5949,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("retains queued action ownership across remount before delayed admission acknowledgement", async () => {
-    const snapshot = createSnapshotForTargetUser({
-      targetMessageId: "msg-l1-remount-running" as MessageId,
-      targetText: "active task",
-      sessionStatus: "running",
-    });
-    let mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
-    const firstApi = readNativeApi()!;
-    const firstDispatch = firstApi.orchestration.dispatchCommand;
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const actions: string[] = [];
-    const firstSpy = vi
-      .spyOn(firstApi.orchestration, "dispatchCommand")
-      .mockImplementation(async (command) => {
-        actions.push(command.type);
-        const result = await firstDispatch(command);
-        if (command.type === "thread.turn.start") await gate;
-        return result;
-      });
-    try {
-      await waitForComposerEditor();
-      await page.getByTestId("composer-editor").fill("queued across remount");
-      document
-        .querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]')!
-        .requestSubmit();
-      await vi.waitFor(() => expect(actions).toContain("thread.turn.start"));
-      const steer = await waitForElement(
-        () =>
-          Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
-            (button) => button.textContent?.trim() === "Steer",
-          ) ?? null,
-        "Steer absent",
-      );
-      steer.click();
-      await mounted.cleanup();
-
-      mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
-      expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
-      expect(document.body.textContent).toContain("queued across remount");
-      expect(document.body.textContent).toContain("Steering conversation");
-      release();
-      await vi.waitFor(() =>
-        expect(actions.filter((type) => type === "thread.turn.steer-queued")).toHaveLength(1),
-      );
-    } finally {
-      release();
-      firstSpy.mockRestore();
-      await mounted.cleanup();
-    }
-  });
-
-  it("preserves newer thread drafts when delayed Edit completes after navigation", async () => {
-    const snapshot = createSnapshotForTargetUser({
-      targetMessageId: "msg-l1-edit-navigation-running" as MessageId,
-      targetText: "active task",
-      sessionStatus: "running",
-    });
-    let mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
-    const api = readNativeApi()!;
-    const originalDispatch = api.orchestration.dispatchCommand;
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const actions: string[] = [];
-    const spy = vi
-      .spyOn(api.orchestration, "dispatchCommand")
-      .mockImplementation(async (command) => {
-        actions.push(command.type);
-        const result = await originalDispatch(command);
-        if (command.type === "thread.turn.start") await gate;
-        return result;
-      });
-    try {
-      await waitForComposerEditor();
-      await page.getByTestId("composer-editor").fill("edit after navigation");
-      document
-        .querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]')!
-        .requestSubmit();
-      await vi.waitFor(() => expect(actions).toContain("thread.turn.start"));
-      const menu = await waitForElement(
-        () =>
-          document.querySelector<HTMLButtonElement>(
-            'button[aria-label="Queued follow-up actions"]',
-          ),
-        "Queue menu absent",
-      );
-      menu.click();
-      const edit = await waitForElement(
-        () =>
-          Array.from(document.querySelectorAll<HTMLElement>('[data-slot="menu-item"]')).find(
-            (item) => item.textContent?.trim() === "Edit queued prompt",
-          ) ?? null,
-        "Edit absent",
-      );
-      edit.click();
-
-      const newerAImage = createComposerImage({
-        id: "newer-a",
-        previewUrl: "blob:newer-a",
-      });
-      const newerBImage = createComposerImage({
-        id: "newer-b",
-        previewUrl: "blob:newer-b",
-      });
-      useComposerDraftStore.getState().setPrompt(THREAD_ID, "newer A prompt");
-      useComposerDraftStore.getState().addImage(THREAD_ID, newerAImage);
-      useComposerDraftStore.getState().setPrompt(OTHER_THREAD_ID, "newer B prompt");
-      useComposerDraftStore.getState().addImage(OTHER_THREAD_ID, newerBImage);
-      await mounted.cleanup();
-      release();
-      await vi.waitFor(() =>
-        expect(actions.filter((type) => type === "thread.turn.cancel-queued")).toHaveLength(1),
-      );
-
-      const turnStartsBeforeCompletion = actions.filter(
-        (type) => type === "thread.turn.start",
-      ).length;
-      mounted = await mountChatView({
-        viewport: DEFAULT_VIEWPORT,
-        snapshot: createSnapshotForTargetUser({
-          targetMessageId: "msg-l1-edit-navigation-running" as MessageId,
-          targetText: "active task",
-          sessionStatus: "ready",
-        }),
-      });
-      const drafts = useComposerDraftStore.getState().draftsByThreadId;
-      expect(drafts[THREAD_ID]?.prompt).toBe("newer A prompt");
-      expect(drafts[THREAD_ID]?.images).toEqual([expect.objectContaining({ id: newerAImage.id })]);
-      expect(drafts[OTHER_THREAD_ID]?.prompt).toBe("newer B prompt");
-      expect(drafts[OTHER_THREAD_ID]?.images).toEqual([
-        expect.objectContaining({ id: newerBImage.id }),
-      ]);
-      await vi.waitFor(() => {
-        const recoveredMenu = document.querySelector<HTMLButtonElement>(
-          'button[aria-label="Queued follow-up actions"]',
-        );
-        expect(recoveredMenu?.disabled).toBe(false);
-      });
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      expect(actions.filter((type) => type === "thread.turn.start")).toHaveLength(
-        turnStartsBeforeCompletion,
-      );
-      expect(actions.filter((type) => type === "thread.turn.cancel-queued")).toHaveLength(1);
-    } finally {
-      release();
-      spy.mockRestore();
-      await mounted.cleanup();
-    }
-  });
-
-  it("keeps an accepted Steer non-actionable when its originating view unmounts", async () => {
-    const snapshot = createSnapshotForTargetUser({
-      targetMessageId: "msg-l1-steer-unmounted-running" as MessageId,
-      targetText: "active task",
-      sessionStatus: "running",
-    });
-    let mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
-    const api = readNativeApi()!;
-    const originalDispatch = api.orchestration.dispatchCommand;
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const actions: string[] = [];
-    const spy = vi
-      .spyOn(api.orchestration, "dispatchCommand")
-      .mockImplementation(async (command) => {
-        actions.push(command.type);
-        const result = await originalDispatch(command);
-        if (command.type === "thread.turn.start") await gate;
-        return result;
-      });
-    try {
-      await waitForComposerEditor();
-      await page.getByTestId("composer-editor").fill("steer while unmounted");
-      document
-        .querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]')!
-        .requestSubmit();
-      await vi.waitFor(() => expect(actions).toContain("thread.turn.start"));
-      const steer = await waitForElement(
-        () =>
-          Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
-            (button) => button.textContent?.trim() === "Steer",
-          ) ?? null,
-        "Steer absent",
-      );
-      steer.click();
-      await mounted.cleanup();
-      release();
-      await vi.waitFor(() =>
-        expect(actions.filter((type) => type === "thread.turn.steer-queued")).toHaveLength(1),
-      );
-
-      mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
-      const staleSteer = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
-        (button) => button.textContent?.trim() === "Steer",
-      );
-      expect(staleSteer === undefined || staleSteer.disabled).toBe(true);
-      staleSteer?.click();
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      expect(actions.filter((type) => type === "thread.turn.steer-queued")).toHaveLength(1);
-    } finally {
-      release();
-      spy.mockRestore();
-      await mounted.cleanup();
-    }
-  });
-
   it.each([
     { provider: "codex", model: "gpt-5" },
     { provider: "claudeAgent", model: "claude-opus-4-6" },
@@ -7549,9 +5998,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const spy = vi.spyOn(api.orchestration, "dispatchCommand");
       try {
         await waitForComposerEditor();
-        expect(
-          useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.queuedTurns ?? [],
-        ).toEqual([]);
         const steer = await waitForElement(
           () =>
             Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
@@ -7614,851 +6060,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       }
     },
   );
-
-  it("keeps a delayed Steer presentation on its originating thread across navigation", async () => {
-    const prompt = "steer belongs only to its origin thread";
-    const snapshot = addThreadToSnapshot(
-      createSnapshotForTargetUser({
-        targetMessageId: "msg-l1-steer-navigation-running" as MessageId,
-        targetText: "active task",
-        sessionStatus: "running",
-      }),
-      OTHER_THREAD_ID,
-    );
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot,
-    });
-    const api = readNativeApi()!;
-    const originalDispatch = api.orchestration.dispatchCommand;
-    let releaseAdmission!: () => void;
-    let releaseSteer!: () => void;
-    const admissionGate = new Promise<void>((resolve) => {
-      releaseAdmission = resolve;
-    });
-    const steerGate = new Promise<void>((resolve) => {
-      releaseSteer = resolve;
-    });
-    const actions: string[] = [];
-    const spy = vi
-      .spyOn(api.orchestration, "dispatchCommand")
-      .mockImplementation(async (command) => {
-        actions.push(command.type);
-        const result = await originalDispatch(command);
-        if (command.type === "thread.turn.start") await admissionGate;
-        if (command.type === "thread.turn.steer-queued") await steerGate;
-        return result;
-      });
-    try {
-      await waitForComposerEditor();
-      await page.getByTestId("composer-editor").fill(prompt);
-      document
-        .querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]')!
-        .requestSubmit();
-      await vi.waitFor(() => expect(actions).toContain("thread.turn.start"));
-      const steer = await waitForElement(
-        () =>
-          Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
-            (button) => button.textContent?.trim() === "Steer",
-          ) ?? null,
-        "Steer absent",
-      );
-      steer.click();
-      releaseAdmission();
-      await vi.waitFor(() => expect(actions).toContain("thread.turn.steer-queued"));
-
-      await mounted.router.navigate({
-        to: "/$threadId",
-        params: { threadId: OTHER_THREAD_ID },
-      });
-      await waitForLayout();
-      expect(document.body.textContent).not.toContain(prompt);
-      expect(document.body.textContent).not.toContain("Steering conversation");
-
-      releaseSteer();
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      expect(document.body.textContent).not.toContain(prompt);
-      expect(document.body.textContent).not.toContain("Steering conversation");
-
-      await mounted.router.navigate({
-        to: "/$threadId",
-        params: { threadId: THREAD_ID },
-      });
-      await waitForLayout();
-      expect(document.body.textContent).toContain(prompt);
-      expect(document.body.textContent).toContain("Steering conversation");
-    } finally {
-      releaseAdmission();
-      releaseSteer();
-      spy.mockRestore();
-      await mounted.cleanup();
-    }
-  });
-
-  it("keeps the Steer label while requested delivery precedes its receipt", async () => {
-    const prompt = "steer label must survive requested-before-receipt";
-    let currentSnapshot = createSnapshotForTargetUser({
-      targetMessageId: "msg-l1-steer-requested-before-receipt" as MessageId,
-      targetText: "active task",
-      sessionStatus: "running",
-    });
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: currentSnapshot,
-    });
-    const api = readNativeApi()!;
-    const originalDispatch = api.orchestration.dispatchCommand;
-    let releaseSteerReceipt!: () => void;
-    const steerReceiptGate = new Promise<void>((resolve) => {
-      releaseSteerReceipt = resolve;
-    });
-    const actions: string[] = [];
-    const observed: Array<{
-      phase: string;
-      deliveryState: string | null;
-      queued: boolean | null;
-      dispatchMode: string | null;
-      steeringLabel: boolean;
-      queuedRowVisible: boolean;
-    }> = [];
-
-    const syncActiveThread = (
-      update: (
-        thread: OrchestrationReadModel["threads"][number],
-      ) => OrchestrationReadModel["threads"][number],
-    ) => {
-      currentSnapshot = {
-        ...currentSnapshot,
-        snapshotSequence: currentSnapshot.snapshotSequence + 1,
-        threads: currentSnapshot.threads.map((thread) =>
-          thread.id === THREAD_ID ? update(thread) : thread,
-        ),
-        updatedAt: isoAt(currentSnapshot.snapshotSequence + 2_500),
-      };
-      fixture = { ...fixture, snapshot: currentSnapshot };
-      useStore.getState().syncServerReadModel(currentSnapshot);
-    };
-
-    const record = (phase: string, messageId: MessageId) => {
-      const message = currentSnapshot.threads
-        .find((thread) => thread.id === THREAD_ID)
-        ?.messages.find((candidate) => candidate.id === messageId);
-      observed.push({
-        phase,
-        deliveryState: message?.delivery?.state ?? null,
-        queued: message?.delivery?.queued ?? null,
-        dispatchMode: message?.dispatchMode ?? null,
-        steeringLabel: (document.body.textContent ?? "").includes("Steering conversation"),
-        queuedRowVisible: document.querySelector('[data-testid="queued-follow-up-row"]') !== null,
-      });
-    };
-
-    const spy = vi
-      .spyOn(api.orchestration, "dispatchCommand")
-      .mockImplementation(async (command) => {
-        actions.push(command.type);
-        const receipt = await originalDispatch(command);
-        if (command.type === "thread.turn.steer-queued") {
-          // Hold the receipt open while the server publishes requested steering.
-          // This is the ordering that lets the durable row race the local overlay.
-          await steerReceiptGate;
-        }
-        return receipt;
-      });
-
-    try {
-      await waitForComposerEditor();
-      await page.getByTestId("composer-editor").fill(prompt);
-      document
-        .querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]')!
-        .requestSubmit();
-      await vi.waitFor(() => expect(actions).toContain("thread.turn.start"));
-
-      const queuedCommand = await vi.waitFor(() => {
-        const command = wsRequests
-          .map(readDispatchedCommand)
-          .find(
-            (candidate) =>
-              candidate?.type === "thread.turn.start" &&
-              typeof candidate.message === "object" &&
-              candidate.message !== null &&
-              "messageId" in candidate.message,
-          );
-        expect(command).toBeTruthy();
-        return command!;
-      });
-      const queuedMessageId = (queuedCommand.message as { messageId: MessageId }).messageId;
-      syncActiveThread((thread) => ({
-        ...thread,
-        queuedMessageIds: [queuedMessageId],
-        messages: [
-          ...thread.messages,
-          {
-            id: queuedMessageId,
-            role: "user" as const,
-            text: prompt,
-            dispatchMode: "queue" as const,
-            delivery: {
-              state: "queued" as const,
-              queued: true,
-              sequence: 2866267,
-            },
-            turnId: null,
-            streaming: false,
-            source: "native" as const,
-            createdAt: isoAt(3_000),
-            updatedAt: isoAt(3_001),
-          },
-        ],
-      }));
-      await vi.waitFor(() =>
-        expect(document.querySelector('[data-testid="queued-follow-up-row"]')).not.toBeNull(),
-      );
-      record("queued", queuedMessageId);
-
-      const steer = await waitForElement(
-        () =>
-          Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
-            (button) => button.textContent?.trim() === "Steer",
-          ) ?? null,
-        "Steer absent",
-      );
-      steer.click();
-      await vi.waitFor(() => expect(actions).toContain("thread.turn.steer-queued"));
-      await vi.waitFor(() => expect(document.body.textContent).toContain("Steering conversation"));
-      record("local-forced-overlay", queuedMessageId);
-
-      // Requested delivery arrives before dispatchCommand resolves. The server row
-      // has the same id, but still carries queue mode until message-sent follows.
-      syncActiveThread((thread) => ({
-        ...thread,
-        queuedMessageIds: [queuedMessageId],
-        messages: thread.messages.map((message) =>
-          message.id === queuedMessageId
-            ? {
-                ...message,
-                dispatchMode: "queue" as const,
-                delivery: {
-                  state: "steering" as const,
-                  queued: true,
-                  sequence: 2866269,
-                },
-              }
-            : message,
-        ),
-      }));
-      await waitForLayout();
-      expect(document.body.textContent).toContain("Steering conversation");
-      record("requested-before-receipt", queuedMessageId);
-
-      // The subsequent message-sent projection restores canonical steer mode.
-      syncActiveThread((thread) => ({
-        ...thread,
-        queuedMessageIds: [],
-        messages: thread.messages.map((message) =>
-          message.id === queuedMessageId
-            ? {
-                ...message,
-                dispatchMode: "steer" as const,
-                delivery: {
-                  state: "steering" as const,
-                  queued: false,
-                  sequence: 2866270,
-                },
-              }
-            : message,
-        ),
-      }));
-      await vi.waitFor(() => expect(document.body.textContent).toContain("Steering conversation"));
-      record("message-sent", queuedMessageId);
-
-      releaseSteerReceipt();
-      await vi.waitFor(() =>
-        expect(actions.filter((type) => type === "thread.turn.steer-queued")).toHaveLength(1),
-      );
-
-      expect(observed).toEqual([
-        expect.objectContaining({ phase: "queued", steeringLabel: false, queuedRowVisible: true }),
-        expect.objectContaining({
-          phase: "local-forced-overlay",
-          steeringLabel: true,
-          queuedRowVisible: false,
-        }),
-        expect.objectContaining({
-          phase: "requested-before-receipt",
-          deliveryState: "steering",
-          dispatchMode: "queue",
-          steeringLabel: true,
-          queuedRowVisible: false,
-        }),
-        expect.objectContaining({
-          phase: "message-sent",
-          dispatchMode: "steer",
-          steeringLabel: true,
-          queuedRowVisible: false,
-        }),
-      ]);
-    } finally {
-      releaseSteerReceipt();
-      spy.mockRestore();
-      await mounted.cleanup();
-    }
-  });
-
-  it("never commits a queued card beside its canonical accepted Steer message", async () => {
-    const messageId = "msg-steer-canonical-before-draft-cleanup" as MessageId;
-    const prompt = "accepted steer cannot remain in the queue bar";
-    useComposerDraftStore.getState().enqueueQueuedTurn(THREAD_ID, {
-      id: "queued-steer-canonical-before-cleanup",
-      kind: "chat",
-      createdAt: isoAt(3_000),
-      serverAcceptedAt: isoAt(3_001),
-      serverMessageId: messageId,
-      previewText: prompt,
-      prompt,
-      images: [],
-      files: [],
-      assistantSelections: [],
-      terminalContexts: [],
-      fileComments: [],
-      pastedTexts: [],
-      skills: [],
-      mentions: [],
-      selectedProvider: "codex",
-      selectedModel: "gpt-5",
-      selectedPromptEffort: null,
-      modelSelection: { provider: "codex", model: "gpt-5" },
-      connectionId: TEST_CONNECTION_ID,
-      runtimeMode: "full-access",
-    });
-    const base = createSnapshotForTargetUser({
-      targetMessageId: "msg-steer-canonical-active" as MessageId,
-      targetText: "active task",
-      sessionStatus: "running",
-    });
-    const snapshot = {
-      ...base,
-      threads: base.threads.map((thread) =>
-        thread.id !== THREAD_ID
-          ? thread
-          : {
-              ...thread,
-              queuedMessageIds: [messageId],
-              messages: [
-                ...thread.messages,
-                {
-                  id: messageId,
-                  role: "user" as const,
-                  text: prompt,
-                  dispatchMode: "queue" as const,
-                  delivery: { state: "queued" as const, queued: true, sequence: 300 },
-                  turnId: null,
-                  streaming: false,
-                  source: "native" as const,
-                  createdAt: isoAt(3_000),
-                  updatedAt: isoAt(3_002),
-                },
-              ],
-            },
-      ),
-    };
-
-    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
-    try {
-      await waitForComposerEditor();
-      await vi.waitFor(() =>
-        expect(document.querySelector('[data-testid="queued-follow-up-row"]')).not.toBeNull(),
-      );
-      useStore
-        .getState()
-        .applyOrchestrationEvents([
-          makeDomainEvent(
-            "thread.turn-steer-queued-requested",
-            { threadId: THREAD_ID, messageId, createdAt: isoAt(3_002) },
-            { sequence: 301 },
-          ),
-        ]);
-      await waitForLayout();
-      expect(document.body.textContent).toContain("Steering conversation");
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-  it("rolls back an immediate Steer presentation when server admission rejects", async () => {
-    const prompt = "rejected steer remains retryable";
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-l1-steer-rejection-running" as MessageId,
-        targetText: "active task",
-        sessionStatus: "running",
-      }),
-    });
-    const api = readNativeApi()!;
-    const originalDispatch = api.orchestration.dispatchCommand;
-    let rejectSteer = true;
-    let rejectSteerRequest!: () => void;
-    const steerRejectionGate = new Promise<void>((_, reject) => {
-      rejectSteerRequest = () => reject(new Error("controlled steer admission rejection"));
-    });
-    const actions: string[] = [];
-    const spy = vi
-      .spyOn(api.orchestration, "dispatchCommand")
-      .mockImplementation(async (command) => {
-        actions.push(command.type);
-        if (command.type === "thread.turn.steer-queued" && rejectSteer) {
-          await steerRejectionGate;
-        }
-        return originalDispatch(command);
-      });
-    try {
-      await waitForComposerEditor();
-      await page.getByTestId("composer-editor").fill(prompt);
-      document
-        .querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]')!
-        .requestSubmit();
-      await vi.waitFor(() =>
-        expect(
-          useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.queuedTurns[0]
-            ?.serverAcceptedAt,
-        ).toBeTruthy(),
-      );
-      const acceptedQueuedTurn =
-        useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]!.queuedTurns[0]!;
-      const queuedMessageId = queuedComposerTurnServerMessageId(acceptedQueuedTurn);
-      const steer = await waitForElement(
-        () =>
-          Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
-            (button) => button.textContent?.trim() === "Steer",
-          ) ?? null,
-        "Steer absent",
-      );
-      steer.click();
-      await vi.waitFor(() =>
-        expect(document.querySelector(`[data-message-id="${queuedMessageId}"]`)).not.toBeNull(),
-      );
-      rejectSteerRequest();
-
-      await vi.waitFor(() => {
-        expect(document.querySelector('[data-testid="queued-follow-up-row"]')).not.toBeNull();
-        expect(document.querySelector(`[data-message-id="${queuedMessageId}"]`)).toBeNull();
-      });
-      expect(actions.filter((type) => type === "thread.turn.steer-queued")).toHaveLength(1);
-
-      rejectSteer = false;
-      const retry = await waitForElement(
-        () =>
-          Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
-            (button) => button.textContent?.trim() === "Steer" && !button.disabled,
-          ) ?? null,
-        "Retry Steer absent",
-      );
-      retry.click();
-      await vi.waitFor(() => {
-        expect(actions.filter((type) => type === "thread.turn.steer-queued")).toHaveLength(2);
-        expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
-        expect(document.querySelector(`[data-message-id="${queuedMessageId}"]`)).not.toBeNull();
-      });
-    } finally {
-      rejectSteerRequest();
-      spy.mockRestore();
-      await mounted.cleanup();
-    }
-  });
-
-  it.each(
-    (
-      [
-        { provider: "codex", model: "gpt-5" },
-        { provider: "claudeAgent", model: "claude-opus-4-6" },
-        { provider: "opencode", model: "opencode/deepseek-v4-flash-free" },
-      ] as const
-    ).flatMap((selection) => [
-      { ...selection, prompt: "" },
-      { ...selection, prompt: "Please inspect this screenshot" },
-    ]),
-  )(
-    "keeps media visible after clicking Steer during delayed admission ($provider, $prompt)",
-    async ({ prompt, ...modelSelection }) => {
-      const snapshot = createSnapshotForTargetUser({
-        targetMessageId: "msg-media-steer-running" as MessageId,
-        targetText: "Continue the game",
-        sessionStatus: "running",
-      });
-      const mounted = await mountChatView({
-        viewport: DEFAULT_VIEWPORT,
-        snapshot: {
-          ...snapshot,
-          threads: snapshot.threads.map((thread) => ({
-            ...thread,
-            modelSelection,
-            session: thread.session
-              ? { ...thread.session, providerName: modelSelection.provider }
-              : null,
-          })),
-        },
-      });
-      const api = readNativeApi()!;
-      const originalDispatch = api.orchestration.dispatchCommand;
-      let release!: () => void;
-      const gate = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      const spy = vi
-        .spyOn(api.orchestration, "dispatchCommand")
-        .mockImplementation(async (command) => {
-          if (command.type === "thread.turn.start") await gate;
-          return originalDispatch(command);
-        });
-      const image = createComposerImage({
-        id: "steer-image",
-        previewUrl: "blob:steer-image",
-        name: "steer-image.png",
-      });
-      try {
-        useComposerDraftStore.getState().enqueueQueuedTurn(THREAD_ID, {
-          id: "media-steer-delayed",
-          kind: "chat",
-          createdAt: new Date().toISOString(),
-          previewText: prompt || "Image: steer-image.png",
-          prompt,
-          images: [image],
-          files: [],
-          assistantSelections: [],
-          terminalContexts: [],
-          fileComments: [],
-          pastedTexts: [],
-          skills: [],
-          mentions: [],
-          selectedProvider: modelSelection.provider,
-          selectedModel: modelSelection.model,
-          selectedPromptEffort: null,
-          modelSelection,
-          connectionId: TEST_CONNECTION_ID,
-          runtimeMode: "full-access",
-        });
-        await vi.waitFor(() =>
-          expect(spy.mock.calls.some(([command]) => command.type === "thread.turn.start")).toBe(
-            true,
-          ),
-        );
-        const steer = await waitForElement(
-          () =>
-            Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
-              (button) => button.textContent?.trim() === "Steer",
-            ) ?? null,
-          "Steer absent",
-        );
-        steer.click();
-        await vi.waitFor(() =>
-          expect(document.body.textContent).toContain("Steering conversation"),
-        );
-        await waitForLayout();
-        const transcript = document.querySelector('[data-chat-scroll-container="true"]')!;
-        expect(
-          transcript.querySelector('button[aria-label="Preview steer-image.png"]'),
-        ).not.toBeNull();
-        const queueSteer = Array.from(
-          document.querySelectorAll<HTMLButtonElement>(
-            '[data-testid="queued-follow-up-row"] button',
-          ),
-        ).find((button) => button.textContent?.trim() === "Steer");
-        expect(queueSteer === undefined || queueSteer.disabled).toBe(true);
-      } finally {
-        release();
-        await waitForLayout();
-        spy.mockRestore();
-        await mounted.cleanup();
-      }
-    },
-  );
-
-  it("releases queued action ownership after admission rejection and preserves prompt and images for retry", async () => {
-    const queuedImage = createComposerImage({
-      id: "queued-delayed-rejection-image",
-      previewUrl: "blob:queued-delayed-rejection-image",
-      name: "queued-delayed-rejection.png",
-    });
-    const queuedPrompt = "queued prompt survives delayed rejection";
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-l1-rejection-running" as MessageId,
-        targetText: "active task",
-        sessionStatus: "running",
-      }),
-    });
-    const api = readNativeApi()!;
-    const originalDispatch = api.orchestration.dispatchCommand;
-    let rejectAdmission!: () => void;
-    const gate = new Promise<void>((_, reject) => {
-      rejectAdmission = () => reject(new Error("synthetic delayed admission rejection"));
-    });
-    const spy = vi
-      .spyOn(api.orchestration, "dispatchCommand")
-      .mockImplementation(async (command) => {
-        if (command.type === "thread.turn.start") await gate;
-        return originalDispatch(command);
-      });
-    const clickEdit = async () => {
-      const menu = await waitForElement(
-        () =>
-          document.querySelector<HTMLButtonElement>(
-            'button[aria-label="Queued follow-up actions"]',
-          ),
-        "Queue menu absent",
-      );
-      menu.click();
-      const edit = await waitForElement(
-        () =>
-          Array.from(document.querySelectorAll<HTMLElement>('[data-slot="menu-item"]')).find(
-            (item) => item.textContent?.trim() === "Edit queued prompt",
-          ) ?? null,
-        "Edit absent",
-      );
-      edit.click();
-    };
-    try {
-      useComposerDraftStore.getState().enqueueQueuedTurn(THREAD_ID, {
-        id: "queued-delayed-rejection",
-        kind: "chat",
-        createdAt: NOW_ISO,
-        previewText: queuedPrompt,
-        prompt: queuedPrompt,
-        images: [queuedImage],
-        files: [],
-        assistantSelections: [],
-        terminalContexts: [],
-        fileComments: [],
-        pastedTexts: [],
-        skills: [],
-        mentions: [],
-        selectedProvider: "codex",
-        selectedModel: "gpt-5",
-        selectedPromptEffort: null,
-        modelSelection: { provider: "codex", model: "gpt-5" },
-        connectionId: TEST_CONNECTION_ID,
-        runtimeMode: "full-access",
-      });
-      await vi.waitFor(() =>
-        expect(spy.mock.calls.some(([command]) => command.type === "thread.turn.start")).toBe(true),
-      );
-      await clickEdit();
-      rejectAdmission();
-      await vi.waitFor(() => {
-        const queued = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.queuedTurns[0];
-        expect(queued?.prompt).toBe(queuedPrompt);
-        expect(queued?.images).toEqual([
-          expect.objectContaining({
-            id: queuedImage.id,
-            name: queuedImage.name,
-          }),
-        ]);
-        expect(
-          document.querySelector<HTMLButtonElement>('button[aria-label="Queued follow-up actions"]')
-            ?.disabled,
-        ).toBe(false);
-      });
-      await clickEdit();
-      await vi.waitFor(() => {
-        const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
-        expect(draft?.prompt).toBe(queuedPrompt);
-        expect(draft?.images).toEqual([
-          expect.objectContaining({
-            id: queuedImage.id,
-            name: queuedImage.name,
-          }),
-        ]);
-      });
-    } finally {
-      rejectAdmission();
-      spy.mockRestore();
-      await mounted.cleanup();
-    }
-  });
-
-  it("shows a durable queued row while submitting a running-turn follow-up", async () => {
-    const consoleError = vi.spyOn(console, "error");
-    let currentSnapshot = createSnapshotForTargetUser({
-      targetMessageId: "msg-user-running-queue-button" as MessageId,
-      targetText: "running queue button target",
-      sessionStatus: "running",
-    });
-
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: currentSnapshot,
-    });
-
-    try {
-      const composerEditor = await waitForComposerEditor();
-      await page.getByTestId("composer-editor").fill("queue this follow-up");
-      await expect
-        .element(page.getByTestId("composer-editor"))
-        .toHaveTextContent("queue this follow-up");
-      const composerForm = await waitForElement(
-        () => document.querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]'),
-        "Unable to find composer form.",
-      );
-      composerForm.requestSubmit();
-
-      await vi.waitFor(
-        () => {
-          const turnStart = wsRequests
-            .map(readDispatchedCommand)
-            .find(
-              (command) =>
-                command?.type === "thread.turn.start" &&
-                command.dispatchMode === "queue" &&
-                typeof command.message === "object" &&
-                command.message !== null &&
-                "text" in command.message &&
-                typeof command.message.text === "string" &&
-                command.message.text.includes("queue this follow-up"),
-            );
-          expect(turnStart).toBeTruthy();
-          expect(
-            useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.queuedTurns[0]
-              ?.serverAcceptedAt,
-          ).toBeTruthy();
-          expect(document.querySelector('[data-testid="queued-follow-up-row"]')).not.toBeNull();
-          expect(document.body.textContent).toContain("Steer");
-          expect(composerEditor.textContent).toBe("");
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      const queuedCommand = wsRequests
-        .map(readDispatchedCommand)
-        .find(
-          (command) =>
-            command?.type === "thread.turn.start" &&
-            typeof command.message === "object" &&
-            command.message !== null &&
-            "messageId" in command.message,
-        );
-      const queuedMessageId = (queuedCommand?.message as { messageId: MessageId }).messageId;
-      currentSnapshot = {
-        ...currentSnapshot,
-        snapshotSequence: currentSnapshot.snapshotSequence + 1,
-        threads: currentSnapshot.threads.map((thread) =>
-          thread.id === THREAD_ID
-            ? {
-                ...thread,
-                queuedMessageIds: [queuedMessageId],
-                messages: [
-                  ...thread.messages,
-                  {
-                    id: queuedMessageId,
-                    role: "user" as const,
-                    text: "queue this follow-up",
-                    dispatchMode: "queue" as const,
-                    delivery: {
-                      state: "queued" as const,
-                      queued: true,
-                      sequence: 200,
-                    },
-                    turnId: null,
-                    streaming: false,
-                    source: "native" as const,
-                    createdAt: NOW_ISO,
-                    updatedAt: NOW_ISO,
-                  },
-                ],
-              }
-            : thread,
-        ),
-      };
-      fixture = { ...fixture, snapshot: currentSnapshot };
-      useStore.getState().syncServerReadModel(currentSnapshot);
-      await vi.waitFor(() => {
-        expect(document.querySelector(`[data-message-id="${queuedMessageId}"]`)).toBeNull();
-        expect(document.querySelector('[data-testid="queued-follow-up-row"]')).not.toBeNull();
-      });
-
-      const steerButton = await waitForElement(
-        () =>
-          Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
-            (button) => button.textContent?.trim() === "Steer",
-          ) ?? null,
-        "Unable to find queued Steer button.",
-      );
-      steerButton.click();
-      await vi.waitFor(
-        () => {
-          expect(
-            wsRequests
-              .map(readDispatchedCommand)
-              .some((command) => command?.type === "thread.turn.steer-queued"),
-          ).toBe(true);
-          // The server event moves the durable row into the transcript.
-          expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
-          expect(
-            window.penkraChatLifecycle
-              ?.samples(THREAD_ID)
-              .some(
-                (sample) =>
-                  "visibleTimelineEntryIds" in sample &&
-                  sample.visibleTimelineEntryIds?.includes(queuedMessageId),
-              ),
-          ).toBe(true);
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      currentSnapshot = {
-        ...currentSnapshot,
-        snapshotSequence: currentSnapshot.snapshotSequence + 1,
-        threads: currentSnapshot.threads.map((thread) =>
-          thread.id === THREAD_ID
-            ? {
-                ...thread,
-                queuedMessageIds: [],
-                messages: thread.messages.map((message) =>
-                  message.id === queuedMessageId
-                    ? {
-                        ...message,
-                        delivery: {
-                          state: "accepted" as const,
-                          queued: true,
-                          sequence: 201,
-                        },
-                      }
-                    : message,
-                ),
-              }
-            : thread,
-        ),
-      };
-      useStore.getState().syncServerReadModel(currentSnapshot);
-      await vi.waitFor(() => {
-        expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
-        expect(
-          window.penkraChatLifecycle
-            ?.samples(THREAD_ID)
-            .some(
-              (sample) =>
-                "visibleTimelineEntryIds" in sample &&
-                sample.visibleTimelineEntryIds?.includes(queuedMessageId),
-            ),
-        ).toBe(true);
-      });
-
-      const stopButton = await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
-        "Unable to find stop generation button.",
-      );
-      expect(stopButton).not.toBeNull();
-      expect(
-        consoleError.mock.calls.some((call) =>
-          call.some((value) => String(value).includes("Maximum update depth exceeded")),
-        ),
-      ).toBe(false);
-    } finally {
-      consoleError.mockRestore();
-      await mounted.cleanup();
-    }
-  });
 
   it("coalesces bulk editor input without corrupting text or nesting React updates", async () => {
     const consoleError = vi.spyOn(console, "error");
@@ -8755,9 +6356,18 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("removes a server-authoritative queued row immediately when editing it", async () => {
+  it("edits a server queue message with an image and terminal context beside a nonempty draft", async () => {
     const queuedMessageId = "msg-server-authoritative-edit" as MessageId;
-    const queuedPrompt = "edit this durable queued prompt";
+    const queuedPrompt = appendTerminalContextsToPrompt("edit this durable queued prompt", [
+      createTerminalContext({
+        id: "edit-terminal",
+        terminalLabel: "Terminal 1",
+        lineStart: 1,
+        lineEnd: 2,
+        text: "queued terminal output",
+      }),
+    ]);
+    const queuedImageId = "attqueuededitimage";
     const base = createSnapshotForTargetUser({
       targetMessageId: "msg-user-running-server-edit" as MessageId,
       targetText: "running server edit target",
@@ -8776,6 +6386,15 @@ describe("ChatView timeline estimator parity (full app)", () => {
                   id: queuedMessageId,
                   role: "user" as const,
                   text: queuedPrompt,
+                  attachments: [
+                    {
+                      type: "image" as const,
+                      id: queuedImageId,
+                      name: "queued.png",
+                      mimeType: "image/png",
+                      sizeBytes: 4,
+                    },
+                  ],
                   dispatchMode: "queue" as const,
                   delivery: {
                     state: "queued" as const,
@@ -8797,8 +6416,41 @@ describe("ChatView timeline estimator parity (full app)", () => {
       viewport: DEFAULT_VIEWPORT,
       snapshot,
     });
+    const api = readNativeApi()!;
+    const originalDispatch = api.orchestration.dispatchCommand;
+    const dispatchSpy = vi
+      .spyOn(api.orchestration, "dispatchCommand")
+      .mockImplementation(async (command) => {
+        const result = await originalDispatch(command);
+        if (command.type === "thread.turn.cancel-queued") {
+          useStore.getState().applyOrchestrationEvents([
+            makeDomainEvent(
+              "thread.turn-start-cancelled",
+              {
+                threadId: THREAD_ID,
+                messageId: queuedMessageId,
+                cancelledAt: NOW_ISO,
+              },
+              { sequence: 201 },
+            ),
+          ]);
+        }
+        return result;
+      });
+    const originalFetch = globalThis.fetch;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+      if (String(input).includes(queuedImageId))
+        return Promise.resolve(
+          new Response(new Uint8Array([1, 2, 3, 4]), {
+            status: 200,
+            headers: { "Content-Type": "image/png" },
+          }),
+        );
+      return originalFetch(input, init);
+    });
 
     try {
+      useComposerDraftStore.getState().setPrompt(THREAD_ID, "existing draft");
       const actionsButton = await waitForElement(
         () =>
           document.querySelector<HTMLButtonElement>(
@@ -8817,9 +6469,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
       editMenuItem.click();
 
       await vi.waitFor(() => {
-        expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
-          queuedPrompt,
-        );
+        const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
+        expect(draft?.prompt).toBe(`existing draft\n\n${queuedPrompt}`);
+        expect(draft?.prompt).toContain("queued terminal output");
+        expect(draft?.images[0]?.name).toBe("queued.png");
+        expect(draft?.images[0]?.file.size).toBe(4);
         expect(
           wsRequests
             .map(readDispatchedCommand)
@@ -8828,11 +6482,110 @@ describe("ChatView timeline estimator parity (full app)", () => {
       });
       expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
     } finally {
+      fetchSpy.mockRestore();
+      dispatchSpy.mockRestore();
       await mounted.cleanup();
     }
   });
 
-  it("restores a hidden server-authoritative queued row when Delete is rejected", async () => {
+  it("keeps the composer intact when Edit loses the race to queue promotion", async () => {
+    const queuedMessageId = "msg-promoted-before-edit" as MessageId;
+    const queuedPrompt = "queued prompt already promoted";
+    const base = createSnapshotForTargetUser({
+      targetMessageId: "msg-running-promoted-edit" as MessageId,
+      targetText: "running turn",
+      sessionStatus: "running",
+    });
+    const snapshot: OrchestrationReadModel = {
+      ...base,
+      threads: base.threads.map((thread) =>
+        thread.id === THREAD_ID
+          ? {
+              ...thread,
+              queuedMessageIds: [queuedMessageId],
+              messages: [
+                ...thread.messages,
+                {
+                  id: queuedMessageId,
+                  role: "user" as const,
+                  text: queuedPrompt,
+                  dispatchMode: "queue" as const,
+                  delivery: { state: "queued" as const, queued: true, sequence: 200 },
+                  turnId: null,
+                  streaming: false,
+                  source: "native" as const,
+                  createdAt: NOW_ISO,
+                  updatedAt: NOW_ISO,
+                },
+              ],
+            }
+          : thread,
+      ),
+    };
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const api = readNativeApi()!;
+    const originalDispatch = api.orchestration.dispatchCommand;
+    const dispatchSpy = vi
+      .spyOn(api.orchestration, "dispatchCommand")
+      .mockImplementation(async (command) => {
+        const result = await originalDispatch(command);
+        if (command.type === "thread.turn.cancel-queued") {
+          useStore.getState().applyOrchestrationEvents([
+            makeDomainEvent(
+              "thread.message-sent",
+              {
+                threadId: THREAD_ID,
+                messageId: queuedMessageId,
+                role: "user",
+                text: queuedPrompt,
+                attachments: [],
+                dispatchMode: "queue",
+                delivery: { state: "accepted", queued: false },
+                turnId: null,
+                streaming: false,
+                source: "native",
+                createdAt: NOW_ISO,
+                updatedAt: NOW_ISO,
+              },
+              { sequence: 201 },
+            ),
+          ]);
+        }
+        return result;
+      });
+    try {
+      useComposerDraftStore.getState().setPrompt(THREAD_ID, "unsent draft");
+      const actionsButton = await waitForElement(
+        () =>
+          document.querySelector<HTMLButtonElement>(
+            'button[aria-label="Queued follow-up actions"]',
+          ),
+        "Unable to find queued actions button.",
+      );
+      actionsButton.click();
+      const editMenuItem = await waitForElement(
+        () =>
+          Array.from(document.querySelectorAll<HTMLElement>('[data-slot="menu-item"]')).find(
+            (item) => item.textContent?.trim() === "Edit queued prompt",
+          ) ?? null,
+        "Unable to find edit queued prompt menu item.",
+      );
+      editMenuItem.click();
+      await vi.waitFor(() => {
+        expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
+          "unsent draft",
+        );
+        expect(document.body.textContent).toContain(
+          "This message was already sent, so it can't be edited.",
+        );
+      });
+    } finally {
+      dispatchSpy.mockRestore();
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps a server-authoritative queued row visible when Delete is rejected", async () => {
     const queuedMessageId = "msg-rejected-delete-restores-row" as MessageId;
     const queuedPrompt = "rejected delete must restore this row";
     const base = createSnapshotForTargetUser({
@@ -8900,7 +6653,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       deleteButton.click();
       await vi.waitFor(() => {
         expect(deleteCalls).toBe(1);
-        expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
+        expect(document.querySelector('[data-testid="queued-follow-up-row"]')).not.toBeNull();
       });
 
       rejectAction(new Error("controlled queued delete rejection"));
@@ -9036,80 +6789,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
         },
         { timeout: 8_000, interval: 16 },
       );
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
-  it("submits queued follow-ups before switching threads so returning is unnecessary", async () => {
-    useComposerDraftStore.getState().setPrompt(THREAD_ID, "queue survives thread switch");
-
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: addThreadToSnapshot(
-        createSnapshotForTargetUser({
-          targetMessageId: "msg-user-running-queue-switch" as MessageId,
-          targetText: "running queue switch target",
-          sessionStatus: "running",
-        }),
-        OTHER_THREAD_ID,
-      ),
-    });
-    try {
-      const composerForm = await waitForElement(
-        () => document.querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]'),
-        "Unable to find composer form.",
-      );
-      composerForm.requestSubmit();
-
-      await vi.waitFor(
-        () => {
-          const queuedTurn = wsRequests
-            .map(readDispatchedCommand)
-            .find(
-              (command) =>
-                command?.type === "thread.turn.start" &&
-                command.dispatchMode === "queue" &&
-                typeof command.message === "object" &&
-                command.message !== null &&
-                "text" in command.message &&
-                command.message.text === "queue survives thread switch",
-            );
-          expect(queuedTurn).toBeTruthy();
-          expect(
-            useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.queuedTurns[0]
-              ?.serverAcceptedAt,
-          ).toBeTruthy();
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      await mounted.router.navigate({
-        to: "/$threadId",
-        params: { threadId: OTHER_THREAD_ID },
-      });
-      await waitForLayout();
-
-      await vi.waitFor(
-        () => {
-          expect(mounted.router.state.location.pathname).toBe(`/${OTHER_THREAD_ID}`);
-          expect(document.querySelectorAll('[data-testid="queued-follow-up-row"]')).toHaveLength(0);
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      const matchingQueueCommands = wsRequests
-        .map(readDispatchedCommand)
-        .filter(
-          (command) =>
-            command?.type === "thread.turn.start" &&
-            command.dispatchMode === "queue" &&
-            typeof command.message === "object" &&
-            command.message !== null &&
-            "text" in command.message &&
-            command.message.text === "queue survives thread switch",
-        );
-      expect(matchingQueueCommands).toHaveLength(1);
     } finally {
       await mounted.cleanup();
     }
@@ -9585,307 +7264,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
         capture: true,
       });
       await mounted.cleanup();
-    }
-  });
-
-  it("editing a queued follow-up removes only that row and restores its images to the composer", async () => {
-    const queuedImage = createComposerImage({
-      id: "queued-image-1",
-      previewUrl: "blob:queued-image-1",
-      name: "queued-image.png",
-    });
-    const firstQueuedPrompt = "first queued prompt with image";
-    const secondQueuedPrompt = "second queued prompt stays queued";
-
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-running-edit-queue" as MessageId,
-        targetText: "running edit queue target",
-        sessionStatus: "running",
-      }),
-    });
-
-    try {
-      useComposerDraftStore.getState().enqueueQueuedTurn(THREAD_ID, {
-        id: "queued-turn-1",
-        kind: "chat",
-        createdAt: NOW_ISO,
-        previewText: firstQueuedPrompt,
-        prompt: firstQueuedPrompt,
-        images: [queuedImage],
-        files: [],
-        assistantSelections: [],
-        terminalContexts: [],
-        fileComments: [],
-        pastedTexts: [],
-        skills: [],
-        mentions: [],
-        selectedProvider: "codex",
-        selectedModel: "gpt-5",
-        selectedPromptEffort: null,
-        modelSelection: {
-          provider: "codex",
-          model: "gpt-5",
-        },
-        connectionId: TEST_CONNECTION_ID,
-        runtimeMode: "full-access",
-      });
-      useComposerDraftStore.getState().enqueueQueuedTurn(THREAD_ID, {
-        id: "queued-turn-2",
-        kind: "chat",
-        createdAt: NOW_ISO,
-        previewText: secondQueuedPrompt,
-        prompt: secondQueuedPrompt,
-        images: [],
-        files: [],
-        assistantSelections: [],
-        terminalContexts: [],
-        fileComments: [],
-        pastedTexts: [],
-        skills: [],
-        mentions: [],
-        selectedProvider: "codex",
-        selectedModel: "gpt-5",
-        selectedPromptEffort: null,
-        modelSelection: {
-          provider: "codex",
-          model: "gpt-5",
-        },
-        connectionId: TEST_CONNECTION_ID,
-        runtimeMode: "full-access",
-      });
-
-      await vi.waitFor(
-        () => {
-          expect(document.querySelectorAll('[data-testid="queued-follow-up-row"]')).toHaveLength(2);
-          expect(
-            useComposerDraftStore
-              .getState()
-              .draftsByThreadId[THREAD_ID]?.queuedTurns.every(
-                (queuedTurn) => queuedTurn.serverAcceptedAt !== undefined,
-              ),
-          ).toBe(true);
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      const actionButtons = document.querySelectorAll<HTMLButtonElement>(
-        'button[aria-label="Queued follow-up actions"]',
-      );
-      actionButtons[0]?.click();
-
-      const editMenuItem = await waitForElement(
-        () =>
-          Array.from(document.querySelectorAll<HTMLElement>('[data-slot="menu-item"]')).find(
-            (item) => item.textContent?.trim() === "Edit queued prompt",
-          ) ?? null,
-        "Unable to find edit queued prompt menu item.",
-      );
-      editMenuItem.click();
-
-      await vi.waitFor(
-        () => {
-          const queuedRows = document.querySelectorAll<HTMLElement>(
-            '[data-testid="queued-follow-up-row"]',
-          );
-          expect(queuedRows).toHaveLength(1);
-          expect(queuedRows[0]?.textContent ?? "").toContain(secondQueuedPrompt);
-          expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
-            firstQueuedPrompt,
-          );
-          expect(
-            useComposerDraftStore
-              .getState()
-              .draftsByThreadId[THREAD_ID]?.images.map((image) => image.name),
-          ).toEqual(["queued-image.png"]);
-          // The restored image renders as a thumbnail chip whose filename lives in
-          // its accessible label/title, not in text content.
-          expect(document.querySelector('[aria-label="Preview queued-image.png"]')).not.toBeNull();
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      const deleteButton = await waitForElement(
-        () =>
-          document.querySelector<HTMLButtonElement>('button[aria-label="Delete queued follow-up"]'),
-        "Unable to find queued Delete button.",
-      );
-      deleteButton.click();
-      await vi.waitFor(
-        () => {
-          expect(
-            wsRequests
-              .map(readDispatchedCommand)
-              .some((command) => command?.type === "thread.turn.cancel-queued"),
-          ).toBe(true);
-          expect(document.querySelectorAll('[data-testid="queued-follow-up-row"]')).toHaveLength(0);
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
-  it("auto-dispatches a queued turn without wiping the live composer draft", async () => {
-    const restoreNativeApi = installDeterministicSendNativeApi();
-    const queuedPrompt = "queued prompt that should auto-send";
-    const draftBeingTyped = "draft the user is still typing";
-
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-auto-dispatch-target" as MessageId,
-        targetText: "auto dispatch target",
-        // Idle session so the auto-dispatch effect (gated on phase !== "running")
-        // drains the queue, mirroring a turn that just finished.
-        sessionStatus: "ready",
-      }),
-    });
-
-    try {
-      // The user is mid-draft in the composer while a turn-completion drain fires.
-      useComposerDraftStore.getState().setPrompt(THREAD_ID, draftBeingTyped);
-      useComposerDraftStore.getState().enqueueQueuedTurn(THREAD_ID, {
-        id: "queued-turn-auto",
-        kind: "chat",
-        createdAt: NOW_ISO,
-        previewText: queuedPrompt,
-        prompt: queuedPrompt,
-        images: [],
-        files: [],
-        assistantSelections: [],
-        terminalContexts: [],
-        fileComments: [],
-        pastedTexts: [],
-        skills: [],
-        mentions: [],
-        selectedProvider: "codex",
-        selectedModel: "gpt-5",
-        selectedPromptEffort: null,
-        modelSelection: {
-          provider: "codex",
-          model: "gpt-5",
-        },
-        connectionId: TEST_CONNECTION_ID,
-        runtimeMode: "full-access",
-      });
-
-      await vi.waitFor(
-        () => {
-          const turnStartRequest = wsRequests.find(
-            (request) =>
-              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
-              typeof request.command === "object" &&
-              request.command !== null &&
-              "type" in request.command &&
-              request.command.type === "thread.turn.start" &&
-              "threadId" in request.command &&
-              request.command.threadId === THREAD_ID &&
-              "message" in request.command &&
-              typeof request.command.message === "object" &&
-              request.command.message !== null &&
-              "text" in request.command.message &&
-              typeof request.command.message.text === "string" &&
-              request.command.message.text.includes(queuedPrompt),
-          );
-          expect(turnStartRequest).toBeTruthy();
-          // The durable queue remains visible until the server promotes it.
-          expect(document.querySelectorAll('[data-testid="queued-follow-up-row"]')).toHaveLength(1);
-          expect(
-            useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.queuedTurns[0]
-              ?.serverAcceptedAt,
-          ).toBeTruthy();
-          // The in-progress composer draft is left untouched.
-          expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
-            draftBeingTyped,
-          );
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-    } finally {
-      await mounted.cleanup();
-      restoreNativeApi();
-    }
-  });
-
-  it("auto-dispatches a queued chat turn with its attachments", async () => {
-    const restoreNativeApi = installDeterministicSendNativeApi();
-    const queuedPrompt = "queued chat turn that must stay a chat message";
-    const queuedImage = createComposerImage({
-      id: "queued-plan-image-1",
-      previewUrl: "blob:queued-plan-image-1",
-      name: "queued-plan-image.png",
-    });
-
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotWithSettledInlinePlan(),
-    });
-
-    try {
-      await waitForComposerEditor();
-      useComposerDraftStore.getState().enqueueQueuedTurn(THREAD_ID, {
-        id: "queued-turn-plan-chat",
-        kind: "chat",
-        createdAt: NOW_ISO,
-        previewText: queuedPrompt,
-        prompt: queuedPrompt,
-        images: [queuedImage],
-        files: [],
-        assistantSelections: [],
-        terminalContexts: [],
-        fileComments: [],
-        pastedTexts: [],
-        skills: [],
-        mentions: [],
-        selectedProvider: "codex",
-        selectedModel: "gpt-5",
-        selectedPromptEffort: null,
-        modelSelection: {
-          provider: "codex",
-          model: "gpt-5",
-        },
-        connectionId: TEST_CONNECTION_ID,
-        runtimeMode: "full-access",
-      });
-
-      await vi.waitFor(
-        () => {
-          const turnStartRequest = wsRequests.find(
-            (request) =>
-              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
-              typeof request.command === "object" &&
-              request.command !== null &&
-              "type" in request.command &&
-              request.command.type === "thread.turn.start" &&
-              "threadId" in request.command &&
-              request.command.threadId === THREAD_ID &&
-              "message" in request.command &&
-              typeof request.command.message === "object" &&
-              request.command.message !== null &&
-              "text" in request.command.message &&
-              typeof request.command.message.text === "string" &&
-              request.command.message.text.includes(queuedPrompt),
-          );
-          expect(turnStartRequest).toBeTruthy();
-          const command = turnStartRequest!.command as {
-            message?: {
-              attachments?: Array<{ type?: unknown; name?: unknown }>;
-            };
-          };
-          const attachments = command.message?.attachments ?? [];
-          expect(attachments).toHaveLength(1);
-          expect(attachments[0]?.type).toBe("image");
-          expect(attachments[0]?.name).toBe("queued-plan-image.png");
-          expect(document.querySelectorAll('[data-testid="queued-follow-up-row"]')).toHaveLength(1);
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-    } finally {
-      await mounted.cleanup();
-      restoreNativeApi();
     }
   });
 

@@ -165,7 +165,6 @@ async function mountClaudePicker(props?: {
       pastedTexts: [],
       skills: [],
       mentions: [],
-      queuedTurns: [],
       pendingMessageEdit: null,
       modelSelectionByProvider: props?.skipDraftModelOptions
         ? {}
@@ -437,7 +436,6 @@ async function mountCodexPicker(props: { model?: string; options?: CodexModelOpt
       pastedTexts: [],
       skills: [],
       mentions: [],
-      queuedTurns: [],
       pendingMessageEdit: null,
       modelSelectionByProvider: {
         codex: {
@@ -665,7 +663,6 @@ async function mountOpenCodePicker(props?: {
       pastedTexts: [],
       skills: [],
       mentions: [],
-      queuedTurns: [],
       pendingMessageEdit: null,
       assistantSelections: [],
       modelSelectionByProvider: {
