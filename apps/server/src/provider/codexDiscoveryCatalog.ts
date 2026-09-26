@@ -331,14 +331,9 @@ export function parseCodexModelListResponse(response: unknown): ProviderListMode
       return [];
     }
 
-    // Codex's model catalog can still include internal entries such as
-    // `codex-auto-review` even when model/list is called with includeHidden=false,
-    // and some response shapes omit visibility. Keep those entries out of
-    // Penkra's selectable catalog defensively in both cases.
     const visibility = readString(model, "visibility")?.trim().toLowerCase();
-    if (visibility === "hide" || trimmedSlug.toLowerCase() === "codex-auto-review") {
-      return [];
-    }
+    // model/list is requested with includeHidden=false. Preserve provider
+    // visibility in this source catalog; picker filtering happens downstream.
 
     const name =
       readString(model, "name") ??
@@ -413,6 +408,7 @@ export function parseCodexModelListResponse(response: unknown): ProviderListMode
       {
         slug: trimmedSlug,
         name: trimmedName,
+        ...(visibility ? { visibility } : {}),
         ...(isDefault === true ? { isDefault: true as const } : {}),
         ...(supportedReasoningEfforts.length > 0 ? { supportedReasoningEfforts } : {}),
         ...(trimmedDefaultReasoningEffort &&

@@ -25,8 +25,10 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 const threadId = ThreadId.makeUnsafe("selection-thread");
 const connectionId = ProviderConnectionId.makeUnsafe("selection-go");
 const codexConnectionId = ProviderConnectionId.makeUnsafe("selection-codex-managed");
+const claudeConnectionId = ProviderConnectionId.makeUnsafe("selection-claude-managed");
 const installationId = ProviderInstallationId.makeUnsafe("selection-installation");
 const activeInstallationId = ProviderInstallationId.makeUnsafe("selection-active-installation");
+const claudeInstallationId = ProviderInstallationId.makeUnsafe("selection-claude-installation");
 const timestamp = "2026-08-08T00:00:00.000Z";
 
 it("allows Claude subscription continuation only with the same account identity", () => {
@@ -50,6 +52,7 @@ let connectionLifecycle: "active" | "terminated" = "active";
 let modelAvailable = true;
 let hasRuntimeBinding = true;
 let installationLifecycle: "active" | "retired" = "active";
+let threadHarness: "opencode" | "claudeAgent" = "opencode";
 let resolvedNativeStateIdentities: string[] = [];
 
 const dependencies = Layer.mergeAll(
@@ -63,17 +66,22 @@ const dependencies = Layer.mergeAll(
         listModels: (input: { provider: string; internalProviderId?: string | null }) =>
           Effect.succeed({
             models: modelAvailable
-              ? [
-                  {
-                    slug:
-                      input.provider === "codex"
-                        ? "gpt-5.5"
-                        : input.internalProviderId === "opencode-go"
-                          ? "opencode-go/kimi-k2.5"
-                          : "opencode/big-pickle",
-                    name: "Available",
-                  },
-                ]
+              ? input.provider === "claudeAgent"
+                ? [
+                    { slug: "claude-opus-4-7", name: "Opus 4.7" },
+                    { slug: "claude-sonnet-5", name: "Sonnet 5" },
+                  ]
+                : [
+                    {
+                      slug:
+                        input.provider === "codex"
+                          ? "gpt-5.5"
+                          : input.internalProviderId === "opencode-go"
+                            ? "opencode-go/kimi-k2.5"
+                            : "opencode/big-pickle",
+                      name: "Available",
+                    },
+                  ]
               : [],
           }),
       } as never),
@@ -109,7 +117,7 @@ const dependencies = Layer.mergeAll(
       Effect.succeed(
         Option.some({
           threadId,
-          harness: "opencode",
+          harness: threadHarness,
           nativeStateGenerationId: ProviderNativeStateGenerationId.makeUnsafe("selection-native"),
           providerSessionId: "native-session",
           nativeStateLocatorJson: '{"session":"native-session"}',
@@ -124,10 +132,12 @@ const dependencies = Layer.mergeAll(
         hasRuntimeBinding
           ? Option.some({
               threadId,
-              connectionId,
-              installationId,
-              internalProviderId: "opencode-go",
-              modelId: "opencode-go/kimi-k2.5",
+              connectionId: threadHarness === "claudeAgent" ? claudeConnectionId : connectionId,
+              installationId:
+                threadHarness === "claudeAgent" ? claudeInstallationId : installationId,
+              internalProviderId: threadHarness === "claudeAgent" ? null : "opencode-go",
+              modelId:
+                threadHarness === "claudeAgent" ? "claude-sonnet-5" : "opencode-go/kimi-k2.5",
               revision: 7,
               createdAt: timestamp,
               updatedAt: timestamp,
@@ -184,22 +194,44 @@ const dependencies = Layer.mergeAll(
           activatedAt: timestamp,
           retiredAt: null,
         },
+        {
+          id: claudeInstallationId,
+          harness: "claudeAgent",
+          version: "2.1.283",
+          platform: "darwin",
+          architecture: "arm64",
+          adapterVersion: "1",
+          protocolVersion: "v1",
+          lifecycle: "active",
+          healthReason: null,
+          installedAt: timestamp,
+          activatedAt: timestamp,
+          retiredAt: null,
+        },
       ]),
     getRecord: (id: typeof installationId) =>
       Effect.succeed(
         Option.some({
           id,
-          harness: "opencode",
-          version: id === activeInstallationId ? "1.18.20" : "1.18.10",
+          harness: id === claudeInstallationId ? "claudeAgent" : "opencode",
+          version:
+            id === claudeInstallationId
+              ? "2.1.283"
+              : id === activeInstallationId
+                ? "1.18.20"
+                : "1.18.10",
           platform: "darwin",
           architecture: "arm64",
-          executablePath: "/managed/opencode",
+          executablePath: id === claudeInstallationId ? "/managed/claude" : "/managed/opencode",
           artifactSource: "github-release",
           artifactUrl: "https://example.invalid/opencode",
           artifactSha256: "a".repeat(64),
           adapterVersion: "1",
           protocolVersion: "v1",
-          lifecycle: id === activeInstallationId ? "active" : installationLifecycle,
+          lifecycle:
+            id === claudeInstallationId || id === activeInstallationId
+              ? "active"
+              : installationLifecycle,
           healthReason: null,
           installedAt: timestamp,
           activatedAt: timestamp,
@@ -213,12 +245,29 @@ const dependencies = Layer.mergeAll(
       Effect.succeed(
         Option.some({
           id,
-          harness: id === codexConnectionId ? "codex" : "opencode",
-          authenticationTargetId: id === codexConnectionId ? "openai-first-party" : "opencode-go",
-          authenticationMethodId: id === codexConnectionId ? "chatgpt" : "api-key",
-          label: id === codexConnectionId ? "Personal" : "Go",
-          credentialRef: id === codexConnectionId ? null : "provider-secret:selection",
-          profileRef: id === codexConnectionId ? `provider-profile:${id}` : null,
+          harness:
+            id === claudeConnectionId
+              ? "claudeAgent"
+              : id === codexConnectionId
+                ? "codex"
+                : "opencode",
+          authenticationTargetId:
+            id === claudeConnectionId
+              ? "anthropic-first-party"
+              : id === codexConnectionId
+                ? "openai-first-party"
+                : "opencode-go",
+          authenticationMethodId:
+            id === claudeConnectionId
+              ? "claude-account"
+              : id === codexConnectionId
+                ? "chatgpt"
+                : "api-key",
+          label:
+            id === claudeConnectionId ? "Claude" : id === codexConnectionId ? "Personal" : "Go",
+          credentialRef: id === connectionId ? "provider-secret:selection" : null,
+          profileRef:
+            id === claudeConnectionId || id === codexConnectionId ? `provider-profile:${id}` : null,
           providerIdentityId: null,
           health: connectionLifecycle === "active" ? "ready" : "unavailable",
           healthReason: null,
@@ -434,6 +483,23 @@ layer("ProviderTurnSelectionResolver", (it) => {
       );
       modelAvailable = true;
       assert.strictEqual(unavailable._tag, "Failure");
+    }),
+  );
+
+  it.effect("accepts an SDK-supported older Claude model on a pinned thread", () =>
+    Effect.gen(function* () {
+      threadHarness = "claudeAgent";
+      connectionLifecycle = "active";
+      modelAvailable = true;
+      const resolver = yield* ProviderTurnSelectionResolver;
+      const selection = yield* resolver.resolveExisting({
+        threadId,
+        modelSelection: { provider: "claudeAgent", model: "claude-opus-4-7" },
+        bindingRevision: 7,
+      });
+      assert.strictEqual(selection.modelId, "claude-opus-4-7");
+      assert.strictEqual(selection.modelLabel, "Opus 4.7");
+      threadHarness = "opencode";
     }),
   );
 });

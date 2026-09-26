@@ -257,6 +257,31 @@ describe("resolvePreferredOpenCodeModelProviders", () => {
   });
 });
 describe("flattenOpenCodeModels", () => {
+  it("preserves SDK model status for picker-only filtering", () => {
+    const models = flattenOpenCodeModels({
+      inventory: {
+        providerList: {
+          connected: ["opencode"],
+          all: [
+            makeProvider({
+              id: "opencode",
+              name: "OpenCode",
+              models: {
+                retired: { id: "retired", name: "Retired", status: "deprecated" },
+                current: { id: "current", name: "Current", status: "active" },
+              },
+            }),
+          ],
+        },
+      },
+    });
+
+    expect(models.map(({ slug, status }) => [slug, status])).toEqual([
+      ["opencode/current", "active"],
+      ["opencode/retired", "deprecated"],
+    ]);
+  });
+
   it("converts OpenCode CLI model output into grouped model descriptors", () => {
     const models = flattenOpenCodeCliModels({
       models: [
@@ -472,6 +497,7 @@ describe("flattenOpenCodeModels", () => {
       {
         slug: "openai/gpt-5",
         name: "GPT-5",
+        status: "active",
         upstreamProviderId: "openai",
         upstreamProviderName: "OpenAI",
         contextWindowOptions: [{ value: "128k", label: "128K", isDefault: true }],
@@ -480,6 +506,7 @@ describe("flattenOpenCodeModels", () => {
       {
         slug: "opencode/nemotron-3-super-free",
         name: "Nemotron 3 Super Free",
+        status: "active",
         upstreamProviderId: "opencode",
         upstreamProviderName: "OpenCode",
         contextWindowOptions: [{ value: "128k", label: "128K", isDefault: true }],
@@ -575,6 +602,7 @@ describe("flattenOpenCodeModels", () => {
       {
         slug: "openai/gpt-5.4",
         name: "GPT-5.4",
+        status: "active",
         upstreamProviderId: "openai",
         upstreamProviderName: "OpenAI",
         contextWindowOptions: [{ value: "128k", label: "128K", isDefault: true }],
@@ -631,6 +659,7 @@ describe("flattenOpenCodeModels", () => {
       {
         slug: "openai/gpt-5.4",
         name: "GPT-5.4",
+        status: "active",
         upstreamProviderId: "openai",
         upstreamProviderName: "OpenAI",
         contextWindowOptions: [{ value: "128k", label: "128K", isDefault: true }],

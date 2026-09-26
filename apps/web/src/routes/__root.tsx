@@ -1149,6 +1149,11 @@ function EventRouter() {
       .catch(() => undefined);
 
     const unsubWelcome = onServerWelcome((payload) => {
+      // A new server process has an empty Claude discovery cache and may run a
+      // corrected mapper or a newer managed runtime. Refresh mounted pickers.
+      void queryClient.invalidateQueries({
+        queryKey: providerDiscoveryQueryKeys.modelsForProvider("claudeAgent"),
+      });
       void (async () => {
         setServerWorkspacePaths({
           homeDir: payload.homeDir,
