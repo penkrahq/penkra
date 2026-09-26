@@ -11,6 +11,7 @@ import {
   type OrchestrationEvent,
 } from "@penkra/contracts";
 import { Effect, Layer, ManagedRuntime, Option, Queue, Stream } from "effect";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { describe, expect, it, vi } from "vitest";
 
 import { PersistenceSqlError } from "../../persistence/Errors.ts";
@@ -22,6 +23,7 @@ import {
   type OrchestrationEventStoreShape,
 } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
+import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
@@ -100,25 +102,49 @@ const createTestSpace = (engine: OrchestrationEngineShape) =>
     createdAt: "2026-01-01T00:00:00.000Z",
   });
 
-async function createOrchestrationSystem() {
+async function createOrchestrationSystem(options?: { readonly withRuntimeBinding?: boolean }) {
   const ServerConfigLayer = TestServerConfigLayer;
   const orchestrationLayer = OrchestrationEngineLive.pipe(
     Layer.provide(OrchestrationProjectionPipelineLive),
     Layer.provide(OrchestrationProjectionSnapshotQueryLive),
     Layer.provide(OrchestrationEventStoreLive),
     Layer.provide(OrchestrationCommandReceiptRepositoryLive),
-    Layer.provide(SqlitePersistenceMemory),
+    Layer.provideMerge(SqlitePersistenceMemory),
     Layer.provideMerge(ServerConfigLayer),
     Layer.provideMerge(NodeServices.layer),
   );
-  const runtime = ManagedRuntime.make(orchestrationLayer);
+  const runtime = ManagedRuntime.make(
+    options?.withRuntimeBinding
+      ? orchestrationLayer.pipe(
+          Layer.provideMerge(
+            Layer.succeed(ThreadProviderBindingRepository, {
+              getRuntimeBinding: (threadId: ThreadId) =>
+                Effect.succeed(
+                  Option.some({
+                    threadId,
+                    connectionId: null,
+                    installationId: "test-installation",
+                    internalProviderId: null,
+                    modelId: "gpt-5-codex",
+                    revision: 0,
+                    createdAt: now(),
+                    updatedAt: now(),
+                  }),
+                ),
+            } as never),
+          ),
+        )
+      : orchestrationLayer,
+  );
   const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
   await runtime.runPromise(createTestSpace(engine));
   const managedAttachmentRepository = await runtime.runPromise(
     Effect.service(ManagedAttachmentRepository),
   );
+  const sql = await runtime.runPromise(Effect.service(SqlClient.SqlClient));
   return {
     engine,
+    sql,
     managedAttachmentRepository,
     run: <A, E>(effect: Effect.Effect<A, E>) => runtime.runPromise(effect),
     dispose: () => runtime.dispose(),
@@ -130,6 +156,215 @@ function now() {
 }
 
 describe("OrchestrationEngine", () => {
+  it.each(["queued message", "pending approval"] as const)(
+    "rejects Play through the engine with a persisted %s",
+    async (blocker) => {
+      const system = await createOrchestrationSystem({ withRuntimeBinding: true });
+      const threadId = ThreadId.makeUnsafe(`thread-play-${blocker}`);
+      const turnId = asTurnId(`turn-play-${blocker}`);
+      const createdAt = now();
+      try {
+        await system.run(
+          system.engine.dispatch({
+            type: "folder.create",
+            commandId: CommandId.makeUnsafe(`cmd-play-folder-${blocker}`),
+            folderId: asFolderId(`folder-play-${blocker}`),
+            spaceId: TEST_SPACE_ID,
+            title: "Play test",
+            workspaceRoot: null,
+            defaultModelSelection: null,
+            createdAt,
+          }),
+        );
+        await system.run(
+          system.engine.dispatch({
+            type: "thread.create",
+            commandId: CommandId.makeUnsafe(`cmd-play-thread-${blocker}`),
+            threadId,
+            deckId: singletonThreadDeckId(threadId),
+            folderId: asFolderId(`folder-play-${blocker}`),
+            title: "Play test",
+            modelSelection: { provider: "codex", model: "gpt-5-codex" },
+            runtimeMode: "full-access",
+            createdAt,
+          }),
+        );
+        const session = {
+          threadId,
+          providerName: "codex" as const,
+          runtimeMode: "full-access" as const,
+          activeTurnId: turnId,
+          lastError: null,
+          updatedAt: createdAt,
+        };
+        await system.run(
+          system.engine.dispatch({
+            type: "thread.session.set",
+            commandId: CommandId.makeUnsafe(`cmd-play-running-${blocker}`),
+            threadId,
+            session: { ...session, status: "running" },
+            createdAt,
+          }),
+        );
+        await system.run(
+          system.engine.dispatch({
+            type: "thread.session.set",
+            commandId: CommandId.makeUnsafe(`cmd-play-stopped-${blocker}`),
+            threadId,
+            session: { ...session, status: "stopped", activeTurnId: null },
+            createdAt,
+          }),
+        );
+        if (blocker === "queued message") {
+          const messageId = asMessageId("real-queued-play-message");
+          const queuedEvent = await system.run(
+            system.engine.dispatch({
+              type: "thread.messages.import",
+              commandId: CommandId.makeUnsafe("cmd-import-real-queued-play-message"),
+              threadId,
+              messages: [
+                { messageId, role: "user", text: "queued", createdAt, updatedAt: createdAt },
+              ],
+              createdAt,
+            }),
+          );
+          await system.run(system.sql`
+            INSERT INTO queued_turn_promotions (
+              queued_event_sequence, thread_id, message_id, dispatch_mode, state,
+              claim_owner, claimed_at, claim_expires_at, attempt_count, created_at, updated_at, promoted_at
+            ) VALUES (${queuedEvent.sequence}, ${threadId}, ${messageId}, 'queue', 'queued', NULL, NULL, NULL, 0, ${createdAt}, ${createdAt}, NULL)
+          `);
+        } else {
+          await system.run(system.sql`
+            INSERT INTO projection_pending_interactions (
+              interaction_kind, request_id, thread_id, turn_id, lifecycle_generation,
+              status, decision, response_command_id, response_requested_at, created_at, resolved_at
+            ) VALUES ('approval', 'real-pending-play-approval', ${threadId}, ${turnId}, NULL,
+              'pending', NULL, NULL, NULL, ${createdAt}, NULL)
+          `);
+        }
+        await expect(
+          system.run(
+            system.engine.dispatch({
+              type: "thread.turn.recover",
+              reason: "play",
+              commandId: CommandId.makeUnsafe(`cmd-play-blocked-${blocker}`),
+              threadId,
+              turnId,
+              interruptedTurnId: turnId,
+              recoveryMessageId: asMessageId(`recovery-play-blocked-${blocker}`),
+              connectionId: null,
+              bindingRevision: 0,
+              createdAt,
+            }),
+          ),
+        ).rejects.toMatchObject({ code: "THREAD_CONTINUE_STALE" });
+      } finally {
+        await system.dispose();
+      }
+    },
+  );
+  it("admits at most one of two concurrent Play commands for the same latest turn", async () => {
+    const system = await createOrchestrationSystem({ withRuntimeBinding: true });
+    const threadId = ThreadId.makeUnsafe("thread-concurrent-play");
+    const folderId = asFolderId("project-concurrent-play");
+    const turnId = asTurnId("turn-concurrent-play");
+    const createdAt = now();
+    try {
+      await system.run(
+        system.engine.dispatch({
+          type: "folder.create",
+          commandId: CommandId.makeUnsafe("cmd-concurrent-play-folder"),
+          folderId,
+          spaceId: TEST_SPACE_ID,
+          title: "Concurrent Play",
+          workspaceRoot: null,
+          defaultModelSelection: null,
+          createdAt,
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.makeUnsafe("cmd-concurrent-play-thread"),
+          threadId,
+          deckId: singletonThreadDeckId(threadId),
+          folderId,
+          title: "Concurrent Play thread",
+          modelSelection: { provider: "codex", model: "gpt-5-codex" },
+          runtimeMode: "full-access",
+          createdAt,
+        }),
+      );
+      const session = {
+        threadId,
+        providerName: "codex" as const,
+        runtimeMode: "full-access" as const,
+        activeTurnId: turnId,
+        lastError: null,
+        updatedAt: createdAt,
+      };
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.makeUnsafe("cmd-concurrent-play-running"),
+          threadId,
+          session: { ...session, status: "running" },
+          createdAt,
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.makeUnsafe("cmd-concurrent-play-stopped"),
+          threadId,
+          session: { ...session, status: "stopped", activeTurnId: null },
+          createdAt,
+        }),
+      );
+      const play = (index: number) =>
+        system.run(
+          system.engine.dispatch({
+            type: "thread.turn.recover",
+            reason: "play",
+            commandId: CommandId.makeUnsafe(`cmd-concurrent-play-${index}`),
+            threadId,
+            turnId,
+            interruptedTurnId: turnId,
+            recoveryMessageId: MessageId.makeUnsafe(`message-concurrent-play-${index}`),
+            connectionId: null,
+            bindingRevision: 0,
+            createdAt,
+          }),
+        );
+      await expect(
+        system.run(
+          system.engine.dispatch({
+            type: "thread.turn.recover",
+            reason: "play",
+            commandId: CommandId.makeUnsafe("cmd-concurrent-play-stale-binding"),
+            threadId,
+            turnId,
+            interruptedTurnId: turnId,
+            recoveryMessageId: MessageId.makeUnsafe("message-concurrent-play-stale-binding"),
+            connectionId: null,
+            bindingRevision: 1,
+            createdAt,
+          }),
+        ),
+      ).rejects.toMatchObject({ code: "THREAD_CONTINUE_STALE" });
+      const results = await Promise.allSettled([play(1), play(2)]);
+      expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+      expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+      const readModel = await system.run(system.engine.getCommandReadModel());
+      expect(
+        readModel.threads.find((thread) => thread.id === threadId)?.pendingTurnStartMessageId,
+      ).not.toBeNull();
+    } finally {
+      await system.dispose();
+    }
+  });
+
   it("quiesces normal admission while draining reserved lifecycle commands", async () => {
     const system = await createOrchestrationSystem();
     const createdAt = now();
