@@ -2281,10 +2281,44 @@ const make = Effect.gen(function* () {
           );
         }
         const thread = yield* resolveThread(event.payload.threadId);
-        const message = thread?.messages.find(
+        if (!thread) {
+          return yield* Effect.fail(
+            new Error(`Queued thread '${event.payload.threadId}' is missing.`),
+          );
+        }
+        const runtimeBinding = yield* threadProviderBindings.getRuntimeBinding(
+          event.payload.threadId,
+        );
+        if (Option.isNone(runtimeBinding)) {
+          return yield* Effect.fail(
+            new Error(`Queued thread '${event.payload.threadId}' has no runtime binding.`),
+          );
+        }
+        const currentSelection = yield* providerTurnSelectionResolver
+          .resolveExisting({
+            threadId: event.payload.threadId,
+            modelSelection: thread.modelSelection,
+            connectionId:
+              thread.connectionId === undefined
+                ? runtimeBinding.value.connectionId
+                : thread.connectionId,
+            bindingRevision: runtimeBinding.value.revision,
+          })
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProviderAdapterValidationError({
+                  provider: thread.modelSelection.provider,
+                  operation: "thread.turn.start",
+                  issue: cause.message,
+                  cause,
+                }),
+            ),
+          );
+        const message = thread.messages.find(
           (candidate) => candidate.id === event.payload.messageId && candidate.role === "user",
         );
-        if (!thread || !message) {
+        if (!message) {
           return yield* Effect.fail(
             new Error(`Queued message '${event.payload.messageId}' has no projected message.`),
           );
@@ -2322,15 +2356,9 @@ const make = Effect.gen(function* () {
                 ...(message.skills !== undefined ? { skills: message.skills } : {}),
                 ...(message.mentions !== undefined ? { mentions: message.mentions } : {}),
               },
-              ...(sourceEvent.payload.modelSelection !== undefined
-                ? { modelSelection: sourceEvent.payload.modelSelection }
-                : {}),
-              ...(sourceEvent.payload.connectionId !== undefined
-                ? { connectionId: sourceEvent.payload.connectionId }
-                : {}),
-              ...(sourceEvent.payload.bindingRevision !== undefined
-                ? { bindingRevision: sourceEvent.payload.bindingRevision }
-                : {}),
+              modelSelection: thread.modelSelection,
+              connectionId: currentSelection.connectionId,
+              bindingRevision: currentSelection.bindingRevision,
               ...(sourceEvent.payload.providerOptions !== undefined
                 ? { providerOptions: sourceEvent.payload.providerOptions }
                 : {}),

@@ -1,6 +1,6 @@
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
-import { Effect, Layer, Schema, Struct } from "effect";
+import { Effect, Layer, Option, Schema, Struct } from "effect";
 import * as SchemaGetter from "effect/SchemaGetter";
 
 import { toPersistenceSqlError } from "../Errors.ts";
@@ -24,6 +24,7 @@ const SqliteBoolean = Schema.Number.pipe(
 const ProjectionThreadDbRow = ProjectionThread.mapFields(
   Struct.assign({
     isPinned: SqliteBoolean,
+    connectionSelectionExplicit: SqliteBoolean,
     pinnedMessages: Schema.NullOr(Schema.fromJsonString(ThreadPinnedMessages)),
     modelSelection: Schema.fromJsonString(ModelSelection),
   }),
@@ -46,6 +47,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           title,
           model_selection_json,
           connection_id,
+          connection_id_selected,
           runtime_mode,
           working_directory,
           is_pinned,
@@ -84,6 +86,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${row.title},
           ${JSON.stringify(row.modelSelection)},
           ${row.connectionId ?? null},
+          ${row.connectionId !== undefined ? 1 : 0},
           ${row.runtimeMode},
           ${row.workingDirectory ?? null},
           ${row.isPinned ? 1 : 0},
@@ -122,6 +125,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           title = excluded.title,
           model_selection_json = excluded.model_selection_json,
           connection_id = excluded.connection_id,
+          connection_id_selected = excluded.connection_id_selected,
           runtime_mode = excluded.runtime_mode,
           working_directory = excluded.working_directory,
           is_pinned = excluded.is_pinned,
@@ -163,6 +167,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           title,
           model_selection_json AS "modelSelection",
           connection_id AS "connectionId",
+          connection_id_selected AS "connectionSelectionExplicit",
           runtime_mode AS "runtimeMode",
           working_directory AS "workingDirectory",
           is_pinned AS "isPinned",
@@ -209,6 +214,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           title,
           model_selection_json AS "modelSelection",
           connection_id AS "connectionId",
+          connection_id_selected AS "connectionSelectionExplicit",
           runtime_mode AS "runtimeMode",
           working_directory AS "workingDirectory",
           is_pinned AS "isPinned",
@@ -257,13 +263,20 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
       Effect.mapError(toPersistenceSqlError("ProjectionThreadRepository.upsert:query")),
     );
 
+  const toProjectionThread = (row: ProjectionThreadDbRow): ProjectionThread => {
+    const { connectionSelectionExplicit, connectionId, ...thread } = row;
+    return (connectionSelectionExplicit ? { ...thread, connectionId } : thread) as ProjectionThread;
+  };
+
   const getById: ProjectionThreadRepositoryShape["getById"] = (input) =>
     getProjectionThreadRow(input).pipe(
+      Effect.map(Option.map(toProjectionThread)),
       Effect.mapError(toPersistenceSqlError("ProjectionThreadRepository.getById:query")),
     );
 
   const listByFolderId: ProjectionThreadRepositoryShape["listByFolderId"] = (input) =>
     listProjectionThreadRows(input).pipe(
+      Effect.map((rows) => rows.map(toProjectionThread)),
       Effect.mapError(toPersistenceSqlError("ProjectionThreadRepository.listByFolderId:query")),
     );
 

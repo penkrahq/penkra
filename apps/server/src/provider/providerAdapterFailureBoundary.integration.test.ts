@@ -389,6 +389,19 @@ async function makeProviderRuntime(
         }),
     } as never),
     Layer.succeed(ThreadProviderBindingRepository, {
+      getRuntimeBinding: (threadId: ThreadId) =>
+        Effect.succeed(
+          Option.some({
+            threadId,
+            connectionId: CONNECTION_ID,
+            installationId: "fixture-installation",
+            internalProviderId: null,
+            modelId: MODEL_SELECTION.model,
+            revision: 0,
+            createdAt: "2026-09-07T10:00:00.000Z",
+            updatedAt: "2026-09-07T10:00:00.000Z",
+          }),
+        ),
       getHarnessState: (threadId: ThreadId) =>
         Effect.succeed(
           Option.some({
