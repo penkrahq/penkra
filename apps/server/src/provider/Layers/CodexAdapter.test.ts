@@ -1326,6 +1326,13 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         createdAt: new Date().toISOString(),
         method: "mcpServer/startupFailed",
         message: "MCP server “paper” failed to start. Its tools are unavailable for this session.",
+        payload: {
+          diagnostic: {
+            key: "codex:mcp-startup:paper",
+            fingerprint: "paper",
+            state: "active",
+          },
+        },
       } satisfies ProviderEvent);
       lifecycleManager.emit("event", {
         id: asEventId("evt-warning-test-sentinel"),
@@ -1360,6 +1367,13 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         createdAt: new Date().toISOString(),
         method: "mcpServer/startupFailed",
         message: "MCP server “paper” failed to start. Its tools are unavailable for this session.",
+        payload: {
+          diagnostic: {
+            key: "codex:mcp-startup:paper",
+            fingerprint: "paper",
+            state: "active",
+          },
+        },
       } satisfies ProviderEvent);
 
       const firstEvent = yield* Fiber.join(firstEventFiber);
@@ -1370,6 +1384,11 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         firstEvent.value.payload.message,
         "MCP server “paper” failed to start. Its tools are unavailable for this session.",
       );
+      assert.deepStrictEqual(firstEvent.value.payload.diagnostic, {
+        key: "codex:mcp-startup:paper",
+        fingerprint: "paper",
+        state: "active",
+      });
     }),
   );
 

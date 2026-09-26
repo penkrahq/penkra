@@ -594,6 +594,7 @@ export function projectProviderRuntimeActivities(
     }
 
     case "runtime.warning": {
+      if (event.payload.diagnostic?.state === "resolved") return [];
       const raw = asObject((event as { raw?: unknown }).raw);
       const nativeType = asString(asObject(raw?.payload)?.type);
       // Claude backgrounding notices arrive as warnings whose detail is the

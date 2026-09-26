@@ -58,6 +58,7 @@ export interface ToolContext {
   readonly callerCapabilities: ReadonlySet<AgentGatewayCapability>;
   readonly callerTurnId: string | null;
   readonly assertCallerThreadAuthorized: () => Effect.Effect<void, GatewayToolError>;
+  readonly assertCallerTurnActive: () => Effect.Effect<void, GatewayToolError>;
   readonly jsonRpcRequestId: JsonRpcId;
 }
 
@@ -71,6 +72,7 @@ export interface ToolEntry {
   readonly handler: ToolHandler;
   readonly requiredCapability: AgentGatewayCapability;
   readonly requiresThreadAuthority?: boolean;
+  readonly requiresActiveTurn?: boolean;
 }
 
 export interface McpToolEntry<Context, Capability extends string> {

@@ -18,6 +18,7 @@ export const PENKRA_GATEWAY_MAX_REQUEST_ID_LENGTH = 256;
 export const PenkraGatewayErrorCode = Schema.Literals([
   "caller_session_inactive",
   "caller_thread_inactive",
+  "caller_turn_inactive",
   "capability_denied",
   "provider_unavailable",
   "connection_unavailable",

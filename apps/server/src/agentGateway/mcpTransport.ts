@@ -197,6 +197,17 @@ export function makeAgentGatewayMcpTransport(input: {
             ...context,
             jsonRpcRequestId: request.id,
           };
+          if (tool.requiresThreadAuthority) {
+            const authorityError = yield* context.assertCallerThreadAuthorized().pipe(
+              Effect.match({
+                onFailure: (error) => error,
+                onSuccess: () => null,
+              }),
+            );
+            if (authorityError !== null) {
+              return jsonRpcResult(request.id, gatewayToolErrorResult(authorityError));
+            }
+          }
           if (tool.requiresActiveTurn) {
             const authorityError = yield* context.assertCallerTurnActive().pipe(
               Effect.match({
@@ -304,8 +315,55 @@ export function makeAgentGatewayMcpTransport(input: {
         ingressAuthority.turnId === null
           ? null
           : input.credentials.bindWriteAuthority(token, ingressAuthority.turnId);
-      const assertCallerTurnActive = () =>
+      const assertCallerThreadAuthorized: ToolContext["assertCallerThreadAuthorized"] = () =>
         Effect.gen(function* () {
+          const currentSession = input.credentials.verifySession(token);
+          if (
+            currentSession?.sessionKey !== callerSession.sessionKey ||
+            currentSession.threadId !== callerSession.threadId ||
+            currentSession.provider !== callerSession.provider
+          ) {
+            return yield* Effect.fail(
+              new GatewayToolError(
+                "caller_session_inactive",
+                "This Penkra operation was rejected because its provider-session authority is no longer active.",
+                { callerThreadId },
+              ),
+            );
+          }
+          const caller = yield* input.requireThreadShell(callerThreadId).pipe(
+            Effect.mapError(
+              (error) =>
+                new GatewayToolError(
+                  "caller_thread_inactive",
+                  "This Penkra operation was rejected because the caller thread could no longer be verified.",
+                  { callerThreadId, error: errorText(error) },
+                ),
+            ),
+          );
+          if (caller.archivedAt !== null) {
+            return yield* Effect.fail(
+              new GatewayToolError(
+                "caller_thread_inactive",
+                "This Penkra operation was rejected because the caller thread is archived.",
+                { callerThreadId },
+              ),
+            );
+          }
+          const activeProvider = caller.session?.providerName ?? caller.modelSelection.provider;
+          if (activeProvider !== callerSession.provider) {
+            return yield* Effect.fail(
+              new GatewayToolError(
+                "caller_session_inactive",
+                "This Penkra operation was rejected because the provider session no longer owns its thread.",
+                { callerThreadId },
+              ),
+            );
+          }
+        }).pipe(Effect.asVoid);
+      const assertCallerTurnActive: ToolContext["assertCallerTurnActive"] = () =>
+        Effect.gen(function* () {
+          yield* assertCallerThreadAuthorized();
           if (callerWriteAuthority === null) {
             yield* Effect.logWarning("agent_gateway.caller_turn_inactive", {
               callerThreadId,
@@ -335,37 +393,16 @@ export function makeAgentGatewayMcpTransport(input: {
               ),
             );
           }
-          const caller = yield* input
-            .requireThreadShell(callerThreadId)
-            .pipe(
-              Effect.mapError(
-                (error) =>
-                  new GatewayToolError(
-                    "caller_turn_inactive",
-                    "This Penkra write was rejected because the caller thread could no longer be verified.",
-                    { callerThreadId, error: errorText(error) },
-                  ),
-              ),
-            );
-          if (caller.archivedAt !== null) {
-            return yield* Effect.fail(
-              new GatewayToolError(
-                "caller_thread_inactive",
-                "This Penkra write was rejected because the caller thread is archived.",
-                { callerThreadId },
-              ),
-            );
-          }
-          const activeProvider = caller.session?.providerName ?? caller.modelSelection.provider;
-          if (activeProvider !== callerSession.provider) {
-            return yield* Effect.fail(
-              new GatewayToolError(
-                "caller_session_inactive",
-                "This Penkra write was rejected because the provider session no longer owns its thread.",
-                { callerThreadId },
-              ),
-            );
-          }
+          const caller = yield* input.requireThreadShell(callerThreadId).pipe(
+            Effect.mapError(
+              (error) =>
+                new GatewayToolError(
+                  "caller_turn_inactive",
+                  "This Penkra write was rejected because the caller thread could no longer be verified.",
+                  { callerThreadId, error: errorText(error) },
+                ),
+            ),
+          );
           const activeAuthority = yield* resolveCallerTurnId(caller).pipe(
             Effect.mapError(
               (error) =>
@@ -397,7 +434,7 @@ export function makeAgentGatewayMcpTransport(input: {
               ),
             );
           }
-        });
+        }).pipe(Effect.asVoid);
       const context: Omit<ToolContext, "jsonRpcRequestId"> = {
         principal: {
           kind: "provider-session",
@@ -411,6 +448,7 @@ export function makeAgentGatewayMcpTransport(input: {
         callerProvider: callerSession.provider,
         callerCapabilities: callerSession.capabilities,
         callerTurnId: callerWriteAuthority?.turnId ?? null,
+        assertCallerThreadAuthorized,
         assertCallerTurnActive,
       };
 

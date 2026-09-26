@@ -361,6 +361,23 @@ describe("provider runtime activity projection", () => {
     }
   });
 
+  it("does not show resolved runtime diagnostics as new warning activity", () => {
+    const event = runtimeEvent({
+      type: "runtime.warning",
+      eventId: "resolved-warning",
+      payload: {
+        message: "MCP server recovered.",
+        diagnostic: {
+          key: "codex:mcp-startup:paper",
+          fingerprint: "paper",
+          state: "resolved",
+        },
+      },
+    });
+
+    expect(projectProviderRuntimeActivities(event)).toEqual([]);
+  });
+
   it("maps tool progress without losing call identity", () => {
     const event = runtimeEvent({
       type: "tool.progress",

@@ -56,6 +56,7 @@ import {
   type AgentGatewayCreationAdmission,
 } from "../../persistence/Services/AgentGatewayCreationAdmissions.ts";
 import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
+import { QueuedTurnPromotionRepository } from "../../persistence/Services/QueuedTurnPromotions.ts";
 import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
 import { AgentGateway } from "../Services/AgentGateway.ts";
 import { AgentGatewayCredentials } from "../Services/AgentGatewayCredentials.ts";
@@ -906,6 +907,29 @@ function makeHarnessLayer(
       }),
   } as unknown as (typeof ProjectionTurnRepository)["Service"]);
 
+  const queuedTurnPromotionsLayer = Layer.succeed(QueuedTurnPromotionRepository, {
+    getBySequence: () => Effect.succeed(Option.none()),
+    getPendingMessage: () => Effect.succeed(Option.none()),
+    enqueue: () => Effect.void,
+    claimNext: () => Effect.succeed(Option.none()),
+    markPromoted: () => Effect.succeed(false),
+    releaseClaim: () => Effect.succeed(false),
+    claimMessageAction: () => Effect.succeed(Option.none()),
+    cancelMessage: () => Effect.succeed(false),
+    cancelThread: () => Effect.succeed([]),
+    hasPendingMessage: () => Effect.succeed(false),
+    listPendingThreadIds: Effect.succeed([]),
+    countPendingByThreadIds: (threadIds: ReadonlyArray<string>) =>
+      Effect.sync(() =>
+        threadIds.flatMap((threadId) => {
+          const count = [...projectionTurnsByKey.values()].filter(
+            (turn) => turn.threadId === threadId && turn.state === "queued",
+          ).length;
+          return count === 0 ? [] : [{ threadId, count }];
+        }),
+      ),
+  } as unknown as (typeof QueuedTurnPromotionRepository)["Service"]);
+
   const gatewayLayer = AgentGatewayLive.pipe(
     Layer.provide(creationAdmissionsLayer),
     Layer.provide(commandReceiptsLayer),
@@ -932,7 +956,7 @@ function makeHarnessLayer(
           ]),
       } as unknown as (typeof ProviderConnectionRepository)["Service"]),
     ),
-    Layer.provide(projectionTurnsLayer),
+    Layer.provide(Layer.mergeAll(projectionTurnsLayer, queuedTurnPromotionsLayer)),
     Layer.provide(diagnosticsLayer),
     Layer.provide(eventStoreLayer),
     Layer.provide(eventDeliveriesLayer),
@@ -1663,6 +1687,7 @@ describe("AgentGateway", () => {
         const payload = toolResultJson(response.result);
         assert.deepEqual(payload.turn, {
           turnId: logicalTurnId,
+          providerTurnId: resumedProviderTurnId,
           state: "completed",
         });
         assert.deepEqual(
@@ -1677,6 +1702,7 @@ describe("AgentGateway", () => {
         const nextPayload = toolResultJson(nextResponse.result);
         assert.deepEqual(nextPayload.turn, {
           turnId: nextLogicalTurnId,
+          providerTurnId: resumedProviderTurnId,
           state: "completed",
         });
         assert.deepEqual(
@@ -3149,6 +3175,7 @@ describe("AgentGateway", () => {
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
       const payload = toolResultJson(response.result);
       assert.strictEqual("dispatched" in payload, false);
+      assert.equal(payload.delivery, "started");
       const turn = harness.dispatched[0];
       assert.equal(turn?.type, "thread.turn.start");
       if (turn?.type === "thread.turn.start") {
@@ -3158,6 +3185,110 @@ describe("AgentGateway", () => {
       }
     }).pipe(Effect.provide(gatewayLayer));
   });
+
+  it.effect("reports an undelivered send behind a running turn", () => {
+    const target = makeThreadShell("thread-target", {
+      latestTurn: {
+        turnId: TurnId.makeUnsafe("turn-target-active"),
+        state: "running",
+        requestedAt: NOW,
+        startedAt: NOW,
+        completedAt: null,
+        assistantMessageId: null,
+      },
+      session: {
+        threadId: ThreadId.makeUnsafe("thread-target"),
+        status: "running",
+        providerName: "codex",
+        runtimeMode: "approval-required",
+        activeTurnId: TurnId.makeUnsafe("turn-target-active"),
+        lastError: null,
+        updatedAt: NOW,
+      },
+    });
+    const { gatewayLayer, makeHarness } = makeHarnessLayer([...baseThreads, target]);
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_send_message",
+        args: { threadId: target.id, message: "follow up" },
+      });
+      assert.isFalse(isToolError(response.result), toolErrorText(response.result));
+      const result = toolResultJson(response.result);
+      assert.equal(result.delivery, "queued");
+      assert.equal(result.queuePosition, 1);
+      assert.equal(result.blockingTurnId, "turn-target-active");
+      assert.equal(result.blockingTurnStartedAt, NOW);
+      assert.equal("warning" in result, false);
+    }).pipe(Effect.provide(gatewayLayer));
+  });
+
+  it.effect("reports FIFO position when a send joins an existing queue", () => {
+    const target = makeThreadShell("thread-target", {
+      latestTurn: {
+        turnId: TurnId.makeUnsafe("turn-already-queued"),
+        state: "queued",
+        requestedAt: NOW,
+        startedAt: null,
+        completedAt: null,
+        assistantMessageId: null,
+      },
+    });
+    const { gatewayLayer, makeHarness } = makeHarnessLayer([...baseThreads, target]);
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_send_message",
+        args: { threadId: target.id, message: "another follow up" },
+      });
+      assert.isFalse(isToolError(response.result), toolErrorText(response.result));
+      const result = toolResultJson(response.result);
+      assert.equal(result.delivery, "queued");
+      assert.equal(result.queuePosition, 2);
+      assert.equal("warning" in result, false);
+    }).pipe(Effect.provide(gatewayLayer));
+  });
+
+  for (const provider of ["codex", "opencode"] as const) {
+    it.effect(`reports ${provider} now delivery against a running turn`, () => {
+      const target = makeThreadShell("thread-target", {
+        modelSelection: { provider, model: "test-model" },
+        latestTurn: {
+          turnId: TurnId.makeUnsafe("turn-target-active"),
+          state: "running",
+          requestedAt: NOW,
+          startedAt: NOW,
+          completedAt: null,
+          assistantMessageId: null,
+        },
+        session: {
+          threadId: ThreadId.makeUnsafe("thread-target"),
+          status: "running",
+          providerName: provider,
+          runtimeMode: "approval-required",
+          activeTurnId: TurnId.makeUnsafe("turn-target-active"),
+          lastError: null,
+          updatedAt: NOW,
+        },
+      });
+      const { gatewayLayer, makeHarness } = makeHarnessLayer([...baseThreads, target]);
+      return Effect.gen(function* () {
+        const harness = yield* makeHarness;
+        const response = yield* harness.callTool({
+          token: "token-parent",
+          name: "penkra_send_message",
+          args: { threadId: target.id, message: "act now", now: true },
+        });
+        assert.isFalse(isToolError(response.result), toolErrorText(response.result));
+        assert.equal(
+          toolResultJson(response.result).delivery,
+          provider === "codex" ? "steered" : "interrupted",
+        );
+      }).pipe(Effect.provide(gatewayLayer));
+    });
+  }
 
   it.effect("passes an idle steer through so the reactor's live-state guard decides", () => {
     const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);

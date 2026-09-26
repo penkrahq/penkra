@@ -8854,6 +8854,19 @@ describe("ChatView timeline estimator parity (full app)", () => {
       viewport: DEFAULT_VIEWPORT,
       snapshot,
     });
+    const api = readNativeApi()!;
+    const originalDispatch = api.orchestration.dispatchCommand;
+    let releaseCancellation!: () => void;
+    const cancellationGate = new Promise<void>((resolve) => {
+      releaseCancellation = resolve;
+    });
+    const dispatchSpy = vi
+      .spyOn(api.orchestration, "dispatchCommand")
+      .mockImplementation(async (command) => {
+        const receipt = await originalDispatch(command);
+        if (command.type === "thread.turn.cancel-queued") await cancellationGate;
+        return receipt;
+      });
 
     try {
       const actionsButton = await waitForElement(
@@ -8883,8 +8896,116 @@ describe("ChatView timeline estimator parity (full app)", () => {
             .some((command) => command?.type === "thread.turn.cancel-queued"),
         ).toBe(true);
       });
+      expect(document.querySelector('[data-testid="composer-editor"]')?.textContent).toContain(
+        queuedPrompt,
+      );
       expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
+      const sendsBefore = wsRequests
+        .map(readDispatchedCommand)
+        .filter((command) => command?.type === "thread.turn.start").length;
+      document
+        .querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]')!
+        .requestSubmit();
+      expect(
+        wsRequests
+          .map(readDispatchedCommand)
+          .filter((command) => command?.type === "thread.turn.start").length,
+      ).toBe(sendsBefore);
+      releaseCancellation();
+      await vi.waitFor(() =>
+        expect(
+          wsRequests
+            .map(readDispatchedCommand)
+            .filter((command) => command?.type === "thread.turn.start"),
+        ).toHaveLength(sendsBefore),
+      );
     } finally {
+      releaseCancellation();
+      dispatchSpy.mockRestore();
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps a failed queued Edit recoverable without draining the original queue", async () => {
+    const queuedMessageId = "msg-server-edit-rejected" as MessageId;
+    const queuedPrompt = "keep this queued prompt safe";
+    const base = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-running-edit-rejected" as MessageId,
+      targetText: "running task",
+      sessionStatus: "running",
+    });
+    const snapshot: OrchestrationReadModel = {
+      ...base,
+      threads: base.threads.map((thread) =>
+        thread.id === THREAD_ID
+          ? {
+              ...thread,
+              queuedMessageIds: [queuedMessageId],
+              messages: [
+                ...thread.messages,
+                {
+                  id: queuedMessageId,
+                  role: "user" as const,
+                  text: queuedPrompt,
+                  dispatchMode: "queue" as const,
+                  delivery: { state: "queued" as const, queued: true, sequence: 200 },
+                  sequence: 200,
+                  turnId: null,
+                  streaming: false,
+                  source: "native" as const,
+                  createdAt: NOW_ISO,
+                  updatedAt: NOW_ISO,
+                },
+              ],
+            }
+          : thread,
+      ),
+    };
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const api = readNativeApi()!;
+    const originalDispatch = api.orchestration.dispatchCommand;
+    let rejectCancellation!: (error: Error) => void;
+    const cancellationGate = new Promise<void>((_resolve, reject) => {
+      rejectCancellation = reject;
+    });
+    const dispatchSpy = vi
+      .spyOn(api.orchestration, "dispatchCommand")
+      .mockImplementation(async (command) => {
+        if (command.type === "thread.turn.cancel-queued") await cancellationGate;
+        return originalDispatch(command);
+      });
+
+    try {
+      const actionsButton = await waitForElement(
+        () =>
+          document.querySelector<HTMLButtonElement>(
+            'button[aria-label="Queued follow-up actions"]',
+          ),
+        "Unable to find queued actions button.",
+      );
+      actionsButton.click();
+      const editMenuItem = await waitForElement(
+        () =>
+          Array.from(document.querySelectorAll<HTMLElement>('[data-slot="menu-item"]')).find(
+            (item) => item.textContent?.trim() === "Edit queued prompt",
+          ) ?? null,
+        "Unable to find edit queued prompt menu item.",
+      );
+      editMenuItem.click();
+      await vi.waitFor(() =>
+        expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
+          queuedPrompt,
+        ),
+      );
+      rejectCancellation(new Error("cancel unavailable"));
+      await vi.waitFor(() => {
+        const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
+        expect(draft?.prompt).toBe("");
+        expect(document.querySelector('[data-testid="queued-follow-up-row"]')).not.toBeNull();
+      });
+    } finally {
+      rejectCancellation(new Error("test cleanup"));
+      dispatchSpy.mockRestore();
       await mounted.cleanup();
     }
   });

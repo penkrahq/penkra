@@ -787,7 +787,6 @@ it.layer(testLayer)("server CLI command", (it) => {
           getFolderShellById: () => Effect.die("unused"),
           getSpaceShellById: () => Effect.die("unused"),
           getFirstActiveThreadIdByFolderId: () => Effect.die("unused"),
-          listGeneratedImageActivitiesByTurn: () => Effect.die("unused"),
           getThreadShellById: () => Effect.die("unused"),
           findSyntheticSubagentParentThread: () => Effect.die("unused"),
           getThreadDetailById: () => Effect.die("unused"),

@@ -46,8 +46,10 @@ async function withGatewayServer(
               provider: "opencode",
               issuedAt: 1,
               capabilities: new Set(["thread:read", "thread:write", "diagnostics:read"]),
-            }
+          }
           : null,
+      bindWriteAuthority: () => null,
+      verifyWriteAuthority: () => false,
       revokeSessionToken: () => undefined,
       connectionForThread: () => ({
         url: "http://127.0.0.1/mcp",

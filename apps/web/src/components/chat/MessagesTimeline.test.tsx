@@ -90,6 +90,7 @@ beforeAll(() => {
   });
   vi.stubGlobal("window", {
     matchMedia,
+    location: { origin: "http://localhost" },
     addEventListener: () => {},
     removeEventListener: () => {},
     desktopBridge: undefined,
@@ -225,6 +226,7 @@ describe("MessagesTimeline", () => {
         useStore.setState(initialStoreState);
       }
     },
+    15_000,
   );
 
   it("renders Connection and model changes as the designed transcript event", async () => {
@@ -731,6 +733,7 @@ describe("MessagesTimeline", () => {
               dispatchOrigin: "agent",
               senderThreadId,
               dispatchMode: "steer",
+              delivery: { state: "queued", queued: true, sequence: 1 },
               createdAt: "2026-03-17T19:12:28.000Z",
               streaming: false,
             },
@@ -749,6 +752,7 @@ describe("MessagesTimeline", () => {
     );
 
     expect(markup).toContain(`Sent by ${senderTitle}`);
+    expect(markup).toContain("Queued · not delivered · position 1");
     expect(markup).not.toContain("Steering conversation");
     expect(markup).toContain(`aria-label="Open ${clampedSenderTitle}"`);
     expect(markup).toContain(`title="${clampedSenderTitle}"`);
@@ -758,7 +762,6 @@ describe("MessagesTimeline", () => {
     Object.assign(initialStoreState, { threadShellById: initialThreadShellById });
     useStore.setState(initialStoreState);
   });
-
   it("keeps an archived sender title as plain text and uses the generic fallback only when unknown", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const senderThreadId = ThreadId.makeUnsafe("sender-thread-archived");
@@ -1463,6 +1466,100 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("+2 more tool calls");
     expect(markup).not.toContain("Tool 1");
     expect(markup).not.toContain("Tool 5");
+  });
+
+  it("renders the completed-turn disclosure before an interleaved presented image", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        timelineEntries={[
+          {
+            id: "entry-user-media-turn",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            message: {
+              id: MessageId.makeUnsafe("user-media-turn"),
+              role: "user",
+              text: "Make an image",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "entry-assistant-preamble-media-turn",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:29.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-preamble-media-turn"),
+              role: "assistant",
+              text: "Preparing the image.",
+              createdAt: "2026-03-17T19:12:29.000Z",
+              completedAt: "2026-03-17T19:12:29.100Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "entry-presented-image-media-turn",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:29.200Z",
+            entry: {
+              id: "presented-image-media-turn",
+              createdAt: "2026-03-17T19:12:29.200Z",
+              label: "Showed concept.png",
+              tone: "info",
+              activityKind: "media.presented",
+              presentedMedia: {
+                attachmentId: "att_v2_media-turn",
+                name: "concept.png",
+                mimeType: "image/png",
+                sizeBytes: 200,
+                type: "image",
+              },
+            },
+          },
+          {
+            id: "entry-image-tool-media-turn",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:29.500Z",
+            entry: {
+              id: "image-tool-media-turn",
+              createdAt: "2026-03-17T19:12:29.500Z",
+              label: "Generated image",
+              tone: "tool",
+            },
+          },
+          {
+            id: "entry-assistant-final-media-turn",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:30.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-final-media-turn"),
+              role: "assistant",
+              text: "Here it is.",
+              createdAt: "2026-03-17T19:12:30.000Z",
+              completedAt: "2026-03-17T19:12:30.500Z",
+              streaming: false,
+            },
+          },
+        ]}
+        nowIso="2026-03-17T19:12:31.000Z"
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup.indexOf("Worked for")).toBeLessThan(markup.indexOf("concept.png"));
+    expect(markup.indexOf("concept.png")).toBeLessThan(markup.indexOf("Here it is."));
+    expect(markup).not.toContain("Preparing the image.");
   });
 
   it("renders Cursor-style inline tool rows with a uniform label", async () => {

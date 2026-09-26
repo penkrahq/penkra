@@ -48,6 +48,16 @@ function discoverPenkraDevPrimaryCheckoutRoot(repositoryRoot: string): string {
     : resolve(repositoryRoot);
 }
 
+export function resolvePenkraDevInstallRoot(input: {
+  readonly repositoryRoot: string;
+  readonly gitCommonDirectory: string;
+  readonly requestedRoot?: string;
+}): string {
+  const requestedRoot = input.requestedRoot?.trim();
+  if (requestedRoot) return resolve(requestedRoot);
+  return resolvePenkraDevPrimaryCheckoutRoot(input.repositoryRoot, input.gitCommonDirectory);
+}
+
 function resolveBunExecutable(): string {
   const configured = process.env.BUN_EXECUTABLE?.trim();
   if (configured && existsSync(configured)) return resolve(configured);
@@ -237,7 +247,21 @@ function install(): void {
   if (process.platform !== "darwin") {
     throw new Error("Penkra Dev Applications launcher is available only on macOS.");
   }
-  const desktopRoot = discoverPenkraDevPrimaryCheckoutRoot(repoRoot);
+  const gitCommonDirectory = spawnSync(
+    "git",
+    ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    { cwd: repoRoot, encoding: "utf8" },
+  );
+  const desktopRoot = resolvePenkraDevInstallRoot({
+    repositoryRoot: repoRoot,
+    gitCommonDirectory:
+      gitCommonDirectory.status === 0 && gitCommonDirectory.stdout.trim()
+        ? gitCommonDirectory.stdout
+        : "",
+    ...(process.env.PENKRA_DEV_REPO_ROOT
+      ? { requestedRoot: process.env.PENKRA_DEV_REPO_ROOT }
+      : {}),
+  });
   const launcherScriptPath = join(desktopRoot, "scripts", "penkra-dev-launcher.ts");
   if (!existsSync(launcherScriptPath)) {
     throw new Error(`Missing launcher runtime: ${launcherScriptPath}`);

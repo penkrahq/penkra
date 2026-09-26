@@ -373,6 +373,14 @@ const CODEX_DISCOVERY_SESSION_IDLE_MS = 10 * 60 * 1000;
 const CODEX_PENDING_SETTLE_DEADLINE_MS = 2_000;
 const CODEX_STDERR_TAIL_MAX_BYTES = 64 * 1024;
 const CODEX_STDOUT_END_GRACE_MS = 100;
+const CODEX_MISSING_TOOL_OUTPUT_REGEX =
+  /Custom tool call output is missing for call id:\s*([^\s,;]+)/;
+
+interface CodexRuntimeDiagnostic {
+  readonly key: string;
+  readonly fingerprint: string;
+  readonly state: "active" | "resolved";
+}
 const CODEX_STDERR_RECORD_IDLE_FLUSH_MS = 50;
 
 export class CodexStderrLineFramer {
@@ -2562,7 +2570,14 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
             ? startupStatus?.error?.trim() || "Startup failed."
             : undefined);
         if (runtimeStatus === "connected" || startupStatus?.state === "ready") {
-          context.reportedMcpStartupFailures.delete(name);
+          if (context.reportedMcpStartupFailures.delete(name)) {
+            this.emitErrorEvent(
+              context,
+              "mcpServer/startupRecovered",
+              `MCP server “${name}” recovered.`,
+              { key: `codex:mcp-startup:${name}`, fingerprint: name, state: "resolved" },
+            );
+          }
         }
         if (failureDetail) {
           this.reportMcpStartupFailure(context, name, failureDetail);
@@ -3218,6 +3233,20 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     if (!classified) {
       return;
     }
+    const missingToolOutputCallId = classified.record.match(CODEX_MISSING_TOOL_OUTPUT_REGEX)?.[1];
+    if (missingToolOutputCallId) {
+      this.emitErrorEvent(
+        context,
+        "process/stderr",
+        `Custom tool call output is missing for call id: ${missingToolOutputCallId}`,
+        {
+          key: `codex:missing-tool-output:${missingToolOutputCallId}`,
+          fingerprint: missingToolOutputCallId,
+          state: "active",
+        },
+      );
+      return;
+    }
     log.debug("ignored Codex stderr record", {
       threadId: context.session.threadId,
       category: classified.category,
@@ -3243,6 +3272,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       context,
       "mcpServer/startupFailed",
       `MCP server “${name}” failed to start. Its tools are unavailable for this session.`,
+      { key: `codex:mcp-startup:${name}`, fingerprint: name, state: "active" },
     );
   }
 
@@ -3959,7 +3989,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     });
   }
 
-  private emitErrorEvent(context: CodexSessionContext, method: string, message: string): void {
+  private emitErrorEvent(
+    context: CodexSessionContext,
+    method: string,
+    message: string,
+    diagnostic?: CodexRuntimeDiagnostic,
+  ): void {
     if (context.discovery) {
       return;
     }
@@ -3974,6 +4009,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         : {}),
       method,
       message,
+      ...(diagnostic ? { payload: { diagnostic } } : {}),
     });
   }
 

@@ -89,6 +89,7 @@ export {
   type AppThreadDeckPosition,
   type AppPossibleModelDescriptor,
   type AppThreadSendReceipt,
+  type AgentThreadSendResult,
   type AppThreadState,
   type AppControllerRequestContext,
   type AppControllerRequestHandler,
