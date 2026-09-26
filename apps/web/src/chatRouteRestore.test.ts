@@ -14,13 +14,11 @@ describe("resolveRestorableThreadRoute", () => {
       resolveRestorableThreadRoute({
         lastThreadRoute: {
           threadId: "thread-123",
-          splitViewId: "split-456",
         },
         availableThreadIds: new Set(["thread-123", "thread-789"]),
       }),
     ).toEqual({
       threadId: "thread-123",
-      splitViewId: "split-456",
     });
   });
 
@@ -33,21 +31,6 @@ describe("resolveRestorableThreadRoute", () => {
         availableThreadIds: new Set(["thread-789"]),
       }),
     ).toBeNull();
-  });
-
-  it("drops a stale split id while preserving the remembered thread", () => {
-    expect(
-      resolveRestorableThreadRoute({
-        lastThreadRoute: {
-          threadId: "thread-123",
-          splitViewId: "split-missing",
-        },
-        availableThreadIds: new Set(["thread-123"]),
-        availableSplitViewIds: new Set(["split-live"]),
-      }),
-    ).toEqual({
-      threadId: "thread-123",
-    });
   });
 
   it("recovers a remembered route before falling back when startup has no threads yet", () => {

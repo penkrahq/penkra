@@ -82,7 +82,7 @@ export function DesktopThreadApiBridge() {
         void navigate({
           to: "/$threadId",
           params: { threadId: ThreadId.makeUnsafe(threadId) },
-          search: (previous) => ({ ...previous, splitViewId: undefined }),
+          search: () => ({}),
         });
       }),
     [navigate],

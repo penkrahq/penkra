@@ -1,5 +1,5 @@
 // FILE: _chat.$threadId.tsx
-// Purpose: Resolve the active thread route into either a single chat surface or a persisted split view.
+// Purpose: Resolve the active thread route into a single chat surface.
 // Layer: Route container
 
 import { type FolderId, ThreadId, singletonThreadDeckId } from "@penkra/contracts";
@@ -18,17 +18,9 @@ import {
 import { useComposerDraftStore } from "../composerDraftStore";
 import { parseChatRouteSearch } from "../chatRouteSearch";
 import { readNativeApi } from "../nativeApi";
-import { isSplitRoute } from "../splitViewRoute";
-import {
-  resolveSplitViewFocusedThreadId,
-  resolveSplitViewThreadIds,
-  selectSplitView,
-  useSplitViewStore,
-} from "../splitViewStore";
 import { useStore } from "../store";
 import { createThreadExistsSelector, createThreadFolderIdSelector } from "../storeSelectors";
 import { SingleChatSurface } from "../components/chat/SingleChatSurface";
-import { SplitChatSurface } from "../components/chat/SplitChatSurface";
 import { resolveSingleFolderId } from "./-chatThreadRoute.logic";
 
 function ChatThreadRouteView() {
@@ -37,7 +29,6 @@ function ChatThreadRouteView() {
   const threadId = Route.useParams({
     select: (params) => ThreadId.makeUnsafe(params.threadId),
   });
-  const search = Route.useSearch();
   const threadFolderIdSelector = createThreadFolderIdSelector(threadId);
   const threadExistsSelector = createThreadExistsSelector(threadId);
   const threadFolderId: FolderId | null = useStore(threadFolderIdSelector);
@@ -49,10 +40,6 @@ function ChatThreadRouteView() {
   const draftThreadExists = draftThreadState !== null;
   const routeThreadExists = threadExists || draftThreadExists;
   const homeDeckId = persistedDeckId ?? draftThreadState?.deckId ?? singletonThreadDeckId(threadId);
-  const splitView = useSplitViewStore(
-    useMemo(() => selectSplitView(search.splitViewId ?? null), [search.splitViewId]),
-  );
-  const splitViewsHydrated = useSplitViewStore((store) => store.hasHydrated);
   const activeFolderId = resolveSingleFolderId({
     threadFolderId,
     draftFolderId: draftThreadState?.folderId ?? null,
@@ -75,12 +62,8 @@ function ChatThreadRouteView() {
       return;
     }
     const recordView = () => {
-      const visibleThreadIds =
-        splitView && isSplitRoute(search) ? resolveSplitViewThreadIds(splitView) : [threadId];
-      const activeThreadId =
-        splitView && isSplitRoute(search)
-          ? (resolveSplitViewFocusedThreadId(splitView) ?? threadId)
-          : threadId;
+      const visibleThreadIds = [threadId];
+      const activeThreadId = threadId;
       const state = useStore.getState();
       const draftState = useComposerDraftStore.getState();
       const views = visibleThreadIds.map((visibleThreadId) => ({
@@ -95,7 +78,7 @@ function ChatThreadRouteView() {
     recordView();
     window.addEventListener("focus", recordView);
     return () => window.removeEventListener("focus", recordView);
-  }, [homeDeckId, routeThreadExists, search, splitView, threadId]);
+  }, [homeDeckId, routeThreadExists, threadId]);
 
   useEffect(() => {
     const home = window.desktopBridge?.threadHome;
@@ -129,7 +112,7 @@ function ChatThreadRouteView() {
   }, [missingThreadRecoveryState, routeThreadExists]);
 
   useEffect(() => {
-    if (!threadsHydrated || !splitViewsHydrated) {
+    if (!threadsHydrated) {
       return;
     }
 
@@ -175,18 +158,6 @@ function ChatThreadRouteView() {
       }
     }
 
-    if (isSplitRoute(search)) {
-      if (!splitView) {
-        void navigate({
-          to: "/$threadId",
-          params: { threadId },
-          replace: true,
-          search: () => ({}),
-        });
-      }
-      return;
-    }
-
     if (!routeThreadExists) {
       void navigate({ to: "/", replace: true });
     }
@@ -195,16 +166,12 @@ function ChatThreadRouteView() {
     missingThreadRecoveryState,
     navigate,
     routeThreadExists,
-    search,
-    splitView,
-    splitViewsHydrated,
     threadId,
     threadsHydrated,
   ]);
 
   if (
     !threadsHydrated ||
-    !splitViewsHydrated ||
     shouldHoldMissingThreadRouteFallback({
       hasKnownServerThreads,
       recoveryState: missingThreadRecoveryState,
@@ -212,10 +179,6 @@ function ChatThreadRouteView() {
     })
   ) {
     return null;
-  }
-
-  if (splitView && search.splitViewId) {
-    return <SplitChatSurface splitViewId={search.splitViewId} routeThreadId={threadId} />;
   }
 
   if (!routeThreadExists) {

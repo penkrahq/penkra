@@ -7,8 +7,3 @@
 
 /** The full-width single chat pane (also ChatView's default scope). */
 export const SINGLE_CHAT_PANE_SCOPE_ID = "single";
-
-/** A chat pane inside a split view. */
-export function splitViewPaneScopeId(splitViewId: string, paneId: string): string {
-  return `${splitViewId}:${paneId}`;
-}

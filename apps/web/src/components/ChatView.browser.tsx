@@ -62,7 +62,6 @@ import { isMacPlatform } from "../lib/utils";
 import { queuedComposerTurnServerMessageId } from "../lib/queuedComposerTurnDispatch";
 import { readNativeApi } from "../nativeApi";
 import { getRouter } from "../router";
-import { useSplitViewStore } from "../splitViewStore";
 import { useSpacesUiStore } from "../spacesUiStore";
 import { useStore } from "../store";
 import { getThreadFromState } from "../threadDerivation";
@@ -2430,10 +2429,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     useTerminalStateStore.setState({
       terminalStateByThreadId: {},
     });
-    useSplitViewStore.setState({
-      splitViewsById: {},
-      splitViewIdBySourceThreadId: {},
-    });
     useWorkspacePathsStore.setState({
       homeDir: null,
       chatWorkspaceRoot: null,
@@ -4157,7 +4152,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("renders the approved split empty-thread composer component family", async () => {
+  it("renders the approved empty-thread composer component family", async () => {
     useComposerDraftStore.setState({
       draftThreadsByThreadId: {
         [THREAD_ID]: {

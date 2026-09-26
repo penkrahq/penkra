@@ -107,11 +107,6 @@ const AVAILABLE_NOW_DEFINITIONS: readonly ShortcutDefinition[] = [
     description: "Start a fresh thread with OpenCode selected.",
   },
   {
-    command: "chat.split",
-    label: "Split chat",
-    description: "Open the current conversation in a second pane.",
-  },
-  {
     command: "view.recent.previous",
     label: "Previous recent view",
     description: "Cycle backward through recently opened primary views.",

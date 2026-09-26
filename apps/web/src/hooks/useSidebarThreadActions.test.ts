@@ -92,13 +92,9 @@ const harness = vi.hoisted(() => ({
   reconcileDeletedThreads: vi.fn(),
   clearDraftThread: vi.fn(),
   clearProjectDraftThreadById: vi.fn(),
-  removeThreadFromSplitViews: vi.fn(),
   clearTerminalState: vi.fn(),
   handleNewChat: vi.fn(),
   removeDeletedThreadFromClientState: vi.fn(),
-  resolveSplitViewPaneIdForThread: vi.fn(),
-  resolveSplitViewFocusedThreadId: vi.fn(),
-  splitViewsById: {} as Record<string, unknown>,
 }));
 
 vi.mock("react", () => ({
@@ -131,16 +127,7 @@ vi.mock("../pinnedThreadsStore", () => ({
       prunePinnedThreads: harness.prunePinnedThreads,
     }),
 }));
-vi.mock("../splitViewStore", () => {
-  const useSplitViewStore = (selector: (state: unknown) => unknown) =>
-    selector({ removeThreadFromSplitViews: harness.removeThreadFromSplitViews });
-  useSplitViewStore.getState = () => ({ splitViewsById: harness.splitViewsById });
-  return {
-    useSplitViewStore,
-    resolveSplitViewFocusedThreadId: harness.resolveSplitViewFocusedThreadId,
-    resolveSplitViewPaneIdForThread: harness.resolveSplitViewPaneIdForThread,
-  };
-});
+
 vi.mock("../threadSelectionStore", () => ({
   useThreadSelectionStore: (selector: (state: unknown) => unknown) =>
     selector({ removeFromSelection: harness.removeFromSelection }),
@@ -225,15 +212,12 @@ let sidebarThreads: SidebarThreadSummary[];
 
 function render(
   overrides: {
-    activeSplitView?: Parameters<typeof useSidebarThreadActions>[0]["activeSplitView"];
-    routeSplitViewId?: string | null;
     routeThreadId?: ThreadId | null;
     threadsHydrated?: boolean;
   } = {},
 ) {
   reactHarness.beginRender();
   return useSidebarThreadActions({
-    activeSplitView: overrides.activeSplitView ?? null,
     appSettings: {
       confirmThreadDelete: false,
       sidebarThreadSortOrder: "updated_at",
@@ -241,7 +225,6 @@ function render(
     clearTerminalState: harness.clearTerminalState,
     handleNewChat: harness.handleNewChat,
     projectById: new Map([[PROJECT_ID, PROJECT]]),
-    routeSplitViewId: overrides.routeSplitViewId ?? null,
     routeThreadId: overrides.routeThreadId ?? null,
     sidebarThreads,
     sidebarTreeThreads: sidebarThreads,
@@ -257,7 +240,6 @@ beforeEach(() => {
   sidebarThreads = [makeThread(THREAD_ID), makeThread(FALLBACK_ID)];
   harness.pinnedThreadIds = [];
   harness.alreadyUnarchived = false;
-  harness.splitViewsById = {};
   for (const mock of [
     harness.pinThread,
     harness.unpinThread,
@@ -273,11 +255,8 @@ beforeEach(() => {
     harness.reconcileDeletedThreads,
     harness.clearDraftThread,
     harness.clearProjectDraftThreadById,
-    harness.removeThreadFromSplitViews,
     harness.clearTerminalState,
     harness.handleNewChat,
-    harness.resolveSplitViewPaneIdForThread,
-    harness.resolveSplitViewFocusedThreadId,
   ]) {
     mock.mockReset();
   }
@@ -474,40 +453,9 @@ describe("useSidebarThreadActions", () => {
     expect(result).toMatchObject({ deletedCount: 1, failureCount: 1, totalCount: 2 });
   });
 
-  it("navigates split deletion to the surviving focused pane after cleanup", async () => {
-    const splitView = { id: "split-actions" } as never;
-    harness.resolveSplitViewPaneIdForThread.mockReturnValue("pane-deleted");
-    harness.resolveSplitViewFocusedThreadId.mockReturnValue(FALLBACK_ID);
-    harness.splitViewsById = { "split-actions": { id: "split-actions" } };
-
-    await render({
-      activeSplitView: splitView,
-      routeSplitViewId: "split-actions",
-      routeThreadId: THREAD_ID,
-    }).deleteThread(THREAD_ID);
-
-    expect(harness.removeThreadFromSplitViews).toHaveBeenCalledWith(THREAD_ID);
-    expect(harness.clearDraftThread).toHaveBeenCalledWith(THREAD_ID);
-    expect(harness.clearTerminalState).toHaveBeenCalledWith(THREAD_ID);
-    const navigation = harness.navigate.mock.calls.at(-1)?.[0] as {
-      params: { threadId: ThreadId };
-      search: () => { splitViewId: string };
-    };
-    expect(navigation.params).toEqual({ threadId: FALLBACK_ID });
-    expect(navigation.search()).toEqual({ splitViewId: "split-actions" });
-  });
-
-  it("opens a fresh chat when deleting the last pane leaves no fallback", async () => {
+  it("opens a fresh chat when deleting the last thread leaves no fallback", async () => {
     sidebarThreads = [makeThread(THREAD_ID)];
-    harness.resolveSplitViewPaneIdForThread.mockReturnValue("pane-only");
-    harness.resolveSplitViewFocusedThreadId.mockReturnValue(null);
-
-    await render({
-      activeSplitView: { id: "split-empty" } as never,
-      routeSplitViewId: "split-empty",
-      routeThreadId: THREAD_ID,
-    }).deleteThread(THREAD_ID);
-
+    await render({ routeThreadId: THREAD_ID }).deleteThread(THREAD_ID);
     expect(harness.navigate).not.toHaveBeenCalled();
     expect(harness.handleNewChat).toHaveBeenCalledWith({ fresh: true });
   });

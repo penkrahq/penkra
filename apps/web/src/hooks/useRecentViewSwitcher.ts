@@ -20,10 +20,7 @@ import {
   type RecentViewDisplayEntry,
   type RecentViewThreadDraftSummary,
 } from "../recentViews.logic";
-import { resolveRecentThreadSplitActivation } from "../recentViewActivation.logic";
 import { useRecentViewsStore } from "../recentViewsStore";
-import { collectLeaves } from "../splitView.logic";
-import { useSplitViewStore } from "../splitViewStore";
 import { useStore } from "../store";
 import { useThreadDetailPrewarm } from "../threadDetailPrewarm";
 import type { useHandleNewThread } from "./useHandleNewThread";
@@ -63,14 +60,11 @@ export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
   const draftThreadsByThreadId = useComposerDraftStore((state) => state.draftThreadsByThreadId);
   const sidebarThreadSummaryById = useStore((state) => state.sidebarThreadSummaryById);
   const threadsHydrated = useStore((state) => state.threadsHydrated);
-  const routeSplitViewId =
-    typeof routeSearch.splitViewId === "string" ? routeSearch.splitViewId : undefined;
   const settingsSection = typeof routeSearch.section === "string" ? routeSearch.section : undefined;
   const currentRecentView = deriveCurrentRecentView({
     pathname,
     routeThreadId,
     activeThreadId: routeThreadId ? (input.activeContextThreadId ?? routeThreadId) : null,
-    splitViewId: routeSplitViewId,
     settingsSection,
   });
   const currentRecentViewKey = currentRecentView ? recentViewKey(currentRecentView) : null;
@@ -132,7 +126,6 @@ export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
   const buildRecentViewAvailability = (): RecentViewAvailability => {
     const sidebarThreadSummaryById = useStore.getState().sidebarThreadSummaryById;
     const draftThreadsByThreadId = useComposerDraftStore.getState().draftThreadsByThreadId;
-    const splitViewsById = useSplitViewStore.getState().splitViewsById;
     const activeContextThreadId = activeContextThreadIdRef.current;
     const activeDraftThread = activeDraftThreadRef.current;
 
@@ -147,25 +140,8 @@ export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
       availableThreadIds.add(activeContextThreadId);
     }
 
-    const availableSplitViewIds = new Set(
-      Object.keys(splitViewsById).filter((splitViewId) => Boolean(splitViewsById[splitViewId])),
-    );
-    const threadIdsBySplitViewId = new Map<string, Set<ThreadId>>();
-    for (const [splitViewId, splitView] of Object.entries(splitViewsById)) {
-      if (!splitView) continue;
-      const threadIds = new Set<ThreadId>();
-      for (const leaf of collectLeaves(splitView.root)) {
-        if (leaf.threadId) {
-          threadIds.add(leaf.threadId);
-        }
-      }
-      threadIdsBySplitViewId.set(splitViewId, threadIds);
-    }
-
     return {
       availableThreadIds,
-      availableSplitViewIds,
-      threadIdsBySplitViewId,
     };
   };
 
@@ -191,19 +167,10 @@ export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
           return;
         }
         prewarmThreadDetail(view.threadId);
-        const splitActivation = resolveRecentThreadSplitActivation({
-          view,
-          splitViewsById: useSplitViewStore.getState().splitViewsById,
-        });
-        if (splitActivation) {
-          useSplitViewStore
-            .getState()
-            .setFocusedPane(splitActivation.splitViewId, splitActivation.paneId);
-        }
         void navigate({
           to: "/$threadId",
           params: { threadId: view.threadId },
-          search: () => (splitActivation ? { splitViewId: splitActivation.splitViewId } : {}),
+          search: () => ({}),
         });
         return;
       }
