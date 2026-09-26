@@ -7943,6 +7943,8 @@ async function bootstrap(): Promise<void> {
           document,
           webContents: desktopAppRuntime!.appTabs.target(tabId, document),
           isPresented: () => desktopAppRuntime!.appTabs.isVisible(tabId),
+          canDeliverPointerInput: () =>
+            desktopAppRuntime!.appTabs.canDeliverPointerInput(tabId),
         };
       } catch (error) {
         throw Object.assign(

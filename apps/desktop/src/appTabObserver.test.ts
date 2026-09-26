@@ -1059,6 +1059,26 @@ describe("AppTabObserver", () => {
     );
   });
 
+  it("rejects detached pointer input on platforms without a safe delivery path", async () => {
+    const { contents, sendCommand } = makeContents();
+    const observer = new AppTabObserver({
+      resolve: () => ({
+        descriptor,
+        webContents: contents,
+        isPresented: () => false,
+        canDeliverPointerInput: () => false,
+      }),
+    });
+    await observer.snapshot("tab-1");
+    await expect(observer.click("tab-1", "d1:e1")).rejects.toMatchObject({
+      code: "CLICK_NOT_DELIVERED",
+      message: expect.stringContaining("Present the tab in a window"),
+    });
+    expect(
+      sendCommand.mock.calls.some(([method]) => method === "Input.dispatchMouseEvent"),
+    ).toBe(false);
+  });
+
   it("hit-tests through an open shadow root", () => {
     const button = fakeElement();
     const host = fakeElement();
