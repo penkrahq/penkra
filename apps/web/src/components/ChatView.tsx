@@ -29,6 +29,10 @@ import {
   RuntimeMode,
 } from "@penkra/contracts";
 import { getModelCapabilities, normalizeModelSlug } from "@penkra/shared/model";
+import {
+  collectErrorMessages,
+  CONTINUE_THREAD_CHANGED_INVARIANT_MARKER,
+} from "@penkra/shared/errorMessages";
 import { resolveTailUserMessageEditTarget } from "@penkra/shared/conversationEdit";
 import { threadExportBlockedReason } from "@penkra/shared/threadExport";
 import { pendingRequestInstanceKey } from "@penkra/shared/threadSummary";
@@ -153,6 +157,7 @@ import {
   resolveProjectScriptTerminalTarget,
   resolvePromptHistoryNavigation,
   resolveThreadDetailHydration,
+  shouldShowComposerContinue,
   shouldRenderTranscriptDuringHydration,
   shouldHandlePromptHistoryNavigationKey,
   shouldEnableComposerPastedTextCollapse,
@@ -3954,6 +3959,80 @@ export default function ChatView({
     [setStoreThreadError],
   );
 
+  const [continueInFlight, setContinueInFlight] = useState<{
+    threadId: ThreadId;
+    turnId: TurnId;
+    requestedAt: string;
+    sessionUpdatedAt: string | null;
+  } | null>(null);
+  const continueInFlightRef = useRef(false);
+  const [hiddenContinueTurnId, setHiddenContinueTurnId] = useState<TurnId | null>(null);
+  useEffect(() => {
+    if (!continueInFlight) return;
+    if (
+      activeThreadId !== continueInFlight.threadId ||
+      activeLatestTurn?.turnId !== continueInFlight.turnId ||
+      activeLatestTurn?.state === "running" ||
+      activeLatestTurn?.requestedAt !== continueInFlight.requestedAt ||
+      (activeThread?.session?.updatedAt ?? null) !== continueInFlight.sessionUpdatedAt
+    ) {
+      continueInFlightRef.current = false;
+      setContinueInFlight(null);
+    }
+  }, [activeLatestTurn, activeThread?.session?.updatedAt, activeThreadId, continueInFlight]);
+  const bindingForContinue = threadProviderBindingQuery.data?.binding;
+  const canShowContinue = shouldShowComposerContinue({
+    thread: activeThread,
+    isServerThread,
+    hydration: threadDetailHydration,
+    binding: bindingForContinue,
+    hiddenTurnId: hiddenContinueTurnId,
+    continueInFlight: continueInFlight !== null,
+    sendBusy: isSendBusy,
+    sendPreflight: hasSendPreflight,
+    connecting: isConnecting,
+    hasSendableContent: composerSendState.hasSendableContent,
+  });
+  const onContinue = useCallback(async () => {
+    if (!canShowContinue || !activeThread || !activeLatestTurn || !bindingForContinue) return;
+    if (continueInFlightRef.current) return;
+    const api = readNativeApi();
+    if (!api) return;
+    continueInFlightRef.current = true;
+    const target = {
+      threadId: activeThread.id,
+      turnId: activeLatestTurn.turnId,
+      requestedAt: activeLatestTurn.requestedAt,
+      sessionUpdatedAt: activeThread.session?.updatedAt ?? null,
+    };
+    setContinueInFlight(target);
+    try {
+      await api.orchestration.dispatchCommand({
+        type: "thread.turn.recover",
+        reason: "play",
+        commandId: newCommandId(),
+        threadId: target.threadId,
+        turnId: target.turnId,
+        interruptedTurnId: target.turnId,
+        recoveryMessageId: newMessageId(),
+        connectionId: bindingForContinue.connectionId,
+        bindingRevision: bindingForContinue.revision,
+        createdAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      continueInFlightRef.current = false;
+      setContinueInFlight(null);
+      if (
+        collectErrorMessages(error).some((message) =>
+          message.includes(CONTINUE_THREAD_CHANGED_INVARIANT_MARKER),
+        )
+      ) {
+        setHiddenContinueTurnId(target.turnId);
+      } else {
+        setThreadError(target.threadId, "Couldn't continue this turn.");
+      }
+    }
+  }, [activeLatestTurn, activeThread, bindingForContinue, canShowContinue, setThreadError]);
   const focusComposer = useCallback(() => {
     // Secondary chrome is deferred during thread switches; replay focus once it
     // mounts. A disabled editor (dispatch connecting, pending approval) cannot
@@ -9014,6 +9093,17 @@ export default function ChatView({
                               onClick={() => void onInterrupt()}
                               aria-label="Stop generation"
                               title="Stop the current response. On Mac, press Ctrl+C to interrupt."
+                            />
+                          </>
+                        ) : canShowContinue ? (
+                          <>
+                            {idleComposerVoiceControl}
+                            <ButtonSend
+                              type="button"
+                              visualState="play"
+                              aria-label="Continue"
+                              title="Continue"
+                              onClick={() => void onContinue()}
                             />
                           </>
                         ) : pendingUserInputs.length === 0 &&

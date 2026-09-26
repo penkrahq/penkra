@@ -6,6 +6,8 @@ import { OrchestrationEngineService } from "./Services/OrchestrationEngine.ts";
 
 export const RESTART_TURN_RECOVERY_PROMPT =
   "The previous turn was interrupted because Penkra stopped. Continue the existing task from the current state. Verify the current state before repeating any action whose outcome may be uncertain.";
+export const PLAY_TURN_RECOVERY_PROMPT =
+  "The previous turn did not finish. Continue the existing task from the current state. Verify the current state before repeating any action whose outcome may be uncertain.";
 
 interface RestartTurnRecoveryRow {
   readonly threadId: string;
@@ -75,6 +77,7 @@ export const recoverRestartInterruptedTurns = Effect.gen(function* () {
         const createdAt = new Date().toISOString();
         yield* engine.dispatch({
           type: "thread.turn.recover",
+          reason: "restart",
           commandId,
           threadId,
           turnId: interruptedTurnId,

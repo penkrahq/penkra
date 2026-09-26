@@ -130,7 +130,7 @@ import {
   type ProviderIntentEvent,
 } from "../providerIntentClassification.ts";
 import { deriveTurnStartSession } from "../turnStartSession.ts";
-import { RESTART_TURN_RECOVERY_PROMPT } from "../restartTurnRecovery.ts";
+import { PLAY_TURN_RECOVERY_PROMPT, RESTART_TURN_RECOVERY_PROMPT } from "../restartTurnRecovery.ts";
 import { resolveProviderSessionThread as resolveProviderSessionThreadFromProjection } from "../providerSessionThread.ts";
 
 type ProviderQueueDrainEvent = Extract<
@@ -1857,7 +1857,10 @@ const make = Effect.gen(function* () {
         ? {
             id: event.payload.messageId,
             role: "user" as const,
-            text: RESTART_TURN_RECOVERY_PROMPT,
+            text:
+              event.payload.recoveryReason === "play"
+                ? PLAY_TURN_RECOVERY_PROMPT
+                : RESTART_TURN_RECOVERY_PROMPT,
             attachments: [] as ReadonlyArray<ChatAttachment>,
             skills: undefined,
             mentions: undefined,
@@ -2945,7 +2948,7 @@ const make = Effect.gen(function* () {
       readonly failureCode?: typeof PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE;
     },
   ) =>
-    (event.commandId === null
+    event.commandId === null
       ? Effect.void
       : appendProviderFailureActivity({
           threadId: event.payload.threadId,
@@ -2970,7 +2973,7 @@ const make = Effect.gen(function* () {
           ...(event.payload.lifecycleGeneration === undefined
             ? {}
             : { lifecycleGeneration: event.payload.lifecycleGeneration }),
-        }).pipe(Effect.asVoid));
+        }).pipe(Effect.asVoid);
 
   const claimInteractionResponse = Effect.fnUntraced(function* (input: {
     readonly event: InteractionResponseEvent;
