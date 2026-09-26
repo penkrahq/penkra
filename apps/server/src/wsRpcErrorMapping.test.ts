@@ -23,7 +23,8 @@ describe("bindingRevisionErrorCode", () => {
     expect(
       bindingRevisionErrorCode(
         new ProviderThreadSwitchCoordinatorError({
-          detail: "The supplied thread binding revision is stale.",
+          detail:
+            "This thread's model or Connection changed while the message was being sent. Check the thread's current settings and send again.",
         }),
       ),
     ).toBeUndefined();

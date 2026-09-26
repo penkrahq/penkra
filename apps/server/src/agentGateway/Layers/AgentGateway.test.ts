@@ -3247,7 +3247,8 @@ describe("AgentGateway", () => {
     const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
       sendSelectionError: {
         code: "connection_unavailable",
-        message: "The selected Connection is unavailable for this thread.",
+        message:
+          "The selected Connection can't be used for this thread. Choose a Connection for the thread's provider.",
       },
     });
     return Effect.gen(function* () {
@@ -3261,22 +3262,29 @@ describe("AgentGateway", () => {
       assert.deepEqual(toolResultJson(response.result), {
         error: {
           code: "connection_unavailable",
-          message: "The selected Connection is unavailable for this thread.",
+          message:
+            "The selected Connection can't be used for this thread. Choose a Connection for the thread's provider.",
         },
       });
     }).pipe(Effect.provide(gatewayLayer));
   });
 
   for (const [message, code] of [
-    ["A started thread cannot change its provider harness.", "provider_mismatch"],
-    ["The selected Connection cannot authorize this model route.", "connection_unauthorized"],
-    ["The selected model is unavailable for this Connection.", "model_unavailable"],
     [
-      "Changing a thread selection requires its exact binding revision.",
+      "This thread uses a different provider. To use another provider, start a new thread.",
+      "provider_mismatch",
+    ],
+    ["The selected Connection doesn't have access to this model.", "connection_unauthorized"],
+    ["This model isn't available on the selected Connection.", "model_unavailable"],
+    [
+      "Changing this thread's model or Connection needs its current settings version. Reload the thread and try again.",
       "binding_revision_required",
     ],
-    ["The thread binding changed before this selection was accepted.", "binding_revision_stale"],
-    ["The thread has no committed provider binding.", "thread_binding_missing"],
+    [
+      "This thread's model or Connection changed while the message was being sent. Check the thread's current settings and send again.",
+      "binding_revision_stale",
+    ],
+    ["This thread has no provider set.", "thread_binding_missing"],
     ["Could not read the thread's runtime binding.", "selection_failed"],
   ] as const) {
     it.effect(`returns ${code} as a structured send error`, () => {
