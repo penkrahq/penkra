@@ -247,6 +247,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           Effect.mapError(
             (cause) =>
               new ProviderThreadSwitchCoordinatorError({
+                code: cause.code,
                 detail: cause.message,
                 cause,
               }),
@@ -896,6 +897,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
             Effect.mapError(
               (cause) =>
                 new ProviderThreadSwitchCoordinatorError({
+                  code: cause.code,
                   detail: cause.message,
                   cause,
                 }),
@@ -992,6 +994,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           Effect.mapError(
             (cause) =>
               new ProviderThreadSwitchCoordinatorError({
+                code: cause.code,
                 detail: cause.message,
                 cause,
               }),
