@@ -7942,6 +7942,7 @@ async function bootstrap(): Promise<void> {
           descriptor,
           document,
           webContents: desktopAppRuntime!.appTabs.target(tabId, document),
+          isPresented: () => desktopAppRuntime!.appTabs.isVisible(tabId),
         };
       } catch (error) {
         throw Object.assign(
