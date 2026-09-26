@@ -34,6 +34,7 @@ import {
 } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
 import { AgentGatewayToolBridge } from "../../agentGateway/Services/AgentGatewayToolBridge.ts";
 import { makeAgentGatewayToolBridge } from "../../agentGateway/Layers/AgentGatewayToolBridge.ts";
+import { claudeDefaultModelId, claudeModelsListFixture } from "../claudeModelsListFixture.ts";
 import {
   PENKRA_EXEC_COMMAND_ANNOTATIONS,
   PENKRA_EXEC_COMMAND_DESCRIPTION,
@@ -7819,32 +7820,22 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
     (query as { supportedModels: () => Promise<ModelInfo[]> }).supportedModels = async () => [
       {
         value: "default",
-        resolvedModel: "claude-sonnet-6",
+        resolvedModel: claudeDefaultModelId,
         displayName: "Default (recommended)",
-        description: "Sonnet 6",
+        description: "",
       },
       {
-        value: "opus",
-        resolvedModel: "claude-opus-6",
-        displayName: "Opus",
-        description: " Opus 6 · Most capable ",
-        supportsEffort: true,
-        supportedEffortLevels: ["low", "high", "max"],
-        supportsAdaptiveThinking: true,
-        supportsFastMode: true,
+        value: "sonnet",
+        resolvedModel: "claude-sonnet-5",
+        displayName: "Sonnet alias",
+        description: "",
       },
-      {
-        value: "haiku",
-        resolvedModel: "claude-haiku-4-5-20251001",
-        displayName: "Haiku",
-        description: "Haiku 4.5 · Fastest for quick answers",
-      },
-      {
-        value: "fallback",
-        resolvedModel: "claude-future-model",
-        displayName: "Provider label",
-        description: "Fastest",
-      },
+      ...claudeModelsListFixture.map((id) => ({
+        value: id,
+        resolvedModel: id,
+        displayName: id === "claude-fable-5" ? "" : id,
+        description: "",
+      })),
     ];
     const layer = makeClaudeAdapterLive({
       createQuery: (input) => {
@@ -7877,36 +7868,21 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
         },
       });
 
-      assert.deepEqual(result, {
-        models: [
-          {
-            slug: "claude-sonnet-6",
-            name: "Sonnet 6",
-            isDefault: true,
-            description: "Sonnet 6",
-          },
-          {
-            slug: "claude-opus-6",
-            name: "Opus 6",
-            description: "Opus 6 · Most capable",
-            supportedReasoningEfforts: [{ value: "low" }, { value: "high" }, { value: "max" }],
-            supportsFastMode: true,
-            supportsThinkingToggle: false,
-          },
-          {
-            slug: "claude-haiku-4-5-20251001",
-            name: "Haiku 4.5",
-            description: "Haiku 4.5 · Fastest for quick answers",
-          },
-          {
-            slug: "claude-future-model",
-            name: "Provider label",
-            description: "Fastest",
-          },
-        ],
-        source: "claudeAgent",
-        cached: false,
+      assert.deepEqual(
+        result.models.map((model) => model.slug),
+        [...claudeModelsListFixture],
+      );
+      assert.deepEqual(result.models[0], {
+        slug: claudeDefaultModelId,
+        name: `${claudeDefaultModelId} (Default)`,
+        isDefault: true,
       });
+      assert.strictEqual(result.models[5]?.name, "claude-fable-5");
+      assert.isFalse(
+        result.models.some((model) => model.slug === "default" || model.slug === "sonnet"),
+      );
+      assert.equal(result.source, "claudeAgent");
+      assert.equal(result.cached, false);
       assert.equal(query.closeCalls, 1);
       assert.equal(discoveryInput?.options.pathToClaudeCodeExecutable, "/managed/claude");
       assert.deepEqual(discoveryInput?.options.env, {
