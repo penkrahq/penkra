@@ -23,6 +23,12 @@ export const DESKTOP_IPC_CHANNELS = {
   windowGetState: "desktop:window-get-state",
   windowState: "desktop:window-state",
   menuAction: "desktop:menu-action",
+  panelFocus: {
+    shellInteraction: "desktop:panel-focus-shell-interaction",
+    shellShortcut: "desktop:panel-focus-shell-shortcut",
+    resolveShellShortcut: "desktop:panel-focus-resolve-shell-shortcut",
+    closePanelTab: "desktop:panel-focus-close-panel-tab",
+  },
   updateState: "desktop:update-state",
   updateGetState: "desktop:update-get-state",
   updateCheck: "desktop:update-check",

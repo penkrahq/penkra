@@ -9,8 +9,57 @@ import type {
 import { createBufferedPreloadEvent } from "./bufferedPreloadEvent";
 import { normalizeDesktopWsUrl, resolveDesktopWsUrlFromEnv } from "./desktopWsBridge";
 import { DESKTOP_IPC_CHANNELS } from "./ipcChannels";
+import { shouldRouteShellPanelClose } from "./panelShortcuts";
 
 const IPC = DESKTOP_IPC_CHANNELS;
+
+function shellInteractionTarget(target: EventTarget | null): Element | null {
+  if (!(target instanceof Node)) return null;
+  return target instanceof Element ? target : target.parentElement;
+}
+
+function shellPanelContext(target: EventTarget | null): {
+  insidePanel: boolean;
+  deckId: string | null;
+} {
+  const element = shellInteractionTarget(target);
+  const dock = element?.closest("[data-right-dock-root]");
+  return {
+    insidePanel: dock !== undefined && dock !== null,
+    deckId: dock?.closest("[data-chat-surface-shell]")?.getAttribute("data-deck-id") ?? null,
+  };
+}
+
+for (const type of ["mousedown", "keydown"] as const) {
+  document.addEventListener(
+    type,
+    (event) => {
+      if (!event.isTrusted) return;
+      const context = shellPanelContext(event.target);
+      ipcRenderer.sendSync(IPC.panelFocus.shellInteraction, context.insidePanel);
+      if (
+        type === "keydown" &&
+        shouldRouteShellPanelClose(process.platform, event as KeyboardEvent, context.insidePanel)
+      ) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        ipcRenderer.send(IPC.panelFocus.resolveShellShortcut, {
+          command: "close",
+          ...context,
+        });
+      }
+    },
+    true,
+  );
+}
+
+ipcRenderer.on(IPC.panelFocus.shellShortcut, (_event, command: unknown) => {
+  if (command !== "new-window" && command !== "find") return;
+  ipcRenderer.send(IPC.panelFocus.resolveShellShortcut, {
+    command,
+    ...shellPanelContext(document.activeElement),
+  });
+});
 
 const appTabOpened = createBufferedPreloadEvent<DesktopAppTabOpened>();
 const appTabState = createBufferedPreloadEvent<DesktopAppTabDescriptor>();
@@ -90,6 +139,17 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     return () => {
       ipcRenderer.removeListener(IPC.menuAction, wrappedListener);
     };
+  },
+  panelFocus: {
+    onClosePanelTab: (listener) => {
+      const wrapped = (_event: Electron.IpcRendererEvent, input: unknown) => {
+        if (!input || typeof input !== "object" || Array.isArray(input)) return;
+        const deckId = (input as { deckId?: unknown }).deckId;
+        if (typeof deckId === "string") listener({ deckId });
+      };
+      ipcRenderer.on(IPC.panelFocus.closePanelTab, wrapped);
+      return () => ipcRenderer.removeListener(IPC.panelFocus.closePanelTab, wrapped);
+    },
   },
   getZoomFactor: () => {
     const factor = ipcRenderer.sendSync(IPC.zoomFactor);
