@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   ApprovalRequestId,
   EventId,
@@ -13,6 +13,7 @@ import {
   buildTaskCompletionCopy,
   collectCompletedThreadCandidates,
   collectInputNeededThreadCandidates,
+  focusAvailableNotificationThread,
   isNotificationRuntimeFreshTimestamp,
   shouldShowThreadNotificationToast,
 } from "./taskCompletion.logic";
@@ -99,6 +100,25 @@ function buildCollectedTaskCompletionCopy(assistantText: string) {
   }
   return buildTaskCompletionCopy(candidate);
 }
+
+describe("notification thread activation", () => {
+  it("checks the current shell when a toast or native notification is clicked", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const navigate = vi.fn();
+    const shell = { id: threadId, archivedAt: null } as Thread;
+    const state = { threadShellById: { [threadId]: shell } };
+    expect(focusAvailableNotificationThread({ threadId, state, navigate })).toBe(true);
+    expect(navigate).toHaveBeenCalledExactlyOnceWith(threadId);
+
+    navigate.mockClear();
+    state.threadShellById[threadId] = { ...shell, archivedAt: "2026-09-26T00:00:00.000Z" };
+    expect(focusAvailableNotificationThread({ threadId, state, navigate })).toBe(false);
+    expect(
+      focusAvailableNotificationThread({ threadId, state: { threadShellById: {} }, navigate }),
+    ).toBe(false);
+    expect(navigate).not.toHaveBeenCalled();
+  });
+});
 
 describe("collectCompletedThreadCandidates", () => {
   it("returns threads that moved from working to completed", () => {

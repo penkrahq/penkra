@@ -4,6 +4,7 @@
 
 import { FolderId, SpaceId, ThreadDeckId, ThreadId } from "@penkra/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { isLocalThreadArchiveNavigationPending } from "../lib/threadArchiveNavigation";
 
 const reactHarness = vi.hoisted(() => {
   interface HookSlot {
@@ -396,10 +397,12 @@ describe("useSidebarThreadActions", () => {
     const controller = render({ routeThreadId: THREAD_ID });
 
     const first = controller.archiveThread(THREAD_ID);
+    expect(isLocalThreadArchiveNavigationPending(THREAD_ID)).toBe(true);
     const duplicate = controller.archiveThread(THREAD_ID);
     await expect(duplicate).resolves.toBe(false);
     releaseArchive();
     await expect(first).resolves.toBe(true);
+    expect(isLocalThreadArchiveNavigationPending(THREAD_ID)).toBe(false);
 
     expect(harness.archiveThread).toHaveBeenCalledOnce();
     expect(harness.navigate).toHaveBeenCalledWith(
@@ -416,11 +419,15 @@ describe("useSidebarThreadActions", () => {
       data: { archiveUndo: { onUndo: () => Promise<boolean> } };
     };
 
+    harness.navigate.mockClear();
     await expect(toast.data.archiveUndo.onUndo()).resolves.toBe(true);
 
     expect(harness.unarchiveThread).toHaveBeenCalledOnce();
     expect(harness.navigate).toHaveBeenCalledWith(
       expect.objectContaining({ params: { threadId: THREAD_ID }, replace: true }),
+    );
+    expect(harness.unarchiveThread.mock.invocationCallOrder[0]).toBeLessThan(
+      harness.navigate.mock.invocationCallOrder[0]!,
     );
   });
 
