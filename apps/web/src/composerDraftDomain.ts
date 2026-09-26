@@ -167,7 +167,6 @@ export interface ComposerThreadDraftState {
   pastedTexts: PastedTextDraft[];
   skills: ProviderSkillReference[];
   mentions: ProviderMentionReference[];
-  queuedTurns: QueuedComposerTurn[];
   pendingStartRecoveriesByMessageId?: Partial<Record<MessageId, PendingStartRecoveryRecord>>;
   pendingMessageEdit: PendingMessageEdit | null;
   modelSelectionByProvider: Partial<Record<ProviderKind, ModelSelection>>;
@@ -296,8 +295,6 @@ export interface ComposerDraftStoreState {
     },
   ) => void;
   setRuntimeMode: (threadId: ThreadId, runtimeMode: RuntimeMode | null | undefined) => void;
-  enqueueQueuedTurn: (threadId: ThreadId, queuedTurn: QueuedComposerTurn) => void;
-  insertQueuedTurn: (threadId: ThreadId, queuedTurn: QueuedComposerTurn, index: number) => void;
   recoverCancelledQueuedTurn: (threadId: ThreadId, queuedTurn: QueuedComposerTurn) => boolean;
   capturePendingStartRecovery: (threadId: ThreadId, recovery: PendingStartRecovery) => boolean;
   markPendingStartRecoveryAccepted: (
@@ -319,19 +316,6 @@ export interface ComposerDraftStoreState {
   ) => boolean;
   clearPendingStartRecovery: (threadId: ThreadId, messageId: MessageId) => boolean;
   setPendingMessageEdit: (threadId: ThreadId, edit: PendingMessageEdit | null) => void;
-  markQueuedTurnServerAccepted: (
-    threadId: ThreadId,
-    queuedTurnId: string,
-    acceptedAt: string,
-  ) => void;
-  setQueuedTurnDispatchAdmission: (
-    threadId: ThreadId,
-    queuedTurnId: string,
-    attempt: number,
-    bindingRevision: number,
-  ) => void;
-  advanceQueuedTurnDispatchAttempt: (threadId: ThreadId, queuedTurnId: string) => void;
-  removeQueuedTurn: (threadId: ThreadId, queuedTurnId: string) => void;
   addImage: (threadId: ThreadId, image: ComposerImageAttachment) => void;
   addImages: (threadId: ThreadId, images: ComposerImageAttachment[]) => void;
   removeImage: (threadId: ThreadId, imageId: string) => void;
@@ -499,7 +483,6 @@ export function createEmptyThreadDraft(): ComposerThreadDraftState {
     pastedTexts: [],
     skills: [],
     mentions: [],
-    queuedTurns: [],
     pendingStartRecoveriesByMessageId: {},
     pendingMessageEdit: null,
     modelSelectionByProvider: {},
@@ -793,7 +776,6 @@ export function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
     draft.pastedTexts.length === 0 &&
     draft.skills.length === 0 &&
     draft.mentions.length === 0 &&
-    draft.queuedTurns.length === 0 &&
     Object.keys(draft.pendingStartRecoveriesByMessageId ?? {}).length === 0 &&
     draft.pendingMessageEdit === null &&
     Object.keys(draft.modelSelectionByProvider).length === 0 &&
@@ -817,7 +799,6 @@ const EMPTY_TERMINAL_CONTEXTS: TerminalContextDraft[] = [];
 const EMPTY_PASTED_TEXTS: PastedTextDraft[] = [];
 const EMPTY_SKILLS: ProviderSkillReference[] = [];
 const EMPTY_MENTIONS: ProviderMentionReference[] = [];
-const EMPTY_QUEUED_TURNS: QueuedComposerTurn[] = [];
 Object.freeze(EMPTY_IMAGES);
 Object.freeze(EMPTY_FILES);
 Object.freeze(EMPTY_IDS);
@@ -826,7 +807,6 @@ Object.freeze(EMPTY_TERMINAL_CONTEXTS);
 Object.freeze(EMPTY_PASTED_TEXTS);
 Object.freeze(EMPTY_SKILLS);
 Object.freeze(EMPTY_MENTIONS);
-Object.freeze(EMPTY_QUEUED_TURNS);
 const EMPTY_MODEL_SELECTION_BY_PROVIDER: Partial<Record<ProviderKind, ModelSelection>> =
   Object.freeze({});
 
@@ -843,7 +823,6 @@ const EMPTY_THREAD_DRAFT = Object.freeze<ComposerThreadDraftState>({
   pastedTexts: EMPTY_PASTED_TEXTS,
   skills: EMPTY_SKILLS,
   mentions: EMPTY_MENTIONS,
-  queuedTurns: EMPTY_QUEUED_TURNS,
   pendingStartRecoveriesByMessageId: {},
   pendingMessageEdit: null,
   modelSelectionByProvider: EMPTY_MODEL_SELECTION_BY_PROVIDER,
