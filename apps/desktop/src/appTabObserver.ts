@@ -138,6 +138,8 @@ export interface AppTabObservationTarget {
   captureBounds?: () => Promise<Rectangle | null> | Rectangle | null;
   /** Whether the live tab is currently presented in a visible window. */
   isPresented?: () => boolean;
+  /** Whether detached pointer input is safe and supported on this platform. */
+  canDeliverPointerInput?: () => boolean;
 }
 
 export interface AppTabObserverResolver {
@@ -894,6 +896,12 @@ export class AppTabObserver {
         throw observerError(
           "TAB_NOT_HIT_TESTABLE",
           `${reference} is outside the viewport or covered. Give the retained tab a usable layout or present it, then retry.`,
+        );
+      }
+      if (target.canDeliverPointerInput?.() === false) {
+        throw observerError(
+          "CLICK_NOT_DELIVERED",
+          `${reference} is detached on a platform where pointer delivery cannot be guaranteed. Present the tab in a window, then retry.`,
         );
       }
       if (target.isPresented?.() !== false) await this.#moveCursor(target, point, human);

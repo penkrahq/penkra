@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 
 import {
   BrowserWindow,
+  screen,
   WebContentsView,
   type NativeImage,
   type Rectangle,
@@ -249,6 +250,55 @@ export function detachedHostLayoutBounds(
   };
 }
 
+export interface DetachedHostPlatformPolicy {
+  readonly visibleHost: boolean;
+  readonly canDeliverPointerInput: boolean;
+  readonly placement: Pick<Rectangle, "x" | "y">;
+  readonly useSkipTaskbar: boolean;
+  readonly useNonFocusableWindow: boolean;
+  readonly forwardUserMouseEvents: false;
+}
+
+export function detachedHostPlatformPolicy(input: {
+  platform: NodeJS.Platform;
+  displays: ReadonlyArray<Rectangle>;
+}): DetachedHostPlatformPolicy {
+  const isLinux = input.platform === "linux";
+  const rightmostDisplay = input.displays.reduce(
+    (right, display) => Math.max(right, display.x + display.width),
+    0,
+  );
+  const offscreenPlacement = { x: rightmostDisplay + 10_000, y: 10_000 };
+  if (isLinux) {
+    // Linux window placement and showInactive behavior are not reliable across
+    // compositors. Keep the helper hidden and off every display; detached pointer
+    // delivery is consequently not advertised as supported on Linux.
+    return {
+      visibleHost: false,
+      canDeliverPointerInput: false,
+      placement: offscreenPlacement,
+      useSkipTaskbar: false,
+      useNonFocusableWindow: false,
+      forwardUserMouseEvents: false,
+    };
+  }
+  return {
+    visibleHost: true,
+    canDeliverPointerInput: true,
+    placement: { x: 0, y: 0 },
+    useSkipTaskbar: true,
+    useNonFocusableWindow: true,
+    forwardUserMouseEvents: false,
+  };
+}
+
+export function hasRegisteredShellWindow<T extends { webContents: { id: number } }>(
+  windows: ReadonlyArray<T>,
+  windowByRendererId: (rendererId: number) => T | null,
+): boolean {
+  return windows.some((window) => windowByRendererId(window.webContents.id) === window);
+}
+
 let appTabHostTraceSequence = 0;
 
 function traceAppTabHost(event: string, details: Record<string, unknown> = {}): void {
@@ -272,6 +322,8 @@ export class AppTabViewHost implements AppTabHost {
   readonly #preloadPath: string;
   readonly #windowById: (windowId: number) => BrowserWindow | null;
   readonly #hasShellWindow: () => boolean;
+  readonly #detachedHostPolicy: DetachedHostPlatformPolicy;
+  readonly #detachedHostCanDeliverPointerInput: boolean;
   readonly #onBeforeInput: (event: Electron.Event, input: Electron.Input) => void;
   readonly #opened: ProtectedPublisher<DesktopAppTabOpened>;
   readonly #state: ProtectedPublisher<DesktopAppTabDescriptor>;
@@ -313,6 +365,7 @@ export class AppTabViewHost implements AppTabHost {
     preloadPath: string;
     windowById: (windowId: number) => BrowserWindow | null;
     hasShellWindow?: () => boolean;
+    platform?: NodeJS.Platform;
     onBeforeInput?: (event: Electron.Event, input: Electron.Input) => void;
     onOpened: (descriptor: DesktopAppTabOpened) => void;
     onState: (descriptor: DesktopAppTabDescriptor) => void;
@@ -341,8 +394,14 @@ export class AppTabViewHost implements AppTabHost {
     this.#windowById = input.windowById;
     this.#hasShellWindow =
       input.hasShellWindow ??
-      (() =>
-        BrowserWindow.getAllWindows().some((window) => this.#windowById(window.id) === window));
+      (() => hasRegisteredShellWindow(BrowserWindow.getAllWindows(), this.#windowById));
+    const platform = input.platform ?? process.platform;
+    this.#detachedHostPolicy = detachedHostPlatformPolicy({
+      platform,
+      displays:
+        platform === "linux" ? screen.getAllDisplays().map((display) => display.bounds) : [],
+    });
+    this.#detachedHostCanDeliverPointerInput = this.#detachedHostPolicy.canDeliverPointerInput;
     this.#onBeforeInput = input.onBeforeInput ?? (() => undefined);
     const onNotificationError =
       input.onNotificationError ??
@@ -531,6 +590,12 @@ export class AppTabViewHost implements AppTabHost {
 
   list(): ReadonlyArray<DesktopAppTabDescriptor> {
     return [...this.#records.values()].map((record) => record.descriptor);
+  }
+
+  canDeliverPointerInput(tabId: string): boolean {
+    const record = this.#records.get(tabId);
+    return !!record &&
+      (record.ownerWindowId !== null || this.#detachedHostCanDeliverPointerInput);
   }
 
   has(tabId: string): boolean {
@@ -2329,19 +2394,19 @@ export class AppTabViewHost implements AppTabHost {
     const width = Math.max(640, Math.ceil(bounds.width));
     const height = Math.max(720, Math.ceil(bounds.height));
     let host = this.#detachedHostByWebContentsId.get(key);
+    const hostPolicy = this.#detachedHostPolicy;
     if (!host || host.isDestroyed()) {
       host = new BrowserWindow({
         show: false,
-        x: 0,
-        y: 0,
+        ...hostPolicy.placement,
         width,
         height,
         frame: false,
         transparent: true,
         backgroundColor: "#00000000",
         opacity: 0,
-        focusable: false,
-        skipTaskbar: true,
+        ...(hostPolicy.useNonFocusableWindow ? { focusable: false } : {}),
+        ...(hostPolicy.useSkipTaskbar ? { skipTaskbar: true } : {}),
         hasShadow: false,
         resizable: false,
         minimizable: false,
@@ -2369,8 +2434,8 @@ export class AppTabViewHost implements AppTabHost {
   }
 
   #showDetachedHost(host: BrowserWindow): void {
-    host.setIgnoreMouseEvents(true, { forward: true });
-    if (!host.isVisible()) host.showInactive();
+    host.setIgnoreMouseEvents(true);
+    if (this.#detachedHostPolicy.visibleHost && !host.isVisible()) host.showInactive();
     host.setOpacity(0);
   }
 
