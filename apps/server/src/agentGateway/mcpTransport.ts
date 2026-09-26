@@ -183,11 +183,13 @@ export function makeAgentGatewayMcpTransport(input: {
             );
           }
           if (currentSession.provider !== callerSession.provider) {
-            return yield* Effect.fail(new GatewayToolError(
-              "caller_session_inactive",
-              "This Penkra write was rejected because the provider session no longer matches its thread.",
-              { callerThreadId },
-            ));
+            return yield* Effect.fail(
+              new GatewayToolError(
+                "caller_session_inactive",
+                "This Penkra write was rejected because the provider session no longer matches its thread.",
+                { callerThreadId },
+              ),
+            );
           }
           const caller = yield* input
             .requireThreadShell(callerThreadId)

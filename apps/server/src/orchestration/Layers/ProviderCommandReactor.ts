@@ -70,6 +70,7 @@ import {
   ProviderServiceError,
 } from "../../provider/Errors.ts";
 import { buildInlineSkillInstructions } from "../../provider/skillPromptInjection.ts";
+import { clampMentionTitle } from "../../provider/threadMentionContext.ts";
 import {
   appendThreadMentionContextBlocks,
   resolveThreadMentionPromptProjection,
@@ -1448,8 +1449,19 @@ const make = Effect.gen(function* () {
     const senderShell = input.senderThreadId
       ? Option.getOrNull(yield* projectionSnapshotQuery.getThreadShellById(input.senderThreadId))
       : null;
+    const senderTitle = senderShell?.title;
     const senderContext = input.senderThreadId
-      ? `[Silent context: This message was sent by another Penkra agent thread (ID: ${input.senderThreadId}${senderShell ? `, title: ${senderShell.title}` : ""}).]\n\n`
+      ? [
+          "<agent_message_sender>",
+          "This message was written by the agent in another Penkra thread, not by the user.",
+          ...(senderTitle?.trim()
+            ? [`Thread: ${JSON.stringify(clampMentionTitle(senderTitle))}`]
+            : []),
+          `Thread ID: ${input.senderThreadId}`,
+          "</agent_message_sender>",
+          "",
+          "",
+        ].join("\n")
       : "";
     const providerInputWithMentionContext = `${senderContext}${input.messageText}${mentionContextSuffix}`;
     // Portable skills fallback: providers that cannot load the referenced skill

@@ -1594,9 +1594,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.dispatchOrigin === "agent" && command.senderThreadId !== undefined
             ? { senderThreadId: command.senderThreadId }
             : {}),
-          ...(command.dispatchOrigin === "agent" && command.senderThreadId !== undefined
-            ? { senderThreadId: command.senderThreadId }
-            : {}),
           delivery: {
             state: shouldQueue ? "queued" : dispatchMode === "steer" ? "steering" : "starting",
             queued: shouldQueue,
