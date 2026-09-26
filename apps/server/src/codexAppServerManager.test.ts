@@ -170,6 +170,7 @@ describe("Codex Penkra harness policy", () => {
       session: {
         provider: "codex",
         status: "running",
+        activeTurnId: asTurnId("turn-successor"),
         threadId: asThreadId("thread-native-tool"),
         runtimeMode: "full-access",
         cwd: resourceRoot,
@@ -217,6 +218,7 @@ describe("Codex Penkra harness policy", () => {
       bearerToken: "thread-token",
       name: "penkra_exec_command",
       arguments: { command: "apps list" },
+      originTurnId: "turn-native",
     });
     const response = writeMessage.mock.calls[0]?.[1] as {
       result: {
@@ -238,6 +240,31 @@ describe("Codex Penkra harness policy", () => {
       }
     ).clearTemporaryResources(context, asTurnId("turn-native"));
     expect(() => readFileSync(resourcePath!, "utf8")).toThrow();
+
+    invoke.mockResolvedValueOnce({
+      content: [{ type: "text", text: '{"ok":true}' }],
+    });
+    await handleServerRequestForTest(manager, context, {
+      jsonrpc: "2.0",
+      id: 72,
+      method: "item/tool/call",
+      params: {
+        threadId: "provider-thread-native",
+        callId: "call-without-turn",
+        namespace: null,
+        tool: "penkra_exec_command",
+        arguments: { command: "apps list" },
+      },
+    });
+    expect(invoke).toHaveBeenCalledTimes(2);
+    expect(invoke).toHaveBeenLastCalledWith({
+      bearerToken: "thread-token",
+      name: "penkra_exec_command",
+      arguments: { command: "apps list" },
+    });
+    expect(writeMessage.mock.calls[1]?.[1]).toMatchObject({
+      result: { success: true },
+    });
     rmSync(resourceRoot, { recursive: true, force: true });
     expect(writeMessage).toHaveBeenCalledWith(context, {
       id: 71,

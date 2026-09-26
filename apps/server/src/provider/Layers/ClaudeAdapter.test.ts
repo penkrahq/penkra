@@ -356,8 +356,6 @@ function makeGatewayCredentialsHarness() {
     issueSessionToken: () => `gateway-token-${++sequence}`,
     verifySessionToken: () => null,
     verifySession: () => null,
-    bindWriteAuthority: () => null,
-    verifyWriteAuthority: () => false,
     revokeSessionToken: (token: string) => {
       revokedTokens.push(token);
     },
