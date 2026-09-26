@@ -35,7 +35,7 @@ describe("ThreadErrorBanner", () => {
       />,
     );
     expect(markup).toContain("Retry");
-    expect(markup).toContain("Re-authenticate");
+    expect(markup).toContain("Sign in again");
     expect(markup).toContain("<details");
     expect(markup).not.toContain("Dismiss error");
   });

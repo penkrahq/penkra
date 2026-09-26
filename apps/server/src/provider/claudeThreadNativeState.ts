@@ -150,7 +150,7 @@ export async function rememberClaudeThreadAccount(input: {
   const existing = await readClaudeThreadAccount(input.stateDir, input.threadId);
   if (existing !== null) {
     if (!claudeAccountsMatch(existing, input.account)) {
-      throw new Error("Claude subscription continuation requires the same account.");
+      throw new Error("This thread's Claude conversation belongs to a different Claude account. Use a Connection signed in to that account, or start a new thread.");
     }
     return;
   }
@@ -170,7 +170,7 @@ export async function rememberClaudeThreadAccount(input: {
   }
   const owner = await readClaudeThreadAccount(input.stateDir, input.threadId);
   if (owner === null || !claudeAccountsMatch(owner, input.account)) {
-    throw new Error("Claude subscription continuation requires the same account.");
+    throw new Error("This thread's Claude conversation belongs to a different Claude account. Use a Connection signed in to that account, or start a new thread.");
   }
 }
 

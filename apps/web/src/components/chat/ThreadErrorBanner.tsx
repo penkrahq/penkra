@@ -22,7 +22,7 @@ export function ThreadErrorBanner({
   if (!error) return null;
   const authFailure =
     error.startsWith("The provider is rejecting this Connection.") ||
-    error.startsWith("This Connection needs sign-in again.");
+    error.startsWith("This Connection needs you to sign in again.");
   const detailSeparator = "\nProvider detail: ";
   const detailStart = authFailure ? error.indexOf(detailSeparator) : -1;
   const summary = detailStart >= 0 ? error.slice(0, detailStart) : error;
@@ -49,7 +49,7 @@ export function ThreadErrorBanner({
             ) : null}
             {onReauthenticate ? (
               <button type="button" onClick={onReauthenticate}>
-                Re-authenticate
+                Sign in again
               </button>
             ) : null}
           </AlertAction>
