@@ -108,6 +108,40 @@ beforeAll(() => {
 });
 
 describe("MessagesTimeline", () => {
+  it("shows a failed queued message as a transcript row", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const message = makeThread({
+      messages: [
+        {
+          id: MessageId.makeUnsafe("failed-queued-row"),
+          role: "user",
+          text: "Continue",
+          delivery: {
+            state: "failed",
+            queued: false,
+            sequence: 12,
+            failurePhase: "before-provider-dispatch",
+            failureDetail: "Choose another Connection.",
+          },
+          streaming: false,
+          source: "native",
+          sequence: 10,
+          createdAt: "2026-09-27T00:00:00.000Z",
+        },
+      ],
+    }).messages[0]!;
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...makeTimelineBaseProps()}
+        timelineEntries={[
+          { id: "failed-queued-row", kind: "message", createdAt: message.createdAt, message },
+        ]}
+      />,
+    );
+    expect(markup).toContain("Continue");
+    expect(markup).toContain("Failed · not delivered");
+    expect(markup).not.toContain("Queued · not delivered");
+  });
   it.each(["live event", "snapshot hydration"] as const)(
     "renders sender attribution after %s passes through the store",
     async (source) => {

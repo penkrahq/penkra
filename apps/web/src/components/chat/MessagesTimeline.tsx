@@ -1388,6 +1388,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                           ) + 1}
                       </div>
                     )}
+                    {row.message.delivery?.state === "failed" &&
+                      row.message.delivery.failurePhase === "before-provider-dispatch" && (
+                        <div
+                          className="mb-1.5 self-end text-[length:var(--app-font-size-ui-sm,11px)] text-destructive"
+                          data-testid="failed-message-status"
+                        >
+                          Failed · not delivered
+                        </div>
+                      )}
                     {renderedAssistantSelections.length > 0 && (
                       <div className="mb-1 flex max-w-[240px] flex-wrap justify-end gap-1.5 self-end">
                         <AssistantSelectionsSummaryChip selections={renderedAssistantSelections} />

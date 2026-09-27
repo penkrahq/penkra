@@ -1524,6 +1524,84 @@ describe("orchestration projector", () => {
       completedAt: null,
     });
   });
+
+  it("projects a queued promotion refusal as failed delivery without failing its active session", async () => {
+    const now = "2026-09-07T02:00:00.000Z";
+    const failedAt = "2026-09-07T02:00:01.000Z";
+    const messageId = MessageId.makeUnsafe("queued-promotion-refused");
+    const turnId = TurnId.makeUnsafe("queued-promotion-turn");
+    const base = await projectThreadWithRunningTurn({ createdAt: now, startedAt: now });
+    const thread = base.threads[0]!;
+    const queued: OrchestrationReadModel = {
+      ...base,
+      threads: [
+        {
+          ...thread,
+          latestTurn: {
+            turnId,
+            state: "queued",
+            requestedAt: now,
+            startedAt: null,
+            completedAt: null,
+            assistantMessageId: null,
+          },
+          messages: [
+            {
+              id: messageId,
+              role: "user",
+              text: "continue",
+              turnId: null,
+              delivery: { state: "queued", queued: true, sequence: 3 },
+              streaming: false,
+              source: "native",
+              sequence: 3,
+              createdAt: now,
+              updatedAt: now,
+            },
+          ],
+        },
+      ],
+    };
+    const failed = await Effect.runPromise(
+      projectEvent(
+        queued,
+        makeEvent({
+          sequence: 4,
+          type: "thread.message-delivery-set",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: failedAt,
+          commandId: "cmd-queued-promotion-refused",
+          payload: {
+            threadId: "thread-1",
+            messageId,
+            turnId,
+            state: "failed",
+            queued: false,
+            failurePhase: "before-provider-dispatch",
+            failureDetail: "Choose a compatible Connection.",
+            updatedAt: failedAt,
+          },
+        }),
+      ),
+    );
+    expect(failed.threads[0]).toMatchObject({
+      session: { status: "running", activeTurnId: "turn-1" },
+      latestTurn: { turnId, state: "error", completedAt: failedAt },
+      messages: [
+        {
+          id: messageId,
+          delivery: {
+            state: "failed",
+            queued: false,
+            failurePhase: "before-provider-dispatch",
+            failureDetail: "Choose a compatible Connection.",
+            sequence: 4,
+          },
+        },
+      ],
+    });
+  });
   it("advances sequence for a skipped provider lifecycle write without changing thread state", async () => {
     const model = await projectThreadWithRunningTurn({
       createdAt: "2026-09-07T02:00:00.000Z",

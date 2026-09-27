@@ -87,6 +87,7 @@ import { ProviderDiscoveryService } from "../../provider/Services/ProviderDiscov
 import { classifyProviderAuthFailure } from "../../provider/providerAuthFailure.ts";
 import { makeProviderAuthCircuitStore } from "../../provider/providerAuthCircuit.ts";
 import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
+import { ProviderTurnSelectionResolutionError } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
 import { ProviderLaunchResolver } from "../../provider/Services/ProviderLaunchResolver.ts";
 import type { ProviderManagedLaunchContext } from "../../provider/Services/ProviderAdapter.ts";
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
@@ -114,7 +115,11 @@ import { ensureDurableThreadWorkspace } from "../../scratchWorkspaces.ts";
 import { LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL } from "../../managedAttachmentPrincipal.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
-import { ProviderThreadSwitchCoordinator } from "../Services/ProviderThreadSwitchCoordinator.ts";
+import { OrchestrationCommandInvariantError } from "../Errors.ts";
+import {
+  ProviderThreadSwitchCoordinator,
+  ProviderThreadSwitchCoordinatorError,
+} from "../Services/ProviderThreadSwitchCoordinator.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
@@ -143,6 +148,39 @@ type ProviderQueueDrainEvent = Extract<
 type QueuedTurnSourceEvent =
   | Extract<ProviderIntentEvent, { type: "thread.turn-queued" }>
   | Extract<ProviderIntentEvent, { type: "thread.turn-start-requested" }>;
+
+const TERMINAL_PROMOTION_CODES = new Set([
+  "provider_mismatch",
+  "connection_unauthorized",
+  "connection_unavailable",
+  "model_unavailable",
+  "thread_binding_missing",
+  "binding_revision_required",
+  "switch_operation_failed",
+]);
+
+const terminalPromotionFailureDetail = (failure: unknown): string | null => {
+  let current = failure;
+  const seen = new Set<Error>();
+  while (current instanceof Error && !seen.has(current)) {
+    if (current instanceof OrchestrationCommandInvariantError) {
+      return current.code === "thread_running" ||
+        current.code === "provider_switch_commit_retryable"
+        ? null
+        : current.message;
+    }
+    if (
+      (current instanceof ProviderThreadSwitchCoordinatorError ||
+        current instanceof ProviderTurnSelectionResolutionError) &&
+      TERMINAL_PROMOTION_CODES.has(current.code)
+    ) {
+      return current.message;
+    }
+    seen.add(current);
+    current = current.cause;
+  }
+  return null;
+};
 
 type InteractionResponseEvent = Extract<
   ProviderIntentEvent,
@@ -2525,46 +2563,112 @@ const make = Effect.gen(function* () {
         }
         const nextQueuedTurn = sourceEvent.payload;
         const currentThread = yield* resolveThread(threadId);
+        if (!currentThread) {
+          return yield* Effect.fail(new Error(`Queued thread '${threadId}' is missing.`));
+        }
+        const runtimeBinding = yield* threadProviderBindings.getRuntimeBinding(threadId);
+        const readModel = yield* orchestrationEngine.getCommandReadModel();
+        const cwd =
+          resolveThreadWorkspaceCwd({
+            workingDirectory: currentThread.workingDirectory,
+            projectCwd:
+              readModel.folders.find((project) => project.id === currentThread.folderId)
+                ?.workspaceRoot ?? null,
+          }) ?? ensureDurableThreadWorkspace(threadId, serverConfig.stateDir);
         pendingQueuedDispatchBySessionThread.set(sessionThreadId, {
           queuedThreadId: threadId,
           messageId: nextQueuedTurn.messageId,
         });
-        yield* orchestrationEngine.dispatch({
-          type: "thread.turn.dispatch-queued",
-          commandId: CommandId.makeUnsafe(
-            `server:dispatch-queued-turn:${promotion.queuedEventSequence}`,
-          ),
-          threadId,
-          turnId: nextQueuedTurn.turnId ?? TurnId.makeUnsafe(`turn:${sourceEvent.commandId}`),
-          messageId: nextQueuedTurn.messageId,
-          ...(currentThread ? { modelSelection: currentThread.modelSelection } : {}),
-          ...(currentThread?.connectionId !== undefined
-            ? { connectionId: currentThread.connectionId }
-            : nextQueuedTurn.connectionId !== undefined
-              ? { connectionId: nextQueuedTurn.connectionId }
-              : {}),
-          ...(nextQueuedTurn.bindingRevision !== undefined
-            ? { bindingRevision: nextQueuedTurn.bindingRevision }
-            : {}),
-          ...(nextQueuedTurn.providerOptions !== undefined
-            ? { providerOptions: nextQueuedTurn.providerOptions }
-            : {}),
-          ...(nextQueuedTurn.reviewTarget !== undefined
-            ? { reviewTarget: nextQueuedTurn.reviewTarget }
-            : {}),
-          ...(nextQueuedTurn.assistantDeliveryMode !== undefined
-            ? { assistantDeliveryMode: nextQueuedTurn.assistantDeliveryMode }
-            : {}),
-          dispatchMode: nextQueuedTurn.dispatchMode,
-          ...(nextQueuedTurn.dispatchOrigin !== undefined
-            ? { dispatchOrigin: nextQueuedTurn.dispatchOrigin }
-            : {}),
-          ...(nextQueuedTurn.senderThreadId !== undefined
-            ? { senderThreadId: nextQueuedTurn.senderThreadId }
-            : {}),
-          runtimeMode: nextQueuedTurn.runtimeMode,
-          createdAt: nextQueuedTurn.createdAt,
-        });
+        const admitted = yield* providerThreadSwitchCoordinator
+          .dispatchQueuedTurn({
+            attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+            cwd,
+            command: {
+              type: "thread.turn.dispatch-queued",
+              commandId: CommandId.makeUnsafe(
+                `server:dispatch-queued-turn:${promotion.queuedEventSequence}`,
+              ),
+              threadId,
+              turnId: nextQueuedTurn.turnId ?? TurnId.makeUnsafe(`turn:${sourceEvent.commandId}`),
+              messageId: nextQueuedTurn.messageId,
+              modelSelection: currentThread.modelSelection,
+              ...(currentThread.connectionId !== undefined
+                ? { connectionId: currentThread.connectionId }
+                : nextQueuedTurn.connectionId !== undefined
+                  ? { connectionId: nextQueuedTurn.connectionId }
+                  : {}),
+              ...(Option.isSome(runtimeBinding)
+                ? { bindingRevision: runtimeBinding.value.revision }
+                : nextQueuedTurn.bindingRevision !== undefined
+                  ? { bindingRevision: nextQueuedTurn.bindingRevision }
+                  : {}),
+              ...(nextQueuedTurn.providerOptions !== undefined
+                ? { providerOptions: nextQueuedTurn.providerOptions }
+                : {}),
+              ...(nextQueuedTurn.reviewTarget !== undefined
+                ? { reviewTarget: nextQueuedTurn.reviewTarget }
+                : {}),
+              ...(nextQueuedTurn.assistantDeliveryMode !== undefined
+                ? { assistantDeliveryMode: nextQueuedTurn.assistantDeliveryMode }
+                : {}),
+              dispatchMode: nextQueuedTurn.dispatchMode,
+              ...(nextQueuedTurn.dispatchOrigin !== undefined
+                ? { dispatchOrigin: nextQueuedTurn.dispatchOrigin }
+                : {}),
+              ...(nextQueuedTurn.senderThreadId !== undefined
+                ? { senderThreadId: nextQueuedTurn.senderThreadId }
+                : {}),
+              runtimeMode: nextQueuedTurn.runtimeMode,
+              createdAt: nextQueuedTurn.createdAt,
+            },
+          })
+          .pipe(
+            Effect.map(() => true as const),
+            Effect.catch((failure) => {
+              const terminalDetail = terminalPromotionFailureDetail(failure);
+              if (terminalDetail === null) return Effect.fail(failure);
+              const failedAt = new Date().toISOString();
+              return Effect.gen(function* () {
+                yield* orchestrationEngine.dispatch({
+                  type: "thread.message.delivery.set",
+                  commandId: CommandId.makeUnsafe(
+                    `server:queued-promotion-delivery-failed:${promotion.queuedEventSequence}`,
+                  ),
+                  threadId,
+                  messageId: nextQueuedTurn.messageId,
+                  turnId:
+                    nextQueuedTurn.turnId ?? TurnId.makeUnsafe(`turn:${sourceEvent.commandId}`),
+                  state: "failed",
+                  queued: false,
+                  failurePhase: "before-provider-dispatch",
+                  failureDetail: terminalDetail,
+                  // Stable identity if the event commits before claim retirement.
+                  createdAt: nextQueuedTurn.createdAt,
+                });
+                yield* queuedTurnPromotions.cancelMessage({
+                  threadId,
+                  messageId: nextQueuedTurn.messageId,
+                  updatedAt: failedAt,
+                });
+                yield* appendProviderFailureActivity({
+                  threadId,
+                  kind: "provider.turn.start.failed",
+                  summary: "Provider turn start failed",
+                  detail: terminalDetail,
+                  turnId: null,
+                  createdAt: failedAt,
+                }).pipe(Effect.ignore);
+                pendingQueuedDispatchBySessionThread.delete(sessionThreadId);
+                return false as const;
+              }).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProviderThreadSwitchCoordinatorError({ detail: cause.message, cause }),
+                ),
+              );
+            }),
+          );
+        if (!admitted) return;
         const promoted = yield* queuedTurnPromotions.markPromoted({
           queuedEventSequence: promotion.queuedEventSequence,
           claimOwner: queuedTurnPromotionOwner,

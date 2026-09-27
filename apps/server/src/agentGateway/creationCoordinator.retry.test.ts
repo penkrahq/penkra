@@ -253,6 +253,7 @@ function makeHarness(options: HarnessOptions = {}): Harness {
       successfulTurnStarts.push(command);
       return Effect.succeed({ sequence: successfulTurnStarts.length });
     },
+    dispatchQueuedTurn: () => Effect.die("unused queued turn dispatch"),
     recoverOpen: Effect.void,
   };
 
