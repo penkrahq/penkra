@@ -425,6 +425,8 @@ async function makeProviderRuntime(
       return {
         dispatchTurnStart: ({ command }: { readonly command: unknown }) =>
           engine.dispatch(command as never),
+        dispatchQueuedTurn: ({ command }: { readonly command: unknown }) =>
+          engine.dispatch(command as never),
         recoverOpen: Effect.void,
       } as never;
     }),
