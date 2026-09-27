@@ -1079,7 +1079,8 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             event.type === "thread.message-delivery-set" &&
             event.payload.failurePhase === "before-provider-dispatch" &&
             existingMessage.value.deliveryState !== "starting" &&
-            existingMessage.value.deliveryState !== "steering"
+            existingMessage.value.deliveryState !== "steering" &&
+            existingMessage.value.deliveryState !== "queued"
           ) {
             return;
           }
@@ -1554,7 +1555,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             const failedTurn = turns.find(
               (turn) =>
                 turn.turnId === event.payload.turnId &&
-                turn.state === "running" &&
+                (turn.state === "running" || turn.state === "queued") &&
                 turn.startedAt === null &&
                 turn.providerTurnId === null &&
                 turn.completedAt === null,

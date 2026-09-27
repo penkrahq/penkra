@@ -1150,6 +1150,7 @@ export function projectEvent(
           );
           const isUnacceptedAttempt =
             targetDeliveryState === "starting" || targetDeliveryState === "steering";
+          const isUndeliveredAttempt = isUnacceptedAttempt || targetDeliveryState === "queued";
           const acceptsSteerOwner =
             payload.state === "accepted" &&
             nativeSteer &&
@@ -1173,7 +1174,8 @@ export function projectEvent(
             message.delivery !== undefined &&
             (payload.failurePhase !== "before-provider-dispatch" ||
               message.delivery.state === "starting" ||
-              message.delivery.state === "steering")
+              message.delivery.state === "steering" ||
+              message.delivery.state === "queued")
               ? {
                   ...message,
                   delivery: {
@@ -1197,10 +1199,10 @@ export function projectEvent(
             threads: updateThread(nextBase.threads, payload.threadId, {
               messages,
               ...(payload.failurePhase === "before-provider-dispatch" &&
-              isUnacceptedAttempt &&
+              isUndeliveredAttempt &&
               payload.turnId !== undefined &&
               thread.latestTurn?.turnId === payload.turnId &&
-              thread.latestTurn.state === "running" &&
+              (thread.latestTurn.state === "running" || thread.latestTurn.state === "queued") &&
               thread.latestTurn.startedAt === null
                 ? {
                     latestTurn: {

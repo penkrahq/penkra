@@ -973,10 +973,13 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           }
         }
         if (envelope.acceptedProviderSwitch !== undefined) {
-          if (command.type !== "thread.turn.start") {
+          if (
+            command.type !== "thread.turn.start" &&
+            command.type !== "thread.turn.dispatch-queued"
+          ) {
             return yield* new OrchestrationCommandInvariantError({
               commandType: command.type,
-              detail: "A verified provider switch may only accompany a thread turn start.",
+              detail: "A verified provider switch may only accompany a thread turn admission.",
             });
           }
           if (
