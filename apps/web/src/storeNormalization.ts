@@ -1369,6 +1369,18 @@ export function normalizeThreadErrorMessage(message: string | null | undefined):
   return message && !isNonFatalThreadErrorMessage(message) ? message : null;
 }
 
+/** The newest delivery is the only one that can own a transcript-level send error. */
+export function latestDeliveryFailureReason(messages: readonly ChatMessage[]): string | null {
+  let latest: ChatMessage["delivery"] | undefined;
+  for (const message of messages) {
+    if (message.role !== "user" || !message.delivery) continue;
+    if (!latest || message.delivery.sequence > latest.sequence) latest = message.delivery;
+  }
+  return latest?.state === "failed" && latest.failurePhase === "before-provider-dispatch"
+    ? normalizeThreadErrorMessage(latest.failureDetail)
+    : null;
+}
+
 export function normalizeThreadSession(
   incoming: ReadModelThread["session"],
   previous: Thread["session"] | undefined | null,
@@ -1532,7 +1544,11 @@ export function normalizeThreadFromReadModel(
     previous?.messages,
     options.capMessages === undefined ? {} : { cap: options.capMessages },
   );
-  const incomingQueuedMessageIds = incoming.queuedMessageIds ?? [];
+  const deliveryByMessageId = new Map(messages.map((message) => [message.id, message.delivery]));
+  const incomingQueuedMessageIds = (incoming.queuedMessageIds ?? []).filter((messageId) => {
+    const delivery = deliveryByMessageId.get(messageId);
+    return delivery === undefined || delivery.state === "queued";
+  });
   const queuedMessageIds = arraysShallowEqual(previous?.queuedMessageIds, incomingQueuedMessageIds)
     ? (previous?.queuedMessageIds ?? [])
     : [...incomingQueuedMessageIds];
@@ -1557,7 +1573,9 @@ export function normalizeThreadFromReadModel(
       : incomingPendingInteractions === undefined
         ? undefined
         : [...incomingPendingInteractions];
-  const error = normalizeThreadErrorMessage(incoming.session?.lastError);
+  const error =
+    normalizeThreadErrorMessage(incoming.session?.lastError) ??
+    latestDeliveryFailureReason(messages);
   const lastVisitedAt = incoming.lastVisitedAt ?? previous?.lastVisitedAt ?? incoming.updatedAt;
   const resolvedLatestUserMessageAt =
     Object.hasOwn(incoming, "latestUserMessageAt") && incoming.latestUserMessageAt !== undefined
@@ -1672,7 +1690,9 @@ export function normalizeThreadShellSnapshot(
 } {
   const modelSelection = normalizeModelSelection(incoming.modelSelection, previous?.modelSelection);
   const { session, latestTurn } = normalizeThreadLifecycle(incoming, previous);
-  const error = normalizeThreadErrorMessage(incoming.session?.lastError);
+  const error =
+    normalizeThreadErrorMessage(incoming.session?.lastError) ??
+    latestDeliveryFailureReason(previous?.messages ?? []);
   const lastVisitedAt = incoming.lastVisitedAt ?? previous?.lastVisitedAt ?? incoming.updatedAt;
   const sidebarRollups = resolveThreadSidebarRollups(incoming, previous);
   const nextWorkingDirectory = incoming.workingDirectory ?? null;

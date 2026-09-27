@@ -25,6 +25,7 @@ import {
   createThreadActivityAccumulator,
   compareChatMessagesForTranscript,
   deepEqualJson,
+  latestDeliveryFailureReason,
   normalizeActivities,
   normalizeChatMessage,
   normalizeModelSelection,
@@ -995,14 +996,21 @@ function applyOrchestrationEvent(
           const failedBeforeDispatch =
             event.payload.state === "failed" &&
             event.payload.failurePhase === "before-provider-dispatch";
-          const targetDeliveryState = thread.messages.find(
+          const targetDelivery = thread.messages.find(
             (message) => message.id === event.payload.messageId,
-          )?.delivery?.state;
+          )?.delivery;
+          const targetDeliveryState = targetDelivery?.state;
           const nativeSteer = providerSupportsNativeTurnSteering(
             thread.session?.provider ?? thread.modelSelection.provider,
           );
           const isUnacceptedAttempt =
             targetDeliveryState === "starting" || targetDeliveryState === "steering";
+          const appliesDelivery =
+            targetDelivery !== undefined &&
+            event.sequence >= targetDelivery.sequence &&
+            (!failedBeforeDispatch || isUnacceptedAttempt || targetDeliveryState === "queued");
+          const failsQueuedMessage =
+            appliesDelivery && failedBeforeDispatch && targetDeliveryState === "queued";
           const acceptsSteerOwner =
             event.payload.state === "accepted" &&
             nativeSteer &&
@@ -1012,30 +1020,35 @@ function applyOrchestrationEvent(
           // new-turn admission. Retire stale ownership from an older projection.
           const clearsPendingTurnStart =
             acceptsSteerOwner ||
-            (isRequeued && thread.pendingTurnStartMessageId === event.payload.messageId) ||
-            (failedBeforeDispatch &&
+            (isRequeued &&
+              appliesDelivery &&
+              thread.pendingTurnStartMessageId === event.payload.messageId) ||
+            (appliesDelivery &&
+              failedBeforeDispatch &&
               isUnacceptedAttempt &&
               thread.pendingTurnStartMessageId === event.payload.messageId);
           const ownsStartingSession =
+            appliesDelivery &&
             failedBeforeDispatch &&
             isUnacceptedAttempt &&
             thread.pendingTurnStartMessageId === event.payload.messageId &&
             thread.session?.orchestrationStatus === "starting" &&
             thread.session.activeTurnId == null;
           const existingQueuedMessageIds = thread.queuedMessageIds ?? [];
-          const queuedMessageIds = isRequeued
-            ? existingQueuedMessageIds.includes(event.payload.messageId)
-              ? existingQueuedMessageIds
-              : [...existingQueuedMessageIds, event.payload.messageId]
-            : existingQueuedMessageIds;
+          const queuedMessageIds = failsQueuedMessage
+            ? existingQueuedMessageIds.filter((messageId) => messageId !== event.payload.messageId)
+            : isRequeued && appliesDelivery
+              ? existingQueuedMessageIds.includes(event.payload.messageId)
+                ? existingQueuedMessageIds
+                : [...existingQueuedMessageIds, event.payload.messageId]
+              : existingQueuedMessageIds;
           return {
             ...thread,
             messages: thread.messages
               .map((message) =>
                 message.id === event.payload.messageId &&
                 message.delivery !== undefined &&
-                event.sequence >= message.delivery.sequence &&
-                (!failedBeforeDispatch || isUnacceptedAttempt)
+                appliesDelivery
                   ? {
                       ...message,
                       delivery: {
@@ -1059,10 +1072,11 @@ function applyOrchestrationEvent(
               .toSorted(compareChatMessagesForTranscript),
             ...(clearsPendingTurnStart ? { pendingTurnStartMessageId: null } : {}),
             ...(failedBeforeDispatch &&
-            isUnacceptedAttempt &&
+            appliesDelivery &&
+            (isUnacceptedAttempt || failsQueuedMessage) &&
             event.payload.turnId !== undefined &&
             thread.latestTurn?.turnId === event.payload.turnId &&
-            thread.latestTurn.state === "running" &&
+            (thread.latestTurn.state === "running" || thread.latestTurn.state === "queued") &&
             thread.latestTurn.startedAt === null
               ? {
                   latestTurn: {
@@ -1099,6 +1113,9 @@ function applyOrchestrationEvent(
                   },
                 }
               : {}),
+            ...(failsQueuedMessage && event.payload.failureDetail !== undefined
+              ? { error: normalizeThreadErrorMessage(event.payload.failureDetail) }
+              : {}),
             queuedMessageIds,
             updatedAt: resolveEventUpdatedAt(thread, event.payload.updatedAt),
           };
@@ -1125,7 +1142,9 @@ function applyOrchestrationEvent(
         event.payload.threadId,
         (thread) => {
           const session = normalizeThreadSession(event.payload.session, thread.session);
-          const error = normalizeThreadErrorMessage(event.payload.session.lastError);
+          const error =
+            normalizeThreadErrorMessage(event.payload.session.lastError) ??
+            latestDeliveryFailureReason(thread.messages);
           const latestTurn = reconcileLatestTurnFromSession(thread, event.payload.session, error);
           const pendingTurnStartMessageId =
             event.payload.session.status === "starting" || event.payload.session.status === "ready"

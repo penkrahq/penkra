@@ -43,6 +43,120 @@ import { resolveThreadStatusPill } from "./components/Sidebar.logic";
 import { shouldShowComposerContinue } from "./components/ChatView.logic";
 
 describe("store event reducer", () => {
+  it("fails a queued promotion in place and ignores a stale failure after promotion", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const messageId = MessageId.makeUnsafe("queued-refused");
+    const reason =
+      "This thread uses a different provider. To use another provider, start a new thread.";
+    const queued = makeState(
+      makeThread({
+        queuedMessageIds: [messageId],
+        messages: [
+          {
+            id: messageId,
+            role: "user",
+            text: "Continue",
+            dispatchMode: "queue",
+            delivery: { state: "queued", queued: true, sequence: 10 },
+            streaming: false,
+            source: "native",
+            sequence: 10,
+            createdAt: "2026-09-27T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+    const failure = makeDomainEvent(
+      "thread.message-delivery-set",
+      {
+        threadId,
+        messageId,
+        state: "failed",
+        queued: false,
+        failurePhase: "before-provider-dispatch",
+        failureDetail: reason,
+        updatedAt: "2026-09-27T00:00:01.000Z",
+      },
+      { sequence: 12 },
+    );
+    const failed = threadsOf(applyOrchestrationEvents(queued, [failure]))[0]!;
+    expect(failed.messages[0]?.delivery).toMatchObject({
+      state: "failed",
+      queued: false,
+      failureDetail: reason,
+      sequence: 12,
+    });
+    expect(failed.queuedMessageIds).toEqual([]);
+    expect(failed.error).toBe(reason);
+    expect(failed.session).toBeNull();
+
+    const promoted = makeState(
+      makeThread({
+        queuedMessageIds: [],
+        messages: [
+          {
+            id: messageId,
+            role: "user",
+            text: "Continue",
+            dispatchMode: "queue",
+            delivery: { state: "accepted", queued: false, sequence: 13 },
+            streaming: false,
+            source: "native",
+            sequence: 10,
+            createdAt: "2026-09-27T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+    const stale = threadsOf(applyOrchestrationEvents(promoted, [failure]))[0]!;
+    expect(stale.messages[0]?.delivery?.state).toBe("accepted");
+    expect(stale.error).toBeNull();
+  });
+
+  it("restores a failed queued delivery and its reason from a read-model snapshot", () => {
+    const messageId = MessageId.makeUnsafe("queued-snapshot-refused");
+    const reason = "This thread's Claude conversation belongs to a different Claude account.";
+    const snapshot = makeReadModel(
+      makeReadModelThread({
+        queuedMessageIds: [messageId],
+        session: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          status: "running",
+          providerName: "claudeAgent",
+          runtimeMode: DEFAULT_RUNTIME_MODE,
+          activeTurnId: TurnId.makeUnsafe("earlier-turn"),
+          lastError: null,
+          updatedAt: "2026-09-27T00:00:00.000Z",
+        },
+        messages: [
+          {
+            id: messageId,
+            role: "user",
+            text: "Continue",
+            turnId: null,
+            dispatchMode: "queue",
+            delivery: {
+              state: "failed",
+              queued: false,
+              sequence: 12,
+              failurePhase: "before-provider-dispatch",
+              failureDetail: reason,
+            },
+            streaming: false,
+            source: "native",
+            sequence: 10,
+            createdAt: "2026-09-27T00:00:00.000Z",
+            updatedAt: "2026-09-27T00:00:01.000Z",
+          },
+        ],
+      }),
+    );
+    const restored = threadsOf(syncServerReadModel(makeState(makeThread()), snapshot))[0]!;
+    expect(restored.messages[0]?.delivery?.state).toBe("failed");
+    expect(restored.queuedMessageIds).toEqual([]);
+    expect(restored.error).toBe(reason);
+    expect(restored.session?.orchestrationStatus).toBe("running");
+  });
   it.each(["assistant", "delivery"] as const)(
     "settles a provisional %s completion when the owning session is interrupted",
     (completion) => {
