@@ -1017,19 +1017,15 @@ const make = Effect.gen(function* () {
       }
       return { sequence: existingReceipt.value.resultSequence };
     }
-    return yield* orchestrationEngine.dispatch(
-      command,
-      expectedProviderLifecycleGeneration === undefined
-        ? expectedProviderSessionOwnership === undefined
-          ? undefined
-          : { expectedProviderSessionOwnership }
-        : {
-            expectedProviderLifecycleGeneration,
-            ...(expectedProviderSessionOwnership === undefined
-              ? {}
-              : { expectedProviderSessionOwnership }),
-          },
-    );
+    return yield* orchestrationEngine.dispatch(command, {
+      allowArchivedProviderProjection: true,
+      ...(expectedProviderLifecycleGeneration === undefined
+        ? {}
+        : { expectedProviderLifecycleGeneration }),
+      ...(expectedProviderSessionOwnership === undefined
+        ? {}
+        : { expectedProviderSessionOwnership }),
+    });
   });
 
   const claimNativeChildSlot = Effect.fnUntraced(function* (
