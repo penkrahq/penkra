@@ -10,6 +10,7 @@ import {
   type TurnId,
 } from "@penkra/contracts";
 import { resolveLatestTailUserMessageEditTarget } from "@penkra/shared/conversationEdit";
+import { clampMentionTitle } from "@penkra/shared/threadMentions";
 import {
   memo,
   useCallback,
@@ -49,6 +50,7 @@ import {
 import { pinActionLabel } from "~/lib/pin";
 import { Button } from "../ui/button";
 import { CrossTaskOriginLabel, type CrossTaskOrigin } from "./CrossTaskOriginLabel";
+import { useStore } from "../../store";
 import { PenkraThreadCreationCard } from "./PenkraThreadCreationCard";
 import { PresentedMediaRow } from "./PresentedMediaRow";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
@@ -201,26 +203,71 @@ function UserDispatchModeChip({
   dispatchMode,
   dispatchOrigin,
   hasLeadingMedia,
+  senderThreadId,
+  onOpenThread,
 }: {
   dispatchMode: TimelineMessage["dispatchMode"];
   dispatchOrigin: TimelineMessage["dispatchOrigin"];
   hasLeadingMedia: boolean;
+  senderThreadId?: TimelineMessage["senderThreadId"];
+  onOpenThread?: (threadId: ThreadId) => void;
 }) {
+  const senderThread = useStore((state) =>
+    senderThreadId ? state.threadShellById?.[senderThreadId] : undefined,
+  );
   const markerKind = resolveUserTurnMarker({ dispatchMode, dispatchOrigin });
   if (!markerKind) {
     return null;
   }
 
   const { Icon, label } = USER_TURN_MARKER_PRESENTATION[markerKind];
+  const senderTitle = senderThread?.title;
+  const clampedSenderTitle = senderTitle?.trim() ? clampMentionTitle(senderTitle) : undefined;
+  const hasKnownSenderTitle = clampedSenderTitle !== undefined;
+  const senderLabel =
+    markerKind === "agent" && hasKnownSenderTitle ? `Sent by ${senderTitle}` : label;
+  const content = (
+    <>
+      <Icon className="size-3 shrink-0 text-muted-foreground/75" />
+      <span
+        className="min-w-0 max-w-full truncate"
+        title={senderThread?.archivedAt ? senderTitle : undefined}
+      >
+        {senderLabel}
+      </span>
+    </>
+  );
+  if (
+    markerKind === "agent" &&
+    hasKnownSenderTitle &&
+    senderThread &&
+    !senderThread.archivedAt &&
+    senderThreadId &&
+    onOpenThread
+  ) {
+    return (
+      <button
+        type="button"
+        className={cn(
+          "inline-flex max-w-full min-w-0 items-center gap-1.5 self-end px-0 text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/78 hover:text-foreground/82 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
+          hasLeadingMedia ? "mb-3" : "mb-1.5",
+        )}
+        onClick={() => onOpenThread(senderThreadId)}
+        aria-label={`Open ${clampedSenderTitle}`}
+        title={clampedSenderTitle}
+      >
+        {content}
+      </button>
+    );
+  }
   return (
     <div
       className={cn(
-        "inline-flex items-center gap-1.5 self-end px-0 text-[length:var(--app-font-size-ui-sm,11px)] font-normal tracking-[0.01em] text-muted-foreground/78",
+        "inline-flex max-w-full min-w-0 items-center gap-1.5 self-end px-0 text-[length:var(--app-font-size-ui-sm,11px)] font-normal tracking-[0.01em] text-muted-foreground/78",
         hasLeadingMedia ? "mb-3" : "mb-1.5",
       )}
     >
-      <Icon className="size-3 shrink-0 text-muted-foreground/75" />
-      <span>{label}</span>
+      {content}
     </div>
   );
 }
@@ -1047,12 +1094,79 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         data-message-role={row.kind === "message" ? row.message.role : undefined}
       >
         {row.kind === "media" && (
-          <PresentedMediaRow
-            items={row.entries.flatMap((entry) =>
-              entry.presentedMedia ? [entry.presentedMedia] : [],
+          <>
+            {row.collapsedTurnItems && row.collapsedTurnItems.length > 0 && (
+              <div className="mb-3">
+                <Collapsible
+                  className="group/collapsed-work"
+                  open={expandedCollapsedWork[row.id] ?? false}
+                  onOpenChange={(open) => setCollapsedWorkExpanded(row.id, open)}
+                >
+                  <CollapsibleTrigger
+                    className="-ml-0.5 inline-flex items-center gap-1 pb-2 text-left text-muted-foreground/70 transition-colors duration-200 hover:text-muted-foreground/90"
+                    style={{ fontSize: chatTypographyStyle.fontSize }}
+                  >
+                    <span>
+                      {row.collapsedWorkElapsed
+                        ? `Worked for ${row.collapsedWorkElapsed}`
+                        : "Details"}
+                    </span>
+                    <DisclosureChevron
+                      open={expandedCollapsedWork[row.id] ?? false}
+                      className="text-muted-foreground/55"
+                    />
+                  </CollapsibleTrigger>
+                  <CollapsiblePanel>
+                    <div
+                      className={disclosureContentClassName(
+                        expandedCollapsedWork[row.id] ?? false,
+                        "mb-2.5 space-y-1.5",
+                      )}
+                    >
+                      {row.collapsedTurnItems.map((item) =>
+                        item.kind === "work" ? (
+                          <TimelineWorkEntryRow
+                            key={`media-turn-work:${row.id}:${item.id}`}
+                            workEntry={item.entry}
+                            chatMetaFontSizePx={appTypographyScale.chatMetaPx}
+                            textFontSizePx={normalizedChatFontSizePx}
+                            density={prefersCompactWorkEntryRow(item.entry) ? "compact" : "default"}
+                            markdownCwd={markdownCwd}
+                            onImageExpand={onImageExpand}
+                            {...(onOpenAgentActivity ? { onOpenAgentActivity } : {})}
+                            {...(onOpenThread ? { onOpenThread } : {})}
+                            {...(subagentToolTraceByThreadId
+                              ? { subagentToolTraceByThreadId }
+                              : {})}
+                          />
+                        ) : (
+                          <div
+                            key={`media-turn-narration:${row.id}:${item.id}`}
+                            className="text-muted-foreground/80"
+                          >
+                            <ChatMarkdown
+                              text={item.message.text}
+                              cwd={markdownCwd}
+                              isStreaming={false}
+                              style={chatTypographyStyle}
+                              onImageExpand={onImageExpand}
+                            />
+                          </div>
+                        ),
+                      )}
+                    </div>
+                  </CollapsiblePanel>
+                </Collapsible>
+                <div className="h-px w-full bg-border" />
+              </div>
             )}
-            onImageExpand={onImageExpand}
-          />
+            <PresentedMediaRow
+              items={row.entries.flatMap((entry) =>
+                entry.presentedMedia ? [entry.presentedMedia] : [],
+              )}
+              onImageExpand={onImageExpand}
+            />
+          </>
         )}
         {row.kind === "work" &&
           (() => {
@@ -1249,8 +1363,40 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                         dispatchMode={row.message.dispatchMode}
                         dispatchOrigin={row.message.dispatchOrigin}
                         hasLeadingMedia={hasLeadingMedia}
+                        {...(row.message.senderThreadId
+                          ? { senderThreadId: row.message.senderThreadId }
+                          : {})}
+                        {...(onOpenThread ? { onOpenThread } : {})}
                       />
                     )}
+                    {row.message.delivery?.state === "queued" && (
+                      <div
+                        className="mb-1.5 self-end text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground"
+                        data-testid="queued-message-status"
+                      >
+                        Queued · not delivered · position{" "}
+                        {rows
+                          .filter(
+                            (candidate) =>
+                              candidate.kind === "message" &&
+                              candidate.message.delivery?.state === "queued",
+                          )
+                          .findIndex(
+                            (candidate) =>
+                              candidate.kind === "message" &&
+                              candidate.message.id === row.message.id,
+                          ) + 1}
+                      </div>
+                    )}
+                    {row.message.delivery?.state === "failed" &&
+                      row.message.delivery.failurePhase === "before-provider-dispatch" && (
+                        <div
+                          className="mb-1.5 self-end text-[length:var(--app-font-size-ui-sm,11px)] text-destructive"
+                          data-testid="failed-message-status"
+                        >
+                          Failed · not delivered
+                        </div>
+                      )}
                     {renderedAssistantSelections.length > 0 && (
                       <div className="mb-1 flex max-w-[240px] flex-wrap justify-end gap-1.5 self-end">
                         <AssistantSelectionsSummaryChip selections={renderedAssistantSelections} />
@@ -1735,97 +1881,99 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                     <div className="h-px w-full bg-border" />
                   </div>
                 )}
-                <div className="group min-w-0 py-0.5">
-                  {renderWorkDisplay(leadingWorkDisplay, "leading")}
-                  {messageText !== null ? (
-                    <div
-                      data-assistant-message-id={row.message.id}
-                      data-find-primary-text
-                      data-find-model-owned
-                    >
-                      <ChatMarkdown
-                        text={messageText}
-                        cwd={markdownCwd}
-                        isStreaming={Boolean(row.message.streaming)}
-                        style={chatTypographyStyle}
-                        onImageExpand={onImageExpand}
-                      />
-                    </div>
-                  ) : null}
-                  {renderWorkDisplay(inlineWorkDisplay, "inline")}
-                  {(showPinToggle || assistantCopyState.visible || assistantMeta.length > 0) && (
-                    <div
-                      className="mt-0.5 flex h-[26px] items-center gap-1 font-system-ui font-normal text-muted-foreground/45"
-                      data-pencil-component="vI265"
-                      style={chatMessageFooterStyle}
-                    >
-                      {showPinToggle ? (
-                        // Pin sits at the left edge of the footer, before the copy action. It stays
-                        // visible when pinned so it reads as a persistent "this is pinned" marker; an
-                        // unpinned message only reveals it on hover, like the other footer actions.
-                        // Same Central pin glyph in both states — persistence signals the pinned state.
-                        <MessageActionButton
-                          label={pinActionLabel("message", messagePinned)}
-                          tooltip={messagePinned ? "Unpin from panel" : "Pin to panel"}
-                          aria-pressed={messagePinned}
-                          className={
-                            messagePinned
-                              ? "text-muted-foreground/80"
-                              : MESSAGE_HOVER_REVEAL_CLASS_NAME
-                          }
-                          onClick={() => onTogglePinMessage?.(row.message.id)}
-                        >
-                          <PinIcon className={MESSAGE_ACTION_ICON_CLASS_NAME} />
-                        </MessageActionButton>
-                      ) : null}
-                      {assistantCopyState.visible ? (
-                        <MessageCopyButton
-                          text={assistantCopyState.text ?? ""}
-                          className={MESSAGE_HOVER_REVEAL_CLASS_NAME}
-                          label="Copy response"
+                {!row.collapsedTurnSummaryOnly && (
+                  <div className="group min-w-0 py-0.5">
+                    {renderWorkDisplay(leadingWorkDisplay, "leading")}
+                    {messageText !== null ? (
+                      <div
+                        data-assistant-message-id={row.message.id}
+                        data-find-primary-text
+                        data-find-model-owned
+                      >
+                        <ChatMarkdown
+                          text={messageText}
+                          cwd={markdownCwd}
+                          isStreaming={Boolean(row.message.streaming)}
+                          style={chatTypographyStyle}
+                          onImageExpand={onImageExpand}
                         />
-                      ) : null}
-                      {assistantCopyState.visible &&
-                      latestEditableUserMessageId &&
-                      latestEditableUserMessageText &&
-                      onEditUserMessage ? (
-                        <MessageActionButton
-                          label="Retry response"
-                          tooltip="Retry response"
-                          className={MESSAGE_HOVER_REVEAL_CLASS_NAME}
-                          onClick={() =>
-                            void onEditUserMessage(
-                              latestEditableUserMessageId,
-                              latestEditableUserMessageText,
-                            )
-                          }
-                        >
-                          <RotateCcwIcon className={MESSAGE_ACTION_ICON_CLASS_NAME} />
-                        </MessageActionButton>
-                      ) : null}
-                      {assistantMeta.length > 0 ? (
-                        <p className={cn("px-2 tabular-nums", MESSAGE_HOVER_REVEAL_CLASS_NAME)}>
-                          {assistantMeta}
-                        </p>
-                      ) : null}
-                    </div>
-                  )}
-                  {!row.assistantTurnInProgress && row.showAssistantCopyButton
-                    ? penkraThreadCreationRecaps.map((creation) => (
-                        <div key={creation.operationId} className="mt-2 mb-4">
-                          <PenkraThreadCreationCard
-                            creation={creation}
-                            {...(onOpenThread
-                              ? {
-                                  onOpenThread: (createdThreadId) =>
-                                    onOpenThread(ThreadId.makeUnsafe(createdThreadId)),
-                                }
-                              : {})}
+                      </div>
+                    ) : null}
+                    {renderWorkDisplay(inlineWorkDisplay, "inline")}
+                    {(showPinToggle || assistantCopyState.visible || assistantMeta.length > 0) && (
+                      <div
+                        className="mt-0.5 flex h-[26px] items-center gap-1 font-system-ui font-normal text-muted-foreground/45"
+                        data-pencil-component="vI265"
+                        style={chatMessageFooterStyle}
+                      >
+                        {showPinToggle ? (
+                          // Pin sits at the left edge of the footer, before the copy action. It stays
+                          // visible when pinned so it reads as a persistent "this is pinned" marker; an
+                          // unpinned message only reveals it on hover, like the other footer actions.
+                          // Same Central pin glyph in both states — persistence signals the pinned state.
+                          <MessageActionButton
+                            label={pinActionLabel("message", messagePinned)}
+                            tooltip={messagePinned ? "Unpin from panel" : "Pin to panel"}
+                            aria-pressed={messagePinned}
+                            className={
+                              messagePinned
+                                ? "text-muted-foreground/80"
+                                : MESSAGE_HOVER_REVEAL_CLASS_NAME
+                            }
+                            onClick={() => onTogglePinMessage?.(row.message.id)}
+                          >
+                            <PinIcon className={MESSAGE_ACTION_ICON_CLASS_NAME} />
+                          </MessageActionButton>
+                        ) : null}
+                        {assistantCopyState.visible ? (
+                          <MessageCopyButton
+                            text={assistantCopyState.text ?? ""}
+                            className={MESSAGE_HOVER_REVEAL_CLASS_NAME}
+                            label="Copy response"
                           />
-                        </div>
-                      ))
-                    : null}
-                </div>
+                        ) : null}
+                        {assistantCopyState.visible &&
+                        latestEditableUserMessageId &&
+                        latestEditableUserMessageText &&
+                        onEditUserMessage ? (
+                          <MessageActionButton
+                            label="Retry response"
+                            tooltip="Retry response"
+                            className={MESSAGE_HOVER_REVEAL_CLASS_NAME}
+                            onClick={() =>
+                              void onEditUserMessage(
+                                latestEditableUserMessageId,
+                                latestEditableUserMessageText,
+                              )
+                            }
+                          >
+                            <RotateCcwIcon className={MESSAGE_ACTION_ICON_CLASS_NAME} />
+                          </MessageActionButton>
+                        ) : null}
+                        {assistantMeta.length > 0 ? (
+                          <p className={cn("px-2 tabular-nums", MESSAGE_HOVER_REVEAL_CLASS_NAME)}>
+                            {assistantMeta}
+                          </p>
+                        ) : null}
+                      </div>
+                    )}
+                    {!row.assistantTurnInProgress && row.showAssistantCopyButton
+                      ? penkraThreadCreationRecaps.map((creation) => (
+                          <div key={creation.operationId} className="mt-2 mb-4">
+                            <PenkraThreadCreationCard
+                              creation={creation}
+                              {...(onOpenThread
+                                ? {
+                                    onOpenThread: (createdThreadId) =>
+                                      onOpenThread(ThreadId.makeUnsafe(createdThreadId)),
+                                  }
+                                : {})}
+                            />
+                          </div>
+                        ))
+                      : null}
+                  </div>
+                )}
               </MessageAssistant>
             );
           })()}

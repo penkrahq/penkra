@@ -8,16 +8,6 @@ vi.mock("@tanstack/react-router", () => ({
   useParams: () => null,
 }));
 
-vi.mock("../../hooks/useChatRouteSearch", () => ({
-  useChatRouteSearch: () => ({}),
-}));
-
-vi.mock("../../splitViewStore", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../splitViewStore")>()),
-  selectSplitView: () => () => null,
-  useSplitViewStore: (selector: (state: object) => unknown) => selector({}),
-}));
-
 import { ToastProvider, toastManager, useThreadToastViewportHostRef } from "./toast";
 
 function CenterPanelToastHarness() {

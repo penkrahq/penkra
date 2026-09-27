@@ -59,6 +59,36 @@ export interface ChatLifecycleDiagnosticSample extends ChatLifecycleDiagnosticSt
   readonly performanceNow: number;
 }
 
+/** Inputs used by the composer Play decision, without transcript or prompt content. */
+export interface ChatComposerContinueDiagnosticSample {
+  readonly event: "composer-continue-state";
+  readonly sequence: number;
+  readonly recordedAt: string;
+  readonly performanceNow: number;
+  readonly threadId: string;
+  readonly turnId: string | null;
+  readonly turnState: string | null;
+  readonly sessionStatus: string | null;
+  readonly orchestrationStatus: string | null;
+  readonly activeTurnId: string | null;
+  readonly isServerThread: boolean;
+  readonly hydration: string;
+  readonly bindingModelAvailable: boolean;
+  readonly archived: boolean;
+  readonly queuedMessageCount: number;
+  readonly pendingTurnStart: boolean;
+  readonly pendingInteractionCount: number;
+  readonly hasPendingApprovals: boolean;
+  readonly hasPendingUserInput: boolean;
+  readonly hiddenTurn: boolean;
+  readonly continueInFlight: boolean;
+  readonly sendBusy: boolean;
+  readonly sendPreflight: boolean;
+  readonly connecting: boolean;
+  readonly hasSendableContent: boolean;
+  readonly canShowContinue: boolean;
+}
+
 export type ChatLifecycleUiEvent =
   | "timeline-layout-committed"
   | "thinking-row-derived-visible"
@@ -72,7 +102,8 @@ export type ChatLifecycleUiEvent =
   | "interrupt-dispatch-failed"
   | "composer-submission-claimed"
   | "composer-visible-cleared"
-  | "composer-submission-restored";
+  | "composer-submission-restored"
+  | "composer-continue-rejected";
 
 export interface ChatLifecycleUiDiagnosticSample {
   readonly event: ChatLifecycleUiEvent;
@@ -93,6 +124,8 @@ export interface ChatLifecycleUiDiagnosticSample {
   readonly receiptSequence?: number;
   readonly composerPromptLength?: number;
   readonly composerOwnership?: "active" | "old-thread" | "none";
+  readonly targetTurnId?: string;
+  readonly errorCode?: string | null;
 }
 
 export interface ChatLifecycleSyncDiagnosticSample {
@@ -134,6 +167,7 @@ export interface ChatSyncPublicationDiagnosticSample {
 
 export type ChatLifecycleSample =
   | ChatLifecycleDiagnosticSample
+  | ChatComposerContinueDiagnosticSample
   | ChatLifecycleUiDiagnosticSample
   | ChatLifecycleSyncDiagnosticSample
   | ChatSyncPublicationDiagnosticSample;
@@ -267,6 +301,22 @@ export function recordChatLifecycleDiagnostic(input: ChatLifecycleDiagnosticStat
   };
   state.nextSequence += 1;
   appendSample(sample);
+}
+
+export function recordChatComposerContinueDiagnostic(
+  input: Omit<
+    ChatComposerContinueDiagnosticSample,
+    "event" | "sequence" | "recordedAt" | "performanceNow"
+  >,
+): void {
+  if (!diagnosticsAvailable()) return;
+  appendSample({
+    event: "composer-continue-state",
+    sequence: state.nextSequence++,
+    recordedAt: new Date().toISOString(),
+    performanceNow: performance.now(),
+    ...input,
+  });
 }
 
 export function recordChatLifecycleUiDiagnostic(

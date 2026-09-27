@@ -14,6 +14,7 @@ import {
   compileResolvedKeybindingRule,
   compileResolvedKeybindingsConfig,
   parseKeybindingShortcut,
+  removeRetiredNewWindowDefault,
 } from "./keybindings";
 
 const KeybindingsConfigJson = Schema.fromJsonString(KeybindingsConfig);
@@ -96,6 +97,53 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
         ),
       );
     }),
+  );
+
+  it.effect(
+    "removes only shipped Cmd+Shift+N defaults and keeps customized new-thread bindings",
+    () =>
+      Effect.sync(() => {
+        const custom = [
+          { key: "mod+alt+n", command: "chat.newLatestProject", when: "!terminalFocus || isMac" },
+          { key: "mod+shift+n", command: "chat.newLatestProject", when: "isMac" },
+          { key: "mod+shift+n", command: "chat.new", when: "!terminalFocus || isMac" },
+        ] satisfies KeybindingRule[];
+        const result = removeRetiredNewWindowDefault([
+          { key: "mod+shift+n", command: "chat.newLatestProject", when: "!terminalFocus || isMac" },
+          { key: "mod+shift+n", command: "chat.newLatestProject", when: "!terminalFocus" },
+          ...custom,
+        ]);
+        assert.strictEqual(result.migratedCount, 2);
+        assert.deepEqual(result.rules, custom);
+        assert.isUndefined(DEFAULT_KEYBINDINGS.find((rule) => rule.key === "mod+shift+n"));
+      }),
+  );
+
+  it.effect(
+    "rewrites a persisted shipped New Window conflict without deleting custom bindings",
+    () =>
+      Effect.gen(function* () {
+        const { keybindingsConfigPath } = yield* ServerConfig;
+        yield* writeKeybindingsConfig(keybindingsConfigPath, [
+          { key: "mod+shift+n", command: "chat.newLatestProject", when: "!terminalFocus || isMac" },
+          { key: "mod+alt+n", command: "chat.newLatestProject", when: "isMac" },
+        ]);
+        const keybindings = yield* Keybindings;
+        yield* keybindings.syncDefaultKeybindingsOnStartup;
+        const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+        assert.isFalse(persisted.some((entry) => entry.key === "mod+shift+n"));
+        assert.isTrue(
+          persisted.some(
+            (entry) =>
+              entry.key === "mod+alt+n" &&
+              entry.command === "chat.newLatestProject" &&
+              entry.when === "isMac",
+          ),
+        );
+        assert.isTrue(
+          persisted.some((entry) => entry.key === "mod+n" && entry.command === "chat.new"),
+        );
+      }).pipe(Effect.provide(makeKeybindingsLayer())),
   );
 
   it.effect("compiles valid rule with parsed when AST", () =>
@@ -717,6 +765,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
           { key: "mod+1", command: "modelPicker.jump.1" },
           { key: "mod+2", command: "composer.modelPicker.jump.2" },
           { key: "mod+alt+g", command: "chat.newGemini" },
+          { key: "mod+\\", command: "chat.split" },
           { key: "mod+k", command: "sidebar.search" },
         ]),
       );
@@ -734,6 +783,9 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       );
       assert.isFalse(
         configState.keybindings.some((entry) => String(entry.command) === "chat.newGemini"),
+      );
+      assert.isFalse(
+        configState.keybindings.some((entry) => String(entry.command) === "chat.split"),
       );
       assert.isTrue(
         configState.keybindings.some(
@@ -756,6 +808,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
         persisted.some((entry) => String(entry.command).includes("modelPicker.jump.")),
       );
       assert.isFalse(persisted.some((entry) => String(entry.command) === "chat.newGemini"));
+      assert.isFalse(persisted.some((entry) => String(entry.command) === "chat.split"));
       assert.isFalse(
         persisted.some((entry) => entry.command === "modelPicker.toggle" && entry.key === "mod+1"),
       );

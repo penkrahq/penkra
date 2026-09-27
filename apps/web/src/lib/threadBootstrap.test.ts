@@ -66,9 +66,7 @@ function makeComposerDraftState(
     pastedTexts: [],
     skills: [],
     mentions: [],
-    queuedTurns: [],
     pendingMessageEdit: null,
-    queuePaused: false,
     modelSelectionByProvider: {
       claudeAgent: modelSelection("claudeAgent", "claude-opus-4-6", { effort: "max" }),
     },

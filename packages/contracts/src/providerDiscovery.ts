@@ -266,6 +266,7 @@ export type ProviderReadPluginResult = typeof ProviderReadPluginResult.Type;
 
 export const ProviderListModelsInput = Schema.Struct({
   provider: ProviderDiscoveryKind,
+  presentation: Schema.optional(Schema.Literal("picker")),
   connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
   internalProviderId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   binaryPath: Schema.optional(TrimmedNonEmptyString),
@@ -293,6 +294,8 @@ export const ProviderModelDescriptor = Schema.Struct({
   slug: TrimmedNonEmptyString,
   name: TrimmedNonEmptyString,
   isDefault: Schema.optional(Schema.Literal(true)),
+  status: Schema.optional(Schema.Literals(["alpha", "beta", "deprecated", "active"])),
+  visibility: Schema.optional(TrimmedNonEmptyString),
   description: Schema.optional(TrimmedNonEmptyString),
   upstreamProviderId: Schema.optional(TrimmedNonEmptyString),
   upstreamProviderName: Schema.optional(TrimmedNonEmptyString),

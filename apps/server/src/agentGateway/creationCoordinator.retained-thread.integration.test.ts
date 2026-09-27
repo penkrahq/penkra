@@ -107,7 +107,6 @@ const CALLER: OrchestrationThreadShell = {
 const operationId = `gateway:create:${stableGatewayDigest({
   principalKind: "provider-session",
   principalId: CALLER_THREAD_ID,
-  callerTurnId: CALLER_TURN_ID,
   requestId: INPUT.requestId,
 })}`;
 const ids = makeAgentCreationIds(operationId, 0);
@@ -194,9 +193,12 @@ const fixtureMaterializer: ProviderNativeStateMaterializerShape = {
   clone: () => Effect.die("fixture materializer clone is not used for initial admission"),
   discard: () => Effect.die("fixture materializer discard is not used for initial admission"),
   finalize: () => Effect.die("fixture materializer finalize is not used for initial admission"),
+  discardThreadState: () =>
+    Effect.die("fixture materializer discardThreadState is not used for initial admission"),
 };
 
 const fixtureGatewayDiscovery: ProviderDiscoveryServiceShape = {
+  probeConnection: () => Effect.die("fixture gateway probes are not used"),
   getComposerCapabilities: () => Effect.die("fixture gateway capabilities are not used"),
   getCapabilityHealth: () => Effect.die("fixture gateway health is not used"),
   listCommands: () => Effect.die("fixture gateway commands are not used"),

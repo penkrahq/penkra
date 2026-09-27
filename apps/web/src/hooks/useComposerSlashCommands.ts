@@ -27,7 +27,6 @@ import { buildThreadImportedMessages } from "../lib/threadImport";
 import { toastManager } from "../components/ui/toast";
 import type { ComposerCommandItem } from "../components/chat/ComposerCommandMenu";
 import { buildNextProviderOptions } from "../providerModelOptions";
-import { type SplitViewId } from "../splitViewStore";
 import { downloadUrlAsBlob } from "../lib/browserDownload";
 import { resolveWsHttpUrl } from "../lib/wsHttpUrl";
 import { useFeedbackDialogStore } from "../feedbackDialogStore";
@@ -62,7 +61,7 @@ export function useComposerSlashCommands(input: {
   runtimeMode: RuntimeMode;
   threadId: ThreadId;
   syncServerShellSnapshot: (snapshot: OrchestrationShellSnapshot) => void;
-  navigateToThread: (threadId: ThreadId, options?: { splitViewId?: SplitViewId }) => Promise<void>;
+  navigateToThread: (threadId: ThreadId) => Promise<void>;
   handleClearConversation: () => Promise<void> | void;
   openForkTargetPicker: () => void;
   openReviewTargetPicker: () => void;

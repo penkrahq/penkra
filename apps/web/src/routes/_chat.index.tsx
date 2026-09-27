@@ -14,7 +14,6 @@ import {
 import { readSidebarUiState } from "../components/Sidebar.uiState";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
-import { resolveSplitViewThreadIds, useSplitViewStore } from "../splitViewStore";
 import { EMPTY_THREAD_IDS, useStore } from "../store";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
 import { resolveChatIndexRestoreRoute, type ChatIndexLandingSpace } from "./-chatIndexRoute.logic";
@@ -63,20 +62,13 @@ function ChatIndexRouteView() {
           workspacePaths,
         };
 
-  const resolveRestoreRoute: RestoreRouteResolver = ({ availableSplitViewIds }) => {
+  const resolveRestoreRoute: RestoreRouteResolver = () => {
     const lastThreadRoute = readSidebarUiState().lastThreadRoute;
-    const rememberedSplitView = lastThreadRoute?.splitViewId
-      ? useSplitViewStore.getState().splitViewsById[lastThreadRoute.splitViewId]
-      : undefined;
     return resolveChatIndexRestoreRoute({
       lastThreadRoute,
-      availableSplitViewIds,
       threadIds,
       sidebarThreadSummaryById,
       draftFolderIdByThreadId,
-      rememberedSplitViewThreadIds: rememberedSplitView
-        ? resolveSplitViewThreadIds(rememberedSplitView)
-        : undefined,
       landingSpace,
     });
   };

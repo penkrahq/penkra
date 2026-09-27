@@ -24,7 +24,6 @@ import { DesktopWindowControls } from "../components/DesktopWindowControls";
 import { DesktopActiveWorkPowerSync } from "../components/DesktopActiveWorkPowerSync";
 import { DesktopThreadApiBridge } from "../components/DesktopThreadApiBridge";
 import { DesktopOnboardingGate } from "../components/onboarding/DesktopOnboardingGate";
-import { QueuedComposerTurnDispatcher } from "../components/QueuedComposerTurnDispatcher";
 import { FeedbackDialog } from "../components/FeedbackDialog";
 import { SETTINGS_TARGETS } from "../settingsNavigation";
 import ShortcutsDialog from "../components/ShortcutsDialog";
@@ -85,8 +84,6 @@ import { usePreloadRouteChunks } from "../hooks/usePreloadRouteChunks";
 import { useSyncDesktopTopBarTrafficLightGutterZoom } from "../hooks/useDesktopTopBarGutter";
 import { useTheme } from "../hooks/useTheme";
 import { useNativeFontSmoothing } from "../hooks/useNativeFontSmoothing";
-import { useChatRouteSearch } from "../hooks/useChatRouteSearch";
-import { resolveSplitViewThreadIds, selectSplitView, useSplitViewStore } from "../splitViewStore";
 import { providerModelDiscoveryInvalidationFingerprint } from "../lib/providerDiscoveryInvalidation";
 import { providerDiscoveryQueryKeys } from "../lib/providerDiscoveryReactQuery";
 import { useAppSettings } from "../appSettings";
@@ -234,7 +231,6 @@ function RootRouteView() {
               <TaskCompletionNotifications />
               <ProviderUpdateNotifications />
               <ConnectionDefaultsMigration />
-              <QueuedComposerTurnDispatcher />
               <Outlet />
             </AnchoredToastProvider>
           </VoiceSessionCoordinatorProvider>
@@ -788,19 +784,7 @@ function EventRouter() {
     strict: false,
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
   });
-  const routeSearch = useChatRouteSearch();
-  const activeSplitView = useSplitViewStore(
-    useMemo(() => selectSplitView(routeSearch.splitViewId ?? null), [routeSearch.splitViewId]),
-  );
-  const visibleThreadIds = useMemo(
-    () =>
-      activeSplitView
-        ? resolveSplitViewThreadIds(activeSplitView)
-        : routeThreadId
-          ? [routeThreadId]
-          : [],
-    [activeSplitView, routeThreadId],
-  );
+  const visibleThreadIds = useMemo(() => (routeThreadId ? [routeThreadId] : []), [routeThreadId]);
   const serverThreadIds = useMemo(() => new Set(serverThreadIdList ?? []), [serverThreadIdList]);
   const pathnameRef = useRef(pathname);
   const handledBootstrapThreadIdRef = useRef<string | null>(null);
@@ -1149,6 +1133,11 @@ function EventRouter() {
       .catch(() => undefined);
 
     const unsubWelcome = onServerWelcome((payload) => {
+      // A new server process has an empty Claude discovery cache and may run a
+      // corrected mapper or a newer managed runtime. Refresh mounted pickers.
+      void queryClient.invalidateQueries({
+        queryKey: providerDiscoveryQueryKeys.modelsForProvider("claudeAgent"),
+      });
       void (async () => {
         setServerWorkspacePaths({
           homeDir: payload.homeDir,

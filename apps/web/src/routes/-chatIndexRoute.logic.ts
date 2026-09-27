@@ -26,10 +26,9 @@ export interface ChatIndexLandingSpace {
 
 export function resolveChatIndexRestoreRoute(input: {
   readonly lastThreadRoute: LastThreadRoute | null;
-  readonly availableSplitViewIds: ReadonlySet<string>;
   readonly threadIds: readonly ThreadId[];
   readonly sidebarThreadSummaryById: Readonly<
-    Record<string, { readonly folderId: FolderId } | undefined>
+    Record<string, { readonly folderId: FolderId; readonly archivedAt?: string | null } | undefined>
   >;
   /**
    * Still-unsent chat drafts. They have a route id but no sidebar summary yet, so the summary
@@ -37,17 +36,13 @@ export function resolveChatIndexRestoreRoute(input: {
    * start on "/" can reopen an unsent draft instead of always minting a new one.
    */
   readonly draftFolderIdByThreadId: ReadonlyMap<string, FolderId>;
-  /**
-   * Populated panes from the split named by `lastThreadRoute`. `undefined` means the current
-   * client state could not resolve that split, so a Space-scoped restore must fail closed.
-   */
-  readonly rememberedSplitViewThreadIds: readonly ThreadId[] | undefined;
   readonly landingSpace: ChatIndexLandingSpace | null;
 }): LastThreadRoute | null {
   const { draftFolderIdByThreadId, landingSpace, sidebarThreadSummaryById } = input;
 
   const availableThreadIds = new Set<string>();
   for (const threadId of [...input.threadIds, ...draftFolderIdByThreadId.keys()]) {
+    if (sidebarThreadSummaryById[threadId]?.archivedAt != null) continue;
     // Fail closed: a thread we can't classify is not restorable from "/". Summaries are built
     // from the same snapshot as threadIds, so this only ever excludes a thread if that invariant
     // breaks — and then a fresh draft beats restoring into the wrong segment.
@@ -70,20 +65,6 @@ export function resolveChatIndexRestoreRoute(input: {
   const restorableRoute = resolveRestorableThreadRoute({
     lastThreadRoute: input.lastThreadRoute,
     availableThreadIds,
-    availableSplitViewIds: input.availableSplitViewIds,
   });
-  if (!landingSpace || !restorableRoute?.splitViewId) {
-    return restorableRoute;
-  }
-
-  const splitThreadIds = input.rememberedSplitViewThreadIds;
-  if (
-    splitThreadIds === undefined ||
-    splitThreadIds.length === 0 ||
-    splitThreadIds.some((threadId) => !availableThreadIds.has(threadId))
-  ) {
-    return { threadId: restorableRoute.threadId };
-  }
-
   return restorableRoute;
 }

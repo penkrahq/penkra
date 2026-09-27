@@ -11,19 +11,49 @@ import { ChatColumnBannerFrame } from "./ChatColumnBannerFrame";
 export function ThreadErrorBanner({
   error,
   onDismiss,
+  onRetry,
+  onReauthenticate,
 }: {
   error: string | null;
   onDismiss?: () => void;
+  onRetry?: () => void;
+  onReauthenticate?: () => void;
 }) {
   if (!error) return null;
+  const authFailure =
+    error.startsWith("The provider is rejecting this Connection.") ||
+    error.startsWith("This Connection needs you to sign in again.");
+  const detailSeparator = "\nProvider detail: ";
+  const detailStart = authFailure ? error.indexOf(detailSeparator) : -1;
+  const summary = detailStart >= 0 ? error.slice(0, detailStart) : error;
+  const detail = detailStart >= 0 ? error.slice(detailStart + detailSeparator.length) : null;
   return (
     <ChatColumnBannerFrame>
       <Alert variant="error">
         <CircleAlertIcon />
-        <AlertDescription className="line-clamp-3" title={error}>
-          {error}
+        <AlertDescription className={authFailure ? "" : "line-clamp-3"} title={summary}>
+          {summary}
+          {authFailure && detail ? (
+            <details className="mt-1 text-xs opacity-80">
+              <summary>Provider detail</summary>
+              <div className="break-all">{detail}</div>
+            </details>
+          ) : null}
         </AlertDescription>
-        {onDismiss ? (
+        {authFailure ? (
+          <AlertAction className="flex items-center gap-2">
+            {onRetry ? (
+              <button type="button" onClick={onRetry}>
+                Retry
+              </button>
+            ) : null}
+            {onReauthenticate ? (
+              <button type="button" onClick={onReauthenticate}>
+                Sign in again
+              </button>
+            ) : null}
+          </AlertAction>
+        ) : onDismiss ? (
           <AlertAction className="items-center">
             <IconButton
               label="Dismiss error"

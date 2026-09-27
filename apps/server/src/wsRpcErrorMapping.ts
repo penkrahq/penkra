@@ -4,8 +4,17 @@
 
 import { ProviderThreadSwitchCoordinatorError } from "./orchestration/Services/ProviderThreadSwitchCoordinator.ts";
 import { ProviderTurnSelectionResolutionError } from "./provider/Services/ProviderTurnSelectionResolver.ts";
+import {
+  OrchestrationCommandInvariantError,
+  findThreadGuardInvariant,
+} from "./orchestration/Errors.ts";
 
-export function bindingRevisionErrorCode(cause: unknown): string | undefined {
+export function wsRpcErrorCode(cause: unknown): string | undefined {
+  const invariant = findThreadGuardInvariant(cause);
+  if (invariant) return invariant.code;
+  if (cause instanceof OrchestrationCommandInvariantError && cause.code !== undefined) {
+    return cause.code;
+  }
   const selectionCause =
     cause instanceof ProviderThreadSwitchCoordinatorError &&
     cause.cause instanceof ProviderTurnSelectionResolutionError

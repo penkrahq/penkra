@@ -31,15 +31,6 @@ import { useFocusedChatContext } from "../focusedChatContext";
 import { useStore } from "../store";
 import { useTerminalStateStore } from "../terminalStateStore";
 
-export interface NewThreadNavigationOptions {
-  /**
-   * Search params applied when the hook navigates to the created thread.
-   * Lets callers preserve explicit route state across the route change;
-   * default navigation clears all search params.
-   */
-  search?: (previous: Record<string, unknown>) => Record<string, unknown>;
-}
-
 export function useHandleNewThread() {
   const folders = useStore((store) => store.folders);
   const { settings } = useAppSettings();
@@ -54,7 +45,6 @@ export function useHandleNewThread() {
   const handleNewThread = (
     folderId: FolderId,
     requestedOptions?: NewThreadOptions,
-    navigation?: NewThreadNavigationOptions,
   ): Promise<ThreadId | null> => {
     const currentState = useStore.getState();
     const targetProject = currentState.folders.find((project) => project.id === folderId);
@@ -237,7 +227,7 @@ export function useHandleNewThread() {
         await navigate({
           to: "/$threadId",
           params: { threadId: bootstrapPlan.threadId },
-          ...(navigation?.search ? { search: navigation.search } : {}),
+          search: () => ({}),
         });
         restoreComposerDraft(bootstrapPlan.threadId, preservedComposerDraft);
         if (entryPoint === "terminal") {
@@ -312,7 +302,7 @@ export function useHandleNewThread() {
                 navigate({
                   to: "/$threadId",
                   params: { threadId },
-                  ...(navigation?.search ? { search: navigation.search } : {}),
+                  search: () => ({}),
                 }).then(resolve, reject);
               });
             }),

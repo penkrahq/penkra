@@ -225,6 +225,59 @@ describe("Thread Decks", () => {
     expect(model.decks.some((deck) => deck.id === deckA)).toBe(false);
   });
 
+  it("aborts only its own untouched empty gateway creation", async () => {
+    let model = await setup();
+    const child = ThreadId.makeUnsafe("gateway-child");
+    model = await dispatch(model, {
+      type: "thread.create",
+      commandId: CommandId.makeUnsafe("create-gateway-child"),
+      threadId: child,
+      deckId: singletonThreadDeckId(child),
+      folderId: FolderId.makeUnsafe("folder-a"),
+      title: "Gateway child",
+      modelSelection: { provider: "codex", model: "gpt-5.6-sol" },
+      runtimeMode: "full-access",
+      creationSource: "penkra_mcp",
+      sourceThreadId: ThreadId.makeUnsafe("thread-a"),
+      gatewayOperationId: "gateway:create:child",
+      createdAt: NOW,
+    });
+    const abort = {
+      type: "thread.delete",
+      commandId: CommandId.makeUnsafe("abort-gateway-child"),
+      threadId: child,
+      expectedEmptyGatewayOperationId: "gateway:create:child",
+    } as const;
+    await expect(
+      Effect.runPromise(
+        decideOrchestrationCommand({
+          readModel: model,
+          command: { ...abort, expectedEmptyGatewayOperationId: "gateway:create:other" },
+        }),
+      ),
+    ).rejects.toThrow("no longer an empty gateway creation");
+    const pinned = await dispatch(model, {
+      type: "thread.update",
+      commandId: CommandId.makeUnsafe("pin-gateway-child"),
+      threadId: child,
+      isPinned: true,
+    });
+    await expect(
+      Effect.runPromise(decideOrchestrationCommand({ readModel: pinned, command: abort })),
+    ).rejects.toThrow("no longer an empty gateway creation");
+    const renamed = await dispatch(model, {
+      type: "thread.update",
+      commandId: CommandId.makeUnsafe("rename-gateway-child"),
+      threadId: child,
+      title: "Renamed child",
+    });
+    await expect(
+      Effect.runPromise(decideOrchestrationCommand({ readModel: renamed, command: abort })),
+    ).rejects.toThrow("no longer an empty gateway creation");
+    model = await dispatch(model, abort);
+    expect(model.threads.find((thread) => thread.id === child)?.deletedAt).not.toBeNull();
+  });
+
   it("converges independent window projections on the serialized deck event stream", async () => {
     let authoritative = await setup();
     let firstWindow = authoritative;

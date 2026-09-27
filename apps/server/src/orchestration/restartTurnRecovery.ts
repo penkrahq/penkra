@@ -6,6 +6,8 @@ import { OrchestrationEngineService } from "./Services/OrchestrationEngine.ts";
 
 export const RESTART_TURN_RECOVERY_PROMPT =
   "The previous turn was interrupted because Penkra stopped. Continue the existing task from the current state. Verify the current state before repeating any action whose outcome may be uncertain.";
+export const PLAY_TURN_RECOVERY_PROMPT =
+  "The previous turn did not finish. Continue the existing task from the current state. Verify the current state before repeating any action whose outcome may be uncertain.";
 
 interface RestartTurnRecoveryRow {
   readonly threadId: string;
@@ -22,6 +24,12 @@ interface RestartTurnRecoveryRow {
 export const recoverRestartInterruptedTurns = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const engine = yield* OrchestrationEngineService;
+  yield* sql`
+    DELETE FROM restart_turn_recoveries
+    WHERE thread_id IN (
+      SELECT thread_id FROM projection_threads WHERE archived_at IS NOT NULL
+    )
+  `;
   const recoveries = yield* sql<RestartTurnRecoveryRow>`
     SELECT recovery.thread_id AS "threadId", recovery.turn_id AS "turnId",
            binding.connection_id AS "connectionId",
@@ -75,6 +83,7 @@ export const recoverRestartInterruptedTurns = Effect.gen(function* () {
         const createdAt = new Date().toISOString();
         yield* engine.dispatch({
           type: "thread.turn.recover",
+          reason: "restart",
           commandId,
           threadId,
           turnId: interruptedTurnId,

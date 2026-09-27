@@ -40,6 +40,7 @@ import { makeDurableProviderServiceLive } from "../src/provider/Layers/ProviderS
 import { makeCodexAdapterLive } from "../src/provider/Layers/CodexAdapter.ts";
 import { CodexAdapter } from "../src/provider/Services/CodexAdapter.ts";
 import { ProviderService } from "../src/provider/Services/ProviderService.ts";
+import { ProviderDiscoveryService } from "../src/provider/Services/ProviderDiscoveryService.ts";
 import { ProviderLaunchResolver } from "../src/provider/Services/ProviderLaunchResolver.ts";
 import { ProviderTurnSelectionResolver } from "../src/provider/Services/ProviderTurnSelectionResolver.ts";
 import { AnalyticsService } from "../src/telemetry/Services/AnalyticsService.ts";
@@ -359,11 +360,31 @@ export const makeOrchestrationIntegrationHarness = (
                     }),
                 ),
               ),
+          dispatchQueuedTurn: ({ command, attachmentPrincipal, cwd }) =>
+            engine
+              .dispatch(command, {
+                attachmentPrincipal,
+                ...(cwd ? { cwd } : {}),
+              })
+              .pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProviderThreadSwitchCoordinatorError({
+                      detail: "The orchestration harness could not dispatch the queued turn.",
+                      cause,
+                    }),
+                ),
+              ),
           recoverOpen: Effect.void,
         };
       }),
     ).pipe(Layer.provideMerge(runtimeServicesLayer));
     const providerCommandReactorLayer = makeProviderCommandReactorLive().pipe(
+      Layer.provideMerge(
+        Layer.succeed(ProviderDiscoveryService, {
+          probeConnection: () => Effect.succeed(false),
+        } as never),
+      ),
       Layer.provideMerge(runtimeIngestionLayer),
       Layer.provideMerge(runtimeServicesLayer),
       Layer.provideMerge(ServerSettingsService.layerTest()),

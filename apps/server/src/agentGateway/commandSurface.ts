@@ -150,10 +150,18 @@ export function invokeResolvedAgentGatewayCommand(input: {
       ),
     );
   }
-  const invoke = entry.tool.handler(input.resolution.arguments, input.context);
-  return (
-    entry.tool.requiresActiveTurn
-      ? input.context.assertCallerTurnActive().pipe(Effect.andThen(invoke))
-      : invoke
-  ).pipe(Effect.catch((error) => Effect.succeed(gatewayToolErrorResult(error))));
+  const callerTurnId = entry.tool.requiresActiveTurn
+    ? input.context.callerWriteTurnId
+    : input.context.callerTurnId;
+  const invoke = entry.tool.handler(input.resolution.arguments, {
+    ...input.context,
+    principal: { ...input.context.principal, turnId: callerTurnId },
+    callerTurnId,
+  });
+  const authorized = entry.tool.requiresActiveTurn
+    ? input.context.assertCallerTurnActive().pipe(Effect.andThen(invoke))
+    : entry.tool.requiresThreadAuthority
+      ? input.context.assertCallerThreadAuthorized().pipe(Effect.andThen(invoke))
+      : invoke;
+  return authorized.pipe(Effect.catch((error) => Effect.succeed(gatewayToolErrorResult(error))));
 }

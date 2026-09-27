@@ -126,6 +126,7 @@ import type {
   ProviderConnection,
   ProviderConnectionsSnapshot,
   ProviderConnectionsSnapshotInput,
+  RetryProviderAuthConnectionInput,
   TerminateProviderConnectionInput,
   ThreadProviderBindingSnapshot,
   ThreadProviderBindingSnapshotInput,
@@ -529,6 +530,8 @@ export interface DesktopAppTabDescriptor {
 /** Selection intent belongs to the event, never the retained tab descriptor. */
 export interface DesktopAppTabOpened extends DesktopAppTabDescriptor {
   selection: "activate" | "preserve";
+  /** Provenance set at the open/present request, independent of OS focus. */
+  initiator: "agent" | "user";
 }
 
 export interface DesktopAppTabClosed {
@@ -547,7 +550,7 @@ export interface DesktopAppTabPresentation {
 }
 
 export interface DesktopAppTabsBridge {
-  list: () => Promise<ReadonlyArray<DesktopAppTabDescriptor>>;
+  list: (scope?: { deckId: string }) => Promise<ReadonlyArray<DesktopAppTabOpened>>;
   consumeListingRequest: () => Promise<{ appId: string } | null>;
   open: (input: {
     /** Stable shell identity to retain when restoring a persisted App tab. */
@@ -726,15 +729,6 @@ export interface DesktopComposerDraftsBridge {
   listVoices: () => Promise<DesktopVoiceDraftDescriptor[]>;
   readVoice: (id: string) => Promise<Uint8Array | null>;
   deleteVoice: (id: string) => Promise<void>;
-  publishEditRecovery?: (recovery: DesktopComposerEditRecovery) => void;
-  onEditRecovery?: (listener: (recovery: DesktopComposerEditRecovery) => void) => () => void;
-}
-
-export interface DesktopComposerEditRecovery {
-  recoveryId: string;
-  threadId: ThreadId;
-  queuedTurnId: string;
-  queuedTurnJson: string;
 }
 
 export interface DesktopBridge {
@@ -783,6 +777,9 @@ export interface DesktopBridge {
     onState: (listener: (state: DesktopWindowState) => void) => () => void;
   };
   onMenuAction: (listener: (action: string) => void) => () => void;
+  panelFocus?: {
+    onClosePanelTab: (listener: (input: { deckId: string }) => void) => () => void;
+  };
   /** Current `webContents` page zoom (1 = 100%). Used to keep macOS traffic-light gutter aligned. */
   getZoomFactor: () => number;
   onZoomFactorChange: (listener: (zoomFactor: number) => void) => () => void;
@@ -809,11 +806,17 @@ export interface DesktopBridge {
     }) => Promise<void>;
   };
   threadApi?: {
-    onRequest(listener: (request: DesktopThreadApiRequest) => void): () => void;
-    respond(response: DesktopThreadApiResponse): void;
     publishState(input: { spaceId: string; deckId: string; threads: ReadonlyArray<unknown> }): void;
-    bindTurnOrigin(input: { turnId: string }): void;
-    unbindTurnOrigin(input: { turnId: string }): void;
+  };
+  threadHome?: {
+    view(input: {
+      views: ReadonlyArray<{ threadId: string; deckId: string }>;
+      activeThreadId: string;
+    }): void;
+    leave(): void;
+    send(input: { threadId: string }): void;
+    agentNavigation(input: { threadId: string }): void;
+    onSelect(listener: (input: { threadId: string }) => void): () => void;
   };
   composerDrafts?: DesktopComposerDraftsBridge;
   accountAuth?: {
@@ -853,7 +856,8 @@ export interface DesktopBridge {
 export interface DesktopThreadComposeAttachment {
   name: string;
   mimeType: string;
-  bytes: Uint8Array;
+  /** Validated App-storage path passed only over the private desktop-backend channel. */
+  path: string;
 }
 
 interface DesktopThreadApiRequestBase {
@@ -924,14 +928,6 @@ export type DesktopThreadApiRequest =
       method: "send";
       input: { composeId: string; mode?: "queue" | "steer" };
     });
-
-export type DesktopThreadApiResponse =
-  | {
-      id: string;
-      ok: true;
-      result: unknown;
-    }
-  | { id: string; ok: false; code: string; message: string };
 
 export interface NativeApi {
   dialogs: {
@@ -1049,6 +1045,7 @@ export interface NativeApi {
     getConnections: (
       input?: ProviderConnectionsSnapshotInput,
     ) => Promise<ProviderConnectionsSnapshot>;
+    retryAuthConnection: (input: RetryProviderAuthConnectionInput) => Promise<void>;
     getThreadBinding: (
       input: ThreadProviderBindingSnapshotInput,
     ) => Promise<ThreadProviderBindingSnapshot>;

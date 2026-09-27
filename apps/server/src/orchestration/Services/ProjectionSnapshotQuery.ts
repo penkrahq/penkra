@@ -82,11 +82,6 @@ export interface ProjectionSnapshotSequence {
   readonly snapshotSequence: number;
 }
 
-export interface ProjectionGeneratedImageActivityRecord {
-  readonly kind: string;
-  readonly payload: unknown;
-}
-
 export interface ProjectionOpenTurnCount {
   readonly threadId: ThreadId;
   readonly count: number;
@@ -208,19 +203,6 @@ export interface ProjectionSnapshotQueryShape {
   readonly getFirstActiveThreadIdByFolderId: (
     folderId: FolderId,
   ) => Effect.Effect<Option.Option<ThreadId>, ProjectionRepositoryError>;
-
-  /**
-   * Read the durable generated-image records for one turn. This narrow query is
-   * intentionally independent of the bounded thread-detail activity window so
-   * long turns and server restarts can still materialize transcript references.
-   */
-  readonly listGeneratedImageActivitiesByTurn: (
-    threadId: ThreadId,
-    turnId: TurnId,
-  ) => Effect.Effect<
-    ReadonlyArray<ProjectionGeneratedImageActivityRecord>,
-    ProjectionRepositoryError
-  >;
 
   /**
    * Read a single active thread shell row by id.

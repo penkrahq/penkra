@@ -6,8 +6,11 @@ export const MINIMUM_SAFE_SQLITE_VERSION = "3.51.3";
 const SQLITE_PRIMARY_CODE_MASK = 0xff;
 const SQLITE_CORRUPT = 11;
 const SQLITE_IOERR = 10;
+const SQLITE_BUSY = 5;
+const SQLITE_LOCKED = 6;
 const SQLITE_NOTADB = 26;
 const SQLITE_IO_ERROR_CODES = new Set([SQLITE_IOERR]);
+const SQLITE_RETRYABLE_CODES = new Set([SQLITE_BUSY, SQLITE_LOCKED, SQLITE_IOERR]);
 const SQLITE_CORRUPTION_CODES = new Set([SQLITE_CORRUPT, SQLITE_NOTADB]);
 
 function numericVersionParts(version: string): ReadonlyArray<number> | null {
@@ -66,6 +69,10 @@ function hasPrimaryResultCode(cause: unknown, expected: ReadonlySet<number>): bo
 
 export function isSqliteIoError(cause: unknown): boolean {
   return hasPrimaryResultCode(cause, SQLITE_IO_ERROR_CODES);
+}
+
+export function isRetryableSqliteError(cause: unknown): boolean {
+  return hasPrimaryResultCode(cause, SQLITE_RETRYABLE_CODES);
 }
 
 export function isSqliteCorruptionError(cause: unknown): boolean {

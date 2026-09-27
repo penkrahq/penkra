@@ -45,6 +45,7 @@ import {
   type DeckThreadDndData,
   readDeckThreadDndData,
 } from "./ThreadDeckDnd";
+import { DeckTabStripViewport } from "./DeckTabStripViewport";
 
 type DeckDropPlacement = "before" | "after";
 
@@ -437,6 +438,7 @@ export function ThreadDeckBar(props: {
           type: "thread.archive",
           commandId: newCommandId(),
           threadId: removedThreadId,
+          createdAt: new Date().toISOString(),
         });
       },
     });
@@ -474,10 +476,7 @@ export function ThreadDeckBar(props: {
           <CentralIcon className="size-4" name="sidebar-simple-left-wide" />
         </button>
       ) : null}
-      <div
-        className="flex min-w-0 flex-1 items-center overflow-x-auto [scrollbar-width:none] [-webkit-app-region:no-drag] [&::-webkit-scrollbar]:hidden"
-        role="tablist"
-      >
+      <DeckTabStripViewport>
         {tabs.map((tab, index) => {
           const visualActiveThreadId = optimisticActiveThreadId ?? props.activeThread.id;
           const active = tab.id === visualActiveThreadId;
@@ -541,7 +540,7 @@ export function ThreadDeckBar(props: {
             <PlusIcon className="size-3.5" />
           </IconButton>
         ) : null}
-      </div>
+      </DeckTabStripViewport>
     </header>
   );
 }

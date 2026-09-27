@@ -9,7 +9,7 @@
 import { ServiceMap } from "effect";
 import type { Effect, Scope } from "effect";
 
-import type { ThreadId } from "@penkra/contracts";
+import type { ProviderConnectionId, ThreadId } from "@penkra/contracts";
 import type {
   ProviderBlockingDeliveryEvidence,
   ProviderDeliveryReconciliationOutcome,
@@ -49,6 +49,11 @@ export interface ProviderCommandReactorShape {
    * event ingestion alive long enough to persist shutdown state.
    */
   readonly quiesceQueuePromotions: Effect.Effect<void>;
+
+  /** Probe an open auth circuit now, preserving queued turns if it remains unhealthy. */
+  readonly retryAuthConnection: (
+    connectionId: ProviderConnectionId,
+  ) => Effect.Effect<void, unknown>;
 
   readonly listBlockingDeliveries: (input: {
     readonly threadId?: string | undefined;

@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { SpaceId } from "@penkra/contracts";
+import { WINDOWS_CAPTION_CONTROLS_GUTTER_PX } from "@penkra/shared/desktopChrome";
 
 import {
   resolveAppsLauncherAction,
+  resolveAppsLauncherDeckBarReservationPx,
   resolveAppsLauncherRightInsetPx,
   resolveAppsLauncherSpaceId,
 } from "./appsLauncher.logic";
@@ -12,6 +14,45 @@ describe("fixed Apps launcher", () => {
   it("clears the Windows caption-button cluster in Electron", () => {
     expect(resolveAppsLauncherRightInsetPx({ isElectron: true, isWindowsDesktop: true })).toBe(144);
     expect(resolveAppsLauncherRightInsetPx({ isElectron: true, isWindowsDesktop: false })).toBe(6);
+  });
+
+  it("reserves the launcher footprint on web and Windows using one maximum", () => {
+    expect(
+      resolveAppsLauncherDeckBarReservationPx({
+        appsLauncherRightInsetPx: 6,
+        dockOpen: false,
+        isElectron: false,
+        isWindowsDesktop: false,
+      }),
+    ).toBe(42);
+    expect(
+      resolveAppsLauncherDeckBarReservationPx({
+        appsLauncherRightInsetPx: 144,
+        dockOpen: false,
+        isElectron: true,
+        isWindowsDesktop: true,
+      }),
+    ).toBe(180);
+    expect(144 + 32 + 4 + WINDOWS_CAPTION_CONTROLS_GUTTER_PX).toBe(318);
+  });
+
+  it("keeps only the existing Windows controls gutter while the dock is open", () => {
+    expect(
+      resolveAppsLauncherDeckBarReservationPx({
+        appsLauncherRightInsetPx: 144,
+        dockOpen: true,
+        isElectron: true,
+        isWindowsDesktop: true,
+      }),
+    ).toBe(WINDOWS_CAPTION_CONTROLS_GUTTER_PX);
+    expect(
+      resolveAppsLauncherDeckBarReservationPx({
+        appsLauncherRightInsetPx: 6,
+        dockOpen: true,
+        isElectron: false,
+        isWindowsDesktop: false,
+      }),
+    ).toBe(0);
   });
 
   it("opens Apps when no Apps tab exists", () => {

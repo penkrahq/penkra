@@ -206,10 +206,21 @@ is why it must never target the Thread you are running in — doing so would put
 mouth and stack a second turn on the one already executing. The command rejects that target. In the
 UI these messages are marked "Sent by agent," so the user can tell them apart.
 
-Send returns the same kind of stable `turnId`; the host may start it or place it behind existing
-work without changing how you track it. Use `--now` only when the instruction must take effect
-regardless of running or queued work. This expresses intent, not a provider mechanism: Penkra may
-steer natively or interrupt according to provider capability. To retract one exact queued or
+Send returns `threadId`, `messageId`, `turnId`, and an immediate routing result in `delivery`:
+
+- `queued`: undelivered. The result also gives `queuePosition` and, when a running turn blocks it,
+  `blockingTurnId` and `blockingTurnStartedAt`. Without `--now`, this message waits in FIFO order;
+  it is **not seen until the running turn ends**, which may take hours.
+- `started`: a new turn was requested.
+- `steered`: native steering of a running turn was requested with `--now`.
+- `interrupted`: interruption of the running turn was requested with `--now`; this message follows
+  that turn. It may still be waiting when send returns.
+
+For example, `{"threadId":"thread-b","messageId":"message-2","turnId":"turn-2","delivery":"queued","queuePosition":45,"blockingTurnId":"turn-1","blockingTurnStartedAt":"2026-09-25T12:00:00.000Z"}` means message 2 is recorded but has not reached the provider. No elapsed-time estimate or warning is inferred from these fields.
+
+These values describe routing, not proof that the provider accepted or completed the message. Use
+`penkra threads read --thread-id <id> --turn-id <turn-id>` to track the exact turn. Transcript
+messages distinguish `queued`, `pending`, `delivered`, and `failed`. To retract one exact queued or
 running request, use `penkra threads interrupt --thread-id <id> --turn-id <turn-id>`.
 
 Read ordinary conversational history with `penkra threads read`: it returns messages and selected

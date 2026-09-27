@@ -164,6 +164,7 @@ export function threadShellsEqual(left: ThreadShell | undefined, right: ThreadSh
     left.modelSelection === right.modelSelection &&
     left.runtimeMode === right.runtimeMode &&
     left.error === right.error &&
+    left.errorSource === right.errorSource &&
     left.createdAt === right.createdAt &&
     (left.archivedAt ?? null) === (right.archivedAt ?? null) &&
     left.updatedAt === right.updatedAt &&
@@ -524,12 +525,18 @@ export function normalizeChatMessage(
       : previous?.delivery !== undefined && previous.delivery.sequence > incoming.delivery.sequence
         ? previous.delivery
         : incoming.delivery;
+  const effectiveDispatchOrigin = incoming.dispatchOrigin ?? previous?.dispatchOrigin;
+  const senderThreadId =
+    effectiveDispatchOrigin === "agent"
+      ? (incoming.senderThreadId ?? previous?.senderThreadId)
+      : undefined;
   if (
     previous &&
     previous.role === incoming.role &&
     previous.text === incoming.text &&
     previous.dispatchMode === incoming.dispatchMode &&
     previous.dispatchOrigin === incoming.dispatchOrigin &&
+    previous.senderThreadId === senderThreadId &&
     previous.delivery === delivery &&
     previous.sequence === incoming.sequence &&
     previous.turnId === incoming.turnId &&
@@ -550,6 +557,7 @@ export function normalizeChatMessage(
     text: incoming.text,
     ...(incoming.dispatchMode ? { dispatchMode: incoming.dispatchMode } : {}),
     ...(incoming.dispatchOrigin ? { dispatchOrigin: incoming.dispatchOrigin } : {}),
+    ...(senderThreadId !== undefined ? { senderThreadId } : {}),
     ...(delivery !== undefined ? { delivery } : {}),
     ...(incoming.sequence !== undefined ? { sequence: incoming.sequence } : {}),
     turnId: incoming.turnId,
@@ -616,6 +624,9 @@ function readModelMessageFromChatMessage(
     text: message.text,
     ...(message.dispatchMode ? { dispatchMode: message.dispatchMode } : {}),
     ...(message.dispatchOrigin ? { dispatchOrigin: message.dispatchOrigin } : {}),
+    ...(message.dispatchOrigin === "agent" && message.senderThreadId !== undefined
+      ? { senderThreadId: message.senderThreadId }
+      : {}),
     ...(message.sequence !== undefined ? { sequence: message.sequence } : {}),
     turnId: message.turnId ?? null,
     streaming: message.streaming,
@@ -1359,6 +1370,18 @@ export function normalizeThreadErrorMessage(message: string | null | undefined):
   return message && !isNonFatalThreadErrorMessage(message) ? message : null;
 }
 
+/** The newest delivery is the only one that can own a transcript-level send error. */
+export function latestDeliveryFailureReason(messages: readonly ChatMessage[]): string | null {
+  let latest: ChatMessage["delivery"] | undefined;
+  for (const message of messages) {
+    if (message.role !== "user" || !message.delivery) continue;
+    if (!latest || message.delivery.sequence > latest.sequence) latest = message.delivery;
+  }
+  return latest?.state === "failed" && latest.failurePhase === "before-provider-dispatch"
+    ? normalizeThreadErrorMessage(latest.failureDetail)
+    : null;
+}
+
 export function normalizeThreadSession(
   incoming: ReadModelThread["session"],
   previous: Thread["session"] | undefined | null,
@@ -1522,7 +1545,11 @@ export function normalizeThreadFromReadModel(
     previous?.messages,
     options.capMessages === undefined ? {} : { cap: options.capMessages },
   );
-  const incomingQueuedMessageIds = incoming.queuedMessageIds ?? [];
+  const deliveryByMessageId = new Map(messages.map((message) => [message.id, message.delivery]));
+  const incomingQueuedMessageIds = (incoming.queuedMessageIds ?? []).filter((messageId) => {
+    const delivery = deliveryByMessageId.get(messageId);
+    return delivery === undefined || delivery.state === "queued";
+  });
   const queuedMessageIds = arraysShallowEqual(previous?.queuedMessageIds, incomingQueuedMessageIds)
     ? (previous?.queuedMessageIds ?? [])
     : [...incomingQueuedMessageIds];
@@ -1547,7 +1574,10 @@ export function normalizeThreadFromReadModel(
       : incomingPendingInteractions === undefined
         ? undefined
         : [...incomingPendingInteractions];
-  const error = normalizeThreadErrorMessage(incoming.session?.lastError);
+  const sessionError = normalizeThreadErrorMessage(incoming.session?.lastError);
+  const deliveryError = latestDeliveryFailureReason(messages);
+  const error = sessionError ?? deliveryError;
+  const errorSource = sessionError === null && deliveryError !== null ? "delivery" : undefined;
   const lastVisitedAt = incoming.lastVisitedAt ?? previous?.lastVisitedAt ?? incoming.updatedAt;
   const resolvedLatestUserMessageAt =
     Object.hasOwn(incoming, "latestUserMessageAt") && incoming.latestUserMessageAt !== undefined
@@ -1569,11 +1599,13 @@ export function normalizeThreadFromReadModel(
     (previous.sidebarSortOrder ?? 0) === (incoming.sidebarSortOrder ?? 0) &&
     previous.title === incoming.title &&
     previous.modelSelection === modelSelection &&
+    previous.connectionId === incoming.connectionId &&
     previous.runtimeMode === incoming.runtimeMode &&
     previous.session === session &&
     previous.messages === messages &&
     previous.queuedMessageIds === queuedMessageIds &&
     previous.error === error &&
+    previous.errorSource === errorSource &&
     previous.createdAt === incoming.createdAt &&
     (previous.archivedAt ?? null) === (incoming.archivedAt ?? null) &&
     previous.updatedAt === incoming.updatedAt &&
@@ -1613,11 +1645,13 @@ export function normalizeThreadFromReadModel(
     sidebarSortOrder: incoming.sidebarSortOrder ?? 0,
     title: incoming.title,
     modelSelection,
+    ...(incoming.connectionId !== undefined ? { connectionId: incoming.connectionId } : {}),
     runtimeMode: incoming.runtimeMode,
     session,
     messages,
     queuedMessageIds,
     error,
+    ...(errorSource !== undefined ? { errorSource } : {}),
     createdAt: incoming.createdAt,
     archivedAt: incoming.archivedAt ?? null,
     updatedAt: incoming.updatedAt,
@@ -1660,7 +1694,10 @@ export function normalizeThreadShellSnapshot(
 } {
   const modelSelection = normalizeModelSelection(incoming.modelSelection, previous?.modelSelection);
   const { session, latestTurn } = normalizeThreadLifecycle(incoming, previous);
-  const error = normalizeThreadErrorMessage(incoming.session?.lastError);
+  const sessionError = normalizeThreadErrorMessage(incoming.session?.lastError);
+  const deliveryError = latestDeliveryFailureReason(previous?.messages ?? []);
+  const error = sessionError ?? deliveryError;
+  const errorSource = sessionError === null && deliveryError !== null ? "delivery" : undefined;
   const lastVisitedAt = incoming.lastVisitedAt ?? previous?.lastVisitedAt ?? incoming.updatedAt;
   const sidebarRollups = resolveThreadSidebarRollups(incoming, previous);
   const nextWorkingDirectory = incoming.workingDirectory ?? null;
@@ -1674,8 +1711,10 @@ export function normalizeThreadShellSnapshot(
     sidebarSortOrder: incoming.sidebarSortOrder ?? 0,
     title: incoming.title,
     modelSelection,
+    ...(incoming.connectionId !== undefined ? { connectionId: incoming.connectionId } : {}),
     runtimeMode: incoming.runtimeMode,
     error,
+    ...(errorSource !== undefined ? { errorSource } : {}),
     createdAt: incoming.createdAt,
     archivedAt: incoming.archivedAt ?? null,
     updatedAt: incoming.updatedAt,

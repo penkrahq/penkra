@@ -40,12 +40,9 @@ import {
   resolveSubagentIdentityFromDirectory,
 } from "@penkra/shared/subagents";
 
-import {
-  generatedImageMarkdown,
-  generatedImagePathFromRuntimeEvent,
-  isCodexGeneratedImageArtifact,
-} from "../../codexGeneratedImages.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
+import { classifyProviderAuthFailure } from "../../provider/providerAuthFailure.ts";
+import { makeProviderAuthCircuitStore } from "../../provider/providerAuthCircuit.ts";
 import {
   classifyTerminalTurnApplicability,
   isStartedTurnApplicable,
@@ -53,6 +50,10 @@ import {
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { ProviderRuntimeEventRepositoryLive } from "../../persistence/Layers/ProviderRuntimeEvents.ts";
+import {
+  observeRuntimeJournalTiming,
+  takeRuntimeJournalTimings,
+} from "../../persistence/runtimeJournalMetrics.ts";
 import { ProviderSessionRuntimeRepositoryLive } from "../../persistence/Layers/ProviderSessionRuntime.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
@@ -66,10 +67,7 @@ import {
   OrchestrationEngineService,
   type OrchestrationDispatchContext,
 } from "../Services/OrchestrationEngine.ts";
-import {
-  ProjectionSnapshotQuery,
-  type ProjectionGeneratedImageActivityRecord,
-} from "../Services/ProjectionSnapshotQuery.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
   ProviderRuntimeIngestionService,
   type ProviderRuntimeIngestionShape,
@@ -106,7 +104,6 @@ const BUFFERED_TOOL_OUTPUT_BY_KEY_CACHE_CAPACITY = 2_048;
 const BUFFERED_TOOL_OUTPUT_BY_KEY_TTL = Duration.minutes(60);
 const BUFFERED_REASONING_SUMMARY_BY_KEY_CACHE_CAPACITY = 2_048;
 const BUFFERED_REASONING_SUMMARY_BY_KEY_TTL = Duration.minutes(60);
-const PENDING_GENERATED_IMAGES_CACHE_CAPACITY = 512;
 
 function usageRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" ? (value as Record<string, unknown>) : null;
@@ -144,9 +141,6 @@ function completedTurnTokenUsage(
     ),
   };
 }
-// Hot-path cache only. Turn settlement also reads durable activity records, so
-// TTL expiry or a server restart cannot discard the transcript reference.
-const PENDING_GENERATED_IMAGES_TTL = Duration.minutes(60);
 const ACTIVITY_UPDATE_FINGERPRINT_CACHE_CAPACITY = 4_096;
 const ACTIVITY_UPDATE_FINGERPRINT_TTL = Duration.minutes(360);
 const MAX_NATIVE_CHILDREN_PER_PARENT_TURN = 20;
@@ -154,9 +148,6 @@ const NATIVE_CHILD_IDS_BY_SOURCE_TURN_CACHE_CAPACITY = 2_048;
 const NATIVE_CHILD_IDS_BY_SOURCE_TURN_TTL = Duration.minutes(360);
 const ASSISTANT_DELIVERY_MODE_BY_TURN_CACHE_CAPACITY = 2_048;
 const ASSISTANT_DELIVERY_MODE_BY_TURN_TTL = Duration.minutes(60);
-// One turn realistically produces a handful of images; the cap only bounds a
-// pathological provider replaying image completions in a loop.
-const MAX_PENDING_GENERATED_IMAGES_PER_TURN = 32;
 const MAX_BUFFERED_ASSISTANT_CHARS = 24_000;
 const MAX_BUFFERED_TOOL_OUTPUT_CHARS = 24_000;
 const MAX_BUFFERED_REASONING_SUMMARY_CHARS = 8_000;
@@ -176,6 +167,7 @@ type RuntimeIngestionInput =
       source: "runtime";
       sequence: number;
       event: ProviderRuntimeEvent;
+      persistedAt?: string;
     }
   | {
       source: "domain";
@@ -307,23 +299,7 @@ function threadDetailFromShell(shell: OrchestrationThreadShell): OrchestrationTh
  * detail; everything else uses the cheap shell.
  */
 function eventNeedsHeavyThreadDetail(event: ProviderRuntimeEvent): boolean {
-  if (event.type === "item.completed") {
-    // assistant_message completion reads thread.messages to decide whether to
-    // apply fallback completion text; image_generation completion scans
-    // thread.messages to attach the generated-image reference.
-    return (
-      event.payload.itemType === "assistant_message" ||
-      generatedImagePathFromRuntimeEvent(event) !== undefined
-    );
-  }
-  // Session exits and runtime errors flush the turn's pending generated images
-  // into the terminal assistant message, which requires thread.messages.
-  return (
-    event.type === "turn.completed" ||
-    event.type === "turn.aborted" ||
-    event.type === "session.exited" ||
-    event.type === "runtime.error"
-  );
+  return event.type === "item.completed" && event.payload.itemType === "assistant_message";
 }
 
 function toTurnId(value: TurnId | string | undefined): TurnId | undefined {
@@ -509,41 +485,6 @@ function asObject(value: unknown): Record<string, unknown> | undefined {
   return isJsonObject(value) ? value : undefined;
 }
 
-/**
- * Resolves persisted image tool records to their provider artifact paths. The
- * query supplying these records is turn-scoped and independent of the bounded
- * thread-detail activity window.
- */
-export function collectPersistedGeneratedImagePaths(
-  records: ReadonlyArray<ProjectionGeneratedImageActivityRecord>,
-): string[] {
-  const paths: string[] = [];
-  const seenPaths = new Set<string>();
-  const addPath = (path: string) => {
-    if (!seenPaths.has(path)) {
-      seenPaths.add(path);
-      paths.push(path);
-    }
-  };
-
-  for (const record of records) {
-    if (record.kind !== "tool.completed") {
-      continue;
-    }
-    const payload = asObject(record.payload);
-    if (payload?.itemType !== "image_generation") {
-      continue;
-    }
-    const artifact = isCodexGeneratedImageArtifact(payload.data) ? payload.data : undefined;
-    if (!artifact) {
-      continue;
-    }
-    addPath(artifact.path);
-  }
-
-  return paths;
-}
-
 interface SubagentIdentity {
   readonly providerThreadId: string;
   readonly agentId?: string;
@@ -599,6 +540,7 @@ const takeCached = <Key, Value>(cache: Cache.Cache<Key, Value>, key: Key) =>
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  const authCircuits = makeProviderAuthCircuitStore(sql);
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const providerService = yield* ProviderService;
@@ -1011,14 +953,6 @@ const make = Effect.gen(function* () {
     timeToLive: BUFFERED_REASONING_SUMMARY_BY_KEY_TTL,
     lookup: () => Effect.succeed(undefined),
   });
-  // Display paths of generated images completed during a still-running turn, keyed by
-  // providerTurnKey. Flushed into the turn's terminal assistant message when the turn
-  // settles, so the visible final row owns the image instead of collapsed narration.
-  const pendingGeneratedImagesByTurnKey = yield* Cache.make<string, ReadonlyArray<string>>({
-    capacity: PENDING_GENERATED_IMAGES_CACHE_CAPACITY,
-    timeToLive: PENDING_GENERATED_IMAGES_TTL,
-    lookup: () => Effect.succeed([]),
-  });
   const latestActivityUpdateFingerprintByKey = yield* Cache.make<string, string | undefined>({
     capacity: ACTIVITY_UPDATE_FINGERPRINT_CACHE_CAPACITY,
     timeToLive: ACTIVITY_UPDATE_FINGERPRINT_TTL,
@@ -1083,19 +1017,15 @@ const make = Effect.gen(function* () {
       }
       return { sequence: existingReceipt.value.resultSequence };
     }
-    return yield* orchestrationEngine.dispatch(
-      command,
-      expectedProviderLifecycleGeneration === undefined
-        ? expectedProviderSessionOwnership === undefined
-          ? undefined
-          : { expectedProviderSessionOwnership }
-        : {
-            expectedProviderLifecycleGeneration,
-            ...(expectedProviderSessionOwnership === undefined
-              ? {}
-              : { expectedProviderSessionOwnership }),
-          },
-    );
+    return yield* orchestrationEngine.dispatch(command, {
+      allowArchivedProviderProjection: true,
+      ...(expectedProviderLifecycleGeneration === undefined
+        ? {}
+        : { expectedProviderLifecycleGeneration }),
+      ...(expectedProviderSessionOwnership === undefined
+        ? {}
+        : { expectedProviderSessionOwnership }),
+    });
   });
 
   const claimNativeChildSlot = Effect.fnUntraced(function* (
@@ -1587,150 +1517,6 @@ const make = Effect.gen(function* () {
       yield* clearAssistantMessageState(input.messageId);
     });
 
-  /**
-   * Appends generated-image markdown to one explicit assistant message (creating it
-   * when it does not exist yet) and finalizes it. Image markdown already present on
-   * the target is skipped, so provider replays never duplicate references or re-emit
-   * message-sent events for untouched, already-finalized targets.
-   */
-  const appendGeneratedImagesToAssistantMessage = (input: {
-    event: ProviderRuntimeEvent;
-    threadId: ThreadId;
-    targetMessage:
-      | Pick<OrchestrationThread["messages"][number], "id" | "text" | "streaming">
-      | undefined;
-    newMessageId: MessageId;
-    imagePaths: ReadonlyArray<string>;
-    turnId?: TurnId;
-    createdAt: string;
-  }) =>
-    Effect.gen(function* () {
-      const targetMessageId = input.targetMessage?.id ?? input.newMessageId;
-      const targetMessageText = input.targetMessage?.text ?? "";
-      const targetIsStreaming = input.targetMessage?.streaming ?? false;
-
-      const missingMarkdown: string[] = [];
-      for (const imagePath of input.imagePaths) {
-        const markdown = generatedImageMarkdown(imagePath);
-        if (
-          targetMessageText.includes(imagePath) ||
-          targetMessageText.includes(markdown) ||
-          missingMarkdown.includes(markdown)
-        ) {
-          continue;
-        }
-        missingMarkdown.push(markdown);
-      }
-
-      let dispatchedDelta = false;
-      if (missingMarkdown.length > 0) {
-        const joined = missingMarkdown.join("\n\n");
-        yield* dispatchProviderCommandOnce({
-          type: "thread.message.assistant.delta",
-          commandId: providerCommandId(input.event, "generated-image-delta", targetMessageId),
-          threadId: input.threadId,
-          messageId: targetMessageId,
-          delta: targetMessageText.trim().length > 0 ? `\n\n${joined}` : joined,
-          ...(input.turnId ? { turnId: input.turnId } : {}),
-          createdAt: input.createdAt,
-        });
-        dispatchedDelta = true;
-      }
-
-      // Only finalize when we actually changed the message (delta dispatched, or we
-      // just created a brand-new image-only message), or when the existing target was
-      // still streaming. Skipping complete on already-finalized targets keeps replays
-      // and duplicate provider notifications from emitting redundant message-sent events.
-      const shouldComplete = dispatchedDelta || !input.targetMessage || targetIsStreaming;
-      if (shouldComplete) {
-        yield* dispatchProviderCommandOnce({
-          type: "thread.message.assistant.complete",
-          commandId: providerCommandId(input.event, "generated-image-complete", targetMessageId),
-          threadId: input.threadId,
-          messageId: targetMessageId,
-          ...(input.turnId ? { turnId: input.turnId } : {}),
-          createdAt: input.createdAt,
-        });
-      }
-    });
-
-  const rememberPendingGeneratedImage = (threadId: ThreadId, turnId: TurnId, imagePath: string) =>
-    Cache.getOption(pendingGeneratedImagesByTurnKey, providerTurnKey(threadId, turnId)).pipe(
-      Effect.flatMap((existingPaths) => {
-        const paths = Option.getOrElse(existingPaths, (): ReadonlyArray<string> => []);
-        if (paths.includes(imagePath) || paths.length >= MAX_PENDING_GENERATED_IMAGES_PER_TURN) {
-          return Effect.void;
-        }
-        return Cache.set(pendingGeneratedImagesByTurnKey, providerTurnKey(threadId, turnId), [
-          ...paths,
-          imagePath,
-        ]);
-      }),
-    );
-
-  const takePendingGeneratedImages = (threadId: ThreadId, turnId: TurnId) =>
-    Cache.getOption(pendingGeneratedImagesByTurnKey, providerTurnKey(threadId, turnId)).pipe(
-      Effect.flatMap((existingPaths) =>
-        Cache.invalidate(pendingGeneratedImagesByTurnKey, providerTurnKey(threadId, turnId)).pipe(
-          Effect.as(Option.getOrElse(existingPaths, (): ReadonlyArray<string> => [])),
-        ),
-      ),
-    );
-
-  /**
-   * Codex emits generated images as artifacts, so the turn's final assistant item is
-   * often intentionally empty: the image IS the answer. Attaching images eagerly to
-   * whatever narration exists mid-turn hands them to a message the settled-turn UI
-   * collapses into the "Worked for…" disclosure, leaving the visible terminal row as
-   * "(empty response)". Flushing at turn settle targets the actual terminal message
-   * — including an empty one, whose body becomes the image markdown. Persisted
-   * activity recovery complements the hot cache for long turns and restarts.
-   */
-  const flushPendingGeneratedImagesForTurn = (input: {
-    event: ProviderRuntimeEvent;
-    thread: OrchestrationThread;
-    turnId: TurnId;
-    createdAt: string;
-  }) =>
-    Effect.gen(function* () {
-      const cachedImagePaths = yield* takePendingGeneratedImages(input.thread.id, input.turnId);
-      const persistedRecords = yield* projectionSnapshotQuery
-        .listGeneratedImageActivitiesByTurn(input.thread.id, input.turnId)
-        .pipe(
-          Effect.catchCause((cause) =>
-            Effect.logWarning("failed to recover persisted generated-image references", {
-              threadId: input.thread.id,
-              turnId: input.turnId,
-              cause: Cause.pretty(cause),
-            }).pipe(Effect.as<ReadonlyArray<ProjectionGeneratedImageActivityRecord>>([])),
-          ),
-        );
-      const imagePaths = [
-        ...new Set([...cachedImagePaths, ...collectPersistedGeneratedImagePaths(persistedRecords)]),
-      ];
-      if (imagePaths.length === 0) {
-        return;
-      }
-      // The terminal assistant message is the newest of the turn: the transcript UI
-      // gives the last assistant row ownership of the settled turn and folds every
-      // earlier assistant row, so this is the only row that stays visible.
-      const terminalMessage = input.thread.messages
-        .filter((message) => message.role === "assistant" && message.turnId === input.turnId)
-        .toSorted(
-          (left, right) =>
-            right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id),
-        )[0];
-      yield* appendGeneratedImagesToAssistantMessage({
-        event: input.event,
-        threadId: input.thread.id,
-        targetMessage: terminalMessage,
-        newMessageId: MessageId.makeUnsafe(`assistant:image:${input.turnId}`),
-        imagePaths,
-        turnId: input.turnId,
-        createdAt: input.createdAt,
-      });
-    });
-
   const clearTurnStateForSession = (threadId: ThreadId) =>
     Effect.gen(function* () {
       const prefix = `${threadId}:`;
@@ -1747,11 +1533,6 @@ const make = Effect.gen(function* () {
 
           yield* Cache.invalidate(turnMessageIdsByTurnKey, key);
         }),
-      );
-      yield* Effect.forEach(Array.from(yield* Cache.keys(pendingGeneratedImagesByTurnKey)), (key) =>
-        key.startsWith(prefix)
-          ? Cache.invalidate(pendingGeneratedImagesByTurnKey, key)
-          : Effect.void,
       );
     });
 
@@ -2092,7 +1873,8 @@ const make = Effect.gen(function* () {
             case "turn.completed":
               return runtimeTurnState(event) === "failed"
                 ? "error"
-                : runtimeTurnState(event) === "interrupted"
+                : runtimeTurnState(event) === "interrupted" ||
+                    runtimeTurnState(event) === "cancelled"
                   ? "interrupted"
                   : "ready";
             case "turn.aborted":
@@ -2313,39 +2095,6 @@ const make = Effect.gen(function* () {
         }
       }
 
-      const generatedImagePath = generatedImagePathFromRuntimeEvent(event);
-      if (generatedImagePath) {
-        const generatedImageTurnId = toTurnId(event.turnId) ?? activeTurnId ?? undefined;
-        if (generatedImageTurnId) {
-          // Defer the transcript reference to turn settle (see the flush helper); the
-          // "Generated image" work row already surfaces progress mid-turn.
-          yield* rememberPendingGeneratedImage(thread.id, generatedImageTurnId, generatedImagePath);
-        } else {
-          // No turn to correlate with: attach immediately to the same provider item
-          // (replay) or an existing reference, else a standalone image-only message.
-          const messages = thread.messages;
-          const sameItemMessageId = event.itemId
-            ? MessageId.makeUnsafe(`assistant:${event.itemId}`)
-            : undefined;
-          const markdown = generatedImageMarkdown(generatedImagePath);
-          const targetMessage = messages.find(
-            (message) =>
-              message.role === "assistant" &&
-              (message.id === sameItemMessageId ||
-                message.text.includes(generatedImagePath) ||
-                message.text.includes(markdown)),
-          );
-          yield* appendGeneratedImagesToAssistantMessage({
-            event,
-            threadId: thread.id,
-            targetMessage,
-            newMessageId: MessageId.makeUnsafe(`assistant:image:${event.itemId ?? event.eventId}`),
-            imagePaths: [generatedImagePath],
-            createdAt: now,
-          });
-        }
-      }
-
       if (isTerminalTurnEvent) {
         const finalizedTurnId = eventTurnId ?? activeTurnId ?? undefined;
         if (finalizedTurnId) {
@@ -2365,16 +2114,6 @@ const make = Effect.gen(function* () {
             }),
           );
           yield* clearAssistantMessageIdsForTurn(thread.id, finalizedTurnId);
-
-          // After finalization the turn's terminal assistant message is settled;
-          // hand it the images the turn produced (an artifact-only turn's final
-          // message is intentionally empty — the image markdown becomes its body).
-          yield* flushPendingGeneratedImagesForTurn({
-            event,
-            thread,
-            turnId: finalizedTurnId,
-            createdAt: now,
-          });
         }
       }
 
@@ -2391,13 +2130,6 @@ const make = Effect.gen(function* () {
               commandTag: "assistant-complete-session-exit",
               finalDeltaCommandTag: "assistant-delta-session-exit",
             });
-            // Images produced before the session died are real; surface them now.
-            yield* flushPendingGeneratedImagesForTurn({
-              event,
-              thread,
-              turnId: exitedTurnId,
-              createdAt: now,
-            });
           }
           yield* clearTurnStateForSession(thread.id);
         }
@@ -2406,6 +2138,20 @@ const make = Effect.gen(function* () {
       if (event.type === "runtime.error") {
         const runtimeErrorMessage =
           asString(runtimePayloadRecord(event)?.message) ?? "Provider runtime error";
+        const connection = (yield* authCircuits.connectionForThread(thread.id))[0];
+        const authFailure = connection
+          ? classifyProviderAuthFailure({
+              detail: runtimeErrorMessage,
+              authenticationMethodId: connection.authenticationMethodId,
+            })
+          : null;
+        if (connection && authFailure) {
+          yield* authCircuits.open({
+            connectionId: connection.connectionId,
+            failure: authFailure,
+            now: new Date().toISOString(),
+          });
+        }
         const erroredTurnId = eventTurnId ?? activeTurnId ?? undefined;
 
         if (eventTurnId) {
@@ -2416,12 +2162,6 @@ const make = Effect.gen(function* () {
             createdAt: now,
             commandTag: "assistant-complete-runtime-error",
             finalDeltaCommandTag: "assistant-delta-runtime-error",
-          });
-          yield* flushPendingGeneratedImagesForTurn({
-            event,
-            thread,
-            turnId: eventTurnId,
-            createdAt: now,
           });
         }
 
@@ -2441,7 +2181,9 @@ const make = Effect.gen(function* () {
                 providerName: event.provider,
                 runtimeMode: thread.session?.runtimeMode ?? "full-access",
                 activeTurnId: eventTurnId ?? null,
-                lastError: runtimeErrorMessage,
+                lastError: authFailure
+                  ? `${authFailure.summary}\nProvider detail: ${authFailure.detail}`
+                  : runtimeErrorMessage,
                 updatedAt: now,
               },
               createdAt: now,
@@ -2461,12 +2203,6 @@ const make = Effect.gen(function* () {
               createdAt: now,
               commandTag: "assistant-complete-runtime-error",
               finalDeltaCommandTag: "assistant-delta-runtime-error",
-            });
-            yield* flushPendingGeneratedImagesForTurn({
-              event,
-              thread,
-              turnId: erroredTurnId,
-              createdAt: now,
             });
           }
         }
@@ -2496,10 +2232,21 @@ const make = Effect.gen(function* () {
         activityEvent.threadId === thread.id
           ? activityEvent
           : ({ ...activityEvent, threadId: thread.id } as ProviderRuntimeEvent);
+      const projectionTurnsForActivity = yield* projectionTurnRepository.listByThreadId({
+        threadId: thread.id,
+      });
+      const nativeTurnId = toTurnId(canonicalActivityEvent.turnId);
+      const logicalTurnId = projectionTurnsForActivity.find(
+        (candidate) => candidate.providerTurnId === nativeTurnId,
+      )?.turnId;
+      const activityTurnIdentity = { turnId: logicalTurnId ?? null } as const;
       const canonicalOperationMaterialized =
         canonicalOperationFromRuntimeEvent(canonicalActivityEvent) !== null;
       const canonicalNoticeMaterialized = canonicalActivityEvent.type === "runtime.warning";
-      const canonicalActivity = projectProviderRuntimeActivities(canonicalActivityEvent)[0];
+      const canonicalActivity = projectProviderRuntimeActivities(
+        canonicalActivityEvent,
+        activityTurnIdentity,
+      )[0];
       if (canonicalOperationMaterialized || canonicalNoticeMaterialized) {
         yield* dispatchProviderCommandOnce({
           type: "thread.activity-read-model.touch",
@@ -2571,10 +2318,12 @@ const make = Effect.gen(function* () {
         }
       }
 
-      yield* Effect.forEach(projectProviderRuntimeActivities(activityEvent), (activity) =>
-        canonicalOperationMaterialized || canonicalNoticeMaterialized
-          ? Effect.void
-          : dispatchActivityUpdate(activityEvent, thread.id, activity),
+      yield* Effect.forEach(
+        projectProviderRuntimeActivities(activityEvent, activityTurnIdentity),
+        (activity) =>
+          canonicalOperationMaterialized || canonicalNoticeMaterialized
+            ? Effect.void
+            : dispatchActivityUpdate(activityEvent, thread.id, activity),
       );
 
       if (isTerminalTurnEvent) {
@@ -2665,10 +2414,12 @@ const make = Effect.gen(function* () {
   let runtimeCommitsPendingThisPage: Array<{
     readonly input: Extract<RuntimeIngestionInput, { readonly source: "runtime" }>;
     readonly canonicalEvent: ProviderRuntimeEvent | undefined;
+    readonly processedAt: number;
   }> = [];
 
   const processInput = (input: RuntimeIngestionInput): Effect.Effect<void, unknown> => {
     if (input.source !== "runtime") return processDomainEvent(input.event);
+    const processingStartedAt = performance.now();
     if (
       input.event.type === "content.delta" &&
       input.event.providerRefs === undefined &&
@@ -2679,8 +2430,20 @@ const make = Effect.gen(function* () {
       return bufferNonAssistantContentDelta(input.event).pipe(
         Effect.andThen(
           Effect.sync(() => {
-            runtimeCommitsPendingThisPage.push({ input, canonicalEvent: undefined });
+            runtimeCommitsPendingThisPage.push({
+              input,
+              canonicalEvent: undefined,
+              processedAt: Date.now(),
+            });
           }),
+        ),
+        Effect.ensuring(
+          Effect.sync(() =>
+            observeRuntimeJournalTiming(
+              "journalEventProcessing",
+              performance.now() - processingStartedAt,
+            ),
+          ),
         ),
       );
     }
@@ -2692,8 +2455,16 @@ const make = Effect.gen(function* () {
     ).pipe(
       Effect.andThen(
         Effect.sync(() => {
-          runtimeCommitsPendingThisPage.push({ input, canonicalEvent });
+          runtimeCommitsPendingThisPage.push({ input, canonicalEvent, processedAt: Date.now() });
         }),
+      ),
+      Effect.ensuring(
+        Effect.sync(() =>
+          observeRuntimeJournalTiming(
+            "journalEventProcessing",
+            performance.now() - processingStartedAt,
+          ),
+        ),
       ),
     );
   };
@@ -2836,19 +2607,52 @@ const make = Effect.gen(function* () {
     capacity: PROVIDER_RUNTIME_INGESTION_CAPACITY,
   });
   const runtimeJournalDrainLock = yield* Semaphore.make(1);
+  let lastJournalMetricsAt = 0;
+  let lastReplayFenceSequence = 0;
+  let lastProcessedSequence = 0;
+  let oldestPendingWorkerAt: number | null = null;
+  const lastSlowEventLogAtByThread = new Map<string, number>();
+  let suppressedSlowEventCount = 0;
+
+  const reportJournalMetrics = (replayFenceSequence: number) =>
+    Effect.gen(function* () {
+      if (Date.now() - lastJournalMetricsAt < 10_000) return;
+      lastJournalMetricsAt = Date.now();
+      const highWaterSequence = yield* runtimeEvents.getHighWaterSequence;
+      const workerStatus = yield* worker.status;
+      yield* Effect.logInfo("provider runtime journal metrics", {
+        highWaterSequence,
+        replayFenceSequence,
+        lastProcessedSequence,
+        sequenceDistanceToHighWater: Math.max(0, highWaterSequence - lastProcessedSequence),
+        workerOutstandingCount: workerStatus.outstanding,
+        workerCapacity: workerStatus.capacity,
+        oldestPendingWorkerAgeMs:
+          oldestPendingWorkerAt === null ? null : Math.max(0, Date.now() - oldestPendingWorkerAt),
+        suppressedSlowEventCount,
+        ...takeRuntimeJournalTimings(),
+      });
+      suppressedSlowEventCount = 0;
+    });
 
   const drainRuntimeJournalThrough = (throughSequenceInclusive?: number) =>
     runtimeJournalDrainLock.withPermits(1)(
       Effect.gen(function* () {
         const replayFence = throughSequenceInclusive ?? (yield* runtimeEvents.getHighWaterSequence);
+        lastReplayFenceSequence = replayFence;
         runtimeThreadsBlockedThisDrain = new Set<string>();
         while (true) {
+          const pageStartedAt = performance.now();
           const page = yield* runtimeEvents.readPendingThreadEvents({
             throughSequenceInclusive: replayFence,
             limit: PROVIDER_RUNTIME_REPLAY_PAGE_SIZE,
             maxPerThread: PROVIDER_RUNTIME_REPLAY_EVENTS_PER_THREAD,
           });
-          if (page.length === 0) return;
+          observeRuntimeJournalTiming("journalPageRead", performance.now() - pageStartedAt);
+          if (page.length === 0) {
+            lastProcessedSequence = Math.max(lastProcessedSequence, replayFence);
+            return;
+          }
 
           const processablePage = page.filter(
             (entry) => !runtimeThreadsBlockedThisDrain.has(entry.event.threadId),
@@ -2856,11 +2660,13 @@ const make = Effect.gen(function* () {
           if (processablePage.length === 0) return;
 
           runtimeCommitsPendingThisPage = [];
+          oldestPendingWorkerAt ??= Date.now();
           yield* Effect.forEach(processablePage, (entry) =>
             worker.enqueue({
               source: "runtime",
               sequence: entry.sequence,
               event: entry.event,
+              ...(entry.persistedAt ? { persistedAt: entry.persistedAt } : {}),
             }),
           );
           yield* worker.drain;
@@ -2891,7 +2697,39 @@ const make = Effect.gen(function* () {
                 { concurrency: 1, discard: true },
               ),
             );
+            const committedAt = Date.now();
+            for (const { input, processedAt } of pendingCommits) {
+              lastProcessedSequence = Math.max(lastProcessedSequence, input.sequence);
+              const receivedAt = Date.parse(input.event.createdAt);
+              const persistedAt = input.persistedAt ? Date.parse(input.persistedAt) : NaN;
+              const pendingBeforeProcessMs =
+                processedAt - (Number.isFinite(persistedAt) ? persistedAt : receivedAt);
+              const receiveToCommitMs = committedAt - receivedAt;
+              if (pendingBeforeProcessMs >= 5_000 || receiveToCommitMs >= 5_000) {
+                const lastLoggedAt = lastSlowEventLogAtByThread.get(input.event.threadId) ?? 0;
+                if (committedAt - lastLoggedAt < 60_000) {
+                  suppressedSlowEventCount++;
+                  continue;
+                }
+                if (lastSlowEventLogAtByThread.size >= 1_024) lastSlowEventLogAtByThread.clear();
+                lastSlowEventLogAtByThread.set(input.event.threadId, committedAt);
+                yield* Effect.logWarning("provider runtime journal slow event", {
+                  threadId: input.event.threadId,
+                  turnId: input.event.turnId ?? null,
+                  eventId: input.event.eventId,
+                  sequence: input.sequence,
+                  eventType: input.event.type,
+                  adapterReceivedAt: input.event.createdAt,
+                  persistedAt: input.persistedAt ?? null,
+                  processingFinishedAt: new Date(processedAt).toISOString(),
+                  cursorCommittedAt: new Date(committedAt).toISOString(),
+                  pendingBeforeProcessMs,
+                  receiveToCommitMs,
+                });
+              }
+            }
           }
+          oldestPendingWorkerAt = null;
         }
       }),
     );
@@ -3142,6 +2980,22 @@ const make = Effect.gen(function* () {
   const start: ProviderRuntimeIngestionShape["start"] = startDrainableWorkerProducers(
     worker,
     Effect.gen(function* () {
+      // The exact pending aggregate scans the retained event table. Run it in
+      // its own fiber so a slow diagnostic query never holds the drain lock.
+      yield* Effect.forkScoped(
+        Effect.forever(
+          Effect.sleep(Duration.seconds(10)).pipe(
+            Effect.andThen(Effect.suspend(() => reportJournalMetrics(lastReplayFenceSequence))),
+            Effect.catchCause((cause) =>
+              Cause.hasInterruptsOnly(cause)
+                ? Effect.failCause(cause)
+                : Effect.logWarning("provider runtime journal metrics failed", {
+                    cause: Cause.pretty(cause),
+                  }),
+            ),
+          ),
+        ),
+      );
       yield* Effect.forkScoped(
         Effect.forever(
           Queue.take(runtimeJournalWake).pipe(

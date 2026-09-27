@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./turnContinuation": {
+      "types": "./src/turnContinuation.ts",
+      "import": "./src/turnContinuation.ts"
+    },
     "./model": {
       "types": "./src/model.ts",
       "import": "./src/model.ts"

@@ -104,7 +104,6 @@ function expectedIds() {
   const operationId = `gateway:create:${stableGatewayDigest({
     principalKind: "provider-session",
     principalId: CALLER_THREAD_ID,
-    callerTurnId: CALLER_TURN_ID,
     requestId: INPUT.requestId,
   })}`;
   const ids = makeAgentCreationIds(operationId, 0);
@@ -177,7 +176,6 @@ function makeHarness(options: HarnessOptions = {}): Harness {
     getFolderShellById: () => Effect.succeed(Option.some(FOLDER)),
     getSpaceShellById: () => Effect.die("unused snapshot method"),
     getFirstActiveThreadIdByFolderId: () => Effect.die("unused snapshot method"),
-    listGeneratedImageActivitiesByTurn: () => Effect.die("unused snapshot method"),
     getThreadShellById: () => Effect.succeed(Option.none()),
     findSyntheticSubagentParentThread: () => Effect.die("unused snapshot method"),
     getThreadDetailById: () => Effect.die("unused snapshot method"),
@@ -208,6 +206,7 @@ function makeHarness(options: HarnessOptions = {}): Harness {
   };
 
   const providerDiscovery: ProviderDiscoveryServiceShape = {
+    probeConnection: () => Effect.die("unused discovery method"),
     getComposerCapabilities: () => Effect.die("unused discovery method"),
     getCapabilityHealth: () => Effect.die("unused discovery method"),
     listCommands: () => Effect.die("unused discovery method"),
@@ -254,6 +253,7 @@ function makeHarness(options: HarnessOptions = {}): Harness {
       successfulTurnStarts.push(command);
       return Effect.succeed({ sequence: successfulTurnStarts.length });
     },
+    dispatchQueuedTurn: () => Effect.die("unused queued turn dispatch"),
     recoverOpen: Effect.void,
   };
 
@@ -344,6 +344,35 @@ function threadCreateCommands(harness: Harness) {
 }
 
 describe("create thread retry characterization", () => {
+  it("keeps child creation successful when home-window inheritance is unavailable", async () => {
+    const harness = makeHarness();
+    let resolveNotification!: () => void;
+    const notified = new Promise<void>((resolve) => {
+      resolveNotification = resolve;
+    });
+    const withUnavailableHomeBridge = {
+      ...harness,
+      dependencies: {
+        ...harness.dependencies,
+        onThreadCreated: () =>
+          Effect.tryPromise({
+            try: async () => {
+              resolveNotification();
+              throw new Error("desktop bridge timed out");
+            },
+            catch: (error) => error,
+          }),
+      },
+    };
+
+    const result = await invoke(withUnavailableHomeBridge);
+    await notified;
+
+    expect(result.isError).not.toBe(true);
+    expect(threadCreateCommands(harness)).toHaveLength(1);
+    expect(harness.successfulTurnStarts).toHaveLength(1);
+  });
+
   it("keeps deterministic thread, message, and turn IDs for the same caller execution and request ID", async () => {
     const harness = makeHarness();
     const ids = expectedIds();
@@ -376,6 +405,10 @@ describe("create thread retry characterization", () => {
     expect(harness.successfulTurnStarts.map((command) => command.turnId)).toEqual([
       ids.turnId,
       ids.turnId,
+    ]);
+    expect(harness.successfulTurnStarts.map((command) => command.senderThreadId)).toEqual([
+      ThreadId.makeUnsafe(CALLER_THREAD_ID),
+      ThreadId.makeUnsafe(CALLER_THREAD_ID),
     ]);
   });
 

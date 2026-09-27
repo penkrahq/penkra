@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## 0.14.1 - 2026-09-26
+
+### Added
+
+- Added a composer action to continue an unfinished turn.
+- Opened Threads in their home window and kept Thread selection tied to the correct window.
+
+### Fixed
+
+- Kept native App views aligned with the right dock when the dock is resized, collapsed, or zoomed.
+- Kept deck tabs clear of the Apps launcher and restored panel focus shortcuts.
+- Recovered provider authentication failures and kept provider activity and turn state scoped to the active Thread.
+- Preserved message sender and turn identifiers across Thread reads, delivery, and queued edits.
+- Kept model and connection selections consistent when switching Threads or sending a message.
+- Updated the composer trait label immediately after selecting an OpenCode variant.
+
 ## 0.13.1 - 2026-09-21
 
 ### Changed

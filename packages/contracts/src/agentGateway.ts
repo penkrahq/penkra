@@ -17,10 +17,18 @@ export const PENKRA_GATEWAY_MAX_REQUEST_ID_LENGTH = 256;
 
 export const PenkraGatewayErrorCode = Schema.Literals([
   "caller_session_inactive",
+  "caller_thread_inactive",
   "caller_turn_inactive",
   "capability_denied",
   "provider_unavailable",
+  "connection_unavailable",
+  "provider_mismatch",
+  "connection_unauthorized",
   "model_unavailable",
+  "binding_revision_required",
+  "binding_revision_stale",
+  "thread_binding_missing",
+  "selection_failed",
   "model_option_unavailable",
   "creation_limit_exceeded",
   "thread_not_found",
@@ -78,6 +86,15 @@ export const PenkraCreateThreadInput = Schema.Struct({
   ...PenkraCreateThreadSpec.fields,
 }).annotate({ parseOptions: { onExcessProperty: "error" } });
 export type PenkraCreateThreadInput = typeof PenkraCreateThreadInput.Type;
+
+export const PenkraSendMessageInput = Schema.Struct({
+  threadId: ThreadId,
+  message: Schema.String.check(Schema.isNonEmpty()),
+  now: Schema.optional(Schema.Boolean),
+  connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
+  modelSelection: Schema.optional(ModelSelection),
+}).annotate({ parseOptions: { onExcessProperty: "error" } });
+export type PenkraSendMessageInput = typeof PenkraSendMessageInput.Type;
 
 export const PenkraProviderCatalog = Schema.Struct({
   provider: ProviderKind,

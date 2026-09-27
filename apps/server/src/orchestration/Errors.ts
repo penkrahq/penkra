@@ -31,12 +31,30 @@ export class OrchestrationCommandInvariantError extends Schema.TaggedErrorClass<
   {
     commandType: Schema.String,
     detail: Schema.String,
+    code: Schema.optional(Schema.String),
     cause: Schema.optional(Schema.Defect),
   },
 ) {
   override get message(): string {
     return `Orchestration command invariant failed (${this.commandType}): ${this.detail}`;
   }
+}
+
+export function findThreadGuardInvariant(
+  cause: unknown,
+): OrchestrationCommandInvariantError | null {
+  let current = cause;
+  const visited = new Set<Error>();
+  while (current instanceof Error && !visited.has(current)) {
+    visited.add(current);
+    if (
+      current instanceof OrchestrationCommandInvariantError &&
+      (current.code === "thread_archived" || current.code === "thread_running")
+    )
+      return current;
+    current = current.cause;
+  }
+  return null;
 }
 
 export class OrchestrationCommandPreviouslyRejectedError extends Schema.TaggedErrorClass<OrchestrationCommandPreviouslyRejectedError>()(

@@ -196,8 +196,8 @@ export function renameProjectLocally(
 
 export function setError(state: AppState, threadId: ThreadId, error: string | null): AppState {
   return applyThreadUpdate(state, threadId, (thread) => {
-    if (thread.error === error) return thread;
-    return { ...thread, error };
+    if (thread.error === error && thread.errorSource === undefined) return thread;
+    return { ...thread, error, errorSource: undefined };
   });
 }
 

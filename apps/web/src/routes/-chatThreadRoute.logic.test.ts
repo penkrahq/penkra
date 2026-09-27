@@ -1,18 +1,25 @@
-import { FolderId, ThreadId } from "@penkra/contracts";
+import { FolderId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
   resolveSingleFolderId,
-  resolveSplitPaneCloseDecision,
-  resolveSplitPaneMaximizeDecision,
+  shouldRedirectArchivedThreadRoute,
   resolveThreadPickerTitle,
   resolveThreadWorkingDirectory,
 } from "./-chatThreadRoute.logic";
 
-const THREAD_A = ThreadId.makeUnsafe("thread-a");
-const THREAD_B = ThreadId.makeUnsafe("thread-b");
-
 describe("Thread route logic", () => {
+  it("redirects a remotely archived thread and leaves the archiving window to choose its fallback", () => {
+    expect(
+      shouldRedirectArchivedThreadRoute({ archived: true, localArchiveNavigationPending: false }),
+    ).toBe(true);
+    expect(
+      shouldRedirectArchivedThreadRoute({ archived: true, localArchiveNavigationPending: true }),
+    ).toBe(false);
+    expect(
+      shouldRedirectArchivedThreadRoute({ archived: false, localArchiveNavigationPending: false }),
+    ).toBe(false);
+  });
   it("resolves the Thread's effective working directory", () => {
     expect(
       resolveThreadWorkingDirectory({
@@ -38,26 +45,5 @@ describe("Thread route logic", () => {
   it("normalizes empty Thread picker titles", () => {
     expect(resolveThreadPickerTitle(null)).toBe("New chat");
     expect(resolveThreadPickerTitle("Design review")).toBe("Design review");
-  });
-
-  it("maximizes the focused split Thread", () => {
-    expect(
-      resolveSplitPaneMaximizeDecision({ splitViewId: "split-1", focusedThreadId: THREAD_B }),
-    ).toEqual({ splitViewIdToRemove: "split-1", threadId: THREAD_B });
-    expect(
-      resolveSplitPaneMaximizeDecision({ splitViewId: "split-1", focusedThreadId: null }),
-    ).toBeNull();
-  });
-
-  it("closes a secondary Thread back to the source Thread", () => {
-    expect(
-      resolveSplitPaneCloseDecision({
-        splitViewId: "split-1",
-        sourceThreadId: THREAD_A,
-        closingThreadId: THREAD_B,
-        nextFocusedThreadId: THREAD_A,
-        nextLeafCount: 1,
-      }),
-    ).toEqual({ kind: "single-thread", threadId: THREAD_A, splitViewIdToRemove: "split-1" });
   });
 });

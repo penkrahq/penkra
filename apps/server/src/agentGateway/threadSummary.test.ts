@@ -201,20 +201,59 @@ describe("paginateThreadMessages", () => {
 });
 
 describe("packAgentTranscriptPage", () => {
-  it("distinguishes a queued user message from one already delivered", () => {
+  it("distinguishes queued, pending, delivered, and failed messages", () => {
     const queued = {
       ...makeMessage(0, "queued"),
       delivery: { state: "queued" as const, queued: true, sequence: 2 },
     };
-    const delivered = {
+    const pending = {
       ...makeMessage(1, "delivered"),
       delivery: { state: "starting" as const, queued: true, sequence: 3 },
     };
-    const page = packAgentTranscriptPage({ messages: [queued, delivered], activities: [] });
-    assert.deepEqual(
-      page.items.map((item) => (item.type === "message" ? item.delivery : null)),
-      ["queued", "delivered"],
+    const delivered = {
+      ...makeMessage(2, "accepted"),
+      delivery: { state: "accepted" as const, queued: true, sequence: 4 },
+    };
+    const failed = {
+      ...makeMessage(3, "failed"),
+      delivery: { state: "failed" as const, queued: false, sequence: 5 },
+    };
+    const page = packAgentTranscriptPage({
+      messages: [queued, pending, delivered, failed],
+      activities: [],
+    });
+    const deliveryByMessageId = Object.fromEntries(
+      page.items
+        .filter((item) => item.type === "message")
+        .map((item) => [item.messageId, item.delivery]),
     );
+    assert.deepEqual(deliveryByMessageId, {
+      [queued.id]: "queued",
+      [pending.id]: "pending",
+      [delivered.id]: "delivered",
+      [failed.id]: "failed",
+    });
+    const queuedItem = page.items.find(
+      (item) => item.type === "message" && item.messageId === queued.id,
+    );
+    assert.equal(queuedItem?.type === "message" && queuedItem.position, 1);
+    const summary = paginateThreadMessages({ messages: [queued, pending, delivered, failed] });
+    assert.equal(summary.messages[0]?.delivery, "queued");
+    assert.equal(summary.messages[0]?.position, 1);
+    assert.equal(summary.messages[1]?.delivery, "pending");
+    assert.equal(summary.messages[2]?.delivery, "delivered");
+    assert.equal(summary.messages[3]?.delivery, "failed");
+    const deepPage = packAgentTranscriptPage({
+      messages: [queued],
+      activities: [],
+      queuedPositions: new Map([[queued.id, 45]]),
+    });
+    assert.equal(deepPage.items[0]?.type === "message" && deepPage.items[0].position, 45);
+    const diagnosticPage = paginateThreadMessages({
+      messages: [queued],
+      queuedMessageIds: ["older-message", queued.id],
+    });
+    assert.equal(diagnosticPage.messages[0]?.position, 2);
   });
 
   it("continues a long message losslessly without rewriting its text", () => {

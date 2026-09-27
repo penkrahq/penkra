@@ -8,6 +8,7 @@ import {
   EventId,
   type ModelSelection,
   MessageId,
+  type MessageDispatchOrigin,
   type OrchestrationEvent,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   type ProviderMentionReference,
@@ -70,6 +71,7 @@ import {
   ProviderServiceError,
 } from "../../provider/Errors.ts";
 import { buildInlineSkillInstructions } from "../../provider/skillPromptInjection.ts";
+import { clampMentionTitle } from "../../provider/threadMentionContext.ts";
 import {
   appendThreadMentionContextBlocks,
   resolveThreadMentionPromptProjection,
@@ -81,12 +83,17 @@ import {
 } from "../../textGeneration/Services/TextGeneration.ts";
 import { resolveTextGenerationInputForSelection } from "../../textGeneration/textGenerationSelection.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
+import { ProviderDiscoveryService } from "../../provider/Services/ProviderDiscoveryService.ts";
+import { classifyProviderAuthFailure } from "../../provider/providerAuthFailure.ts";
+import { makeProviderAuthCircuitStore } from "../../provider/providerAuthCircuit.ts";
 import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
+import { ProviderTurnSelectionResolutionError } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
 import { ProviderLaunchResolver } from "../../provider/Services/ProviderLaunchResolver.ts";
 import type { ProviderManagedLaunchContext } from "../../provider/Services/ProviderAdapter.ts";
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { resolveProviderDispatchAttachments } from "../../provider/providerAttachmentPaths.ts";
 import { providerNativeResumeIdentity } from "../../provider/nativeResumeIdentity.ts";
+import { claudeThreadHasConversation } from "../../provider/claudeThreadNativeState.ts";
 import {
   formatReconstructedContinuation,
   selectReconstructedContinuation,
@@ -108,7 +115,11 @@ import { ensureDurableThreadWorkspace } from "../../scratchWorkspaces.ts";
 import { LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL } from "../../managedAttachmentPrincipal.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
-import { ProviderThreadSwitchCoordinator } from "../Services/ProviderThreadSwitchCoordinator.ts";
+import { OrchestrationCommandInvariantError } from "../Errors.ts";
+import {
+  ProviderThreadSwitchCoordinator,
+  ProviderThreadSwitchCoordinatorError,
+} from "../Services/ProviderThreadSwitchCoordinator.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
@@ -124,8 +135,9 @@ import {
   type ProviderIntentEvent,
 } from "../providerIntentClassification.ts";
 import { deriveTurnStartSession } from "../turnStartSession.ts";
-import { RESTART_TURN_RECOVERY_PROMPT } from "../restartTurnRecovery.ts";
+import { PLAY_TURN_RECOVERY_PROMPT, RESTART_TURN_RECOVERY_PROMPT } from "../restartTurnRecovery.ts";
 import { resolveProviderSessionThread as resolveProviderSessionThreadFromProjection } from "../providerSessionThread.ts";
+import { userStopPending } from "../userStopPending.ts";
 
 type ProviderQueueDrainEvent = Extract<
   ProviderRuntimeEvent,
@@ -137,6 +149,54 @@ type ProviderQueueDrainEvent = Extract<
 type QueuedTurnSourceEvent =
   | Extract<ProviderIntentEvent, { type: "thread.turn-queued" }>
   | Extract<ProviderIntentEvent, { type: "thread.turn-start-requested" }>;
+
+const TERMINAL_PROMOTION_CODES = new Set([
+  "provider_mismatch",
+  "connection_unauthorized",
+  "connection_unavailable",
+  "model_unavailable",
+  "thread_binding_missing",
+  "binding_revision_required",
+  "switch_operation_failed",
+]);
+
+const terminalPromotionFailureDetail = (failure: unknown): string | null => {
+  let current = failure;
+  const seen = new Set<Error>();
+  while (current instanceof Error && !seen.has(current)) {
+    if (current instanceof OrchestrationCommandInvariantError) {
+      return current.code === "thread_running" ||
+        current.code === "provider_switch_commit_retryable"
+        ? null
+        : current.message;
+    }
+    if (
+      (current instanceof ProviderThreadSwitchCoordinatorError ||
+        current instanceof ProviderTurnSelectionResolutionError) &&
+      TERMINAL_PROMOTION_CODES.has(current.code)
+    ) {
+      return current.message;
+    }
+    seen.add(current);
+    current = current.cause;
+  }
+  return null;
+};
+
+const isStoppedQueueAdmission = (failure: unknown): boolean => {
+  let current = failure;
+  const seen = new Set<Error>();
+  while (current instanceof Error && !seen.has(current)) {
+    if (
+      current instanceof OrchestrationCommandInvariantError &&
+      current.code === "queued_turn_stopped"
+    )
+      return true;
+    seen.add(current);
+    current = current.cause;
+  }
+  return false;
+};
 
 type InteractionResponseEvent = Extract<
   ProviderIntentEvent,
@@ -378,6 +438,8 @@ class ProviderCommandReactorConfig extends ServiceMap.Service<
 const make = Effect.gen(function* () {
   const { commandEventTimeout, queuedTurnRecoveryInterval } = yield* ProviderCommandReactorConfig;
   const sql = yield* SqlClient.SqlClient;
+  const authCircuits = makeProviderAuthCircuitStore(sql);
+  const providerDiscovery = yield* ProviderDiscoveryService;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const providerThreadSwitchCoordinator = yield* ProviderThreadSwitchCoordinator;
   const deliveryRepository = yield* OrchestrationEventDeliveryRepository;
@@ -853,17 +915,31 @@ const make = Effect.gen(function* () {
             }),
         ),
       );
+    const missingClaudeConversation =
+      selection.harness === "claudeAgent" &&
+      state.providerSessionId !== null &&
+      !(yield* Effect.tryPromise(() =>
+        claudeThreadHasConversation(
+          serverConfig.stateDir,
+          input.threadId,
+          state.providerSessionId!,
+        ),
+      ));
+    const requiresReconstruction =
+      missingClaudeConversation ||
+      (state.providerSessionId === null &&
+        typeof resumeCursor === "object" &&
+        resumeCursor !== null &&
+        (resumeCursor as { readonly penkraReconstruction?: unknown }).penkraReconstruction ===
+          true);
     return {
       bindingRevision: selection.bindingRevision,
       // A first binding owns an empty managed generation but has no native
       // session identity yet. Start fresh; JSON null is a persisted sentinel,
       // not a provider resume cursor.
-      resumeCursor: state.providerSessionId === null ? undefined : resumeCursor,
-      requiresReconstruction:
-        state.providerSessionId === null &&
-        typeof resumeCursor === "object" &&
-        resumeCursor !== null &&
-        (resumeCursor as { readonly penkraReconstruction?: unknown }).penkraReconstruction === true,
+      resumeCursor:
+        state.providerSessionId === null || missingClaudeConversation ? undefined : resumeCursor,
+      requiresReconstruction,
       managedLaunch: {
         binaryPath: launch.binaryPath,
         isolationKey: launch.isolationKey,
@@ -1275,6 +1351,8 @@ const make = Effect.gen(function* () {
     readonly threadId: ThreadId;
     readonly messageId: string;
     readonly messageText: string;
+    readonly dispatchOrigin?: MessageDispatchOrigin;
+    readonly senderThreadId?: ThreadId;
     readonly attachments?: ReadonlyArray<ChatAttachment>;
     readonly skills?: ReadonlyArray<ProviderSkillReference>;
     readonly mentions?: ReadonlyArray<ProviderMentionReference>;
@@ -1303,6 +1381,25 @@ const make = Effect.gen(function* () {
     });
     const mentionContextSuffix = threadMentionContextSuffix(threadMentionProjection.contextBlocks);
     const providerMentions = threadMentionProjection.providerMentions;
+    const senderShell =
+      input.dispatchOrigin === "agent" && input.senderThreadId
+        ? Option.getOrNull(yield* projectionSnapshotQuery.getThreadShellById(input.senderThreadId))
+        : null;
+    const senderTitle = senderShell?.title;
+    const senderContext =
+      input.dispatchOrigin === "agent" && input.senderThreadId
+        ? [
+            "<agent_message_sender>",
+            "This message was written by the agent in another Penkra thread, not by the user.",
+            ...(senderTitle?.trim()
+              ? [`Thread: ${JSON.stringify(clampMentionTitle(senderTitle))}`]
+              : []),
+            `Thread ID: ${input.senderThreadId}`,
+            "</agent_message_sender>",
+            "",
+            "",
+          ].join("\n")
+        : "";
     // Subagent threads have no provider session of their own: their messages
     // steer the running child task through the parent session (mirrors the
     // interrupt seam), never the session-bootstrap path below. Parent metadata
@@ -1328,6 +1425,7 @@ const make = Effect.gen(function* () {
                 maxChars: Math.max(
                   0,
                   PROVIDER_SEND_TURN_MAX_INPUT_CHARS -
+                    senderContext.length -
                     messageText.length -
                     PROVIDER_INPUT_SAFETY_MARGIN_CHARS,
                 ),
@@ -1342,8 +1440,8 @@ const make = Effect.gen(function* () {
             )
           : "";
       const steerMessageWithSkills = steerSkillInlineText
-        ? `${messageText}\n\n${steerSkillInlineText}`
-        : messageText;
+        ? `${senderContext}${messageText}\n\n${steerSkillInlineText}`
+        : `${senderContext}${messageText}`;
       const normalizedSteerInput = toNonEmptyProviderInput(
         normalizeSkillMentionTextForProvider({
           provider: steerProvider,
@@ -1424,7 +1522,7 @@ const make = Effect.gen(function* () {
       threadSessionModelSelections.get(input.threadId)?.provider ??
       thread.session?.providerName ??
       thread.modelSelection.provider;
-    const providerInputWithMentionContext = `${input.messageText}${mentionContextSuffix}`;
+    const providerInputWithMentionContext = `${senderContext}${input.messageText}${mentionContextSuffix}`;
     // Portable skills fallback: providers that cannot load the referenced skill
     // file natively get the skill instructions inlined into the prompt.
     const skillInlineText =
@@ -1813,7 +1911,10 @@ const make = Effect.gen(function* () {
         ? {
             id: event.payload.messageId,
             role: "user" as const,
-            text: RESTART_TURN_RECOVERY_PROMPT,
+            text:
+              event.payload.recoveryReason === "play"
+                ? PLAY_TURN_RECOVERY_PROMPT
+                : RESTART_TURN_RECOVERY_PROMPT,
             attachments: [] as ReadonlyArray<ChatAttachment>,
             skills: undefined,
             mentions: undefined,
@@ -1849,6 +1950,23 @@ const make = Effect.gen(function* () {
         });
         yield* enqueueQueuedTurnStart(event);
       });
+      const selectedConnectionId =
+        event.payload.connectionId ??
+        (yield* authCircuits.connectionForThread(event.payload.threadId))[0]?.connectionId;
+      const openCircuit = selectedConnectionId
+        ? (yield* authCircuits.get(selectedConnectionId))[0]
+        : undefined;
+      if (openCircuit) {
+        yield* requeueTurnStart();
+        if (!(yield* hasLiveProviderTurn(event.payload.threadId))) {
+          yield* setThreadSessionError({
+            threadId: event.payload.threadId,
+            detail: `${openCircuit.summary}\nProvider detail: ${openCircuit.detail}`,
+            createdAt: new Date().toISOString(),
+          });
+        }
+        return;
+      }
       // A claimed queue head owns the provider-session lane before its adapter
       // has necessarily exposed a live turn id. A newer normal send must append
       // behind that reservation even if projection and provider both look idle
@@ -1868,6 +1986,35 @@ const make = Effect.gen(function* () {
         providerSupportsNativeTurnSteering(providerName) &&
         hasLiveTurn;
       if (isRestartRecovery && hasLiveTurn) {
+        if (event.payload.recoveryReason === "play") {
+          const failedAt = new Date().toISOString();
+          yield* orchestrationEngine.dispatch({
+            type: "thread.message.delivery.set",
+            commandId: replaySafeServerCommandId("play-recovery-live-turn", event.eventId),
+            threadId: event.payload.threadId,
+            messageId: event.payload.messageId,
+            ...(event.payload.turnId !== undefined ? { turnId: event.payload.turnId } : {}),
+            state: "failed",
+            failurePhase: "before-provider-dispatch",
+            failureDetail: "Couldn't continue this turn.",
+            createdAt: failedAt,
+          });
+          yield* appendProviderFailureActivity({
+            threadId: event.payload.threadId,
+            kind: "provider.turn.start.failed",
+            summary: "Provider turn start failed",
+            detail: "Couldn't continue this turn.",
+            turnId: event.payload.turnId ?? null,
+            createdAt: failedAt,
+            ...(event.commandId === null ? {} : { responseCommandId: event.commandId }),
+          });
+          yield* setThreadSessionError({
+            threadId: event.payload.threadId,
+            detail: "Couldn't continue this turn.",
+            createdAt: failedAt,
+          });
+          return;
+        }
         // Recovery admission only follows restart reconciliation, which settles
         // the dead turn first. If a newer live turn won the race, it is already
         // the continuation and must not receive a duplicate internal prompt.
@@ -1955,6 +2102,12 @@ const make = Effect.gen(function* () {
         threadId: event.payload.threadId,
         messageId: message.id,
         messageText: message.text,
+        ...(event.payload.dispatchOrigin !== undefined
+          ? { dispatchOrigin: event.payload.dispatchOrigin }
+          : {}),
+        ...("senderThreadId" in message && message.senderThreadId !== undefined
+          ? { senderThreadId: message.senderThreadId }
+          : {}),
         ...(message.attachments !== undefined ? { attachments: resolvedAttachments } : {}),
         ...(message.skills !== undefined ? { skills: message.skills } : {}),
         ...(message.mentions !== undefined ? { mentions: message.mentions } : {}),
@@ -1989,7 +2142,7 @@ const make = Effect.gen(function* () {
                 const failedBeforeProviderDispatch =
                   failure instanceof ProviderSessionStartupBeforeDispatchError;
                 const failedAt = new Date().toISOString();
-                if (!isRestartRecovery) {
+                if (!isRestartRecovery || event.payload.recoveryReason === "play") {
                   yield* orchestrationEngine.dispatch({
                     type: "thread.message.delivery.set",
                     commandId: replaySafeServerCommandId("message-delivery-failed", event.eventId),
@@ -1997,7 +2150,7 @@ const make = Effect.gen(function* () {
                     messageId: event.payload.messageId,
                     ...(event.payload.turnId !== undefined ? { turnId: event.payload.turnId } : {}),
                     state: "failed",
-                    ...(failedBeforeProviderDispatch
+                    ...(failedBeforeProviderDispatch || event.payload.recoveryReason === "play"
                       ? {
                           failurePhase: "before-provider-dispatch" as const,
                           failureDetail: detail,
@@ -2013,8 +2166,11 @@ const make = Effect.gen(function* () {
                   detail,
                   turnId: null,
                   createdAt: event.payload.createdAt,
+                  ...(event.payload.recoveryReason === "play" && event.commandId !== null
+                    ? { responseCommandId: event.commandId }
+                    : {}),
                 });
-                if (!failedBeforeProviderDispatch) {
+                if (!failedBeforeProviderDispatch || event.payload.recoveryReason === "play") {
                   yield* setThreadSessionError({
                     threadId: event.payload.threadId,
                     runtimeMode: event.payload.runtimeMode,
@@ -2244,10 +2400,44 @@ const make = Effect.gen(function* () {
           );
         }
         const thread = yield* resolveThread(event.payload.threadId);
-        const message = thread?.messages.find(
+        if (!thread) {
+          return yield* Effect.fail(
+            new Error(`Queued thread '${event.payload.threadId}' is missing.`),
+          );
+        }
+        const runtimeBinding = yield* threadProviderBindings.getRuntimeBinding(
+          event.payload.threadId,
+        );
+        if (Option.isNone(runtimeBinding)) {
+          return yield* Effect.fail(
+            new Error(`Queued thread '${event.payload.threadId}' has no runtime binding.`),
+          );
+        }
+        const currentSelection = yield* providerTurnSelectionResolver
+          .resolveExisting({
+            threadId: event.payload.threadId,
+            modelSelection: thread.modelSelection,
+            connectionId:
+              thread.connectionId === undefined
+                ? runtimeBinding.value.connectionId
+                : thread.connectionId,
+            bindingRevision: runtimeBinding.value.revision,
+          })
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProviderAdapterValidationError({
+                  provider: thread.modelSelection.provider,
+                  operation: "thread.turn.start",
+                  issue: cause.message,
+                  cause,
+                }),
+            ),
+          );
+        const message = thread.messages.find(
           (candidate) => candidate.id === event.payload.messageId && candidate.role === "user",
         );
-        if (!thread || !message) {
+        if (!message) {
           return yield* Effect.fail(
             new Error(`Queued message '${event.payload.messageId}' has no projected message.`),
           );
@@ -2285,15 +2475,9 @@ const make = Effect.gen(function* () {
                 ...(message.skills !== undefined ? { skills: message.skills } : {}),
                 ...(message.mentions !== undefined ? { mentions: message.mentions } : {}),
               },
-              ...(sourceEvent.payload.modelSelection !== undefined
-                ? { modelSelection: sourceEvent.payload.modelSelection }
-                : {}),
-              ...(sourceEvent.payload.connectionId !== undefined
-                ? { connectionId: sourceEvent.payload.connectionId }
-                : {}),
-              ...(sourceEvent.payload.bindingRevision !== undefined
-                ? { bindingRevision: sourceEvent.payload.bindingRevision }
-                : {}),
+              modelSelection: thread.modelSelection,
+              connectionId: currentSelection.connectionId,
+              bindingRevision: currentSelection.bindingRevision,
               ...(sourceEvent.payload.providerOptions !== undefined
                 ? { providerOptions: sourceEvent.payload.providerOptions }
                 : {}),
@@ -2306,6 +2490,9 @@ const make = Effect.gen(function* () {
               dispatchMode: "steer",
               ...(sourceEvent.payload.dispatchOrigin !== undefined
                 ? { dispatchOrigin: sourceEvent.payload.dispatchOrigin }
+                : {}),
+              ...(sourceEvent.payload.senderThreadId !== undefined
+                ? { senderThreadId: sourceEvent.payload.senderThreadId }
                 : {}),
               runtimeMode: sourceEvent.payload.runtimeMode,
               createdAt: event.payload.createdAt,
@@ -2337,6 +2524,113 @@ const make = Effect.gen(function* () {
     // accepting the message at the provider. The next process recovers the
     // still-queued row after restart continuation settles.
     if (queuePromotionsQuiesced) {
+      return;
+    }
+    const projectedThread = yield* resolveThread(threadId);
+    if (
+      !projectedThread ||
+      projectedThread.archivedAt != null ||
+      projectedThread.deletedAt != null
+    ) {
+      yield* queuedTurnPromotions.cancelThread({
+        threadId,
+        updatedAt: new Date().toISOString(),
+      });
+      return;
+    }
+    // A user Stop is durable before the provider acknowledges it. A completion
+    // arriving after Stop must not restart the queue, even across a restart.
+    // A later admitted turn (including Play) clears this barrier.
+    if (yield* userStopPending(threadId, sql)) return;
+    if (
+      projectedThread.pendingTurnStartMessageId != null ||
+      projectedThread.latestTurn?.state === "running"
+    ) {
+      const latestStart = yield* sql<{ readonly recoveryReason: string | null }>`
+        SELECT json_extract(payload_json, '$.recoveryReason') AS "recoveryReason"
+        FROM orchestration_events
+        WHERE aggregate_kind = 'thread' AND stream_id = ${threadId}
+          AND event_type = 'thread.turn-start-requested'
+        ORDER BY sequence DESC
+        LIMIT 1
+      `;
+      if (latestStart[0]?.recoveryReason === "play") return;
+    }
+    const latestTurnState = projectedThread.latestTurn?.state;
+    const missingProviderSession =
+      latestTurnState === "running"
+        ? yield* Effect.gen(function* () {
+            const providerThread = yield* resolveProviderSessionThread(threadId);
+            const sessionThreadId = providerThread?.id ?? threadId;
+            const session = (yield* providerService.listSessions()).find(
+              (entry) => entry.threadId === sessionThreadId,
+            );
+            return session === undefined || session.status === "closed";
+          })
+        : false;
+    if (
+      missingProviderSession ||
+      latestTurnState === "interrupted" ||
+      latestTurnState === "cancelled"
+    ) {
+      const next = yield* sql<{
+        readonly dispatchMode: string;
+        readonly sourceEventType: string;
+      }>`
+        SELECT promotion.dispatch_mode AS "dispatchMode",
+               source.event_type AS "sourceEventType"
+        FROM queued_turn_promotions AS promotion
+        JOIN orchestration_events AS source
+          ON source.sequence = promotion.queued_event_sequence
+        WHERE promotion.thread_id = ${threadId}
+          AND promotion.state IN ('queued', 'promoting')
+        ORDER BY
+          CASE promotion.dispatch_mode WHEN 'steer' THEN 0 ELSE 1 END ASC,
+          CASE WHEN promotion.dispatch_mode = 'steer' THEN promotion.queued_event_sequence END DESC,
+          promotion.queued_event_sequence ASC
+        LIMIT 1
+      `;
+      // A requested steer intentionally interrupts its predecessor.
+      if (next[0]?.dispatchMode !== "steer") {
+        if (latestTurnState !== "running") return;
+        if (next[0]?.sourceEventType === "thread.turn-queued") {
+          const providerThread = yield* resolveProviderSessionThread(threadId);
+          const sessionThreadId = providerThread?.id ?? threadId;
+          const latestRuntimeTurnEvent = yield* sql<{
+            readonly eventType: string;
+            readonly turnState: string | null;
+          }>`
+            SELECT event_type AS "eventType",
+                   json_extract(event_json, '$.payload.state') AS "turnState"
+            FROM provider_runtime_events
+            WHERE thread_id = ${sessionThreadId}
+              AND event_type IN (
+                'turn.started', 'turn.completed', 'turn.aborted',
+                'session.exited', 'runtime.error'
+              )
+            ORDER BY sequence DESC
+            LIMIT 1
+          `;
+          const terminal = latestRuntimeTurnEvent[0];
+          const nonNaturalTerminal =
+            terminal?.eventType === "session.exited" ||
+            terminal?.eventType === "turn.aborted" ||
+            (terminal?.eventType === "turn.completed" &&
+              (terminal.turnState === "interrupted" || terminal.turnState === "cancelled"));
+          // Session closure can remove the live provider session before its
+          // terminal event is journaled or projected. A normal queued successor
+          // must not use that gap as evidence of a natural completion.
+          if (nonNaturalTerminal || terminal?.eventType === "turn.started") {
+            return;
+          }
+        }
+      }
+    }
+    const selectedConnection = (yield* authCircuits.connectionForThread(threadId))[0];
+    if (
+      selectedConnection &&
+      (yield* authCircuits.get(selectedConnection.connectionId)).length > 0
+    ) {
       return;
     }
     const providerThread = yield* resolveProviderSessionThread(threadId);
@@ -2384,43 +2678,134 @@ const make = Effect.gen(function* () {
           );
         }
         const nextQueuedTurn = sourceEvent.payload;
+        const currentThread = yield* resolveThread(threadId);
+        if (!currentThread) {
+          return yield* Effect.fail(new Error(`Queued thread '${threadId}' is missing.`));
+        }
+        const runtimeBinding = yield* threadProviderBindings.getRuntimeBinding(threadId);
+        const readModel = yield* orchestrationEngine.getCommandReadModel();
+        const cwd =
+          resolveThreadWorkspaceCwd({
+            workingDirectory: currentThread.workingDirectory,
+            projectCwd:
+              readModel.folders.find((project) => project.id === currentThread.folderId)
+                ?.workspaceRoot ?? null,
+          }) ?? ensureDurableThreadWorkspace(threadId, serverConfig.stateDir);
         pendingQueuedDispatchBySessionThread.set(sessionThreadId, {
           queuedThreadId: threadId,
           messageId: nextQueuedTurn.messageId,
         });
-        yield* orchestrationEngine.dispatch({
-          type: "thread.turn.dispatch-queued",
-          commandId: CommandId.makeUnsafe(
-            `server:dispatch-queued-turn:${promotion.queuedEventSequence}`,
-          ),
-          threadId,
-          turnId: nextQueuedTurn.turnId ?? TurnId.makeUnsafe(`turn:${sourceEvent.commandId}`),
-          messageId: nextQueuedTurn.messageId,
-          ...(nextQueuedTurn.modelSelection !== undefined
-            ? { modelSelection: nextQueuedTurn.modelSelection }
-            : {}),
-          ...(nextQueuedTurn.connectionId !== undefined
-            ? { connectionId: nextQueuedTurn.connectionId }
-            : {}),
-          ...(nextQueuedTurn.bindingRevision !== undefined
-            ? { bindingRevision: nextQueuedTurn.bindingRevision }
-            : {}),
-          ...(nextQueuedTurn.providerOptions !== undefined
-            ? { providerOptions: nextQueuedTurn.providerOptions }
-            : {}),
-          ...(nextQueuedTurn.reviewTarget !== undefined
-            ? { reviewTarget: nextQueuedTurn.reviewTarget }
-            : {}),
-          ...(nextQueuedTurn.assistantDeliveryMode !== undefined
-            ? { assistantDeliveryMode: nextQueuedTurn.assistantDeliveryMode }
-            : {}),
-          dispatchMode: nextQueuedTurn.dispatchMode,
-          ...(nextQueuedTurn.dispatchOrigin !== undefined
-            ? { dispatchOrigin: nextQueuedTurn.dispatchOrigin }
-            : {}),
-          runtimeMode: nextQueuedTurn.runtimeMode,
-          createdAt: nextQueuedTurn.createdAt,
-        });
+        const admitted = yield* providerThreadSwitchCoordinator
+          .dispatchQueuedTurn({
+            attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+            cwd,
+            command: {
+              type: "thread.turn.dispatch-queued",
+              commandId: CommandId.makeUnsafe(
+                `server:dispatch-queued-turn:${promotion.queuedEventSequence}`,
+              ),
+              threadId,
+              turnId: nextQueuedTurn.turnId ?? TurnId.makeUnsafe(`turn:${sourceEvent.commandId}`),
+              messageId: nextQueuedTurn.messageId,
+              modelSelection: currentThread.modelSelection,
+              ...(currentThread.connectionId !== undefined
+                ? { connectionId: currentThread.connectionId }
+                : nextQueuedTurn.connectionId !== undefined
+                  ? { connectionId: nextQueuedTurn.connectionId }
+                  : {}),
+              ...(Option.isSome(runtimeBinding)
+                ? { bindingRevision: runtimeBinding.value.revision }
+                : nextQueuedTurn.bindingRevision !== undefined
+                  ? { bindingRevision: nextQueuedTurn.bindingRevision }
+                  : {}),
+              ...(nextQueuedTurn.providerOptions !== undefined
+                ? { providerOptions: nextQueuedTurn.providerOptions }
+                : {}),
+              ...(nextQueuedTurn.reviewTarget !== undefined
+                ? { reviewTarget: nextQueuedTurn.reviewTarget }
+                : {}),
+              ...(nextQueuedTurn.assistantDeliveryMode !== undefined
+                ? { assistantDeliveryMode: nextQueuedTurn.assistantDeliveryMode }
+                : {}),
+              dispatchMode: nextQueuedTurn.dispatchMode,
+              ...(nextQueuedTurn.dispatchOrigin !== undefined
+                ? { dispatchOrigin: nextQueuedTurn.dispatchOrigin }
+                : {}),
+              ...(nextQueuedTurn.senderThreadId !== undefined
+                ? { senderThreadId: nextQueuedTurn.senderThreadId }
+                : {}),
+              runtimeMode: nextQueuedTurn.runtimeMode,
+              createdAt: nextQueuedTurn.createdAt,
+            },
+          })
+          .pipe(
+            Effect.map(() => true as const),
+            Effect.catch((failure) => {
+              if (isStoppedQueueAdmission(failure)) {
+                return Effect.gen(function* () {
+                  pendingQueuedDispatchBySessionThread.delete(sessionThreadId);
+                  yield* queuedTurnPromotions
+                    .releaseClaim({
+                      queuedEventSequence: promotion.queuedEventSequence,
+                      claimOwner: queuedTurnPromotionOwner,
+                      updatedAt: new Date().toISOString(),
+                    })
+                    .pipe(
+                      Effect.mapError(
+                        (cause) =>
+                          new ProviderThreadSwitchCoordinatorError({
+                            detail: "Could not release the stopped queued turn claim.",
+                            cause,
+                          }),
+                      ),
+                    );
+                  return false as const;
+                });
+              }
+              const terminalDetail = terminalPromotionFailureDetail(failure);
+              if (terminalDetail === null) return Effect.fail(failure);
+              const failedAt = new Date().toISOString();
+              return Effect.gen(function* () {
+                yield* orchestrationEngine.dispatch({
+                  type: "thread.message.delivery.set",
+                  commandId: CommandId.makeUnsafe(
+                    `server:queued-promotion-delivery-failed:${promotion.queuedEventSequence}`,
+                  ),
+                  threadId,
+                  messageId: nextQueuedTurn.messageId,
+                  turnId:
+                    nextQueuedTurn.turnId ?? TurnId.makeUnsafe(`turn:${sourceEvent.commandId}`),
+                  state: "failed",
+                  queued: false,
+                  failurePhase: "before-provider-dispatch",
+                  failureDetail: terminalDetail,
+                  // Stable identity if the event commits before claim retirement.
+                  createdAt: nextQueuedTurn.createdAt,
+                });
+                yield* queuedTurnPromotions.cancelMessage({
+                  threadId,
+                  messageId: nextQueuedTurn.messageId,
+                  updatedAt: failedAt,
+                });
+                yield* appendProviderFailureActivity({
+                  threadId,
+                  kind: "provider.turn.start.failed",
+                  summary: "Provider turn start failed",
+                  detail: terminalDetail,
+                  turnId: null,
+                  createdAt: failedAt,
+                }).pipe(Effect.ignore);
+                pendingQueuedDispatchBySessionThread.delete(sessionThreadId);
+                return false as const;
+              }).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProviderThreadSwitchCoordinatorError({ detail: cause.message, cause }),
+                ),
+              );
+            }),
+          );
+        if (!admitted) return;
         const promoted = yield* queuedTurnPromotions.markPromoted({
           queuedEventSequence: promotion.queuedEventSequence,
           claimOwner: queuedTurnPromotionOwner,
@@ -2470,6 +2855,29 @@ const make = Effect.gen(function* () {
   });
 
   const processQueueDrainEvent = Effect.fnUntraced(function* (event: ProviderQueueDrainEvent) {
+    if (event.type === "turn.completed" && event.payload.state === "completed") {
+      const connection = (yield* authCircuits.connectionForThread(event.threadId))[0];
+      if (connection) {
+        yield* authCircuits.close(connection.connectionId);
+      }
+    }
+    if (event.type === "runtime.error") {
+      const connection = (yield* authCircuits.connectionForThread(event.threadId))[0];
+      const detail = (event.payload as { readonly message?: unknown }).message;
+      if (connection && typeof detail === "string") {
+        const failure = classifyProviderAuthFailure({
+          detail,
+          authenticationMethodId: connection.authenticationMethodId,
+        });
+        if (failure) {
+          yield* authCircuits.open({
+            connectionId: connection.connectionId,
+            failure,
+            now: new Date().toISOString(),
+          });
+        }
+      }
+    }
     // A runtime error may be emitted before an adapter has finished tearing
     // down its active turn. Let that teardown complete; the recovery sweep will
     // promote pending work as soon as no live provider turn remains.
@@ -2540,6 +2948,45 @@ const make = Effect.gen(function* () {
   });
 
   const recoverQueuedTurnPromotions = Effect.gen(function* () {
+    for (const circuit of yield* authCircuits.listDue(new Date().toISOString())) {
+      if (!Schema.is(ProviderKind)(circuit.harness)) continue;
+      const profileChanged = circuit.profileRef !== circuit.currentProfileRef;
+      const probeSucceeded = !profileChanged
+        ? yield* providerDiscovery
+            .probeConnection({ provider: circuit.harness, connectionId: circuit.connectionId })
+            .pipe(Effect.catch(() => Effect.succeed(false)))
+        : false;
+      if (profileChanged || probeSucceeded) {
+        yield* authCircuits.close(circuit.connectionId);
+        for (const binding of yield* authCircuits.listThreadIds(circuit.connectionId)) {
+          const thread = yield* resolveThread(binding.threadId);
+          if (
+            thread?.session?.status === "error" &&
+            thread.session.lastError?.startsWith(circuit.summary)
+          ) {
+            const now = new Date().toISOString();
+            yield* setThreadSession({
+              threadId: binding.threadId,
+              session: {
+                ...thread.session,
+                status: "ready",
+                activeTurnId: null,
+                lastError: null,
+                updatedAt: now,
+              },
+              createdAt: now,
+            });
+          }
+          yield* drainQueuedTurnsForThread(binding.threadId);
+        }
+      } else {
+        yield* authCircuits.recordFailedProbe({
+          connectionId: circuit.connectionId,
+          now: new Date().toISOString(),
+          failureCount: circuit.failureCount,
+        });
+      }
+    }
     yield* Effect.forEach(yield* queuedTurnPromotions.listPendingThreadIds, (rawThreadId) =>
       Effect.gen(function* () {
         const threadId = ThreadId.makeUnsafe(rawThreadId);
@@ -2570,6 +3017,13 @@ const make = Effect.gen(function* () {
         }
         if (yield* hasLiveProviderTurn(threadId)) {
           return;
+        }
+        if (thread.session?.status === "running") {
+          // A manager can clear its live turn before the adapter has published
+          // the error and terminal notifications. Give that boundary a short
+          // chance to settle before recovering a seemingly orphaned queue.
+          yield* Effect.sleep(Duration.millis(250));
+          yield* providerRuntimeIngestion.drain;
         }
         yield* drainQueuedTurnsForThread(threadId);
       }),
@@ -2792,7 +3246,7 @@ const make = Effect.gen(function* () {
           ...(event.payload.lifecycleGeneration === undefined
             ? {}
             : { lifecycleGeneration: event.payload.lifecycleGeneration }),
-        });
+        }).pipe(Effect.asVoid);
 
   const claimInteractionResponse = Effect.fnUntraced(function* (input: {
     readonly event: InteractionResponseEvent;
@@ -4252,14 +4706,15 @@ const make = Effect.gen(function* () {
           ) {
             return Effect.void;
           }
-          if (event.type !== "session.exited") {
+          if (
+            event.type === "runtime.error" ||
+            (event.type === "turn.completed" && event.payload.state === "completed")
+          ) {
             return processQueueDrainEventSafely(event);
           }
-          // Provider events are journaled before they are published. Drain the
-          // ingestion journal through its current durable high-water mark so a
-          // session exit is projected before its queued successor is promoted.
-          // Otherwise these independent subscribers can race and route the
-          // successor through the session that just exited.
+          // Provider events are journaled before they are published. Ingestion
+          // must project a preceding auth error before a failed/aborted turn
+          // can promote the next queued turn. These are independent subscribers.
           return providerRuntimeIngestion.drain.pipe(
             Effect.andThen(processQueueDrainEventSafely(event)),
           );
@@ -4293,6 +4748,13 @@ const make = Effect.gen(function* () {
     },
   );
 
+  const retryAuthConnection: ProviderCommandReactorShape["retryAuthConnection"] = (connectionId) =>
+    Effect.gen(function* () {
+      if ((yield* authCircuits.get(connectionId)).length === 0) return;
+      yield* sql`UPDATE provider_auth_circuits SET next_probe_at = ${new Date().toISOString()} WHERE connection_id = ${connectionId}`;
+      yield* recoverQueuedTurnPromotions;
+    });
+
   const listBlockingDeliveries: ProviderCommandReactorShape["listBlockingDeliveries"] = (input) =>
     deliveryRepository.listBlockingDeliveries({
       consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
@@ -4311,6 +4773,7 @@ const make = Effect.gen(function* () {
     start,
     drain,
     quiesceQueuePromotions,
+    retryAuthConnection,
     listBlockingDeliveries,
     reconcileDelivery,
   } satisfies ProviderCommandReactorShape;

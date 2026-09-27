@@ -18,6 +18,10 @@ import {
 } from "../components/Sidebar.logic";
 import { toastManager } from "../components/ui/toast";
 import { findNearestVisibleDeckThread } from "../lib/threadDeckNavigation";
+import {
+  beginLocalThreadArchiveNavigation,
+  endLocalThreadArchiveNavigation,
+} from "../lib/threadArchiveNavigation";
 import { deleteActiveThreadFromClient } from "../lib/activeThreadDelete";
 import { reconcileDeletedThreadsFromClient } from "../lib/deletedThreadClientReconciliation";
 import {
@@ -29,12 +33,6 @@ import { newCommandId, randomUUID } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import { usePinnedThreadsStore } from "../pinnedThreadsStore";
 import { reconcileOptimisticPinState } from "../pinning.logic";
-import {
-  resolveSplitViewFocusedThreadId,
-  resolveSplitViewPaneIdForThread,
-  type SplitView,
-  useSplitViewStore,
-} from "../splitViewStore";
 import { useStore } from "../store";
 import { getThreadFromState } from "../threadDerivation";
 import { useThreadSelectionStore } from "../threadSelectionStore";
@@ -67,12 +65,10 @@ interface DeleteProjectThreadsOptions {
 }
 
 export function useSidebarThreadActions(input: {
-  readonly activeSplitView: SplitView | null | undefined;
   readonly appSettings: Pick<AppSettings, "confirmThreadDelete" | "sidebarThreadSortOrder">;
   readonly clearTerminalState: (threadId: ThreadId) => void;
   readonly handleNewChat: (options?: { fresh?: boolean }) => Promise<unknown>;
   readonly projectById: ReadonlyMap<FolderId, Project>;
-  readonly routeSplitViewId: string | null;
   readonly routeThreadId: ThreadId | null;
   readonly sidebarThreads: readonly SidebarThreadSummary[];
   readonly sidebarTreeThreads: readonly SidebarThreadSummary[];
@@ -80,12 +76,10 @@ export function useSidebarThreadActions(input: {
   readonly threadsHydrated: boolean;
 }) {
   const {
-    activeSplitView,
     appSettings,
     clearTerminalState,
     handleNewChat,
     projectById,
-    routeSplitViewId,
     routeThreadId,
     sidebarThreads,
     sidebarTreeThreads,
@@ -101,7 +95,6 @@ export function useSidebarThreadActions(input: {
   const pinThreadLocally = usePinnedThreadsStore((store) => store.pinThread);
   const unpinThread = usePinnedThreadsStore((store) => store.unpinThread);
   const prunePinnedThreads = usePinnedThreadsStore((store) => store.prunePinnedThreads);
-  const removeThreadFromSplitViews = useSplitViewStore((store) => store.removeThreadFromSplitViews);
   const removeFromSelection = useThreadSelectionStore((store) => store.removeFromSelection);
 
   const archivePendingThreadIdsRef = useRef<Set<ThreadId>>(new Set());
@@ -286,40 +279,14 @@ export function useSidebarThreadActions(input: {
             deletedThreadIds: opts.deletedThreadIds ?? new Set<ThreadId>(),
             sortOrder: appSettings.sidebarThreadSortOrder,
           }),
-          deletedPaneInActiveSplit: activeSplitView
-            ? resolveSplitViewPaneIdForThread(activeSplitView, threadId)
-            : null,
         }),
         onDeleted: ({ thread, prepared }) => {
           unpinThread(threadId);
           clearComposerDraftForThread(threadId);
           clearProjectDraftThreadById(thread.folderId, thread.id);
           clearTerminalState(threadId);
-          removeThreadFromSplitViews(threadId);
 
-          if (routeSplitViewId && prepared?.deletedPaneInActiveSplit) {
-            const nextActiveSplitView =
-              useSplitViewStore.getState().splitViewsById[routeSplitViewId] ?? null;
-            const nextFocusedThreadId = nextActiveSplitView
-              ? resolveSplitViewFocusedThreadId(nextActiveSplitView)
-              : null;
-            if (nextActiveSplitView && nextFocusedThreadId) {
-              void navigate({
-                to: "/$threadId",
-                params: { threadId: nextFocusedThreadId },
-                replace: true,
-                search: () => ({ splitViewId: nextActiveSplitView.id }),
-              });
-            } else if (prepared.shouldNavigateToFallback && prepared.fallbackThreadId) {
-              void navigate({
-                to: "/$threadId",
-                params: { threadId: prepared.fallbackThreadId },
-                replace: true,
-              });
-            } else if (prepared.shouldNavigateToFallback) {
-              void handleNewChat({ fresh: true });
-            }
-          } else if (prepared?.shouldNavigateToFallback) {
+          if (prepared?.shouldNavigateToFallback) {
             if (prepared.fallbackThreadId) {
               void navigate({
                 to: "/$threadId",
@@ -334,15 +301,12 @@ export function useSidebarThreadActions(input: {
       });
     },
     [
-      activeSplitView,
       appSettings.sidebarThreadSortOrder,
       clearComposerDraftForThread,
       clearProjectDraftThreadById,
       clearTerminalState,
       handleNewChat,
       navigate,
-      removeThreadFromSplitViews,
-      routeSplitViewId,
       routeThreadId,
       sidebarThreads,
       unpinThread,
@@ -391,6 +355,7 @@ export function useSidebarThreadActions(input: {
       if (pendingThreadIds.has(threadId)) return false;
 
       pendingThreadIds.add(threadId);
+      beginLocalThreadArchiveNavigation(threadId);
       const runArchive = async (): Promise<boolean> => {
         await archiveThreadFromClient(api.orchestration, threadId);
         if (routeThreadId === threadId) {
@@ -416,6 +381,7 @@ export function useSidebarThreadActions(input: {
       };
       return runArchive().finally(() => {
         pendingThreadIds.delete(threadId);
+        endLocalThreadArchiveNavigation(threadId);
       });
     },
     [appSettings.sidebarThreadSortOrder, handleNewChat, routeThreadId, sidebarThreads, navigate],

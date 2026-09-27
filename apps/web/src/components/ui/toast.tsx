@@ -37,8 +37,6 @@ import {
   EXPANDED_NOTIFICATION_SURFACE_CLASS_NAME,
   NOTIFICATION_ICON_CLASS_NAME,
 } from "./notificationSurface";
-import { useChatRouteSearch } from "../../hooks/useChatRouteSearch";
-import { selectSplitView, useSplitViewStore } from "../../splitViewStore";
 import {
   resolveVisibleToastThreadIds,
   shouldRenderToastForVisibleThreads,
@@ -136,12 +134,8 @@ function useVisibleThreadIdsFromRoute(): ReadonlySet<ThreadId> {
     select: (params) =>
       typeof params.threadId === "string" ? ThreadId.makeUnsafe(params.threadId) : null,
   });
-  const routeSearch = useChatRouteSearch();
-  const splitView = useSplitViewStore(
-    useMemo(() => selectSplitView(routeSearch.splitViewId ?? null), [routeSearch.splitViewId]),
-  );
 
-  return resolveVisibleToastThreadIds({ activeThreadId, splitView });
+  return resolveVisibleToastThreadIds({ activeThreadId });
 }
 
 function ThreadToastVisibleAutoDismiss({
