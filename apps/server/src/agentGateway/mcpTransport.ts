@@ -61,6 +61,17 @@ export function makeAgentGatewayMcpTransport(input: {
       const projectedProviderTurnId = projectedTurn?.providerTurnId ?? null;
       const openTurnIds: string[] = openTurns.map((turn) => turn.turnId);
       const sessionTurnId = thread.session?.activeTurnId ?? null;
+      const evidence = {
+        projectedTurnId,
+        projectedTurnState: projectedTurn?.state ?? null,
+        projectedProviderTurnId,
+        openTurnIds,
+        openRuntimeTurns: openTurns.map(({ turnId, firstSequence, updatedAt }) => ({
+          turnId,
+          firstSequence,
+          updatedAt,
+        })),
+      };
       const projectedAliases: string[] = [];
       if (projectedTurnId !== null) projectedAliases.push(projectedTurnId);
       if (projectedProviderTurnId !== null) projectedAliases.push(projectedProviderTurnId);
@@ -77,26 +88,20 @@ export function makeAgentGatewayMcpTransport(input: {
           return {
             turnId: projectedTurnId,
             activeTurnIds: projectedAliases,
-            projectedTurnId,
-            projectedProviderTurnId,
-            openTurnIds,
+            ...evidence,
           };
         }
         return {
           turnId: sessionTurnId,
           activeTurnIds: [sessionTurnId],
-          projectedTurnId,
-          projectedProviderTurnId,
-          openTurnIds,
+          ...evidence,
         };
       }
       if (projectedTurnId !== null && openTurnIds.length === 0) {
         return {
           turnId: projectedTurnId,
           activeTurnIds: projectedAliases,
-          projectedTurnId,
-          projectedProviderTurnId,
-          openTurnIds,
+          ...evidence,
         };
       }
       if (
@@ -108,9 +113,7 @@ export function makeAgentGatewayMcpTransport(input: {
         return {
           turnId: projectedTurnId,
           activeTurnIds: projectedAliases,
-          projectedTurnId,
-          projectedProviderTurnId,
-          openTurnIds,
+          ...evidence,
         };
       }
       if (projectedTurnId === null && openTurnIds.length === 1) {
@@ -122,25 +125,19 @@ export function makeAgentGatewayMcpTransport(input: {
           return {
             turnId: null,
             activeTurnIds: [],
-            projectedTurnId,
-            projectedProviderTurnId,
-            openTurnIds,
+            ...evidence,
           };
         }
         return {
           turnId: openTurnId,
           activeTurnIds: openTurnId === null ? [] : [openTurnId],
-          projectedTurnId,
-          projectedProviderTurnId,
-          openTurnIds,
+          ...evidence,
         };
       }
       return {
         turnId: null,
         activeTurnIds: [],
-        projectedTurnId,
-        projectedProviderTurnId,
-        openTurnIds,
+        ...evidence,
       };
     });
 
@@ -242,6 +239,7 @@ export function makeAgentGatewayMcpTransport(input: {
 
   return (requestInput) =>
     Effect.gen(function* () {
+      const mcpRequestArrivedAt = new Date().toISOString();
       const token = extractBearerToken(requestInput.authorizationHeader);
       const callerSession = token ? input.credentials.verifySession(token) : null;
       if (!token || !callerSession) {
@@ -299,8 +297,10 @@ export function makeAgentGatewayMcpTransport(input: {
               turnId: null,
               activeTurnIds: [],
               projectedTurnId: null,
+              projectedTurnState: null,
               projectedProviderTurnId: null,
               openTurnIds: [],
+              openRuntimeTurns: [],
             }),
           ),
         ),
@@ -331,6 +331,27 @@ export function makeAgentGatewayMcpTransport(input: {
           ? callerThread.value.session.activeTurnId
           : null) ||
         null;
+      const failCallerTurnInactive = (
+        failedCheck: string,
+        error: GatewayToolError,
+        observed: typeof ingressAuthority = ingressAuthority,
+        session: OrchestrationThreadShell["session"] = callerThread.value.session,
+      ) =>
+        Effect.logWarning("agent_gateway.caller_turn_inactive", {
+          callerThreadId,
+          mcpRequestArrivedAt,
+          failedCheck,
+          projectedActiveTurnId: observed.projectedTurnId,
+          projectedActiveTurnState: observed.projectedTurnState,
+          projectedProviderTurnId: observed.projectedProviderTurnId,
+          sessionStatus: session?.status ?? null,
+          sessionTurnId: session?.activeTurnId ?? null,
+          openRuntimeTurns: observed.openRuntimeTurns,
+          ingressAuthorityTurnId: ingressAuthority.turnId,
+          expectedTurnId: callerWriteAuthority?.turnId ?? null,
+          arrivedTurnId: callerTurnId,
+          observedAuthorityTurnId: observed.turnId,
+        }).pipe(Effect.andThen(Effect.fail(error)));
       const assertCallerThreadAuthorized: ToolContext["assertCallerThreadAuthorized"] = () =>
         Effect.gen(function* () {
           const currentSession = input.credentials.verifySession(token);
@@ -383,18 +404,8 @@ export function makeAgentGatewayMcpTransport(input: {
         Effect.gen(function* () {
           yield* assertCallerThreadAuthorized();
           if (callerWriteAuthority === null) {
-            yield* Effect.logWarning("agent_gateway.caller_turn_inactive", {
-              callerThreadId,
-              sessionStatus: callerThread.value.session?.status ?? null,
-              sessionActiveTurnId: callerThread.value.session?.activeTurnId ?? null,
-              latestTurnId: callerThread.value.latestTurn?.turnId ?? null,
-              latestProviderTurnId: callerThread.value.latestTurn?.providerTurnId ?? null,
-              latestTurnState: callerThread.value.latestTurn?.state ?? null,
-              projectedTurnId: ingressAuthority.projectedTurnId,
-              projectedProviderTurnId: ingressAuthority.projectedProviderTurnId,
-              openRuntimeTurnIds: ingressAuthority.openTurnIds,
-            });
-            return yield* Effect.fail(
+            return yield* failCallerTurnInactive(
+              "ingress_write_authority_missing",
               new GatewayToolError(
                 "caller_turn_inactive",
                 "This Penkra write was rejected because no caller turn was active when the MCP request arrived.",
@@ -414,28 +425,35 @@ export function makeAgentGatewayMcpTransport(input: {
           const caller = yield* input
             .requireThreadShell(callerThreadId)
             .pipe(
-              Effect.mapError(
-                (error) =>
+              Effect.catch((error) =>
+                failCallerTurnInactive(
+                  "caller_thread_lookup_failed",
                   new GatewayToolError(
                     "caller_turn_inactive",
                     "This Penkra write was rejected because the caller thread could no longer be verified.",
                     { callerThreadId, error: errorText(error) },
                   ),
+                ),
               ),
             );
           const activeAuthority = yield* resolveCallerTurnId(caller).pipe(
-            Effect.mapError(
-              (error) =>
+            Effect.catch((error) =>
+              failCallerTurnInactive(
+                "active_execution_lookup_failed",
                 new GatewayToolError(
                   "caller_turn_inactive",
                   "This Penkra write was rejected because the active execution could not be verified.",
                   { callerThreadId, error: errorText(error) },
                 ),
+                ingressAuthority,
+                caller.session,
+              ),
             ),
           );
           const activeTurnIds: ReadonlyArray<string> = activeAuthority.activeTurnIds;
           if (!activeTurnIds.includes(callerWriteAuthority.turnId)) {
-            return yield* Effect.fail(
+            return yield* failCallerTurnInactive(
+              "authorized_turn_no_longer_active",
               new GatewayToolError(
                 "caller_turn_inactive",
                 "This Penkra write was rejected because the turn that received this MCP request is no longer active. In-flight requests cannot inherit authority from a later turn.",
@@ -452,6 +470,8 @@ export function makeAgentGatewayMcpTransport(input: {
                   openRuntimeTurnIds: activeAuthority.openTurnIds,
                 },
               ),
+              activeAuthority,
+              caller.session,
             );
           }
         }).pipe(Effect.asVoid);

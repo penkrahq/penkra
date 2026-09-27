@@ -24,7 +24,7 @@ import {
 import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 
-import { Deferred, Effect, Layer, Option, Stream } from "effect";
+import { Deferred, Effect, Layer, Logger, Option, Stream } from "effect";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
@@ -1116,6 +1116,118 @@ describe("AgentGateway", () => {
     }),
     makeThreadShell("thread-archived", { archivedAt: NOW }),
   ];
+
+  it.effect("logs ingress turn evidence for an inner penkra_exec_command write refusal", () => {
+    const warnings: Array<ReadonlyArray<unknown>> = [];
+    const logger = Logger.make(({ message }) => warnings.push(message as ReadonlyArray<unknown>));
+    const threads = baseThreads.map((thread) =>
+      thread.id === "thread-parent"
+        ? makeThreadShell("thread-parent", {
+            modelSelection: { provider: "claudeAgent", model: "claude-opus" },
+            latestTurn: null,
+            session: {
+              threadId: thread.id,
+              status: "ready",
+              providerName: "claudeAgent",
+              runtimeMode: "full-access",
+              activeTurnId: null,
+              lastError: null,
+              updatedAt: NOW,
+            },
+          })
+        : thread,
+    );
+    const openRuntimeTurn = {
+      threadId: "thread-parent",
+      turnId: "sdk-background-turn",
+      firstSequence: 23,
+      updatedAt: NOW,
+    };
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(threads, {
+      providerRuntimeOpenTurns: [openRuntimeTurn],
+    });
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const response = yield* harness.callTool({
+        token: "token-parent-claude",
+        name: "penkra_send_message",
+        args: { threadId: "thread-child", message: "Background work finished." },
+      });
+      assert.equal(
+        (toolResultJson(response.result).error as { code: string }).code,
+        "caller_turn_inactive",
+      );
+      const refusalWarnings = warnings.filter(
+        (message) => message[0] === "agent_gateway.caller_turn_inactive",
+      );
+      assert.equal(refusalWarnings.length, 1);
+      const fields = refusalWarnings[0]?.[1] as Record<string, unknown>;
+      assert.equal(fields.callerThreadId, "thread-parent");
+      assert.match(String(fields.mcpRequestArrivedAt), /^\d{4}-\d\d-\d\dT/);
+      assert.equal(fields.failedCheck, "ingress_write_authority_missing");
+      assert.equal(fields.projectedActiveTurnId, null);
+      assert.equal(fields.projectedActiveTurnState, null);
+      assert.equal(fields.sessionTurnId, null);
+      assert.deepEqual(fields.openRuntimeTurns, [
+        { turnId: "sdk-background-turn", firstSequence: 23, updatedAt: NOW },
+      ]);
+      assert.equal(fields.ingressAuthorityTurnId, null);
+      assert.equal(fields.expectedTurnId, null);
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(gatewayLayer, Logger.layer([logger], { mergeWithExisting: false })),
+      ),
+    );
+  });
+
+  it.effect("logs the current turn evidence when an in-flight write loses authority", () => {
+    const warnings: Array<ReadonlyArray<unknown>> = [];
+    const logger = Logger.make(({ message }) => warnings.push(message as ReadonlyArray<unknown>));
+    const threads = baseThreads.map((thread) =>
+      thread.id === "thread-parent"
+        ? makeThreadShell("thread-parent", { latestTurn: null })
+        : thread,
+    );
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(threads, {
+      providerRuntimeOpenTurns: [
+        {
+          threadId: "thread-parent",
+          turnId: "turn-parent-active",
+          firstSequence: 42,
+          updatedAt: NOW,
+        },
+      ],
+      clearProviderRuntimeOpenTurnsAfterRead: true,
+    });
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_send_message",
+        args: { threadId: "thread-child", message: "Please check the result." },
+      });
+      assert.equal(
+        (toolResultJson(response.result).error as { code: string }).code,
+        "caller_turn_inactive",
+      );
+      const refusalWarnings = warnings.filter(
+        (message) => message[0] === "agent_gateway.caller_turn_inactive",
+      );
+      assert.equal(refusalWarnings.length, 1);
+      const fields = refusalWarnings[0]?.[1] as Record<string, unknown>;
+      assert.equal(fields.failedCheck, "authorized_turn_no_longer_active");
+      assert.equal(fields.projectedActiveTurnId, null);
+      assert.equal(fields.projectedActiveTurnState, null);
+      assert.equal(fields.sessionTurnId, "turn-parent-active");
+      assert.deepEqual(fields.openRuntimeTurns, []);
+      assert.equal(fields.ingressAuthorityTurnId, "turn-parent-active");
+      assert.equal(fields.expectedTurnId, "turn-parent-active");
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(gatewayLayer, Logger.layer([logger], { mergeWithExisting: false })),
+      ),
+    );
+  });
 
   it.effect("rejects requests without a valid bearer token", () => {
     const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
