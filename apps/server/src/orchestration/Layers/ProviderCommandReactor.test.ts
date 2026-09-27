@@ -5794,6 +5794,70 @@ describe("ProviderCommandReactor", () => {
     } as ProviderRuntimeEvent);
   };
 
+  it("promotes a queued turn with its connection when the thread has no selection", async () => {
+    const harness = await createHarness();
+    const messageId = asMessageId("msg-queued-unsaved-connection");
+    const liveTurnId = asTurnId("turn-before-unsaved-connection");
+    await seedQueuedTurnBehindLiveTurn(harness, {
+      liveTurnId,
+      messageId,
+      text: "use the queued connection",
+    });
+    await settleLiveTurn(harness, {
+      turnId: liveTurnId,
+      eventId: "evt-before-unsaved-connection-completed",
+    });
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    const events = await Effect.runPromise(
+      Stream.runCollect(harness.engine.readEvents(0)).pipe(
+        Effect.map((collected) => Array.from(collected)),
+      ),
+    );
+    expect(
+      events.find(
+        (event) =>
+          event.type === "thread.turn-start-requested" && event.payload.messageId === messageId,
+      ),
+    ).toMatchObject({ payload: { connectionId: TEST_CONNECTION_ID } });
+  });
+
+  it("uses an explicit anonymous thread selection for a queued turn", async () => {
+    const harness = await createHarness();
+    const messageId = asMessageId("msg-queued-explicit-anonymous");
+    const liveTurnId = asTurnId("turn-before-explicit-anonymous");
+    await seedQueuedTurnBehindLiveTurn(harness, {
+      liveTurnId,
+      messageId,
+      text: "use the current thread selection",
+    });
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.update",
+        commandId: CommandId.makeUnsafe("cmd-select-anonymous-before-promotion"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        connectionId: null,
+      }),
+    );
+    await settleLiveTurn(harness, {
+      turnId: liveTurnId,
+      eventId: "evt-before-explicit-anonymous-completed",
+    });
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    const events = await Effect.runPromise(
+      Stream.runCollect(harness.engine.readEvents(0)).pipe(
+        Effect.map((collected) => Array.from(collected)),
+      ),
+    );
+    expect(
+      events.find(
+        (event) =>
+          event.type === "thread.turn-start-requested" && event.payload.messageId === messageId,
+      ),
+    ).toMatchObject({ payload: { connectionId: null } });
+  });
+
   it("preserves agent sender context through queued promotion", async () => {
     const harness = await createHarness();
     const senderThreadId = ThreadId.makeUnsafe("queued-agent-sender");
