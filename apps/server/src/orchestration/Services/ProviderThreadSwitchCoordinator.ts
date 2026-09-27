@@ -8,7 +8,10 @@ import type { ManagedAttachmentPrincipal } from "../../managedAttachmentPrincipa
 import type { ProviderTurnSelectionFailureCode } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
 
 type ProviderThreadSwitchCoordinatorErrorFields = {
-  readonly code: ProviderTurnSelectionFailureCode;
+  readonly code:
+    | ProviderTurnSelectionFailureCode
+    | "switch_operation_failed"
+    | "switch_wait_timeout";
   readonly detail: string;
   readonly cause?: unknown;
 };
@@ -20,7 +23,7 @@ const ProviderThreadSwitchCoordinatorErrorBase = Data.TaggedError(
 export class ProviderThreadSwitchCoordinatorError extends ProviderThreadSwitchCoordinatorErrorBase {
   constructor(
     input: Omit<ProviderThreadSwitchCoordinatorErrorFields, "code"> & {
-      readonly code?: ProviderTurnSelectionFailureCode;
+      readonly code?: ProviderThreadSwitchCoordinatorErrorFields["code"];
     },
   ) {
     super({ ...input, code: input.code ?? "selection_failed" });

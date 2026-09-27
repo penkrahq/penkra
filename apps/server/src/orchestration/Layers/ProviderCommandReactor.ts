@@ -87,6 +87,7 @@ import { ProviderDiscoveryService } from "../../provider/Services/ProviderDiscov
 import { classifyProviderAuthFailure } from "../../provider/providerAuthFailure.ts";
 import { makeProviderAuthCircuitStore } from "../../provider/providerAuthCircuit.ts";
 import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
+import { ProviderTurnSelectionResolutionError } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
 import { ProviderLaunchResolver } from "../../provider/Services/ProviderLaunchResolver.ts";
 import type { ProviderManagedLaunchContext } from "../../provider/Services/ProviderAdapter.ts";
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
@@ -148,17 +149,32 @@ type QueuedTurnSourceEvent =
   | Extract<ProviderIntentEvent, { type: "thread.turn-queued" }>
   | Extract<ProviderIntentEvent, { type: "thread.turn-start-requested" }>;
 
-const findPromotionInvariant = (failure: unknown): OrchestrationCommandInvariantError | null => {
+const TERMINAL_PROMOTION_CODES = new Set([
+  "provider_mismatch",
+  "connection_unauthorized",
+  "connection_unavailable",
+  "model_unavailable",
+  "thread_binding_missing",
+  "binding_revision_required",
+  "switch_operation_failed",
+]);
+
+const terminalPromotionFailureDetail = (failure: unknown): string | null => {
   let current = failure;
   const seen = new Set<Error>();
   while (current instanceof Error && !seen.has(current)) {
     if (current instanceof OrchestrationCommandInvariantError) {
-      // A concurrent binding update or a still-running predecessor can settle
-      // before the next durable retry. Other invariant rejections are terminal.
       return current.code === "thread_running" ||
-        current.detail === "The provider selection binding changed before commit."
+        current.code === "provider_switch_commit_retryable"
         ? null
-        : current;
+        : current.message;
+    }
+    if (
+      (current instanceof ProviderThreadSwitchCoordinatorError ||
+        current instanceof ProviderTurnSelectionResolutionError) &&
+      TERMINAL_PROMOTION_CODES.has(current.code)
+    ) {
+      return current.message;
     }
     seen.add(current);
     current = current.cause;
@@ -2609,8 +2625,8 @@ const make = Effect.gen(function* () {
           .pipe(
             Effect.map(() => true as const),
             Effect.catch((failure) => {
-              const invariant = findPromotionInvariant(failure);
-              if (invariant === null) return Effect.fail(failure);
+              const terminalDetail = terminalPromotionFailureDetail(failure);
+              if (terminalDetail === null) return Effect.fail(failure);
               const failedAt = new Date().toISOString();
               return Effect.gen(function* () {
                 yield* orchestrationEngine.dispatch({
@@ -2625,7 +2641,7 @@ const make = Effect.gen(function* () {
                   state: "failed",
                   queued: false,
                   failurePhase: "before-provider-dispatch",
-                  failureDetail: invariant.message,
+                  failureDetail: terminalDetail,
                   // Stable identity if the event commits before claim retirement.
                   createdAt: nextQueuedTurn.createdAt,
                 });
@@ -2638,7 +2654,7 @@ const make = Effect.gen(function* () {
                   threadId,
                   kind: "provider.turn.start.failed",
                   summary: "Provider turn start failed",
-                  detail: invariant.message,
+                  detail: terminalDetail,
                   turnId: null,
                   createdAt: failedAt,
                 }).pipe(Effect.ignore);

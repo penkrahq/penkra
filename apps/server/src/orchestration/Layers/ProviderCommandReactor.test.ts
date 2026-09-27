@@ -69,6 +69,7 @@ import { ProjectionPendingInteractionRepository } from "../../persistence/Servic
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import { PersistenceSqlError } from "../../persistence/Errors.ts";
 import {
   ProviderService,
   type ProviderServiceShape,
@@ -98,6 +99,7 @@ import {
 import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
 import { ProviderThreadSwitchCoordinator } from "../Services/ProviderThreadSwitchCoordinator.ts";
+import { ProviderThreadSwitchCoordinatorError } from "../Services/ProviderThreadSwitchCoordinator.ts";
 import { attachmentRelativePath } from "../../attachmentStore.ts";
 import { resolveProviderAttachmentPath } from "../../provider/providerAttachmentPaths.ts";
 import { clampMentionTitle } from "@penkra/shared/threadMentions";
@@ -214,6 +216,7 @@ describe("ProviderCommandReactor", () => {
     readonly queuedTurnRecoveryInterval?: Duration.Duration;
     readonly nativeStateLocatorJson?: string;
     readonly providerSessionId?: string;
+    readonly queuedCoordinatorFailure?: () => ProviderThreadSwitchCoordinatorError | undefined;
   }) {
     const now = new Date().toISOString();
     const baseDir = input?.baseDir ?? fs.mkdtempSync(path.join(os.tmpdir(), "penkra-reactor-"));
@@ -577,6 +580,8 @@ describe("ProviderCommandReactor", () => {
             return engine.dispatch(command);
           },
           dispatchQueuedTurn: ({ command }: { readonly command: OrchestrationCommand }) => {
+            const failure = input?.queuedCoordinatorFailure?.();
+            if (failure !== undefined) return Effect.fail(failure);
             if (input?.strictBindingSelection && command.type === "thread.turn.dispatch-queued") {
               if (
                 command.connectionId !== bindingConnectionId ||
@@ -6630,6 +6635,198 @@ describe("ProviderCommandReactor", () => {
     expect(harness.sendTurn).not.toHaveBeenCalled();
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(attempts).toBe(1);
+  });
+
+  it.each([
+    [
+      "connection_unauthorized",
+      "This thread's Claude conversation belongs to a different Claude account.",
+    ],
+    ["provider_mismatch", "This thread uses a different provider."],
+    [
+      "switch_operation_failed",
+      "A verified provider switch may only accompany a thread turn start.",
+    ],
+  ] as const)("fails queued delivery for %s coordinator refusals", async (code, detail) => {
+    let attempts = 0;
+    const harness = await createHarness({
+      queuedCoordinatorFailure: () => {
+        attempts += 1;
+        return new ProviderThreadSwitchCoordinatorError({ code, detail });
+      },
+    });
+    const messageId = asMessageId(`msg-queue-${code}`);
+    const queuedSequence = await seedQueuedTurnBehindLiveTurn(harness, {
+      liveTurnId: asTurnId(`turn-before-${code}`),
+      messageId,
+      text: "show a delivery failure",
+    });
+    await settleLiveTurn(harness, {
+      turnId: asTurnId(`turn-before-${code}`),
+      eventId: `evt-before-${code}-completed`,
+    });
+    await waitFor(
+      async () =>
+        Option.getOrUndefined(
+          await Effect.runPromise(
+            harness.queuedTurnPromotionRepository.getBySequence(queuedSequence),
+          ),
+        )?.state === "cancelled",
+    );
+    const thread = (await Effect.runPromise(harness.engine.getReadModel())).threads.find(
+      (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
+    );
+    expect(thread?.messages.find((message) => message.id === messageId)?.delivery).toMatchObject({
+      state: "failed",
+      failurePhase: "before-provider-dispatch",
+      failureDetail: detail,
+    });
+    expect(attempts).toBe(1);
+    expect(harness.sendTurn).not.toHaveBeenCalled();
+  });
+
+  it("retries a transient coordinator lookup failure", async () => {
+    let attempts = 0;
+    const harness = await createHarness({
+      queuedCoordinatorFailure: () => {
+        attempts += 1;
+        return attempts === 1
+          ? new ProviderThreadSwitchCoordinatorError({
+              detail: "Could not read the selected Connection.",
+              cause: new Error("I/O unavailable"),
+            })
+          : undefined;
+      },
+    });
+    const messageId = asMessageId("msg-queue-transient-coordinator");
+    const queuedSequence = await seedQueuedTurnBehindLiveTurn(harness, {
+      liveTurnId: asTurnId("turn-before-transient-coordinator"),
+      messageId,
+      text: "retry this queued message",
+    });
+    await settleLiveTurn(harness, {
+      turnId: asTurnId("turn-before-transient-coordinator"),
+      eventId: "evt-before-transient-coordinator-completed",
+    });
+    await waitFor(() => attempts === 1);
+    expect(
+      Option.getOrThrow(
+        await Effect.runPromise(
+          harness.queuedTurnPromotionRepository.getBySequence(queuedSequence),
+        ),
+      ).state,
+    ).toBe("queued");
+    await settleLiveTurn(harness, {
+      turnId: asTurnId("turn-after-transient-coordinator"),
+      eventId: "evt-after-transient-coordinator-completed",
+    });
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect(attempts).toBe(2);
+  });
+
+  it.each([
+    [5, "provider_switch_commit_retryable", "queued"],
+    [6, "provider_switch_commit_retryable", "queued"],
+    [10, "provider_switch_commit_retryable", "queued"],
+    [19, "provider_switch_commit_failed", "cancelled"],
+  ] as const)("handles queued switch commit SQLite result %i", async (errcode, code, state) => {
+    let attempts = 0;
+    const harness = await createHarness({
+      queuedCoordinatorFailure: () => {
+        attempts += 1;
+        if (attempts > 1) return undefined;
+        const storage = new PersistenceSqlError({
+          operation: "switch commit",
+          detail: "commit failed",
+          cause: { errcode },
+        });
+        const invariant = new OrchestrationCommandInvariantError({
+          commandType: "thread.turn.dispatch-queued",
+          detail: "The provider switch journal could not be committed.",
+          code,
+          cause: storage,
+        });
+        return new ProviderThreadSwitchCoordinatorError({
+          detail: invariant.message,
+          cause: invariant,
+        });
+      },
+    });
+    const messageId = asMessageId(`msg-queue-commit-${errcode}`);
+    const queuedSequence = await seedQueuedTurnBehindLiveTurn(harness, {
+      liveTurnId: asTurnId(`turn-before-commit-${errcode}`),
+      messageId,
+      text: "deliver when storage returns",
+    });
+    await settleLiveTurn(harness, {
+      turnId: asTurnId(`turn-before-commit-${errcode}`),
+      eventId: `evt-before-commit-${errcode}-completed`,
+    });
+    await waitFor(async () => {
+      const row = await Effect.runPromise(
+        harness.queuedTurnPromotionRepository.getBySequence(queuedSequence),
+      );
+      return Option.getOrUndefined(row)?.state === state;
+    });
+    const thread = (await Effect.runPromise(harness.engine.getReadModel())).threads.find(
+      (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
+    );
+    if (state === "cancelled") {
+      expect(thread?.messages.find((message) => message.id === messageId)?.delivery?.state).toBe(
+        "failed",
+      );
+      expect(attempts).toBe(1);
+    } else {
+      expect(thread?.messages.find((message) => message.id === messageId)?.delivery?.state).toBe(
+        "queued",
+      );
+      await settleLiveTurn(harness, {
+        turnId: asTurnId(`turn-after-commit-${errcode}`),
+        eventId: `evt-after-commit-${errcode}-completed`,
+      });
+      await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+      expect(attempts).toBe(2);
+    }
+  });
+
+  it("retires a queued promotion after a binding compare-and-swap refusal", async () => {
+    const invariant = new OrchestrationCommandInvariantError({
+      commandType: "thread.turn.dispatch-queued",
+      detail: "The provider selection binding changed before commit.",
+      code: "provider_binding_stale",
+    });
+    const harness = await createHarness({
+      queuedCoordinatorFailure: () =>
+        new ProviderThreadSwitchCoordinatorError({
+          detail: invariant.message,
+          cause: invariant,
+        }),
+    });
+    const messageId = asMessageId("msg-queue-binding-cas-refused");
+    const queuedSequence = await seedQueuedTurnBehindLiveTurn(harness, {
+      liveTurnId: asTurnId("turn-before-binding-cas-refused"),
+      messageId,
+      text: "report the binding conflict",
+    });
+    await settleLiveTurn(harness, {
+      turnId: asTurnId("turn-before-binding-cas-refused"),
+      eventId: "evt-before-binding-cas-refused-completed",
+    });
+    await waitFor(
+      async () =>
+        Option.getOrUndefined(
+          await Effect.runPromise(
+            harness.queuedTurnPromotionRepository.getBySequence(queuedSequence),
+          ),
+        )?.state === "cancelled",
+    );
+    const thread = (await Effect.runPromise(harness.engine.getReadModel())).threads.find(
+      (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
+    );
+    expect(thread?.messages.find((message) => message.id === messageId)?.delivery).toMatchObject({
+      state: "failed",
+      failureDetail: invariant.message,
+    });
   });
 
   it("drains a session again after a promoted turn start failed before dispatch", async () => {
