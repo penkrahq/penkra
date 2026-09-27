@@ -2556,23 +2556,75 @@ const make = Effect.gen(function* () {
       `;
       if (latestStart[0]?.recoveryReason === "play") return;
     }
+    const latestTurnState = projectedThread.latestTurn?.state;
+    const missingProviderSession =
+      latestTurnState === "running"
+        ? yield* Effect.gen(function* () {
+            const providerThread = yield* resolveProviderSessionThread(threadId);
+            const sessionThreadId = providerThread?.id ?? threadId;
+            const session = (yield* providerService.listSessions()).find(
+              (entry) => entry.threadId === sessionThreadId,
+            );
+            return session === undefined || session.status === "closed";
+          })
+        : false;
     if (
-      projectedThread.latestTurn?.state === "interrupted" ||
-      projectedThread.latestTurn?.state === "cancelled"
+      missingProviderSession ||
+      latestTurnState === "interrupted" ||
+      latestTurnState === "cancelled"
     ) {
-      const next = yield* sql<{ readonly dispatchMode: string }>`
-        SELECT dispatch_mode AS "dispatchMode"
-        FROM queued_turn_promotions
-        WHERE thread_id = ${threadId} AND state IN ('queued', 'promoting')
+      const next = yield* sql<{
+        readonly dispatchMode: string;
+        readonly sourceEventType: string;
+      }>`
+        SELECT promotion.dispatch_mode AS "dispatchMode",
+               source.event_type AS "sourceEventType"
+        FROM queued_turn_promotions AS promotion
+        JOIN orchestration_events AS source
+          ON source.sequence = promotion.queued_event_sequence
+        WHERE promotion.thread_id = ${threadId}
+          AND promotion.state IN ('queued', 'promoting')
         ORDER BY
-          CASE dispatch_mode WHEN 'steer' THEN 0 ELSE 1 END ASC,
-          CASE WHEN dispatch_mode = 'steer' THEN queued_event_sequence END DESC,
-          queued_event_sequence ASC
+          CASE promotion.dispatch_mode WHEN 'steer' THEN 0 ELSE 1 END ASC,
+          CASE WHEN promotion.dispatch_mode = 'steer' THEN promotion.queued_event_sequence END DESC,
+          promotion.queued_event_sequence ASC
         LIMIT 1
       `;
-      // A requested steer intentionally interrupts its predecessor; preserve
-      // that handoff. A normal queued message waits for a natural completion.
-      if (next[0]?.dispatchMode !== "steer") return;
+      // A requested steer intentionally interrupts its predecessor.
+      if (next[0]?.dispatchMode !== "steer") {
+        if (latestTurnState !== "running") return;
+        if (next[0]?.sourceEventType === "thread.turn-queued") {
+          const providerThread = yield* resolveProviderSessionThread(threadId);
+          const sessionThreadId = providerThread?.id ?? threadId;
+          const latestRuntimeTurnEvent = yield* sql<{
+            readonly eventType: string;
+            readonly turnState: string | null;
+          }>`
+            SELECT event_type AS "eventType",
+                   json_extract(event_json, '$.payload.state') AS "turnState"
+            FROM provider_runtime_events
+            WHERE thread_id = ${sessionThreadId}
+              AND event_type IN (
+                'turn.started', 'turn.completed', 'turn.aborted',
+                'session.exited', 'runtime.error'
+              )
+            ORDER BY sequence DESC
+            LIMIT 1
+          `;
+          const terminal = latestRuntimeTurnEvent[0];
+          const nonNaturalTerminal =
+            terminal?.eventType === "session.exited" ||
+            terminal?.eventType === "turn.aborted" ||
+            (terminal?.eventType === "turn.completed" &&
+              (terminal.turnState === "interrupted" || terminal.turnState === "cancelled"));
+          // Session closure can remove the live provider session before its
+          // terminal event is journaled or projected. A normal queued successor
+          // must not use that gap as evidence of a natural completion.
+          if (nonNaturalTerminal || terminal?.eventType === "turn.started") {
+            return;
+          }
+        }
+      }
     }
     const selectedConnection = (yield* authCircuits.connectionForThread(threadId))[0];
     if (
