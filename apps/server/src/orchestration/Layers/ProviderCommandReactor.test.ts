@@ -90,7 +90,11 @@ import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
 } from "../Services/OrchestrationEngine.ts";
-import { OrchestrationCommandInvariantError, type OrchestrationDispatchError } from "../Errors.ts";
+import {
+  OrchestrationCommandInternalError,
+  OrchestrationCommandInvariantError,
+  type OrchestrationDispatchError,
+} from "../Errors.ts";
 import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
 import { ProviderThreadSwitchCoordinator } from "../Services/ProviderThreadSwitchCoordinator.ts";
@@ -6542,7 +6546,7 @@ describe("ProviderCommandReactor", () => {
       text: "promote me on the next settle",
     });
 
-    // A transient command invariant blocks promotion. The failed drain
+    // A transient dispatch error blocks promotion. The failed drain
     // must still release its per-thread in-flight guard, or every later
     // terminal event for the thread would be ignored for the process lifetime.
     let refusals = 0;
@@ -6552,7 +6556,8 @@ describe("ProviderCommandReactor", () => {
       }
       refusals += 1;
       return Effect.fail(
-        new OrchestrationCommandInvariantError({
+        new OrchestrationCommandInternalError({
+          commandId: command.commandId,
           commandType: command.type,
           detail: "Thread promotion is temporarily unavailable.",
         }),
@@ -6583,6 +6588,48 @@ describe("ProviderCommandReactor", () => {
     expect(promotion.pipe(Option.getOrThrow)).toMatchObject({
       state: "promoted",
     });
+  });
+
+  it("fails a queued message and retires its promotion after an invariant rejection", async () => {
+    const harness = await createHarness();
+    const messageId = asMessageId("msg-queue-invariant-failed");
+    const queuedSequence = await seedQueuedTurnBehindLiveTurn(harness, {
+      liveTurnId: asTurnId("turn-before-invariant-failed"),
+      messageId,
+      text: "report the failed queued delivery",
+    });
+    let attempts = 0;
+    harness.interceptEngineDispatch((command) => {
+      if (command.type !== "thread.turn.dispatch-queued") return undefined;
+      attempts += 1;
+      return Effect.fail(
+        new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "The queued admission cannot be committed.",
+        }),
+      );
+    });
+    await settleLiveTurn(harness, {
+      turnId: asTurnId("turn-before-invariant-failed"),
+      eventId: "evt-before-invariant-failed-completed",
+    });
+    await waitFor(async () => {
+      const promotion = await Effect.runPromise(
+        harness.queuedTurnPromotionRepository.getBySequence(queuedSequence),
+      );
+      return Option.getOrUndefined(promotion)?.state === "cancelled";
+    });
+    const thread = (await Effect.runPromise(harness.engine.getReadModel())).threads.find(
+      (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
+    );
+    expect(thread?.messages.find((message) => message.id === messageId)?.delivery).toMatchObject({
+      state: "failed",
+      queued: false,
+      failurePhase: "before-provider-dispatch",
+    });
+    expect(harness.sendTurn).not.toHaveBeenCalled();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(attempts).toBe(1);
   });
 
   it("drains a session again after a promoted turn start failed before dispatch", async () => {
