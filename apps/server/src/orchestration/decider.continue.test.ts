@@ -116,11 +116,16 @@ describe("Play continuation admission", () => {
 });
 
 describe("archived thread admission", () => {
-  const decide = (thread: OrchestrationThread, command: OrchestrationCommand) =>
+  const decide = (
+    thread: OrchestrationThread,
+    command: OrchestrationCommand,
+    allowArchivedProviderProjection = false,
+  ) =>
     Effect.runPromise(
       decideOrchestrationCommand({
         readModel: { ...createEmptyReadModel(now), threads: [thread] },
         command,
+        allowArchivedProviderProjection,
       }),
     );
   const base = { commandId: CommandId.makeUnsafe("guard-command"), threadId };
@@ -229,6 +234,64 @@ describe("archived thread admission", () => {
     } as unknown as OrchestrationCommand;
     await expect(decide(threadWith({ archivedAt: now }), command)).rejects.toMatchObject({
       code: "thread_archived",
+    });
+  });
+
+  it("admits only trusted provider projection mutations after archive", async () => {
+    const archived = threadWith({ archivedAt: now, messages: [], activities: [] });
+    const commands = [
+      { type: "thread.update", ...base, title: "Provider title" },
+      {
+        type: "thread.message.assistant.delta",
+        ...base,
+        messageId: MessageId.makeUnsafe("assistant-late"),
+        delta: "Late",
+        turnId,
+        createdAt: now,
+      },
+      {
+        type: "thread.message.assistant.complete",
+        ...base,
+        messageId: MessageId.makeUnsafe("assistant-late"),
+        finalText: "Late completion",
+        turnId,
+        createdAt: now,
+      },
+      {
+        type: "thread.activity.append",
+        ...base,
+        activity: {
+          id: "provider-activity",
+          kind: "tool.completed",
+          tone: "info",
+          summary: "Tool completed",
+          payload: {},
+          turnId,
+          createdAt: now,
+        },
+        createdAt: now,
+      },
+      { type: "thread.activity-read-model.touch", ...base, turnId, createdAt: now },
+    ] as unknown as OrchestrationCommand[];
+    for (const command of commands) {
+      await expect(decide(archived, command, true)).resolves.toBeDefined();
+    }
+    await expect(decide(archived, start("queue"), true)).rejects.toMatchObject({
+      code: "thread_archived",
+    });
+  });
+
+  it("clamps archive time to the thread's latest update", async () => {
+    const updatedAt = "2026-09-26T01:00:00.000Z";
+    const result = await decide(threadWith({ updatedAt }), {
+      type: "thread.archive",
+      ...base,
+      createdAt: now,
+    });
+    expect(result).toMatchObject({
+      type: "thread.archived",
+      occurredAt: updatedAt,
+      payload: { archivedAt: updatedAt, updatedAt },
     });
   });
 

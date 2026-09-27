@@ -939,6 +939,79 @@ describe("ProviderRuntimeIngestion", () => {
     expect(thread.messages.find((message) => message.id === messageId)?.text).toBe("streamed once");
   });
 
+  it("drains a late assistant completion after Stop and archive without quarantining", async () => {
+    const harness = await createHarness({ startIngestion: false });
+    const threadId = asThreadId("thread-1");
+    const turnId = asTurnId("turn-late-after-archive");
+    const itemId = asItemId("item-late-after-archive");
+    const messageId = asMessageId(`assistant:${itemId}`);
+    const stoppedAt = new Date().toISOString();
+    const completedAt = new Date(Date.now() + 1_000).toISOString();
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.message.assistant.delta",
+        commandId: CommandId.makeUnsafe("cmd-late-archive-delta"),
+        threadId,
+        messageId,
+        delta: "Late answer",
+        turnId,
+        createdAt: stoppedAt,
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-late-archive-stop"),
+        threadId,
+        session: {
+          threadId,
+          status: "stopped",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: stoppedAt,
+        },
+        createdAt: stoppedAt,
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.archive",
+        commandId: CommandId.makeUnsafe("cmd-late-archive"),
+        threadId,
+        createdAt: stoppedAt,
+      }),
+    );
+    const completion: ProviderRuntimeEvent = {
+      type: "item.completed",
+      eventId: asEventId("evt-late-assistant-after-archive"),
+      provider: "codex",
+      createdAt: completedAt,
+      threadId,
+      turnId,
+      itemId,
+      payload: { itemType: "assistant_message", status: "completed" },
+    };
+    const persisted = await Effect.runPromise(harness.runtimeEventRepository.append(completion));
+    await harness.startIngestion();
+    await harness.drain();
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.messages.some((message) => message.id === messageId && message.streaming === false),
+    );
+    expect(thread.archivedAt).not.toBeNull();
+    expect(thread.messages.find((message) => message.id === messageId)?.text).toBe("Late answer");
+    expect(await Effect.runPromise(harness.runtimeEventRepository.getThreadCursor(threadId))).toBe(
+      persisted.sequence,
+    );
+    expect(
+      await Effect.runPromise(harness.runtimeEventRepository.getThreadProjectionFailure(threadId)),
+    ).toBeNull();
+    expect(
+      await Effect.runPromise(harness.runtimeEventRepository.listQuarantinedProjectionFailures),
+    ).toHaveLength(0);
+  });
+
   it("keeps a terminal turn idle when late command bookkeeping replays after a crash", async () => {
     const harness = await createHarness({ startIngestion: false });
     const threadId = asThreadId("thread-1");

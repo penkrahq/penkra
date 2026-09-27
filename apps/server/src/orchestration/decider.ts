@@ -236,6 +236,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
   readModel,
   workspacePaths: _workspacePaths,
   acceptedConnectionChange,
+  allowArchivedProviderProjection = false,
 }: {
   readonly command: OrchestrationCommand;
   readonly readModel: OrchestrationReadModel;
@@ -243,6 +244,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     | { readonly homeDir: string; readonly chatWorkspaceRoot: string }
     | undefined;
   readonly acceptedConnectionChange?: AcceptedConnectionChange | undefined;
+  readonly allowArchivedProviderProjection?: boolean;
 }): Effect.fn.Return<
   Omit<OrchestrationEvent, "sequence"> | ReadonlyArray<Omit<OrchestrationEvent, "sequence">>,
   OrchestrationCommandInvariantError
@@ -1257,7 +1259,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           }),
         );
       }
-      const occurredAt = command.createdAt ?? nowIso();
+      const requestedAt = command.createdAt ?? nowIso();
+      const occurredAt = requestedAt < thread.updatedAt ? thread.updatedAt : requestedAt;
       const archivedEvent: Omit<OrchestrationEvent, "sequence"> = {
         ...withEventBase({
           aggregateKind: "thread",
@@ -1310,7 +1313,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.update": {
-      const thread = yield* requireThreadCanTakeWork({
+      const thread = yield* (
+        allowArchivedProviderProjection ? requireThread : requireThreadCanTakeWork
+      )({
         readModel,
         command,
         threadId: command.threadId,
@@ -2226,7 +2231,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.message.assistant.delta": {
-      const thread = yield* requireThreadCanTakeWork({
+      const thread = yield* (
+        allowArchivedProviderProjection ? requireThread : requireThreadCanTakeWork
+      )({
         readModel,
         command,
         threadId: command.threadId,
@@ -2260,7 +2267,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.message.assistant.complete": {
-      const thread = yield* requireThreadCanTakeWork({
+      const thread = yield* (
+        allowArchivedProviderProjection ? requireThread : requireThreadCanTakeWork
+      )({
         readModel,
         command,
         threadId: command.threadId,
@@ -2381,7 +2390,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.activity.append": {
-      yield* requireThreadCanTakeWork({
+      yield* (allowArchivedProviderProjection ? requireThread : requireThreadCanTakeWork)({
         readModel,
         command,
         threadId: command.threadId,
@@ -2411,7 +2420,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.activity-read-model.touch": {
-      yield* requireThreadCanTakeWork({
+      yield* (allowArchivedProviderProjection ? requireThread : requireThreadCanTakeWork)({
         readModel,
         command,
         threadId: command.threadId,

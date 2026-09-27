@@ -96,6 +96,7 @@ type OrchestrationEnginePhase = "running" | "quiescing" | "draining" | "stopped"
 interface CommandEnvelope {
   command: OrchestrationCommand;
   attachmentPrincipal: ManagedAttachmentPrincipal;
+  allowArchivedProviderProjection?: boolean;
   acceptedProviderSwitch?: NonNullable<OrchestrationDispatchContext["acceptedProviderSwitch"]>;
   acceptedInitialProviderBinding?: Parameters<
     ThreadProviderBindingRepositoryShape["initializeThread"]
@@ -802,6 +803,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         command,
         readModel: deciderReadModel,
         workspacePaths: deciderWorkspacePaths,
+        allowArchivedProviderProjection: envelope.allowArchivedProviderProjection === true,
         ...(envelope.acceptedProviderSwitch !== undefined
           ? { acceptedConnectionChange: envelope.acceptedProviderSwitch.change }
           : {}),
@@ -1065,8 +1067,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         if (command.type === "thread.archive") {
           yield* queuedTurnPromotions.cancelThread({
             threadId: command.threadId,
-            updatedAt:
-              command.createdAt ?? admittedEventBases[0]?.occurredAt ?? new Date().toISOString(),
+            updatedAt: admittedEventBases[0]?.occurredAt ?? new Date().toISOString(),
           });
         }
 
@@ -1488,6 +1489,9 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       const envelope: CommandEnvelope = {
         command,
         attachmentPrincipal: context?.attachmentPrincipal ?? LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+        ...(context?.allowArchivedProviderProjection === true
+          ? { allowArchivedProviderProjection: true }
+          : {}),
         ...(context?.acceptedProviderSwitch !== undefined
           ? { acceptedProviderSwitch: context.acceptedProviderSwitch }
           : {}),
