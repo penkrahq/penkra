@@ -37,6 +37,11 @@ export interface ProviderThreadSwitchCoordinatorShape {
     readonly attachmentPrincipal: ManagedAttachmentPrincipal;
     readonly cwd?: string;
   }) => Effect.Effect<{ readonly sequence: number }, ProviderThreadSwitchCoordinatorError>;
+  readonly dispatchQueuedTurn: (input: {
+    readonly command: Extract<OrchestrationCommand, { type: "thread.turn.dispatch-queued" }>;
+    readonly attachmentPrincipal: ManagedAttachmentPrincipal;
+    readonly cwd?: string;
+  }) => Effect.Effect<{ readonly sequence: number }, ProviderThreadSwitchCoordinatorError>;
   readonly recoverOpen: Effect.Effect<void, never>;
 }
 

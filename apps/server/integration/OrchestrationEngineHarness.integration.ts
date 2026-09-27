@@ -360,6 +360,21 @@ export const makeOrchestrationIntegrationHarness = (
                     }),
                 ),
               ),
+          dispatchQueuedTurn: ({ command, attachmentPrincipal, cwd }) =>
+            engine
+              .dispatch(command, {
+                attachmentPrincipal,
+                ...(cwd ? { cwd } : {}),
+              })
+              .pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProviderThreadSwitchCoordinatorError({
+                      detail: "The orchestration harness could not dispatch the queued turn.",
+                      cause,
+                    }),
+                ),
+              ),
           recoverOpen: Effect.void,
         };
       }),

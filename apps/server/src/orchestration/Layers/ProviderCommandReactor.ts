@@ -2525,45 +2525,63 @@ const make = Effect.gen(function* () {
         }
         const nextQueuedTurn = sourceEvent.payload;
         const currentThread = yield* resolveThread(threadId);
+        if (!currentThread) {
+          return yield* Effect.fail(new Error(`Queued thread '${threadId}' is missing.`));
+        }
+        const runtimeBinding = yield* threadProviderBindings.getRuntimeBinding(threadId);
+        const readModel = yield* orchestrationEngine.getCommandReadModel();
+        const cwd =
+          resolveThreadWorkspaceCwd({
+            workingDirectory: currentThread.workingDirectory,
+            projectCwd:
+              readModel.folders.find((project) => project.id === currentThread.folderId)
+                ?.workspaceRoot ?? null,
+          }) ?? ensureDurableThreadWorkspace(threadId, serverConfig.stateDir);
         pendingQueuedDispatchBySessionThread.set(sessionThreadId, {
           queuedThreadId: threadId,
           messageId: nextQueuedTurn.messageId,
         });
-        yield* orchestrationEngine.dispatch({
-          type: "thread.turn.dispatch-queued",
-          commandId: CommandId.makeUnsafe(
-            `server:dispatch-queued-turn:${promotion.queuedEventSequence}`,
-          ),
-          threadId,
-          turnId: nextQueuedTurn.turnId ?? TurnId.makeUnsafe(`turn:${sourceEvent.commandId}`),
-          messageId: nextQueuedTurn.messageId,
-          ...(currentThread ? { modelSelection: currentThread.modelSelection } : {}),
-          ...(currentThread?.connectionId !== undefined
-            ? { connectionId: currentThread.connectionId }
-            : nextQueuedTurn.connectionId !== undefined
-              ? { connectionId: nextQueuedTurn.connectionId }
+        yield* providerThreadSwitchCoordinator.dispatchQueuedTurn({
+          attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+          cwd,
+          command: {
+            type: "thread.turn.dispatch-queued",
+            commandId: CommandId.makeUnsafe(
+              `server:dispatch-queued-turn:${promotion.queuedEventSequence}`,
+            ),
+            threadId,
+            turnId: nextQueuedTurn.turnId ?? TurnId.makeUnsafe(`turn:${sourceEvent.commandId}`),
+            messageId: nextQueuedTurn.messageId,
+            modelSelection: currentThread.modelSelection,
+            ...(currentThread.connectionId !== undefined
+              ? { connectionId: currentThread.connectionId }
+              : nextQueuedTurn.connectionId !== undefined
+                ? { connectionId: nextQueuedTurn.connectionId }
+                : {}),
+            ...(Option.isSome(runtimeBinding)
+              ? { bindingRevision: runtimeBinding.value.revision }
+              : nextQueuedTurn.bindingRevision !== undefined
+                ? { bindingRevision: nextQueuedTurn.bindingRevision }
+                : {}),
+            ...(nextQueuedTurn.providerOptions !== undefined
+              ? { providerOptions: nextQueuedTurn.providerOptions }
               : {}),
-          ...(nextQueuedTurn.bindingRevision !== undefined
-            ? { bindingRevision: nextQueuedTurn.bindingRevision }
-            : {}),
-          ...(nextQueuedTurn.providerOptions !== undefined
-            ? { providerOptions: nextQueuedTurn.providerOptions }
-            : {}),
-          ...(nextQueuedTurn.reviewTarget !== undefined
-            ? { reviewTarget: nextQueuedTurn.reviewTarget }
-            : {}),
-          ...(nextQueuedTurn.assistantDeliveryMode !== undefined
-            ? { assistantDeliveryMode: nextQueuedTurn.assistantDeliveryMode }
-            : {}),
-          dispatchMode: nextQueuedTurn.dispatchMode,
-          ...(nextQueuedTurn.dispatchOrigin !== undefined
-            ? { dispatchOrigin: nextQueuedTurn.dispatchOrigin }
-            : {}),
-          ...(nextQueuedTurn.senderThreadId !== undefined
-            ? { senderThreadId: nextQueuedTurn.senderThreadId }
-            : {}),
-          runtimeMode: nextQueuedTurn.runtimeMode,
-          createdAt: nextQueuedTurn.createdAt,
+            ...(nextQueuedTurn.reviewTarget !== undefined
+              ? { reviewTarget: nextQueuedTurn.reviewTarget }
+              : {}),
+            ...(nextQueuedTurn.assistantDeliveryMode !== undefined
+              ? { assistantDeliveryMode: nextQueuedTurn.assistantDeliveryMode }
+              : {}),
+            dispatchMode: nextQueuedTurn.dispatchMode,
+            ...(nextQueuedTurn.dispatchOrigin !== undefined
+              ? { dispatchOrigin: nextQueuedTurn.dispatchOrigin }
+              : {}),
+            ...(nextQueuedTurn.senderThreadId !== undefined
+              ? { senderThreadId: nextQueuedTurn.senderThreadId }
+              : {}),
+            runtimeMode: nextQueuedTurn.runtimeMode,
+            createdAt: nextQueuedTurn.createdAt,
+          },
         });
         const promoted = yield* queuedTurnPromotions.markPromoted({
           queuedEventSequence: promotion.queuedEventSequence,

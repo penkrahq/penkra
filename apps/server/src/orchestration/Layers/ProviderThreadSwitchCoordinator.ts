@@ -58,6 +58,10 @@ const generationIdFor = (commandId: string) =>
   ProviderNativeStateGenerationId.makeUnsafe(`provider-switch-generation:${commandId}`);
 const anonymousConnectionLabel = (harness: string) =>
   harness === "opencode" ? "OpenCode" : "No Connection";
+type TurnAdmissionCommand = Extract<
+  typeof OrchestrationCommand.Type,
+  { type: "thread.turn.start" | "thread.turn.dispatch-queued" }
+>;
 export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
   const engine = yield* OrchestrationEngineService;
   const operations = yield* ProviderThreadSwitchOperationRepository;
@@ -88,9 +92,9 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           }),
       ),
       Effect.flatMap((command) =>
-        command.type === "thread.turn.start"
+        command.type === "thread.turn.start" || command.type === "thread.turn.dispatch-queued"
           ? Effect.succeed(command)
-          : fail("The persisted provider-switch command is not a turn start."),
+          : fail("The persisted provider-switch command is not a turn admission."),
       ),
     );
 
@@ -208,7 +212,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
     waitForTurnToSettle(threadId, null);
 
   const runOperation = Effect.fnUntraced(function* (input: {
-    readonly command: Extract<typeof OrchestrationCommand.Type, { type: "thread.turn.start" }>;
+    readonly command: TurnAdmissionCommand;
     readonly attachmentPrincipal: ManagedAttachmentPrincipal;
     readonly cwd?: string;
     readonly selection: typeof ResolvedProviderTurnSelection.Type;
@@ -785,7 +789,11 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
       ),
     );
 
-  const dispatchTurnStart: ProviderThreadSwitchCoordinatorShape["dispatchTurnStart"] = (input) =>
+  const dispatchTurnAdmission = (input: {
+    readonly command: TurnAdmissionCommand;
+    readonly attachmentPrincipal: ManagedAttachmentPrincipal;
+    readonly cwd?: string;
+  }) =>
     Effect.gen(function* () {
       const operationId = operationIdFor(input.command.commandId);
       const existing = Option.getOrUndefined(
@@ -826,10 +834,16 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           .pipe(mapOperationError("Could not inspect the provider fork journal.")),
       );
       if (existingFork) {
+        if (input.command.type !== "thread.turn.start") {
+          return yield* fail("A queued turn cannot use a native fork journal.");
+        }
         if (existingFork.state === "failed") {
           return yield* fail(existingFork.failureReason ?? "The provider fork previously failed.");
         }
         const persistedCommand = yield* decodeCommand(existingFork.commandJson);
+        if (persistedCommand.type !== "thread.turn.start") {
+          return yield* fail("The persisted native fork command is not a turn start.");
+        }
         const persistedFingerprint = fingerprintOrchestrationCommand(persistedCommand);
         const inputFingerprint = fingerprintOrchestrationCommand(input.command);
         if (
@@ -866,7 +880,11 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
         );
       }
       if (Option.isNone(harnessState)) {
-        if (input.command.bindingRevision !== 0 || input.command.modelSelection === undefined) {
+        if (
+          input.command.type !== "thread.turn.start" ||
+          input.command.bindingRevision !== 0 ||
+          input.command.modelSelection === undefined
+        ) {
           return yield* fail("The first message requires an exact model and binding revision 0.");
         }
         const projectedThread = yield* projections
@@ -1134,6 +1152,16 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
               return;
             }
             const [command, selection] = decoded.success;
+            if (command.type !== "thread.turn.start") {
+              yield* materializer.discard(operation.targetNativeStateGenerationId);
+              yield* forkOperations.transition({
+                id: operation.id,
+                state: "failed",
+                failureReason: "Discarded an incompatible native fork command.",
+                updatedAt: new Date().toISOString(),
+              });
+              return;
+            }
             yield* runForkOperation({
               command,
               attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
@@ -1177,7 +1205,8 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
   });
 
   return {
-    dispatchTurnStart,
+    dispatchTurnStart: dispatchTurnAdmission,
+    dispatchQueuedTurn: dispatchTurnAdmission,
     recoverOpen,
   } satisfies ProviderThreadSwitchCoordinatorShape;
 });
