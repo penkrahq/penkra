@@ -352,9 +352,12 @@ describe("OrchestrationEngine", () => {
           type: "thread.archive",
           commandId: CommandId.makeUnsafe("archive-command"),
           threadId,
-          createdAt,
         }),
       );
+      const archived = (await system.run(system.engine.getReadModel())).threads.find(
+        (thread) => thread.id === threadId,
+      );
+      expect(archived?.archivedAt).toBeDefined();
       const queueRows = await system.run(
         system.sql<{
           readonly state: string;
@@ -364,7 +367,12 @@ describe("OrchestrationEngine", () => {
         }>`SELECT state, updated_at AS "updatedAt", action_kind AS "actionKind", action_event_id AS "actionEventId" FROM queued_turn_promotions WHERE thread_id = ${threadId}`,
       );
       expect(queueRows).toMatchObject([
-        { state: "cancelled", updatedAt: createdAt, actionKind: null, actionEventId: null },
+        {
+          state: "cancelled",
+          updatedAt: archived?.archivedAt,
+          actionKind: null,
+          actionEventId: null,
+        },
       ]);
       const messages = await system.run(
         system.sql<{

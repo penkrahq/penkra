@@ -6,6 +6,7 @@
 import {
   CommandId,
   FolderId,
+  MessageId,
   SpaceId,
   ThreadId,
   TurnId,
@@ -221,6 +222,33 @@ describe("thread retention", () => {
         }),
       ),
     ).rejects.toThrow("changed before retention archive");
+  });
+
+  it("uses one timestamp for an unstamped retention archive and queued cancellation events", async () => {
+    const thread = makeReadModelThread({
+      queuedMessageIds: [MessageId.makeUnsafe("queued-retention-message")],
+    });
+    const decided = await Effect.runPromise(
+      decideOrchestrationCommand({
+        readModel: makeReadModel([thread]),
+        command: {
+          type: "thread.archive",
+          commandId: CommandId.makeUnsafe("retention-archive-unstamped"),
+          threadId: thread.id,
+          expectedUpdatedAt: thread.updatedAt,
+          expectedLastVisitedAt: null,
+        },
+      }),
+    );
+    expect(Array.isArray(decided)).toBe(true);
+    if (!Array.isArray(decided)) return;
+    const archived = decided.find((event) => event.type === "thread.archived");
+    const cancelled = decided.find((event) => event.type === "thread.turn-start-cancelled");
+    expect(archived?.occurredAt).toBeDefined();
+    expect(cancelled?.occurredAt).toBe(archived?.occurredAt);
+    expect(archived?.type === "thread.archived" ? archived.payload.updatedAt : null).toBe(
+      archived?.occurredAt,
+    );
   });
 
   it("rejects expired deletion after the archive is restored", async () => {

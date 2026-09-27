@@ -30,6 +30,8 @@ import type { ThreadProviderBindingRepositoryShape } from "../../persistence/Ser
 
 export interface OrchestrationDispatchContext {
   readonly attachmentPrincipal?: ManagedAttachmentPrincipal;
+  /** Server-only provider journal projection may settle an already archived thread. */
+  readonly allowArchivedProviderProjection?: boolean;
   /** Server-only provider lifecycle ownership fence; excluded from command identity. */
   readonly expectedProviderLifecycleGeneration?: string;
   /**
