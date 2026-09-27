@@ -1150,8 +1150,10 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent-claude",
-        name: "penkra_send_message",
-        args: { threadId: "thread-child", message: "Background work finished." },
+        name: "penkra_exec_command",
+        args: {
+          command: "penkra threads send --thread-id thread-child --message 'Background work finished.'",
+        },
       });
       assert.equal(
         (toolResultJson(response.result).error as { code: string }).code,
@@ -1167,12 +1169,16 @@ describe("AgentGateway", () => {
       assert.equal(fields.failedCheck, "ingress_write_authority_missing");
       assert.equal(fields.projectedActiveTurnId, null);
       assert.equal(fields.projectedActiveTurnState, null);
+      assert.equal(fields.projectedProviderTurnId, null);
+      assert.equal(fields.sessionStatus, "ready");
       assert.equal(fields.sessionTurnId, null);
       assert.deepEqual(fields.openRuntimeTurns, [
         { turnId: "sdk-background-turn", firstSequence: 23, updatedAt: NOW },
       ]);
       assert.equal(fields.ingressAuthorityTurnId, null);
       assert.equal(fields.expectedTurnId, null);
+      assert.equal(fields.arrivedTurnId, null);
+      assert.equal(fields.observedAuthorityTurnId, null);
     }).pipe(
       Effect.provide(
         Layer.mergeAll(gatewayLayer, Logger.layer([logger], { mergeWithExisting: false })),
@@ -1222,6 +1228,8 @@ describe("AgentGateway", () => {
       assert.deepEqual(fields.openRuntimeTurns, []);
       assert.equal(fields.ingressAuthorityTurnId, "turn-parent-active");
       assert.equal(fields.expectedTurnId, "turn-parent-active");
+      assert.equal(fields.arrivedTurnId, "turn-parent-active");
+      assert.equal(fields.observedAuthorityTurnId, null);
     }).pipe(
       Effect.provide(
         Layer.mergeAll(gatewayLayer, Logger.layer([logger], { mergeWithExisting: false })),
