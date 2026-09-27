@@ -24,11 +24,13 @@ import {
   compareChatMessagesForTranscript,
   dedupeActivitiesById,
   deepEqualJson,
+  latestDeliveryFailureReason,
   mapFolders,
   mapSpaces,
   mergeReadModelThreadDetailWithLiveHotPath,
   normalizeActivities,
   normalizeChatMessage,
+  normalizeThreadErrorMessage,
   normalizeProject,
   normalizeSpace,
   normalizeThreadFromReadModel,
@@ -1485,6 +1487,9 @@ export function syncServerThreadTurnsPage(
     (thread) => ({
       ...thread,
       messages,
+      error:
+        normalizeThreadErrorMessage(thread.session?.lastError) ??
+        latestDeliveryFailureReason(messages),
       activities,
       pendingInteractions: [...pendingInteractionById.values()],
     }),
