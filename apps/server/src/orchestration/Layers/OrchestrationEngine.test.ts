@@ -594,6 +594,29 @@ describe("OrchestrationEngine", () => {
           createdAt: startedAt,
         }),
       );
+      const queued = await system.run(
+        system.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.makeUnsafe("cmd-play-stop-queued"),
+          threadId,
+          message: {
+            messageId: asMessageId("msg-play-stop-queued"),
+            role: "user",
+            text: "Follow up after this turn",
+            attachments: [],
+          },
+          runtimeMode: "full-access",
+          connectionId: null,
+          bindingRevision: 0,
+          createdAt: stoppedAt,
+        }),
+      );
+      await system.run(system.sql`
+        INSERT INTO queued_turn_promotions (
+          queued_event_sequence, thread_id, message_id, dispatch_mode, state,
+          claim_owner, claimed_at, claim_expires_at, attempt_count, created_at, updated_at, promoted_at
+        ) VALUES (${queued.sequence}, ${threadId}, ${asMessageId("msg-play-stop-queued")}, 'queue', 'queued', NULL, NULL, NULL, 0, ${stoppedAt}, ${stoppedAt}, NULL)
+      `);
       await system.run(
         system.engine.dispatch({
           type: "thread.turn.interrupt",
@@ -624,7 +647,12 @@ describe("OrchestrationEngine", () => {
         (candidate) => candidate.id === threadId,
       )!;
       expect(thread.latestTurn).toMatchObject({ turnId, state: "interrupted" });
-      expect(canContinueLatestTurn(thread, turnId)).toBe(true);
+      expect(
+        canContinueLatestTurn(
+          { ...thread, queuedMessageIds: [asMessageId("msg-play-stop-queued")] },
+          turnId,
+        ),
+      ).toBe(true);
       await expect(
         system.run(
           system.engine.dispatch({
@@ -641,119 +669,100 @@ describe("OrchestrationEngine", () => {
           }),
         ),
       ).resolves.toMatchObject({ sequence: expect.any(Number) });
+      const stillQueued = await system.run(system.sql<{ readonly state: string }>`
+        SELECT state FROM queued_turn_promotions WHERE thread_id = ${threadId}
+      `);
+      expect(stillQueued).toEqual([{ state: "queued" }]);
     } finally {
       await system.dispose();
     }
   });
 
-  it.each(["queued message", "pending approval"] as const)(
-    "rejects Play through the engine with a persisted %s",
-    async (blocker) => {
-      const system = await createOrchestrationSystem({ withRuntimeBinding: true });
-      const threadId = ThreadId.makeUnsafe(`thread-play-${blocker}`);
-      const turnId = asTurnId(`turn-play-${blocker}`);
-      const createdAt = now();
-      try {
-        await system.run(
-          system.engine.dispatch({
-            type: "folder.create",
-            commandId: CommandId.makeUnsafe(`cmd-play-folder-${blocker}`),
-            folderId: asFolderId(`folder-play-${blocker}`),
-            spaceId: TEST_SPACE_ID,
-            title: "Play test",
-            workspaceRoot: null,
-            defaultModelSelection: null,
-            createdAt,
-          }),
-        );
-        await system.run(
-          system.engine.dispatch({
-            type: "thread.create",
-            commandId: CommandId.makeUnsafe(`cmd-play-thread-${blocker}`),
-            threadId,
-            deckId: singletonThreadDeckId(threadId),
-            folderId: asFolderId(`folder-play-${blocker}`),
-            title: "Play test",
-            modelSelection: { provider: "codex", model: "gpt-5-codex" },
-            runtimeMode: "full-access",
-            createdAt,
-          }),
-        );
-        const session = {
+  it("rejects Play through the engine with a pending approval", async () => {
+    const blocker = "pending approval";
+    const system = await createOrchestrationSystem({ withRuntimeBinding: true });
+    const threadId = ThreadId.makeUnsafe(`thread-play-${blocker}`);
+    const turnId = asTurnId(`turn-play-${blocker}`);
+    const createdAt = now();
+    try {
+      await system.run(
+        system.engine.dispatch({
+          type: "folder.create",
+          commandId: CommandId.makeUnsafe(`cmd-play-folder-${blocker}`),
+          folderId: asFolderId(`folder-play-${blocker}`),
+          spaceId: TEST_SPACE_ID,
+          title: "Play test",
+          workspaceRoot: null,
+          defaultModelSelection: null,
+          createdAt,
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.makeUnsafe(`cmd-play-thread-${blocker}`),
           threadId,
-          providerName: "codex" as const,
-          runtimeMode: "full-access" as const,
-          activeTurnId: turnId,
-          lastError: null,
-          updatedAt: createdAt,
-        };
-        await system.run(
-          system.engine.dispatch({
-            type: "thread.session.set",
-            commandId: CommandId.makeUnsafe(`cmd-play-running-${blocker}`),
-            threadId,
-            session: { ...session, status: "running" },
-            createdAt,
-          }),
-        );
-        await system.run(
-          system.engine.dispatch({
-            type: "thread.session.set",
-            commandId: CommandId.makeUnsafe(`cmd-play-stopped-${blocker}`),
-            threadId,
-            session: { ...session, status: "stopped", activeTurnId: null },
-            createdAt,
-          }),
-        );
-        if (blocker === "queued message") {
-          const messageId = asMessageId("real-queued-play-message");
-          const queuedEvent = await system.run(
-            system.engine.dispatch({
-              type: "thread.messages.import",
-              commandId: CommandId.makeUnsafe("cmd-import-real-queued-play-message"),
-              threadId,
-              messages: [
-                { messageId, role: "user", text: "queued", createdAt, updatedAt: createdAt },
-              ],
-              createdAt,
-            }),
-          );
-          await system.run(system.sql`
-            INSERT INTO queued_turn_promotions (
-              queued_event_sequence, thread_id, message_id, dispatch_mode, state,
-              claim_owner, claimed_at, claim_expires_at, attempt_count, created_at, updated_at, promoted_at
-            ) VALUES (${queuedEvent.sequence}, ${threadId}, ${messageId}, 'queue', 'queued', NULL, NULL, NULL, 0, ${createdAt}, ${createdAt}, NULL)
-          `);
-        } else {
-          await system.run(system.sql`
+          deckId: singletonThreadDeckId(threadId),
+          folderId: asFolderId(`folder-play-${blocker}`),
+          title: "Play test",
+          modelSelection: { provider: "codex", model: "gpt-5-codex" },
+          runtimeMode: "full-access",
+          createdAt,
+        }),
+      );
+      const session = {
+        threadId,
+        providerName: "codex" as const,
+        runtimeMode: "full-access" as const,
+        activeTurnId: turnId,
+        lastError: null,
+        updatedAt: createdAt,
+      };
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.makeUnsafe(`cmd-play-running-${blocker}`),
+          threadId,
+          session: { ...session, status: "running" },
+          createdAt,
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.makeUnsafe(`cmd-play-stopped-${blocker}`),
+          threadId,
+          session: { ...session, status: "stopped", activeTurnId: null },
+          createdAt,
+        }),
+      );
+      await system.run(system.sql`
             INSERT INTO projection_pending_interactions (
               interaction_kind, request_id, thread_id, turn_id, lifecycle_generation,
               status, decision, response_command_id, response_requested_at, created_at, resolved_at
             ) VALUES ('approval', 'real-pending-play-approval', ${threadId}, ${turnId}, NULL,
               'pending', NULL, NULL, NULL, ${createdAt}, NULL)
           `);
-        }
-        await expect(
-          system.run(
-            system.engine.dispatch({
-              type: "thread.turn.recover",
-              reason: "play",
-              commandId: CommandId.makeUnsafe(`cmd-play-blocked-${blocker}`),
-              threadId,
-              turnId,
-              interruptedTurnId: turnId,
-              recoveryMessageId: asMessageId(`recovery-play-blocked-${blocker}`),
-              connectionId: null,
-              bindingRevision: 0,
-              createdAt,
-            }),
-          ),
-        ).rejects.toMatchObject({ code: "THREAD_CONTINUE_STALE" });
-      } finally {
-        await system.dispose();
-      }
-    },
-  );
+      await expect(
+        system.run(
+          system.engine.dispatch({
+            type: "thread.turn.recover",
+            reason: "play",
+            commandId: CommandId.makeUnsafe(`cmd-play-blocked-${blocker}`),
+            threadId,
+            turnId,
+            interruptedTurnId: turnId,
+            recoveryMessageId: asMessageId(`recovery-play-blocked-${blocker}`),
+            connectionId: null,
+            bindingRevision: 0,
+            createdAt,
+          }),
+        ),
+      ).rejects.toMatchObject({ code: "THREAD_CONTINUE_STALE" });
+    } finally {
+      await system.dispose();
+    }
+  });
   it("admits at most one of two concurrent Play commands for the same latest turn", async () => {
     const system = await createOrchestrationSystem({ withRuntimeBinding: true });
     const threadId = ThreadId.makeUnsafe("thread-concurrent-play");

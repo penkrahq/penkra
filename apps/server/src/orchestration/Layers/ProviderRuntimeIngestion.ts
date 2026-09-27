@@ -1873,7 +1873,8 @@ const make = Effect.gen(function* () {
             case "turn.completed":
               return runtimeTurnState(event) === "failed"
                 ? "error"
-                : runtimeTurnState(event) === "interrupted"
+                : runtimeTurnState(event) === "interrupted" ||
+                    runtimeTurnState(event) === "cancelled"
                   ? "interrupted"
                   : "ready";
             case "turn.aborted":

@@ -1915,6 +1915,7 @@ export const ThreadActivityReadModelUpdatedPayload = Schema.Struct({
 });
 
 export const OrchestrationEventMetadata = Schema.Struct({
+  userStopRequested: Schema.optional(Schema.Boolean),
   providerTurnId: Schema.optional(TrimmedNonEmptyString),
   providerItemId: Schema.optional(ProviderItemId),
   adapterKey: Schema.optional(TrimmedNonEmptyString),

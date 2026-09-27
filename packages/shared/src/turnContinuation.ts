@@ -60,7 +60,6 @@ export function canContinueLatestTurn(
     thread.session?.status !== "running" &&
     (thread.session?.status === "error" || thread.session?.activeTurnId == null) &&
     thread.pendingTurnStartMessageId == null &&
-    (thread.queuedMessageIds?.length ?? 0) === 0 &&
     !thread.hasPendingApprovals &&
     !thread.hasPendingUserInput &&
     !thread.pendingInteractions?.some((interaction) => interaction.resolvedAt === null)

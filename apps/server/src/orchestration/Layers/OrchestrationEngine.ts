@@ -71,6 +71,7 @@ import {
   usesReservedCommandAdmission,
 } from "../orchestrationAdmission.ts";
 import { decideOrchestrationCommand } from "../decider.ts";
+import { userStopPending } from "../userStopPending.ts";
 import { FOLDER_METADATA_SNAPSHOT_PROJECTORS } from "../folderMetadataProjection.ts";
 import { createEmptyReadModel, projectEvent } from "../projector.ts";
 import {
@@ -813,6 +814,9 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       const eventBase = yield* decideOrchestrationCommand({
         command,
         readModel: deciderReadModel,
+        ...(command.type === "thread.archive"
+          ? { userStopRequested: yield* userStopPending(command.threadId, sql) }
+          : {}),
         workspacePaths: deciderWorkspacePaths,
         allowArchivedProviderProjection: envelope.allowArchivedProviderProjection === true,
         ...(envelope.acceptedProviderSwitch !== undefined
