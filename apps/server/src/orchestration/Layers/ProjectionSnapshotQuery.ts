@@ -1211,6 +1211,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               THEN 0
             ELSE 1
           END ASC,
+          CASE WHEN turns.state = 'queued' THEN 1 ELSE 0 END ASC,
           turns.requested_at DESC,
           turns.turn_id DESC
       `,
@@ -2009,6 +2010,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               THEN 0
             ELSE 1
           END ASC,
+          CASE WHEN turns.state = 'queued' THEN 1 ELSE 0 END ASC,
           turns.requested_at DESC,
           turns.turn_id DESC
         LIMIT 1

@@ -137,6 +137,7 @@ import {
 import { deriveTurnStartSession } from "../turnStartSession.ts";
 import { PLAY_TURN_RECOVERY_PROMPT, RESTART_TURN_RECOVERY_PROMPT } from "../restartTurnRecovery.ts";
 import { resolveProviderSessionThread as resolveProviderSessionThreadFromProjection } from "../providerSessionThread.ts";
+import { userStopPending } from "../userStopPending.ts";
 
 type ProviderQueueDrainEvent = Extract<
   ProviderRuntimeEvent,
@@ -2509,6 +2510,54 @@ const make = Effect.gen(function* () {
     // still-queued row after restart continuation settles.
     if (queuePromotionsQuiesced) {
       return;
+    }
+    const projectedThread = yield* resolveThread(threadId);
+    if (
+      !projectedThread ||
+      projectedThread.archivedAt != null ||
+      projectedThread.deletedAt != null
+    ) {
+      yield* queuedTurnPromotions.cancelThread({
+        threadId,
+        updatedAt: new Date().toISOString(),
+      });
+      return;
+    }
+    // A user Stop is durable before the provider acknowledges it. A completion
+    // arriving after Stop must not restart the queue, even across a restart.
+    // A later admitted turn (including Play) clears this barrier.
+    if (yield* userStopPending(threadId, sql)) return;
+    if (
+      projectedThread.pendingTurnStartMessageId != null ||
+      projectedThread.latestTurn?.state === "running"
+    ) {
+      const latestStart = yield* sql<{ readonly recoveryReason: string | null }>`
+        SELECT json_extract(payload_json, '$.recoveryReason') AS "recoveryReason"
+        FROM orchestration_events
+        WHERE aggregate_kind = 'thread' AND stream_id = ${threadId}
+          AND event_type = 'thread.turn-start-requested'
+        ORDER BY sequence DESC
+        LIMIT 1
+      `;
+      if (latestStart[0]?.recoveryReason === "play") return;
+    }
+    if (
+      projectedThread.latestTurn?.state === "interrupted" ||
+      projectedThread.latestTurn?.state === "cancelled"
+    ) {
+      const next = yield* sql<{ readonly dispatchMode: string }>`
+        SELECT dispatch_mode AS "dispatchMode"
+        FROM queued_turn_promotions
+        WHERE thread_id = ${threadId} AND state IN ('queued', 'promoting')
+        ORDER BY
+          CASE dispatch_mode WHEN 'steer' THEN 0 ELSE 1 END ASC,
+          CASE WHEN dispatch_mode = 'steer' THEN queued_event_sequence END DESC,
+          queued_event_sequence ASC
+        LIMIT 1
+      `;
+      // A requested steer intentionally interrupts its predecessor; preserve
+      // that handoff. A normal queued message waits for a natural completion.
+      if (next[0]?.dispatchMode !== "steer") return;
     }
     const selectedConnection = (yield* authCircuits.connectionForThread(threadId))[0];
     if (

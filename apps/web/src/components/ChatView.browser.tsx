@@ -3126,6 +3126,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           state: "interrupted",
           completedAt: NOW_ISO,
         },
+        queuedMessageIds: [MessageId.makeUnsafe("msg-queued-after-stop")],
         session: thread.session && { ...thread.session, status: "stopped", activeTurnId: null },
       }));
       const play = await waitForElement(

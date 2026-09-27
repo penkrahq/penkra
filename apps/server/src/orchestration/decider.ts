@@ -237,6 +237,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
   workspacePaths: _workspacePaths,
   acceptedConnectionChange,
   allowArchivedProviderProjection = false,
+  userStopRequested = false,
 }: {
   readonly command: OrchestrationCommand;
   readonly readModel: OrchestrationReadModel;
@@ -245,6 +246,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     | undefined;
   readonly acceptedConnectionChange?: AcceptedConnectionChange | undefined;
   readonly allowArchivedProviderProjection?: boolean;
+  readonly userStopRequested?: boolean;
 }): Effect.fn.Return<
   Omit<OrchestrationEvent, "sequence"> | ReadonlyArray<Omit<OrchestrationEvent, "sequence">>,
   OrchestrationCommandInvariantError
@@ -1231,10 +1233,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         threadId: command.threadId,
       });
       if (
-        thread.latestTurn?.state === "running" ||
-        thread.session?.status === "starting" ||
-        (thread.session?.status !== "error" && thread.session?.activeTurnId != null) ||
-        thread.pendingTurnStartMessageId != null
+        !userStopRequested &&
+        (thread.latestTurn?.state === "running" ||
+          thread.session?.status === "starting" ||
+          (thread.session?.status !== "error" && thread.session?.activeTurnId != null) ||
+          thread.pendingTurnStartMessageId != null)
       ) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
@@ -1846,6 +1849,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           aggregateId: command.threadId,
           occurredAt: command.createdAt,
           commandId: command.commandId,
+          metadata: { userStopRequested: true },
         }),
         type: "thread.turn-interrupt-requested",
         payload: {
