@@ -43,6 +43,58 @@ import { resolveThreadStatusPill } from "./components/Sidebar.logic";
 import { shouldShowComposerContinue } from "./components/ChatView.logic";
 
 describe("store event reducer", () => {
+  it("keeps a session error ahead of a live queued delivery failure", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const messageId = MessageId.makeUnsafe("queued-session-error");
+    const sessionError = "Provider crashed.";
+    const initial = makeState(
+      makeThread({
+        error: sessionError,
+        session: {
+          provider: "codex",
+          status: "error",
+          orchestrationStatus: "error",
+          activeTurnId: undefined,
+          lastError: sessionError,
+          createdAt: "2026-09-27T00:00:00.000Z",
+          updatedAt: "2026-09-27T00:00:00.000Z",
+        },
+        queuedMessageIds: [messageId],
+        messages: [
+          {
+            id: messageId,
+            role: "user",
+            text: "Continue",
+            dispatchMode: "queue",
+            delivery: { state: "queued", queued: true, sequence: 10 },
+            streaming: false,
+            source: "native",
+            sequence: 10,
+            createdAt: "2026-09-27T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+    const failed = threadsOf(
+      applyOrchestrationEvents(initial, [
+        makeDomainEvent(
+          "thread.message-delivery-set",
+          {
+            threadId,
+            messageId,
+            state: "failed",
+            queued: false,
+            failurePhase: "before-provider-dispatch",
+            failureDetail: "Choose another provider.",
+            updatedAt: "2026-09-27T00:00:01.000Z",
+          },
+          { sequence: 11 },
+        ),
+      ]),
+    )[0];
+    expect(failed?.messages[0]?.delivery?.state).toBe("failed");
+    expect(failed?.error).toBe(sessionError);
+  });
   it("fails a queued promotion in place and ignores a stale failure after promotion", () => {
     const threadId = ThreadId.makeUnsafe("thread-1");
     const messageId = MessageId.makeUnsafe("queued-refused");

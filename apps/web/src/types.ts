@@ -172,6 +172,8 @@ export interface Thread extends ThreadWorkspaceState {
   messages: ChatMessage[];
   queuedMessageIds?: MessageId[];
   error: string | null;
+  /** Tracks when the visible error came from a message delivery failure. */
+  errorSource?: "delivery" | undefined;
   createdAt: string;
   archivedAt?: string | null;
   updatedAt?: string | undefined;
@@ -211,6 +213,7 @@ export interface ThreadShell extends ThreadWorkspaceState {
   connectionId?: ProviderConnectionId | null;
   runtimeMode: RuntimeMode;
   error: string | null;
+  errorSource?: "delivery" | undefined;
   createdAt: string;
   archivedAt?: string | null;
   updatedAt?: string | undefined;

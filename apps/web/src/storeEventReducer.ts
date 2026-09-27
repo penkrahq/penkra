@@ -1103,6 +1103,7 @@ function applyOrchestrationEvent(
             ...(ownsStartingSession && thread.session && event.payload.failureDetail !== undefined
               ? {
                   error: normalizeThreadErrorMessage(event.payload.failureDetail),
+                  errorSource: undefined,
                   session: {
                     ...thread.session,
                     status: "error" as const,
@@ -1114,7 +1115,17 @@ function applyOrchestrationEvent(
                 }
               : {}),
             ...(failsQueuedMessage && event.payload.failureDetail !== undefined
-              ? { error: normalizeThreadErrorMessage(event.payload.failureDetail) }
+              ? thread.error !== null && thread.errorSource !== "delivery"
+                ? {}
+                : normalizeThreadErrorMessage(thread.session?.lastError) !== null
+                  ? {
+                      error: normalizeThreadErrorMessage(thread.session?.lastError),
+                      errorSource: undefined,
+                    }
+                  : {
+                      error: normalizeThreadErrorMessage(event.payload.failureDetail),
+                      errorSource: "delivery" as const,
+                    }
               : {}),
             queuedMessageIds,
             updatedAt: resolveEventUpdatedAt(thread, event.payload.updatedAt),
@@ -1142,9 +1153,11 @@ function applyOrchestrationEvent(
         event.payload.threadId,
         (thread) => {
           const session = normalizeThreadSession(event.payload.session, thread.session);
-          const error =
-            normalizeThreadErrorMessage(event.payload.session.lastError) ??
-            latestDeliveryFailureReason(thread.messages);
+          const sessionError = normalizeThreadErrorMessage(event.payload.session.lastError);
+          const deliveryError = latestDeliveryFailureReason(thread.messages);
+          const error = sessionError ?? deliveryError;
+          const errorSource =
+            sessionError === null && deliveryError !== null ? "delivery" : undefined;
           const latestTurn = reconcileLatestTurnFromSession(thread, event.payload.session, error);
           const pendingTurnStartMessageId =
             event.payload.session.status === "starting" || event.payload.session.status === "ready"
@@ -1153,6 +1166,7 @@ function applyOrchestrationEvent(
           if (
             session === thread.session &&
             error === thread.error &&
+            errorSource === thread.errorSource &&
             latestTurn === thread.latestTurn &&
             pendingTurnStartMessageId === (thread.pendingTurnStartMessageId ?? null)
           ) {
@@ -1162,6 +1176,7 @@ function applyOrchestrationEvent(
             ...thread,
             session,
             error,
+            errorSource,
             latestTurn,
             pendingTurnStartMessageId,
             updatedAt:
