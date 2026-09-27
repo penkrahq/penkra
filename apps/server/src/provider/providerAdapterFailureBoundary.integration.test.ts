@@ -1519,7 +1519,7 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
     }
   });
 
-  it("P3: retains exact queued-successor ownership after adapter-mapped session closure and restart", async () => {
+  it("P3: holds the exact queued successor after adapter-mapped session closure and restart", async () => {
     const fixtureRoot = await mkdtemp(path.join(tmpdir(), "penkra-provider-p3-"));
     const dbPath = path.join(fixtureRoot, "provider-runtime.sqlite");
     const manager = new ControlledCodexManager();
@@ -1546,28 +1546,28 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
       );
       await harness.runtime.runPromise(harness.reactor.drain);
       await harness.runtime.runPromise(harness.ingestion.drain);
-      await waitFor(async () => manager.sendInputs.length === 2);
-      await waitFor(async () => manager.startInputs.length === 2);
+      await waitFor(
+        async () => (await projectedThread(harness!))?.latestTurn?.state === "interrupted",
+      );
       await harness.runtime.runPromise(harness.reactor.drain);
       await harness.runtime.runPromise(harness.ingestion.drain);
+      // Recovery sweeps must not promote after session closure without a natural turn completion.
+      await new Promise((resolve) => setTimeout(resolve, 100));
       const p3Trace = await persistedBoundaryTrace(harness, successorMessageId);
-      expect(p3Trace.commandDelivery).toMatchObject({
-        state: "succeeded",
-        attemptCount: 1,
-      });
+      expect(p3Trace.intentEvent).toBeUndefined();
+      expect(p3Trace.commandDelivery).toBeNull();
       expect(p3Trace.pendingStartOutcome).toMatchObject({
-        outcome: "accepted",
+        outcome: "pending",
         turnId: "turn:cmd-p3-successor",
       });
       expect(p3Trace.messageDelivery).toMatchObject({
-        state: "accepted",
+        state: "queued",
         queued: true,
       });
       expect(p3Trace.latestTurn).toMatchObject({
-        turnId: "turn:cmd-p3-successor",
+        turnId: "turn:cmd-p3-predecessor",
         providerTurnId: TURN_ID,
-        state: "running",
-        startedAt: null,
+        state: "interrupted",
       });
 
       const snapshot = await harness.runtime.runPromise(harness.projection.getSnapshot());
@@ -1580,7 +1580,7 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
       expect(thread?.messages.find((entry) => entry.id === successorMessageId)).toMatchObject({
         id: successorMessageId,
         text: "P3 exact successor after session closure",
-        delivery: { state: "accepted", queued: true },
+        delivery: { state: "queued", queued: true },
       });
       const rows = await harness.runtime.runPromise(
         harness.events.readThreadEvents({
@@ -1600,10 +1600,9 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
           reason: "controlled provider session closed",
         },
       });
-      expect(manager.startInputs).toHaveLength(2);
-      expect(manager.sendInputs).toHaveLength(2);
+      expect(manager.startInputs).toHaveLength(1);
+      expect(manager.sendInputs).toHaveLength(1);
       expect(manager.sendInputs[0]?.input).toBe("P3 predecessor");
-      expect(manager.sendInputs[1]?.input).toBe("P3 exact successor after session closure");
       expect(manager.sendInputs.every((input) => input.threadId === THREAD_ID)).toBe(true);
       expect(manager.steerInputs).toHaveLength(0);
 
@@ -1623,10 +1622,14 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
         retainedThread?.messages.find((entry) => entry.id === successorMessageId),
       ).toMatchObject({
         text: "P3 exact successor after session closure",
-        delivery: { state: "accepted", queued: true },
+        delivery: { state: "queued", queued: true },
       });
-      expect(manager.startInputs).toHaveLength(2);
-      expect(manager.sendInputs).toHaveLength(2);
+      expect(retainedThread?.latestTurn).toMatchObject({
+        turnId: "turn:cmd-p3-predecessor",
+        state: "interrupted",
+      });
+      expect(manager.startInputs).toHaveLength(1);
+      expect(manager.sendInputs).toHaveLength(1);
       expect(manager.steerInputs).toHaveLength(0);
     } finally {
       await closeBoundaryHarnesses(fixtureRoot, [harness, restarted]);
