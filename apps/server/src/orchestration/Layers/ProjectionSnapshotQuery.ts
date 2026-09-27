@@ -99,6 +99,7 @@ const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
     isPinned: Schema.Number,
     pinnedMessages: Schema.NullOr(Schema.fromJsonString(ThreadPinnedMessages)),
     modelSelection: ModelSelectionJsonUnknown,
+    connectionSelectionExplicit: Schema.Number,
   }),
 );
 const {
@@ -110,6 +111,7 @@ const ProjectionThreadShellDbRowSchema = Schema.Struct(ProjectionThreadShellFiel
   Struct.assign({
     isPinned: Schema.Number,
     modelSelection: ModelSelectionJsonUnknown,
+    connectionSelectionExplicit: Schema.Number,
   }),
 );
 const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
@@ -582,7 +584,9 @@ function toProjectedThreadShellFromStoredSummary(input: {
     sidebarSortOrder: threadRow.sidebarSortOrder,
     title: threadRow.title,
     modelSelection: threadRow.modelSelection,
-    connectionId: threadRow.connectionId ?? null,
+    ...(threadRow.connectionSelectionExplicit
+      ? { connectionId: threadRow.connectionId ?? null }
+      : {}),
     runtimeMode: threadRow.runtimeMode,
     workingDirectory: threadRow.workingDirectory,
     isPinned: threadRow.isPinned > 0,
@@ -634,7 +638,9 @@ function assembleProjectedThread(
     sidebarSortOrder: threadRow.sidebarSortOrder,
     title: threadRow.title,
     modelSelection: threadRow.modelSelection,
-    connectionId: threadRow.connectionId ?? null,
+    ...(threadRow.connectionSelectionExplicit
+      ? { connectionId: threadRow.connectionId ?? null }
+      : {}),
     runtimeMode: threadRow.runtimeMode,
     workingDirectory: threadRow.workingDirectory,
     isPinned: threadRow.isPinned > 0,
@@ -821,6 +827,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           title,
           model_selection_json AS "modelSelection",
           connection_id AS "connectionId",
+          connection_id_selected AS "connectionSelectionExplicit",
           runtime_mode AS "runtimeMode",
           working_directory AS "workingDirectory",
           is_pinned AS "isPinned",
@@ -867,6 +874,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           title,
           model_selection_json AS "modelSelection",
           connection_id AS "connectionId",
+          connection_id_selected AS "connectionSelectionExplicit",
           runtime_mode AS "runtimeMode",
           working_directory AS "workingDirectory",
           is_pinned AS "isPinned",
@@ -1335,6 +1343,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           title,
           model_selection_json AS "modelSelection",
           connection_id AS "connectionId",
+          connection_id_selected AS "connectionSelectionExplicit",
           runtime_mode AS "runtimeMode",
           working_directory AS "workingDirectory",
           is_pinned AS "isPinned",
@@ -1383,6 +1392,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           title,
           model_selection_json AS "modelSelection",
           connection_id AS "connectionId",
+          connection_id_selected AS "connectionSelectionExplicit",
           runtime_mode AS "runtimeMode",
           working_directory AS "workingDirectory",
           is_pinned AS "isPinned",

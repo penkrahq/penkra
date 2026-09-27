@@ -790,7 +790,7 @@ function applyOrchestrationEvent(
           const connectionId =
             event.payload.connectionId !== undefined
               ? event.payload.connectionId
-              : (thread.connectionId ?? null);
+              : thread.connectionId;
           const nextWorkingDirectory =
             event.payload.workingDirectory !== undefined
               ? event.payload.workingDirectory
@@ -804,7 +804,7 @@ function applyOrchestrationEvent(
           if (
             (event.payload.title === undefined || event.payload.title === thread.title) &&
             modelSelection === thread.modelSelection &&
-            connectionId === (thread.connectionId ?? null) &&
+            connectionId === thread.connectionId &&
             nextWorkingDirectory === (thread.workingDirectory ?? null) &&
             (event.payload.isPinned === undefined ||
               event.payload.isPinned === (thread.isPinned ?? false)) &&
@@ -830,7 +830,7 @@ function applyOrchestrationEvent(
             ...thread,
             ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
             modelSelection,
-            connectionId,
+            ...(connectionId !== undefined ? { connectionId } : {}),
             workingDirectory: nextWorkingDirectory,
             ...(event.payload.isPinned !== undefined ? { isPinned: event.payload.isPinned } : {}),
             ...(event.payload.parentThreadId !== undefined

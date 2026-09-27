@@ -2400,6 +2400,19 @@ describe("store event reducer", () => {
     });
   });
 
+  it("preserves an unset thread connection through unrelated updates", () => {
+    const initialState = makeState(makeThread());
+    const next = applyOrchestrationEvents(initialState, [
+      makeDomainEvent("thread.updated", {
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        title: "Renamed thread",
+        updatedAt: "2026-02-27T00:01:00.000Z",
+      }),
+    ]);
+
+    expect(threadsOf(next)[0]?.connectionId).toBeUndefined();
+  });
+
   it("propagates a live read acknowledgement into the sidebar summary", () => {
     const threadId = ThreadId.makeUnsafe("thread-1");
     const initialState = syncServerReadModel(
