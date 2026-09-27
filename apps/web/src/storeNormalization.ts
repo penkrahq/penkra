@@ -164,6 +164,7 @@ export function threadShellsEqual(left: ThreadShell | undefined, right: ThreadSh
     left.modelSelection === right.modelSelection &&
     left.runtimeMode === right.runtimeMode &&
     left.error === right.error &&
+    left.errorSource === right.errorSource &&
     left.createdAt === right.createdAt &&
     (left.archivedAt ?? null) === (right.archivedAt ?? null) &&
     left.updatedAt === right.updatedAt &&
@@ -1573,9 +1574,10 @@ export function normalizeThreadFromReadModel(
       : incomingPendingInteractions === undefined
         ? undefined
         : [...incomingPendingInteractions];
-  const error =
-    normalizeThreadErrorMessage(incoming.session?.lastError) ??
-    latestDeliveryFailureReason(messages);
+  const sessionError = normalizeThreadErrorMessage(incoming.session?.lastError);
+  const deliveryError = latestDeliveryFailureReason(messages);
+  const error = sessionError ?? deliveryError;
+  const errorSource = sessionError === null && deliveryError !== null ? "delivery" : undefined;
   const lastVisitedAt = incoming.lastVisitedAt ?? previous?.lastVisitedAt ?? incoming.updatedAt;
   const resolvedLatestUserMessageAt =
     Object.hasOwn(incoming, "latestUserMessageAt") && incoming.latestUserMessageAt !== undefined
@@ -1603,6 +1605,7 @@ export function normalizeThreadFromReadModel(
     previous.messages === messages &&
     previous.queuedMessageIds === queuedMessageIds &&
     previous.error === error &&
+    previous.errorSource === errorSource &&
     previous.createdAt === incoming.createdAt &&
     (previous.archivedAt ?? null) === (incoming.archivedAt ?? null) &&
     previous.updatedAt === incoming.updatedAt &&
@@ -1648,6 +1651,7 @@ export function normalizeThreadFromReadModel(
     messages,
     queuedMessageIds,
     error,
+    ...(errorSource !== undefined ? { errorSource } : {}),
     createdAt: incoming.createdAt,
     archivedAt: incoming.archivedAt ?? null,
     updatedAt: incoming.updatedAt,
@@ -1690,9 +1694,10 @@ export function normalizeThreadShellSnapshot(
 } {
   const modelSelection = normalizeModelSelection(incoming.modelSelection, previous?.modelSelection);
   const { session, latestTurn } = normalizeThreadLifecycle(incoming, previous);
-  const error =
-    normalizeThreadErrorMessage(incoming.session?.lastError) ??
-    latestDeliveryFailureReason(previous?.messages ?? []);
+  const sessionError = normalizeThreadErrorMessage(incoming.session?.lastError);
+  const deliveryError = latestDeliveryFailureReason(previous?.messages ?? []);
+  const error = sessionError ?? deliveryError;
+  const errorSource = sessionError === null && deliveryError !== null ? "delivery" : undefined;
   const lastVisitedAt = incoming.lastVisitedAt ?? previous?.lastVisitedAt ?? incoming.updatedAt;
   const sidebarRollups = resolveThreadSidebarRollups(incoming, previous);
   const nextWorkingDirectory = incoming.workingDirectory ?? null;
@@ -1709,6 +1714,7 @@ export function normalizeThreadShellSnapshot(
     ...(incoming.connectionId !== undefined ? { connectionId: incoming.connectionId } : {}),
     runtimeMode: incoming.runtimeMode,
     error,
+    ...(errorSource !== undefined ? { errorSource } : {}),
     createdAt: incoming.createdAt,
     archivedAt: incoming.archivedAt ?? null,
     updatedAt: incoming.updatedAt,

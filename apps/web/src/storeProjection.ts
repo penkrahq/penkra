@@ -188,6 +188,7 @@ function toThreadShell(thread: Thread): ThreadShell {
     ...(thread.connectionId !== undefined ? { connectionId: thread.connectionId } : {}),
     runtimeMode: thread.runtimeMode,
     error: thread.error,
+    ...(thread.errorSource !== undefined ? { errorSource: thread.errorSource } : {}),
     createdAt: thread.createdAt,
     archivedAt: thread.archivedAt ?? null,
     updatedAt: thread.updatedAt,
@@ -1484,15 +1485,22 @@ export function syncServerThreadTurnsPage(
   const withPage = applyThreadUpdate(
     state,
     page.threadId,
-    (thread) => ({
-      ...thread,
-      messages,
-      error:
-        normalizeThreadErrorMessage(thread.session?.lastError) ??
-        latestDeliveryFailureReason(messages),
-      activities,
-      pendingInteractions: [...pendingInteractionById.values()],
-    }),
+    (thread) => {
+      const sessionError = normalizeThreadErrorMessage(thread.session?.lastError);
+      const deliveryError = latestDeliveryFailureReason(messages);
+      const preservesUnrelatedError = thread.error !== null && thread.errorSource !== "delivery";
+      return {
+        ...thread,
+        messages,
+        error: preservesUnrelatedError ? thread.error : (sessionError ?? deliveryError),
+        errorSource:
+          preservesUnrelatedError || sessionError !== null || deliveryError === null
+            ? undefined
+            : ("delivery" as const),
+        activities,
+        pendingInteractions: [...pendingInteractionById.values()],
+      };
+    },
     { capActivities: false, updateSidebarSummary: false },
   );
   const storedThread = getThreadFromState(withPage, page.threadId);
