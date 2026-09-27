@@ -1152,7 +1152,8 @@ describe("AgentGateway", () => {
         token: "token-parent-claude",
         name: "penkra_exec_command",
         args: {
-          command: "penkra threads send --thread-id thread-child --message 'Background work finished.'",
+          command:
+            "penkra threads send --thread-id thread-child --message 'Background work finished.'",
         },
       });
       assert.equal(
