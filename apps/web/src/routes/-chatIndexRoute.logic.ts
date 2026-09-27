@@ -28,7 +28,7 @@ export function resolveChatIndexRestoreRoute(input: {
   readonly lastThreadRoute: LastThreadRoute | null;
   readonly threadIds: readonly ThreadId[];
   readonly sidebarThreadSummaryById: Readonly<
-    Record<string, { readonly folderId: FolderId } | undefined>
+    Record<string, { readonly folderId: FolderId; readonly archivedAt?: string | null } | undefined>
   >;
   /**
    * Still-unsent chat drafts. They have a route id but no sidebar summary yet, so the summary
@@ -42,6 +42,7 @@ export function resolveChatIndexRestoreRoute(input: {
 
   const availableThreadIds = new Set<string>();
   for (const threadId of [...input.threadIds, ...draftFolderIdByThreadId.keys()]) {
+    if (sidebarThreadSummaryById[threadId]?.archivedAt != null) continue;
     // Fail closed: a thread we can't classify is not restorable from "/". Summaries are built
     // from the same snapshot as threadIds, so this only ever excludes a thread if that invariant
     // breaks — and then a fresh draft beats restoring into the wrong segment.

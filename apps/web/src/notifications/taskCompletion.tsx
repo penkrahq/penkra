@@ -23,6 +23,7 @@ import {
   collectCompletedTerminalCandidates,
   collectInputNeededThreadCandidates,
   collectTerminalAttentionCandidates,
+  focusAvailableNotificationThread,
   isNotificationRuntimeFreshTimestamp,
   shouldShowThreadNotificationToast,
 } from "./taskCompletion.logic";
@@ -74,10 +75,16 @@ interface ThreadNotificationCopy {
 }
 
 function focusThread(threadId: Thread["id"], navigate: ReturnType<typeof useNavigate>): void {
-  void navigate({
-    to: "/$threadId",
-    params: { threadId },
-    search: () => ({}),
+  focusAvailableNotificationThread({
+    threadId,
+    state: useStore.getState(),
+    navigate: (availableThreadId) => {
+      void navigate({
+        to: "/$threadId",
+        params: { threadId: availableThreadId },
+        search: () => ({}),
+      });
+    },
   });
 }
 

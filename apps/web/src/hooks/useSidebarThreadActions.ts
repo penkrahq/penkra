@@ -18,6 +18,10 @@ import {
 } from "../components/Sidebar.logic";
 import { toastManager } from "../components/ui/toast";
 import { findNearestVisibleDeckThread } from "../lib/threadDeckNavigation";
+import {
+  beginLocalThreadArchiveNavigation,
+  endLocalThreadArchiveNavigation,
+} from "../lib/threadArchiveNavigation";
 import { deleteActiveThreadFromClient } from "../lib/activeThreadDelete";
 import { reconcileDeletedThreadsFromClient } from "../lib/deletedThreadClientReconciliation";
 import {
@@ -351,6 +355,7 @@ export function useSidebarThreadActions(input: {
       if (pendingThreadIds.has(threadId)) return false;
 
       pendingThreadIds.add(threadId);
+      beginLocalThreadArchiveNavigation(threadId);
       const runArchive = async (): Promise<boolean> => {
         await archiveThreadFromClient(api.orchestration, threadId);
         if (routeThreadId === threadId) {
@@ -376,6 +381,7 @@ export function useSidebarThreadActions(input: {
       };
       return runArchive().finally(() => {
         pendingThreadIds.delete(threadId);
+        endLocalThreadArchiveNavigation(threadId);
       });
     },
     [appSettings.sidebarThreadSortOrder, handleNewChat, routeThreadId, sidebarThreads, navigate],
