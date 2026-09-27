@@ -6716,6 +6716,57 @@ describe("ProviderCommandReactor", () => {
     ).toBe(true);
   });
 
+  it("holds a queued successor when the live session closes before its exit is journaled", async () => {
+    const harness = await createHarness();
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const turnId = asTurnId("turn-before-unwritten-session-exit");
+    const firstMessageId = asMessageId("msg-first-after-unwritten-session-exit");
+    const secondMessageId = asMessageId("msg-second-after-unwritten-session-exit");
+    await seedQueuedTurnBehindLiveTurn(harness, {
+      liveTurnId: turnId,
+      messageId: firstMessageId,
+      text: "first queued follow-up",
+    });
+    await harness.emitRuntimeEvent({
+      type: "turn.started",
+      eventId: asEventId("evt-before-unwritten-session-exit"),
+      provider: "codex",
+      threadId,
+      turnId,
+      createdAt: new Date().toISOString(),
+      payload: {},
+      providerRefs: {},
+    });
+    await Effect.runPromise(harness.stopRuntimeSession({ threadId }));
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        connectionId: TEST_CONNECTION_ID,
+        bindingRevision: 0,
+        commandId: CommandId.makeUnsafe("cmd-second-after-unwritten-session-exit"),
+        threadId,
+        message: {
+          messageId: secondMessageId,
+          role: "user",
+          text: "second queued follow-up",
+          attachments: [],
+        },
+        runtimeMode: "approval-required",
+        createdAt: new Date().toISOString(),
+      }),
+    );
+    await harness.drain();
+
+    expect(harness.sendTurn).not.toHaveBeenCalled();
+    for (const messageId of [firstMessageId, secondMessageId]) {
+      expect(
+        await Effect.runPromise(
+          harness.queuedTurnPromotionRepository.hasPendingMessage({ threadId, messageId }),
+        ),
+      ).toBe(true);
+    }
+  });
+
   it("periodically recovers queued work when every terminal runtime event is missed", async () => {
     const harness = await createHarness({
       queuedTurnRecoveryInterval: Duration.millis(10),
