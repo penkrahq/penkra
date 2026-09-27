@@ -181,6 +181,14 @@ export function createThreadExistsSelector(
   return (state) => (threadId ? Boolean(state.threadShellById?.[threadId]) : false);
 }
 
+export function isPersistedThreadOpenable(
+  state: Pick<AppState, "threadShellById">,
+  threadId: ThreadId,
+): boolean {
+  const shell = state.threadShellById?.[threadId];
+  return shell !== undefined && shell.archivedAt == null;
+}
+
 export function createSidebarThreadSummariesSelector(): (
   state: AppState,
 ) => readonly SidebarThreadSummary[] {

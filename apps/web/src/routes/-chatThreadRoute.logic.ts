@@ -26,3 +26,9 @@ export function resolveSingleFolderId(input: {
 }): FolderId | null {
   return input.threadFolderId ?? input.draftFolderId ?? null;
 }
+export function shouldRedirectArchivedThreadRoute(input: {
+  archived: boolean;
+  localArchiveNavigationPending: boolean;
+}): boolean {
+  return input.archived && !input.localArchiveNavigationPending;
+}

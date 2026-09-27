@@ -1,4 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { FolderId, ThreadId } from "@penkra/contracts";
+import { parseChatRouteSearch } from "../chatRouteSearch";
+import { resolveChatIndexRestoreRoute } from "../routes/-chatIndexRoute.logic";
+import { shouldRedirectArchivedThreadRoute } from "../routes/-chatThreadRoute.logic";
 
 import {
   normalizeSidebarProjectThreadListCwd,
@@ -118,7 +122,9 @@ describe("Sidebar.uiState", () => {
     });
   });
 
-  it("restores one thread and removes retired split storage", () => {
+  it("sends an archived thread home from an old split URL and saved window state", () => {
+    const threadId = ThreadId.makeUnsafe("thread-123");
+    const folderId = FolderId.makeUnsafe("folder-1");
     window.localStorage.setItem(
       "penkra:split-threads:v1",
       JSON.stringify({ state: { splitViewsById: {} } }),
@@ -130,8 +136,24 @@ describe("Sidebar.uiState", () => {
       }),
     );
 
-    expect(readSidebarUiState().lastThreadRoute).toEqual({ threadId: "thread-123" });
+    const rememberedRoute = readSidebarUiState().lastThreadRoute;
+    expect(rememberedRoute).toEqual({ threadId });
     expect(window.localStorage.getItem("penkra:split-threads:v1")).toBeNull();
+    expect(parseChatRouteSearch({ splitViewId: "split-old" })).toEqual({});
+    expect(
+      shouldRedirectArchivedThreadRoute({ archived: true, localArchiveNavigationPending: false }),
+    ).toBe(true);
+    expect(
+      resolveChatIndexRestoreRoute({
+        lastThreadRoute: rememberedRoute,
+        threadIds: [threadId],
+        sidebarThreadSummaryById: {
+          [threadId]: { folderId, archivedAt: "2026-09-26T00:00:00.000Z" },
+        },
+        draftFolderIdByThreadId: new Map(),
+        landingSpace: null,
+      }),
+    ).toBeNull();
   });
 
   it("migrates legacy all-or-nothing show-more state to one extra page", () => {

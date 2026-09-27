@@ -3135,12 +3135,24 @@ describe("ChatView timeline estimator parity (full app)", () => {
       expect(play.title).toBe("Continue");
       await page.getByTestId("composer-editor").fill("New instruction");
       await vi.waitFor(() => {
+        expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
+          "New instruction",
+        );
         expect(document.querySelector('button[aria-label="Continue"]')).toBeNull();
         expect(
           document.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.disabled,
         ).toBe(false);
       });
-      await page.getByTestId("composer-editor").fill("");
+      await page.getByTestId("composer-editor").click();
+      await userEvent.keyboard(
+        isMacPlatform(navigator.platform)
+          ? "{Meta>}a{/Meta}{Backspace}"
+          : "{Control>}a{/Control}{Backspace}",
+      );
+      await vi.waitFor(() => {
+        expect(page.getByTestId("composer-editor").element().textContent ?? "").toBe("");
+        expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt ?? "").toBe("");
+      });
       const playAgain = await waitForElement(
         () => document.querySelector<HTMLButtonElement>('button[aria-label="Continue"]'),
         "Play did not return after clearing the composer.",
