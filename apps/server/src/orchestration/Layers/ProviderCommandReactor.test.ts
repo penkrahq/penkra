@@ -196,6 +196,7 @@ describe("ProviderCommandReactor", () => {
   async function createHarness(input?: {
     readonly baseDir?: string;
     readonly threadModelSelection?: ModelSelection;
+    readonly strictBindingSelection?: boolean;
     readonly sessionModelSwitch?: "unsupported" | "in-session" | "restart-session";
     readonly conversationRollback?: "native" | "unsupported";
     readonly forkThreadResult?: ProviderForkThreadResult | null;
@@ -223,6 +224,9 @@ describe("ProviderCommandReactor", () => {
       provider: "codex",
       model: "gpt-5-codex",
     };
+    let bindingConnectionId: ProviderConnectionId | null = TEST_CONNECTION_ID;
+    let bindingModelId = modelSelection.model;
+    let bindingRevision = 0;
     const defaultStartSession: ProviderServiceShape["startSession"] = (_, input) => {
       const sessionIndex = nextSessionIndex++;
       const sessionModelSelection =
@@ -477,17 +481,32 @@ describe("ProviderCommandReactor", () => {
           return Effect.succeed({
             threadId: selection.threadId,
             harness: selection.modelSelection?.provider ?? modelSelection.provider,
-            connectionId: selection.connectionId ?? TEST_CONNECTION_ID,
+            connectionId:
+              input?.strictBindingSelection && selection.connectionId === undefined
+                ? bindingConnectionId
+                : (selection.connectionId ?? TEST_CONNECTION_ID),
             connectionLabel: "Test",
-            previousConnectionId: TEST_CONNECTION_ID,
-            previousModelId: selection.modelSelection?.model ?? "gpt-5.5",
+            previousConnectionId: input?.strictBindingSelection
+              ? bindingConnectionId
+              : TEST_CONNECTION_ID,
+            previousModelId: input?.strictBindingSelection
+              ? bindingModelId
+              : (selection.modelSelection?.model ?? "gpt-5.5"),
             installationId: TEST_INSTALLATION_ID,
             internalProviderId: null,
-            modelId: selection.modelSelection?.model ?? "gpt-5.5",
+            modelId:
+              selection.modelSelection?.model ??
+              (input?.strictBindingSelection ? bindingModelId : "gpt-5.5"),
             modelLabel: selection.modelSelection?.model ?? "GPT-5.5",
             stateRevision: 0,
-            bindingRevision: selection.bindingRevision ?? 0,
-            changed: false,
+            bindingRevision: input?.strictBindingSelection
+              ? bindingRevision
+              : (selection.bindingRevision ?? 0),
+            changed:
+              input?.strictBindingSelection === true &&
+              ((selection.connectionId !== undefined &&
+                selection.connectionId !== bindingConnectionId) ||
+                (selection.modelSelection?.model ?? bindingModelId) !== bindingModelId),
           });
         },
       } as never),
@@ -509,11 +528,13 @@ describe("ProviderCommandReactor", () => {
           Effect.succeed(
             Option.some({
               threadId,
-              connectionId: TEST_CONNECTION_ID,
+              connectionId: input?.strictBindingSelection
+                ? bindingConnectionId
+                : TEST_CONNECTION_ID,
               installationId: TEST_INSTALLATION_ID,
               internalProviderId: null,
-              modelId: modelSelection.model,
-              revision: 0,
+              modelId: input?.strictBindingSelection ? bindingModelId : modelSelection.model,
+              revision: input?.strictBindingSelection ? bindingRevision : 0,
               createdAt: "2026-08-08T00:00:00.000Z",
               updatedAt: "2026-08-08T00:00:00.000Z",
             }),
@@ -549,6 +570,20 @@ describe("ProviderCommandReactor", () => {
         return {
           dispatchTurnStart: ({ command }: { readonly command: OrchestrationCommand }) => {
             dispatchedTurnStarts.push(command);
+            return engine.dispatch(command);
+          },
+          dispatchQueuedTurn: ({ command }: { readonly command: OrchestrationCommand }) => {
+            if (input?.strictBindingSelection && command.type === "thread.turn.dispatch-queued") {
+              if (
+                command.connectionId !== bindingConnectionId ||
+                command.modelSelection?.model !== bindingModelId
+              ) {
+                bindingConnectionId = command.connectionId ?? null;
+                bindingModelId = command.modelSelection?.model ?? bindingModelId;
+                bindingRevision += 1;
+              }
+              return engine.dispatch({ ...command, bindingRevision });
+            }
             return engine.dispatch(command);
           },
           recoverOpen: Effect.void,
@@ -709,6 +744,9 @@ describe("ProviderCommandReactor", () => {
 
     return {
       engine,
+      setBindingRevision: (revision: number) => {
+        bindingRevision = revision;
+      },
       resolvedBindingSelections,
       reactor,
       startSession,
@@ -5820,6 +5858,9 @@ describe("ProviderCommandReactor", () => {
           event.type === "thread.turn-start-requested" && event.payload.messageId === messageId,
       ),
     ).toMatchObject({ payload: { connectionId: TEST_CONNECTION_ID } });
+    expect(harness.resolvedBindingSelections).toContainEqual(
+      expect.objectContaining({ connectionId: TEST_CONNECTION_ID }),
+    );
   });
 
   it("uses an explicit anonymous thread selection for a queued turn", async () => {
@@ -5856,6 +5897,96 @@ describe("ProviderCommandReactor", () => {
           event.type === "thread.turn-start-requested" && event.payload.messageId === messageId,
       ),
     ).toMatchObject({ payload: { connectionId: null } });
+  });
+
+  it.each(["connection", "model"] as const)(
+    "promotes a queued turn after the thread %s changes",
+    async (selectionKind) => {
+      const harness = await createHarness({ strictBindingSelection: true });
+      const messageId = asMessageId(`msg-queued-changed-${selectionKind}`);
+      const liveTurnId = asTurnId(`turn-before-changed-${selectionKind}`);
+      await seedQueuedTurnBehindLiveTurn(harness, {
+        liveTurnId,
+        messageId,
+        text: `use the current ${selectionKind}`,
+      });
+      const nextConnectionId = ProviderConnectionId.makeUnsafe("new-managed-connection");
+      const nextModelSelection = { provider: "codex" as const, model: "gpt-5.6-sol" };
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.update",
+          commandId: CommandId.makeUnsafe(`cmd-change-${selectionKind}-before-promotion`),
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          ...(selectionKind === "connection"
+            ? { connectionId: nextConnectionId }
+            : { modelSelection: nextModelSelection }),
+        }),
+      );
+      const promotionCommands: OrchestrationCommand[] = [];
+      harness.interceptEngineDispatch((command) => {
+        if (command.type === "thread.turn.dispatch-queued") promotionCommands.push(command);
+        return undefined;
+      });
+      await settleLiveTurn(harness, {
+        turnId: liveTurnId,
+        eventId: `evt-before-changed-${selectionKind}-completed`,
+      });
+
+      await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+      await harness.drain();
+      expect(promotionCommands).toHaveLength(1);
+      expect(promotionCommands[0]).toMatchObject({
+        bindingRevision: 1,
+        ...(selectionKind === "connection"
+          ? { connectionId: nextConnectionId }
+          : { modelSelection: nextModelSelection }),
+      });
+      expect(
+        await Effect.runPromise(
+          harness.queuedTurnPromotionRepository.hasPendingMessage({
+            threadId: ThreadId.makeUnsafe("thread-1"),
+            messageId,
+          }),
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it("refreshes a queued turn's binding revision before switching its connection", async () => {
+    const harness = await createHarness({ strictBindingSelection: true });
+    const messageId = asMessageId("msg-queued-revision-advanced");
+    const liveTurnId = asTurnId("turn-before-revision-advanced");
+    await seedQueuedTurnBehindLiveTurn(harness, {
+      liveTurnId,
+      messageId,
+      text: "use the latest binding",
+    });
+    harness.setBindingRevision(1);
+    const nextConnectionId = ProviderConnectionId.makeUnsafe("new-managed-connection");
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.update",
+        commandId: CommandId.makeUnsafe("cmd-change-connection-after-revision-advanced"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        connectionId: nextConnectionId,
+      }),
+    );
+    const promotions: OrchestrationCommand[] = [];
+    harness.interceptEngineDispatch((command) => {
+      if (command.type === "thread.turn.dispatch-queued") promotions.push(command);
+      return undefined;
+    });
+    await settleLiveTurn(harness, {
+      turnId: liveTurnId,
+      eventId: "evt-before-revision-advanced-completed",
+    });
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect(promotions).toHaveLength(1);
+    expect(promotions[0]).toMatchObject({
+      connectionId: nextConnectionId,
+      bindingRevision: 2,
+    });
   });
 
   it("preserves agent sender context through queued promotion", async () => {
