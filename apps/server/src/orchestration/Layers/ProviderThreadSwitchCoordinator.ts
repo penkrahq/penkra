@@ -35,6 +35,7 @@ import {
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { fingerprintOrchestrationCommand } from "../commandFingerprint.ts";
+import { OrchestrationCommandInvariantError } from "../Errors.ts";
 import {
   ProviderThreadSwitchCoordinator,
   ProviderThreadSwitchCoordinatorError,
@@ -62,6 +63,26 @@ type TurnAdmissionCommand = Extract<
   typeof OrchestrationCommand.Type,
   { type: "thread.turn.start" | "thread.turn.dispatch-queued" }
 >;
+
+const isRetryableOperationFailure = (failure: ProviderThreadSwitchCoordinatorError): boolean => {
+  if (failure.code === "switch_wait_timeout" || failure.code === "binding_revision_stale") {
+    return true;
+  }
+  let current: unknown = failure.cause;
+  const seen = new Set<Error>();
+  while (current instanceof Error && !seen.has(current)) {
+    if (current instanceof OrchestrationCommandInvariantError) {
+      return (
+        current.code === "thread_running" || current.code === "provider_switch_commit_retryable"
+      );
+    }
+    seen.add(current);
+    current = current.cause;
+  }
+  // Repository, provider, and filesystem errors retain their structured cause.
+  return failure.code === "selection_failed" && failure.cause !== undefined;
+};
+
 export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
   const engine = yield* OrchestrationEngineService;
   const operations = yield* ProviderThreadSwitchOperationRepository;
@@ -155,8 +176,12 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           return Effect.void;
         }
         if (deadlineAt !== null && Date.now() >= deadlineAt) {
-          return fail(
-            "The active provider turn and its durable projection did not settle after interruption.",
+          return Effect.fail(
+            new ProviderThreadSwitchCoordinatorError({
+              code: "switch_wait_timeout",
+              detail:
+                "The active provider turn and its durable projection did not settle after interruption.",
+            }),
           );
         }
         return Effect.sleep("50 millis").pipe(
@@ -488,6 +513,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
                 if (current.state === "failed") {
                   return Effect.fail(cause);
                 }
+                if (isRetryableOperationFailure(cause)) return Effect.fail(cause);
                 return operations
                   .transition({
                     id: input.operationId,
@@ -814,7 +840,12 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
         }
         const persistedSelection = yield* decodeSelection(existing.selectionJson);
         if (existing.state === "failed") {
-          return yield* fail(existing.failureReason ?? "The provider switch previously failed.");
+          return yield* Effect.fail(
+            new ProviderThreadSwitchCoordinatorError({
+              code: "switch_operation_failed",
+              detail: existing.failureReason ?? "The provider switch previously failed.",
+            }),
+          );
         }
         return yield* runClientOperation({
           command: persistedCommand,
@@ -838,7 +869,12 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           return yield* fail("A queued turn cannot use a native fork journal.");
         }
         if (existingFork.state === "failed") {
-          return yield* fail(existingFork.failureReason ?? "The provider fork previously failed.");
+          return yield* Effect.fail(
+            new ProviderThreadSwitchCoordinatorError({
+              code: "switch_operation_failed",
+              detail: existingFork.failureReason ?? "The provider fork previously failed.",
+            }),
+          );
         }
         const persistedCommand = yield* decodeCommand(existingFork.commandJson);
         if (persistedCommand.type !== "thread.turn.start") {

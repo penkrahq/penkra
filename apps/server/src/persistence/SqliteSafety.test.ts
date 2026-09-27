@@ -6,6 +6,7 @@ import {
   isFatalSqliteDatabaseError,
   isSqliteCorruptionError,
   isSqliteIoError,
+  isRetryableSqliteError,
   UnsafeSqliteRuntimeError,
 } from "./SqliteSafety.ts";
 
@@ -30,5 +31,15 @@ describe("SQLite safety policy", () => {
     expect(isFatalSqliteDatabaseError({ errcode: 11 })).toBe(true);
     expect(isFatalSqliteDatabaseError({ errcode: 5 })).toBe(false);
     expect(isFatalSqliteDatabaseError(new Error("database disk image is malformed"))).toBe(false);
+  });
+
+  it("retries busy, locked, and I/O results but not constraints", () => {
+    for (const errcode of [5, 6, 10, 261, 262, 522]) {
+      expect(isRetryableSqliteError({ cause: { errcode } })).toBe(true);
+    }
+    for (const errcode of [19, 275, 2067, 11, 26]) {
+      expect(isRetryableSqliteError({ cause: { errcode } })).toBe(false);
+    }
+    expect(isRetryableSqliteError(new Error("database is locked"))).toBe(false);
   });
 });
