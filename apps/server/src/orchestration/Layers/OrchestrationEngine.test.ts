@@ -647,6 +647,22 @@ describe("OrchestrationEngine", () => {
         (candidate) => candidate.id === threadId,
       )!;
       expect(thread.latestTurn).toMatchObject({ turnId, state: "interrupted" });
+      for (const dispatchMode of ["queue", "steer"] as const) {
+        await expect(
+          system.run(
+            system.engine.dispatch({
+              type: "thread.turn.dispatch-queued",
+              commandId: CommandId.makeUnsafe(`cmd-stopped-dispatch-${dispatchMode}`),
+              threadId,
+              turnId: asTurnId(`turn-stopped-dispatch-${dispatchMode}`),
+              messageId: asMessageId("msg-play-stop-queued"),
+              dispatchMode,
+              runtimeMode: "full-access",
+              createdAt: stoppedAt,
+            }),
+          ),
+        ).rejects.toMatchObject({ code: "queued_turn_stopped" });
+      }
       expect(
         canContinueLatestTurn(
           { ...thread, queuedMessageIds: [asMessageId("msg-play-stop-queued")] },

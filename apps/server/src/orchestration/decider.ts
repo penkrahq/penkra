@@ -1797,6 +1797,13 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.turn.dispatch-queued": {
+      if (userStopRequested) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Queued turn admission is paused after Stop.",
+          code: "queued_turn_stopped",
+        });
+      }
       const thread = yield* requireThreadCanTakeWork({
         readModel,
         command,

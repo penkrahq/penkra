@@ -73,7 +73,9 @@ const isRetryableOperationFailure = (failure: ProviderThreadSwitchCoordinatorErr
   while (current instanceof Error && !seen.has(current)) {
     if (current instanceof OrchestrationCommandInvariantError) {
       return (
-        current.code === "thread_running" || current.code === "provider_switch_commit_retryable"
+        current.code === "thread_running" ||
+        current.code === "provider_switch_commit_retryable" ||
+        current.code === "queued_turn_stopped"
       );
     }
     seen.add(current);

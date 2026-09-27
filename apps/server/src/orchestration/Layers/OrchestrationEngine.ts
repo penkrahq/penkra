@@ -814,7 +814,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       const eventBase = yield* decideOrchestrationCommand({
         command,
         readModel: deciderReadModel,
-        ...(command.type === "thread.archive"
+        ...(command.type === "thread.archive" || command.type === "thread.turn.dispatch-queued"
           ? { userStopRequested: yield* userStopPending(command.threadId, sql) }
           : {}),
         workspacePaths: deciderWorkspacePaths,
