@@ -183,6 +183,21 @@ const terminalPromotionFailureDetail = (failure: unknown): string | null => {
   return null;
 };
 
+const isStoppedQueueAdmission = (failure: unknown): boolean => {
+  let current = failure;
+  const seen = new Set<Error>();
+  while (current instanceof Error && !seen.has(current)) {
+    if (
+      current instanceof OrchestrationCommandInvariantError &&
+      current.code === "queued_turn_stopped"
+    )
+      return true;
+    seen.add(current);
+    current = current.cause;
+  }
+  return false;
+};
+
 type InteractionResponseEvent = Extract<
   ProviderIntentEvent,
   {
@@ -2674,6 +2689,27 @@ const make = Effect.gen(function* () {
           .pipe(
             Effect.map(() => true as const),
             Effect.catch((failure) => {
+              if (isStoppedQueueAdmission(failure)) {
+                return Effect.gen(function* () {
+                  pendingQueuedDispatchBySessionThread.delete(sessionThreadId);
+                  yield* queuedTurnPromotions
+                    .releaseClaim({
+                      queuedEventSequence: promotion.queuedEventSequence,
+                      claimOwner: queuedTurnPromotionOwner,
+                      updatedAt: new Date().toISOString(),
+                    })
+                    .pipe(
+                      Effect.mapError(
+                        (cause) =>
+                          new ProviderThreadSwitchCoordinatorError({
+                            detail: "Could not release the stopped queued turn claim.",
+                            cause,
+                          }),
+                      ),
+                    );
+                  return false as const;
+                });
+              }
               const terminalDetail = terminalPromotionFailureDetail(failure);
               if (terminalDetail === null) return Effect.fail(failure);
               const failedAt = new Date().toISOString();

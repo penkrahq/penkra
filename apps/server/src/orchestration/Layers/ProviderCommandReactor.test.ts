@@ -5883,6 +5883,64 @@ describe("ProviderCommandReactor", () => {
     ).toBe(true);
   });
 
+  it("releases a queued claim when Stop commits during promotion admission", async () => {
+    const harness = await createHarness({
+      startRuntimeIngestion: true,
+      queuedTurnRecoveryInterval: Duration.millis(10),
+    });
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const turnId = asTurnId("turn-stop-during-promotion");
+    const messageId = asMessageId("msg-stop-during-promotion");
+    const queuedSequence = await seedQueuedTurnBehindLiveTurn(harness, {
+      liveTurnId: turnId,
+      messageId,
+      text: "late",
+    });
+    let promotionAttempts = 0;
+    harness.interceptEngineDispatch((command, dispatch) => {
+      if (command.type !== "thread.turn.dispatch-queued") return undefined;
+      promotionAttempts += 1;
+      return Effect.gen(function* () {
+        yield* dispatch({
+          type: "thread.turn.interrupt",
+          commandId: CommandId.makeUnsafe("cmd-stop-inside-promotion-race"),
+          threadId,
+          turnId,
+          createdAt: new Date().toISOString(),
+        });
+        return yield* dispatch(command);
+      });
+    });
+
+    await settleLiveTurn(harness, { turnId, eventId: "evt-stop-during-promotion-completed" });
+    await waitFor(async () => {
+      const promotion = await Effect.runPromise(
+        harness.queuedTurnPromotionRepository.getBySequence(queuedSequence),
+      );
+      return (
+        promotionAttempts === 1 &&
+        Option.getOrUndefined(promotion)?.state === "queued" &&
+        Option.getOrUndefined(promotion)?.claimOwner === null
+      );
+    });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(promotionAttempts).toBe(1);
+    expect(harness.sendTurn).not.toHaveBeenCalled();
+    expect(
+      await Effect.runPromise(
+        harness.queuedTurnPromotionRepository.hasPendingMessage({ threadId, messageId }),
+      ),
+    ).toBe(true);
+    await harness.drain();
+    const thread = (await Effect.runPromise(harness.engine.getReadModel())).threads.find(
+      (entry) => entry.id === threadId,
+    );
+    expect(thread?.messages.find((message) => message.id === messageId)?.delivery).toMatchObject({
+      state: "queued",
+      queued: true,
+    });
+  });
+
   it("keeps a stopped turn's queue across reactor restart and recovery sweeps", async () => {
     const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-stopped-queue-restart-"));
     const first = await createHarness({ baseDir, persistent: true });
