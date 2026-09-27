@@ -1257,6 +1257,85 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
 });
 
 realCoordinator("ProviderThreadSwitchCoordinator with live selection resolution", (it) => {
+  it.effect("switches the Connection for a promoted queued turn", () =>
+    Effect.gen(function* () {
+      hasBinding = true;
+      activeTurn = false;
+      unchangedSelection = false;
+      modelOnlySelection = false;
+      runtimeUpgradeSelection = false;
+      operation = undefined;
+      nativeForkOperation = undefined;
+      dispatchedCommand = undefined;
+      acceptedProviderSwitchContext = undefined;
+      const coordinator = yield* ProviderThreadSwitchCoordinator;
+      const result = yield* coordinator.dispatchQueuedTurn({
+        command: {
+          type: "thread.turn.dispatch-queued",
+          commandId: CommandId.makeUnsafe("command-queued-connection-switch"),
+          threadId,
+          messageId: MessageId.makeUnsafe("message-queued-connection-switch"),
+          modelSelection: { provider: "opencode", model: "opencode-go/kimi-k2.5" },
+          connectionId: targetConnectionId,
+          bindingRevision: 4,
+          runtimeMode: "full-access",
+          dispatchMode: "queue",
+          createdAt: timestamp,
+        },
+        attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+      });
+
+      assert.strictEqual(result.sequence, 42);
+      const sent = currentDispatchedCommand();
+      assert.strictEqual(sent?.type, "thread.turn.dispatch-queued");
+      if (sent?.type === "thread.turn.dispatch-queued") {
+        assert.strictEqual(sent.connectionId, targetConnectionId);
+        assert.strictEqual(sent.bindingRevision, 5);
+      }
+      assert.isDefined(acceptedProviderSwitchContext);
+    }),
+  );
+
+  it.effect("switches the model for a promoted queued turn", () =>
+    Effect.gen(function* () {
+      hasBinding = true;
+      activeTurn = false;
+      unchangedSelection = false;
+      modelOnlySelection = true;
+      runtimeUpgradeSelection = false;
+      operation = undefined;
+      nativeForkOperation = undefined;
+      dispatchedCommand = undefined;
+      acceptedProviderSwitchContext = undefined;
+      const coordinator = yield* ProviderThreadSwitchCoordinator;
+      const result = yield* coordinator.dispatchQueuedTurn({
+        command: {
+          type: "thread.turn.dispatch-queued",
+          commandId: CommandId.makeUnsafe("command-queued-model-switch"),
+          threadId,
+          messageId: MessageId.makeUnsafe("message-queued-model-switch"),
+          modelSelection: { provider: "opencode", model: "opencode-go/glm-5.1" },
+          connectionId: sourceConnectionId,
+          bindingRevision: 4,
+          runtimeMode: "full-access",
+          dispatchMode: "queue",
+          createdAt: timestamp,
+        },
+        attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+      });
+
+      assert.strictEqual(result.sequence, 42);
+      const sent = currentDispatchedCommand();
+      assert.strictEqual(sent?.type, "thread.turn.dispatch-queued");
+      if (sent?.type === "thread.turn.dispatch-queued") {
+        assert.strictEqual(sent.modelSelection?.model, "opencode-go/glm-5.1");
+        assert.strictEqual(sent.bindingRevision, 5);
+      }
+      assert.strictEqual(currentOperation()?.targetNativeStateGenerationId, null);
+      modelOnlySelection = false;
+    }),
+  );
+
   it.effect("admits a same-provider Connection switch with the exact current revision", () =>
     Effect.gen(function* () {
       hasBinding = true;

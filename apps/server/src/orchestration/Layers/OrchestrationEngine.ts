@@ -27,6 +27,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { ServerConfig } from "../../config.ts";
 import { toPersistenceSqlError, type PersistenceSqlError } from "../../persistence/Errors.ts";
+import { isRetryableSqliteError } from "../../persistence/SqliteSafety.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
 import {
   OrchestrationCommandReceiptRepository,
@@ -88,6 +89,16 @@ import {
 const ORCHESTRATION_DISPATCH_TIMEOUT_MS = 45_000;
 const DEFERRED_PROJECTION_RETRY_DELAYS_MS = [100, 500, 2_000, 10_000, 30_000] as const;
 const REQUIRED_REPAIR_PROJECTORS = Object.values(ORCHESTRATION_PROJECTOR_NAMES);
+
+const verifiedSwitchCommitError = (commandType: string, detail: string, cause: Error) =>
+  new OrchestrationCommandInvariantError({
+    commandType,
+    detail: `${detail}: ${cause.message}`,
+    code: isRetryableSqliteError(cause)
+      ? "provider_switch_commit_retryable"
+      : "provider_switch_commit_failed",
+    cause,
+  });
 
 type CommandExecutionState = "queued" | "in-flight" | "abandoned";
 type DispatchTimeoutDecision = { kind: "abandon" } | { kind: "wait" };
@@ -973,10 +984,13 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           }
         }
         if (envelope.acceptedProviderSwitch !== undefined) {
-          if (command.type !== "thread.turn.start") {
+          if (
+            command.type !== "thread.turn.start" &&
+            command.type !== "thread.turn.dispatch-queued"
+          ) {
             return yield* new OrchestrationCommandInvariantError({
               commandType: command.type,
-              detail: "A verified provider switch may only accompany a thread turn start.",
+              detail: "A verified provider switch may only accompany a thread turn admission.",
             });
           }
           if (
@@ -992,12 +1006,12 @@ const makeOrchestrationEngine = Effect.gen(function* () {
             yield* threadProviderBindings
               .commitSwitchInCurrentTransaction(envelope.acceptedProviderSwitch.commit.input)
               .pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new OrchestrationCommandInvariantError({
-                      commandType: command.type,
-                      detail: `The verified provider switch could not be committed: ${cause.message}`,
-                    }),
+                Effect.mapError((cause) =>
+                  verifiedSwitchCommitError(
+                    command.type,
+                    "The verified provider switch could not be committed",
+                    cause,
+                  ),
                 ),
               );
           } else {
@@ -1006,18 +1020,19 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                 envelope.acceptedProviderSwitch.commit.input,
               )
               .pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new OrchestrationCommandInvariantError({
-                      commandType: command.type,
-                      detail: `The verified provider selection could not be committed: ${cause.message}`,
-                    }),
+                Effect.mapError((cause) =>
+                  verifiedSwitchCommitError(
+                    command.type,
+                    "The verified provider selection could not be committed",
+                    cause,
+                  ),
                 ),
               );
             if (Option.isNone(updatedBinding)) {
               return yield* new OrchestrationCommandInvariantError({
                 commandType: command.type,
                 detail: "The provider selection binding changed before commit.",
+                code: "provider_binding_stale",
               });
             }
           }
@@ -1027,12 +1042,12 @@ const makeOrchestrationEngine = Effect.gen(function* () {
               updatedAt: command.createdAt,
             })
             .pipe(
-              Effect.mapError(
-                (cause) =>
-                  new OrchestrationCommandInvariantError({
-                    commandType: command.type,
-                    detail: `The provider switch journal could not be committed: ${cause.message}`,
-                  }),
+              Effect.mapError((cause) =>
+                verifiedSwitchCommitError(
+                  command.type,
+                  "The provider switch journal could not be committed",
+                  cause,
+                ),
               ),
             );
           if (Option.isNone(committedOperation)) {
