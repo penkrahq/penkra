@@ -237,6 +237,49 @@ describe("store projection", () => {
     ]);
   });
 
+  it("derives the thread banner from a failed queued delivery in a turn page", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const reason =
+      "This thread uses a different provider. To use another provider, start a new thread.";
+    const message = {
+      id: MessageId.makeUnsafe("queued-refused"),
+      role: "user" as const,
+      text: "Continue",
+      dispatchMode: "queue" as const,
+      delivery: {
+        state: "failed" as const,
+        queued: false,
+        sequence: 12,
+        failurePhase: "before-provider-dispatch" as const,
+        failureDetail: reason,
+      },
+      sequence: 10,
+      turnId: null,
+      streaming: false,
+      source: "native" as const,
+      createdAt: "2026-09-27T00:00:00.000Z",
+      updatedAt: "2026-09-27T00:00:01.000Z",
+    };
+    const page = {
+      threadId,
+      snapshotSequence: 12,
+      conversationTurnCount: 1,
+      messages: [message],
+      activities: [],
+      pendingInteractions: [],
+      hasOlder: false,
+      nextCursor: null,
+    } satisfies OrchestrationGetThreadTurnsPageResult;
+    const failed = syncServerThreadTurnsPage(makeState(makeThread({ id: threadId })), page);
+    expect(getThreadFromState(failed, threadId)?.error).toBe(reason);
+    const retried = syncServerThreadTurnsPage(failed, {
+      ...page,
+      snapshotSequence: 14,
+      messages: [{ ...message, delivery: { state: "accepted", queued: false, sequence: 14 } }],
+    });
+    expect(getThreadFromState(retried, threadId)?.error).toBeNull();
+  });
+
   it("merges turn pages without replacing newer live detail or duplicating tool operations", () => {
     const threadId = ThreadId.makeUnsafe("thread-1");
     const liveTurnId = TurnId.makeUnsafe("turn-live");

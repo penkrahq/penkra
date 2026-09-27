@@ -4848,6 +4848,25 @@ it.layer(
           updatedAt: "2026-02-27T11:02:00.250Z",
         },
       });
+      yield* projectionPipeline.bootstrap;
+      const failedRows = yield* sql<{
+        readonly state: string | null;
+        readonly failurePhase: string | null;
+        readonly failureDetail: string | null;
+      }>`
+        SELECT delivery_state AS state,
+          delivery_failure_phase AS "failurePhase",
+          delivery_failure_detail AS "failureDetail"
+        FROM projection_thread_messages
+        WHERE thread_id = ${threadId} AND message_id = ${messageId}
+      `;
+      assert.deepEqual(failedRows, [
+        {
+          state: "failed",
+          failurePhase: "before-provider-dispatch",
+          failureDetail: "EPERM: operation not permitted",
+        },
+      ]);
       yield* eventStore.append({
         type: "thread.message-delivery-set",
         eventId: EventId.makeUnsafe("evt-delivery-requeued"),
