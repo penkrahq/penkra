@@ -27,8 +27,13 @@ import { Effect, Layer, Option } from "effect";
 
 import { ServerConfig } from "../../config.ts";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
+import {
+  OrchestrationCommandInvariantError,
+  findThreadGuardInvariant,
+} from "../../orchestration/Errors.ts";
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
+import { QueuedTurnPromotionRepository } from "../../persistence/Services/QueuedTurnPromotions.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { OrchestrationEventDeliveryRepository } from "../../persistence/Services/OrchestrationEventDeliveries.ts";
 import { ProviderRuntimeEventRepository } from "../../persistence/Services/ProviderRuntimeEvents.ts";
@@ -57,8 +62,8 @@ import {
   PROVIDER_KINDS,
   ToolInputError,
   decodeCreateThreadInput,
+  decodeSendMessageInput,
   errorText,
-  readBooleanArg,
   readStringArrayArg,
   readStringArg,
 } from "../toolInput.ts";
@@ -66,6 +71,8 @@ import {
   DESTRUCTIVE_WRITE_TOOL_ANNOTATIONS,
   IDEMPOTENT_WRITE_TOOL_ANNOTATIONS,
   WRITE_TOOL_ANNOTATIONS,
+  GatewayToolError,
+  gatewayToolErrorResult,
   type ToolEntry,
   type ToolContext,
 } from "../toolRuntime.ts";
@@ -77,13 +84,17 @@ import {
   type AgentGatewayCommandEntry,
 } from "../commandSurface.ts";
 import { makeCreateThreadHandler } from "../creationCoordinator.ts";
+import { requestAppRuntimeBridge } from "../../appRuntimeCli.ts";
 import { makeThreadReadTools } from "../threadReadTools.ts";
 import { makeThreadDiagnosticTools } from "../threadDiagnosticTools.ts";
 import { executePenkraExecCommand } from "../../appRuntimeCli.ts";
 import type { PenkraExecCommandInput } from "../../appRuntimeCli.ts";
 import { requireThreadSpaceId } from "../threadSpaceContext.ts";
 import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
-import { ProviderThreadSwitchCoordinator } from "../../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
+import {
+  ProviderThreadSwitchCoordinator,
+  ProviderThreadSwitchCoordinatorError,
+} from "../../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
 import { attachmentPrincipalForSession } from "../../managedAttachmentPrincipal.ts";
 import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
 import {
@@ -95,6 +106,8 @@ import {
 import { renderPenkraMcpServerInstructions } from "../harnessPolicy.ts";
 import { resolveAuthoritativeActiveTurn } from "../activeExecution.ts";
 import { presentFile, resolvePresentFileWorkingDirectory } from "../presentFile.ts";
+import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
+import type { AgentThreadSendResult } from "@penkra/sdk";
 
 const TURN_INTERRUPT_CONFIRM_TIMEOUT_MS = 5_000;
 const TURN_INTERRUPT_CONFIRM_POLL_MS = 25;
@@ -114,15 +127,30 @@ function isPenkraExecImage(
 function command(
   words: ReadonlyArray<string>,
   tool: ToolEntry,
-  example: string,
+  example: string | ReadonlyArray<{ readonly name: string; readonly command: string }>,
   instructions?: string,
 ): AgentGatewayCommandEntry {
   return {
     words,
     tool,
-    examples: [{ name: `Use ${["penkra", ...words].join(" ")}`, command: example }],
+    examples:
+      typeof example === "string"
+        ? [{ name: `Use ${["penkra", ...words].join(" ")}`, command: example }]
+        : example,
     ...(instructions === undefined ? {} : { instructions }),
   };
+}
+
+function sendMessageErrorResult(error: unknown) {
+  if (error instanceof GatewayToolError) return gatewayToolErrorResult(error);
+  const threadGuard = findThreadGuardInvariant(error);
+  if (threadGuard?.code === "thread_archived") {
+    return gatewayToolErrorResult(new GatewayToolError(threadGuard.code, threadGuard.detail));
+  }
+  if (error instanceof ProviderThreadSwitchCoordinatorError) {
+    return gatewayToolErrorResult(new GatewayToolError(error.code, error.message));
+  }
+  return mcpToolResultError(errorText(error));
 }
 
 export const makeAgentGateway = Effect.gen(function* () {
@@ -140,6 +168,7 @@ export const makeAgentGateway = Effect.gen(function* () {
   const creationAdmissions = yield* AgentGatewayCreationAdmissionRepository;
   const commandReceipts = yield* OrchestrationCommandReceiptRepository;
   const projectionTurns = yield* ProjectionTurnRepository;
+  const queuedTurnPromotions = yield* QueuedTurnPromotionRepository;
   const eventStore = yield* OrchestrationEventStore;
   const eventDeliveries = yield* OrchestrationEventDeliveryRepository;
   const providerRuntimeEvents = yield* ProviderRuntimeEventRepository;
@@ -243,6 +272,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     loadSettings: serverSettings.getSettings,
     snapshotQuery,
     projectionTurns,
+    queuedTurnPromotions,
     providerDiscovery,
     loadProviderAvailabilities,
     requireThreadShell,
@@ -274,15 +304,20 @@ export const makeAgentGateway = Effect.gen(function* () {
     providerThreadSwitchCoordinator,
     loadProviderAvailabilities,
     requireThreadShell,
+    onThreadCreated: (parentThreadId, childThreadId) =>
+      Effect.tryPromise(() =>
+        requestAppRuntimeBridge("thread.home.inherit", { parentThreadId, childThreadId }),
+      ).pipe(Effect.map(() => undefined)),
   });
 
   const createThread: ToolEntry = {
     requiredCapability: "thread:write",
+    requiresThreadAuthority: true,
     requiresActiveTurn: true,
     definition: {
       name: "penkra_create_thread",
       description:
-        "Use when work should run in a separate Penkra conversation. Create one standalone Thread from a self-contained prompt and a target returned by `penkra models list --availability available`; optionally choose a Connection from `penkra connections list` and a folder from `penkra folders list`. Retrying the same requestId is idempotent. Separate create calls are independent and non-atomic, so retain successful Thread ids if a later call fails.",
+        "Use when work should run in a separate Penkra conversation. The returned turnId is a Penkra handle accepted by --turn-id; provider-native ids, when known, are reported separately as providerTurnId. Create one standalone Thread from a self-contained prompt and a target returned by `penkra models list --availability available`; optionally choose a Connection from `penkra connections list` and a folder from `penkra folders list`. Retrying the same requestId is idempotent. Separate create calls are independent and non-atomic, so retain successful Thread ids if a later call fails.",
       inputSchema: {
         type: "object",
         properties: {
@@ -303,6 +338,7 @@ export const makeAgentGateway = Effect.gen(function* () {
           },
           target: {
             ...MODEL_SELECTION_INPUT_SCHEMA,
+            description: "Provider and model for the new thread.",
           },
           connectionId: {
             type: ["string", "null"],
@@ -341,11 +377,12 @@ export const makeAgentGateway = Effect.gen(function* () {
 
   const sendMessage: ToolEntry = {
     requiredCapability: "thread:write",
+    requiresThreadAuthority: true,
     requiresActiveTurn: true,
     definition: {
       name: "penkra_send_message",
       description:
-        "Use to post an agent-authored follow-up into a different existing Penkra thread. Never target the caller thread. The returned turnId is the stable handle for polling with `penkra threads read --thread-id ... --turn-id ...`. By default the host preserves FIFO ordering. Pass now only when the message must take effect regardless of current or queued work; Penkra chooses the provider-specific mechanism.",
+        "Post an agent-authored follow-up into another existing Penkra thread. Never target the caller thread. By default the message waits behind the thread's running and queued work, in order. Pass now only when it must take effect right away; Penkra chooses the provider-specific way to deliver it. To switch the target thread's Connection or model, pass connectionId, modelSelection, or both. The switch takes effect when this message's turn starts and stays for later turns. The provider cannot change: to use another provider, create a new thread. Penkra never falls back to another account. The returned turnId is a Penkra handle accepted by --turn-id; provider-native ids, when known, appear separately as providerTurnId in thread reads. The delivery field describes routing, not provider completion: queued means not yet delivered, started means a new turn was requested, and steered/interrupted describe how an active turn was handled. Check `penkra threads read` for actual state.",
       inputSchema: {
         type: "object",
         properties: {
@@ -361,7 +398,17 @@ export const makeAgentGateway = Effect.gen(function* () {
           now: {
             type: "boolean",
             description:
-              "Deliver regardless of running or queued work. The host may steer natively or interrupt according to provider capability.",
+              "Request action during a running turn: native steer where supported, otherwise interrupt that turn and run this message afterward. Without now, wait in FIFO until the running turn ends.",
+          },
+          connectionId: {
+            type: ["string", "null"],
+            description:
+              "Exact Connection ID from `penkra connections list`. Omit to keep the thread's current Connection. Pass null only to request the provider's anonymous route where it is authorized. Never substitutes another account.",
+          },
+          modelSelection: {
+            ...MODEL_SELECTION_INPUT_SCHEMA,
+            description:
+              "Model to use from this turn on. provider must be the thread's current provider. Omit to keep the current model.",
           },
         },
         required: ["threadId", "message"],
@@ -374,17 +421,34 @@ export const makeAgentGateway = Effect.gen(function* () {
     },
     handler: (args, context) =>
       Effect.gen(function* () {
-        const threadId = readStringArg(args, "threadId", { required: true })!;
-        const message = readStringArg(args, "message", { required: true })!;
+        const input = decodeSendMessageInput(args);
+        const threadId = input.threadId;
+        const message = input.message;
         if (threadId === context.callerThreadId) {
           throw new ToolInputError(
             "Cannot send to the caller Thread: send writes an agent-authored message with user role and starts another turn on top of the current turn.",
           );
         }
-        const now = readBooleanArg(args, "now") ?? false;
+        const now = input.now ?? false;
         const caller = yield* requireThreadShell(context.callerThreadId);
         const target = yield* requireThreadShell(threadId);
         yield* assertCallerMayDriveThread(caller, target);
+        const runtimeBinding = yield* threadBindings
+          .getRuntimeBinding(target.id)
+          .pipe(
+            Effect.mapError(
+              () =>
+                new GatewayToolError(
+                  "selection_failed",
+                  "Could not read the thread's runtime binding.",
+                ),
+            ),
+          );
+        const turnsBefore = yield* projectionTurns.listByThreadId({ threadId: target.id });
+        const queuedBefore = turnsBefore.filter((turn) => turn.state === "queued");
+        const blockingTurn =
+          turnsBefore.find((turn) => turn.state === "running") ??
+          (target.latestTurn?.state === "running" ? target.latestTurn : undefined);
         // Pass the requested mode through unchanged: the reactor checks live
         // provider state (authoritative, unlike this projection snapshot) and
         // already downgrades steers whose turn is not actually live.
@@ -394,34 +458,88 @@ export const makeAgentGateway = Effect.gen(function* () {
         const messageId = MessageId.makeUnsafe(`agent:${suffix}:message`);
         const turnId = TurnId.makeUnsafe(`turn:${commandId}`);
         const cwd = target.workingDirectory;
-        yield* providerThreadSwitchCoordinator
-          .dispatchTurnStart({
-            command: {
-              type: "thread.turn.start",
-              commandId,
-              threadId: target.id,
-              turnId,
-              message: {
-                messageId,
-                role: "user",
-                text: message,
-                attachments: [],
-              },
-              dispatchMode,
-              dispatchOrigin: "agent",
-              runtimeMode: target.runtimeMode,
-              createdAt: isoNow(),
+        yield* providerThreadSwitchCoordinator.dispatchTurnStart({
+          command: {
+            type: "thread.turn.start",
+            commandId,
+            threadId: target.id,
+            turnId,
+            message: {
+              messageId,
+              role: "user",
+              text: message,
+              attachments: [],
             },
-            attachmentPrincipal: attachmentPrincipalForSession(context.callerSessionKey),
-            ...(cwd ? { cwd } : {}),
-          })
-          .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
-        return mcpToolResultJson({ threadId: target.id, messageId, turnId });
-      }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
+            dispatchMode,
+            dispatchOrigin: "agent",
+            senderThreadId: ThreadId.makeUnsafe(context.callerThreadId),
+            runtimeMode: target.runtimeMode,
+            ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
+            ...(input.modelSelection !== undefined
+              ? { modelSelection: input.modelSelection }
+              : Option.isNone(runtimeBinding)
+                ? { modelSelection: target.modelSelection }
+                : {}),
+            bindingRevision: Option.isSome(runtimeBinding) ? runtimeBinding.value.revision : 0,
+            createdAt: isoNow(),
+          },
+          attachmentPrincipal: attachmentPrincipalForSession(context.callerSessionKey),
+          ...(cwd ? { cwd } : {}),
+        });
+        const admittedTurn = Option.getOrUndefined(
+          yield* projectionTurns.getByTurnId({ threadId: target.id, turnId }),
+        );
+        const queued =
+          (admittedTurn?.state === "queued" && (!now || !blockingTurn)) ||
+          (admittedTurn === undefined &&
+            !now &&
+            target.parentThreadId === null &&
+            (blockingTurn !== undefined || queuedBefore.length > 0));
+        const provider = target.session?.providerName ?? target.modelSelection.provider;
+        const queuedAfter =
+          queued && admittedTurn
+            ? (yield* projectionTurns.listByThreadId({ threadId: target.id })).filter(
+                (turn) => turn.state === "queued",
+              )
+            : undefined;
+        const projectedPosition = queuedAfter?.findIndex((turn) => turn.turnId === turnId);
+        const queuePosition = queued
+          ? projectedPosition !== undefined && projectedPosition >= 0
+            ? projectedPosition + 1
+            : queuedBefore.length + 1
+          : undefined;
+        const result: AgentThreadSendResult = queued
+          ? {
+              threadId: target.id,
+              messageId,
+              turnId,
+              delivery: "queued",
+              queuePosition: queuePosition!,
+              ...(blockingTurn
+                ? {
+                    blockingTurnId: blockingTurn.turnId,
+                    blockingTurnStartedAt: blockingTurn.startedAt,
+                  }
+                : {}),
+            }
+          : {
+              threadId: target.id,
+              messageId,
+              turnId,
+              delivery:
+                now && blockingTurn
+                  ? providerSupportsNativeTurnSteering(provider)
+                    ? "steered"
+                    : "interrupted"
+                  : "started",
+            };
+        return mcpToolResultJson(result);
+      }).pipe(Effect.catch((error) => Effect.succeed(sendMessageErrorResult(error)))),
   };
 
   const interruptThread: ToolEntry = {
     requiredCapability: "thread:write",
+    requiresThreadAuthority: true,
     requiresActiveTurn: true,
     definition: {
       name: "penkra_interrupt_thread",
@@ -548,6 +666,7 @@ export const makeAgentGateway = Effect.gen(function* () {
 
   const makeSetThreadArchived = (archived: boolean): ToolEntry => ({
     requiredCapability: "thread:write",
+    requiresThreadAuthority: true,
     requiresActiveTurn: true,
     definition: {
       name: archived ? "penkra_archive_thread" : "penkra_unarchive_thread",
@@ -583,10 +702,25 @@ export const makeAgentGateway = Effect.gen(function* () {
               `agent:${randomUUID()}:${archived ? "archive" : "unarchive"}`,
             ),
             threadId: target.id,
+            ...(archived ? { createdAt: new Date().toISOString() } : {}),
           })
-          .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
+          .pipe(
+            Effect.mapError((error) =>
+              error instanceof OrchestrationCommandInvariantError && error.code === "thread_running"
+                ? new GatewayToolError(error.code, error.detail)
+                : new ToolInputError(errorText(error)),
+            ),
+          );
         return mcpToolResultJson({ threadId: target.id, archived });
-      }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
+      }).pipe(
+        Effect.catch((error) =>
+          Effect.succeed(
+            error instanceof GatewayToolError
+              ? gatewayToolErrorResult(error)
+              : mcpToolResultError(errorText(error)),
+          ),
+        ),
+      ),
   });
   const archiveThread = makeSetThreadArchived(true);
   const unarchiveThread = makeSetThreadArchived(false);
@@ -601,6 +735,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     unarchiveThread,
     {
       requiredCapability: "thread:write",
+      requiresThreadAuthority: true,
       requiresActiveTurn: true,
       definition: {
         name: "penkra_show_file",
@@ -628,9 +763,6 @@ export const makeAgentGateway = Effect.gen(function* () {
           if (!requestedPaths?.length) {
             return yield* Effect.fail(new ToolInputError("At least one --path is required."));
           }
-          if (!context.callerTurnId) {
-            return yield* Effect.fail(new ToolInputError("No active caller turn is available."));
-          }
           const caller = yield* requireThreadShell(context.callerThreadId);
           const folder = yield* snapshotQuery.getFolderShellById(caller.folderId);
           const workingDirectory = resolvePresentFileWorkingDirectory({
@@ -645,7 +777,7 @@ export const makeAgentGateway = Effect.gen(function* () {
               requestedPath,
               workingDirectory,
               threadId: caller.id,
-              turnId: context.callerTurnId!,
+              turnId: context.callerTurnId,
               attachmentsDir: serverConfig.attachmentsDir,
               stateDir: serverConfig.stateDir,
               repository: managedAttachments,
@@ -690,7 +822,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     command(
       ["threads", "read"],
       requireInternalTool("penkra_read_thread"),
-      "penkra threads read --thread-id <thread-id>",
+      "penkra threads read --thread-id <thread-id> [--turn-id <penkra-turn-handle>]",
     ),
     command(
       ["diagnostics", "threads", "activity"],
@@ -722,11 +854,16 @@ export const makeAgentGateway = Effect.gen(function* () {
       createThread,
       'penkra threads create --input \'{"requestId":"review-api","prompt":"Review the API contract.","target":{...}}\'',
     ),
-    command(
-      ["threads", "send"],
-      sendMessage,
-      "penkra threads send --thread-id <thread-id> --message 'Continue the review.'",
-    ),
+    command(["threads", "send"], sendMessage, [
+      {
+        name: "Send a follow-up",
+        command: "penkra threads send --thread-id <thread-id> --message 'Continue the review.'",
+      },
+      {
+        name: "Send and switch model and Connection",
+        command: `penkra threads send --input '{"threadId":"<thread-id>","message":"Continue the review.","connectionId":"<connection-id>","modelSelection":{"provider":"codex","model":"gpt-6-sol"}}'`,
+      },
+    ]),
     command(
       ["threads", "interrupt"],
       interruptThread,
@@ -746,6 +883,7 @@ export const makeAgentGateway = Effect.gen(function* () {
 
   const penkraExecCommand: ToolEntry = {
     requiredCapability: "thread:read",
+    requiresThreadAuthority: true,
     definition: {
       name: PENKRA_EXEC_COMMAND_NAME,
       description: PENKRA_EXEC_COMMAND_DESCRIPTION,
@@ -782,7 +920,7 @@ export const makeAgentGateway = Effect.gen(function* () {
               spaceId: callerSpaceId,
               deckId: caller.deckId,
               threadId: caller.id,
-              callerTurnId: context.callerTurnId,
+              callerTurnId: context.callerWriteTurnId,
               workingDirectory: caller.workingDirectory ?? null,
               additionalCoreCommands: agentGatewayCommandCatalog(gatewayCommands),
             }),
@@ -832,6 +970,7 @@ export const makeAgentGateway = Effect.gen(function* () {
         method: "tools/call",
         params: { name: input.name, arguments: input.arguments },
       },
+      ...(input.originTurnId !== undefined ? { originTurnId: input.originTurnId } : {}),
     }).pipe(
       Effect.map((response) => {
         if (response.status !== 200 || !response.body || typeof response.body !== "object") {

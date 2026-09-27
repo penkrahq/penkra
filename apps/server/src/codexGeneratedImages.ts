@@ -9,7 +9,6 @@ import path from "node:path";
 import {
   CODEX_GENERATED_IMAGE_ARTIFACT_KIND,
   type CodexGeneratedImageArtifact,
-  type ProviderRuntimeEvent,
   type ThreadId,
 } from "@penkra/contracts";
 import { isSupportedLocalImagePath as isSupportedLocalImagePathShared } from "@penkra/shared/localPreviewFiles";
@@ -238,60 +237,4 @@ export function codexGeneratedImageArtifact(
     path: reference.path,
     ...(reference.callId ? { callId: reference.callId } : {}),
   };
-}
-
-export function isCodexGeneratedImageArtifact(
-  value: unknown,
-): value is CodexGeneratedImageArtifact {
-  const record = asObject(value);
-  return (
-    record?.kind === CODEX_GENERATED_IMAGE_ARTIFACT_KIND &&
-    typeof record.path === "string" &&
-    record.path.trim().length > 0
-  );
-}
-
-export function markdownImagePath(filePath: string): string {
-  const trimmed = filePath.trim();
-  if (trimmed.includes(")") || trimmed.includes(" ") || trimmed.includes("%")) {
-    const escaped = trimmed.replaceAll("%", "%25").replaceAll(">", "%3E").replaceAll(")", "%29");
-    return `<${escaped}>`;
-  }
-  return trimmed;
-}
-
-export function generatedImageMarkdown(filePath: string): string {
-  return `![Generated image](${markdownImagePath(filePath)})`;
-}
-
-/**
- * Returns the local file path of a Codex-generated image carried by an
- * `item.completed` runtime event, or `undefined` for any other event shape.
- */
-export function generatedImagePathFromRuntimeEvent(
-  event: ProviderRuntimeEvent,
-): string | undefined {
-  if (event.type !== "item.completed" || event.payload.itemType !== "image_generation") {
-    return undefined;
-  }
-  const artifact = isCodexGeneratedImageArtifact(event.payload.data)
-    ? event.payload.data
-    : undefined;
-  return artifact?.path;
-}
-
-/**
- * Returns true when the given assistant text contains only generated-image
- * markdown references (e.g. `![Generated image](...)`) and no other content.
- *
- * Used by ingestion to skip messages that exist solely to host an image when
- * deciding where to append a new generated-image reference.
- */
-export function isGeneratedImageOnlyMarkdown(text: string): boolean {
-  const trimmed = text.trim();
-  if (trimmed.length === 0) {
-    return false;
-  }
-  const withoutImages = trimmed.replace(/!\[[^\]]*]\((?:<[^>]+>|[^)]+)\)/g, "").trim();
-  return withoutImages.length === 0;
 }

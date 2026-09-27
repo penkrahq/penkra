@@ -11,6 +11,7 @@ import {
   type OrchestrationEvent,
 } from "@penkra/contracts";
 import { Effect, Layer, ManagedRuntime, Option, Queue, Stream } from "effect";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { describe, expect, it, vi } from "vitest";
 
 import { PersistenceSqlError } from "../../persistence/Errors.ts";
@@ -22,6 +23,7 @@ import {
   type OrchestrationEventStoreShape,
 } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
+import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
@@ -34,7 +36,9 @@ import {
   type OrchestrationProjectionPipelineShape,
 } from "../Services/ProjectionPipeline.ts";
 import { ServerConfig } from "../../config.ts";
+import { recoverRestartInterruptedTurns } from "../restartTurnRecovery.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { canContinueLatestTurn } from "@penkra/shared/turnContinuation";
 
 /**
  * Command ids whose fingerprinting throws synchronously, standing in for any
@@ -100,25 +104,49 @@ const createTestSpace = (engine: OrchestrationEngineShape) =>
     createdAt: "2026-01-01T00:00:00.000Z",
   });
 
-async function createOrchestrationSystem() {
+async function createOrchestrationSystem(options?: { readonly withRuntimeBinding?: boolean }) {
   const ServerConfigLayer = TestServerConfigLayer;
   const orchestrationLayer = OrchestrationEngineLive.pipe(
     Layer.provide(OrchestrationProjectionPipelineLive),
     Layer.provide(OrchestrationProjectionSnapshotQueryLive),
     Layer.provide(OrchestrationEventStoreLive),
     Layer.provide(OrchestrationCommandReceiptRepositoryLive),
-    Layer.provide(SqlitePersistenceMemory),
+    Layer.provideMerge(SqlitePersistenceMemory),
     Layer.provideMerge(ServerConfigLayer),
     Layer.provideMerge(NodeServices.layer),
   );
-  const runtime = ManagedRuntime.make(orchestrationLayer);
+  const runtime = ManagedRuntime.make(
+    options?.withRuntimeBinding
+      ? orchestrationLayer.pipe(
+          Layer.provideMerge(
+            Layer.succeed(ThreadProviderBindingRepository, {
+              getRuntimeBinding: (threadId: ThreadId) =>
+                Effect.succeed(
+                  Option.some({
+                    threadId,
+                    connectionId: null,
+                    installationId: "test-installation",
+                    internalProviderId: null,
+                    modelId: "gpt-5-codex",
+                    revision: 0,
+                    createdAt: now(),
+                    updatedAt: now(),
+                  }),
+                ),
+            } as never),
+          ),
+        )
+      : orchestrationLayer,
+  );
   const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
   await runtime.runPromise(createTestSpace(engine));
   const managedAttachmentRepository = await runtime.runPromise(
     Effect.service(ManagedAttachmentRepository),
   );
+  const sql = await runtime.runPromise(Effect.service(SqlClient.SqlClient));
   return {
     engine,
+    sql,
     managedAttachmentRepository,
     run: <A, E>(effect: Effect.Effect<A, E>) => runtime.runPromise(effect),
     dispose: () => runtime.dispose(),
@@ -130,6 +158,728 @@ function now() {
 }
 
 describe("OrchestrationEngine", () => {
+  it.each(["assistant", "delivery"] as const)(
+    "projects a %s completion before an interrupted session as interrupted",
+    async (completion) => {
+      const system = await createOrchestrationSystem({ withRuntimeBinding: true });
+      const threadId = ThreadId.makeUnsafe(`thread-${completion}-interrupted-order`);
+      const folderId = asFolderId(`folder-${completion}-interrupted-order`);
+      const turnId = asTurnId(`turn-${completion}-interrupted-order`);
+      const messageId = asMessageId(`message-${completion}-interrupted-order`);
+      const createdAt = now();
+      try {
+        await system.run(
+          system.engine.dispatch({
+            type: "folder.create",
+            commandId: CommandId.makeUnsafe(`folder-${completion}-order`),
+            folderId,
+            spaceId: TEST_SPACE_ID,
+            title: "Ordering",
+            workspaceRoot: null,
+            defaultModelSelection: null,
+            createdAt,
+          }),
+        );
+        await system.run(
+          system.engine.dispatch({
+            type: "thread.create",
+            commandId: CommandId.makeUnsafe(`thread-${completion}-order`),
+            threadId,
+            deckId: singletonThreadDeckId(threadId),
+            folderId,
+            title: "Ordering",
+            modelSelection: { provider: "codex", model: "gpt-5-codex" },
+            runtimeMode: "full-access",
+            createdAt,
+          }),
+        );
+        await system.run(
+          system.engine.dispatch({
+            type: "thread.turn.start",
+            commandId: CommandId.makeUnsafe(`start-${completion}-order`),
+            threadId,
+            message: { messageId, role: "user", text: "Work", attachments: [] },
+            runtimeMode: "full-access",
+            createdAt,
+          }),
+        );
+        const session = {
+          threadId,
+          providerName: "codex" as const,
+          runtimeMode: "full-access" as const,
+          activeTurnId: turnId,
+          lastError: null,
+          updatedAt: createdAt,
+        };
+        await system.run(
+          system.engine.dispatch({
+            type: "thread.session.set",
+            commandId: CommandId.makeUnsafe(`running-${completion}-order`),
+            threadId,
+            session: { ...session, status: "running" },
+            createdAt,
+          }),
+        );
+        if (completion === "assistant") {
+          await system.run(
+            system.engine.dispatch({
+              type: "thread.message.assistant.complete",
+              commandId: CommandId.makeUnsafe("assistant-complete-order"),
+              threadId,
+              messageId: asMessageId("assistant-order"),
+              turnId,
+              finalText: "Partial reply",
+              createdAt,
+            }),
+          );
+        } else {
+          await system.run(
+            system.engine.dispatch({
+              type: "thread.message.delivery.set",
+              commandId: CommandId.makeUnsafe("delivery-complete-order"),
+              threadId,
+              messageId,
+              turnId,
+              state: "accepted",
+              terminalState: "completed",
+              terminalCompletedAt: createdAt,
+              createdAt,
+            }),
+          );
+        }
+        await system.run(
+          system.engine.dispatch({
+            type: "thread.session.set",
+            commandId: CommandId.makeUnsafe(`interrupted-${completion}-order`),
+            threadId,
+            session: { ...session, status: "interrupted", activeTurnId: null },
+            createdAt,
+          }),
+        );
+        const turns = await system.run(
+          system.sql<{
+            readonly state: string;
+          }>`SELECT state FROM projection_turns WHERE thread_id = ${threadId} ORDER BY requested_at DESC`,
+        );
+        expect(turns[0]?.state).toBe("interrupted");
+        const readModel = await system.run(system.engine.getReadModel());
+        expect(readModel.threads.find((thread) => thread.id === threadId)?.latestTurn?.state).toBe(
+          "interrupted",
+        );
+        if (completion === "assistant") {
+          const interruptedTurnId = readModel.threads.find((thread) => thread.id === threadId)
+            ?.latestTurn?.turnId;
+          expect(interruptedTurnId).toBeDefined();
+          await expect(
+            system.run(
+              system.engine.dispatch({
+                type: "thread.turn.recover",
+                reason: "play",
+                commandId: CommandId.makeUnsafe("play-after-assistant-order"),
+                threadId,
+                turnId: interruptedTurnId!,
+                interruptedTurnId: interruptedTurnId!,
+                recoveryMessageId: asMessageId("recovery-after-assistant-order"),
+                connectionId: null,
+                bindingRevision: 0,
+                createdAt,
+              }),
+            ),
+          ).resolves.toMatchObject({ sequence: expect.any(Number) });
+        }
+      } finally {
+        await system.dispose();
+      }
+    },
+  );
+  it("refuses a send to an archived thread without creating a turn, and drops queued rows on archive", async () => {
+    const system = await createOrchestrationSystem({ withRuntimeBinding: true });
+    const threadId = ThreadId.makeUnsafe("thread-archived-engine-guard");
+    const folderId = asFolderId("folder-archived-engine-guard");
+    const createdAt = now();
+    const queuedMessageId = asMessageId("queued-before-archive");
+    try {
+      await system.run(
+        system.engine.dispatch({
+          type: "folder.create",
+          commandId: CommandId.makeUnsafe("archive-folder"),
+          folderId,
+          spaceId: TEST_SPACE_ID,
+          title: "Archive guard",
+          workspaceRoot: null,
+          defaultModelSelection: null,
+          createdAt,
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.makeUnsafe("archive-thread"),
+          threadId,
+          deckId: singletonThreadDeckId(threadId),
+          folderId,
+          title: "Archive guard",
+          modelSelection: { provider: "codex", model: "gpt-5-codex" },
+          runtimeMode: "full-access",
+          createdAt,
+        }),
+      );
+      const imported = await system.run(
+        system.engine.dispatch({
+          type: "thread.messages.import",
+          commandId: CommandId.makeUnsafe("archive-import"),
+          threadId,
+          messages: [
+            {
+              messageId: queuedMessageId,
+              role: "user",
+              text: "queued",
+              createdAt,
+              updatedAt: createdAt,
+            },
+          ],
+          createdAt,
+        }),
+      );
+      await system.run(system.sql`
+        INSERT INTO queued_turn_promotions (
+          queued_event_sequence, thread_id, message_id, dispatch_mode, state,
+          attempt_count, created_at, updated_at, action_kind, action_event_id
+        ) VALUES (${imported.sequence}, ${threadId}, ${queuedMessageId}, 'queue', 'queued', 0, ${createdAt}, ${createdAt}, 'cancel', 'stale-action')
+      `);
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.archive",
+          commandId: CommandId.makeUnsafe("archive-command"),
+          threadId,
+        }),
+      );
+      const archived = (await system.run(system.engine.getReadModel())).threads.find(
+        (thread) => thread.id === threadId,
+      );
+      expect(archived?.archivedAt).toBeDefined();
+      const queueRows = await system.run(
+        system.sql<{
+          readonly state: string;
+          readonly updatedAt: string;
+          readonly actionKind: string | null;
+          readonly actionEventId: string | null;
+        }>`SELECT state, updated_at AS "updatedAt", action_kind AS "actionKind", action_event_id AS "actionEventId" FROM queued_turn_promotions WHERE thread_id = ${threadId}`,
+      );
+      expect(queueRows).toMatchObject([
+        {
+          state: "cancelled",
+          updatedAt: archived?.archivedAt,
+          actionKind: null,
+          actionEventId: null,
+        },
+      ]);
+      const messages = await system.run(
+        system.sql<{
+          readonly messageId: string;
+        }>`SELECT message_id AS "messageId" FROM projection_thread_messages WHERE thread_id = ${threadId} AND message_id = ${queuedMessageId}`,
+      );
+      expect(messages).toHaveLength(0);
+      await expect(
+        system.run(
+          system.engine.dispatch({
+            type: "thread.turn.start",
+            commandId: CommandId.makeUnsafe("send-archived-command"),
+            threadId,
+            message: {
+              messageId: asMessageId("send-archived-message"),
+              role: "user",
+              text: "Continue",
+              attachments: [],
+            },
+            runtimeMode: "full-access",
+            createdAt,
+          }),
+        ),
+      ).rejects.toMatchObject({ code: "thread_archived" });
+      const turns = await system.run(
+        system.sql<{
+          readonly turnId: string;
+        }>`SELECT turn_id AS "turnId" FROM projection_turns WHERE thread_id = ${threadId}`,
+      );
+      expect(turns).toHaveLength(0);
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.unarchive",
+          commandId: CommandId.makeUnsafe("unarchive-after-queue-drop"),
+          threadId,
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.makeUnsafe("send-after-unarchive"),
+          threadId,
+          message: {
+            messageId: asMessageId("new-after-unarchive"),
+            role: "user",
+            text: "Continue",
+            attachments: [],
+          },
+          runtimeMode: "full-access",
+          createdAt,
+        }),
+      );
+      const acceptedTurns = await system.run(system.sql<{ readonly state: string }>`
+        SELECT state FROM projection_turns WHERE thread_id = ${threadId}
+      `);
+      expect(acceptedTurns).toMatchObject([{ state: "running" }]);
+    } finally {
+      await system.dispose();
+    }
+  });
+
+  it("refuses archive during a provider turn and quietly skips an archived restart recovery", async () => {
+    const system = await createOrchestrationSystem({ withRuntimeBinding: true });
+    const threadId = ThreadId.makeUnsafe("thread-archive-running-engine");
+    const folderId = asFolderId("folder-archive-running-engine");
+    const turnId = asTurnId("turn-archive-running-engine");
+    const createdAt = now();
+    try {
+      await system.run(
+        system.engine.dispatch({
+          type: "folder.create",
+          commandId: CommandId.makeUnsafe("running-folder"),
+          folderId,
+          spaceId: TEST_SPACE_ID,
+          title: "Running guard",
+          workspaceRoot: null,
+          defaultModelSelection: null,
+          createdAt,
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.makeUnsafe("running-thread"),
+          threadId,
+          deckId: singletonThreadDeckId(threadId),
+          folderId,
+          title: "Running guard",
+          modelSelection: { provider: "codex", model: "gpt-5-codex" },
+          runtimeMode: "full-access",
+          createdAt,
+        }),
+      );
+      const session = {
+        threadId,
+        providerName: "codex" as const,
+        runtimeMode: "full-access" as const,
+        activeTurnId: turnId,
+        lastError: null,
+        updatedAt: createdAt,
+      };
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.makeUnsafe("running-session"),
+          threadId,
+          session: { ...session, status: "running" },
+          createdAt,
+        }),
+      );
+      await expect(
+        system.run(
+          system.engine.dispatch({
+            type: "thread.archive",
+            commandId: CommandId.makeUnsafe("archive-running"),
+            threadId,
+          }),
+        ),
+      ).rejects.toMatchObject({ code: "thread_running" });
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.makeUnsafe("stopped-session"),
+          threadId,
+          session: { ...session, status: "stopped", activeTurnId: null },
+          createdAt,
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.archive",
+          commandId: CommandId.makeUnsafe("archive-stopped"),
+          threadId,
+        }),
+      );
+      await system.run(
+        system.sql`INSERT OR REPLACE INTO restart_turn_recoveries (thread_id, turn_id, requested_at, updated_at) VALUES (${threadId}, ${turnId}, ${createdAt}, ${createdAt})`,
+      );
+      await system.run(
+        recoverRestartInterruptedTurns.pipe(
+          Effect.provideService(OrchestrationEngineService, system.engine),
+          Effect.provideService(SqlClient.SqlClient, system.sql),
+        ),
+      );
+      const recoveries = await system.run(
+        system.sql`SELECT thread_id FROM restart_turn_recoveries WHERE thread_id = ${threadId}`,
+      );
+      expect(recoveries).toHaveLength(0);
+    } finally {
+      await system.dispose();
+    }
+  });
+  it("admits Play after a started turn is interrupted by user Stop", async () => {
+    const system = await createOrchestrationSystem({ withRuntimeBinding: true });
+    const threadId = ThreadId.makeUnsafe("thread-play-after-user-stop");
+    const folderId = asFolderId("folder-play-after-user-stop");
+    const turnId = asTurnId("turn-play-after-user-stop");
+    const requestedAt = "2026-09-26T21:04:38.548Z";
+    const startedAt = "2026-09-26T21:04:38.903Z";
+    const stoppedAt = "2026-09-26T21:04:49.812Z";
+    try {
+      await system.run(
+        system.engine.dispatch({
+          type: "folder.create",
+          commandId: CommandId.makeUnsafe("cmd-play-stop-folder"),
+          folderId,
+          spaceId: TEST_SPACE_ID,
+          title: "Play after Stop",
+          workspaceRoot: null,
+          defaultModelSelection: null,
+          createdAt: requestedAt,
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.makeUnsafe("cmd-play-stop-thread"),
+          threadId,
+          deckId: singletonThreadDeckId(threadId),
+          folderId,
+          title: "Play after Stop",
+          modelSelection: { provider: "codex", model: "gpt-5-codex" },
+          runtimeMode: "full-access",
+          createdAt: requestedAt,
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.makeUnsafe("cmd-play-stop-start"),
+          threadId,
+          turnId,
+          message: {
+            messageId: asMessageId("msg-play-stop"),
+            role: "user",
+            text: "Finish the task",
+            attachments: [],
+          },
+          runtimeMode: "full-access",
+          connectionId: null,
+          bindingRevision: 0,
+          createdAt: requestedAt,
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.makeUnsafe("cmd-play-stop-running"),
+          threadId,
+          session: {
+            threadId,
+            status: "running",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: turnId,
+            lastError: null,
+            updatedAt: startedAt,
+          },
+          createdAt: startedAt,
+        }),
+      );
+      const queued = await system.run(
+        system.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.makeUnsafe("cmd-play-stop-queued"),
+          threadId,
+          message: {
+            messageId: asMessageId("msg-play-stop-queued"),
+            role: "user",
+            text: "Follow up after this turn",
+            attachments: [],
+          },
+          runtimeMode: "full-access",
+          connectionId: null,
+          bindingRevision: 0,
+          createdAt: stoppedAt,
+        }),
+      );
+      await system.run(system.sql`
+        INSERT INTO queued_turn_promotions (
+          queued_event_sequence, thread_id, message_id, dispatch_mode, state,
+          claim_owner, claimed_at, claim_expires_at, attempt_count, created_at, updated_at, promoted_at
+        ) VALUES (${queued.sequence}, ${threadId}, ${asMessageId("msg-play-stop-queued")}, 'queue', 'queued', NULL, NULL, NULL, 0, ${stoppedAt}, ${stoppedAt}, NULL)
+      `);
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.turn.interrupt",
+          commandId: CommandId.makeUnsafe("cmd-play-stop-interrupt"),
+          threadId,
+          turnId,
+          createdAt: stoppedAt,
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.makeUnsafe("cmd-play-stop-terminal"),
+          threadId,
+          session: {
+            threadId,
+            status: "interrupted",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: stoppedAt,
+          },
+          createdAt: stoppedAt,
+        }),
+      );
+      const thread = (await system.run(system.engine.getReadModel())).threads.find(
+        (candidate) => candidate.id === threadId,
+      )!;
+      expect(thread.latestTurn).toMatchObject({ turnId, state: "interrupted" });
+      for (const dispatchMode of ["queue", "steer"] as const) {
+        await expect(
+          system.run(
+            system.engine.dispatch({
+              type: "thread.turn.dispatch-queued",
+              commandId: CommandId.makeUnsafe(`cmd-stopped-dispatch-${dispatchMode}`),
+              threadId,
+              turnId: asTurnId(`turn-stopped-dispatch-${dispatchMode}`),
+              messageId: asMessageId("msg-play-stop-queued"),
+              dispatchMode,
+              runtimeMode: "full-access",
+              createdAt: stoppedAt,
+            }),
+          ),
+        ).rejects.toMatchObject({ code: "queued_turn_stopped" });
+      }
+      expect(
+        canContinueLatestTurn(
+          { ...thread, queuedMessageIds: [asMessageId("msg-play-stop-queued")] },
+          turnId,
+        ),
+      ).toBe(true);
+      await expect(
+        system.run(
+          system.engine.dispatch({
+            type: "thread.turn.recover",
+            reason: "play",
+            commandId: CommandId.makeUnsafe("cmd-play-stop-recover"),
+            threadId,
+            turnId,
+            interruptedTurnId: turnId,
+            recoveryMessageId: asMessageId("msg-play-stop-recovery"),
+            connectionId: null,
+            bindingRevision: 0,
+            createdAt: stoppedAt,
+          }),
+        ),
+      ).resolves.toMatchObject({ sequence: expect.any(Number) });
+      const stillQueued = await system.run(system.sql<{ readonly state: string }>`
+        SELECT state FROM queued_turn_promotions WHERE thread_id = ${threadId}
+      `);
+      expect(stillQueued).toEqual([{ state: "queued" }]);
+    } finally {
+      await system.dispose();
+    }
+  });
+
+  it("rejects Play through the engine with a pending approval", async () => {
+    const blocker = "pending approval";
+    const system = await createOrchestrationSystem({ withRuntimeBinding: true });
+    const threadId = ThreadId.makeUnsafe(`thread-play-${blocker}`);
+    const turnId = asTurnId(`turn-play-${blocker}`);
+    const createdAt = now();
+    try {
+      await system.run(
+        system.engine.dispatch({
+          type: "folder.create",
+          commandId: CommandId.makeUnsafe(`cmd-play-folder-${blocker}`),
+          folderId: asFolderId(`folder-play-${blocker}`),
+          spaceId: TEST_SPACE_ID,
+          title: "Play test",
+          workspaceRoot: null,
+          defaultModelSelection: null,
+          createdAt,
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.makeUnsafe(`cmd-play-thread-${blocker}`),
+          threadId,
+          deckId: singletonThreadDeckId(threadId),
+          folderId: asFolderId(`folder-play-${blocker}`),
+          title: "Play test",
+          modelSelection: { provider: "codex", model: "gpt-5-codex" },
+          runtimeMode: "full-access",
+          createdAt,
+        }),
+      );
+      const session = {
+        threadId,
+        providerName: "codex" as const,
+        runtimeMode: "full-access" as const,
+        activeTurnId: turnId,
+        lastError: null,
+        updatedAt: createdAt,
+      };
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.makeUnsafe(`cmd-play-running-${blocker}`),
+          threadId,
+          session: { ...session, status: "running" },
+          createdAt,
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.makeUnsafe(`cmd-play-stopped-${blocker}`),
+          threadId,
+          session: { ...session, status: "stopped", activeTurnId: null },
+          createdAt,
+        }),
+      );
+      await system.run(system.sql`
+            INSERT INTO projection_pending_interactions (
+              interaction_kind, request_id, thread_id, turn_id, lifecycle_generation,
+              status, decision, response_command_id, response_requested_at, created_at, resolved_at
+            ) VALUES ('approval', 'real-pending-play-approval', ${threadId}, ${turnId}, NULL,
+              'pending', NULL, NULL, NULL, ${createdAt}, NULL)
+          `);
+      await expect(
+        system.run(
+          system.engine.dispatch({
+            type: "thread.turn.recover",
+            reason: "play",
+            commandId: CommandId.makeUnsafe(`cmd-play-blocked-${blocker}`),
+            threadId,
+            turnId,
+            interruptedTurnId: turnId,
+            recoveryMessageId: asMessageId(`recovery-play-blocked-${blocker}`),
+            connectionId: null,
+            bindingRevision: 0,
+            createdAt,
+          }),
+        ),
+      ).rejects.toMatchObject({ code: "THREAD_CONTINUE_STALE" });
+    } finally {
+      await system.dispose();
+    }
+  });
+  it("admits at most one of two concurrent Play commands for the same latest turn", async () => {
+    const system = await createOrchestrationSystem({ withRuntimeBinding: true });
+    const threadId = ThreadId.makeUnsafe("thread-concurrent-play");
+    const folderId = asFolderId("project-concurrent-play");
+    const turnId = asTurnId("turn-concurrent-play");
+    const createdAt = now();
+    try {
+      await system.run(
+        system.engine.dispatch({
+          type: "folder.create",
+          commandId: CommandId.makeUnsafe("cmd-concurrent-play-folder"),
+          folderId,
+          spaceId: TEST_SPACE_ID,
+          title: "Concurrent Play",
+          workspaceRoot: null,
+          defaultModelSelection: null,
+          createdAt,
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.makeUnsafe("cmd-concurrent-play-thread"),
+          threadId,
+          deckId: singletonThreadDeckId(threadId),
+          folderId,
+          title: "Concurrent Play thread",
+          modelSelection: { provider: "codex", model: "gpt-5-codex" },
+          runtimeMode: "full-access",
+          createdAt,
+        }),
+      );
+      const session = {
+        threadId,
+        providerName: "codex" as const,
+        runtimeMode: "full-access" as const,
+        activeTurnId: turnId,
+        lastError: null,
+        updatedAt: createdAt,
+      };
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.makeUnsafe("cmd-concurrent-play-running"),
+          threadId,
+          session: { ...session, status: "running" },
+          createdAt,
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.makeUnsafe("cmd-concurrent-play-stopped"),
+          threadId,
+          session: { ...session, status: "stopped", activeTurnId: null },
+          createdAt,
+        }),
+      );
+      const play = (index: number) =>
+        system.run(
+          system.engine.dispatch({
+            type: "thread.turn.recover",
+            reason: "play",
+            commandId: CommandId.makeUnsafe(`cmd-concurrent-play-${index}`),
+            threadId,
+            turnId,
+            interruptedTurnId: turnId,
+            recoveryMessageId: MessageId.makeUnsafe(`message-concurrent-play-${index}`),
+            connectionId: null,
+            bindingRevision: 0,
+            createdAt,
+          }),
+        );
+      await expect(
+        system.run(
+          system.engine.dispatch({
+            type: "thread.turn.recover",
+            reason: "play",
+            commandId: CommandId.makeUnsafe("cmd-concurrent-play-stale-binding"),
+            threadId,
+            turnId,
+            interruptedTurnId: turnId,
+            recoveryMessageId: MessageId.makeUnsafe("message-concurrent-play-stale-binding"),
+            connectionId: null,
+            bindingRevision: 1,
+            createdAt,
+          }),
+        ),
+      ).rejects.toMatchObject({ code: "THREAD_CONTINUE_STALE" });
+      const results = await Promise.allSettled([play(1), play(2)]);
+      expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+      expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+      const readModel = await system.run(system.engine.getCommandReadModel());
+      expect(
+        readModel.threads.find((thread) => thread.id === threadId)?.pendingTurnStartMessageId,
+      ).not.toBeNull();
+    } finally {
+      await system.dispose();
+    }
+  });
+
   it("quiesces normal admission while draining reserved lifecycle commands", async () => {
     const system = await createOrchestrationSystem();
     const createdAt = now();

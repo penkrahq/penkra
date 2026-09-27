@@ -3,7 +3,7 @@
 // Layer: Web chat presentation helpers
 // Exports: row derivation, structural sharing, copy/timer helpers
 
-import { type MessageId, type TurnId } from "@penkra/contracts";
+import { type TurnId } from "@penkra/contracts";
 import {
   type TimelineEntry,
   type WorkLogEntry,
@@ -199,7 +199,14 @@ export interface TimelineDurationMessage {
 }
 
 export type MessagesTimelineRow =
-  | { kind: "media"; id: string; createdAt: string; entries: ReadonlyArray<WorkLogEntry> }
+  | {
+      kind: "media";
+      id: string;
+      createdAt: string;
+      entries: ReadonlyArray<WorkLogEntry>;
+      collapsedTurnItems?: CollapsedTurnItem[];
+      collapsedWorkElapsed?: string | null;
+    }
   | {
       kind: "work";
       id: string;
@@ -217,6 +224,8 @@ export type MessagesTimelineRow =
       inlineWorkGroupId?: string;
       collapsedTurnItems?: CollapsedTurnItem[];
       collapsedWorkElapsed?: string | null;
+      collapsedTurnSummaryOnly?: boolean;
+      hasVisibleMediaInTurn?: boolean;
       durationStart: string;
       showAssistantCopyButton: boolean;
       assistantCopyStreaming: boolean;
@@ -275,24 +284,13 @@ export function resolveAssistantMessageCopyState({
 
 type AssistantMessageDisplayInput = {
   readonly message: Pick<ChatMessage, "text" | "streaming">;
-  readonly leadingWorkEntries?: ReadonlyArray<WorkLogEntry>;
-  readonly inlineWorkEntries?: ReadonlyArray<WorkLogEntry>;
-  readonly collapsedTurnItems?: ReadonlyArray<CollapsedTurnItem>;
+  readonly hasVisibleMediaInTurn?: boolean;
 };
 
-function isVisibleGeneratedImageEntry(entry: WorkLogEntry): boolean {
-  return (
-    entry.itemType === "image_generation" &&
-    entry.activityKind === "tool.completed" &&
-    entry.tone !== "error"
-  );
-}
-
 /**
- * Resolves the markdown body for an assistant row. A completed image-generation
- * work item is already visible non-text output, so an adjacent empty provider
- * message must not add the misleading "(empty response)" placeholder. Truly
- * empty settled turns retain the placeholder, and live empty text stays blank.
+ * An explicitly presented image can be the entire answer, so a trailing empty
+ * provider message does not add a misleading placeholder after that media.
+ * Merely generating an artifact is work, not a visible presentation.
  */
 export function resolveAssistantMessageDisplayText(
   input: AssistantMessageDisplayInput,
@@ -304,15 +302,7 @@ export function resolveAssistantMessageDisplayText(
     return "";
   }
 
-  const hasVisibleGeneratedImage = [
-    ...(input.leadingWorkEntries ?? []),
-    ...(input.inlineWorkEntries ?? []),
-    ...(input.collapsedTurnItems ?? []).flatMap((item) =>
-      item.kind === "work" ? [item.entry] : [],
-    ),
-  ].some(isVisibleGeneratedImageEntry);
-
-  return hasVisibleGeneratedImage ? null : "(empty response)";
+  return input.hasVisibleMediaInTurn ? null : "(empty response)";
 }
 
 export function deriveTerminalAssistantMessageIds(
@@ -613,8 +603,13 @@ function collapseSettledTurns(
     // mini-turns can have distinct turnIds inside one assistant answer, so the
     // user message boundary is the stable UI grouping point.
     const foldIndices: number[] = [];
+    const mediaIndices: number[] = [];
     for (let scan = pass - 1; scan >= 0; scan -= 1) {
       const prev = rows[scan]!;
+      if (prev.kind === "media") {
+        mediaIndices.push(scan);
+        continue;
+      }
       if (prev.kind === "work") {
         foldIndices.push(scan);
         continue;
@@ -626,6 +621,9 @@ function collapseSettledTurns(
       break;
     }
     foldIndices.reverse();
+    mediaIndices.reverse();
+    if (mediaIndices.length > 0) row.hasVisibleMediaInTurn = true;
+    const firstMediaRow = mediaIndices.length > 0 ? rows[mediaIndices[0]!] : undefined;
 
     const collapsedItems: CollapsedTurnItem[] = [];
     // The disclosure folds everything back to the user boundary, so "Worked
@@ -654,17 +652,74 @@ function collapseSettledTurns(
 
     if (collapsedItems.length > 0) {
       const elapsed = formatElapsed(collapsedStart, message.completedAt);
-      row.collapsedTurnItems = collapsedItems;
-      row.collapsedWorkElapsed = elapsed ?? null;
-      delete row.leadingWorkEntries;
-      delete row.leadingWorkGroupId;
-      delete row.inlineWorkEntries;
-      delete row.inlineWorkGroupId;
+      const creationRecapItems = collapsedItems.filter(
+        (item) => item.kind === "work" && item.entry.penkraThreadCreation,
+      );
+      const disclosureItems = collapsedItems.filter(
+        (item) => item.kind !== "work" || !item.entry.penkraThreadCreation,
+      );
+      const summaryAnchorIndex =
+        mediaIndices.length > 0 && disclosureItems.length > 0
+          ? foldIndices.find(
+              (index) =>
+                rows[index]?.kind === "message" && rows[index]?.message.role === "assistant",
+            )
+          : undefined;
+      const summaryAnchor = summaryAnchorIndex === undefined ? undefined : rows[summaryAnchorIndex];
 
-      for (const index of foldIndices.toSorted((a, b) => b - a)) {
+      if (
+        summaryAnchor?.kind === "message" &&
+        summaryAnchor.message.role === "assistant" &&
+        disclosureItems.length > 0
+      ) {
+        // Keep the turn disclosure at the first assistant output, even when a
+        // presented image/gallery interrupts the settled turn. The media row
+        // remains in its original chronological position and stays visible.
+        summaryAnchor.collapsedTurnItems = disclosureItems;
+        summaryAnchor.collapsedWorkElapsed = elapsed ?? null;
+        summaryAnchor.collapsedTurnSummaryOnly = true;
+        if (creationRecapItems.length > 0) {
+          row.collapsedTurnItems = creationRecapItems;
+        }
+        delete row.leadingWorkEntries;
+        delete row.leadingWorkGroupId;
+        delete row.inlineWorkEntries;
+        delete row.inlineWorkGroupId;
+      } else if (firstMediaRow?.kind === "media" && disclosureItems.length > 0) {
+        // A media-first turn has no earlier assistant message to host its
+        // disclosure. Put it on the media row so the summary precedes the
+        // visible image/gallery while the actual media stays in place.
+        firstMediaRow.collapsedTurnItems = disclosureItems;
+        firstMediaRow.collapsedWorkElapsed = elapsed ?? null;
+        if (creationRecapItems.length > 0) {
+          row.collapsedTurnItems = creationRecapItems;
+        }
+        delete row.leadingWorkEntries;
+        delete row.leadingWorkGroupId;
+        delete row.inlineWorkEntries;
+        delete row.inlineWorkGroupId;
+      } else {
+        row.collapsedTurnItems = collapsedItems;
+        row.collapsedWorkElapsed = elapsed ?? null;
+        delete row.leadingWorkEntries;
+        delete row.leadingWorkGroupId;
+        delete row.inlineWorkEntries;
+        delete row.inlineWorkGroupId;
+      }
+
+      const indicesToRemove = foldIndices.filter((index) => index !== summaryAnchorIndex);
+      for (const index of indicesToRemove.toSorted((a, b) => b - a)) {
         rows.splice(index, 1);
       }
-      pass -= foldIndices.length;
+      if (summaryAnchor && firstMediaRow) {
+        const summaryIndex = rows.indexOf(summaryAnchor);
+        const mediaIndex = rows.indexOf(firstMediaRow);
+        if (summaryIndex >= 0 && mediaIndex >= 0 && mediaIndex < summaryIndex) {
+          rows.splice(summaryIndex, 1);
+          rows.splice(mediaIndex, 0, summaryAnchor);
+        }
+      }
+      pass -= indicesToRemove.length;
     }
   }
 }
@@ -908,7 +963,9 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
     case "media":
       return (
         a.createdAt === (b as typeof a).createdAt &&
-        workLogEntryArraysEqual(a.entries, (b as typeof a).entries)
+        workLogEntryArraysEqual(a.entries, (b as typeof a).entries) &&
+        collapsedTurnItemsEqual(a.collapsedTurnItems, (b as typeof a).collapsedTurnItems) &&
+        a.collapsedWorkElapsed === (b as typeof a).collapsedWorkElapsed
       );
     case "working":
       return a.createdAt === (b as typeof a).createdAt;
@@ -932,6 +989,8 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.inlineWorkGroupId === bm.inlineWorkGroupId &&
         collapsedTurnItemsEqual(a.collapsedTurnItems, bm.collapsedTurnItems) &&
         a.collapsedWorkElapsed === bm.collapsedWorkElapsed &&
+        a.collapsedTurnSummaryOnly === bm.collapsedTurnSummaryOnly &&
+        a.hasVisibleMediaInTurn === bm.hasVisibleMediaInTurn &&
         a.durationStart === bm.durationStart &&
         a.showAssistantCopyButton === bm.showAssistantCopyButton &&
         a.assistantCopyStreaming === bm.assistantCopyStreaming &&

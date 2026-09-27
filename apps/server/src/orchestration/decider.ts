@@ -17,6 +17,7 @@ import {
 } from "@penkra/shared/conversationEdit";
 import { Effect } from "effect";
 import { normalizeEntityName } from "@penkra/shared/entityNames";
+import { canContinueLatestTurn } from "@penkra/shared/turnContinuation";
 import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
@@ -36,6 +37,7 @@ import {
   requireThread,
   requireThreadAbsent,
   requireThreadArchived,
+  requireThreadCanTakeWork,
   requireThreadNotArchived,
   threadHasInFlightTurn,
 } from "./commandInvariants.ts";
@@ -234,6 +236,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
   readModel,
   workspacePaths: _workspacePaths,
   acceptedConnectionChange,
+  allowArchivedProviderProjection = false,
+  userStopRequested = false,
 }: {
   readonly command: OrchestrationCommand;
   readonly readModel: OrchestrationReadModel;
@@ -241,6 +245,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     | { readonly homeDir: string; readonly chatWorkspaceRoot: string }
     | undefined;
   readonly acceptedConnectionChange?: AcceptedConnectionChange | undefined;
+  readonly allowArchivedProviderProjection?: boolean;
+  readonly userStopRequested?: boolean;
 }): Effect.fn.Return<
   Omit<OrchestrationEvent, "sequence"> | ReadonlyArray<Omit<OrchestrationEvent, "sequence">>,
   OrchestrationCommandInvariantError
@@ -1150,6 +1156,22 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         threadId: command.threadId,
       });
       if (
+        command.expectedEmptyGatewayOperationId !== undefined &&
+        (thread.gatewayOperationId !== command.expectedEmptyGatewayOperationId ||
+          thread.latestTurn !== null ||
+          thread.messages.length > 0 ||
+          thread.archivedAt !== null ||
+          thread.updatedAt !== thread.createdAt ||
+          thread.isPinned === true)
+      ) {
+        return yield* Effect.fail(
+          new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `Thread '${command.threadId}' is no longer an empty gateway creation.`,
+          }),
+        );
+      }
+      if (
         command.expectedArchivedAt !== undefined &&
         (thread.archivedAt !== command.expectedArchivedAt || thread.isPinned === true)
       ) {
@@ -1211,6 +1233,19 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         threadId: command.threadId,
       });
       if (
+        !userStopRequested &&
+        (thread.latestTurn?.state === "running" ||
+          thread.session?.status === "starting" ||
+          (thread.session?.status !== "error" && thread.session?.activeTurnId != null) ||
+          thread.pendingTurnStartMessageId != null)
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          code: "thread_running",
+          detail: "This thread is still running. Stop it before archiving.",
+        });
+      }
+      if (
         (command.expectedUpdatedAt !== undefined &&
           thread.updatedAt !== command.expectedUpdatedAt) ||
         (command.expectedLastVisitedAt !== undefined &&
@@ -1227,8 +1262,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           }),
         );
       }
-      const occurredAt = nowIso();
-      return {
+      const requestedAt = command.createdAt ?? nowIso();
+      const occurredAt = requestedAt < thread.updatedAt ? thread.updatedAt : requestedAt;
+      const archivedEvent: Omit<OrchestrationEvent, "sequence"> = {
         ...withEventBase({
           aggregateKind: "thread",
           aggregateId: command.threadId,
@@ -1242,6 +1278,19 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           updatedAt: occurredAt,
         },
       };
+      const cancelledEvents: ReadonlyArray<Omit<OrchestrationEvent, "sequence">> = (
+        thread.queuedMessageIds ?? []
+      ).map((messageId) => ({
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.turn-start-cancelled" as const,
+        payload: { threadId: command.threadId, messageId, cancelledAt: occurredAt },
+      }));
+      return cancelledEvents.length === 0 ? archivedEvent : [...cancelledEvents, archivedEvent];
     }
 
     case "thread.unarchive": {
@@ -1267,7 +1316,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.update": {
-      const thread = yield* requireThread({
+      const thread = yield* (
+        allowArchivedProviderProjection ? requireThread : requireThreadCanTakeWork
+      )({
         readModel,
         command,
         threadId: command.threadId,
@@ -1300,6 +1351,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.modelSelection !== undefined
             ? { modelSelection: command.modelSelection }
             : {}),
+          ...(command.connectionId !== undefined ? { connectionId: command.connectionId } : {}),
           ...resolveThreadWorkspaceMetadataPatch(command),
           ...(command.isPinned !== undefined ? { isPinned: command.isPinned } : {}),
           ...(command.isPinned !== undefined && command.isPinned !== thread.isPinned
@@ -1327,7 +1379,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.pinned-message.add": {
-      const thread = yield* requireThread({
+      const thread = yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -1362,7 +1414,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.pinned-message.remove": {
-      yield* requireThread({
+      yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -1386,7 +1438,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.pinned-message.done.set": {
-      yield* requireThread({
+      yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -1410,7 +1462,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.pinned-message.label.set": {
-      yield* requireThread({
+      yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -1434,7 +1486,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.runtime-mode.set": {
-      yield* requireThread({
+      yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -1457,11 +1509,33 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.turn.recover": {
-      const thread = yield* requireThread({
+      const thread = yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
-      });
+      }).pipe(
+        Effect.mapError((error) =>
+          command.reason === "play" && error.code !== "thread_archived"
+            ? new OrchestrationCommandInvariantError({
+                commandType: command.type,
+                detail: "Thread changed before continuation.",
+                code: "THREAD_CONTINUE_STALE",
+              })
+            : error,
+        ),
+      );
+      if (
+        command.reason === "play" &&
+        (command.interruptedTurnId === undefined ||
+          command.turnId !== command.interruptedTurnId ||
+          !canContinueLatestTurn(thread, command.interruptedTurnId))
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Thread changed before continuation.",
+          code: "THREAD_CONTINUE_STALE",
+        });
+      }
       if (threadHasInFlightTurn(thread)) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
@@ -1493,6 +1567,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.interruptedTurnId !== undefined
             ? { recoveryOfTurnId: command.interruptedTurnId }
             : {}),
+          recoveryReason: command.reason ?? "restart",
           restartRecovery: true,
           connectionId: command.connectionId,
           bindingRevision: command.bindingRevision,
@@ -1506,7 +1581,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.turn.start": {
-      const targetThread = yield* requireThread({
+      const targetThread = yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -1649,6 +1724,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           // originally dispatched by a non-user source must overwrite the
           // stale origin instead of inheriting it.
           dispatchOrigin: command.dispatchOrigin ?? "user",
+          ...(command.dispatchOrigin === "agent" && command.senderThreadId !== undefined
+            ? { senderThreadId: command.senderThreadId }
+            : {}),
           delivery: {
             state: shouldQueue ? "queued" : dispatchMode === "steer" ? "steering" : "starting",
             queued: shouldQueue,
@@ -1676,6 +1754,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         assistantDeliveryMode: command.assistantDeliveryMode ?? DEFAULT_ASSISTANT_DELIVERY_MODE,
         dispatchMode,
         dispatchOrigin: command.dispatchOrigin ?? "user",
+        ...(command.dispatchOrigin === "agent" && command.senderThreadId !== undefined
+          ? { senderThreadId: command.senderThreadId }
+          : {}),
         runtimeMode: command.runtimeMode,
         createdAt: command.createdAt,
       } as const;
@@ -1716,7 +1797,14 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.turn.dispatch-queued": {
-      const thread = yield* requireThread({
+      if (userStopRequested) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Queued turn admission is paused after Stop.",
+          code: "queued_turn_stopped",
+        });
+      }
+      const thread = yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -1747,6 +1835,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           assistantDeliveryMode: command.assistantDeliveryMode ?? DEFAULT_ASSISTANT_DELIVERY_MODE,
           dispatchMode: command.dispatchMode ?? "queue",
           dispatchOrigin: command.dispatchOrigin ?? "user",
+          ...(command.dispatchOrigin === "agent" && command.senderThreadId !== undefined
+            ? { senderThreadId: command.senderThreadId }
+            : {}),
           runtimeMode: command.runtimeMode,
           createdAt: command.createdAt,
         },
@@ -1765,6 +1856,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           aggregateId: command.threadId,
           occurredAt: command.createdAt,
           commandId: command.commandId,
+          metadata: { userStopRequested: true },
         }),
         type: "thread.turn-interrupt-requested",
         payload: {
@@ -1809,11 +1901,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
 
     case "thread.turn.cancel-queued":
     case "thread.turn.steer-queued": {
-      yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
+      yield* command.type === "thread.turn.steer-queued"
+        ? requireThreadCanTakeWork({ readModel, command, threadId: command.threadId })
+        : requireThread({ readModel, command, threadId: command.threadId });
       return {
         ...withEventBase({
           aggregateKind: "thread",
@@ -1859,7 +1949,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.task.background": {
-      yield* requireThread({
+      yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -1881,7 +1971,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.approval.respond": {
-      yield* requireThread({
+      yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -1910,7 +2000,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.user-input.respond": {
-      yield* requireThread({
+      yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -1940,7 +2030,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.conversation.rollback": {
-      const thread = yield* requireThread({
+      const thread = yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -1976,7 +2066,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.message.edit-and-resend": {
-      const thread = yield* requireThread({
+      const thread = yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -2123,7 +2213,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.messages.import": {
-      yield* requireThread({
+      yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -2152,7 +2242,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.message.assistant.delta": {
-      const thread = yield* requireThread({
+      const thread = yield* (
+        allowArchivedProviderProjection ? requireThread : requireThreadCanTakeWork
+      )({
         readModel,
         command,
         threadId: command.threadId,
@@ -2186,7 +2278,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.message.assistant.complete": {
-      const thread = yield* requireThread({
+      const thread = yield* (
+        allowArchivedProviderProjection ? requireThread : requireThreadCanTakeWork
+      )({
         readModel,
         command,
         threadId: command.threadId,
@@ -2217,7 +2311,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.conversation.rollback.complete": {
-      yield* requireThread({
+      yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -2268,7 +2362,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.message.delivery.set": {
-      yield* requireThread({
+      yield* requireThreadCanTakeWork({
         readModel,
         command,
         threadId: command.threadId,
@@ -2307,7 +2401,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.activity.append": {
-      yield* requireThread({
+      yield* (allowArchivedProviderProjection ? requireThread : requireThreadCanTakeWork)({
         readModel,
         command,
         threadId: command.threadId,
@@ -2337,7 +2431,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.activity-read-model.touch": {
-      yield* requireThread({
+      yield* (allowArchivedProviderProjection ? requireThread : requireThreadCanTakeWork)({
         readModel,
         command,
         threadId: command.threadId,

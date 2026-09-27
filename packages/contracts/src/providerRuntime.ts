@@ -693,6 +693,13 @@ export type FilesPersistedPayload = typeof FilesPersistedPayload.Type;
 const RuntimeWarningPayload = Schema.Struct({
   message: TrimmedNonEmptyStringSchema,
   detail: Schema.optional(Schema.Unknown),
+  diagnostic: Schema.optional(
+    Schema.Struct({
+      key: TrimmedNonEmptyStringSchema,
+      fingerprint: TrimmedNonEmptyStringSchema,
+      state: Schema.Literals(["active", "resolved"]),
+    }),
+  ),
 });
 export type RuntimeWarningPayload = typeof RuntimeWarningPayload.Type;
 

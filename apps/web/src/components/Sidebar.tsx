@@ -51,7 +51,6 @@ import { recordSidebarLifecycleDiagnostic } from "../sidebarLifecycleDiagnostics
 import { isElectron } from "../env";
 import { useFeedbackDialogStore } from "../feedbackDialogStore";
 import { useFocusedChatContext } from "../focusedChatContext";
-import { useChatRouteSearch } from "../hooks/useChatRouteSearch";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import {
@@ -102,7 +101,6 @@ import { readNativeApi } from "../nativeApi";
 import { usePinnedFoldersStore } from "../pinnedFoldersStore";
 import { reconcileOptimisticPinState } from "../pinning.logic";
 import { useSpacesUiStore } from "../spacesUiStore";
-import { selectSplitView, useSplitViewStore } from "../splitViewStore";
 import { useSidebarInlineRenameStore } from "../sidebarInlineRenameStore";
 import { persistAppStateNow, useStore } from "../store";
 import {
@@ -417,11 +415,6 @@ export default function Sidebar() {
     strict: false,
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
   });
-  const routeSearch = useChatRouteSearch();
-  const activeSplitView = useSplitViewStore(
-    useMemo(() => selectSplitView(routeSearch.splitViewId ?? null), [routeSearch.splitViewId]),
-  );
-  const splitViewsById = useSplitViewStore((store) => store.splitViewsById);
 
   useEffect(() => {
     const api = readNativeApi();
@@ -494,7 +487,6 @@ export default function Sidebar() {
       }
     };
   }, []);
-  const setSplitFocusedPane = useSplitViewStore((store) => store.setFocusedPane);
   const { data: keybindings = EMPTY_KEYBINDINGS } = useQuery({
     ...serverConfigQueryOptions(),
     select: (config) => config.keybindings,
@@ -761,12 +753,10 @@ export default function Sidebar() {
     archiveThread,
     confirmAndArchiveThread,
   } = useSidebarThreadActions({
-    activeSplitView,
     appSettings,
     clearTerminalState,
     handleNewChat,
     projectById,
-    routeSplitViewId: routeSearch.splitViewId ?? null,
     routeThreadId,
     sidebarThreads,
     sidebarTreeThreads,
@@ -1489,21 +1479,17 @@ export default function Sidebar() {
     ],
   );
   const { activateThreadFromSidebarIntent } = useThreadActivationController({
-    activeSplitView,
     clearSelection,
     navigate,
     openChatThreadPage,
     openTerminalThreadPage,
     prewarmThreadDetailForIntent,
     rememberLastThreadRouteNow,
-    routeSplitViewId: routeSearch.splitViewId,
     routeThreadId,
     selectedThreadCount: selectedThreadIds.size,
     setOptimisticActiveThreadId,
     setSelectionAnchor,
-    setSplitFocusedPane,
     sidebarThreadSummaryById,
-    splitViewsById,
     terminalStateByThreadId,
   });
 
@@ -2296,21 +2282,17 @@ export default function Sidebar() {
 
     const nextLastThreadRoute = {
       threadId: routeThreadId,
-      ...(routeSearch.splitViewId ? { splitViewId: routeSearch.splitViewId } : {}),
     };
     const settle = window.setTimeout(() => {
       setLastThreadRoute((current) => {
-        if (
-          current?.threadId === nextLastThreadRoute.threadId &&
-          current?.splitViewId === nextLastThreadRoute.splitViewId
-        ) {
+        if (current?.threadId === nextLastThreadRoute.threadId) {
           return current;
         }
         return nextLastThreadRoute;
       });
     }, 0);
     return () => window.clearTimeout(settle);
-  }, [isOnSettings, isOnWorkspace, routeSearch.splitViewId, routeThreadId]);
+  }, [isOnSettings, isOnWorkspace, routeThreadId]);
 
   const handleThreadClick = useCallback(
     (event: MouseEvent, threadId: ThreadId, orderedProjectThreadIds: readonly ThreadId[]) => {

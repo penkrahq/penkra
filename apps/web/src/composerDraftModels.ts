@@ -279,12 +279,18 @@ function deriveEffectiveOptions(input: {
     | undefined;
   threadModelSelection: ModelSelection | null | undefined;
   projectModelSelection: ModelSelection | null | undefined;
+  selectedProvider: ProviderKind;
+  selectedModel: ModelSlug;
 }): ProviderModelOptions | null {
   const result: Partial<Record<ProviderKind, ProviderModelOptions[ProviderKind]>> = {};
   for (const selection of [
     input.projectModelSelection,
     input.threadModelSelection,
-    ...Object.values(input.draft?.modelSelectionByProvider ?? {}),
+    ...Object.values(input.draft?.modelSelectionByProvider ?? {}).filter(
+      (selection) =>
+        selection.provider !== input.selectedProvider ||
+        normalizeModelSlug(selection.model, selection.provider) === input.selectedModel,
+    ),
   ]) {
     if (!selection) continue;
     if (selection.options) result[selection.provider] = selection.options;
@@ -335,8 +341,8 @@ export function deriveEffectiveComposerModelState(input: {
   );
   const providerDeclaredDefault = availableOptions?.find((option) => option.isDefault)?.slug;
   const selectedModel =
-    available(draftSelection?.model) ??
     available(threadSelection?.model) ??
+    available(draftSelection?.model) ??
     available(projectSelection?.model) ??
     available(selectedDraftModel) ??
     (authoritativeCodex
@@ -350,7 +356,7 @@ export function deriveEffectiveComposerModelState(input: {
     selectedDraftModel ??
     fallback ??
     getDefaultModel("codex");
-  return { selectedModel, modelOptions: deriveEffectiveOptions(input) };
+  return { selectedModel, modelOptions: deriveEffectiveOptions({ ...input, selectedModel }) };
 }
 
 export function resolvePreferredComposerModelSelection(input: {

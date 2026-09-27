@@ -17,6 +17,7 @@ import {
 import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
 
 import { isSessionRunningTurn, latestTurnMatchesTurnId } from "./session-logic";
+import { shouldInterruptProvisionalCompletion } from "@penkra/shared/turnContinuation";
 import {
   MAX_THREAD_MESSAGES,
   arraysShallowEqual,
@@ -24,6 +25,7 @@ import {
   createThreadActivityAccumulator,
   compareChatMessagesForTranscript,
   deepEqualJson,
+  latestDeliveryFailureReason,
   normalizeActivities,
   normalizeChatMessage,
   normalizeModelSelection,
@@ -233,6 +235,7 @@ function reconcilePendingInteractionsFromActivity(
 function buildLatestTurn(params: {
   previous: Thread["latestTurn"];
   turnId: NonNullable<Thread["latestTurn"]>["turnId"];
+  providerTurnId?: NonNullable<Thread["latestTurn"]>["turnId"];
   state: NonNullable<Thread["latestTurn"]>["state"];
   requestedAt: string;
   startedAt: string | null;
@@ -240,7 +243,8 @@ function buildLatestTurn(params: {
   assistantMessageId: NonNullable<Thread["latestTurn"]>["assistantMessageId"];
 }): NonNullable<Thread["latestTurn"]> {
   const providerTurnId =
-    params.previous?.turnId === params.turnId ? params.previous.providerTurnId : undefined;
+    params.providerTurnId ??
+    (params.previous?.turnId === params.turnId ? params.previous.providerTurnId : undefined);
   return {
     turnId: params.turnId,
     ...(providerTurnId !== undefined ? { providerTurnId } : {}),
@@ -257,15 +261,41 @@ function reconcileLatestTurnFromSession(
   session: NonNullable<ReadModelThread["session"]>,
   error: string | null,
 ): Thread["latestTurn"] {
+  if (
+    shouldInterruptProvisionalCompletion({
+      previousSession: thread.session,
+      nextSession: session,
+      turn: thread.latestTurn,
+    }) &&
+    thread.latestTurn
+  ) {
+    return buildLatestTurn({
+      previous: thread.latestTurn,
+      turnId: thread.latestTurn.turnId,
+      state: "interrupted",
+      requestedAt: thread.latestTurn.requestedAt,
+      startedAt: thread.latestTurn.startedAt,
+      completedAt: session.updatedAt,
+      assistantMessageId: thread.latestTurn.assistantMessageId,
+    });
+  }
   if (isSessionRunningTurn(session)) {
     const matchedLatestTurn = latestTurnMatchesTurnId(thread.latestTurn, session.activeTurnId)
       ? thread.latestTurn
       : null;
+    // A provider turn has its own ID. The pending user message retains the
+    // logical turn ID from thread.turn-start-requested until this session starts.
+    const pendingMessage = thread.messages.find(
+      (message) => message.id === thread.pendingTurnStartMessageId && message.role === "user",
+    );
+    const logicalTurnId =
+      matchedLatestTurn?.turnId ?? pendingMessage?.turnId ?? session.activeTurnId;
     return buildLatestTurn({
       previous: thread.latestTurn,
-      turnId: matchedLatestTurn?.turnId ?? session.activeTurnId,
+      turnId: logicalTurnId,
+      ...(logicalTurnId !== session.activeTurnId ? { providerTurnId: session.activeTurnId } : {}),
       state: "running",
-      requestedAt: matchedLatestTurn?.requestedAt ?? session.updatedAt,
+      requestedAt: matchedLatestTurn?.requestedAt ?? pendingMessage?.createdAt ?? session.updatedAt,
       startedAt:
         matchedLatestTurn !== null
           ? (matchedLatestTurn.startedAt ?? session.updatedAt)
@@ -291,8 +321,13 @@ function reconcileLatestTurnFromSession(
           : null;
   if (
     settledState !== null &&
-    thread.latestTurn?.state === "running" &&
-    (session.activeTurnId == null || settledState === "error")
+    thread.latestTurn !== null &&
+    ((thread.latestTurn.state === "running" &&
+      (session.activeTurnId == null || settledState === "error")) ||
+      (settledState === "error" &&
+        thread.latestTurn.state === "completed" &&
+        isSessionRunningTurn(thread.session) &&
+        latestTurnMatchesTurnId(thread.latestTurn, thread.session.activeTurnId)))
   ) {
     return buildLatestTurn({
       previous: thread.latestTurn,
@@ -374,6 +409,10 @@ function mergeStreamingMessage(
     incomingMessage.dispatchOrigin !== undefined
       ? incomingMessage.dispatchOrigin
       : existingMessage.dispatchOrigin;
+  const nextSenderThreadId =
+    nextDispatchOrigin === "agent"
+      ? (incomingMessage.senderThreadId ?? existingMessage.senderThreadId)
+      : undefined;
   const nextDelivery =
     incomingMessage.delivery === undefined ||
     (existingMessage.delivery !== undefined &&
@@ -392,14 +431,19 @@ function mergeStreamingMessage(
     existingMessage.turnId === nextTurnId &&
     existingMessage.dispatchMode === nextDispatchMode &&
     existingMessage.dispatchOrigin === nextDispatchOrigin &&
+    existingMessage.senderThreadId === nextSenderThreadId &&
     existingMessage.delivery === nextDelivery &&
     existingMessage.source === nextSource
   ) {
     return null;
   }
 
+  const existingMessageForMerge =
+    nextDispatchOrigin !== "agent"
+      ? (({ senderThreadId: _senderThreadId, ...message }) => message)(existingMessage)
+      : existingMessage;
   return {
-    ...existingMessage,
+    ...existingMessageForMerge,
     text: nextText,
     streaming: incomingMessage.streaming,
     ...(nextAttachments ? { attachments: nextAttachments } : {}),
@@ -408,6 +452,7 @@ function mergeStreamingMessage(
     ...(nextTurnId !== undefined ? { turnId: nextTurnId } : {}),
     ...(nextDispatchMode !== undefined ? { dispatchMode: nextDispatchMode } : {}),
     ...(nextDispatchOrigin !== undefined ? { dispatchOrigin: nextDispatchOrigin } : {}),
+    ...(nextSenderThreadId !== undefined ? { senderThreadId: nextSenderThreadId } : {}),
     ...(nextDelivery !== undefined ? { delivery: nextDelivery } : {}),
     ...(nextSource !== undefined ? { source: nextSource } : {}),
     ...(nextCompletedAt !== undefined ? { completedAt: nextCompletedAt } : {}),
@@ -431,6 +476,7 @@ function applyThreadMessageSentEvent(
       text: payload.text,
       dispatchMode: payload.dispatchMode,
       dispatchOrigin: payload.dispatchOrigin,
+      senderThreadId: payload.senderThreadId,
       ...(payload.delivery !== undefined
         ? { delivery: { ...payload.delivery, sequence: event.sequence } }
         : {}),
@@ -742,6 +788,10 @@ function applyOrchestrationEvent(
             event.payload.modelSelection !== undefined
               ? normalizeModelSelection(event.payload.modelSelection, thread.modelSelection)
               : thread.modelSelection;
+          const connectionId =
+            event.payload.connectionId !== undefined
+              ? event.payload.connectionId
+              : thread.connectionId;
           const nextWorkingDirectory =
             event.payload.workingDirectory !== undefined
               ? event.payload.workingDirectory
@@ -755,6 +805,7 @@ function applyOrchestrationEvent(
           if (
             (event.payload.title === undefined || event.payload.title === thread.title) &&
             modelSelection === thread.modelSelection &&
+            connectionId === thread.connectionId &&
             nextWorkingDirectory === (thread.workingDirectory ?? null) &&
             (event.payload.isPinned === undefined ||
               event.payload.isPinned === (thread.isPinned ?? false)) &&
@@ -780,6 +831,7 @@ function applyOrchestrationEvent(
             ...thread,
             ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
             modelSelection,
+            ...(connectionId !== undefined ? { connectionId } : {}),
             workingDirectory: nextWorkingDirectory,
             ...(event.payload.isPinned !== undefined ? { isPinned: event.payload.isPinned } : {}),
             ...(event.payload.parentThreadId !== undefined
@@ -944,14 +996,21 @@ function applyOrchestrationEvent(
           const failedBeforeDispatch =
             event.payload.state === "failed" &&
             event.payload.failurePhase === "before-provider-dispatch";
-          const targetDeliveryState = thread.messages.find(
+          const targetDelivery = thread.messages.find(
             (message) => message.id === event.payload.messageId,
-          )?.delivery?.state;
+          )?.delivery;
+          const targetDeliveryState = targetDelivery?.state;
           const nativeSteer = providerSupportsNativeTurnSteering(
             thread.session?.provider ?? thread.modelSelection.provider,
           );
           const isUnacceptedAttempt =
             targetDeliveryState === "starting" || targetDeliveryState === "steering";
+          const appliesDelivery =
+            targetDelivery !== undefined &&
+            event.sequence >= targetDelivery.sequence &&
+            (!failedBeforeDispatch || isUnacceptedAttempt || targetDeliveryState === "queued");
+          const failsQueuedMessage =
+            appliesDelivery && failedBeforeDispatch && targetDeliveryState === "queued";
           const acceptsSteerOwner =
             event.payload.state === "accepted" &&
             nativeSteer &&
@@ -961,30 +1020,35 @@ function applyOrchestrationEvent(
           // new-turn admission. Retire stale ownership from an older projection.
           const clearsPendingTurnStart =
             acceptsSteerOwner ||
-            (isRequeued && thread.pendingTurnStartMessageId === event.payload.messageId) ||
-            (failedBeforeDispatch &&
+            (isRequeued &&
+              appliesDelivery &&
+              thread.pendingTurnStartMessageId === event.payload.messageId) ||
+            (appliesDelivery &&
+              failedBeforeDispatch &&
               isUnacceptedAttempt &&
               thread.pendingTurnStartMessageId === event.payload.messageId);
           const ownsStartingSession =
+            appliesDelivery &&
             failedBeforeDispatch &&
             isUnacceptedAttempt &&
             thread.pendingTurnStartMessageId === event.payload.messageId &&
             thread.session?.orchestrationStatus === "starting" &&
             thread.session.activeTurnId == null;
           const existingQueuedMessageIds = thread.queuedMessageIds ?? [];
-          const queuedMessageIds = isRequeued
-            ? existingQueuedMessageIds.includes(event.payload.messageId)
-              ? existingQueuedMessageIds
-              : [...existingQueuedMessageIds, event.payload.messageId]
-            : existingQueuedMessageIds;
+          const queuedMessageIds = failsQueuedMessage
+            ? existingQueuedMessageIds.filter((messageId) => messageId !== event.payload.messageId)
+            : isRequeued && appliesDelivery
+              ? existingQueuedMessageIds.includes(event.payload.messageId)
+                ? existingQueuedMessageIds
+                : [...existingQueuedMessageIds, event.payload.messageId]
+              : existingQueuedMessageIds;
           return {
             ...thread,
             messages: thread.messages
               .map((message) =>
                 message.id === event.payload.messageId &&
                 message.delivery !== undefined &&
-                event.sequence >= message.delivery.sequence &&
-                (!failedBeforeDispatch || isUnacceptedAttempt)
+                appliesDelivery
                   ? {
                       ...message,
                       delivery: {
@@ -1008,10 +1072,11 @@ function applyOrchestrationEvent(
               .toSorted(compareChatMessagesForTranscript),
             ...(clearsPendingTurnStart ? { pendingTurnStartMessageId: null } : {}),
             ...(failedBeforeDispatch &&
-            isUnacceptedAttempt &&
+            appliesDelivery &&
+            (isUnacceptedAttempt || failsQueuedMessage) &&
             event.payload.turnId !== undefined &&
             thread.latestTurn?.turnId === event.payload.turnId &&
-            thread.latestTurn.state === "running" &&
+            (thread.latestTurn.state === "running" || thread.latestTurn.state === "queued") &&
             thread.latestTurn.startedAt === null
               ? {
                   latestTurn: {
@@ -1038,6 +1103,7 @@ function applyOrchestrationEvent(
             ...(ownsStartingSession && thread.session && event.payload.failureDetail !== undefined
               ? {
                   error: normalizeThreadErrorMessage(event.payload.failureDetail),
+                  errorSource: undefined,
                   session: {
                     ...thread.session,
                     status: "error" as const,
@@ -1047,6 +1113,19 @@ function applyOrchestrationEvent(
                     updatedAt: event.payload.updatedAt,
                   },
                 }
+              : {}),
+            ...(failsQueuedMessage && event.payload.failureDetail !== undefined
+              ? thread.error !== null && thread.errorSource !== "delivery"
+                ? {}
+                : normalizeThreadErrorMessage(thread.session?.lastError) !== null
+                  ? {
+                      error: normalizeThreadErrorMessage(thread.session?.lastError),
+                      errorSource: undefined,
+                    }
+                  : {
+                      error: normalizeThreadErrorMessage(event.payload.failureDetail),
+                      errorSource: "delivery" as const,
+                    }
               : {}),
             queuedMessageIds,
             updatedAt: resolveEventUpdatedAt(thread, event.payload.updatedAt),
@@ -1074,7 +1153,11 @@ function applyOrchestrationEvent(
         event.payload.threadId,
         (thread) => {
           const session = normalizeThreadSession(event.payload.session, thread.session);
-          const error = normalizeThreadErrorMessage(event.payload.session.lastError);
+          const sessionError = normalizeThreadErrorMessage(event.payload.session.lastError);
+          const deliveryError = latestDeliveryFailureReason(thread.messages);
+          const error = sessionError ?? deliveryError;
+          const errorSource =
+            sessionError === null && deliveryError !== null ? "delivery" : undefined;
           const latestTurn = reconcileLatestTurnFromSession(thread, event.payload.session, error);
           const pendingTurnStartMessageId =
             event.payload.session.status === "starting" || event.payload.session.status === "ready"
@@ -1083,6 +1166,7 @@ function applyOrchestrationEvent(
           if (
             session === thread.session &&
             error === thread.error &&
+            errorSource === thread.errorSource &&
             latestTurn === thread.latestTurn &&
             pendingTurnStartMessageId === (thread.pendingTurnStartMessageId ?? null)
           ) {
@@ -1092,6 +1176,7 @@ function applyOrchestrationEvent(
             ...thread,
             session,
             error,
+            errorSource,
             latestTurn,
             pendingTurnStartMessageId,
             updatedAt:

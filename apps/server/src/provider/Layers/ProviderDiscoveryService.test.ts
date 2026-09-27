@@ -273,6 +273,86 @@ describe("ProviderDiscoveryService.getComposerCapabilities", () => {
 });
 
 describe("ProviderDiscoveryService.listModels", () => {
+  it("probes the weakest model discovered for the selected Connection", async () => {
+    const connectionId = ProviderConnectionId.makeUnsafe("opencode-probe-connection");
+    const installationId = ProviderInstallationId.makeUnsafe("managed-opencode-probe");
+    const probeInputs: Array<{ model: string; effort?: string }> = [];
+    const adapter = {
+      listModels: () =>
+        Effect.succeed({
+          models: [
+            { slug: "opencode-go/deepseek-pro", name: "Pro" },
+            {
+              slug: "opencode-go/deepseek-flash",
+              name: "Flash",
+              supportedReasoningEfforts: [{ value: "high" }, { value: "low" }],
+            },
+          ],
+          source: "test",
+          cached: false,
+        }),
+      probeTurnEndpoint: (input: { model: string; effort?: string }) => {
+        probeInputs.push(input);
+        return Effect.succeed(true);
+      },
+    } as Partial<ProviderAdapterShape<ProviderAdapterError>>;
+    const baseLayer = Layer.mergeAll(
+      makeConfigLayer(),
+      ServerSettingsService.layerTest(),
+      makeRegistryLayer(adapter),
+      Layer.succeed(ProviderConnectionRepository, {
+        list: () =>
+          Effect.succeed([
+            {
+              id: connectionId,
+              harness: "opencode",
+              authenticationTargetId: "opencode-go",
+              authenticationMethodId: "api-key",
+              lifecycle: "active",
+            },
+          ]),
+      } as never),
+      Layer.succeed(ProviderInstallationRepository, {
+        list: () =>
+          Effect.succeed([
+            {
+              id: installationId,
+              harness: "opencode",
+              lifecycle: "active",
+            },
+          ]),
+      } as never),
+      Layer.succeed(ProviderLaunchResolver, {
+        resolve: () => Effect.die("not used"),
+        resolveProfile: () =>
+          Effect.succeed({
+            binaryPath: "/managed/opencode",
+            isolationKey: "connection:probe",
+            profileRoot: "/managed/profile",
+            nativeStateRoot: "/managed/native",
+            connectionId,
+            installationId,
+            childEnvironment: (environment: NodeJS.ProcessEnv) => environment,
+          }),
+      }),
+    ).pipe(Layer.provideMerge(NodeServices.layer));
+    const success = await Effect.runPromise(
+      Effect.gen(function* () {
+        const discovery = yield* ProviderDiscoveryService;
+        return yield* discovery.probeConnection({ provider: "opencode", connectionId });
+      }).pipe(Effect.provide(ProviderDiscoveryServiceLive.pipe(Layer.provideMerge(baseLayer)))),
+    );
+    expect(success).toBe(true);
+    expect(probeInputs).toEqual([
+      {
+        model: "opencode-go/deepseek-flash",
+        effort: "low",
+        cwd: expect.any(String),
+        managedLaunch: expect.any(Object),
+      },
+    ]);
+  });
+
   it("discovers models only through the selected Connection route", async () => {
     const connectionId = ProviderConnectionId.makeUnsafe("opencode-go-connection");
     const failedConnectionId = ProviderConnectionId.makeUnsafe("opencode-go-failed-connection");

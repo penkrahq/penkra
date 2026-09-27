@@ -47,6 +47,7 @@ describe("OrchestrationReactor", () => {
             ),
             drain: Effect.void,
             quiesceQueuePromotions: Effect.void,
+            retryAuthConnection: () => Effect.void,
             listBlockingDeliveries: () => Effect.succeed([]),
             reconcileDelivery: () => Effect.succeed(null),
           }),

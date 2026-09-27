@@ -340,6 +340,46 @@ describe("composerDraftStore modelSelection", () => {
     expect(state.selectedModel).toBe("opencode/gpt-5-nano");
   });
 
+  it("shows locally selected OpenCode options while the persisted thread selection catches up", () => {
+    const state = deriveEffectiveComposerModelState({
+      draft: {
+        modelSelectionByProvider: {
+          opencode: modelSelection("opencode", "openai/gpt-5.4", { variant: "high" }),
+        },
+        activeProvider: "opencode",
+      },
+      selectedProvider: "opencode",
+      threadModelSelection: modelSelection("opencode", "openai/gpt-5.4"),
+      projectModelSelection: null,
+      customModelsByProvider: { codex: [], claudeAgent: [], opencode: [] },
+    });
+
+    expect(state.modelOptions?.opencode).toEqual({ variant: "high" });
+  });
+
+  it("does not apply options from a stale draft model to the selected OpenCode model", () => {
+    const state = deriveEffectiveComposerModelState({
+      draft: {
+        modelSelectionByProvider: {
+          opencode: modelSelection("opencode", "openai/gpt-5.4", { variant: "high" }),
+        },
+        activeProvider: "opencode",
+      },
+      selectedProvider: "opencode",
+      threadModelSelection: modelSelection("opencode", "opencode/gpt-5-nano", {
+        variant: "low",
+      }),
+      projectModelSelection: null,
+      customModelsByProvider: { codex: [], claudeAgent: [], opencode: [] },
+      availableModelOptionsByProvider: {
+        opencode: [{ slug: "opencode/gpt-5-nano", name: "GPT-5 Nano" }],
+      },
+    });
+
+    expect(state.selectedModel).toBe("opencode/gpt-5-nano");
+    expect(state.modelOptions?.opencode).toEqual({ variant: "low" });
+  });
+
   it("preserves the persisted OpenCode thread model when discovery omits it", () => {
     const state = deriveEffectiveComposerModelState({
       draft: {

@@ -1,4 +1,8 @@
-import { PenkraCreateThreadInput, type ProviderKind } from "@penkra/contracts";
+import {
+  PenkraCreateThreadInput,
+  PenkraSendMessageInput,
+  type ProviderKind,
+} from "@penkra/contracts";
 import { Schema } from "effect";
 
 import { AGENT_GATEWAY_TARGET_OPTIONS_DESCRIPTION } from "./targetResolver.ts";
@@ -7,7 +11,6 @@ export const PROVIDER_KINDS: ReadonlyArray<ProviderKind> = ["codex", "claudeAgen
 
 export const MODEL_SELECTION_INPUT_SCHEMA = {
   type: "object",
-  description: AGENT_GATEWAY_TARGET_OPTIONS_DESCRIPTION,
   properties: {
     provider: {
       type: "string",
@@ -112,5 +115,13 @@ export function decodeCreateThreadInput(value: unknown) {
     return Schema.decodeUnknownSync(PenkraCreateThreadInput)(value);
   } catch (error) {
     throw new ToolInputError(`Invalid Penkra thread request: ${errorText(error)}`);
+  }
+}
+
+export function decodeSendMessageInput(value: unknown) {
+  try {
+    return Schema.decodeUnknownSync(PenkraSendMessageInput)(value);
+  } catch (error) {
+    throw new ToolInputError(`Invalid Penkra send request: ${errorText(error)}`);
   }
 }

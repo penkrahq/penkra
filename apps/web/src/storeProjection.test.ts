@@ -31,6 +31,7 @@ import {
 } from "./storeProjection";
 import type { AppState } from "./storeState";
 import { applyOrchestrationEvents } from "./storeEventReducer";
+import { setError } from "./store";
 import { getThreadFromState } from "./threadDerivation";
 import {
   makeThread,
@@ -235,6 +236,167 @@ describe("store projection", () => {
       firstAssistantMessageId,
       queuedMessageId,
     ]);
+  });
+
+  it("derives the thread banner from a failed queued delivery in a turn page", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const reason =
+      "This thread uses a different provider. To use another provider, start a new thread.";
+    const message = {
+      id: MessageId.makeUnsafe("queued-refused"),
+      role: "user" as const,
+      text: "Continue",
+      dispatchMode: "queue" as const,
+      delivery: {
+        state: "failed" as const,
+        queued: false,
+        sequence: 12,
+        failurePhase: "before-provider-dispatch" as const,
+        failureDetail: reason,
+      },
+      sequence: 10,
+      turnId: null,
+      streaming: false,
+      source: "native" as const,
+      createdAt: "2026-09-27T00:00:00.000Z",
+      updatedAt: "2026-09-27T00:00:01.000Z",
+    };
+    const page = {
+      threadId,
+      snapshotSequence: 12,
+      conversationTurnCount: 1,
+      messages: [message],
+      activities: [],
+      pendingInteractions: [],
+      hasOlder: false,
+      nextCursor: null,
+    } satisfies OrchestrationGetThreadTurnsPageResult;
+    const failed = syncServerThreadTurnsPage(makeState(makeThread({ id: threadId })), page);
+    expect(getThreadFromState(failed, threadId)?.error).toBe(reason);
+    const retried = syncServerThreadTurnsPage(failed, {
+      ...page,
+      snapshotSequence: 14,
+      messages: [{ ...message, delivery: { state: "accepted", queued: false, sequence: 14 } }],
+    });
+    expect(getThreadFromState(retried, threadId)?.error).toBeNull();
+  });
+
+  it("preserves an unrelated client error while turn pages hydrate", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const localError = "Local persistence failed.";
+    const page = {
+      threadId,
+      snapshotSequence: 12,
+      conversationTurnCount: 0,
+      messages: [],
+      activities: [],
+      pendingInteractions: [],
+      hasOlder: false,
+      nextCursor: null,
+    } satisfies OrchestrationGetThreadTurnsPageResult;
+    const hydrated = syncServerThreadTurnsPage(
+      makeState(makeThread({ id: threadId, error: localError })),
+      page,
+    );
+    expect(getThreadFromState(hydrated, threadId)?.error).toBe(localError);
+  });
+
+  it("keeps a session error ahead of a failed delivery during turn-page hydration", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const sessionError = "Provider crashed.";
+    const page = {
+      threadId,
+      snapshotSequence: 12,
+      conversationTurnCount: 1,
+      messages: [
+        {
+          id: MessageId.makeUnsafe("queued-session-failure"),
+          role: "user" as const,
+          text: "Continue",
+          dispatchMode: "queue" as const,
+          delivery: {
+            state: "failed" as const,
+            queued: false,
+            sequence: 12,
+            failurePhase: "before-provider-dispatch" as const,
+            failureDetail: "Choose another provider.",
+          },
+          sequence: 10,
+          turnId: null,
+          streaming: false,
+          source: "native" as const,
+          createdAt: "2026-09-27T00:00:00.000Z",
+          updatedAt: "2026-09-27T00:00:01.000Z",
+        },
+      ],
+      activities: [],
+      pendingInteractions: [],
+      hasOlder: false,
+      nextCursor: null,
+    } satisfies OrchestrationGetThreadTurnsPageResult;
+    const initial = makeState(
+      makeThread({
+        error: sessionError,
+        session: {
+          provider: "codex",
+          status: "error",
+          orchestrationStatus: "error",
+          activeTurnId: undefined,
+          lastError: sessionError,
+          createdAt: "2026-09-27T00:00:00.000Z",
+          updatedAt: "2026-09-27T00:00:00.000Z",
+        },
+      }),
+    );
+    expect(getThreadFromState(syncServerThreadTurnsPage(initial, page), threadId)?.error).toBe(
+      sessionError,
+    );
+  });
+
+  it("keeps client ownership even when its error text equals a delivery reason", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const reason = "Choose another provider.";
+    const failedMessage = {
+      id: MessageId.makeUnsafe("same-reason"),
+      role: "user" as const,
+      text: "Continue",
+      dispatchMode: "queue" as const,
+      delivery: {
+        state: "failed" as const,
+        queued: false,
+        sequence: 12,
+        failurePhase: "before-provider-dispatch" as const,
+        failureDetail: reason,
+      },
+      sequence: 10,
+      turnId: null,
+      streaming: false,
+      source: "native" as const,
+      createdAt: "2026-09-27T00:00:00.000Z",
+      updatedAt: "2026-09-27T00:00:01.000Z",
+    };
+    const page = {
+      threadId,
+      snapshotSequence: 12,
+      conversationTurnCount: 1,
+      messages: [failedMessage],
+      activities: [],
+      pendingInteractions: [],
+      hasOlder: false,
+      nextCursor: null,
+    } satisfies OrchestrationGetThreadTurnsPageResult;
+    const fromDelivery = syncServerThreadTurnsPage(makeState(makeThread()), page);
+    expect(getThreadFromState(fromDelivery, threadId)?.errorSource).toBe("delivery");
+    const fromClient = setError(fromDelivery, threadId, reason);
+    expect(getThreadFromState(fromClient, threadId)?.errorSource).toBeUndefined();
+    const afterAccepted = syncServerThreadTurnsPage(fromClient, {
+      ...page,
+      snapshotSequence: 14,
+      messages: [
+        { ...failedMessage, delivery: { state: "accepted", queued: false, sequence: 14 } },
+      ],
+    });
+    expect(getThreadFromState(afterAccepted, threadId)?.error).toBe(reason);
   });
 
   it("merges turn pages without replacing newer live detail or duplicating tool operations", () => {

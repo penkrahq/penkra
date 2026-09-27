@@ -62,6 +62,61 @@ const approvalRequiredTurnOverrides = {
 } as const;
 
 describe("Codex Penkra harness policy", () => {
+  it("probes Responses with an isolated read-only turn and requires completion", async () => {
+    const manager = new CodexAppServerManager();
+    const context = {
+      session: { status: "ready" },
+      terminalTurnIds: new Set(),
+      authProbeCompletedTurnIds: new Set(),
+      authProbeThreadId: undefined as string | undefined,
+    };
+    vi.spyOn(
+      manager as unknown as {
+        getOrCreateDiscoverySession: (...args: unknown[]) => Promise<unknown>;
+      },
+      "getOrCreateDiscoverySession",
+    ).mockResolvedValue(context);
+    const sendRequest = vi
+      .spyOn(
+        manager as unknown as {
+          sendRequest: (...args: unknown[]) => Promise<unknown>;
+        },
+        "sendRequest",
+      )
+      .mockResolvedValueOnce({ thread: { id: "native-auth-probe" } } as never)
+      .mockResolvedValueOnce({ turn: { id: "probe-turn", status: "completed" } } as never)
+      .mockResolvedValueOnce({ turn: { id: "probe-turn-2", status: "failed" } } as never)
+      .mockResolvedValueOnce({ turn: { id: "probe-turn-3", status: "inProgress" } } as never);
+    const input = { cwd: "/tmp", managedLaunch: {} as never, model: "catalog-luna", effort: "low" };
+    expect(await manager.probeResponses(input)).toBe(true);
+    expect(await manager.probeResponses(input)).toBe(false);
+    setTimeout(() => {
+      context.terminalTurnIds.add(TurnId.makeUnsafe("probe-turn-3"));
+      context.authProbeCompletedTurnIds.add(TurnId.makeUnsafe("probe-turn-3"));
+    }, 10);
+    expect(await manager.probeResponses(input)).toBe(true);
+    expect(sendRequest.mock.calls.map((call) => call[1])).toEqual([
+      "thread/start",
+      "turn/start",
+      "turn/start",
+      "turn/start",
+    ]);
+    expect(sendRequest.mock.calls[0]?.[2]).toMatchObject({
+      model: "catalog-luna",
+      approvalPolicy: "untrusted",
+      sandbox: "read-only",
+      dynamicTools: [],
+      environments: [],
+      ephemeral: true,
+    });
+    expect(sendRequest.mock.calls[1]?.[2]).toMatchObject({
+      threadId: "native-auth-probe",
+      model: "catalog-luna",
+      effort: "low",
+      approvalPolicy: "untrusted",
+      sandboxPolicy: { type: "readOnly" },
+    });
+  });
   it("keeps the Penkra host tool out of Codex MCP configuration", async () => {
     const homePath = mkdtempSync(path.join(os.tmpdir(), "penkra-codex-gateway-endpoint-"));
     const previousPenkraHome = process.env.PENKRA_HOME;
@@ -170,6 +225,7 @@ describe("Codex Penkra harness policy", () => {
       session: {
         provider: "codex",
         status: "running",
+        activeTurnId: asTurnId("turn-successor"),
         threadId: asThreadId("thread-native-tool"),
         runtimeMode: "full-access",
         cwd: resourceRoot,
@@ -217,6 +273,7 @@ describe("Codex Penkra harness policy", () => {
       bearerToken: "thread-token",
       name: "penkra_exec_command",
       arguments: { command: "apps list" },
+      originTurnId: "turn-native",
     });
     const response = writeMessage.mock.calls[0]?.[1] as {
       result: {
@@ -238,6 +295,31 @@ describe("Codex Penkra harness policy", () => {
       }
     ).clearTemporaryResources(context, asTurnId("turn-native"));
     expect(() => readFileSync(resourcePath!, "utf8")).toThrow();
+
+    invoke.mockResolvedValueOnce({
+      content: [{ type: "text", text: '{"ok":true}' }],
+    });
+    await handleServerRequestForTest(manager, context, {
+      jsonrpc: "2.0",
+      id: 72,
+      method: "item/tool/call",
+      params: {
+        threadId: "provider-thread-native",
+        callId: "call-without-turn",
+        namespace: null,
+        tool: "penkra_exec_command",
+        arguments: { command: "apps list" },
+      },
+    });
+    expect(invoke).toHaveBeenCalledTimes(2);
+    expect(invoke).toHaveBeenLastCalledWith({
+      bearerToken: "thread-token",
+      name: "penkra_exec_command",
+      arguments: { command: "apps list" },
+    });
+    expect(writeMessage.mock.calls[1]?.[1]).toMatchObject({
+      result: { success: true },
+    });
     rmSync(resourceRoot, { recursive: true, force: true });
     expect(writeMessage).toHaveBeenCalledWith(context, {
       id: 71,
@@ -1349,6 +1431,35 @@ describe("CodexStderrRecordFramer", () => {
 });
 
 describe("Codex MCP startup diagnostics", () => {
+  it("emits stable diagnostic metadata for a missing custom-tool result", () => {
+    const manager = new CodexAppServerManager();
+    const events: ProviderEvent[] = [];
+    manager.on("event", (event) => events.push(event));
+    const context = { session: { threadId: asThreadId("thread-missing-output") } };
+    const internals = manager as unknown as {
+      handleCodexStderrRecord: (context: unknown, record: string) => void;
+    };
+
+    internals.handleCodexStderrRecord(
+      context,
+      "2026-09-15T13:00:35.067479Z ERROR rmcp::transport::worker: Custom tool call output is missing for call id: call-1",
+    );
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        method: "process/stderr",
+        message: "Custom tool call output is missing for call id: call-1",
+        payload: {
+          diagnostic: {
+            key: "codex:missing-tool-output:call-1",
+            fingerprint: "call-1",
+            state: "active",
+          },
+        },
+      }),
+    ]);
+  });
+
   it("emits one named warning for repeated status reads of one failed server", async () => {
     const manager = new CodexAppServerManager();
     const sendRequest = vi
@@ -1467,7 +1578,8 @@ describe("Codex MCP startup diagnostics", () => {
     await internals.refreshComputerUseCapabilityHealth(context, "provider-thread");
     await internals.refreshComputerUseCapabilityHealth(context, "provider-thread");
 
-    expect(events).toHaveLength(2);
+    expect(events.filter((event) => event.method === "mcpServer/startupFailed")).toHaveLength(2);
+    expect(events.filter((event) => event.method === "mcpServer/startupRecovered")).toHaveLength(1);
   });
 });
 

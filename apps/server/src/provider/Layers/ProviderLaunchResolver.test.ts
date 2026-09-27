@@ -8,7 +8,7 @@ import {
 } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, readlink, writeFile } from "node:fs/promises";
 
 import { ServerConfig } from "../../config.ts";
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
@@ -20,6 +20,7 @@ import {
   providerCredentialProfileRoot,
 } from "../providerNativeStatePaths.ts";
 import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
+import { claudeThreadProjectName, claudeThreadTranscriptPath } from "../claudeThreadNativeState.ts";
 import { ProviderLaunchResolverLive } from "./ProviderLaunchResolver.ts";
 
 const threadId = ThreadId.makeUnsafe("launch-thread");
@@ -264,7 +265,6 @@ it.effect("keeps the real OS home for a Connection-scoped Codex keyring", () =>
 );
 
 const claudeActiveProfileRef = "provider-profile:claude-active-profile";
-const claudeRetiredProfileRef = "provider-profile:claude-retired-profile";
 const claudeSessionId = "550e8400-e29b-41d4-a716-446655440088";
 const claudeDependencies = Layer.mergeAll(
   configLayer,
@@ -330,33 +330,6 @@ const claudeDependencies = Layer.mergeAll(
           updatedAt: timestamp,
         }),
       ),
-    listManagedProfilesForConnection: () =>
-      Effect.succeed([
-        {
-          profileRef: claudeActiveProfileRef,
-          harness: "claudeAgent",
-          authenticationTargetId: "anthropic-first-party",
-          authenticationMethodId: "claude-account",
-          lifecycle: "active",
-          connectionId,
-          loginOperationId: null,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-          retiredAt: null,
-        },
-        {
-          profileRef: claudeRetiredProfileRef,
-          harness: "claudeAgent",
-          authenticationTargetId: "anthropic-first-party",
-          authenticationMethodId: "claude-account",
-          lifecycle: "retired",
-          connectionId,
-          loginOperationId: null,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-          retiredAt: timestamp,
-        },
-      ]),
   } as never),
   Layer.succeed(ProviderCredentialBroker, {
     available: true,
@@ -364,46 +337,79 @@ const claudeDependencies = Layer.mergeAll(
   } as never),
 );
 
-it.effect("restores the best Claude lineage before every native resume", () =>
+it.effect("links a Claude Thread's canonical project into the selected login profile", () =>
   Effect.gen(function* () {
     const config = yield* ServerConfig;
     const activeRoot = providerConnectionProfileRoot(config.stateDir, "claude-active-profile");
-    const retiredRoot = providerConnectionProfileRoot(config.stateDir, "claude-retired-profile");
-    const relative = `claude-config/projects/-workspace/${claudeSessionId}.jsonl`;
-    yield* Effect.promise(() =>
-      Promise.all([
-        mkdir(Path.dirname(Path.join(activeRoot, relative)), {
-          recursive: true,
-        }),
-        mkdir(Path.dirname(Path.join(retiredRoot, relative)), {
-          recursive: true,
-        }),
-      ]),
-    );
-    yield* Effect.promise(() =>
-      writeFile(
-        Path.join(activeRoot, relative),
-        `${JSON.stringify({ type: "last-prompt", sessionId: claudeSessionId })}\n`,
-      ),
-    );
+    const transcript = claudeThreadTranscriptPath(config.stateDir, threadId, claudeSessionId);
     const real = `${JSON.stringify({
       type: "assistant",
       uuid: "assistant-real",
       sessionId: claudeSessionId,
     })}\n`;
-    yield* Effect.promise(() => writeFile(Path.join(retiredRoot, relative), real));
+    yield* Effect.promise(async () => {
+      await mkdir(Path.dirname(transcript), { recursive: true });
+      await writeFile(transcript, real);
+    });
 
     const resolver = yield* ProviderLaunchResolver;
-    yield* resolver.resolve({
+    const launch = yield* resolver.resolve({
       threadId,
       connectionId,
       installationId,
       internalProviderId: null,
     });
+    const projectName = claudeThreadProjectName(threadId);
+    const link = Path.join(activeRoot, "claude-config", "projects", projectName);
     assert.strictEqual(
-      yield* Effect.promise(() => readFile(Path.join(activeRoot, relative), "utf8")),
+      yield* Effect.promise(() => readFile(Path.join(link, `${claudeSessionId}.jsonl`), "utf8")),
       real,
     );
+    assert.strictEqual(yield* Effect.promise(() => readlink(link)), Path.dirname(transcript));
+    assert.strictEqual(launch.childEnvironment({}).CLAUDE_CODE_PROJECT_DIR_NAME, projectName);
+    assert.strictEqual(
+      JSON.parse(
+        yield* Effect.promise(() =>
+          readFile(Path.join(activeRoot, "claude-config", "settings.json"), "utf8"),
+        ),
+      ).cleanupPeriodDays,
+      36_500,
+    );
+  }).pipe(
+    Effect.provide(ProviderLaunchResolverLive.pipe(Layer.provide(claudeDependencies))),
+    Effect.provide(claudeDependencies),
+    Effect.provide(NodeServices.layer),
+  ),
+);
+
+it.effect("ignores an old profile transcript so the Thread can rebuild from Penkra", () =>
+  Effect.gen(function* () {
+    const config = yield* ServerConfig;
+    const retiredRoot = providerConnectionProfileRoot(config.stateDir, "claude-retired-profile");
+    const legacy = Path.join(
+      retiredRoot,
+      "claude-config",
+      "projects",
+      "old-cwd",
+      `${claudeSessionId}.jsonl`,
+    );
+    const canonical = claudeThreadTranscriptPath(config.stateDir, threadId, claudeSessionId);
+    const bytes = '{"type":"user","message":{"role":"user","content":"legacy"}}\n';
+    yield* Effect.promise(async () => {
+      await mkdir(Path.dirname(legacy), { recursive: true });
+      await writeFile(legacy, bytes);
+    });
+    const resolver = yield* ProviderLaunchResolver;
+    yield* resolver.resolve({ threadId, connectionId, installationId, internalProviderId: null });
+    assert.isFalse(
+      yield* Effect.promise(() =>
+        access(canonical).then(
+          () => true,
+          () => false,
+        ),
+      ),
+    );
+    assert.strictEqual(yield* Effect.promise(() => readFile(legacy, "utf8")), bytes);
   }).pipe(
     Effect.provide(ProviderLaunchResolverLive.pipe(Layer.provide(claudeDependencies))),
     Effect.provide(claudeDependencies),

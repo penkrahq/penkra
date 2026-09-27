@@ -35,6 +35,7 @@ import {
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { fingerprintOrchestrationCommand } from "../commandFingerprint.ts";
+import { OrchestrationCommandInvariantError } from "../Errors.ts";
 import {
   ProviderThreadSwitchCoordinator,
   ProviderThreadSwitchCoordinatorError,
@@ -58,6 +59,32 @@ const generationIdFor = (commandId: string) =>
   ProviderNativeStateGenerationId.makeUnsafe(`provider-switch-generation:${commandId}`);
 const anonymousConnectionLabel = (harness: string) =>
   harness === "opencode" ? "OpenCode" : "No Connection";
+type TurnAdmissionCommand = Extract<
+  typeof OrchestrationCommand.Type,
+  { type: "thread.turn.start" | "thread.turn.dispatch-queued" }
+>;
+
+const isRetryableOperationFailure = (failure: ProviderThreadSwitchCoordinatorError): boolean => {
+  if (failure.code === "switch_wait_timeout" || failure.code === "binding_revision_stale") {
+    return true;
+  }
+  let current: unknown = failure.cause;
+  const seen = new Set<Error>();
+  while (current instanceof Error && !seen.has(current)) {
+    if (current instanceof OrchestrationCommandInvariantError) {
+      return (
+        current.code === "thread_running" ||
+        current.code === "provider_switch_commit_retryable" ||
+        current.code === "queued_turn_stopped"
+      );
+    }
+    seen.add(current);
+    current = current.cause;
+  }
+  // Repository, provider, and filesystem errors retain their structured cause.
+  return failure.code === "selection_failed" && failure.cause !== undefined;
+};
+
 export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
   const engine = yield* OrchestrationEngineService;
   const operations = yield* ProviderThreadSwitchOperationRepository;
@@ -88,9 +115,9 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           }),
       ),
       Effect.flatMap((command) =>
-        command.type === "thread.turn.start"
+        command.type === "thread.turn.start" || command.type === "thread.turn.dispatch-queued"
           ? Effect.succeed(command)
-          : fail("The persisted provider-switch command is not a turn start."),
+          : fail("The persisted provider-switch command is not a turn admission."),
       ),
     );
 
@@ -151,8 +178,12 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           return Effect.void;
         }
         if (deadlineAt !== null && Date.now() >= deadlineAt) {
-          return fail(
-            "The active provider turn and its durable projection did not settle after interruption.",
+          return Effect.fail(
+            new ProviderThreadSwitchCoordinatorError({
+              code: "switch_wait_timeout",
+              detail:
+                "The active provider turn and its durable projection did not settle after interruption.",
+            }),
           );
         }
         return Effect.sleep("50 millis").pipe(
@@ -208,7 +239,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
     waitForTurnToSettle(threadId, null);
 
   const runOperation = Effect.fnUntraced(function* (input: {
-    readonly command: Extract<typeof OrchestrationCommand.Type, { type: "thread.turn.start" }>;
+    readonly command: TurnAdmissionCommand;
     readonly attachmentPrincipal: ManagedAttachmentPrincipal;
     readonly cwd?: string;
     readonly selection: typeof ResolvedProviderTurnSelection.Type;
@@ -247,6 +278,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           Effect.mapError(
             (cause) =>
               new ProviderThreadSwitchCoordinatorError({
+                code: cause.code,
                 detail: cause.message,
                 cause,
               }),
@@ -483,6 +515,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
                 if (current.state === "failed") {
                   return Effect.fail(cause);
                 }
+                if (isRetryableOperationFailure(cause)) return Effect.fail(cause);
                 return operations
                   .transition({
                     id: input.operationId,
@@ -578,6 +611,8 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
             targetConnectionId: input.selection.connectionId,
             sourceGenerationId: source.sourceState.nativeStateGenerationId,
             targetGenerationId: input.targetGenerationId,
+            sourceThreadId: input.sourceThreadId,
+            targetThreadId: input.command.threadId,
           }),
         ),
         mapOperationError("Could not materialize the native fork source generation."),
@@ -601,6 +636,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           installationId: input.selection.installationId,
           internalProviderId: input.selection.internalProviderId,
           nativeStateIdentity: input.targetGenerationId,
+          claudeThreadId: input.command.threadId,
         })
         .pipe(mapOperationError("Could not resolve the native fork target launch."));
       if (!provider.forkThread)
@@ -781,7 +817,11 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
       ),
     );
 
-  const dispatchTurnStart: ProviderThreadSwitchCoordinatorShape["dispatchTurnStart"] = (input) =>
+  const dispatchTurnAdmission = (input: {
+    readonly command: TurnAdmissionCommand;
+    readonly attachmentPrincipal: ManagedAttachmentPrincipal;
+    readonly cwd?: string;
+  }) =>
     Effect.gen(function* () {
       const operationId = operationIdFor(input.command.commandId);
       const existing = Option.getOrUndefined(
@@ -802,7 +842,12 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
         }
         const persistedSelection = yield* decodeSelection(existing.selectionJson);
         if (existing.state === "failed") {
-          return yield* fail(existing.failureReason ?? "The provider switch previously failed.");
+          return yield* Effect.fail(
+            new ProviderThreadSwitchCoordinatorError({
+              code: "switch_operation_failed",
+              detail: existing.failureReason ?? "The provider switch previously failed.",
+            }),
+          );
         }
         return yield* runClientOperation({
           command: persistedCommand,
@@ -822,10 +867,21 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           .pipe(mapOperationError("Could not inspect the provider fork journal.")),
       );
       if (existingFork) {
+        if (input.command.type !== "thread.turn.start") {
+          return yield* fail("A queued turn cannot use a native fork journal.");
+        }
         if (existingFork.state === "failed") {
-          return yield* fail(existingFork.failureReason ?? "The provider fork previously failed.");
+          return yield* Effect.fail(
+            new ProviderThreadSwitchCoordinatorError({
+              code: "switch_operation_failed",
+              detail: existingFork.failureReason ?? "The provider fork previously failed.",
+            }),
+          );
         }
         const persistedCommand = yield* decodeCommand(existingFork.commandJson);
+        if (persistedCommand.type !== "thread.turn.start") {
+          return yield* fail("The persisted native fork command is not a turn start.");
+        }
         const persistedFingerprint = fingerprintOrchestrationCommand(persistedCommand);
         const inputFingerprint = fingerprintOrchestrationCommand(input.command);
         if (
@@ -862,7 +918,11 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
         );
       }
       if (Option.isNone(harnessState)) {
-        if (input.command.bindingRevision !== 0 || input.command.modelSelection === undefined) {
+        if (
+          input.command.type !== "thread.turn.start" ||
+          input.command.bindingRevision !== 0 ||
+          input.command.modelSelection === undefined
+        ) {
           return yield* fail("The first message requires an exact model and binding revision 0.");
         }
         const projectedThread = yield* projections
@@ -893,6 +953,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
             Effect.mapError(
               (cause) =>
                 new ProviderThreadSwitchCoordinatorError({
+                  code: cause.code,
                   detail: cause.message,
                   cause,
                 }),
@@ -989,6 +1050,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           Effect.mapError(
             (cause) =>
               new ProviderThreadSwitchCoordinatorError({
+                code: cause.code,
                 detail: cause.message,
                 cause,
               }),
@@ -1128,6 +1190,16 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
               return;
             }
             const [command, selection] = decoded.success;
+            if (command.type !== "thread.turn.start") {
+              yield* materializer.discard(operation.targetNativeStateGenerationId);
+              yield* forkOperations.transition({
+                id: operation.id,
+                state: "failed",
+                failureReason: "Discarded an incompatible native fork command.",
+                updatedAt: new Date().toISOString(),
+              });
+              return;
+            }
             yield* runForkOperation({
               command,
               attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
@@ -1171,7 +1243,8 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
   });
 
   return {
-    dispatchTurnStart,
+    dispatchTurnStart: dispatchTurnAdmission,
+    dispatchQueuedTurn: dispatchTurnAdmission,
     recoverOpen,
   } satisfies ProviderThreadSwitchCoordinatorShape;
 });

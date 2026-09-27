@@ -136,6 +136,10 @@ export interface AppTabObservationTarget {
   cdpSessionId?: string;
   /** Null means the shell is not currently painting this tab. */
   captureBounds?: () => Promise<Rectangle | null> | Rectangle | null;
+  /** Whether the live tab is currently presented in a visible window. */
+  isPresented?: () => boolean;
+  /** Whether detached pointer input is safe and supported on this platform. */
+  canDeliverPointerInput?: () => boolean;
 }
 
 export interface AppTabObserverResolver {
@@ -554,10 +558,11 @@ export class AppTabObserver {
     this.#perfCounters.screenshotCalls += 1;
     try {
       const target = await this.#target(tabId, document);
+      this.#requireVisualPresentation(target);
       const capture = await this.#captureTarget(target);
       const bytes = capture.bytes;
       if (bytes.byteLength === 0)
-        throw observerError("SCREENSHOT_NEVER_PAINTED", `${document} never painted.`);
+        throw visualUnavailable(document, "The capture contains no pixels.");
       if (outputPath) {
         await writeFileAtomically(outputPath, bytes);
         return { tabId, document, filename: outputPath, mimeType: "image/png" };
@@ -586,6 +591,7 @@ export class AppTabObserver {
     outputPath: string,
   ): Promise<unknown> {
     const target = await this.#target(tabId, document);
+    this.#requireVisualPresentation(target);
     const duration = boundedDuration(durationMs);
     const extension = extname(outputPath).toLowerCase();
     if (extension !== ".webm" && extension !== ".mp4")
@@ -607,6 +613,7 @@ export class AppTabObserver {
     ffmpeg.stderr?.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
     let latest: Buffer | null = null;
     let frames = 0;
+    let presentationLost = false;
     const listener = (
       _event: Electron.Event,
       method: string,
@@ -633,6 +640,10 @@ export class AppTabObserver {
         target.cdpSessionId,
       );
       while (Date.now() - startedAt <= duration) {
+        if (target.isPresented?.() === false) {
+          presentationLost = true;
+          break;
+        }
         if (latest && ffmpeg.stdin?.writable) {
           ffmpeg.stdin.write(latest);
           frames += 1;
@@ -651,7 +662,9 @@ export class AppTabObserver {
       await this.#removeCursorsForTab(tabId, "record-complete");
     }
     const exitCode = await completion;
-    if (frames === 0) throw observerError("SCREENSHOT_NEVER_PAINTED", `${document} never painted.`);
+    if (presentationLost)
+      throw visualUnavailable(document, "The tab stopped being displayed during recording.");
+    if (frames === 0) throw visualUnavailable(document, "No recording frames arrived.");
     if (exitCode !== 0)
       throw new Error(`ffmpeg failed: ${stderr.trim().split("\n").slice(-3).join(" ")}`);
     return { tabId, document, filename: outputPath, durationMs: Date.now() - startedAt, frames };
@@ -664,6 +677,7 @@ export class AppTabObserver {
     outputPath: string,
   ): Promise<unknown> {
     const target = await this.#target(tabId, document);
+    this.#requireVisualPresentation(target);
     const duration = boundedDuration(durationMs);
     const events: unknown[] = [];
     const complete = new Promise<void>((resolve) => {
@@ -685,6 +699,10 @@ export class AppTabObserver {
     await delay(duration);
     await this.#cdp(target.webContents, "Tracing.end");
     await complete;
+    this.#requireVisualPresentation(target);
+    if (!events.some((event) => isVisualTraceEvent(event))) {
+      throw visualUnavailable(document, "No visual frame events arrived during the trace.");
+    }
     await writeFileAtomically(outputPath, Buffer.from(JSON.stringify({ traceEvents: events })));
     return { tabId, document, filename: outputPath, events: events.length };
   }
@@ -770,15 +788,15 @@ export class AppTabObserver {
             bounds.width <= 0 ||
             bounds.height <= 0))
       ) {
-        throw observerError("SCREENSHOT_NEVER_PAINTED", `${target.document} never painted.`);
+        throw visualUnavailable(target.document, "The capture area has no painted pixels.");
       }
       let image;
       try {
         image = await target.webContents.capturePage(bounds);
       } catch (error) {
-        throw observerError(
-          "SCREENSHOT_NEVER_PAINTED",
-          `${target.document} never painted: ${error instanceof Error ? error.message : String(error)}`,
+        throw visualUnavailable(
+          target.document,
+          `Capture failed: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
       const size = image.getSize();
@@ -794,6 +812,12 @@ export class AppTabObserver {
     }
   }
 
+  #requireVisualPresentation(target: AppTabObservationTarget): void {
+    if (target.isPresented?.() === false) {
+      throw visualUnavailable(target.document, "The tab is not displayed in a visible window.");
+    }
+  }
+
   async click(tabId: string, reference: string, observe = false, human = false): Promise<unknown> {
     const { target, node } = await this.#referencedTarget(tabId, reference);
     await this.#cdp(
@@ -803,32 +827,132 @@ export class AppTabObserver {
       target.cdpSessionId,
     );
     const point = await this.#nodeCenter(target, node.backendNodeId);
-    await this.#moveCursor(target, point, human);
-    await this.#cdp(
-      target.webContents,
-      "Input.dispatchMouseEvent",
-      {
-        type: "mousePressed",
-        button: "left",
-        clickCount: 1,
-        ...point,
-      },
-      target.cdpSessionId,
+    const contents = target.webContents;
+    const world = await this.#clickWorld(
+      target,
+      await this.#nodeFrameId(target, node.backendNodeId, point),
     );
-    await this.#cdp(
-      target.webContents,
-      "Input.dispatchMouseEvent",
-      {
-        type: "mouseReleased",
-        button: "left",
-        clickCount: 1,
-        ...point,
-      },
-      target.cdpSessionId,
-    );
+    const binding = `penkraClick${randomUUID().replaceAll("-", "")}`;
+    const cleanupKey = `__${binding}Cleanup`;
+    let observedTrusted = false;
+    let resolveClickObserved!: () => void;
+    const clickObserved = new Promise<void>((resolve) => {
+      resolveClickObserved = resolve;
+    });
+    const waitForClick = () =>
+      new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 250);
+        void clickObserved.then(() => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+    // Delivery is confirmed only by a click observed from inside the host's own
+    // isolated world. The page cannot reach that world's binding, and a forged
+    // notification carries the page's execution context id, so it is ignored.
+    // Pointer delivery additionally requires a trusted event, which page script
+    // cannot synthesize, so a page-initiated click cannot fake a host click.
+    const onMessage = (
+      _event: Electron.Event,
+      method: string,
+      params: unknown,
+      sessionId?: string,
+    ) => {
+      if (method !== "Runtime.bindingCalled" || !isRecord(params)) return;
+      if (target.cdpSessionId !== undefined && sessionId !== target.cdpSessionId) return;
+      if (params.name !== binding) return;
+      if (params.executionContextId !== world.contextId) return;
+      if (params.payload === "trusted") {
+        observedTrusted = true;
+        resolveClickObserved();
+      }
+    };
+    contents.debugger.on("message", onMessage);
+    try {
+      await this.#cdp(
+        contents,
+        "Runtime.addBinding",
+        { name: binding, executionContextName: world.worldName },
+        target.cdpSessionId,
+      );
+      const objectId = await this.#resolveObjectInWorld(
+        target,
+        node.backendNodeId,
+        world.contextId,
+      );
+      const hitTest = asRecord(
+        await this.#cdp(
+          contents,
+          "Runtime.callFunctionOn",
+          {
+            objectId,
+            functionDeclaration: APP_TAB_CLICK_HIT_TEST_DECLARATION,
+            arguments: [
+              { value: point.x },
+              { value: point.y },
+              { value: binding },
+              { value: cleanupKey },
+            ],
+            returnByValue: true,
+          },
+          target.cdpSessionId,
+        ),
+      );
+      if (asRecord(hitTest.result).value !== true) {
+        throw observerError(
+          "TAB_NOT_HIT_TESTABLE",
+          `${reference} is outside the viewport or covered. Give the retained tab a usable layout or present it, then retry.`,
+        );
+      }
+      if (target.canDeliverPointerInput?.() === false) {
+        throw observerError(
+          "CLICK_NOT_DELIVERED",
+          `${reference} is detached on a platform where pointer delivery cannot be guaranteed. Present the tab in a window, then retry.`,
+        );
+      }
+      if (target.isPresented?.() !== false) await this.#moveCursor(target, point, human);
+      for (const type of ["mousePressed", "mouseReleased"]) {
+        await this.#cdp(
+          contents,
+          "Input.dispatchMouseEvent",
+          { type, button: "left", clickCount: 1, ...point },
+          target.cdpSessionId,
+        );
+      }
+      await waitForClick();
+      if (!observedTrusted) {
+        throw observerError(
+          "CLICK_NOT_DELIVERED",
+          `${reference} did not confirm the pointer click. Present the tab in a visible window, then retry.`,
+        );
+      }
+    } finally {
+      contents.debugger.removeListener("message", onMessage);
+      await this.#cdp(
+        contents,
+        "Runtime.evaluate",
+        {
+          contextId: world.contextId,
+          expression: `globalThis[${JSON.stringify(cleanupKey)}]?.(); delete globalThis[${JSON.stringify(cleanupKey)}]; delete globalThis[${JSON.stringify(binding)}]`,
+        },
+        target.cdpSessionId,
+      ).catch(() => undefined);
+      await this.#cdp(
+        contents,
+        "Runtime.removeBinding",
+        { name: binding },
+        target.cdpSessionId,
+      ).catch(() => undefined);
+    }
     return this.#actionResult(
       tabId,
-      { tabId, target: reference, clicked: true },
+      {
+        tabId,
+        target: reference,
+        clicked: true,
+        deliveryMethod: "cdp-pointer",
+        trusted: observedTrusted,
+      },
       observe,
       referenceDocument(reference),
     );
@@ -1516,7 +1640,82 @@ export class AppTabObserver {
     return object.objectId;
   }
 
-  async #loaderId(target: AppTabObservationTarget): Promise<string> {
+  async #resolveObjectInWorld(
+    target: AppTabObservationTarget,
+    backendNodeId: number,
+    executionContextId: number,
+  ): Promise<string> {
+    const response = asRecord(
+      await this.#cdp(
+        target.webContents,
+        "DOM.resolveNode",
+        { backendNodeId, executionContextId },
+        target.cdpSessionId,
+      ),
+    );
+    const object = asRecord(response.object);
+    if (typeof object.objectId !== "string") {
+      throw observerError("STALE_REFERENCE", "The referenced element no longer exists.");
+    }
+    return object.objectId;
+  }
+
+  // Resolves to the node's own frame, so clicks inside iframes still get a host-owned
+  // isolated world. Chromium reuses an isolated world registered under the same name,
+  // so the name is derived from the target and frame instead of randomized.
+  async #nodeFrameId(
+    target: AppTabObservationTarget,
+    backendNodeId: number,
+    point: { x: number; y: number },
+  ): Promise<string | undefined> {
+    const response = asRecord(
+      await this.#cdp(
+        target.webContents,
+        "DOM.describeNode",
+        { backendNodeId, depth: 0 },
+        target.cdpSessionId,
+      ),
+    );
+    const node = asRecord(response.node);
+    if (typeof node.frameId === "string" && node.frameId) return node.frameId;
+    // DOM.Node.frameId is only populated for frame-owner and document nodes. For
+    // ordinary nodes, hit testing reports the frame that actually contains the node.
+    const location = asRecord(
+      await this.#cdp(
+        target.webContents,
+        "DOM.getNodeForLocation",
+        { x: Math.round(point.x), y: Math.round(point.y), includeUserAgentShadowDOM: true },
+        target.cdpSessionId,
+      ),
+    );
+    if (typeof location.frameId === "string" && location.frameId) return location.frameId;
+    return (await this.#frameInfo(target)).frameId;
+  }
+
+  async #clickWorld(
+    target: AppTabObservationTarget,
+    frameId: string | undefined,
+  ): Promise<{ worldName: string; contextId: number }> {
+    const resolvedFrameId = frameId ?? (await this.#frameInfo(target)).frameId;
+    if (!resolvedFrameId) throw observerError("LOAD_FAILED", `${target.document} has no frame.`);
+    const worldName = `penkra-agent-click:${observationTargetKey(target)}:${resolvedFrameId}`;
+    const world = asRecord(
+      await this.#cdp(
+        target.webContents,
+        "Page.createIsolatedWorld",
+        { frameId: resolvedFrameId, worldName },
+        target.cdpSessionId,
+      ),
+    );
+    if (typeof world.executionContextId !== "number") {
+      throw observerError("LOAD_FAILED", `${target.document} has no click execution context.`);
+    }
+    return { worldName, contextId: world.executionContextId };
+  }
+
+  async #frameInfo(
+    target: AppTabObservationTarget,
+  ): Promise<{ frameId: string | undefined; loaderId: string }> {
     const response = asRecord(
       await this.#cdp(target.webContents, "Page.getFrameTree", undefined, target.cdpSessionId),
     );
@@ -1524,7 +1723,14 @@ export class AppTabObserver {
     if (typeof frame.loaderId !== "string" || !frame.loaderId) {
       throw observerError("LOAD_FAILED", `${target.document} has no committed loader.`);
     }
-    return frame.loaderId;
+    return {
+      frameId: typeof frame.id === "string" && frame.id ? frame.id : undefined,
+      loaderId: frame.loaderId,
+    };
+  }
+
+  async #loaderId(target: AppTabObservationTarget): Promise<string> {
+    return (await this.#frameInfo(target)).loaderId;
   }
 
   async #cdp(
@@ -1731,6 +1937,63 @@ function sameProtocolTarget(
 function observerError(code: string, message: string): Error {
   return Object.assign(new Error(message), { code });
 }
+
+function visualUnavailable(document: AppTabDocument, reason: string): Error {
+  return observerError(
+    "SCREENSHOT_NEVER_PAINTED",
+    `${document} cannot produce visual frames: ${reason} Present the tab in a visible window, then retry.`,
+  );
+}
+
+function isVisualTraceEvent(value: unknown): boolean {
+  if (!isRecord(value) || typeof value.name !== "string") return false;
+  return /^(?:BeginFrame|DrawFrame|CompositeLayers|AnimationFrame|FireAnimationFrame|Paint|RasterTask)$/u.test(
+    value.name,
+  );
+}
+
+// `document.elementFromPoint` stops at a shadow host, so descend through every open
+// shadow root until the point resolves to the deepest element in the composed tree.
+export function appTabElementAtPoint(doc: Document, x: number, y: number): Element | null {
+  let element = doc.elementFromPoint(x, y);
+  while (element?.shadowRoot) {
+    const inner = element.shadowRoot.elementFromPoint(x, y);
+    if (!inner || inner === element) break;
+    element = inner;
+  }
+  return element;
+}
+
+// Containment that crosses shadow boundaries in both directions: a target inside a
+// shadow root still owns (or is owned by) the element the point actually hit.
+export function appTabComposedContains(container: Node, candidate: Node | null): boolean {
+  for (let node: Node | null = candidate; node; ) {
+    if (node === container) return true;
+    node = node.parentNode ?? (node as unknown as { host?: Node | null }).host ?? null;
+  }
+  return false;
+}
+
+// Runs inside the host-owned isolated world. The click listener there is the only
+// caller of the per-click binding, so page script cannot forge delivery or isTrusted.
+export const APP_TAB_CLICK_HIT_TEST_DECLARATION = `function(x, y, bindingName, cleanupName) {
+  if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return false;
+  const elementAtPoint = ${appTabElementAtPoint.toString()};
+  const composedContains = ${appTabComposedContains.toString()};
+  const hit = elementAtPoint(document, x, y);
+  if (!hit || !composedContains(this, hit)) return false;
+  const target = this;
+  const listener = (event) => {
+    const composedPath = typeof event.composedPath === "function" ? event.composedPath() : [];
+    if (event.isTrusted &&
+        (event.target === target || target.contains(event.target) || composedPath.includes(target))) {
+      globalThis[bindingName](event.isTrusted ? "trusted" : "untrusted");
+    }
+  };
+  window.addEventListener("click", listener, true);
+  globalThis[cleanupName] = () => window.removeEventListener("click", listener, true);
+  return true;
+}`;
 
 function referenceOrder(left: string, right: string): number {
   return Number(left.match(/e(\d+)$/)?.[1] ?? 0) - Number(right.match(/e(\d+)$/)?.[1] ?? 0);

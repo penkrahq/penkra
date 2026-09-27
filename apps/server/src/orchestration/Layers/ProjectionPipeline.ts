@@ -6,6 +6,7 @@ import {
   setPinnedMessageLabel,
 } from "@penkra/shared/pinnedMessages";
 import { isPendingInteractionNotFoundFailure } from "@penkra/shared/threadSummary";
+import { shouldInterruptProvisionalCompletion } from "@penkra/shared/turnContinuation";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, FileSystem, Layer, Option, Path, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -537,6 +538,9 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               ...(event.payload.modelSelection !== undefined
                 ? { modelSelection: event.payload.modelSelection }
                 : {}),
+              ...(event.payload.connectionId !== undefined
+                ? { connectionId: event.payload.connectionId }
+                : {}),
               ...(event.payload.workingDirectory !== undefined
                 ? { workingDirectory: event.payload.workingDirectory }
                 : {}),
@@ -1035,6 +1039,10 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             ...(event.payload.dispatchOrigin !== undefined
               ? { dispatchOrigin: event.payload.dispatchOrigin }
               : {}),
+            ...(event.payload.dispatchOrigin === "agent" &&
+            event.payload.senderThreadId !== undefined
+              ? { senderThreadId: event.payload.senderThreadId }
+              : {}),
             ...(event.payload.delivery !== undefined
               ? {
                   deliveryState: event.payload.delivery.state,
@@ -1071,7 +1079,8 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             event.type === "thread.message-delivery-set" &&
             event.payload.failurePhase === "before-provider-dispatch" &&
             existingMessage.value.deliveryState !== "starting" &&
-            existingMessage.value.deliveryState !== "steering"
+            existingMessage.value.deliveryState !== "steering" &&
+            existingMessage.value.deliveryState !== "queued"
           ) {
             return;
           }
@@ -1328,7 +1337,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
                   SELECT 1 FROM projection_turns turn_row
                   WHERE turn_row.thread_id = ${event.payload.threadId}
                     AND turn_row.turn_id = ${event.payload.turnId}
-                    AND turn_row.pending_message_id = ${event.payload.messageId}
                     AND turn_row.state = 'running'
                     AND turn_row.started_at IS NULL
                     AND turn_row.provider_turn_id IS NULL
@@ -1354,6 +1362,30 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
 
         case "thread.session-set":
           {
+            const previousSession = yield* projectionThreadSessionRepository.getByThreadId({
+              threadId: event.payload.threadId,
+            });
+            if (Option.isSome(previousSession)) {
+              const turns = yield* projectionTurnRepository.listByThreadId({
+                threadId: event.payload.threadId,
+              });
+              const provisionalTurn = turns
+                .filter((turn) =>
+                  shouldInterruptProvisionalCompletion({
+                    previousSession: previousSession.value,
+                    nextSession: event.payload.session,
+                    turn,
+                  }),
+                )
+                .toSorted((left, right) => right.requestedAt.localeCompare(left.requestedAt))[0];
+              if (provisionalTurn) {
+                yield* projectionTurnRepository.upsertByTurnId({
+                  ...provisionalTurn,
+                  state: "interrupted",
+                  completedAt: event.payload.session.updatedAt,
+                });
+              }
+            }
             yield* projectionThreadSessionRepository.upsert({
               threadId: event.payload.threadId,
               status: event.payload.session.status,
@@ -1523,8 +1555,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             const failedTurn = turns.find(
               (turn) =>
                 turn.turnId === event.payload.turnId &&
-                turn.pendingMessageId === event.payload.messageId &&
-                turn.state === "running" &&
+                (turn.state === "running" || turn.state === "queued") &&
                 turn.startedAt === null &&
                 turn.providerTurnId === null &&
                 turn.completedAt === null,

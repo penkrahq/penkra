@@ -11,7 +11,6 @@ import {
   ProviderMentionReference,
   ProviderModelOptions,
   ProviderSkillReference,
-  ProviderStartOptions,
   RuntimeMode,
   SpaceId,
   ThreadDeckId,
@@ -24,7 +23,6 @@ import type { DeepMutable } from "effect/Types";
 import {
   hydrateImagesFromPersisted,
   normalizePersistedAttachment,
-  persistQueuedComposerImages,
   toStorageSafePersistedAttachment,
 } from "./composerDraftAttachments";
 import {
@@ -40,10 +38,7 @@ import {
   type ComposerDraftStoreState,
   type ComposerPromptHistorySavedDraft,
   type ComposerThreadDraftState,
-  type PendingStartRecovery,
   type PendingStartRecoveryRecord,
-  type UnknownPendingStartRecovery,
-  type QueuedComposerTurn,
 } from "./composerDraftDomain";
 import {
   LegacyCodexFields,
@@ -58,10 +53,7 @@ import {
 import { normalizeAssistantSelectionAttachment } from "./lib/assistantSelections";
 import { normalizePastedTextContent } from "./lib/composerPastedText";
 import { normalizeFileCommentSelection } from "./lib/fileComments";
-import {
-  ensureInlineTerminalContextPlaceholders,
-  normalizeTerminalContextText,
-} from "./lib/terminalContext";
+import { ensureInlineTerminalContextPlaceholders } from "./lib/terminalContext";
 import { DEFAULT_RUNTIME_MODE } from "./types";
 
 const DraftThreadEntryPointSchema = Schema.Literals(["chat", "terminal"]);
@@ -77,19 +69,6 @@ const PersistedTerminalContextDraft = Schema.Struct({
 });
 
 type PersistedTerminalContextDraft = typeof PersistedTerminalContextDraft.Type;
-
-const PersistedQueuedTerminalContextDraft = Schema.Struct({
-  id: Schema.String,
-  threadId: ThreadId,
-  createdAt: Schema.String,
-  terminalId: Schema.String,
-  terminalLabel: Schema.String,
-  lineStart: Schema.Number,
-  lineEnd: Schema.Number,
-  text: Schema.String,
-});
-
-type PersistedQueuedTerminalContextDraft = typeof PersistedQueuedTerminalContextDraft.Type;
 
 const PersistedFileCommentDraft = Schema.Struct({
   id: Schema.String,
@@ -127,41 +106,6 @@ const PersistedAssistantSelectionDraft = Schema.Struct({
 });
 
 type PersistedAssistantSelectionDraft = typeof PersistedAssistantSelectionDraft.Type;
-
-const PersistedQueuedComposerChatTurn = Schema.Struct({
-  id: Schema.String,
-  kind: Schema.Literal("chat"),
-  createdAt: Schema.String,
-  serverAcceptedAt: Schema.optionalKey(Schema.String),
-  serverMessageId: Schema.optionalKey(MessageId),
-  dispatchAttempt: Schema.optionalKey(Schema.Number),
-  dispatchBindingRevision: Schema.optionalKey(Schema.Number),
-  dispatchMode: Schema.optionalKey(Schema.Literals(["queue", "steer"])),
-  previewText: Schema.String,
-  prompt: Schema.String,
-  images: Schema.Array(PersistedComposerImageAttachment),
-  files: Schema.optionalKey(Schema.Array(PersistedComposerFileAttachment)),
-  assistantSelections: Schema.optionalKey(Schema.Array(PersistedAssistantSelectionDraft)),
-  terminalContexts: Schema.Array(PersistedQueuedTerminalContextDraft),
-  fileComments: Schema.optionalKey(Schema.Array(PersistedFileCommentDraft)),
-  pastedTexts: Schema.optionalKey(Schema.Array(PersistedPastedTextDraft)),
-  skills: Schema.Array(ProviderSkillReference),
-  mentions: Schema.Array(ProviderMentionReference),
-  selectedProvider: ProviderKind,
-  selectedModel: Schema.NullOr(Schema.String),
-  selectedPromptEffort: Schema.NullOr(Schema.String),
-  modelSelection: ModelSelection,
-  connectionId: Schema.NullOr(ProviderConnectionId),
-  providerOptionsForDispatch: Schema.optionalKey(ProviderStartOptions),
-  runtimeMode: RuntimeMode,
-  messageId: Schema.optionalKey(MessageId),
-});
-
-type PersistedQueuedComposerChatTurn = typeof PersistedQueuedComposerChatTurn.Type;
-
-const PersistedQueuedComposerTurn = PersistedQueuedComposerChatTurn;
-
-type PersistedQueuedComposerTurn = typeof PersistedQueuedComposerTurn.Type;
 
 const PersistedComposerPromptHistorySavedDraft = Schema.Union([
   Schema.String,
@@ -209,16 +153,8 @@ const PersistedComposerThreadDraftState = Schema.Struct({
   pastedTexts: Schema.optionalKey(Schema.Array(PersistedPastedTextDraft)),
   skills: Schema.optionalKey(Schema.Array(ProviderSkillReference)),
   mentions: Schema.optionalKey(Schema.Array(ProviderMentionReference)),
-  queuedTurns: Schema.optionalKey(Schema.Array(PersistedQueuedComposerTurn)),
-  // Recovery records are decoded manually so newer/malformed records remain
-  // durable and visible as unresolved instead of being dropped by a generic
-  // schema migration.
   pendingStartRecoveriesByMessageId: Schema.optionalKey(Schema.Unknown),
-  // Retain the short-lived WIP spelling when reading an already-written
-  // checkpoint; it is normalized into the per-message map below.
-  pendingStartRecovery: Schema.optionalKey(Schema.Unknown),
   pendingMessageEdit: Schema.optionalKey(PersistedPendingMessageEdit),
-  queuePaused: Schema.optionalKey(Schema.Boolean),
   modelSelectionByProvider: Schema.optionalKey(
     Schema.Record(ProviderKind, Schema.optionalKey(ModelSelection)),
   ),
@@ -304,6 +240,91 @@ function normalizePersistedFiles(value: unknown): Array<PersistedComposerFileAtt
   return Array.isArray(value)
     ? value.filter(Schema.is(PersistedComposerFileAttachment)).map((file) => ({ ...file }))
     : [];
+}
+
+function serializePendingStartRecoveries(
+  recoveries: ComposerThreadDraftState["pendingStartRecoveriesByMessageId"],
+): Record<string, unknown> {
+  const serialized: Record<string, unknown> = {};
+  for (const [messageId, recovery] of Object.entries(recoveries ?? {})) {
+    if (!recovery) continue;
+    if ("raw" in recovery) {
+      serialized[messageId] = recovery.raw;
+      continue;
+    }
+    serialized[messageId] = {
+      ...recovery,
+      pendingTurn: {
+        ...recovery.pendingTurn,
+        images: recovery.pendingTurn.images.map((image) => ({
+          id: image.id,
+          name: image.name,
+          mimeType: image.mimeType,
+          sizeBytes: image.sizeBytes,
+          dataUrl: image.previewUrl,
+        })),
+        files: recovery.pendingTurn.files.flatMap((file) =>
+          file.assetKey
+            ? [
+                {
+                  id: file.id,
+                  name: file.name,
+                  mimeType: file.mimeType,
+                  sizeBytes: file.sizeBytes,
+                  assetKey: file.assetKey,
+                },
+              ]
+            : [],
+        ),
+      },
+    };
+  }
+  return serialized;
+}
+
+function hydratePendingStartRecoveries(
+  threadId: ThreadId,
+  raw: unknown,
+): NonNullable<ComposerThreadDraftState["pendingStartRecoveriesByMessageId"]> {
+  const hydrated: NonNullable<ComposerThreadDraftState["pendingStartRecoveriesByMessageId"]> = {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return hydrated;
+  for (const [messageId, value] of Object.entries(raw)) {
+    if (!value || typeof value !== "object") continue;
+    const candidate = value as Record<string, unknown>;
+    const pendingTurn = candidate.pendingTurn;
+    if (candidate.schemaVersion !== 1 || !pendingTurn || typeof pendingTurn !== "object") {
+      hydrated[MessageId.makeUnsafe(messageId)] = {
+        schemaVersion: typeof candidate.schemaVersion === "number" ? candidate.schemaVersion : 0,
+        threadId,
+        messageId: MessageId.makeUnsafe(messageId),
+        raw: value,
+      };
+      continue;
+    }
+    const turn = pendingTurn as Record<string, unknown>;
+    const images = Array.isArray(turn.images)
+      ? hydrateImagesFromPersisted(
+          turn.images.flatMap((image) => {
+            const normalized = normalizePersistedAttachment(image);
+            return normalized ? [normalized] : [];
+          }),
+        )
+      : [];
+    hydrated[MessageId.makeUnsafe(messageId)] = {
+      ...(candidate as unknown as Extract<PendingStartRecoveryRecord, { schemaVersion: 1 }>),
+      threadId,
+      messageId: MessageId.makeUnsafe(messageId),
+      pendingTurn: {
+        ...(turn as unknown as Extract<
+          PendingStartRecoveryRecord,
+          { schemaVersion: 1 }
+        >["pendingTurn"]),
+        images,
+        files: hydrateFilesFromPersisted(normalizePersistedFiles(turn.files)),
+      },
+    };
+  }
+  return hydrated;
 }
 
 function normalizePersistedPromptHistorySavedDraft(
@@ -415,25 +436,6 @@ function normalizePersistedTerminalContextDraft(
   };
 }
 
-function normalizePersistedQueuedTerminalContextDraft(
-  value: unknown,
-): PersistedQueuedTerminalContextDraft | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-  const candidate = value as Record<string, unknown>;
-  const base = normalizePersistedTerminalContextDraft(candidate);
-  if (!base) {
-    return null;
-  }
-  const text =
-    typeof candidate.text === "string" ? normalizeTerminalContextText(candidate.text) : "";
-  return {
-    ...base,
-    text,
-  };
-}
-
 function normalizePersistedAssistantSelection(
   value: unknown,
 ): { id: string; assistantMessageId: string; text: string } | null {
@@ -503,274 +505,6 @@ function normalizePersistedPastedTextDraft(value: unknown): PersistedPastedTextD
     return null;
   }
   return { id, createdAt, text, ...(title ? { title } : {}) };
-}
-
-function normalizePersistedQueuedTurns(
-  rawQueuedTurns: unknown,
-): DeepMutable<NonNullable<PersistedComposerThreadDraftState["queuedTurns"]>> | undefined {
-  if (!Array.isArray(rawQueuedTurns)) {
-    return undefined;
-  }
-  const normalizedTurns: DeepMutable<
-    NonNullable<PersistedComposerThreadDraftState["queuedTurns"]>
-  > = [];
-  const seenIds = new Set<string>();
-  for (const entry of rawQueuedTurns) {
-    if (!entry || typeof entry !== "object") {
-      continue;
-    }
-    const candidate = entry as Record<string, unknown>;
-    const id = typeof candidate.id === "string" ? candidate.id : "";
-    const kind = candidate.kind;
-    const createdAt = typeof candidate.createdAt === "string" ? candidate.createdAt : "";
-    const previewText = typeof candidate.previewText === "string" ? candidate.previewText : "";
-    const selectedProvider = normalizeProviderKind(candidate.selectedProvider);
-    const selectedModel =
-      candidate.selectedModel === null
-        ? null
-        : typeof candidate.selectedModel === "string"
-          ? candidate.selectedModel
-          : null;
-    const selectedPromptEffort =
-      candidate.selectedPromptEffort === null
-        ? null
-        : typeof candidate.selectedPromptEffort === "string"
-          ? candidate.selectedPromptEffort
-          : null;
-    const modelSelection = normalizeModelSelection(candidate.modelSelection);
-    const connectionId =
-      candidate.connectionId === null
-        ? null
-        : Schema.is(ProviderConnectionId)(candidate.connectionId)
-          ? candidate.connectionId
-          : undefined;
-    const providerOptionsForDispatch = Schema.is(ProviderStartOptions)(
-      candidate.providerOptionsForDispatch,
-    )
-      ? candidate.providerOptionsForDispatch
-      : undefined;
-    const runtimeMode =
-      candidate.runtimeMode === "approval-required" || candidate.runtimeMode === "full-access"
-        ? candidate.runtimeMode
-        : null;
-    if (
-      id.length === 0 ||
-      createdAt.length === 0 ||
-      previewText.length === 0 ||
-      selectedProvider === null ||
-      modelSelection === null ||
-      connectionId === undefined ||
-      runtimeMode === null ||
-      seenIds.has(id)
-    ) {
-      continue;
-    }
-    if (kind === "chat") {
-      const serverAcceptedAt =
-        typeof candidate.serverAcceptedAt === "string" && candidate.serverAcceptedAt.length > 0
-          ? candidate.serverAcceptedAt
-          : undefined;
-      const serverMessageId = Schema.is(MessageId)(candidate.serverMessageId)
-        ? candidate.serverMessageId
-        : undefined;
-      const dispatchAttempt =
-        typeof candidate.dispatchAttempt === "number" &&
-        Number.isSafeInteger(candidate.dispatchAttempt) &&
-        candidate.dispatchAttempt >= 0
-          ? candidate.dispatchAttempt
-          : undefined;
-      const dispatchBindingRevision =
-        typeof candidate.dispatchBindingRevision === "number" &&
-        Number.isSafeInteger(candidate.dispatchBindingRevision) &&
-        candidate.dispatchBindingRevision >= 0
-          ? candidate.dispatchBindingRevision
-          : undefined;
-      const prompt = typeof candidate.prompt === "string" ? candidate.prompt : "";
-      const images = Array.isArray(candidate.images)
-        ? candidate.images.flatMap((image) => {
-            const normalized = normalizePersistedAttachment(image);
-            return normalized ? [normalized] : [];
-          })
-        : [];
-      const files = normalizePersistedFiles(candidate.files);
-      const terminalContexts = Array.isArray(candidate.terminalContexts)
-        ? candidate.terminalContexts.flatMap((context) => {
-            const normalized = normalizePersistedQueuedTerminalContextDraft(context);
-            return normalized ? [normalized] : [];
-          })
-        : [];
-      const assistantSelections = Array.isArray(candidate.assistantSelections)
-        ? candidate.assistantSelections.flatMap((selection) => {
-            const normalized = normalizePersistedAssistantSelection(selection);
-            return normalized ? [normalized] : [];
-          })
-        : [];
-      const fileComments = Array.isArray(candidate.fileComments)
-        ? candidate.fileComments.flatMap((comment) => {
-            const normalized = normalizePersistedFileCommentDraft(comment);
-            return normalized ? [normalized] : [];
-          })
-        : [];
-      const pastedTexts = Array.isArray(candidate.pastedTexts)
-        ? candidate.pastedTexts.flatMap((pasted) => {
-            const normalized = normalizePersistedPastedTextDraft(pasted);
-            return normalized ? [normalized] : [];
-          })
-        : [];
-      const skills = Array.isArray(candidate.skills)
-        ? candidate.skills.filter(Schema.is(ProviderSkillReference))
-        : [];
-      const mentions = Array.isArray(candidate.mentions)
-        ? candidate.mentions.filter(Schema.is(ProviderMentionReference))
-        : [];
-      normalizedTurns.push({
-        id,
-        kind: "chat",
-        createdAt,
-        ...(serverAcceptedAt ? { serverAcceptedAt } : {}),
-        ...(serverMessageId ? { serverMessageId } : {}),
-        ...(dispatchAttempt === undefined ? {} : { dispatchAttempt }),
-        ...(dispatchBindingRevision === undefined ? {} : { dispatchBindingRevision }),
-        previewText,
-        prompt,
-        images,
-        ...(files.length > 0 ? { files } : {}),
-        ...(assistantSelections.length > 0 ? { assistantSelections } : {}),
-        terminalContexts,
-        ...(fileComments.length > 0 ? { fileComments } : {}),
-        ...(pastedTexts.length > 0 ? { pastedTexts } : {}),
-        skills: [...skills],
-        mentions: [...mentions],
-        selectedProvider,
-        selectedModel,
-        selectedPromptEffort,
-        modelSelection,
-        connectionId,
-        ...(providerOptionsForDispatch ? { providerOptionsForDispatch } : {}),
-        runtimeMode,
-      });
-      seenIds.add(id);
-      continue;
-    }
-  }
-  return normalizedTurns.length > 0 ? normalizedTurns : undefined;
-}
-
-function unknownPendingStartRecovery(
-  threadId: ThreadId,
-  raw: unknown,
-  fallbackMessageId?: string,
-): UnknownPendingStartRecovery {
-  const candidate = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
-  const messageId =
-    typeof candidate.messageId === "string" && candidate.messageId.length > 0
-      ? MessageId.makeUnsafe(candidate.messageId)
-      : MessageId.makeUnsafe(fallbackMessageId ?? `${threadId}:pending-start-recovery`);
-  const schemaVersion =
-    typeof candidate.schemaVersion === "number" && Number.isSafeInteger(candidate.schemaVersion)
-      ? candidate.schemaVersion
-      : 0;
-  return { schemaVersion, threadId, messageId, raw };
-}
-
-function normalizePendingStartRecovery(
-  threadId: ThreadId,
-  raw: unknown,
-  fallbackMessageId?: string,
-): PendingStartRecoveryRecord | null {
-  if (raw === undefined || raw === null) return null;
-  if (!raw || typeof raw !== "object") {
-    return unknownPendingStartRecovery(threadId, raw, fallbackMessageId);
-  }
-  const candidate = raw as Record<string, unknown>;
-  const messageId = Schema.is(MessageId)(candidate.messageId) ? candidate.messageId : undefined;
-  const pendingTurnCandidate = candidate.pendingTurn;
-  const pendingTurn =
-    pendingTurnCandidate && typeof pendingTurnCandidate === "object"
-      ? normalizePersistedQueuedTurns([pendingTurnCandidate as Record<string, unknown>])?.[0]
-      : undefined;
-  if (!pendingTurn) return unknownPendingStartRecovery(threadId, raw, fallbackMessageId);
-  const settlement = candidate.settlement;
-  const receiptSequence =
-    typeof candidate.receiptSequence === "number" &&
-    Number.isSafeInteger(candidate.receiptSequence) &&
-    candidate.receiptSequence >= 0
-      ? candidate.receiptSequence
-      : undefined;
-  const restorationReceipt =
-    candidate.restorationReceipt && typeof candidate.restorationReceipt === "object"
-      ? (candidate.restorationReceipt as Record<string, unknown>)
-      : undefined;
-  const receipt =
-    restorationReceipt &&
-    typeof restorationReceipt.sequence === "number" &&
-    Number.isSafeInteger(restorationReceipt.sequence) &&
-    restorationReceipt.sequence >= 0 &&
-    typeof restorationReceipt.rowId === "string" &&
-    restorationReceipt.rowId.length > 0 &&
-    typeof restorationReceipt.appliedAt === "string" &&
-    restorationReceipt.appliedAt.length > 0
-      ? {
-          sequence: restorationReceipt.sequence,
-          rowId: restorationReceipt.rowId,
-          appliedAt: restorationReceipt.appliedAt,
-        }
-      : undefined;
-  const validIdentity =
-    candidate.schemaVersion === 1 &&
-    Schema.is(ThreadId)(candidate.threadId) &&
-    candidate.threadId === threadId &&
-    messageId !== undefined &&
-    pendingTurn!.id === messageId;
-  const validSettlement =
-    settlement === "unresolved" ||
-    settlement === "accepted" ||
-    settlement === "failed" ||
-    (settlement === "restored" && receipt !== undefined);
-  if (validIdentity && validSettlement) {
-    const persistedImages = Array.isArray(candidate.persistedImages)
-      ? candidate.persistedImages.flatMap((entry) => {
-          const normalized = normalizePersistedAttachment(entry);
-          return normalized ? [normalized] : [];
-        })
-      : [];
-    return {
-      schemaVersion: 1,
-      threadId,
-      messageId,
-      pendingTurn: {
-        ...pendingTurn,
-        messageId,
-      } as unknown as PendingStartRecovery["pendingTurn"],
-      ...(persistedImages.length > 0 ? { persistedImages } : {}),
-      settlement,
-      ...(receiptSequence === undefined ? {} : { receiptSequence }),
-      ...(receipt === undefined ? {} : { restorationReceipt: receipt }),
-    };
-  }
-  return unknownPendingStartRecovery(threadId, raw, fallbackMessageId);
-}
-
-function normalizePendingStartRecoveryMap(
-  threadId: ThreadId,
-  rawMap: unknown,
-  legacyRaw: unknown,
-): Partial<Record<MessageId, PendingStartRecoveryRecord>> {
-  const normalized: Partial<Record<MessageId, PendingStartRecoveryRecord>> = {};
-  if (rawMap && typeof rawMap === "object" && !Array.isArray(rawMap)) {
-    for (const [messageId, raw] of Object.entries(rawMap as Record<string, unknown>)) {
-      const recovery = normalizePendingStartRecovery(threadId, raw, messageId);
-      if (recovery) {
-        const key = recovery.messageId ?? MessageId.makeUnsafe(messageId);
-        normalized[key] = recovery;
-      }
-    }
-  }
-  const legacyRecovery = normalizePendingStartRecovery(threadId, legacyRaw);
-  if (legacyRecovery && normalized[legacyRecovery.messageId] === undefined) {
-    normalized[legacyRecovery.messageId] = legacyRecovery;
-  }
-  return normalized;
 }
 
 function normalizePersistedDraftThreads(
@@ -929,7 +663,6 @@ function normalizePersistedDraftsByThreadId(
     const mentions = Array.isArray(draftCandidate.mentions)
       ? draftCandidate.mentions.filter(Schema.is(ProviderMentionReference))
       : [];
-    const queuedTurns = normalizePersistedQueuedTurns(draftCandidate.queuedTurns);
     const runtimeMode =
       draftCandidate.runtimeMode === "approval-required" ||
       draftCandidate.runtimeMode === "full-access"
@@ -985,13 +718,8 @@ function normalizePersistedDraftsByThreadId(
       activeProvider = modelSelection?.provider ?? null;
     }
 
-    const normalizedQueuedTurns = queuedTurns ?? [];
-    const pendingStartRecoveriesByMessageId = normalizePendingStartRecoveryMap(
-      threadId as ThreadId,
-      draftCandidate.pendingStartRecoveriesByMessageId,
-      draftCandidate.pendingStartRecovery,
-    );
-    const queuePaused = draftCandidate.queuePaused === true;
+    // The server owns queue admission and recovery. Local snapshots may only
+    // contain stale speculative rows; never revive one without server proof.
     const pendingMessageEdit = Schema.is(PersistedPendingMessageEdit)(
       draftCandidate.pendingMessageEdit,
     )
@@ -999,7 +727,6 @@ function normalizePersistedDraftsByThreadId(
       : undefined;
     const hasModelData =
       Object.keys(modelSelectionByProvider).length > 0 || activeProvider !== null;
-    const hasQueuedTurns = normalizedQueuedTurns.length > 0;
     const hasReferenceData = skills.length > 0 || mentions.length > 0;
     if (
       promptCandidate.length === 0 &&
@@ -1011,10 +738,10 @@ function normalizePersistedDraftsByThreadId(
       fileComments.length === 0 &&
       pastedTexts.length === 0 &&
       !hasReferenceData &&
-      !hasQueuedTurns &&
-      Object.keys(pendingStartRecoveriesByMessageId).length === 0 &&
+      (!draftCandidate.pendingStartRecoveriesByMessageId ||
+        typeof draftCandidate.pendingStartRecoveriesByMessageId !== "object" ||
+        Object.keys(draftCandidate.pendingStartRecoveriesByMessageId).length === 0) &&
       pendingMessageEdit === undefined &&
-      !queuePaused &&
       !hasModelData &&
       !runtimeMode
     ) {
@@ -1031,12 +758,11 @@ function normalizePersistedDraftsByThreadId(
       ...(pastedTexts.length > 0 ? { pastedTexts } : {}),
       ...(skills.length > 0 ? { skills } : {}),
       ...(mentions.length > 0 ? { mentions } : {}),
-      ...(hasQueuedTurns ? { queuedTurns: normalizedQueuedTurns } : {}),
-      ...(Object.keys(pendingStartRecoveriesByMessageId).length > 0
-        ? { pendingStartRecoveriesByMessageId }
+      ...(draftCandidate.pendingStartRecoveriesByMessageId &&
+      typeof draftCandidate.pendingStartRecoveriesByMessageId === "object"
+        ? { pendingStartRecoveriesByMessageId: draftCandidate.pendingStartRecoveriesByMessageId }
         : {}),
       ...(pendingMessageEdit ? { pendingMessageEdit } : {}),
-      ...(queuePaused ? { queuePaused: true } : {}),
       ...(hasModelData ? { modelSelectionByProvider, activeProvider } : {}),
       ...(runtimeMode ? { runtimeMode } : {}),
     };
@@ -1074,128 +800,9 @@ export function partializeComposerDraftStoreState(
     if (typeof threadId !== "string" || threadId.length === 0) {
       continue;
     }
-    const persistedQueuedTurns: DeepMutable<
-      NonNullable<PersistedComposerThreadDraftState["queuedTurns"]>
-    > = [];
-    for (const queuedTurn of draft.queuedTurns) {
-      if (queuedTurn.kind === "chat") {
-        if (queuedTurn.files.some((file) => !file.assetKey)) {
-          continue;
-        }
-        const images = persistQueuedComposerImages(queuedTurn.images);
-        if (images.length !== queuedTurn.images.length) {
-          continue;
-        }
-        persistedQueuedTurns.push({
-          id: queuedTurn.id,
-          kind: "chat",
-          createdAt: queuedTurn.createdAt,
-          ...(queuedTurn.serverAcceptedAt ? { serverAcceptedAt: queuedTurn.serverAcceptedAt } : {}),
-          ...(queuedTurn.serverMessageId ? { serverMessageId: queuedTurn.serverMessageId } : {}),
-          ...(queuedTurn.dispatchAttempt === undefined
-            ? {}
-            : { dispatchAttempt: queuedTurn.dispatchAttempt }),
-          ...(queuedTurn.dispatchBindingRevision === undefined
-            ? {}
-            : { dispatchBindingRevision: queuedTurn.dispatchBindingRevision }),
-          previewText: queuedTurn.previewText,
-          prompt: queuedTurn.prompt,
-          images,
-          files: queuedTurn.files.map((file) => ({
-            id: file.id,
-            name: file.name,
-            mimeType: file.mimeType,
-            sizeBytes: file.sizeBytes,
-            assetKey: file.assetKey!,
-          })),
-          assistantSelections: queuedTurn.assistantSelections.map((selection) => ({
-            id: selection.id,
-            assistantMessageId: selection.assistantMessageId,
-            text: selection.text,
-          })),
-          terminalContexts: queuedTurn.terminalContexts.map((context) => ({
-            id: context.id,
-            threadId: context.threadId,
-            createdAt: context.createdAt,
-            terminalId: context.terminalId,
-            terminalLabel: context.terminalLabel,
-            lineStart: context.lineStart,
-            lineEnd: context.lineEnd,
-            text: context.text,
-          })),
-          ...(queuedTurn.fileComments.length > 0
-            ? {
-                fileComments: queuedTurn.fileComments.map((comment) => ({
-                  id: comment.id,
-                  path: comment.path,
-                  startLine: comment.startLine,
-                  endLine: comment.endLine,
-                  text: comment.text,
-                })),
-              }
-            : {}),
-          ...(queuedTurn.pastedTexts.length > 0
-            ? {
-                pastedTexts: queuedTurn.pastedTexts.map((pasted) => ({
-                  id: pasted.id,
-                  createdAt: pasted.createdAt,
-                  text: pasted.text,
-                  ...(pasted.title ? { title: pasted.title } : {}),
-                })),
-              }
-            : {}),
-          skills: [...queuedTurn.skills],
-          mentions: [...queuedTurn.mentions],
-          selectedProvider: queuedTurn.selectedProvider,
-          selectedModel: queuedTurn.selectedModel,
-          selectedPromptEffort: queuedTurn.selectedPromptEffort,
-          modelSelection: queuedTurn.modelSelection,
-          connectionId: queuedTurn.connectionId,
-          ...(queuedTurn.providerOptionsForDispatch
-            ? {
-                providerOptionsForDispatch: queuedTurn.providerOptionsForDispatch,
-              }
-            : {}),
-          runtimeMode: queuedTurn.runtimeMode,
-        });
-      }
-    }
-    const persistedPendingStartRecoveriesByMessageId: Record<string, unknown> = {};
-    for (const [messageId, pendingStartRecovery] of Object.entries(
-      draft.pendingStartRecoveriesByMessageId ?? {},
-    )) {
-      if (!pendingStartRecovery) continue;
-      if ("raw" in pendingStartRecovery) {
-        persistedPendingStartRecoveriesByMessageId[messageId] = pendingStartRecovery.raw;
-      } else {
-        const pendingTurn = serializeQueuedComposerTurn(
-          pendingStartRecovery.pendingTurn as unknown as QueuedComposerTurn,
-          true,
-        );
-        persistedPendingStartRecoveriesByMessageId[messageId] = {
-          schemaVersion: 1,
-          threadId: pendingStartRecovery.threadId,
-          messageId: pendingStartRecovery.messageId,
-          pendingTurn: {
-            ...pendingTurn,
-            messageId: pendingStartRecovery.messageId,
-          },
-          settlement: pendingStartRecovery.settlement,
-          ...(pendingStartRecovery.receiptSequence === undefined
-            ? {}
-            : { receiptSequence: pendingStartRecovery.receiptSequence }),
-          ...(pendingStartRecovery.restorationReceipt === undefined
-            ? {}
-            : { restorationReceipt: pendingStartRecovery.restorationReceipt }),
-          ...(pendingStartRecovery.persistedImages === undefined
-            ? {}
-            : { persistedImages: pendingStartRecovery.persistedImages }),
-        };
-      }
-    }
+    // Queue rows live in the thread projection. Pending start recovery remains local because it records a command whose server outcome is still unknown.
     const hasModelData =
       Object.keys(draft.modelSelectionByProvider).length > 0 || draft.activeProvider !== null;
-    const hasQueuedTurns = persistedQueuedTurns.length > 0;
     const hasReferenceData = draft.skills.length > 0 || draft.mentions.length > 0;
     if (
       draft.prompt.length === 0 &&
@@ -1208,10 +815,8 @@ export function partializeComposerDraftStoreState(
       draft.fileComments.length === 0 &&
       draft.pastedTexts.length === 0 &&
       !hasReferenceData &&
-      !hasQueuedTurns &&
-      Object.keys(persistedPendingStartRecoveriesByMessageId).length === 0 &&
+      Object.keys(draft.pendingStartRecoveriesByMessageId ?? {}).length === 0 &&
       draft.pendingMessageEdit === null &&
-      !draft.queuePaused &&
       !hasModelData &&
       draft.runtimeMode === null
     ) {
@@ -1357,14 +962,15 @@ export function partializeComposerDraftStoreState(
         : {}),
       ...(draft.skills.length > 0 ? { skills: [...draft.skills] } : {}),
       ...(draft.mentions.length > 0 ? { mentions: [...draft.mentions] } : {}),
-      ...(hasQueuedTurns ? { queuedTurns: persistedQueuedTurns } : {}),
-      ...(Object.keys(persistedPendingStartRecoveriesByMessageId).length === 0
-        ? {}
-        : {
-            pendingStartRecoveriesByMessageId: persistedPendingStartRecoveriesByMessageId,
-          }),
+      ...(draft.pendingStartRecoveriesByMessageId &&
+      Object.keys(draft.pendingStartRecoveriesByMessageId).length > 0
+        ? {
+            pendingStartRecoveriesByMessageId: serializePendingStartRecoveries(
+              draft.pendingStartRecoveriesByMessageId,
+            ),
+          }
+        : {}),
       ...(draft.pendingMessageEdit ? { pendingMessageEdit: draft.pendingMessageEdit } : {}),
-      ...(draft.queuePaused ? { queuePaused: true } : {}),
       ...(hasModelData
         ? {
             modelSelectionByProvider: draft.modelSelectionByProvider,
@@ -1383,115 +989,6 @@ export function partializeComposerDraftStoreState(
     stickyConnectionByProvider: state.stickyConnectionByProvider,
     stickyActiveProvider: state.stickyActiveProvider,
   };
-}
-
-function serializeQueuedComposerTurn(
-  queuedTurn: QueuedComposerTurn & { messageId?: MessageId },
-  strict: boolean,
-): PersistedQueuedComposerChatTurn {
-  if (queuedTurn.kind !== "chat") {
-    throw new Error("Pending start recovery must contain a chat turn.");
-  }
-  if (queuedTurn.files.some((file) => !file.assetKey)) {
-    throw new Error("Pending start recovery contains a file without a durable asset reference.");
-  }
-  const images = persistQueuedComposerImages(queuedTurn.images);
-  if (images.length !== queuedTurn.images.length) {
-    if (strict) {
-      throw new Error("Pending start recovery contains an image without durable bytes.");
-    }
-    throw new Error("Queued composer image could not be persisted.");
-  }
-  return {
-    id: queuedTurn.id,
-    kind: "chat",
-    createdAt: queuedTurn.createdAt,
-    ...(queuedTurn.serverAcceptedAt ? { serverAcceptedAt: queuedTurn.serverAcceptedAt } : {}),
-    ...(queuedTurn.serverMessageId ? { serverMessageId: queuedTurn.serverMessageId } : {}),
-    ...(queuedTurn.dispatchAttempt === undefined
-      ? {}
-      : { dispatchAttempt: queuedTurn.dispatchAttempt }),
-    ...(queuedTurn.dispatchBindingRevision === undefined
-      ? {}
-      : { dispatchBindingRevision: queuedTurn.dispatchBindingRevision }),
-    previewText: queuedTurn.previewText,
-    prompt: queuedTurn.prompt,
-    images,
-    files: queuedTurn.files.map((file) => ({
-      id: file.id,
-      name: file.name,
-      mimeType: file.mimeType,
-      sizeBytes: file.sizeBytes,
-      assetKey: file.assetKey!,
-    })),
-    assistantSelections: queuedTurn.assistantSelections.map((selection) => ({
-      id: selection.id,
-      assistantMessageId: selection.assistantMessageId,
-      text: selection.text,
-    })),
-    terminalContexts: queuedTurn.terminalContexts.map((context) => ({
-      id: context.id,
-      threadId: context.threadId,
-      createdAt: context.createdAt,
-      terminalId: context.terminalId,
-      terminalLabel: context.terminalLabel,
-      lineStart: context.lineStart,
-      lineEnd: context.lineEnd,
-      text: context.text,
-    })),
-    ...(queuedTurn.fileComments.length > 0
-      ? {
-          fileComments: queuedTurn.fileComments.map((comment) => ({
-            id: comment.id,
-            path: comment.path,
-            startLine: comment.startLine,
-            endLine: comment.endLine,
-            text: comment.text,
-          })),
-        }
-      : {}),
-    ...(queuedTurn.pastedTexts.length > 0
-      ? {
-          pastedTexts: queuedTurn.pastedTexts.map((pasted) => ({
-            id: pasted.id,
-            createdAt: pasted.createdAt,
-            text: pasted.text,
-            ...(pasted.title ? { title: pasted.title } : {}),
-          })),
-        }
-      : {}),
-    skills: [...queuedTurn.skills],
-    mentions: [...queuedTurn.mentions],
-    selectedProvider: queuedTurn.selectedProvider,
-    selectedModel: queuedTurn.selectedModel,
-    selectedPromptEffort: queuedTurn.selectedPromptEffort,
-    modelSelection: queuedTurn.modelSelection,
-    connectionId: queuedTurn.connectionId,
-    ...(queuedTurn.providerOptionsForDispatch
-      ? { providerOptionsForDispatch: queuedTurn.providerOptionsForDispatch }
-      : {}),
-    runtimeMode: queuedTurn.runtimeMode,
-    ...(queuedTurn.messageId ? { messageId: queuedTurn.messageId } : {}),
-  };
-}
-
-export function serializeQueuedComposerTurnForWindowSync(queuedTurn: QueuedComposerTurn): string {
-  return JSON.stringify(serializeQueuedComposerTurn(queuedTurn, true));
-}
-
-export function hydrateQueuedComposerTurnFromWindowSync(
-  threadId: ThreadId,
-  value: string,
-): QueuedComposerTurn | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(value);
-  } catch {
-    return null;
-  }
-  const normalized = normalizePersistedQueuedTurns([parsed])?.[0];
-  if (!normalized) return null;
-  return hydrateQueuedTurnsFromPersisted(threadId, [normalized])[0] ?? null;
 }
 
 export function normalizeCurrentPersistedComposerDraftStoreState(
@@ -1562,48 +1059,6 @@ export function normalizeCurrentPersistedComposerDraftStoreState(
   };
 }
 
-function hydrateQueuedTurnsFromPersisted(
-  threadId: ThreadId,
-  queuedTurns: ReadonlyArray<PersistedQueuedComposerTurn> | undefined,
-): QueuedComposerTurn[] {
-  if (!queuedTurns || queuedTurns.length === 0) {
-    return [];
-  }
-  return queuedTurns.map((queuedTurn) => ({
-    ...queuedTurn,
-    images: hydrateImagesFromPersisted(queuedTurn.images),
-    files: hydrateFilesFromPersisted(queuedTurn.files),
-    assistantSelections: normalizeAssistantSelections(queuedTurn.assistantSelections ?? []),
-    terminalContexts: normalizeTerminalContextsForThread(threadId, queuedTurn.terminalContexts),
-    fileComments: normalizeFileComments(queuedTurn.fileComments ?? []),
-    pastedTexts: hydratePastedTextsFromPersisted(queuedTurn.pastedTexts),
-    skills: [...queuedTurn.skills],
-    mentions: [...queuedTurn.mentions],
-  }));
-}
-
-function hydratePendingStartRecoveries(
-  threadId: ThreadId,
-  recoveries: Partial<Record<MessageId, PendingStartRecoveryRecord>>,
-): Partial<Record<MessageId, PendingStartRecoveryRecord>> {
-  const hydrated: Partial<Record<MessageId, PendingStartRecoveryRecord>> = {};
-  for (const [messageId, recovery] of Object.entries(recoveries)) {
-    if (!recovery || "raw" in recovery) {
-      hydrated[messageId as MessageId] = recovery;
-      continue;
-    }
-    const pendingTurn = hydrateQueuedTurnsFromPersisted(threadId, [
-      recovery.pendingTurn as unknown as NonNullable<
-        Parameters<typeof hydrateQueuedTurnsFromPersisted>[1]
-      >[number],
-    ])[0];
-    hydrated[messageId as MessageId] = pendingTurn
-      ? { ...recovery, pendingTurn: { ...pendingTurn } }
-      : unknownPendingStartRecovery(threadId, recovery);
-  }
-  return hydrated;
-}
-
 function hydratePromptHistorySavedDraft(
   savedDraft: PersistedComposerPromptHistorySavedDraft | undefined,
 ): ComposerPromptHistorySavedDraft | null {
@@ -1672,17 +1127,11 @@ export function toHydratedThreadDraft(
     pastedTexts: hydratePastedTextsFromPersisted(persistedDraft.pastedTexts),
     skills: [...(persistedDraft.skills ?? [])],
     mentions: [...(persistedDraft.mentions ?? [])],
-    queuedTurns: hydrateQueuedTurnsFromPersisted(threadId, persistedDraft.queuedTurns),
     pendingStartRecoveriesByMessageId: hydratePendingStartRecoveries(
       threadId,
-      normalizePendingStartRecoveryMap(
-        threadId,
-        persistedDraft.pendingStartRecoveriesByMessageId,
-        persistedDraft.pendingStartRecovery,
-      ),
+      persistedDraft.pendingStartRecoveriesByMessageId,
     ),
     pendingMessageEdit: persistedDraft.pendingMessageEdit ?? null,
-    queuePaused: persistedDraft.queuePaused === true,
     modelSelectionByProvider,
     activeProvider,
     runtimeMode: persistedDraft.runtimeMode ?? null,

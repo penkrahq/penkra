@@ -127,13 +127,11 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   // from the terminal). The `|| isMac` escape hatch fires them on macOS regardless of
   // focus, while Linux/Windows keep `!terminalFocus` so Ctrl-chords still reach the shell.
   { key: "mod+n", command: "chat.new", when: "!terminalFocus || isMac" },
-  { key: "mod+shift+n", command: "chat.newLatestProject", when: "!terminalFocus || isMac" },
   { key: "mod+alt+n", command: "chat.newChat", when: "!terminalFocus || isMac" },
   { key: "mod+shift+t", command: "chat.newTerminal", when: "!terminalFocus || isMac" },
   { key: "mod+alt+c", command: "chat.newClaude", when: "!terminalFocus || isMac" },
   { key: "mod+alt+x", command: "chat.newCodex", when: "!terminalFocus || isMac" },
   { key: "mod+alt+r", command: "chat.newOpenCode", when: "!terminalFocus || isMac" },
-  { key: "mod+\\", command: "chat.split", when: "!terminalFocus || isMac" },
   // Recent-view switcher (Ctrl+Tab) is an installed-app feature only: Electron and
   // standalone PWA windows have no tab strip, so the chord reaches the page. It remains
   // app-level even with terminal focus; the web route captures it before xterm input.
@@ -597,7 +595,7 @@ const LEGACY_KEYBINDING_COMMAND_ALIASES = {
 
 // Commands removed without a direct replacement are dropped during startup so
 // persisted configs from older releases do not produce validation warnings.
-const RETIRED_LEGACY_KEYBINDING_COMMANDS = new Set(["chat.newGemini"]);
+const RETIRED_LEGACY_KEYBINDING_COMMANDS = new Set(["chat.newGemini", "chat.split"]);
 const RETIRED_LEGACY_KEYBINDING_COMMAND_PATTERN = /^(?:composer\.)?modelPicker\.jump\.[1-9]$/;
 const OUTDATED_RECENT_VIEW_TERMINAL_GUARD = "!terminalFocus";
 const OUTDATED_SIDEBAR_SEARCH_SHORTCUT = "mod+k";
@@ -613,6 +611,23 @@ const RECENT_VIEW_SHORTCUT_BY_COMMAND: Partial<Record<KeybindingRule["command"],
 // regardless of focus while Linux/Windows keep yielding Ctrl-chords to the shell.
 const OUTDATED_CREATION_TERMINAL_GUARD = "!terminalFocus";
 const RELAXED_CREATION_TERMINAL_GUARD = "!terminalFocus || isMac";
+
+/** Remove only the two complete rules that Penkra shipped for this retired chord. */
+export function removeRetiredNewWindowDefault(rules: readonly KeybindingRule[]): {
+  readonly rules: KeybindingRule[];
+  readonly migratedCount: number;
+} {
+  const next = rules.filter(
+    (rule) =>
+      !(
+        rule.key === "mod+shift+n" &&
+        rule.command === "chat.newLatestProject" &&
+        (rule.when === RELAXED_CREATION_TERMINAL_GUARD ||
+          rule.when === OUTDATED_CREATION_TERMINAL_GUARD)
+      ),
+  );
+  return { rules: next, migratedCount: rules.length - next.length };
+}
 const CREATION_COMMANDS_WITH_TERMINAL_ESCAPE = new Set<KeybindingRule["command"]>([
   "chat.new",
   "chat.newLatestProject",
@@ -622,7 +637,6 @@ const CREATION_COMMANDS_WITH_TERMINAL_ESCAPE = new Set<KeybindingRule["command"]
   "chat.newClaude",
   "chat.newCodex",
   "chat.newOpenCode",
-  "chat.split",
 ]);
 
 function readKeybindingEntryCommand(entry: unknown): string | null {
@@ -986,7 +1000,9 @@ const makeKeybindings = Effect.gen(function* () {
 
     const sidebarSearchMigration = migrateOutdatedSidebarSearchDefault(keybindings);
     migratedDefaultRuleCount += sidebarSearchMigration.migratedCount;
-    const relaxed = relaxCreationCommandTerminalGuards(sidebarSearchMigration.rules);
+    const retiredNewWindowDefault = removeRetiredNewWindowDefault(sidebarSearchMigration.rules);
+    migratedDefaultRuleCount += retiredNewWindowDefault.migratedCount;
+    const relaxed = relaxCreationCommandTerminalGuards(retiredNewWindowDefault.rules);
     migratedDefaultRuleCount += relaxed.migratedCount;
 
     return {

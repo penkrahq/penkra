@@ -5,10 +5,30 @@ import type { OrchestrationCommand } from "@penkra/contracts";
 import { Data, Effect, ServiceMap } from "effect";
 
 import type { ManagedAttachmentPrincipal } from "../../managedAttachmentPrincipal.ts";
+import type { ProviderTurnSelectionFailureCode } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
 
-export class ProviderThreadSwitchCoordinatorError extends Data.TaggedError(
+type ProviderThreadSwitchCoordinatorErrorFields = {
+  readonly code:
+    | ProviderTurnSelectionFailureCode
+    | "switch_operation_failed"
+    | "switch_wait_timeout";
+  readonly detail: string;
+  readonly cause?: unknown;
+};
+
+const ProviderThreadSwitchCoordinatorErrorBase = Data.TaggedError(
   "ProviderThreadSwitchCoordinatorError",
-)<{ readonly detail: string; readonly cause?: unknown }> {
+)<ProviderThreadSwitchCoordinatorErrorFields>;
+
+export class ProviderThreadSwitchCoordinatorError extends ProviderThreadSwitchCoordinatorErrorBase {
+  constructor(
+    input: Omit<ProviderThreadSwitchCoordinatorErrorFields, "code"> & {
+      readonly code?: ProviderThreadSwitchCoordinatorErrorFields["code"];
+    },
+  ) {
+    super({ ...input, code: input.code ?? "selection_failed" });
+  }
+
   override get message(): string {
     return this.detail;
   }
@@ -17,6 +37,11 @@ export class ProviderThreadSwitchCoordinatorError extends Data.TaggedError(
 export interface ProviderThreadSwitchCoordinatorShape {
   readonly dispatchTurnStart: (input: {
     readonly command: Extract<OrchestrationCommand, { type: "thread.turn.start" }>;
+    readonly attachmentPrincipal: ManagedAttachmentPrincipal;
+    readonly cwd?: string;
+  }) => Effect.Effect<{ readonly sequence: number }, ProviderThreadSwitchCoordinatorError>;
+  readonly dispatchQueuedTurn: (input: {
+    readonly command: Extract<OrchestrationCommand, { type: "thread.turn.dispatch-queued" }>;
     readonly attachmentPrincipal: ManagedAttachmentPrincipal;
     readonly cwd?: string;
   }) => Effect.Effect<{ readonly sequence: number }, ProviderThreadSwitchCoordinatorError>;

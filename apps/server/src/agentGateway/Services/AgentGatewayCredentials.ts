@@ -40,9 +40,7 @@ export interface AgentGatewayCredentialsShape {
   readonly verifySessionToken: (token: string) => string | null;
   /** Resolve the complete non-secret invocation scope. */
   readonly verifySession: (token: string) => AgentGatewaySessionIdentity | null;
-  /** Pin one request/batch to the exact running turn observed at ingress. */
   readonly bindWriteAuthority: (token: string, turnId: string) => AgentGatewayWriteAuthority | null;
-  /** Recheck that a previously bound authority still belongs to a live session. */
   readonly verifyWriteAuthority: (authority: AgentGatewayWriteAuthority) => boolean;
   /** Revoke exactly one provider session credential. */
   readonly revokeSessionToken: (token: string) => void;

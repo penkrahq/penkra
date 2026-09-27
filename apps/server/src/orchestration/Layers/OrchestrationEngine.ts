@@ -27,6 +27,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { ServerConfig } from "../../config.ts";
 import { toPersistenceSqlError, type PersistenceSqlError } from "../../persistence/Errors.ts";
+import { isRetryableSqliteError } from "../../persistence/SqliteSafety.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
 import {
   OrchestrationCommandReceiptRepository,
@@ -40,6 +41,8 @@ import {
 import { ProviderThreadSwitchOperationRepository } from "../../persistence/Services/ProviderThreadSwitchOperations.ts";
 import { ProviderNativeForkOperationRepository } from "../../persistence/Services/ProviderNativeForkOperations.ts";
 import { ManagedAttachmentRepositoryLive } from "../../persistence/Layers/ManagedAttachments.ts";
+import { QueuedTurnPromotionRepositoryLive } from "../../persistence/Layers/QueuedTurnPromotions.ts";
+import { QueuedTurnPromotionRepository } from "../../persistence/Services/QueuedTurnPromotions.ts";
 import {
   LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
   type ManagedAttachmentPrincipal,
@@ -68,6 +71,7 @@ import {
   usesReservedCommandAdmission,
 } from "../orchestrationAdmission.ts";
 import { decideOrchestrationCommand } from "../decider.ts";
+import { userStopPending } from "../userStopPending.ts";
 import { FOLDER_METADATA_SNAPSHOT_PROJECTORS } from "../folderMetadataProjection.ts";
 import { createEmptyReadModel, projectEvent } from "../projector.ts";
 import {
@@ -87,6 +91,16 @@ const ORCHESTRATION_DISPATCH_TIMEOUT_MS = 45_000;
 const DEFERRED_PROJECTION_RETRY_DELAYS_MS = [100, 500, 2_000, 10_000, 30_000] as const;
 const REQUIRED_REPAIR_PROJECTORS = Object.values(ORCHESTRATION_PROJECTOR_NAMES);
 
+const verifiedSwitchCommitError = (commandType: string, detail: string, cause: Error) =>
+  new OrchestrationCommandInvariantError({
+    commandType,
+    detail: `${detail}: ${cause.message}`,
+    code: isRetryableSqliteError(cause)
+      ? "provider_switch_commit_retryable"
+      : "provider_switch_commit_failed",
+    cause,
+  });
+
 type CommandExecutionState = "queued" | "in-flight" | "abandoned";
 type DispatchTimeoutDecision = { kind: "abandon" } | { kind: "wait" };
 type OrchestrationEnginePhase = "running" | "quiescing" | "draining" | "stopped";
@@ -94,6 +108,7 @@ type OrchestrationEnginePhase = "running" | "quiescing" | "draining" | "stopped"
 interface CommandEnvelope {
   command: OrchestrationCommand;
   attachmentPrincipal: ManagedAttachmentPrincipal;
+  allowArchivedProviderProjection?: boolean;
   acceptedProviderSwitch?: NonNullable<OrchestrationDispatchContext["acceptedProviderSwitch"]>;
   acceptedInitialProviderBinding?: Parameters<
     ThreadProviderBindingRepositoryShape["initializeThread"]
@@ -218,6 +233,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   const eventStore = yield* OrchestrationEventStore;
   const commandReceiptRepository = yield* OrchestrationCommandReceiptRepository;
   const managedAttachments = yield* ManagedAttachmentRepository;
+  const queuedTurnPromotions = yield* QueuedTurnPromotionRepository;
   const threadProviderBindings = Option.getOrUndefined(
     yield* Effect.serviceOption(ThreadProviderBindingRepository),
   );
@@ -565,6 +581,8 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       case "thread.conversation.rollback":
       case "thread.message.edit-and-resend":
       case "thread.message.assistant.complete":
+      case "thread.turn.recover":
+      case "thread.archive":
         return loadThreadDetailForDecider(command, commandReadModel, command.threadId);
       default:
         return Effect.succeed(commandReadModel);
@@ -796,7 +814,11 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       const eventBase = yield* decideOrchestrationCommand({
         command,
         readModel: deciderReadModel,
+        ...(command.type === "thread.archive" || command.type === "thread.turn.dispatch-queued"
+          ? { userStopRequested: yield* userStopPending(command.threadId, sql) }
+          : {}),
         workspacePaths: deciderWorkspacePaths,
+        allowArchivedProviderProjection: envelope.allowArchivedProviderProjection === true,
         ...(envelope.acceptedProviderSwitch !== undefined
           ? { acceptedConnectionChange: envelope.acceptedProviderSwitch.change }
           : {}),
@@ -811,6 +833,33 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         let nextCommandReadModel = commandReadModel;
         let disposition: "applied" | "skipped" = "applied";
         let admittedEventBases = eventBases;
+
+        if (command.type === "thread.turn.recover" && command.reason === "play") {
+          const bindingOption =
+            threadProviderBindings === undefined
+              ? Option.none()
+              : yield* threadProviderBindings.getRuntimeBinding(command.threadId).pipe(
+                  Effect.mapError(
+                    (cause) =>
+                      new OrchestrationCommandInvariantError({
+                        commandType: command.type,
+                        detail: `The runtime binding could not be read: ${cause.message}`,
+                      }),
+                  ),
+                );
+          const binding = Option.getOrUndefined(bindingOption);
+          if (
+            !binding?.modelId ||
+            binding.connectionId !== command.connectionId ||
+            binding.revision !== command.bindingRevision
+          ) {
+            return yield* new OrchestrationCommandInvariantError({
+              commandType: command.type,
+              detail: "Thread changed before continuation.",
+              code: "THREAD_CONTINUE_STALE",
+            });
+          }
+        }
 
         if (command.type === "thread.session.set" && hasProviderLifecycleGuard(envelope)) {
           const expectedGeneration = envelope.expectedProviderLifecycleGeneration;
@@ -939,10 +988,13 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           }
         }
         if (envelope.acceptedProviderSwitch !== undefined) {
-          if (command.type !== "thread.turn.start") {
+          if (
+            command.type !== "thread.turn.start" &&
+            command.type !== "thread.turn.dispatch-queued"
+          ) {
             return yield* new OrchestrationCommandInvariantError({
               commandType: command.type,
-              detail: "A verified provider switch may only accompany a thread turn start.",
+              detail: "A verified provider switch may only accompany a thread turn admission.",
             });
           }
           if (
@@ -958,12 +1010,12 @@ const makeOrchestrationEngine = Effect.gen(function* () {
             yield* threadProviderBindings
               .commitSwitchInCurrentTransaction(envelope.acceptedProviderSwitch.commit.input)
               .pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new OrchestrationCommandInvariantError({
-                      commandType: command.type,
-                      detail: `The verified provider switch could not be committed: ${cause.message}`,
-                    }),
+                Effect.mapError((cause) =>
+                  verifiedSwitchCommitError(
+                    command.type,
+                    "The verified provider switch could not be committed",
+                    cause,
+                  ),
                 ),
               );
           } else {
@@ -972,18 +1024,19 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                 envelope.acceptedProviderSwitch.commit.input,
               )
               .pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new OrchestrationCommandInvariantError({
-                      commandType: command.type,
-                      detail: `The verified provider selection could not be committed: ${cause.message}`,
-                    }),
+                Effect.mapError((cause) =>
+                  verifiedSwitchCommitError(
+                    command.type,
+                    "The verified provider selection could not be committed",
+                    cause,
+                  ),
                 ),
               );
             if (Option.isNone(updatedBinding)) {
               return yield* new OrchestrationCommandInvariantError({
                 commandType: command.type,
                 detail: "The provider selection binding changed before commit.",
+                code: "provider_binding_stale",
               });
             }
           }
@@ -993,12 +1046,12 @@ const makeOrchestrationEngine = Effect.gen(function* () {
               updatedAt: command.createdAt,
             })
             .pipe(
-              Effect.mapError(
-                (cause) =>
-                  new OrchestrationCommandInvariantError({
-                    commandType: command.type,
-                    detail: `The provider switch journal could not be committed: ${cause.message}`,
-                  }),
+              Effect.mapError((cause) =>
+                verifiedSwitchCommitError(
+                  command.type,
+                  "The provider switch journal could not be committed",
+                  cause,
+                ),
               ),
             );
           if (Option.isNone(committedOperation)) {
@@ -1028,6 +1081,13 @@ const makeOrchestrationEngine = Effect.gen(function* () {
               detail: `Managed attachment claim was rejected: ${claim.reason}.`,
             });
           }
+        }
+
+        if (command.type === "thread.archive") {
+          yield* queuedTurnPromotions.cancelThread({
+            threadId: command.threadId,
+            updatedAt: admittedEventBases[0]?.occurredAt ?? new Date().toISOString(),
+          });
         }
 
         for (const nextEvent of admittedEventBases) {
@@ -1448,6 +1508,9 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       const envelope: CommandEnvelope = {
         command,
         attachmentPrincipal: context?.attachmentPrincipal ?? LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+        ...(context?.allowArchivedProviderProjection === true
+          ? { allowArchivedProviderProjection: true }
+          : {}),
         ...(context?.acceptedProviderSwitch !== undefined
           ? { acceptedProviderSwitch: context.acceptedProviderSwitch }
           : {}),
@@ -1705,4 +1768,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
 export const OrchestrationEngineLive = Layer.effect(
   OrchestrationEngineService,
   makeOrchestrationEngine,
-).pipe(Layer.provideMerge(ManagedAttachmentRepositoryLive));
+).pipe(
+  Layer.provideMerge(ManagedAttachmentRepositoryLive),
+  Layer.provideMerge(QueuedTurnPromotionRepositoryLive),
+);

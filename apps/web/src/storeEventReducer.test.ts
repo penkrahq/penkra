@@ -1,3 +1,4 @@
+import { createStore } from "zustand/vanilla";
 // FILE: storeEventReducer.test.ts
 // Purpose: Exercises orchestration domain-event reduction and batching.
 
@@ -6,6 +7,7 @@ import {
   CommandId,
   EventId,
   MessageId,
+  ProviderConnectionId,
   FolderId,
   SpaceId,
   ThreadDeckId,
@@ -35,9 +37,548 @@ import {
 } from "./storeTestFixtures";
 import { DEFAULT_RUNTIME_MODE } from "./types";
 import { createSidebarTreeThreadsSelector } from "./storeSelectors";
+import { createComposerDraftStoreState } from "./composerDraftActions";
+import type { ComposerDraftStoreState } from "./composerDraftDomain";
 import { resolveThreadStatusPill } from "./components/Sidebar.logic";
+import { shouldShowComposerContinue } from "./components/ChatView.logic";
 
 describe("store event reducer", () => {
+  it("keeps a session error ahead of a live queued delivery failure", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const messageId = MessageId.makeUnsafe("queued-session-error");
+    const sessionError = "Provider crashed.";
+    const initial = makeState(
+      makeThread({
+        error: sessionError,
+        session: {
+          provider: "codex",
+          status: "error",
+          orchestrationStatus: "error",
+          activeTurnId: undefined,
+          lastError: sessionError,
+          createdAt: "2026-09-27T00:00:00.000Z",
+          updatedAt: "2026-09-27T00:00:00.000Z",
+        },
+        queuedMessageIds: [messageId],
+        messages: [
+          {
+            id: messageId,
+            role: "user",
+            text: "Continue",
+            dispatchMode: "queue",
+            delivery: { state: "queued", queued: true, sequence: 10 },
+            streaming: false,
+            source: "native",
+            sequence: 10,
+            createdAt: "2026-09-27T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+    const failed = threadsOf(
+      applyOrchestrationEvents(initial, [
+        makeDomainEvent(
+          "thread.message-delivery-set",
+          {
+            threadId,
+            messageId,
+            state: "failed",
+            queued: false,
+            failurePhase: "before-provider-dispatch",
+            failureDetail: "Choose another provider.",
+            updatedAt: "2026-09-27T00:00:01.000Z",
+          },
+          { sequence: 11 },
+        ),
+      ]),
+    )[0];
+    expect(failed?.messages[0]?.delivery?.state).toBe("failed");
+    expect(failed?.error).toBe(sessionError);
+  });
+  it("fails a queued promotion in place and ignores a stale failure after promotion", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const messageId = MessageId.makeUnsafe("queued-refused");
+    const reason =
+      "This thread uses a different provider. To use another provider, start a new thread.";
+    const queued = makeState(
+      makeThread({
+        queuedMessageIds: [messageId],
+        messages: [
+          {
+            id: messageId,
+            role: "user",
+            text: "Continue",
+            dispatchMode: "queue",
+            delivery: { state: "queued", queued: true, sequence: 10 },
+            streaming: false,
+            source: "native",
+            sequence: 10,
+            createdAt: "2026-09-27T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+    const failure = makeDomainEvent(
+      "thread.message-delivery-set",
+      {
+        threadId,
+        messageId,
+        state: "failed",
+        queued: false,
+        failurePhase: "before-provider-dispatch",
+        failureDetail: reason,
+        updatedAt: "2026-09-27T00:00:01.000Z",
+      },
+      { sequence: 12 },
+    );
+    const failed = threadsOf(applyOrchestrationEvents(queued, [failure]))[0]!;
+    expect(failed.messages[0]?.delivery).toMatchObject({
+      state: "failed",
+      queued: false,
+      failureDetail: reason,
+      sequence: 12,
+    });
+    expect(failed.queuedMessageIds).toEqual([]);
+    expect(failed.error).toBe(reason);
+    expect(failed.session).toBeNull();
+
+    const promoted = makeState(
+      makeThread({
+        queuedMessageIds: [],
+        messages: [
+          {
+            id: messageId,
+            role: "user",
+            text: "Continue",
+            dispatchMode: "queue",
+            delivery: { state: "accepted", queued: false, sequence: 13 },
+            streaming: false,
+            source: "native",
+            sequence: 10,
+            createdAt: "2026-09-27T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+    const stale = threadsOf(applyOrchestrationEvents(promoted, [failure]))[0]!;
+    expect(stale.messages[0]?.delivery?.state).toBe("accepted");
+    expect(stale.error).toBeNull();
+  });
+
+  it("restores a failed queued delivery and its reason from a read-model snapshot", () => {
+    const messageId = MessageId.makeUnsafe("queued-snapshot-refused");
+    const reason = "This thread's Claude conversation belongs to a different Claude account.";
+    const snapshot = makeReadModel(
+      makeReadModelThread({
+        queuedMessageIds: [messageId],
+        session: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          status: "running",
+          providerName: "claudeAgent",
+          runtimeMode: DEFAULT_RUNTIME_MODE,
+          activeTurnId: TurnId.makeUnsafe("earlier-turn"),
+          lastError: null,
+          updatedAt: "2026-09-27T00:00:00.000Z",
+        },
+        messages: [
+          {
+            id: messageId,
+            role: "user",
+            text: "Continue",
+            turnId: null,
+            dispatchMode: "queue",
+            delivery: {
+              state: "failed",
+              queued: false,
+              sequence: 12,
+              failurePhase: "before-provider-dispatch",
+              failureDetail: reason,
+            },
+            streaming: false,
+            source: "native",
+            sequence: 10,
+            createdAt: "2026-09-27T00:00:00.000Z",
+            updatedAt: "2026-09-27T00:00:01.000Z",
+          },
+        ],
+      }),
+    );
+    const restored = threadsOf(syncServerReadModel(makeState(makeThread()), snapshot))[0]!;
+    expect(restored.messages[0]?.delivery?.state).toBe("failed");
+    expect(restored.queuedMessageIds).toEqual([]);
+    expect(restored.error).toBe(reason);
+    expect(restored.session?.orchestrationStatus).toBe("running");
+  });
+  it.each(["assistant", "delivery"] as const)(
+    "settles a provisional %s completion when the owning session is interrupted",
+    (completion) => {
+      const threadId = ThreadId.makeUnsafe("thread-1");
+      const turnId = TurnId.makeUnsafe(`turn-${completion}-stop`);
+      const messageId = MessageId.makeUnsafe(`message-${completion}-stop`);
+      const startedAt = "2026-09-26T21:04:38.903Z";
+      const stoppedAt = "2026-09-26T21:04:49.812Z";
+      const initial = makeState(
+        makeThread({
+          session: {
+            provider: "codex",
+            status: "running",
+            orchestrationStatus: "running",
+            activeTurnId: turnId,
+            createdAt: startedAt,
+            updatedAt: startedAt,
+          },
+          latestTurn: {
+            turnId,
+            state: "running",
+            requestedAt: startedAt,
+            startedAt,
+            completedAt: null,
+            assistantMessageId: null,
+          },
+        }),
+      );
+      const completed =
+        completion === "assistant"
+          ? makeDomainEvent(
+              "thread.message-sent",
+              {
+                threadId,
+                messageId,
+                role: "assistant",
+                text: "Partial reply",
+                turnId,
+                streaming: false,
+                source: "native",
+                createdAt: startedAt,
+                updatedAt: stoppedAt,
+                attachments: [],
+              },
+              { sequence: 1 },
+            )
+          : makeDomainEvent(
+              "thread.message-delivery-set",
+              {
+                threadId,
+                messageId,
+                turnId,
+                state: "accepted",
+                terminalState: "completed",
+                terminalCompletedAt: stoppedAt,
+                updatedAt: stoppedAt,
+              },
+              { sequence: 1 },
+            );
+      const interrupted = makeDomainEvent(
+        "thread.session-set",
+        {
+          threadId,
+          session: {
+            threadId,
+            status: "interrupted",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: stoppedAt,
+          },
+        },
+        { sequence: 2 },
+      );
+      const after = applyOrchestrationEvents(initial, [completed, interrupted]);
+      expect(threadsOf(after)[0]?.latestTurn?.state).toBe("interrupted");
+      const ready = applyOrchestrationEvents(
+        makeState(
+          makeThread({
+            ...threadsOf(initial)[0],
+            session: {
+              ...threadsOf(initial)[0]!.session!,
+              status: "ready",
+              orchestrationStatus: "ready",
+              activeTurnId: undefined,
+            },
+            latestTurn: {
+              ...threadsOf(initial)[0]!.latestTurn!,
+              state: "completed",
+              completedAt: stoppedAt,
+            },
+          }),
+        ),
+        [interrupted],
+      );
+      expect(threadsOf(ready)[0]?.latestTurn?.state).toBe("completed");
+      const retainedActiveTurn = makeDomainEvent(
+        "thread.session-set",
+        {
+          threadId,
+          session: { ...interrupted.payload.session, activeTurnId: turnId },
+        },
+        { sequence: 2 },
+      );
+      expect(
+        threadsOf(applyOrchestrationEvents(initial, [completed, retainedActiveTurn]))[0]?.latestTurn
+          ?.state,
+      ).toBe("completed");
+    },
+  );
+
+  it("keeps an interrupted turn interrupted when the assistant completion arrives later", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const turnId = TurnId.makeUnsafe("reverse-order-stop");
+    const startedAt = "2026-09-26T21:04:38.903Z";
+    const initial = makeState(
+      makeThread({
+        session: {
+          provider: "codex",
+          status: "running",
+          orchestrationStatus: "running",
+          activeTurnId: turnId,
+          createdAt: startedAt,
+          updatedAt: startedAt,
+        },
+        latestTurn: {
+          turnId,
+          state: "running",
+          requestedAt: startedAt,
+          startedAt,
+          completedAt: null,
+          assistantMessageId: null,
+        },
+      }),
+    );
+    const events = [
+      makeDomainEvent(
+        "thread.session-set",
+        {
+          threadId,
+          session: {
+            threadId,
+            status: "interrupted",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: startedAt,
+          },
+        },
+        { sequence: 1 },
+      ),
+      makeDomainEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId: MessageId.makeUnsafe("reverse-order-assistant"),
+          role: "assistant",
+          text: "Partial",
+          turnId,
+          streaming: false,
+          source: "native",
+          createdAt: startedAt,
+          updatedAt: startedAt,
+          attachments: [],
+        },
+        { sequence: 2 },
+      ),
+    ];
+    expect(threadsOf(applyOrchestrationEvents(initial, events))[0]?.latestTurn?.state).toBe(
+      "interrupted",
+    );
+  });
+  it("keeps agent sender metadata and clears it on a user-origin resend", () => {
+    const threadId = ThreadId.makeUnsafe("thread-agent-message-edit");
+    const messageId = MessageId.makeUnsafe("message-agent-message-edit");
+    const senderThreadId = ThreadId.makeUnsafe("source-agent-thread");
+    const createdAt = "2026-09-26T12:00:00.000Z";
+    const original = makeDomainEvent(
+      "thread.message-sent",
+      {
+        threadId,
+        messageId,
+        role: "user",
+        text: "original agent prompt",
+        dispatchOrigin: "agent",
+        senderThreadId,
+        turnId: null,
+        streaming: false,
+        source: "native",
+        createdAt,
+        updatedAt: createdAt,
+        attachments: [],
+      },
+      { sequence: 1 },
+    );
+    const agentState = applyOrchestrationEvents(makeState(makeThread({ id: threadId })), [
+      original,
+    ]);
+    expect(threadsOf(agentState)[0]?.messages[0]?.senderThreadId).toBe(senderThreadId);
+
+    const edited = makeDomainEvent(
+      "thread.message-sent",
+      {
+        threadId,
+        messageId,
+        role: "user",
+        text: "edited by user",
+        dispatchOrigin: "user",
+        turnId: null,
+        streaming: false,
+        source: "native",
+        createdAt,
+        updatedAt: createdAt,
+        attachments: [],
+      },
+      { sequence: 2 },
+    );
+    const editedState = applyOrchestrationEvents(agentState, [edited]);
+    expect(threadsOf(editedState)[0]?.messages[0]).toMatchObject({
+      text: "edited by user",
+      dispatchOrigin: "user",
+    });
+    expect(threadsOf(editedState)[0]?.messages[0]?.senderThreadId).toBeUndefined();
+  });
+
+  it("keeps two subscribed renderer projections converged on queued turns and thread selection", () => {
+    const threadId = ThreadId.makeUnsafe("thread-shared-queue");
+    const messageId = MessageId.makeUnsafe("message-shared-queue");
+    const initial = makeState(makeThread({ id: threadId }));
+    const admittedEvents = [
+      makeDomainEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId,
+          role: "user",
+          text: "shared queued prompt",
+          attachments: [],
+          dispatchMode: "queue",
+          delivery: { state: "queued", queued: true },
+          turnId: null,
+          streaming: false,
+          source: "native",
+          createdAt: "2026-09-26T12:00:00.000Z",
+          updatedAt: "2026-09-26T12:00:00.000Z",
+        },
+        { sequence: 1 },
+      ),
+      makeDomainEvent(
+        "thread.turn-queued",
+        {
+          threadId,
+          messageId,
+          turnId: TurnId.makeUnsafe("turn-shared-queue"),
+          dispatchMode: "queue",
+          runtimeMode: "full-access",
+          createdAt: "2026-09-26T12:00:00.000Z",
+        },
+        { sequence: 2 },
+      ),
+      makeDomainEvent(
+        "thread.updated",
+        {
+          threadId,
+          modelSelection: { provider: "opencode", model: "openai/gpt-5.6" },
+          connectionId: ProviderConnectionId.makeUnsafe("connection-shared"),
+          updatedAt: "2026-09-26T12:00:01.000Z",
+        },
+        { sequence: 3 },
+      ),
+      makeDomainEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId,
+          role: "user",
+          text: "edited shared queued prompt",
+          attachments: [],
+          dispatchMode: "queue",
+          delivery: { state: "queued", queued: true },
+          turnId: null,
+          streaming: false,
+          source: "native",
+          createdAt: "2026-09-26T12:00:00.000Z",
+          updatedAt: "2026-09-26T12:00:03.000Z",
+        },
+        { sequence: 4 },
+      ),
+      makeDomainEvent(
+        "thread.turn-start-cancelled",
+        {
+          threadId,
+          messageId,
+          turnId: TurnId.makeUnsafe("turn-shared-queue"),
+          cancelledAt: "2026-09-26T12:00:02.000Z",
+        },
+        { sequence: 6 },
+      ),
+    ];
+
+    const rendererA = createStore<AppState>(() => initial);
+    const rendererB = createStore<AppState>(() => initial);
+    rendererA.setState((state) => applyOrchestrationEvents(state, admittedEvents.slice(0, 4)));
+    rendererB.setState((state) => applyOrchestrationEvents(state, admittedEvents.slice(0, 4)));
+    const localDraftA = createStore<ComposerDraftStoreState>(
+      createComposerDraftStoreState(() => {}),
+    );
+    const localDraftB = createStore<ComposerDraftStoreState>(
+      createComposerDraftStoreState(() => {}),
+    );
+    localDraftA.getState().setPrompt(threadId, "window A unsent text");
+    localDraftB.getState().setPrompt(threadId, "window B unsent text");
+
+    const threadA = threadsOf(rendererA.getState())[0]!;
+    const threadB = threadsOf(rendererB.getState())[0]!;
+    expect(threadA.queuedMessageIds).toEqual([messageId]);
+    expect(threadB.messages).toEqual(threadA.messages);
+    expect(threadA.messages[0]?.text).toBe("edited shared queued prompt");
+    expect(threadA.modelSelection).toEqual({ provider: "opencode", model: "openai/gpt-5.6" });
+    expect(threadB.modelSelection).toEqual(threadA.modelSelection);
+    expect(threadA.connectionId).toBe("connection-shared");
+    expect(threadB.connectionId).toBe(threadA.connectionId);
+
+    // Reconnect snapshot resync catches a renderer that missed the last event.
+    rendererB.setState((state) =>
+      syncServerReadModel(state, {
+        ...makeReadModel(
+          makeReadModelThread({
+            id: threadId,
+            modelSelection: { provider: "opencode", model: "openai/gpt-5.6" },
+            connectionId: ProviderConnectionId.makeUnsafe("connection-shared"),
+            messages: [
+              {
+                id: messageId,
+                role: "user",
+                text: "edited shared queued prompt",
+                attachments: [],
+                dispatchMode: "queue",
+                delivery: { state: "queued", queued: true, sequence: 4 },
+                turnId: null,
+                streaming: false,
+                source: "native",
+                createdAt: "2026-09-26T12:00:00.000Z",
+                updatedAt: "2026-09-26T12:00:03.000Z",
+              },
+            ],
+          }),
+        ),
+        snapshotSequence: 5,
+      }),
+    );
+    expect(threadsOf(rendererB.getState())[0]?.messages.map((message) => message.id)).toEqual(
+      threadA.messages.map((message) => message.id),
+    );
+    expect(threadsOf(rendererB.getState())[0]?.modelSelection).toEqual(threadA.modelSelection);
+    expect(threadsOf(rendererB.getState())[0]?.connectionId).toEqual(threadA.connectionId);
+    expect(localDraftA.getState().draftsByThreadId[threadId]?.prompt).toBe("window A unsent text");
+    expect(localDraftB.getState().draftsByThreadId[threadId]?.prompt).toBe("window B unsent text");
+
+    rendererA.setState((state) => applyOrchestrationEvents(state, [admittedEvents[4]!]));
+    rendererB.setState((state) => applyOrchestrationEvents(state, [admittedEvents[4]!]));
+    expect(threadsOf(rendererA.getState())[0]?.queuedMessageIds).toEqual([]);
+    expect(threadsOf(rendererB.getState())[0]?.queuedMessageIds).toEqual([]);
+    expect(threadsOf(rendererB.getState())[0]?.messages).toEqual(
+      threadsOf(rendererA.getState())[0]?.messages,
+    );
+  });
+
   it("projects raw deck reorder and cross-deck move events into deck and thread shell order", () => {
     const spaceId = SpaceId.makeUnsafe("space-test");
     const sourceDeckId = ThreadDeckId.makeUnsafe("deck-source");
@@ -1670,6 +2211,220 @@ describe("store event reducer", () => {
     });
   });
 
+  it("shows Play when an assistant completion precedes the user Stop terminal session", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const turnId = TurnId.makeUnsafe("turn-stopped-after-assistant-completion");
+    const assistantMessageId = MessageId.makeUnsafe("assistant-stopped-after-completion");
+    const startedAt = "2026-09-26T21:04:38.903Z";
+    const completedAt = "2026-09-26T21:04:49.812Z";
+    const initial = makeState(
+      makeThread({
+        session: {
+          provider: "codex",
+          status: "running",
+          orchestrationStatus: "running",
+          activeTurnId: turnId,
+          createdAt: startedAt,
+          updatedAt: startedAt,
+        },
+        latestTurn: {
+          turnId,
+          state: "running",
+          requestedAt: startedAt,
+          startedAt,
+          completedAt: null,
+          assistantMessageId: null,
+        },
+      }),
+    );
+    const afterStop = applyOrchestrationEvents(initial, [
+      makeDomainEvent(
+        "thread.turn-interrupt-requested",
+        {
+          threadId,
+          turnId,
+          createdAt: "2026-09-26T21:04:49.789Z",
+        },
+        { sequence: 1 },
+      ),
+      makeDomainEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId: assistantMessageId,
+          role: "assistant",
+          text: "Partial reply",
+          turnId,
+          streaming: false,
+          source: "native",
+          createdAt: startedAt,
+          updatedAt: completedAt,
+          attachments: [],
+        },
+        { sequence: 2 },
+      ),
+      makeDomainEvent(
+        "thread.session-set",
+        {
+          threadId,
+          session: {
+            threadId,
+            status: "interrupted",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: completedAt,
+          },
+        },
+        { sequence: 3 },
+      ),
+    ]);
+    const thread = threadsOf(afterStop)[0]!;
+    expect(thread.latestTurn).toMatchObject({ turnId, state: "interrupted", completedAt });
+    expect(
+      shouldShowComposerContinue({
+        thread,
+        isServerThread: true,
+        hydration: "ready",
+        binding: { modelId: "gpt-5-codex" },
+        hiddenTurnId: null,
+        continueInFlight: false,
+        sendBusy: false,
+        sendPreflight: false,
+        connecting: false,
+        hasSendableContent: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps the logical turn ID after a tool outlives two Stop requests", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const turnId = TurnId.makeUnsafe("turn:5e4001b7-a59c-42de-b1dd-20e7d27640be");
+    const providerTurnId = TurnId.makeUnsafe("a3f9d56b-1701-49a9-9787-d529072d9b5f");
+    const messageId = MessageId.makeUnsafe("a810f055-436d-49ad-a1bf-96d4519798de");
+    const requestedAt = "2026-09-26T22:18:03.115Z";
+    const runningAt = "2026-09-26T22:18:03.790Z";
+    const stoppedAt = "2026-09-26T22:18:15.938Z";
+    const initial = makeState(
+      makeThread({
+        latestTurn: {
+          turnId: TurnId.makeUnsafe("turn:previous"),
+          state: "completed",
+          requestedAt: "2026-09-26T22:17:35.707Z",
+          startedAt: "2026-09-26T22:17:37.133Z",
+          completedAt: "2026-09-26T22:17:42.559Z",
+          assistantMessageId: null,
+        },
+        session: {
+          provider: "claudeAgent",
+          status: "ready",
+          orchestrationStatus: "ready",
+          activeTurnId: undefined,
+          createdAt: "2026-09-26T22:17:42.559Z",
+          updatedAt: "2026-09-26T22:17:42.559Z",
+        },
+      }),
+    );
+    const session = (
+      status: "running" | "interrupted",
+      activeTurnId: TurnId | null,
+      updatedAt: string,
+    ) =>
+      makeDomainEvent("thread.session-set", {
+        threadId,
+        session: {
+          threadId,
+          status,
+          providerName: "claudeAgent",
+          runtimeMode: "full-access",
+          activeTurnId,
+          lastError: null,
+          updatedAt,
+        },
+      });
+    const activity = (kind: string, at: string) =>
+      makeDomainEvent("thread.activity-appended", {
+        threadId,
+        activity: {
+          id: EventId.makeUnsafe(`activity-${kind}-${at}`),
+          kind,
+          tone: "info",
+          summary: kind,
+          payload: {},
+          turnId: providerTurnId,
+          createdAt: at,
+        },
+      });
+    const next = applyOrchestrationEvents(initial, [
+      makeDomainEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId,
+          role: "user",
+          text: "Run a long tool",
+          turnId,
+          streaming: false,
+          source: "native",
+          createdAt: requestedAt,
+          updatedAt: requestedAt,
+          attachments: [],
+        },
+        { sequence: 559913 },
+      ),
+      makeDomainEvent(
+        "thread.turn-start-requested",
+        {
+          threadId,
+          turnId,
+          messageId,
+          runtimeMode: "full-access",
+          dispatchMode: "queue",
+          createdAt: requestedAt,
+        },
+        { sequence: 559914 },
+      ),
+      makeDomainEvent(
+        "thread.message-delivery-set",
+        { threadId, messageId, turnId, state: "accepted", updatedAt: runningAt },
+        { sequence: 559915 },
+      ),
+      { ...session("running", providerTurnId, runningAt), sequence: 559916 },
+      { ...session("running", providerTurnId, runningAt), sequence: 559917 },
+      { ...activity("tool.started", "2026-09-26T22:18:04.000Z"), sequence: 559919 },
+      makeDomainEvent(
+        "thread.turn-interrupt-requested",
+        { threadId, turnId, createdAt: "2026-09-26T22:18:06.813Z" },
+        { sequence: 559921 },
+      ),
+      makeDomainEvent(
+        "thread.turn-interrupt-requested",
+        { threadId, turnId, createdAt: "2026-09-26T22:18:10.063Z" },
+        { sequence: 559922 },
+      ),
+      { ...activity("tool.completed", "2026-09-26T22:18:15.800Z"), sequence: 559924 },
+      { ...session("interrupted", null, stoppedAt), sequence: 559926 },
+      { ...activity("turn.completed", stoppedAt), sequence: 559927 },
+    ]);
+    const thread = threadsOf(next)[0]!;
+    expect(thread.latestTurn).toMatchObject({ turnId, providerTurnId, state: "interrupted" });
+    expect(
+      shouldShowComposerContinue({
+        thread,
+        isServerThread: true,
+        hydration: "ready",
+        binding: { modelId: "claude-haiku-4-5-20251001" },
+        hiddenTurnId: null,
+        continueInFlight: false,
+        sendBusy: false,
+        sendPreflight: false,
+        connecting: false,
+        hasSendableContent: false,
+      }),
+    ).toBe(true);
+  });
+
   it("adopts runtime mode from user-dispatched turns", () => {
     const initialState = makeState(makeThread({ runtimeMode: "approval-required" }));
 
@@ -1809,6 +2564,19 @@ describe("store event reducer", () => {
       lastVisitedAt: "2026-02-27T00:00:45.000Z",
       updatedAt: "2026-02-27T00:01:00.000Z",
     });
+  });
+
+  it("preserves an unset thread connection through unrelated updates", () => {
+    const initialState = makeState(makeThread());
+    const next = applyOrchestrationEvents(initialState, [
+      makeDomainEvent("thread.updated", {
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        title: "Renamed thread",
+        updatedAt: "2026-02-27T00:01:00.000Z",
+      }),
+    ]);
+
+    expect(threadsOf(next)[0]?.connectionId).toBeUndefined();
   });
 
   it("propagates a live read acknowledgement into the sidebar summary", () => {

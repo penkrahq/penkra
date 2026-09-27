@@ -25,6 +25,7 @@ import type {
   ProviderMentionReference,
   ProviderSkillReference,
   ProviderKind,
+  ProviderConnectionId,
   RuntimeMode,
   ThreadCreationSource,
 } from "@penkra/contracts";
@@ -105,6 +106,7 @@ export interface ChatMessage {
   mentions?: ProviderMentionReference[];
   dispatchMode?: TurnDispatchMode;
   dispatchOrigin?: MessageDispatchOrigin;
+  senderThreadId?: ThreadId;
   delivery?: MessageDelivery;
   /** First durable message event sequence, used with delivery.sequence for causal placement. */
   sequence?: number;
@@ -164,11 +166,14 @@ export interface Thread extends ThreadWorkspaceState {
   sidebarSortOrder?: number;
   title: string;
   modelSelection: ModelSelection;
+  connectionId?: ProviderConnectionId | null;
   runtimeMode: RuntimeMode;
   session: ThreadSession | null;
   messages: ChatMessage[];
   queuedMessageIds?: MessageId[];
   error: string | null;
+  /** Tracks when the visible error came from a message delivery failure. */
+  errorSource?: "delivery" | undefined;
   createdAt: string;
   archivedAt?: string | null;
   updatedAt?: string | undefined;
@@ -205,8 +210,10 @@ export interface ThreadShell extends ThreadWorkspaceState {
   sidebarSortOrder?: number;
   title: string;
   modelSelection: ModelSelection;
+  connectionId?: ProviderConnectionId | null;
   runtimeMode: RuntimeMode;
   error: string | null;
+  errorSource?: "delivery" | undefined;
   createdAt: string;
   archivedAt?: string | null;
   updatedAt?: string | undefined;

@@ -61,6 +61,17 @@ export function makeAgentGatewayMcpTransport(input: {
       const projectedProviderTurnId = projectedTurn?.providerTurnId ?? null;
       const openTurnIds: string[] = openTurns.map((turn) => turn.turnId);
       const sessionTurnId = thread.session?.activeTurnId ?? null;
+      const evidence = {
+        projectedTurnId,
+        projectedTurnState: projectedTurn?.state ?? null,
+        projectedProviderTurnId,
+        openTurnIds,
+        openRuntimeTurns: openTurns.map(({ turnId, firstSequence, updatedAt }) => ({
+          turnId,
+          firstSequence,
+          updatedAt,
+        })),
+      };
       const projectedAliases: string[] = [];
       if (projectedTurnId !== null) projectedAliases.push(projectedTurnId);
       if (projectedProviderTurnId !== null) projectedAliases.push(projectedProviderTurnId);
@@ -77,26 +88,20 @@ export function makeAgentGatewayMcpTransport(input: {
           return {
             turnId: projectedTurnId,
             activeTurnIds: projectedAliases,
-            projectedTurnId,
-            projectedProviderTurnId,
-            openTurnIds,
+            ...evidence,
           };
         }
         return {
           turnId: sessionTurnId,
           activeTurnIds: [sessionTurnId],
-          projectedTurnId,
-          projectedProviderTurnId,
-          openTurnIds,
+          ...evidence,
         };
       }
       if (projectedTurnId !== null && openTurnIds.length === 0) {
         return {
           turnId: projectedTurnId,
           activeTurnIds: projectedAliases,
-          projectedTurnId,
-          projectedProviderTurnId,
-          openTurnIds,
+          ...evidence,
         };
       }
       if (
@@ -108,9 +113,7 @@ export function makeAgentGatewayMcpTransport(input: {
         return {
           turnId: projectedTurnId,
           activeTurnIds: projectedAliases,
-          projectedTurnId,
-          projectedProviderTurnId,
-          openTurnIds,
+          ...evidence,
         };
       }
       if (projectedTurnId === null && openTurnIds.length === 1) {
@@ -122,25 +125,19 @@ export function makeAgentGatewayMcpTransport(input: {
           return {
             turnId: null,
             activeTurnIds: [],
-            projectedTurnId,
-            projectedProviderTurnId,
-            openTurnIds,
+            ...evidence,
           };
         }
         return {
           turnId: openTurnId,
           activeTurnIds: openTurnId === null ? [] : [openTurnId],
-          projectedTurnId,
-          projectedProviderTurnId,
-          openTurnIds,
+          ...evidence,
         };
       }
       return {
         turnId: null,
         activeTurnIds: [],
-        projectedTurnId,
-        projectedProviderTurnId,
-        openTurnIds,
+        ...evidence,
       };
     });
 
@@ -197,6 +194,17 @@ export function makeAgentGatewayMcpTransport(input: {
             ...context,
             jsonRpcRequestId: request.id,
           };
+          if (tool.requiresThreadAuthority) {
+            const authorityError = yield* context.assertCallerThreadAuthorized().pipe(
+              Effect.match({
+                onFailure: (error) => error,
+                onSuccess: () => null,
+              }),
+            );
+            if (authorityError !== null) {
+              return jsonRpcResult(request.id, gatewayToolErrorResult(authorityError));
+            }
+          }
           if (tool.requiresActiveTurn) {
             const authorityError = yield* context.assertCallerTurnActive().pipe(
               Effect.match({
@@ -231,6 +239,7 @@ export function makeAgentGatewayMcpTransport(input: {
 
   return (requestInput) =>
     Effect.gen(function* () {
+      const mcpRequestArrivedAt = new Date().toISOString();
       const token = extractBearerToken(requestInput.authorizationHeader);
       const callerSession = token ? input.credentials.verifySession(token) : null;
       if (!token || !callerSession) {
@@ -257,6 +266,16 @@ export function makeAgentGatewayMcpTransport(input: {
           ),
         };
       }
+      if (callerThread.value.archivedAt !== null) {
+        return {
+          status: 401,
+          body: jsonRpcError(
+            null,
+            JSON_RPC_INVALID_REQUEST,
+            "caller_thread_inactive: The caller thread is archived.",
+          ),
+        };
+      }
       const liveProvider = callerThread.value.session?.providerName;
       if ((liveProvider ?? callerThread.value.modelSelection.provider) !== callerSession.provider) {
         return {
@@ -278,8 +297,10 @@ export function makeAgentGatewayMcpTransport(input: {
               turnId: null,
               activeTurnIds: [],
               projectedTurnId: null,
+              projectedTurnState: null,
               projectedProviderTurnId: null,
               openTurnIds: [],
+              openRuntimeTurns: [],
             }),
           ),
         ),
@@ -304,21 +325,87 @@ export function makeAgentGatewayMcpTransport(input: {
         ingressAuthority.turnId === null
           ? null
           : input.credentials.bindWriteAuthority(token, ingressAuthority.turnId);
-      const assertCallerTurnActive = () =>
+      const callerTurnId =
+        requestInput.originTurnId?.trim() ||
+        (callerThread.value.session?.status === "running"
+          ? callerThread.value.session.activeTurnId
+          : null) ||
+        null;
+      const failCallerTurnInactive = (
+        failedCheck: string,
+        error: GatewayToolError,
+        observed: typeof ingressAuthority = ingressAuthority,
+        session: OrchestrationThreadShell["session"] = callerThread.value.session,
+      ) =>
+        Effect.logWarning("agent_gateway.caller_turn_inactive", {
+          callerThreadId,
+          mcpRequestArrivedAt,
+          failedCheck,
+          projectedActiveTurnId: observed.projectedTurnId,
+          projectedActiveTurnState: observed.projectedTurnState,
+          projectedProviderTurnId: observed.projectedProviderTurnId,
+          sessionStatus: session?.status ?? null,
+          sessionTurnId: session?.activeTurnId ?? null,
+          openRuntimeTurns: observed.openRuntimeTurns,
+          ingressAuthorityTurnId: ingressAuthority.turnId,
+          expectedTurnId: callerWriteAuthority?.turnId ?? null,
+          arrivedTurnId: callerTurnId,
+          observedAuthorityTurnId: observed.turnId,
+        }).pipe(Effect.andThen(Effect.fail(error)));
+      const assertCallerThreadAuthorized: ToolContext["assertCallerThreadAuthorized"] = () =>
         Effect.gen(function* () {
-          if (callerWriteAuthority === null) {
-            yield* Effect.logWarning("agent_gateway.caller_turn_inactive", {
-              callerThreadId,
-              sessionStatus: callerThread.value.session?.status ?? null,
-              sessionActiveTurnId: callerThread.value.session?.activeTurnId ?? null,
-              latestTurnId: callerThread.value.latestTurn?.turnId ?? null,
-              latestProviderTurnId: callerThread.value.latestTurn?.providerTurnId ?? null,
-              latestTurnState: callerThread.value.latestTurn?.state ?? null,
-              projectedTurnId: ingressAuthority.projectedTurnId,
-              projectedProviderTurnId: ingressAuthority.projectedProviderTurnId,
-              openRuntimeTurnIds: ingressAuthority.openTurnIds,
-            });
+          const currentSession = input.credentials.verifySession(token);
+          if (
+            currentSession?.sessionKey !== callerSession.sessionKey ||
+            currentSession.threadId !== callerSession.threadId ||
+            currentSession.provider !== callerSession.provider
+          ) {
             return yield* Effect.fail(
+              new GatewayToolError(
+                "caller_session_inactive",
+                "This Penkra operation was rejected because its provider-session authority is no longer active.",
+                { callerThreadId },
+              ),
+            );
+          }
+          const caller = yield* input
+            .requireThreadShell(callerThreadId)
+            .pipe(
+              Effect.mapError(
+                (error) =>
+                  new GatewayToolError(
+                    "caller_thread_inactive",
+                    "This Penkra operation was rejected because the caller thread could no longer be verified.",
+                    { callerThreadId, error: errorText(error) },
+                  ),
+              ),
+            );
+          if (caller.archivedAt !== null) {
+            return yield* Effect.fail(
+              new GatewayToolError(
+                "caller_thread_inactive",
+                "This Penkra operation was rejected because the caller thread is archived.",
+                { callerThreadId },
+              ),
+            );
+          }
+          const activeProvider = caller.session?.providerName ?? caller.modelSelection.provider;
+          if (activeProvider !== callerSession.provider) {
+            return yield* Effect.fail(
+              new GatewayToolError(
+                "caller_session_inactive",
+                "This Penkra operation was rejected because the provider session no longer owns its thread.",
+                { callerThreadId },
+              ),
+            );
+          }
+        }).pipe(Effect.asVoid);
+      const assertCallerTurnActive: ToolContext["assertCallerTurnActive"] = () =>
+        Effect.gen(function* () {
+          yield* assertCallerThreadAuthorized();
+          if (callerWriteAuthority === null) {
+            return yield* failCallerTurnInactive(
+              "ingress_write_authority_missing",
               new GatewayToolError(
                 "caller_turn_inactive",
                 "This Penkra write was rejected because no caller turn was active when the MCP request arrived.",
@@ -338,28 +425,35 @@ export function makeAgentGatewayMcpTransport(input: {
           const caller = yield* input
             .requireThreadShell(callerThreadId)
             .pipe(
-              Effect.mapError(
-                (error) =>
+              Effect.catch((error) =>
+                failCallerTurnInactive(
+                  "caller_thread_lookup_failed",
                   new GatewayToolError(
                     "caller_turn_inactive",
                     "This Penkra write was rejected because the caller thread could no longer be verified.",
                     { callerThreadId, error: errorText(error) },
                   ),
+                ),
               ),
             );
           const activeAuthority = yield* resolveCallerTurnId(caller).pipe(
-            Effect.mapError(
-              (error) =>
+            Effect.catch((error) =>
+              failCallerTurnInactive(
+                "active_execution_lookup_failed",
                 new GatewayToolError(
                   "caller_turn_inactive",
                   "This Penkra write was rejected because the active execution could not be verified.",
                   { callerThreadId, error: errorText(error) },
                 ),
+                ingressAuthority,
+                caller.session,
+              ),
             ),
           );
           const activeTurnIds: ReadonlyArray<string> = activeAuthority.activeTurnIds;
           if (!activeTurnIds.includes(callerWriteAuthority.turnId)) {
-            return yield* Effect.fail(
+            return yield* failCallerTurnInactive(
+              "authorized_turn_no_longer_active",
               new GatewayToolError(
                 "caller_turn_inactive",
                 "This Penkra write was rejected because the turn that received this MCP request is no longer active. In-flight requests cannot inherit authority from a later turn.",
@@ -376,22 +470,26 @@ export function makeAgentGatewayMcpTransport(input: {
                   openRuntimeTurnIds: activeAuthority.openTurnIds,
                 },
               ),
+              activeAuthority,
+              caller.session,
             );
           }
-        });
+        }).pipe(Effect.asVoid);
       const context: Omit<ToolContext, "jsonRpcRequestId"> = {
         principal: {
           kind: "provider-session",
           sessionKey: callerSession.sessionKey,
           threadId: callerThreadId,
           provider: callerSession.provider,
-          turnId: callerWriteAuthority?.turnId ?? null,
+          turnId: callerTurnId,
         },
         callerThreadId,
         callerSessionKey: callerSession.sessionKey,
         callerProvider: callerSession.provider,
         callerCapabilities: callerSession.capabilities,
-        callerTurnId: callerWriteAuthority?.turnId ?? null,
+        callerTurnId,
+        callerWriteTurnId: callerWriteAuthority?.turnId ?? null,
+        assertCallerThreadAuthorized,
         assertCallerTurnActive,
       };
 

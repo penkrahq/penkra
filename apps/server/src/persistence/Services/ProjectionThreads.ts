@@ -9,6 +9,7 @@
 import {
   IsoDateTime,
   ModelSelection,
+  ProviderConnectionId,
   NonNegativeInt,
   ThreadNotes,
   ThreadPinnedMessages,
@@ -30,6 +31,7 @@ export const ProjectionThread = Schema.Struct({
   folderId: FolderId,
   title: Schema.String,
   modelSelection: ModelSelection,
+  connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
   runtimeMode: RuntimeMode,
   workingDirectory: Schema.optional(Schema.NullOr(Schema.String)).pipe(
     Schema.withDecodingDefault(() => null),

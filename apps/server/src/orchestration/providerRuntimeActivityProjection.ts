@@ -443,7 +443,26 @@ function requestKindFromCanonicalRequestType(
 
 export function projectProviderRuntimeActivities(
   event: ProviderRuntimeEvent,
+  identity?: { readonly turnId: TurnId | null },
 ): ReadonlyArray<OrchestrationThreadActivity> {
+  const providerTurnId = toTurnId(event.turnId) ?? null;
+  const nativeTurnId =
+    providerTurnId !== null &&
+    ((event.provider === "opencode" && providerTurnId.startsWith("opencode-turn-")) ||
+      (event.provider === "codex" && /^01[a-f0-9]{2}/iu.test(providerTurnId)) ||
+      (event.provider === "claudeAgent" &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(providerTurnId)));
+  const projectedTurn =
+    identity?.turnId !== undefined
+      ? {
+          turnId: identity.turnId ?? (nativeTurnId ? null : providerTurnId),
+          ...(providerTurnId !== null && providerTurnId !== identity.turnId
+            ? { providerTurnId }
+            : {}),
+        }
+      : nativeTurnId
+        ? { turnId: null, providerTurnId }
+        : { turnId: providerTurnId };
   const maybeSequence = (() => {
     const sequence = (event as ProviderRuntimeEvent & { sessionSequence?: number }).sessionSequence;
     // Activity `sequence` is a NonNegativeInt. A fractional or negative runtime
@@ -477,7 +496,7 @@ export function projectProviderRuntimeActivities(
           detail: truncateDetail(reasoningDetail, MAX_ACTIVITY_DATA_STRING_CHARS),
           data: { toolCallId: reasoningItemId },
         }),
-        turnId: toTurnId(event.turnId) ?? null,
+        ...projectedTurn,
         ...maybeSequence,
       },
     ];
@@ -497,7 +516,7 @@ export function projectProviderRuntimeActivities(
           kind: "context-window.configured",
           summary: "Context window configured",
           payload,
-          turnId: toTurnId(event.turnId) ?? null,
+          ...projectedTurn,
           ...maybeSequence,
         },
       ];
@@ -542,7 +561,7 @@ export function projectProviderRuntimeActivities(
               ? { decision: event.payload.decision }
               : {}),
           }),
-          turnId: toTurnId(event.turnId) ?? null,
+          ...projectedTurn,
           ...maybeSequence,
         },
       ];
@@ -568,13 +587,14 @@ export function projectProviderRuntimeActivities(
             ...(errorClass ? { class: errorClass } : {}),
             ...(diagnostic ? { diagnostic } : {}),
           }),
-          turnId: toTurnId(event.turnId) ?? null,
+          ...projectedTurn,
           ...maybeSequence,
         },
       ];
     }
 
     case "runtime.warning": {
+      if (event.payload.diagnostic?.state === "resolved") return [];
       const raw = asObject((event as { raw?: unknown }).raw);
       const nativeType = asString(asObject(raw?.payload)?.type);
       // Claude backgrounding notices arrive as warnings whose detail is the
@@ -608,7 +628,7 @@ export function projectProviderRuntimeActivities(
             ...(diagnostic ? { diagnostic } : {}),
             ...activityDataField(event.payload.detail),
           }),
-          turnId: toTurnId(event.turnId) ?? null,
+          ...projectedTurn,
           ...maybeSequence,
         },
       ];
@@ -627,7 +647,7 @@ export function projectProviderRuntimeActivities(
             toModel: event.payload.toModel,
             detail: truncateDetail(event.payload.reason, 500),
           }),
-          turnId: toTurnId(event.turnId) ?? null,
+          ...projectedTurn,
           ...maybeSequence,
         },
       ];
@@ -647,7 +667,7 @@ export function projectProviderRuntimeActivities(
               ? { explanation: event.payload.explanation }
               : {}),
           }),
-          turnId: toTurnId(event.turnId) ?? null,
+          ...projectedTurn,
           ...maybeSequence,
         },
       ];
@@ -672,7 +692,7 @@ export function projectProviderRuntimeActivities(
               ? { questions: event.payload.questions }
               : { answers: event.payload.answers }),
           }),
-          turnId: toTurnId(event.turnId) ?? null,
+          ...projectedTurn,
           ...maybeSequence,
         },
       ];
@@ -713,7 +733,7 @@ export function projectProviderRuntimeActivities(
               ? { detail: truncateDetail(event.payload.description) }
               : {}),
           }),
-          turnId: toTurnId(event.turnId) ?? null,
+          ...projectedTurn,
           ...maybeSequence,
         },
       ];
@@ -743,7 +763,7 @@ export function projectProviderRuntimeActivities(
               ? { workflowAgents: event.payload.workflowAgents }
               : {}),
           }),
-          turnId: toTurnId(event.turnId) ?? null,
+          ...projectedTurn,
           ...maybeSequence,
         },
       ];
@@ -774,7 +794,7 @@ export function projectProviderRuntimeActivities(
               ? { workflowAgents: event.payload.workflowAgents }
               : {}),
           }),
-          turnId: toTurnId(event.turnId) ?? null,
+          ...projectedTurn,
           ...maybeSequence,
         },
       ];
@@ -811,7 +831,7 @@ export function projectProviderRuntimeActivities(
               ? { workflowScriptPath: event.payload.workflowScriptPath }
               : {}),
           }),
-          turnId: toTurnId(event.turnId) ?? null,
+          ...projectedTurn,
           ...maybeSequence,
         },
       ];
@@ -828,7 +848,7 @@ export function projectProviderRuntimeActivities(
           payload: toActivityPayload({
             detail: truncateDetail(event.payload.message),
           }),
-          turnId: toTurnId(event.turnId) ?? null,
+          ...projectedTurn,
           ...maybeSequence,
         },
       ];
@@ -869,7 +889,7 @@ export function projectProviderRuntimeActivities(
             state: event.payload.state,
             ...(event.payload.detail !== undefined ? { detail: event.payload.detail } : {}),
           }),
-          turnId: toTurnId(event.turnId) ?? null,
+          ...projectedTurn,
           ...maybeSequence,
         },
       ];
@@ -889,7 +909,7 @@ export function projectProviderRuntimeActivities(
           kind: "context-window.updated",
           summary: "Context window updated",
           payload,
-          turnId: toTurnId(event.turnId) ?? null,
+          ...projectedTurn,
           ...maybeSequence,
         },
       ];
@@ -936,7 +956,7 @@ export function projectProviderRuntimeActivities(
               ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
               ...activityDataField(event.payload.data),
             }),
-            turnId: toTurnId(event.turnId) ?? null,
+            ...projectedTurn,
             ...maybeSequence,
           },
         ];
@@ -970,7 +990,7 @@ export function projectProviderRuntimeActivities(
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
             ...activityDataField(event.payload.data),
           }),
-          turnId: toTurnId(event.turnId) ?? null,
+          ...projectedTurn,
           ...maybeSequence,
         },
       ];
@@ -988,7 +1008,7 @@ export function projectProviderRuntimeActivities(
             nonEmptyTrimmed(event.payload.summary) ??
             "MCP tool call",
           payload: buildToolProgressActivityPayload(event),
-          turnId: toTurnId(event.turnId) ?? null,
+          ...projectedTurn,
           ...maybeSequence,
         },
       ];
@@ -1016,7 +1036,7 @@ export function projectProviderRuntimeActivities(
               : {}),
             ...(errorMessage ? { errorMessage } : {}),
           }),
-          turnId: toTurnId(event.turnId) ?? null,
+          ...projectedTurn,
           ...maybeSequence,
         },
       ];
@@ -1087,7 +1107,7 @@ export function projectProviderRuntimeActivities(
           kind: "account.rate-limits.updated",
           summary: "Rate limits updated",
           payload: toActivityPayload(normalizedPayload),
-          turnId: toTurnId(event.turnId) ?? null,
+          ...projectedTurn,
           ...maybeSequence,
         },
       ];
@@ -1106,7 +1126,7 @@ export function projectProviderRuntimeActivities(
             ...normalizedPayload,
             status,
           }),
-          turnId: toTurnId(event.turnId) ?? null,
+          ...projectedTurn,
           ...maybeSequence,
         },
       ];

@@ -79,11 +79,9 @@ describe("selecting an empty Space", () => {
     const restored = resolveChatIndexRestoreRoute({
       // The Space we just left is still the remembered route.
       lastThreadRoute: { threadId: personalThread.id },
-      availableSplitViewIds: new Set(),
       threadIds: [personalThread.id],
       sidebarThreadSummaryById: { [personalThread.id]: { folderId: personalThread.folderId } },
       draftFolderIdByThreadId: new Map(),
-      rememberedSplitViewThreadIds: undefined,
       landingSpace: {
         spaceId: target.kind === "empty" ? target.spaceId : null,
         projectById,
@@ -98,11 +96,9 @@ describe("selecting an empty Space", () => {
     expect(
       resolveChatIndexRestoreRoute({
         lastThreadRoute: { threadId: homeThread.id },
-        availableSplitViewIds: new Set(),
         threadIds: [homeThread.id],
         sidebarThreadSummaryById: { [homeThread.id]: { folderId: homeThread.folderId } },
         draftFolderIdByThreadId: new Map(),
-        rememberedSplitViewThreadIds: undefined,
         landingSpace: { spaceId: workSpaceId, projectById, workspacePaths: paths },
       }),
     ).toBeNull();
@@ -114,93 +110,15 @@ describe("selecting an empty Space", () => {
   it("restores the remembered route unscoped when the landing carries no Space intent", () => {
     expect(
       resolveChatIndexRestoreRoute({
-        lastThreadRoute: { threadId: personalThread.id, splitViewId: "split-cross-space" },
-        availableSplitViewIds: new Set(["split-cross-space"]),
+        lastThreadRoute: { threadId: personalThread.id },
         threadIds: [personalThread.id],
         sidebarThreadSummaryById: { [personalThread.id]: { folderId: personalThread.folderId } },
         draftFolderIdByThreadId: new Map(),
-        // Unscoped startup preserves the remembered split without applying a Space policy.
-        rememberedSplitViewThreadIds: undefined,
         landingSpace: null,
       }),
-    ).toEqual({ threadId: personalThread.id, splitViewId: "split-cross-space" });
+    ).toEqual({ threadId: personalThread.id });
   });
 
-  it("drops a split containing a thread from another Space while retaining its focused route", () => {
-    const workProject = project({ id: "project-work", spaceId: workSpaceId });
-    const workThread = thread({ id: "thread-work", folderId: "project-work" });
-    const folders = new Map([...projectById, [workProject.id, workProject]]);
-
-    expect(
-      resolveChatIndexRestoreRoute({
-        lastThreadRoute: { threadId: workThread.id, splitViewId: "split-cross-space" },
-        availableSplitViewIds: new Set(["split-cross-space"]),
-        threadIds: [workThread.id, personalThread.id],
-        sidebarThreadSummaryById: {
-          [workThread.id]: { folderId: workThread.folderId },
-          [personalThread.id]: { folderId: personalThread.folderId },
-        },
-        draftFolderIdByThreadId: new Map(),
-        rememberedSplitViewThreadIds: [workThread.id, personalThread.id],
-        landingSpace: {
-          spaceId: workSpaceId,
-          projectById: folders,
-          workspacePaths: paths,
-        },
-      }),
-    ).toEqual({ threadId: workThread.id });
-  });
-
-  it("drops a split whose pane membership cannot be validated", () => {
-    const workProject = project({ id: "project-work", spaceId: workSpaceId });
-    const workThread = thread({ id: "thread-work", folderId: "project-work" });
-
-    expect(
-      resolveChatIndexRestoreRoute({
-        lastThreadRoute: { threadId: workThread.id, splitViewId: "split-unresolved" },
-        availableSplitViewIds: new Set(["split-unresolved"]),
-        threadIds: [workThread.id],
-        sidebarThreadSummaryById: {
-          [workThread.id]: { folderId: workThread.folderId },
-        },
-        draftFolderIdByThreadId: new Map(),
-        rememberedSplitViewThreadIds: undefined,
-        landingSpace: {
-          spaceId: workSpaceId,
-          projectById: new Map([...projectById, [workProject.id, workProject]]),
-          workspacePaths: paths,
-        },
-      }),
-    ).toEqual({ threadId: workThread.id });
-  });
-
-  it("keeps a split when every populated pane is reachable from the selected Space", () => {
-    const workProject = project({ id: "project-work", spaceId: workSpaceId });
-    const firstThread = thread({ id: "thread-work-1", folderId: "project-work" });
-    const secondThread = thread({ id: "thread-work-2", folderId: "project-work" });
-
-    expect(
-      resolveChatIndexRestoreRoute({
-        lastThreadRoute: { threadId: firstThread.id, splitViewId: "split-work" },
-        availableSplitViewIds: new Set(["split-work"]),
-        threadIds: [firstThread.id, secondThread.id],
-        sidebarThreadSummaryById: {
-          [firstThread.id]: { folderId: firstThread.folderId },
-          [secondThread.id]: { folderId: secondThread.folderId },
-        },
-        draftFolderIdByThreadId: new Map(),
-        rememberedSplitViewThreadIds: [firstThread.id, secondThread.id],
-        landingSpace: {
-          spaceId: workSpaceId,
-          projectById: new Map([...projectById, [workProject.id, workProject]]),
-          workspacePaths: paths,
-        },
-      }),
-    ).toEqual({ threadId: firstThread.id, splitViewId: "split-work" });
-  });
-});
-
-describe("resolveSpaceSelectionTarget", () => {
   it("prefers the Space's remembered thread, then its remembered project, then its newest thread", () => {
     const workProject = project({ id: "project-work", spaceId: workSpaceId });
     const older = thread({ id: "thread-older", folderId: "project-work" });

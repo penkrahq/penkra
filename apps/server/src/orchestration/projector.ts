@@ -20,6 +20,7 @@ import {
   setPinnedMessageLabel,
 } from "@penkra/shared/pinnedMessages";
 import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
+import { shouldInterruptProvisionalCompletion } from "@penkra/shared/turnContinuation";
 import { Effect, Schema } from "effect";
 
 import { OrchestrationProjectorDecodeError, toProjectorDecodeError } from "./Errors.ts";
@@ -87,7 +88,18 @@ function isTerminalLatestTurn(
 function settleLatestTurnForSessionStatus(
   latestTurn: OrchestrationThread["latestTurn"],
   session: Pick<OrchestrationSession, "status" | "activeTurnId" | "updatedAt">,
+  previousSession: OrchestrationThread["session"],
 ): OrchestrationThread["latestTurn"] {
+  if (
+    shouldInterruptProvisionalCompletion({
+      previousSession,
+      nextSession: session,
+      turn: latestTurn,
+    }) &&
+    latestTurn
+  ) {
+    return { ...latestTurn, state: "interrupted", completedAt: session.updatedAt };
+  }
   if (latestTurn?.state !== "running") {
     return latestTurn;
   }
@@ -775,6 +787,7 @@ export function projectEvent(
               ...(payload.modelSelection !== undefined
                 ? { modelSelection: payload.modelSelection }
                 : {}),
+              ...(payload.connectionId !== undefined ? { connectionId: payload.connectionId } : {}),
               ...(payload.workingDirectory !== undefined
                 ? { workingDirectory: payload.workingDirectory }
                 : {}),
@@ -1031,6 +1044,9 @@ export function projectEvent(
             ...(payload.dispatchOrigin !== undefined
               ? { dispatchOrigin: payload.dispatchOrigin }
               : {}),
+            ...(payload.dispatchOrigin === "agent" && payload.senderThreadId !== undefined
+              ? { senderThreadId: payload.senderThreadId }
+              : {}),
             ...(payload.delivery !== undefined
               ? { delivery: { ...payload.delivery, sequence: event.sequence } }
               : {}),
@@ -1052,8 +1068,13 @@ export function projectEvent(
         if (existingIndex >= 0) {
           const entry = thread.messages[existingIndex]!;
           const nextMessages = thread.messages.slice();
+          const effectiveDispatchOrigin = message.dispatchOrigin ?? entry.dispatchOrigin;
+          const entryForMerge =
+            effectiveDispatchOrigin !== "agent"
+              ? (({ senderThreadId: _senderThreadId, ...rest }) => rest)(entry)
+              : entry;
           nextMessages[existingIndex] = {
-            ...entry,
+            ...entryForMerge,
             text: message.streaming
               ? `${entry.text}${message.text}`
               : message.text.length > 0
@@ -1079,6 +1100,9 @@ export function projectEvent(
             ...(message.dispatchMode !== undefined ? { dispatchMode: message.dispatchMode } : {}),
             ...(message.dispatchOrigin !== undefined
               ? { dispatchOrigin: message.dispatchOrigin }
+              : {}),
+            ...(message.senderThreadId !== undefined
+              ? { senderThreadId: message.senderThreadId }
               : {}),
             ...(message.delivery !== undefined &&
             (entry.delivery === undefined || message.delivery.sequence >= entry.delivery.sequence)
@@ -1126,6 +1150,7 @@ export function projectEvent(
           );
           const isUnacceptedAttempt =
             targetDeliveryState === "starting" || targetDeliveryState === "steering";
+          const isUndeliveredAttempt = isUnacceptedAttempt || targetDeliveryState === "queued";
           const acceptsSteerOwner =
             payload.state === "accepted" &&
             nativeSteer &&
@@ -1149,7 +1174,8 @@ export function projectEvent(
             message.delivery !== undefined &&
             (payload.failurePhase !== "before-provider-dispatch" ||
               message.delivery.state === "starting" ||
-              message.delivery.state === "steering")
+              message.delivery.state === "steering" ||
+              message.delivery.state === "queued")
               ? {
                   ...message,
                   delivery: {
@@ -1173,10 +1199,10 @@ export function projectEvent(
             threads: updateThread(nextBase.threads, payload.threadId, {
               messages,
               ...(payload.failurePhase === "before-provider-dispatch" &&
-              isUnacceptedAttempt &&
+              isUndeliveredAttempt &&
               payload.turnId !== undefined &&
               thread.latestTurn?.turnId === payload.turnId &&
-              thread.latestTurn.state === "running" &&
+              (thread.latestTurn.state === "running" || thread.latestTurn.state === "queued") &&
               thread.latestTurn.startedAt === null
                 ? {
                     latestTurn: {
@@ -1276,7 +1302,7 @@ export function projectEvent(
                           ? thread.latestTurn.assistantMessageId
                           : null,
                     }
-                : settleLatestTurnForSessionStatus(thread.latestTurn, session),
+                : settleLatestTurnForSessionStatus(thread.latestTurn, session, thread.session),
             updatedAt: event.occurredAt,
           }),
         };
@@ -1295,13 +1321,20 @@ export function projectEvent(
             return nextBase;
           }
           const messages = thread.messages.filter((message) => message.id !== payload.messageId);
-          if (messages.length === thread.messages.length) {
+          const queuedMessageIds = thread.queuedMessageIds?.filter(
+            (messageId) => messageId !== payload.messageId,
+          );
+          if (
+            messages.length === thread.messages.length &&
+            queuedMessageIds?.length === thread.queuedMessageIds?.length
+          ) {
             return nextBase;
           }
           return {
             ...nextBase,
             threads: updateThread(nextBase.threads, payload.threadId, {
               messages,
+              queuedMessageIds,
               pendingTurnStartMessageId:
                 thread.pendingTurnStartMessageId === payload.messageId
                   ? null

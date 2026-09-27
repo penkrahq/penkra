@@ -12,7 +12,11 @@ import {
   AgentGatewayCredentials,
   type AgentGatewayCredentialsShape,
 } from "./Services/AgentGatewayCredentials.ts";
-import { AGENT_GATEWAY_MCP_MAX_BODY_BYTES, agentGatewayRouteLayer } from "./httpRoute.ts";
+import {
+  AGENT_GATEWAY_MCP_MAX_BODY_BYTES,
+  AGENT_GATEWAY_ORIGIN_TURN_HEADER,
+  agentGatewayRouteLayer,
+} from "./httpRoute.ts";
 
 const VALID_TOKEN = "sagw_session_http_route_test";
 
@@ -20,10 +24,12 @@ async function withGatewayServer(
   run: (input: {
     readonly origin: string;
     readonly handledBodies: ReadonlyArray<unknown>;
+    readonly handledOrigins: ReadonlyArray<string | undefined>;
   }) => Promise<void>,
 ): Promise<void> {
   const scope = await Effect.runPromise(Scope.make("sequential"));
   const handledBodies: unknown[] = [];
+  const handledOrigins: Array<string | undefined> = [];
   let nodeServer: http.Server | null = null;
   try {
     const threadId = ThreadId.makeUnsafe("thread-http-route-test");
@@ -42,16 +48,8 @@ async function withGatewayServer(
               capabilities: new Set(["thread:read", "thread:write", "diagnostics:read"]),
             }
           : null,
-      bindWriteAuthority: (token, turnId) =>
-        token === VALID_TOKEN
-          ? {
-              sessionKey: "session-http-route-test",
-              threadId,
-              provider: "opencode",
-              turnId,
-            }
-          : null,
-      verifyWriteAuthority: (authority) => authority.sessionKey === "session-http-route-test",
+      bindWriteAuthority: () => null,
+      verifyWriteAuthority: () => false,
       revokeSessionToken: () => undefined,
       connectionForThread: () => ({
         url: "http://127.0.0.1/mcp",
@@ -64,6 +62,7 @@ async function withGatewayServer(
       invokeTool: () => Effect.die("Direct tool invocation is not used by this test."),
       handleMcpPost: (input) => {
         handledBodies.push(input.body);
+        handledOrigins.push(input.originTurnId);
         return Effect.succeed({ status: 200, body: { ok: true } });
       },
     };
@@ -97,7 +96,7 @@ async function withGatewayServer(
     if (!address || typeof address !== "object") {
       throw new Error("Expected agent gateway test server to expose an address");
     }
-    await run({ origin: `http://127.0.0.1:${address.port}`, handledBodies });
+    await run({ origin: `http://127.0.0.1:${address.port}`, handledBodies, handledOrigins });
   } finally {
     await Effect.runPromise(Scope.close(scope, Exit.void));
   }
@@ -105,7 +104,7 @@ async function withGatewayServer(
 
 describe("agentGatewayRouteLayer", () => {
   it("authenticates before reading the body and enforces the 1 MiB limit", async () => {
-    await withGatewayServer(async ({ origin, handledBodies }) => {
+    await withGatewayServer(async ({ origin, handledBodies, handledOrigins }) => {
       const oversizedBody = "x".repeat(AGENT_GATEWAY_MCP_MAX_BODY_BYTES + 1);
       const unauthorized = await fetch(`${origin}/mcp`, {
         method: "POST",
@@ -128,11 +127,13 @@ describe("agentGatewayRouteLayer", () => {
         headers: {
           Authorization: `Bearer ${VALID_TOKEN}`,
           "Content-Type": "application/json",
+          [AGENT_GATEWAY_ORIGIN_TURN_HEADER]: "turn-http-origin",
         },
         body: JSON.stringify(validBody),
       });
       expect(valid.status).toBe(200);
       expect(await valid.json()).toEqual({ ok: true });
+      expect(handledOrigins).toEqual(["turn-http-origin"]);
       expect(handledBodies).toEqual([validBody]);
     });
   });

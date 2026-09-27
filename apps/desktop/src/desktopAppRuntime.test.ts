@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const electron = vi.hoisted(() => ({
   fromPartition: vi.fn(),
+  getAllDisplays: vi.fn(() => [{ bounds: { x: 0, y: 0, width: 1920, height: 1080 } }]),
   protocolHandle: vi.fn(async () => undefined),
   protocolUnhandle: vi.fn(async () => undefined),
 }));
@@ -13,6 +14,7 @@ const electron = vi.hoisted(() => ({
 vi.mock("electron", () => ({
   app: { getAppMetrics: vi.fn(() => []) },
   BrowserWindow: { fromId: vi.fn(() => null) },
+  screen: { getAllDisplays: electron.getAllDisplays },
   safeStorage: {
     isEncryptionAvailable: vi.fn(() => true),
     encryptString: vi.fn((value: string) => Buffer.from(value)),
@@ -55,26 +57,33 @@ describe("desktop App runtime composition", () => {
       }),
     };
 
-    const runtime = await startDesktopAppRuntime({
-      userDataPath: root,
-      appPreloadPath: "/trusted/appPreload.js",
-      appControllerRunnerPath: "/trusted/appNodeControllerRunner.js",
-      ipcMain: ipcMain as never,
-      onTabOpened: () => undefined,
-      onTabState: () => undefined,
-      onTabClosed: () => undefined,
-    });
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, "platform", { value: "linux" });
+    try {
+      const runtime = await startDesktopAppRuntime({
+        userDataPath: root,
+        appPreloadPath: "/trusted/appPreload.js",
+        appControllerRunnerPath: "/trusted/appNodeControllerRunner.js",
+        ipcMain: ipcMain as never,
+        onTabOpened: () => undefined,
+        onTabState: () => undefined,
+        onTabClosed: () => undefined,
+      });
 
-    expect(runtime.store.snapshot().packagesByInstallationKey).toEqual({});
-    expect(runtime.safeStartRecovery).toBeNull();
-    expect(runtime.updateRecovery).toBeNull();
-    expect(runtime.packageGarbageCollection).toEqual({ removedPaths: [], failures: [] });
-    expect(listeners.get(APP_RUNTIME_IPC_CHANNELS.rendererMessage)).toHaveLength(1);
-    expect(listeners.get(APP_RUNTIME_IPC_CHANNELS.ready)).toHaveLength(1);
-    await runtime.stop();
-    await runtime.stop();
-    expect(listeners.get(APP_RUNTIME_IPC_CHANNELS.rendererMessage)).toHaveLength(0);
-    expect(listeners.get(APP_RUNTIME_IPC_CHANNELS.ready)).toHaveLength(0);
-    expect(electron.fromPartition).not.toHaveBeenCalled();
+      expect(electron.getAllDisplays).toHaveBeenCalledOnce();
+      expect(runtime.store.snapshot().packagesByInstallationKey).toEqual({});
+      expect(runtime.safeStartRecovery).toBeNull();
+      expect(runtime.updateRecovery).toBeNull();
+      expect(runtime.packageGarbageCollection).toEqual({ removedPaths: [], failures: [] });
+      expect(listeners.get(APP_RUNTIME_IPC_CHANNELS.rendererMessage)).toHaveLength(1);
+      expect(listeners.get(APP_RUNTIME_IPC_CHANNELS.ready)).toHaveLength(1);
+      await runtime.stop();
+      await runtime.stop();
+      expect(listeners.get(APP_RUNTIME_IPC_CHANNELS.rendererMessage)).toHaveLength(0);
+      expect(listeners.get(APP_RUNTIME_IPC_CHANNELS.ready)).toHaveLength(0);
+      expect(electron.fromPartition).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(process, "platform", { value: originalPlatform });
+    }
   });
 });

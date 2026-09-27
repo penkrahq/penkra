@@ -28,6 +28,7 @@ import {
   isSqliteCorruptionError,
   isSqliteIoError,
 } from "./SqliteSafety.ts";
+import { observeRuntimeJournalTiming } from "./runtimeJournalMetrics.ts";
 
 export { isSqliteCorruptionError, isSqliteIoError } from "./SqliteSafety.ts";
 
@@ -213,14 +214,30 @@ const makeWithDatabase = (
     const semaphore = yield* Semaphore.make(1);
     const connection = yield* makeConnection;
 
-    const acquirer = semaphore.withPermits(1)(Effect.succeed(connection));
+    const acquirer = Effect.suspend(() => {
+      const startedAt = performance.now();
+      return semaphore.withPermits(1)(
+        Effect.sync(() => {
+          observeRuntimeJournalTiming("sqliteSemaphoreWait", performance.now() - startedAt);
+          return connection;
+        }),
+      );
+    });
     const transactionAcquirer = Effect.uninterruptibleMask((restore) => {
       const fiber = Fiber.getCurrent()!;
       const scope = ServiceMap.getUnsafe(fiber.services, Scope.Scope);
+      const waitStartedAt = performance.now();
       return Effect.as(
-        Effect.tap(restore(semaphore.take(1)), () =>
-          Scope.addFinalizer(scope, semaphore.release(1)),
-        ),
+        Effect.tap(restore(semaphore.take(1)), () => {
+          const acquiredAt = performance.now();
+          observeRuntimeJournalTiming("sqliteSemaphoreWait", acquiredAt - waitStartedAt);
+          return Scope.addFinalizer(
+            scope,
+            Effect.sync(() => {
+              observeRuntimeJournalTiming("sqliteTransactionHold", performance.now() - acquiredAt);
+            }).pipe(Effect.andThen(semaphore.release(1))),
+          );
+        }),
         connection,
       );
     });

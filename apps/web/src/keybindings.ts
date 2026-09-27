@@ -74,7 +74,7 @@ const whenThreadJumpAvailable = whenAnd(
   whenNotTerminalFocus,
   whenNot(whenIdentifier("terminalWorkspaceOpen")),
 );
-// New-surface creation chords (new chat/terminal/provider chat/split) bind to `mod`,
+// New-surface creation chords (new chat/terminal/provider chat) bind to `mod`,
 // which is Cmd on macOS. xterm never forwards a Cmd-chord to the PTY, so a bare
 // `!terminalFocus` guard silently dropped these chords whenever the terminal had focus
 // — the chord did nothing instead of creating anything. `|| isMac` lets them fire from
@@ -121,11 +121,6 @@ export const DEFAULT_SHORTCUT_FALLBACKS: ResolvedKeybindingsConfig = [
   {
     command: "chat.newOpenCode",
     shortcut: commandShortcut("r", { altKey: true }),
-    whenAst: whenCreationAllowed,
-  },
-  {
-    command: "chat.split",
-    shortcut: commandShortcut("\\"),
     whenAst: whenCreationAllowed,
   },
   // Installed-app only (Electron / standalone PWA). Browsers reserve Ctrl+Tab and

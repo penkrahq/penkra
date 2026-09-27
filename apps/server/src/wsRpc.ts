@@ -55,6 +55,7 @@ import {
 } from "./managedAttachmentPrincipal";
 import { Open, resolveAvailableEditors } from "./open";
 import { makeDispatchCommandNormalizer } from "./orchestration/dispatchCommandNormalization";
+import { describeRejectedPlay } from "./orchestration/playRejectionDiagnostics";
 import { makeImportThreadHandler } from "./orchestration/importThreadRoute";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { ProviderCommandReactor } from "./orchestration/Services/ProviderCommandReactor";
@@ -106,7 +107,8 @@ import { bufferLiveUiStream, type LiveUiStreamDropReport } from "./wsStreamBackp
 import { makeDurableOrchestrationStream } from "./wsDurableOrchestrationStream";
 import { makeCursorSafeSnapshotLiveStream } from "./wsSnapshotLiveStream";
 import { makeSyncAcknowledgements } from "./wsSyncAcknowledgements";
-import { bindingRevisionErrorCode } from "./wsRpcErrorMapping";
+import { wsRpcErrorCode } from "./wsRpcErrorMapping";
+import { findThreadGuardInvariant } from "./orchestration/Errors.ts";
 
 const MAX_DIAGNOSTIC_CHILD_PROCESSES = 80;
 const MAX_DIAGNOSTIC_ARGS_CHARS = 500;
@@ -214,12 +216,14 @@ function readDescendantProcesses(rootPid: number): Promise<ProcessTableRow[]> {
 }
 
 function toWsRpcError(cause: unknown, fallbackMessage: string) {
-  const code = bindingRevisionErrorCode(cause);
+  const code = wsRpcErrorCode(cause);
+  const threadGuard = findThreadGuardInvariant(cause);
   return Schema.is(WsRpcError)(cause)
     ? cause
     : new WsRpcError({
         message:
-          cause instanceof Error && cause.message.length > 0 ? cause.message : fallbackMessage,
+          threadGuard?.detail ??
+          (cause instanceof Error && cause.message.length > 0 ? cause.message : fallbackMessage),
         cause,
         ...(code === undefined ? {} : { code, retryable: false }),
       });
@@ -835,12 +839,32 @@ const makeWsRpcHandlersLayer = () =>
                   ),
                 ),
                 Effect.tapError((cause) =>
-                  Effect.logWarning("orchestration command rejected").pipe(
-                    Effect.annotateLogs({
-                      ...lifecycleLogContext,
-                      cause: cause instanceof Error ? cause.message : String(cause),
-                    }),
-                  ),
+                  Effect.gen(function* () {
+                    const playContext =
+                      normalizedCommand.type === "thread.turn.recover" &&
+                      normalizedCommand.reason === "play"
+                        ? yield* Effect.gen(function* () {
+                            const thread = yield* projectionReadModelQuery
+                              .getThreadDetailById(normalizedCommand.threadId)
+                              .pipe(Effect.catch(() => Effect.succeed(Option.none())));
+                            const binding = yield* threadProviderBindings
+                              .getRuntimeBinding(normalizedCommand.threadId)
+                              .pipe(Effect.catch(() => Effect.succeed(Option.none())));
+                            return describeRejectedPlay(
+                              normalizedCommand,
+                              Option.getOrNull(thread),
+                              Option.getOrNull(binding),
+                            );
+                          })
+                        : {};
+                    yield* Effect.logWarning("orchestration command rejected").pipe(
+                      Effect.annotateLogs({
+                        ...lifecycleLogContext,
+                        ...playContext,
+                        cause: cause instanceof Error ? cause.message : String(cause),
+                      }),
+                    );
+                  }),
                 ),
               );
               return result;
@@ -1350,6 +1374,11 @@ const makeWsRpcHandlersLayer = () =>
               ),
             }),
             "Failed to load Connections",
+          ),
+        [WS_METHODS.providerRetryAuthConnection]: (input) =>
+          rpcEffect(
+            providerCommandReactor.retryAuthConnection(input.connectionId),
+            "Failed to retry the Connection",
           ),
         [WS_METHODS.providerGetThreadBinding]: (input) =>
           rpcEffect(

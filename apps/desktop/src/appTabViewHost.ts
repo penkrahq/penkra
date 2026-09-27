@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 
 import {
   BrowserWindow,
+  screen,
   WebContentsView,
   type NativeImage,
   type Rectangle,
@@ -85,6 +86,14 @@ export interface AppTabAuthority {
   retireTab(owner: AppTabLogicalOwner): void;
 }
 
+export function restoreShellFocusAfterHide(
+  window: { isDestroyed(): boolean; isFocused(): boolean; webContents: { focus(): void } } | null,
+): boolean {
+  if (!window || window.isDestroyed() || !window.isFocused()) return false;
+  window.webContents.focus();
+  return true;
+}
+
 interface AppTabRecord {
   descriptor: DesktopAppTabDescriptor;
   endpoint: AppTabEndpoint;
@@ -95,9 +104,6 @@ interface AppTabRecord {
   popupOpeners: HostedPage[];
   ownerWindowId: number | null;
   bounds: Rectangle;
-  dockWidth: number;
-  rightInset: number;
-  bottom: number;
   pageTop: number;
   browserVersion: number;
   lastFrame: NativeImage | null;
@@ -216,23 +222,86 @@ export function shouldKeepPresentationAnimation(input: {
   );
 }
 
-export function resizedAppTabBounds(input: {
-  bounds: Rectangle;
-  dockWidth: number;
-  rightInset: number;
-  bottom: number;
-  width: number;
-  height: number;
-}): Rectangle {
-  const windowWidth = Math.max(1, input.width);
-  const rightInset = Math.max(0, Math.min(windowWidth - 1, Math.round(input.rightInset)));
-  const width = Math.max(1, Math.min(Math.round(input.dockWidth), windowWidth - rightInset));
+export function clipAppTabBounds(bounds: Rectangle, viewport: Rectangle): Rectangle | null {
+  const x = Math.max(0, Math.min(viewport.width, Math.round(bounds.x)));
+  const y = Math.max(0, Math.min(viewport.height, Math.round(bounds.y)));
+  const right = Math.max(0, Math.min(viewport.width, Math.round(bounds.x + bounds.width)));
+  const bottom = Math.max(0, Math.min(viewport.height, Math.round(bounds.y + bounds.height)));
+  if (right <= x || bottom <= y) return null;
+  return { x, y, width: right - x, height: bottom - y };
+}
+
+export function detachedHostLayoutBounds(
+  bounds: Rectangle,
+  pageTop: number,
+): {
+  app: Rectangle;
+  page: Rectangle;
+} {
+  // CDP mouse coordinates are relative to a WebContents viewport. Keep each view
+  // at the host's origin and compensate for the Browser toolbar inset in layout.
   return {
-    x: windowWidth - rightInset - width,
-    y: input.bounds.y,
-    width,
-    height: Math.max(1, input.height - input.bottom - input.bounds.y),
+    app: { x: 0, y: 0, width: bounds.width, height: bounds.height },
+    page: { x: 0, y: -pageTop, width: bounds.width, height: bounds.height },
   };
+}
+
+export interface DetachedHostPlatformPolicy {
+  readonly visibleHost: boolean;
+  readonly canDeliverPointerInput: boolean;
+  readonly placement: Pick<Rectangle, "x" | "y">;
+  readonly useSkipTaskbar: boolean;
+  readonly useNonFocusableWindow: boolean;
+  readonly forwardUserMouseEvents: false;
+}
+
+export function detachedHostPlatformPolicy(input: {
+  platform: NodeJS.Platform;
+  displays: ReadonlyArray<Rectangle>;
+}): DetachedHostPlatformPolicy {
+  const isLinux = input.platform === "linux";
+  const rightmostDisplay = input.displays.reduce(
+    (right, display) => Math.max(right, display.x + display.width),
+    0,
+  );
+  const offscreenPlacement = { x: rightmostDisplay + 10_000, y: 10_000 };
+  if (isLinux) {
+    // Linux window placement and showInactive behavior are not reliable across
+    // compositors. Keep the helper hidden and off every display; detached pointer
+    // delivery is consequently not advertised as supported on Linux.
+    return {
+      visibleHost: false,
+      canDeliverPointerInput: false,
+      placement: offscreenPlacement,
+      useSkipTaskbar: false,
+      useNonFocusableWindow: false,
+      forwardUserMouseEvents: false,
+    };
+  }
+  return {
+    visibleHost: true,
+    canDeliverPointerInput: true,
+    placement: { x: 0, y: 0 },
+    useSkipTaskbar: true,
+    useNonFocusableWindow: true,
+    forwardUserMouseEvents: false,
+  };
+}
+
+export function hasRegisteredShellWindow<T extends { webContents: { id: number } }>(
+  windows: ReadonlyArray<T>,
+  windowByRendererId: (rendererId: number) => T | null,
+  detachedHosts: ReadonlySet<T> = new Set(),
+): boolean {
+  return windows.some(
+    (window) => !detachedHosts.has(window) && windowByRendererId(window.webContents.id) === window,
+  );
+}
+
+export function setDetachedHostMousePassthrough(window: {
+  setIgnoreMouseEvents(ignore: boolean): void;
+}): void {
+  window.setIgnoreMouseEvents(true);
 }
 
 let appTabHostTraceSequence = 0;
@@ -257,6 +326,9 @@ export class AppTabViewHost implements AppTabHost {
   readonly #ipcBridge: Pick<AppRendererIpcBridge, "waitForReady">;
   readonly #preloadPath: string;
   readonly #windowById: (windowId: number) => BrowserWindow | null;
+  readonly #hasShellWindow: () => boolean;
+  readonly #detachedHostPolicy: DetachedHostPlatformPolicy;
+  readonly #detachedHostCanDeliverPointerInput: boolean;
   readonly #onBeforeInput: (event: Electron.Event, input: Electron.Input) => void;
   readonly #opened: ProtectedPublisher<DesktopAppTabOpened>;
   readonly #state: ProtectedPublisher<DesktopAppTabDescriptor>;
@@ -274,6 +346,7 @@ export class AppTabViewHost implements AppTabHost {
   readonly #resolveIconDataUrl: typeof resolveInstalledAppIconDataUrl;
   readonly #diagnostics: ProtectedPublisher<AppRuntimeDiagnosticInput>;
   readonly #records = new Map<string, AppTabRecord>();
+  readonly #detachedHostByWebContentsId = new Map<number, BrowserWindow>();
   readonly #presentationsByTabId = new Map<string, Map<number, AppTabWindowPresentation>>();
   readonly #replicaFrameByTabId = new Map<string, AppTabReplicaFrame>();
   readonly #overlayDepthByWindowId = new Map<number, number>();
@@ -296,6 +369,8 @@ export class AppTabViewHost implements AppTabHost {
     ipcBridge: Pick<AppRendererIpcBridge, "waitForReady">;
     preloadPath: string;
     windowById: (windowId: number) => BrowserWindow | null;
+    hasShellWindow?: () => boolean;
+    platform?: NodeJS.Platform;
     onBeforeInput?: (event: Electron.Event, input: Electron.Input) => void;
     onOpened: (descriptor: DesktopAppTabOpened) => void;
     onState: (descriptor: DesktopAppTabDescriptor) => void;
@@ -322,6 +397,21 @@ export class AppTabViewHost implements AppTabHost {
     this.#ipcBridge = input.ipcBridge;
     this.#preloadPath = input.preloadPath;
     this.#windowById = input.windowById;
+    this.#hasShellWindow =
+      input.hasShellWindow ??
+      (() =>
+        hasRegisteredShellWindow(
+          BrowserWindow.getAllWindows(),
+          this.#windowById,
+          new Set(this.#detachedHostByWebContentsId.values()),
+        ));
+    const platform = input.platform ?? process.platform;
+    this.#detachedHostPolicy = detachedHostPlatformPolicy({
+      platform,
+      displays:
+        platform === "linux" ? screen.getAllDisplays().map((display) => display.bounds) : [],
+    });
+    this.#detachedHostCanDeliverPointerInput = this.#detachedHostPolicy.canDeliverPointerInput;
     this.#onBeforeInput = input.onBeforeInput ?? (() => undefined);
     const onNotificationError =
       input.onNotificationError ??
@@ -371,6 +461,7 @@ export class AppTabViewHost implements AppTabHost {
     threadId: string;
     route: string;
     state?: unknown;
+    initiator?: "agent" | "user";
   }): Promise<DesktopAppTabDescriptor> {
     return this.#openInstalled(input, false);
   }
@@ -384,6 +475,7 @@ export class AppTabViewHost implements AppTabHost {
       threadId: string;
       route: string;
       state?: unknown;
+      initiator?: "agent" | "user";
     },
     deferNavigation: boolean,
   ): Promise<DesktopAppTabDescriptor> {
@@ -449,6 +541,7 @@ export class AppTabViewHost implements AppTabHost {
   async openInstalledFromRenderer(
     rendererId: number,
     input: { appId: string },
+    initiator: "agent" | "user" = "user",
   ): Promise<DesktopAppTabDescriptor> {
     const origin = [...this.#records.values()].find((record) => record.rendererId === rendererId);
     if (!origin) throw new Error("The originating App tab is unavailable.");
@@ -456,6 +549,7 @@ export class AppTabViewHost implements AppTabHost {
       appId: input.appId,
       spaceId: origin.descriptor.spaceId,
       deckId: origin.descriptor.deckId,
+      initiator,
     });
     if (existing) return this.#require(existing.id).descriptor;
     return this.openInstalled({
@@ -464,21 +558,24 @@ export class AppTabViewHost implements AppTabHost {
       deckId: origin.descriptor.deckId,
       threadId: origin.descriptor.threadId,
       route: "/",
+      initiator,
     });
   }
 
   async openSiblingFromRenderer(
     rendererId: number,
     input: { route: string; state?: unknown },
+    initiator: "agent" | "user" = "user",
   ): Promise<{ tabId: string }> {
     const origin = [...this.#records.values()].find((record) => record.rendererId === rendererId);
     if (!origin) throw new Error("The originating App tab is unavailable.");
-    return this.openSibling(origin.descriptor.id, input);
+    return this.openSibling(origin.descriptor.id, input, initiator);
   }
 
   async openSibling(
     tabId: string,
     input: { route: string; state?: unknown },
+    initiator: "agent" | "user" = "user",
   ): Promise<{ tabId: string }> {
     const origin = this.#require(tabId);
     const descriptor = await this.openInstalled({
@@ -487,6 +584,7 @@ export class AppTabViewHost implements AppTabHost {
       deckId: origin.descriptor.deckId,
       threadId: origin.descriptor.threadId,
       route: input.route,
+      initiator,
       ...(input.state === undefined ? {} : { state: input.state }),
     });
     return { tabId: descriptor.id };
@@ -496,6 +594,7 @@ export class AppTabViewHost implements AppTabHost {
     appId: string;
     spaceId: string;
     deckId: string;
+    initiator?: "agent" | "user";
   }): AppTabEndpoint | null {
     const record = [...this.#records.values()].find(
       (candidate) =>
@@ -504,12 +603,17 @@ export class AppTabViewHost implements AppTabHost {
         candidate.descriptor.deckId === input.deckId,
     );
     if (!record) return null;
-    this.present(record.descriptor.id);
+    this.present(record.descriptor.id, undefined, undefined, false, undefined, input.initiator);
     return record.endpoint;
   }
 
   list(): ReadonlyArray<DesktopAppTabDescriptor> {
     return [...this.#records.values()].map((record) => record.descriptor);
+  }
+
+  canDeliverPointerInput(tabId: string): boolean {
+    const record = this.#records.get(tabId);
+    return !!record && (record.ownerWindowId !== null || this.#detachedHostCanDeliverPointerInput);
   }
 
   has(tabId: string): boolean {
@@ -570,14 +674,8 @@ export class AppTabViewHost implements AppTabHost {
       return;
     }
     const content = window.getContentBounds();
-    const width = Math.max(1, Math.min(Math.round(input.bounds.width), content.width));
-    const y = Math.max(0, Math.min(Math.round(input.bounds.y), content.height - 1));
-    const bounds = {
-      x: content.width - width,
-      y,
-      width,
-      height: Math.max(1, content.height - y),
-    };
+    const bounds = clipAppTabBounds(input.bounds, content);
+    if (!bounds) return;
 
     for (const other of this.#records.values()) {
       if (other === record) continue;
@@ -796,6 +894,7 @@ export class AppTabViewHost implements AppTabHost {
     for (const presentations of this.#presentationsByTabId.values()) presentations.delete(windowId);
     this.#overlayDepthByWindowId.delete(windowId);
     this.releaseWindow(windowId);
+    if (!this.#hasShellWindow()) this.#closeDetachedHosts();
     for (const tabId of owned) {
       const fallback = this.#latestVisiblePresentation(tabId, windowId);
       if (fallback) {
@@ -845,10 +944,11 @@ export class AppTabViewHost implements AppTabHost {
     bounds?: Rectangle,
     animate = false,
     animationStartedAtEpochMs?: number,
+    initiator: "agent" | "user" = "user",
   ): void {
     const record = this.#require(tabId);
     if (windowId === undefined || bounds === undefined) {
-      this.#opened.publish({ ...record.descriptor, selection: "activate" });
+      this.#opened.publish({ ...record.descriptor, selection: "activate", initiator });
       return;
     }
     const targetWindow = this.#windowById(windowId);
@@ -874,10 +974,6 @@ export class AppTabViewHost implements AppTabHost {
       this.#attachPage(record);
     }
     record.bounds = normalizedBounds;
-    const contentBounds = targetWindow.getContentBounds();
-    record.dockWidth = record.bounds.width;
-    record.rightInset = Math.max(0, contentBounds.width - record.bounds.x - record.bounds.width);
-    record.bottom = Math.max(0, contentBounds.height - record.bounds.y - record.bounds.height);
     record.visibleRequested = true;
     record.ownerWindowVisible = targetWindow.isVisible() && !targetWindow.isMinimized();
     const revealFromDock = record.hiddenByDock || animate;
@@ -940,6 +1036,7 @@ export class AppTabViewHost implements AppTabHost {
           record.visibleRequested = false;
           record.appView.setVisible(false);
           record.page?.view.setVisible(false);
+          this.#attachDetachedHostAfterHide(record);
         },
       );
     } else {
@@ -947,10 +1044,11 @@ export class AppTabViewHost implements AppTabHost {
       record.visibleRequested = false;
       record.appView.setVisible(false);
       record.page?.view.setVisible(false);
+      this.#attachDetachedHostAfterHide(record);
     }
     if (this.#lastVisibleTabId === tabId) this.#lastVisibleTabId = null;
     this.#sendEvent(record, "lifecycle.visibility", { active: false });
-    if (window && !window.isDestroyed()) window.webContents.focus();
+    restoreShellFocusAfterHide(window);
     traceAppTabHost("low-level-hide-completed", {
       tabId,
       windowId: record.ownerWindowId,
@@ -981,8 +1079,8 @@ export class AppTabViewHost implements AppTabHost {
     this.#stopAnimation(record);
     record.hiddenByDock = false;
     record.bounds = normalizeBounds(bounds);
-    this.#layoutApp(record);
-    this.#layoutPage(record);
+    this.#layoutApp(record, this.#detachedAppBounds(record));
+    this.#layoutPageAt(record, this.#detachedPageBounds(record));
   }
 
   async freeze(tabId: string): Promise<NativeImage> {
@@ -1009,9 +1107,10 @@ export class AppTabViewHost implements AppTabHost {
     const record = this.#require(tabId);
     record.freezeDepth = Math.max(0, record.freezeDepth - 1);
     if (record.freezeDepth > 0) return;
-    const visible = shouldKeepNativeAppViewVisible(record);
+    const detached = this.#isDetachedHostView(record.appView);
+    const visible = detached || shouldKeepNativeAppViewVisible(record);
     record.appView.setVisible(visible);
-    record.page?.view.setVisible(visible && this.#shouldShowPage(record));
+    record.page?.view.setVisible((detached || visible) && this.#shouldShowPage(record));
     record.lastFrame = null;
     traceAppTabHost("thaw-visibility-applied", {
       tabId,
@@ -1302,14 +1401,23 @@ export class AppTabViewHost implements AppTabHost {
   resizeWindow(windowId: number, width: number, height: number): void {
     for (const record of this.#records.values()) {
       if (record.ownerWindowId !== windowId) continue;
-      const next = resizedAppTabBounds({
-        bounds: record.bounds,
-        dockWidth: record.dockWidth,
-        rightInset: record.rightInset,
-        bottom: record.bottom,
-        width,
-        height,
-      });
+      // Until the renderer publishes its new host rect, retain only the part of
+      // the last measured view that still fits the window.
+      const next = clipAppTabBounds(record.bounds, { x: 0, y: 0, width, height });
+      if (!next) {
+        this.#stopAnimation(record);
+        const wasVisible = record.visibleRequested;
+        record.visibleRequested = false;
+        record.appView.setVisible(false);
+        record.page?.view.setVisible(false);
+        const presentation = this.#presentationsByTabId.get(record.descriptor.id)?.get(windowId);
+        const presentationWasVisible = presentation?.visible === true;
+        if (presentation) presentation.visible = false;
+        if (this.#lastVisibleTabId === record.descriptor.id) this.#lastVisibleTabId = null;
+        if (wasVisible) this.#sendEvent(record, "lifecycle.visibility", { active: false });
+        if (wasVisible || presentationWasVisible) this.#emitPresentation(record.descriptor.id);
+        continue;
+      }
       this.setBounds(record.descriptor.id, next);
       const presentation = this.#presentationsByTabId.get(record.descriptor.id)?.get(windowId);
       if (presentation) presentation.bounds = next;
@@ -1320,9 +1428,9 @@ export class AppTabViewHost implements AppTabHost {
     for (const record of this.#records.values()) {
       if (record.ownerWindowId !== windowId) continue;
       record.ownerWindowVisible = false;
-      const visible = shouldKeepNativeAppViewVisible(record);
-      record.appView.setVisible(visible);
-      record.page?.view.setVisible(visible && this.#shouldShowPage(record));
+      record.appView.setVisible(false);
+      record.page?.view.setVisible(false);
+      this.#attachDetachedHostAfterHide(record);
       traceAppTabHost("window-hide-applied", {
         tabId: record.descriptor.id,
         windowId,
@@ -1354,7 +1462,10 @@ export class AppTabViewHost implements AppTabHost {
 
   releaseWindow(windowId: number): void {
     for (const record of this.#records.values()) {
-      if (record.ownerWindowId === windowId) this.#detach(record);
+      if (record.ownerWindowId === windowId) {
+        this.#detach(record);
+        this.#attachDetachedHost(record);
+      }
     }
   }
 
@@ -1705,11 +1816,10 @@ export class AppTabViewHost implements AppTabHost {
         page: null,
         popupOpeners: [],
         ownerWindowId: null,
-        bounds: { x: 0, y: 0, width: 0, height: 0 },
-        dockWidth: 0,
-        rightInset: 0,
-        bottom: 0,
-        pageTop: 0,
+        bounds: { x: 0, y: 0, width: 600, height: 700 },
+        // Browser's toolbar measures itself with ResizeObserver/rAF, which may not run
+        // until the tab is presented. Reserve its normal toolbar height immediately.
+        pageTop: input.app.appId === "com.penkra.browser" ? 48 : 0,
         browserVersion: 0,
         lastFrame: null,
         freezeDepth: 0,
@@ -1729,6 +1839,8 @@ export class AppTabViewHost implements AppTabHost {
         typographyCssKey: null,
       };
       this.#records.set(id, record);
+      this.#attachDetachedHost(record);
+      this.#layoutApp(record, this.#detachedAppBounds(record));
       traceAppTabHost("app-renderer-created", {
         tabId: id,
         rendererId,
@@ -1792,6 +1904,7 @@ export class AppTabViewHost implements AppTabHost {
       this.#opened.publish({
         ...record.descriptor,
         selection: input.tabId === undefined ? "activate" : "preserve",
+        initiator: input.initiator ?? "user",
       });
       this.#diagnostics.publish({
         kind: "tab-opened",
@@ -2160,7 +2273,11 @@ export class AppTabViewHost implements AppTabHost {
   }
 
   #attachPage(record: AppTabRecord): void {
-    if (!record.page || record.ownerWindowId === null) return;
+    if (!record.page) return;
+    if (record.ownerWindowId === null) {
+      this.#attachDetachedView(record, record.page.view);
+      return;
+    }
     const window = this.#windowById(record.ownerWindowId);
     if (!window || window.isDestroyed()) return;
     try {
@@ -2185,6 +2302,7 @@ export class AppTabViewHost implements AppTabHost {
         // Already detached.
       }
     }
+    if (record.ownerWindowId === null) this.#detachDetachedView(page.view);
     for (const dispose of page.disposers.splice(0)) dispose();
     if (close && !page.view.webContents.isDestroyed()) {
       if (page.view.webContents.debugger.isAttached()) {
@@ -2359,25 +2477,135 @@ export class AppTabViewHost implements AppTabHost {
     );
   }
 
-  #detach(record: AppTabRecord): void {
-    this.#stopAnimation(record);
-    if (record.ownerWindowId === null) return;
-    const window = this.#windowById(record.ownerWindowId);
-    if (window && !window.isDestroyed()) {
-      try {
-        window.contentView.removeChildView(record.appView);
-        if (record.page) window.contentView.removeChildView(record.page.view);
-      } catch {
-        // Already detached while the window was closing.
+  #ensureDetachedHost(view: WebContentsView, bounds: Rectangle): BrowserWindow {
+    const key = view.webContents.id;
+    const width = Math.max(640, Math.ceil(bounds.width));
+    const height = Math.max(720, Math.ceil(bounds.height));
+    let host = this.#detachedHostByWebContentsId.get(key);
+    const hostPolicy = this.#detachedHostPolicy;
+    if (!host || host.isDestroyed()) {
+      host = new BrowserWindow({
+        show: false,
+        ...hostPolicy.placement,
+        width,
+        height,
+        frame: false,
+        transparent: true,
+        backgroundColor: "#00000000",
+        opacity: 0,
+        ...(hostPolicy.useNonFocusableWindow ? { focusable: false } : {}),
+        ...(hostPolicy.useSkipTaskbar ? { skipTaskbar: true } : {}),
+        hasShadow: false,
+        resizable: false,
+        minimizable: false,
+        maximizable: false,
+        fullscreenable: false,
+      });
+      this.#detachedHostByWebContentsId.set(key, host);
+      host.once("closed", () => {
+        if (this.#detachedHostByWebContentsId.get(key) === host) {
+          this.#detachedHostByWebContentsId.delete(key);
+        }
+      });
+    } else {
+      const current = host.getBounds();
+      if (width > current.width || height > current.height) {
+        host.setBounds({
+          ...current,
+          width: Math.max(width, current.width),
+          height: Math.max(height, current.height),
+        });
       }
     }
+    host.setOpacity(0);
+    return host;
+  }
+
+  #showDetachedHost(host: BrowserWindow): void {
+    setDetachedHostMousePassthrough(host);
+    if (this.#detachedHostPolicy.visibleHost && !host.isVisible()) host.showInactive();
+    host.setOpacity(0);
+  }
+
+  #removeChildView(window: BrowserWindow, view: WebContentsView): void {
+    if (!window.isDestroyed() && window.contentView.children.includes(view)) {
+      window.contentView.removeChildView(view);
+    }
+  }
+
+  #attachDetachedView(record: AppTabRecord, view: WebContentsView): void {
+    const host = this.#ensureDetachedHost(view, record.bounds);
+    this.#removeChildView(host, view);
+    host.contentView.addChildView(view);
+    view.setVisible(
+      record.freezeDepth === 0 && (view === record.appView || this.#shouldShowPage(record)),
+    );
+    if (view === record.appView) this.#layoutApp(record, this.#detachedAppBounds(record));
+    else this.#layoutPageAt(record, this.#detachedPageBounds(record));
+    this.#showDetachedHost(host);
+  }
+
+  #attachDetachedHost(record: AppTabRecord): void {
+    this.#attachDetachedView(record, record.appView);
+    if (record.page) this.#attachDetachedView(record, record.page.view);
+  }
+
+  #attachDetachedHostAfterHide(record: AppTabRecord): void {
+    if (record.ownerWindowId !== null) this.#detach(record);
+    this.#attachDetachedHost(record);
+  }
+
+  #detachedAppBounds(record: AppTabRecord): Rectangle {
+    return this.#isDetachedHostView(record.appView)
+      ? detachedHostLayoutBounds(record.bounds, record.pageTop).app
+      : record.bounds;
+  }
+
+  #detachedPageBounds(record: AppTabRecord): Rectangle {
+    return this.#isDetachedHostView(record.page?.view)
+      ? detachedHostLayoutBounds(record.bounds, record.pageTop).page
+      : record.bounds;
+  }
+
+  #isDetachedHostView(view: WebContentsView | undefined): boolean {
+    return view !== undefined && this.#detachedHostByWebContentsId.has(view.webContents.id);
+  }
+
+  #detachDetachedView(view: WebContentsView): void {
+    const key = view.webContents.id;
+    const host = this.#detachedHostByWebContentsId.get(key);
+    if (!host) return;
+    this.#removeChildView(host, view);
+    this.#detachedHostByWebContentsId.delete(key);
+    if (!host.isDestroyed()) host.close();
+  }
+
+  #closeDetachedHosts(): void {
+    const hosts = new Set(this.#detachedHostByWebContentsId.values());
+    this.#detachedHostByWebContentsId.clear();
+    for (const host of hosts) {
+      if (!host.isDestroyed()) host.close();
+    }
+  }
+
+  #detach(record: AppTabRecord): void {
+    this.#stopAnimation(record);
+    if (record.ownerWindowId !== null) {
+      const window = this.#windowById(record.ownerWindowId);
+      if (window && !window.isDestroyed()) {
+        this.#removeChildView(window, record.appView);
+        if (record.page) this.#removeChildView(window, record.page.view);
+      }
+    }
+    this.#detachDetachedView(record.appView);
+    if (record.page) this.#detachDetachedView(record.page.view);
     record.ownerWindowId = null;
     record.ownerWindowVisible = false;
   }
 
   #layoutPage(record: AppTabRecord): void {
     if (!record.page) return;
-    this.#layoutPageAt(record, record.bounds);
+    this.#layoutPageAt(record, this.#detachedPageBounds(record));
   }
 
   #layoutPageAt(record: AppTabRecord, sourceBounds: Rectangle): void {
@@ -2391,7 +2619,9 @@ export class AppTabViewHost implements AppTabHost {
     const currentBounds = record.page.view.getBounds();
     const currentVisible = record.page.view.getVisible();
     const visible =
-      record.visibleRequested && record.freezeDepth === 0 && this.#shouldShowPage(record);
+      (this.#isDetachedHostView(record.page.view) || record.visibleRequested) &&
+      record.freezeDepth === 0 &&
+      this.#shouldShowPage(record);
     if (
       currentVisible !== visible ||
       currentBounds.x !== bounds.x ||
@@ -2417,7 +2647,7 @@ export class AppTabViewHost implements AppTabHost {
     record.page.view.setVisible(visible);
   }
 
-  #layoutApp(record: AppTabRecord, sourceBounds: Rectangle = record.bounds): void {
+  #layoutApp(record: AppTabRecord, sourceBounds = this.#detachedAppBounds(record)): void {
     const bounds = {
       ...sourceBounds,
       height:

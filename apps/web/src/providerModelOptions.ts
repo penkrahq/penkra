@@ -53,10 +53,7 @@ export function formatProviderModelOptionName(input: {
 
 function normalizeDynamicModelSlug(provider: ProviderKind, slug: string): string {
   if (provider === "claudeAgent") {
-    // Claude runtime discovery already resolves evergreen selector aliases
-    // (`opus`, `sonnet`) to canonical model ids. Never feed live identity back
-    // through the static compatibility map, which may describe an older release.
-    return slug.replace(/\[[^\]]+\]$/u, "").trim();
+    return slug.trim();
   }
   return normalizeModelSlug(slug, provider) ?? slug;
 }
@@ -85,26 +82,12 @@ export function mergeDynamicModelOptions(input: {
 
   for (const dynamicModel of input.dynamicModels) {
     const rawName = dynamicModel.name?.trim() ?? "";
-    const isClaudeDefaultAlias =
-      input.provider === "claudeAgent" &&
-      (rawName.toLowerCase() === "default (recommended)" ||
-        rawName.toLowerCase() === "default recommended" ||
-        dynamicModel.slug.trim().toLowerCase() === "default");
-    if (isClaudeDefaultAlias) {
-      continue;
-    }
-
     const normalizedSlug = normalizeDynamicModelSlug(input.provider, dynamicModel.slug);
-    // Defense in depth for Codex runtime catalogs that omit the upstream
-    // visibility marker on internal models.
-    if (input.provider === "codex" && normalizedSlug.toLowerCase() === "codex-auto-review") {
-      continue;
-    }
     const rawSlug = dynamicModel.slug.trim().toLowerCase();
-    const displayNameFallback = formatProviderModelOptionName({
-      provider: input.provider,
-      slug: normalizedSlug,
-    });
+    const displayNameFallback =
+      input.provider === "claudeAgent"
+        ? normalizedSlug
+        : formatProviderModelOptionName({ provider: input.provider, slug: normalizedSlug });
     if (dynamicNormalizedSlugs.has(normalizedSlug)) {
       continue;
     }
@@ -142,12 +125,7 @@ export function mergeDynamicModelOptions(input: {
       ? []
       : staticBuiltInModels.filter((model) => !dynamicNormalizedSlugs.has(model.slug));
 
-  const orderedDynamicOptions =
-    input.provider === "claudeAgent"
-      ? normalizedDynamicOptions.toReversed()
-      : normalizedDynamicOptions;
-
-  return [...orderedDynamicOptions, ...missingStaticBuiltIns, ...customOnlyModels];
+  return [...normalizedDynamicOptions, ...missingStaticBuiltIns, ...customOnlyModels];
 }
 
 /** Returns a compact label for provider descriptions that begin with an `Nx` cost multiplier. */

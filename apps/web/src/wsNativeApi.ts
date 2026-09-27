@@ -516,6 +516,8 @@ export function createWsNativeApi(): NativeApi {
       listModels: (input) => transport.request(WS_METHODS.providerListModels, input),
       listAgents: (input) => transport.request(WS_METHODS.providerListAgents, input),
       getConnections: (input = {}) => transport.request(WS_METHODS.providerGetConnections, input),
+      retryAuthConnection: (input) =>
+        transport.request(WS_METHODS.providerRetryAuthConnection, input),
       getThreadBinding: (input) => transport.request(WS_METHODS.providerGetThreadBinding, input),
       createStaticConnection: (input) =>
         transport.request(WS_METHODS.providerCreateStaticConnection, input),

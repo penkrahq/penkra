@@ -443,26 +443,21 @@ describe("resolveAssistantMessageCopyState", () => {
 });
 
 describe("resolveAssistantMessageDisplayText", () => {
-  it("suppresses the empty placeholder when the turn visibly completed an image", () => {
+  it("does not call an explicit image presentation an empty response", () => {
     expect(
       resolveAssistantMessageDisplayText({
         message: { text: "", streaming: false },
-        collapsedTurnItems: [
-          {
-            kind: "work",
-            id: "generated-image",
-            entry: {
-              id: "generated-image",
-              createdAt: "2026-07-08T10:00:00.000Z",
-              label: "Generated image",
-              tone: "tool",
-              itemType: "image_generation",
-              activityKind: "tool.completed",
-            },
-          },
-        ],
+        hasVisibleMediaInTurn: true,
       }),
     ).toBeNull();
+  });
+
+  it("does not treat an unpresented generated artifact as a visible answer", () => {
+    expect(
+      resolveAssistantMessageDisplayText({
+        message: { text: "", streaming: false },
+      }),
+    ).toBe("(empty response)");
   });
 
   it("keeps the placeholder when a settled turn produced no visible content", () => {
@@ -473,45 +468,11 @@ describe("resolveAssistantMessageDisplayText", () => {
     ).toBe("(empty response)");
   });
 
-  it("does not mistake an unfinished or failed image tool row for produced content", () => {
-    const imageEntry = {
-      id: "generated-image",
-      createdAt: "2026-07-08T10:00:00.000Z",
-      label: "Generating image",
-      tone: "tool" as const,
-      itemType: "image_generation" as const,
-      activityKind: "tool.started",
-    };
-    expect(
-      resolveAssistantMessageDisplayText({
-        message: { text: "", streaming: false },
-        leadingWorkEntries: [imageEntry],
-      }),
-    ).toBe("(empty response)");
-    expect(
-      resolveAssistantMessageDisplayText({
-        message: { text: "", streaming: false },
-        leadingWorkEntries: [
-          { ...imageEntry, activityKind: "tool.completed", tone: "error" as const },
-        ],
-      }),
-    ).toBe("(empty response)");
-  });
-
-  it("preserves real assistant text even when the same turn generated an image", () => {
+  it("preserves real assistant text beside explicitly presented media", () => {
     expect(
       resolveAssistantMessageDisplayText({
         message: { text: "Here is your image.", streaming: false },
-        inlineWorkEntries: [
-          {
-            id: "generated-image",
-            createdAt: "2026-07-08T10:00:00.000Z",
-            label: "Generated image",
-            tone: "tool",
-            itemType: "image_generation",
-            activityKind: "tool.completed",
-          },
-        ],
+        hasVisibleMediaInTurn: true,
       }),
     ).toBe("Here is your image.");
   });
@@ -578,7 +539,7 @@ describe("deriveMessagesTimelineRows", () => {
   const collapsedSignature = (row: MessageTimelineRow): string[] =>
     (row.collapsedTurnItems ?? []).map((item) => `${item.kind}:${String(item.id)}`);
 
-  it("keeps a presented image between narration and the final answer after settlement", () => {
+  it("anchors the settled turn disclosure before an interleaved presented image", () => {
     const imageAt = "2026-01-01T00:00:02Z";
     const timelineEntries: TimelineEntry[] = [
       userEntry("u1", "2026-01-01T00:00:00Z"),
@@ -624,10 +585,99 @@ describe("deriveMessagesTimelineRows", () => {
       "working",
     ]);
     expect(settled.map((row) => row.kind)).toEqual(["message", "message", "media", "message"]);
+    const summary = messageRow(settled, "a1");
+    expect(summary).toMatchObject({
+      collapsedTurnSummaryOnly: true,
+      collapsedWorkElapsed: "4.0s",
+      collapsedTurnItems: [{ kind: "narration", id: "a1" }],
+    });
+    expect(messageRow(settled, "a2")?.collapsedTurnItems).toBeUndefined();
     expect(settled[2]).toMatchObject({
       kind: "media",
       entries: [{ presentedMedia: { name: "logo.png" } }],
     });
+  });
+
+  it("anchors a media-first settled turn disclosure above the presented image", () => {
+    const mediaAt = "2026-01-01T00:00:02Z";
+    const rows = deriveMessagesTimelineRows({
+      ...baseInput,
+      timelineEntries: [
+        userEntry("u1", "2026-01-01T00:00:00Z"),
+        {
+          id: "entry-image-first",
+          kind: "work",
+          createdAt: mediaAt,
+          entry: {
+            id: "image-first",
+            createdAt: mediaAt,
+            tone: "info",
+            label: "Showed logo.png",
+            activityKind: "media.presented",
+            presentedMedia: {
+              attachmentId: "att_v2_image-first",
+              name: "logo.png",
+              mimeType: "image/png",
+              sizeBytes: 200,
+              type: "image",
+            },
+          },
+        },
+        workEntry("w1", "2026-01-01T00:00:03Z", "Follow-up work"),
+        assistantEntry("a1", "2026-01-01T00:00:04Z", {
+          turnId: "t1",
+          text: "Done.",
+          completedAt: "2026-01-01T00:00:05Z",
+        }),
+      ],
+    });
+
+    expect(rows.map((row) => row.kind)).toEqual(["message", "media", "message"]);
+    expect(rows[1]).toMatchObject({
+      kind: "media",
+      collapsedWorkElapsed: "5.0s",
+      collapsedTurnItems: [{ kind: "work", id: "w1" }],
+      entries: [{ presentedMedia: { name: "logo.png" } }],
+    });
+    expect(messageRow(rows, "a1")?.collapsedTurnItems).toBeUndefined();
+  });
+
+  it("marks a settled empty assistant response as covered by earlier presented media", () => {
+    const mediaAt = "2026-01-01T00:00:02Z";
+    const rows = deriveMessagesTimelineRows({
+      ...baseInput,
+      timelineEntries: [
+        userEntry("u1", "2026-01-01T00:00:00Z"),
+        {
+          id: "entry-shown-image",
+          kind: "work",
+          createdAt: mediaAt,
+          entry: {
+            id: "shown-image",
+            createdAt: mediaAt,
+            tone: "info",
+            label: "Showed result.png",
+            activityKind: "media.presented",
+            presentedMedia: {
+              attachmentId: "att_v2_result",
+              name: "result.png",
+              mimeType: "image/png",
+              sizeBytes: 200,
+              type: "image",
+            },
+          },
+        },
+        assistantEntry("a1", "2026-01-01T00:00:03Z", {
+          turnId: "t1",
+          text: "",
+          completedAt: "2026-01-01T00:00:04Z",
+        }),
+      ],
+    });
+
+    const finalRow = messageRow(rows, "a1");
+    expect(finalRow?.hasVisibleMediaInTurn).toBe(true);
+    expect(finalRow && resolveAssistantMessageDisplayText(finalRow)).toBeNull();
   });
 
   it("groups images from one presentation into one ordered gallery row", () => {

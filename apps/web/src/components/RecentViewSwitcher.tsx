@@ -6,7 +6,7 @@
 import type { KeybindingShortcut } from "@penkra/contracts";
 
 import { formatShortcutLabel } from "../keybindings";
-import { MessageCircleIcon, PanelLeftIcon, PinFilledIcon, SettingsIcon } from "../lib/icons";
+import { MessageCircleIcon, PinFilledIcon, SettingsIcon } from "../lib/icons";
 import { cn } from "../lib/utils";
 import type { RecentViewDisplayEntry } from "../recentViews.logic";
 import { ProviderIcon } from "./ProviderIcon";
@@ -126,9 +126,6 @@ export function RecentViewSwitcher(props: {
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5 text-muted-foreground">
-                  {entry.isSplit ? (
-                    <PanelLeftIcon className="size-3.5" aria-label="Split view" />
-                  ) : null}
                   {entry.isPinned ? (
                     <PinFilledIcon className="size-3.5" aria-label="Pinned" />
                   ) : null}

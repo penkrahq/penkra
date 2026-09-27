@@ -584,6 +584,8 @@ export function makeThreadDiagnosticTools(input: {
 
   const retryThreadProjection: ToolEntry = {
     requiredCapability: "thread:write",
+    requiresThreadAuthority: true,
+    requiresActiveTurn: true,
     definition: {
       name: "penkra_retry_thread_projection",
       description:
