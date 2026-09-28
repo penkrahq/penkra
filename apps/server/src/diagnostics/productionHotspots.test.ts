@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { installDiagnosticsStore } from "./recorder";
 import { DiagnosticsStore, openDiagnosticsReader } from "./store";
+import { expectIncidentOccurrences } from "./testHelpers";
 import { makeSyncAcknowledgements } from "../wsSyncAcknowledgements";
 import { makeWsStreamAdmission } from "../wsStreamAdmission";
 import {
@@ -36,6 +37,8 @@ describe("production failure incidents", () => {
   it("records a denied MCP capability by stable name", () => {
     const { stateDir, close } = fixture();
     recordMcpScopeDenied({ threadId: "thread-3", turnId: null, capability: "thread:write" });
+    recordMcpScopeDenied({ threadId: "thread-3", turnId: null, capability: "thread:write" });
+    expectIncidentOccurrences(stateDir, "SCOPE_DENIED", 2);
     const db = openDiagnosticsReader(stateDir)!;
     expect(db.prepare("SELECT code, context_json FROM incidents").get()).toMatchObject({
       code: "SCOPE_DENIED",
@@ -54,6 +57,7 @@ describe("production failure incidents", () => {
       observedTurnId: "turn-new",
       failedCheck: "authorized_turn_no_longer_active",
     });
+    expectIncidentOccurrences(stateDir, "CALLER_TURN_INACTIVE");
     const db = openDiagnosticsReader(stateDir)!;
     expect(db.prepare("SELECT code, actual_json, context_json FROM incidents").get()).toMatchObject(
       {
