@@ -1363,6 +1363,17 @@ export class DiagnosticsStore {
   }
 
   private reportLosses(): void {
+    // A failed SQLite transaction leaves its synced spool event intact. Replay
+    // that event first; otherwise a retry would append a second degradation
+    // occurrence for the same still-unreceipted loss.
+    try {
+      withLifecycleLock(this.dir, () => {
+        this.assertCurrentVersion();
+        this.replayOwnSpoolLocked();
+      });
+    } catch {
+      return;
+    }
     for (const entry of fs.readdirSync(this.dir)) {
       if (!/^loss-[a-f0-9]{32}\.bin$/u.test(entry)) continue;
       const bootId = entry.slice(5, -4);
@@ -1473,6 +1484,27 @@ export class DiagnosticsStore {
       if (reportFailure) recordLoss(this.dir, this.bootId, "spool");
       throw cause;
     }
+    try {
+      this.replayOwnSpoolLocked();
+    } catch (cause) {
+      const atPageLimit = /database or disk is full|SQLITE_FULL/iu.test((cause as Error).message);
+      if (reportFailure)
+        recordLoss(
+          this.dir,
+          this.bootId,
+          atPageLimit || (cause as Error).message.includes("capacity reached")
+            ? "capacity"
+            : "sqlite",
+        );
+      if (atPageLimit)
+        throw new Error("Diagnostics capacity reached during SQLite write", { cause });
+      throw cause;
+    }
+  }
+
+  private replayOwnSpoolLocked(): void {
+    if (!fs.existsSync(this.spoolPath) || fs.statSync(this.spoolPath).size === 0) return;
+    sqlitePhysicalBudget(this.database, this.dir, this.dbPath, this.maxTotalBytes);
     this.database.exec("BEGIN IMMEDIATE");
     try {
       // A prior SQLite failure leaves its synced spool line in place. Replay
@@ -1518,25 +1550,11 @@ export class DiagnosticsStore {
     } catch (cause) {
       if (this.database.isTransaction) this.database.exec("ROLLBACK");
       this.database.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-      const atPageLimit = /database or disk is full|SQLITE_FULL/iu.test((cause as Error).message);
-      if (reportFailure)
-        recordLoss(
-          this.dir,
-          this.bootId,
-          atPageLimit || (cause as Error).message.includes("capacity reached")
-            ? "capacity"
-            : "sqlite",
-        );
-      if (atPageLimit)
-        throw new Error("Diagnostics capacity reached during SQLite write", { cause });
       throw cause;
     }
     fs.truncateSync(this.spoolPath, 0);
     this.pruneLocked(new Date(), this.maxTotalBytes);
-    if (totalBytes(this.dir) > this.maxTotalBytes) {
-      if (reportFailure) recordLoss(this.dir, this.bootId, "capacity");
-      throw new Error("Diagnostics capacity reached");
-    }
+    if (totalBytes(this.dir) > this.maxTotalBytes) throw new Error("Diagnostics capacity reached");
   }
 
   checkpoint(data: CheckpointInput): void {
