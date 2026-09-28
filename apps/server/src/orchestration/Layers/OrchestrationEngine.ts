@@ -29,6 +29,8 @@ import { ServerConfig } from "../../config.ts";
 import { toPersistenceSqlError, type PersistenceSqlError } from "../../persistence/Errors.ts";
 import { isRetryableSqliteError } from "../../persistence/SqliteSafety.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
+import { ProviderIntentOutbox } from "../../persistence/Services/ProviderIntentOutbox.ts";
+import { ProviderIntentOutboxLive } from "../../persistence/Layers/ProviderIntentOutbox.ts";
 import {
   OrchestrationCommandReceiptRepository,
   type OrchestrationCommandReceipt,
@@ -71,6 +73,7 @@ import {
   usesReservedCommandAdmission,
 } from "../orchestrationAdmission.ts";
 import { decideOrchestrationCommand } from "../decider.ts";
+import { isProviderIntentEvent } from "../providerIntentClassification.ts";
 import { userStopPending } from "../userStopPending.ts";
 import { FOLDER_METADATA_SNAPSHOT_PROJECTORS } from "../folderMetadataProjection.ts";
 import { createEmptyReadModel, projectEvent } from "../projector.ts";
@@ -231,6 +234,7 @@ function isShellMetadataEvent(event: OrchestrationEvent): event is ShellMetadata
 const makeOrchestrationEngine = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const eventStore = yield* OrchestrationEventStore;
+  const providerIntentOutbox = yield* ProviderIntentOutbox;
   const commandReceiptRepository = yield* OrchestrationCommandReceiptRepository;
   const managedAttachments = yield* ManagedAttachmentRepository;
   const queuedTurnPromotions = yield* QueuedTurnPromotionRepository;
@@ -1098,6 +1102,9 @@ const makeOrchestrationEngine = Effect.gen(function* () {
 
         for (const nextEvent of admittedEventBases) {
           const savedEvent = yield* eventStore.append(nextEvent);
+          if (isProviderIntentEvent(savedEvent)) {
+            yield* providerIntentOutbox.enqueueInCurrentTransaction(savedEvent);
+          }
           nextCommandReadModel = yield* projectEvent(nextCommandReadModel, savedEvent);
           if (isShellMetadataEvent(savedEvent)) {
             yield* projectionPipeline.folderMetadataEvent(savedEvent);
@@ -1814,5 +1821,6 @@ export const OrchestrationEngineLive = Layer.effect(
   makeOrchestrationEngine,
 ).pipe(
   Layer.provideMerge(ManagedAttachmentRepositoryLive),
+  Layer.provideMerge(ProviderIntentOutboxLive),
   Layer.provideMerge(QueuedTurnPromotionRepositoryLive),
 );

@@ -175,6 +175,7 @@ import Migration0166 from "./Migrations/166_RetentionActiveDays.ts";
 import Migration0167 from "./Migrations/167_ProviderAuthCircuits.ts";
 import Migration0168 from "./Migrations/168_ProjectionThreadConnectionSelection.ts";
 import Migration0169 from "./Migrations/169_ProjectionMessageSenderThread.ts";
+import Migration0170 from "./Migrations/170_ProviderIntentOutbox.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -349,6 +350,7 @@ export const migrationEntries = [
   [167, "ProviderAuthCircuits", Migration0167],
   [168, "ProjectionThreadConnectionSelection", Migration0168],
   [169, "ProjectionMessageSenderThread", Migration0169],
+  [170, "ProviderIntentOutbox", Migration0170],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

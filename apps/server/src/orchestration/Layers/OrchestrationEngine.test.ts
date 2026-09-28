@@ -1489,6 +1489,16 @@ describe("OrchestrationEngine", () => {
       "thread.created",
       "thread.deleted",
     ]);
+    const outboxJobs = await system.run(
+      system.sql<{ readonly eventSequence: number; readonly eventType: string }>`
+        SELECT event_sequence AS "eventSequence", event_type AS "eventType"
+        FROM provider_intent_outbox ORDER BY event_sequence
+      `,
+    );
+    expect(outboxJobs).toEqual([
+      { eventSequence: events[2]!.sequence, eventType: "thread.created" },
+      { eventSequence: events[3]!.sequence, eventType: "thread.deleted" },
+    ]);
     await system.dispose();
   });
 
