@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { installDiagnosticsStore } from "./recorder";
 import { DiagnosticsStore, openDiagnosticsReader } from "./store";
 import { expectIncidentOccurrences } from "./testHelpers";
+import { recordWsResnapshot, recordWsStreamDrop } from "./wsStream";
 import { makeSyncAcknowledgements } from "../wsSyncAcknowledgements";
 import { makeWsStreamAdmission } from "../wsStreamAdmission";
 import {
@@ -34,6 +35,38 @@ afterEach(() => {
 });
 
 describe("production failure incidents", () => {
+  it("records stream loss and resnapshot without an arbitrary stream label", () => {
+    const { stateDir, close } = fixture();
+    recordWsStreamDrop({ threadId: "thread-3", capacity: 100, droppedAtLeast: 4 });
+    recordWsResnapshot({
+      threadId: "thread-3",
+      snapshotSequence: 10,
+      highWaterSequence: 14,
+      replayCount: 4,
+    });
+    expectIncidentOccurrences(stateDir, "DELIVERY_BLOCKED");
+    expectIncidentOccurrences(stateDir, "RECOVERY_PERFORMED");
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(
+      db
+        .prepare("SELECT code, expected_json, actual_json, limit_json FROM incidents ORDER BY code")
+        .all(),
+    ).toMatchObject([
+      {
+        code: "DELIVERY_BLOCKED",
+        expected_json: '{"count":100}',
+        actual_json: '{"count":4}',
+        limit_json: '{"name":"liveUiStreamBufferCapacity","value":100,"observed":104}',
+      },
+      {
+        code: "RECOVERY_PERFORMED",
+        expected_json: '{"sequence":10}',
+        actual_json: '{"sequence":14,"count":4}',
+      },
+    ]);
+    db.close();
+    close();
+  });
   it("records a denied MCP capability by stable name", () => {
     const { stateDir, close } = fixture();
     recordMcpScopeDenied({ threadId: "thread-3", turnId: null, capability: "thread:write" });
