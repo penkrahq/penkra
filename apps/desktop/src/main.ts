@@ -8,6 +8,7 @@ import * as Crypto from "node:crypto";
 import * as FS from "node:fs";
 import * as OS from "node:os";
 import * as Path from "node:path";
+import { Worker } from "node:worker_threads";
 // Electron-only builtin that sees app.asar as a real file instead of a virtual
 // directory — required to stat the archive itself for swap detection.
 import * as OriginalFS from "original-fs";
@@ -77,8 +78,8 @@ import {
   DiagnosticsSpoolWriter,
   type CheckpointInput,
   type IncidentInput,
+  type DiagnosticsOptions,
 } from "@penkra/shared/diagnostics/store";
-import { DIAGNOSTIC_LIMITS } from "@penkra/shared/diagnostics/limits";
 import { ensureStaticSnapshot, findAsarArchivePath } from "@penkra/shared/staticSnapshot";
 import { isBackendReadinessAborted, waitForHttpReady } from "./backendReadiness";
 import { queryAppPermission } from "./appPermissionQuery";
@@ -413,38 +414,76 @@ const BASE_DIR =
   Path.join(OS.homedir(), desktopIdentity.defaultHomeDirectoryName);
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
 let desktopDiagnostics: DiagnosticsSpoolWriter | null = null;
+let desktopDiagnosticsWorker: Worker | null = null;
 let stopDesktopDiagnosticsHealthSampling: (() => void) | null = null;
 let stopDesktopDiagnosticsWatchdog: (() => void) | null = null;
 
+function desktopDiagnosticsOptions(): DiagnosticsOptions {
+  if (app.isPackaged && !startupBundleIdentity?.signature)
+    throw new Error("Installed app bundle identity is unavailable");
+  return {
+    stateDir: STATE_DIR,
+    appVersion: app.getVersion(),
+    ...(resolveAboutCommitHash() ? { buildId: resolveAboutCommitHash()! } : {}),
+    ...(startupBundleIdentity?.signature
+      ? {
+          bundlePath: startupBundleIdentity.path,
+          bundleSignature: startupBundleIdentity.signature,
+        }
+      : {}),
+    process: "desktop-main",
+  };
+}
+
 function getDesktopDiagnosticsStore(): DiagnosticsSpoolWriter {
   if (!desktopDiagnostics) {
-    if (app.isPackaged && !startupBundleIdentity?.signature)
-      throw new Error("Installed app bundle identity is unavailable");
-    desktopDiagnostics = new DiagnosticsSpoolWriter({
-      stateDir: STATE_DIR,
-      appVersion: app.getVersion(),
-      ...(resolveAboutCommitHash() ? { buildId: resolveAboutCommitHash()! } : {}),
-      ...(startupBundleIdentity?.signature
-        ? {
-            bundlePath: startupBundleIdentity.path,
-            bundleSignature: startupBundleIdentity.signature,
-          }
-        : {}),
-      process: "desktop-main",
-    });
+    desktopDiagnostics = new DiagnosticsSpoolWriter(desktopDiagnosticsOptions());
     stopDesktopDiagnosticsHealthSampling = desktopDiagnostics.startHealthSampling();
     stopDesktopDiagnosticsWatchdog = desktopDiagnostics.startProcessWatchdog();
   }
   return desktopDiagnostics;
 }
 
-function recordDesktopDiagnosticCheckpoint(input: unknown): void {
-  if (!input || typeof input !== "object" || Array.isArray(input)) return;
+function enqueueDesktopDiagnosticWrite(
+  kind: "checkpoint" | "incident" | "sendExpectation",
+  input: unknown,
+): void {
   try {
-    getDesktopDiagnosticsStore().checkpoint(input as CheckpointInput);
+    if (!desktopDiagnosticsWorker) {
+      const worker = new Worker(Path.join(__dirname, "diagnosticsWorker.js"), {
+        workerData: desktopDiagnosticsOptions(),
+      });
+      desktopDiagnosticsWorker = worker;
+      worker.unref();
+      worker.on("error", () => {
+        if (desktopDiagnosticsWorker === worker) desktopDiagnosticsWorker = null;
+        process.stderr.write("[diagnostics] desktop worker failed\n");
+      });
+      worker.on("exit", () => {
+        if (desktopDiagnosticsWorker === worker) desktopDiagnosticsWorker = null;
+      });
+    }
+    desktopDiagnosticsWorker.postMessage({ kind, input });
   } catch {
-    process.stderr.write("[diagnostics] desktop checkpoint write failed\n");
+    process.stderr.write("[diagnostics] desktop worker enqueue failed\n");
   }
+}
+
+async function drainDesktopDiagnosticsWorker(): Promise<void> {
+  const worker = desktopDiagnosticsWorker;
+  if (!worker) return;
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, 2_000);
+    const done = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    worker.once("message", done);
+    worker.once("exit", done);
+    worker.postMessage({ kind: "shutdown" });
+  });
+  await worker.terminate();
+  if (desktopDiagnosticsWorker === worker) desktopDiagnosticsWorker = null;
 }
 const DESKTOP_WINDOW_STATE_PATH = Path.join(STATE_DIR, "desktop-window-state.json");
 const DESKTOP_SCHEME = desktopIdentity.scheme;
@@ -5034,6 +5073,7 @@ async function shutdownDesktopRuntime(
       cancelBackendReadinessWait();
       await disposeAppCommandPipeServerForShutdown(reason);
       restoreStdIoCapture?.();
+      await drainDesktopDiagnosticsWorker();
       try {
         desktopDiagnostics?.close();
       } catch {
@@ -5112,33 +5152,24 @@ function registerIpcHandlers(): void {
   };
   ipcMain.handle(IPC.diagnosticsCheckpoint, (event, input: unknown) => {
     requireMainRenderer(event);
-    recordDesktopDiagnosticCheckpoint(input);
+    if (!input || typeof input !== "object" || Array.isArray(input)) return;
+    enqueueDesktopDiagnosticWrite("checkpoint", input as CheckpointInput);
   });
   ipcMain.handle(IPC.diagnosticsIncident, (event, input: unknown) => {
     requireMainRenderer(event);
     if (!input || typeof input !== "object" || Array.isArray(input)) return;
-    try {
-      getDesktopDiagnosticsStore().incident(input as IncidentInput);
-    } catch {
-      process.stderr.write("[diagnostics] desktop incident write failed\n");
-    }
+    enqueueDesktopDiagnosticWrite("incident", input as IncidentInput);
   });
   ipcMain.handle(IPC.diagnosticsSendExpectation, (event, input: unknown) => {
     requireMainRenderer(event);
     if (!input || typeof input !== "object" || Array.isArray(input)) return;
     const { traceId, spanId, threadId } = input as Record<string, unknown>;
     if (typeof traceId !== "string" || typeof spanId !== "string") return;
-    try {
-      getDesktopDiagnosticsStore().armExpectation({
-        traceId,
-        spanId,
-        ...(typeof threadId === "string" ? { threadId } : {}),
-        kind: "send.accepted",
-        deadlineMs: DIAGNOSTIC_LIMITS.sendAcceptedMs,
-      });
-    } catch {
-      process.stderr.write("[diagnostics] desktop expectation arm failed\n");
-    }
+    enqueueDesktopDiagnosticWrite("sendExpectation", {
+      traceId,
+      spanId,
+      ...(typeof threadId === "string" ? { threadId } : {}),
+    });
   });
   ipcMain.removeListener(IPC.threadApiState, acceptThreadApiState);
   ipcMain.on(IPC.threadApiState, acceptThreadApiState);
