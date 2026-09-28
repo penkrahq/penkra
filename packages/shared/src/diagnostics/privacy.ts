@@ -79,6 +79,8 @@ const enumValues = {
     "provider.continuation_verification_started",
     "provider.continuation_verification_succeeded",
     "provider.continuation_verification_failed",
+    "provider.runtime_warning_active",
+    "provider.runtime_warning_resolved",
     "reconciliation.detected",
     "reconciliation.repair_started",
     "reconciliation.repair_applied",

@@ -1,3 +1,7 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+
 import {
   EventId,
   RuntimeTaskId,
@@ -17,6 +21,8 @@ import {
 } from "../Services/ProviderRuntimeEvents.ts";
 import { ProviderRuntimeEventRepositoryLive } from "./ProviderRuntimeEvents.ts";
 import { SqlitePersistenceMemory } from "./Sqlite.ts";
+import { installDiagnosticsStore } from "../../diagnostics/recorder.ts";
+import { DiagnosticsStore, openDiagnosticsReader } from "../../diagnostics/store.ts";
 import { assignDerivedProviderRuntimeEventIds } from "../../provider/providerRuntimeEventIdentity.ts";
 
 const layer = it.layer(
@@ -473,6 +479,63 @@ const diagnosticLayer = it.layer(
 );
 
 diagnosticLayer("ProviderRuntimeEventRepository diagnostics", (it) => {
+  it.effect("dual writes admitted episodes without leaking diagnostic text", () =>
+    Effect.gen(function* () {
+      const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-provider-episode-"));
+      const store = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
+      const uninstall = installDiagnosticsStore(store);
+      const repository = yield* ProviderRuntimeEventRepository;
+      const send = (id: string, state: "active" | "resolved") =>
+        repository.appendWithDiagnosticAdmission({
+          type: "runtime.warning",
+          eventId: EventId.makeUnsafe(id),
+          provider: "codex",
+          threadId: ThreadId.makeUnsafe("thread-episode-test"),
+          createdAt: "2026-09-28T00:00:00.000Z",
+          payload: {
+            message: "private-secret warning",
+            diagnostic: {
+              key: "codex:missing-tool-output:private-secret",
+              fingerprint: "private-secret",
+              state,
+            },
+          },
+        });
+      yield* send("episode-first", "active");
+      yield* send("episode-repeat", "active");
+      yield* send("episode-resolved", "resolved");
+      yield* send("episode-recurred", "active");
+      const db = openDiagnosticsReader(stateDir)!;
+      assert.deepStrictEqual(
+        db
+          .prepare("SELECT step FROM detail ORDER BY id")
+          .all()
+          .map((row) => row.step),
+        [
+          "provider.runtime_warning_active",
+          "provider.runtime_warning_resolved",
+          "provider.runtime_warning_active",
+        ],
+      );
+      assert.equal(
+        (
+          db.prepare("SELECT COUNT(*) AS count FROM incident_occurrences").get() as {
+            count: number;
+          }
+        ).count,
+        2,
+      );
+      db.close();
+      for (const name of fs.readdirSync(path.join(stateDir, "diagnostics"))) {
+        const file = path.join(stateDir, "diagnostics", name);
+        if (fs.statSync(file).isFile())
+          assert.strictEqual(fs.readFileSync(file).includes("private-secret"), false);
+      }
+      uninstall();
+      store.close();
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }),
+  );
   it.effect("leaves ordinary warnings unchanged for every provider", () =>
     Effect.gen(function* () {
       const repository = yield* ProviderRuntimeEventRepository;
