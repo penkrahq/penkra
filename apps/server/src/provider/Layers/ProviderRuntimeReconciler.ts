@@ -145,50 +145,72 @@ const make = (options?: ProviderRuntimeReconcilerLiveOptions) =>
       }
 
       const key = reconciliationKey(plan);
+      const attemptId = crypto.randomUUID();
       // Command ids identify attempts because timestamps can legitimately
       // change between retries. The activity id identifies the semantic repair,
       // allowing projectors to suppress a repeated visible recovery while a
       // failed or lagging session update remains safe to retry.
-      const attemptKey = `${key}:${crypto.randomUUID()}`;
+      const attemptKey = `${key}:${attemptId}`;
+      const attemptFields = {
+        attemptId,
+        threadId: plan.threadId,
+        provider: plan.provider,
+        action: plan.action,
+        reason: plan.reason,
+        projectedTurnId: plan.projectedTurnId,
+        runtimeTurnId: plan.runtimeTurnId,
+      };
+      const reportFailedStage =
+        (stage: "session" | "activity" | "binding") => (cause: Cause.Cause<unknown>) =>
+          Effect.logWarning("provider.runtime_reconciliation.plan_failed", {
+            ...attemptFields,
+            stage,
+            cause: Cause.pretty(cause),
+          });
       // Session first: it is the repair. If only one of the two lands, it must
       // be the one that unsticks the thread, not the note explaining it.
-      yield* orchestrationEngine.dispatch({
-        type: "thread.session.set",
-        commandId: CommandId.makeUnsafe(`${attemptKey}:session`),
-        threadId: plan.threadId,
-        session,
-        ...(thread.session === null
-          ? {}
-          : {
-              expectedSessionStatus: thread.session.status,
-              expectedSessionUpdatedAt: thread.session.updatedAt,
-            }),
-        createdAt: now,
-      });
-      yield* orchestrationEngine.dispatch({
-        type: "thread.activity.append",
-        commandId: CommandId.makeUnsafe(`${attemptKey}:activity`),
-        threadId: plan.threadId,
-        activity: {
-          id: EventId.makeUnsafe(`${key}:activity`),
-          tone: "info",
-          kind: "provider.runtime.reconciled",
-          summary:
-            plan.action === "align-running-turn"
-              ? "Penkra realigned the active provider turn"
-              : "Penkra recovered a stale running state",
-          payload: {
-            provider: plan.provider,
-            action: plan.action,
-            reason: plan.reason,
-            projectedTurnId: plan.projectedTurnId,
-            runtimeTurnId: plan.runtimeTurnId,
-          },
-          turnId: plan.projectedTurnId,
+      yield* orchestrationEngine
+        .dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.makeUnsafe(`${attemptKey}:session`),
+          threadId: plan.threadId,
+          session,
+          ...(thread.session === null
+            ? {}
+            : {
+                expectedSessionStatus: thread.session.status,
+                expectedSessionUpdatedAt: thread.session.updatedAt,
+              }),
           createdAt: now,
-        },
-        createdAt: now,
-      });
+        })
+        .pipe(Effect.tapCause(reportFailedStage("session")));
+      yield* orchestrationEngine
+        .dispatch({
+          type: "thread.activity.append",
+          commandId: CommandId.makeUnsafe(`${attemptKey}:activity`),
+          threadId: plan.threadId,
+          activity: {
+            id: EventId.makeUnsafe(`${key}:activity`),
+            tone: "info",
+            kind: "provider.runtime.reconciled",
+            summary:
+              plan.action === "align-running-turn"
+                ? "Penkra realigned the active provider turn"
+                : "Penkra recovered a stale running state",
+            payload: {
+              provider: plan.provider,
+              action: plan.action,
+              reason: plan.reason,
+              reconciliationAttemptId: attemptId,
+              projectedTurnId: plan.projectedTurnId,
+              runtimeTurnId: plan.runtimeTurnId,
+            },
+            turnId: plan.projectedTurnId,
+            createdAt: now,
+          },
+          createdAt: now,
+        })
+        .pipe(Effect.tapCause(reportFailedStage("activity")));
 
       // The durable binding still advertises the turn that was just settled,
       // which keeps the thread a reconciliation candidate forever. Only merge
@@ -199,12 +221,15 @@ const make = (options?: ProviderRuntimeReconcilerLiveOptions) =>
         session.activeTurnId === null &&
         bindingActiveTurnId(input.binding) !== null
       ) {
-        yield* directory.upsert({
-          threadId: plan.threadId,
-          provider: input.binding.provider,
-          runtimePayload: { activeTurnId: null },
-        });
+        yield* directory
+          .upsert({
+            threadId: plan.threadId,
+            provider: input.binding.provider,
+            runtimePayload: { activeTurnId: null },
+          })
+          .pipe(Effect.tapCause(reportFailedStage("binding")));
       }
+      yield* Effect.logWarning("provider.runtime_reconciliation.applied", attemptFields);
     });
 
     const reconcileNow = Effect.gen(function* () {
@@ -254,16 +279,7 @@ const make = (options?: ProviderRuntimeReconcilerLiveOptions) =>
             thread,
             binding: bindingByThreadId.get(plan.threadId),
             now,
-          }).pipe(
-            Effect.catchCause((cause) =>
-              Effect.logWarning("provider.runtime_reconciliation.plan_failed", {
-                threadId: plan.threadId,
-                provider: plan.provider,
-                action: plan.action,
-                cause: Cause.pretty(cause),
-              }),
-            ),
-          );
+          }).pipe(Effect.catchCause(() => Effect.void));
         },
         { concurrency: 1, discard: true },
       );

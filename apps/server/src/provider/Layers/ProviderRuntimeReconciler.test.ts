@@ -6,7 +6,7 @@ import {
   type OrchestrationShellSnapshot,
   type ProviderSession,
 } from "@penkra/contracts";
-import { Effect, Layer, Option } from "effect";
+import { Effect, Layer, Logger, Option } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -168,6 +168,11 @@ describe("ProviderRuntimeReconcilerLive", () => {
       expect(activityCommand.activity.payload).toMatchObject({
         action: "settle-terminal-projection",
       });
+      const attemptId = (activityCommand.activity.payload as Record<string, unknown> | null)
+        ?.reconciliationAttemptId;
+      expect(typeof attemptId).toBe("string");
+      expect(String(activityCommand.commandId)).toContain(String(attemptId));
+      expect(String(commands[0]?.commandId)).toContain(String(attemptId));
     }
     const sessionCommand = commands[0];
     expect(sessionCommand?.type).toBe("thread.session.set");
@@ -211,5 +216,70 @@ describe("ProviderRuntimeReconcilerLive", () => {
     expect(activityCommands[0]?.commandId).not.toBe(activityCommands[1]?.commandId);
     expect(sessionCommands[0]?.commandId).not.toBe(sessionCommands[1]?.commandId);
     expect(reconcileSettledOpenTurns).toHaveBeenCalledTimes(3);
+  });
+
+  it("records the failed activity stage after the session repair commits", async () => {
+    const commands: OrchestrationCommand[] = [];
+    const warnings: Array<ReadonlyArray<unknown>> = [];
+    const logger = Logger.make(({ message }) => warnings.push(message as ReadonlyArray<unknown>));
+    const engine = {
+      dispatch: (command: OrchestrationCommand) =>
+        Effect.sync(() => {
+          commands.push(command);
+          if (command.type === "thread.activity.append") throw new Error("activity unavailable");
+          return { sequence: commands.length };
+        }),
+    } as unknown as OrchestrationEngineShape;
+    const reactor = {
+      start: Effect.void,
+      reconcileSettledOpenTurns: Effect.void,
+    } satisfies OrchestrationReactorShape;
+    const snapshotQuery = {
+      listStaleInFlightThreadIds: () => Effect.succeed([THREAD_ID]),
+      getThreadShellById: () => Effect.succeed(Option.some(staleShellSnapshot().threads[0]!)),
+    } as unknown as ProjectionSnapshotQueryShape;
+    const directory = {
+      listBindings: () =>
+        Effect.succeed([
+          {
+            threadId: THREAD_ID,
+            provider: "codex" as const,
+            status: "stopped" as const,
+            runtimePayload: { activeTurnId: null },
+          },
+        ]),
+    } as unknown as ProviderSessionDirectoryShape;
+    const provider = {
+      listSessions: () => Effect.succeed([readyProviderSession()]),
+      getRuntimeEventPumpHealth: () => Effect.succeed([]),
+    } as unknown as ProviderServiceShape;
+    const layer = makeProviderRuntimeReconcilerLive({ staleAfterMs: 1 }).pipe(
+      Layer.provide(Layer.succeed(OrchestrationEngineService, engine)),
+      Layer.provide(Layer.succeed(OrchestrationReactor, reactor)),
+      Layer.provide(Layer.succeed(ProjectionSnapshotQuery, snapshotQuery)),
+      Layer.provide(Layer.succeed(ProviderSessionDirectory, directory)),
+      Layer.provide(Layer.succeed(ProviderService, provider)),
+    );
+
+    await Effect.gen(function* () {
+      const reconciler = yield* ProviderRuntimeReconciler;
+      yield* reconciler.reconcileNow;
+    }).pipe(
+      Effect.provide(Layer.mergeAll(layer, Logger.layer([logger], { mergeWithExisting: false }))),
+      Effect.runPromise,
+    );
+
+    expect(commands.map((command) => command.type)).toEqual([
+      "thread.session.set",
+      "thread.activity.append",
+    ]);
+    const failed = warnings.find(
+      (message) => message[0] === "provider.runtime_reconciliation.plan_failed",
+    );
+    expect(failed).toBeDefined();
+    const fields = failed?.[1] as Record<string, unknown>;
+    expect(fields.stage).toBe("activity");
+    expect(fields.threadId).toBe(THREAD_ID);
+    expect(String(commands[0]?.commandId)).toContain(String(fields.attemptId));
   });
 });
