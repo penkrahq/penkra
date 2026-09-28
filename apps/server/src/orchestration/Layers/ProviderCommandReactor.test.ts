@@ -112,6 +112,7 @@ import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderT
 import { ProviderLaunchResolver } from "../../provider/Services/ProviderLaunchResolver.ts";
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { PLAY_TURN_RECOVERY_PROMPT, RESTART_TURN_RECOVERY_PROMPT } from "../restartTurnRecovery.ts";
+import { isProviderIntentEvent } from "../providerIntentClassification.ts";
 
 const TEST_CONNECTION_ID = ProviderConnectionId.makeUnsafe("test-managed-connection");
 const TEST_INSTALLATION_ID = ProviderInstallationId.makeUnsafe("test-managed-installation");
@@ -214,6 +215,7 @@ describe("ProviderCommandReactor", () => {
     readonly startReactor?: boolean;
     readonly startRuntimeIngestion?: boolean;
     readonly startSession?: ProviderServiceShape["startSession"];
+    readonly sendTurn?: ProviderServiceShape["sendTurn"];
     readonly interruptTurn?: ProviderServiceShape["interruptTurn"];
     readonly stopSession?: ProviderServiceShape["stopSession"];
     readonly stopRuntimeSession?: NonNullable<ProviderServiceShape["stopRuntimeSession"]>;
@@ -283,11 +285,13 @@ describe("ProviderCommandReactor", () => {
     const startSession = vi.fn<ProviderServiceShape["startSession"]>(
       input?.startSession ?? defaultStartSession,
     );
-    const sendTurn = vi.fn<ProviderServiceShape["sendTurn"]>((_: unknown) =>
-      Effect.succeed({
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        turnId: asTurnId("turn-1"),
-      }),
+    const sendTurn = vi.fn<ProviderServiceShape["sendTurn"]>(
+      input?.sendTurn ??
+        ((_: unknown) =>
+          Effect.succeed({
+            threadId: ThreadId.makeUnsafe("thread-1"),
+            turnId: asTurnId("turn-1"),
+          })),
     );
     // Mirrors adapter behavior: the reactor consults live provider sessions
     // (status + activeTurnId) to decide whether a turn is genuinely running.
@@ -846,6 +850,36 @@ describe("ProviderCommandReactor", () => {
       startReactor,
       deliveryRepository,
       sql,
+      getOutboxJob: async (eventSequence: number) => {
+        const rows = await runtime.runPromise(sql<{
+          readonly state: string;
+          readonly attemptCount: number;
+          readonly lastError: string | null;
+        }>`
+          SELECT state, attempt_count AS "attemptCount", last_error AS "lastError"
+          FROM provider_intent_outbox WHERE event_sequence = ${eventSequence}
+        `);
+        return rows[0] ?? null;
+      },
+      getOutboxBlocker: async (threadId: string) =>
+        (await runtime.runPromise(reactor.listBlockingDeliveries({ threadId, limit: 100 }))).find(
+          (entry) => entry.consumerName === "provider-intent-outbox.v1",
+        ) ?? null,
+      prepareLegacyCutover: async () => {
+        const rows = await runtime.runPromise(sql<{ readonly sequence: number }>`
+          SELECT COALESCE(MAX(sequence), 0) AS sequence FROM orchestration_events
+        `);
+        const sequence = rows[0]!.sequence;
+        await runtime.runPromise(sql`
+          DELETE FROM provider_intent_outbox WHERE event_sequence <= ${sequence}
+        `);
+        await runtime.runPromise(sql`
+          UPDATE provider_intent_outbox_cutover
+          SET legacy_through_sequence = ${sequence}, legacy_drained_at = NULL
+          WHERE id = 1
+        `);
+        return sequence;
+      },
       pendingInteractionRepository,
       projectionTurnRepository,
       persistWithoutLivePublication: async (
@@ -882,6 +916,18 @@ describe("ProviderCommandReactor", () => {
             sequence: inserted[0]!.sequence,
           } as OrchestrationEvent;
           persisted.push(saved);
+          if (isProviderIntentEvent(saved)) {
+            await runtime.runPromise(sql`
+              INSERT INTO provider_intent_outbox (
+                event_sequence, event_id, thread_id, lane_key,
+                event_type, event_json, state, created_at, updated_at
+              ) VALUES (
+                ${saved.sequence}, ${saved.eventId}, ${saved.payload.threadId},
+                ${saved.payload.threadId}, ${saved.type}, ${JSON.stringify(saved)},
+                'pending', ${saved.occurredAt}, ${saved.occurredAt}
+              )
+            `);
+          }
           if (saved.type === "thread.message-sent") {
             await runtime.runPromise(sql`
               INSERT INTO projection_thread_messages (
@@ -1389,6 +1435,72 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
+  it("delivers an unrelated provider turn while another session's turn call is held", async () => {
+    const releaseFirstTurn = Effect.runSync(Deferred.make<void>());
+    const harness = await createHarness({
+      sendTurn: ({ threadId }) =>
+        threadId === ThreadId.makeUnsafe("thread-1")
+          ? Deferred.await(releaseFirstTurn).pipe(
+              Effect.as({ threadId, turnId: asTurnId("turn-held") }),
+            )
+          : Effect.succeed({ threadId, turnId: asTurnId("turn-independent") }),
+    });
+    const now = new Date().toISOString();
+    const secondThread = ThreadId.makeUnsafe("thread-independent");
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.makeUnsafe("cmd-independent-thread-create"),
+        threadId: secondThread,
+        deckId: singletonThreadDeckId(secondThread),
+        folderId: asFolderId("project-1"),
+        title: "Independent thread",
+        modelSelection: { provider: "codex", model: "gpt-5-codex" },
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+    const startTurn = (threadId: ThreadId, suffix: string) =>
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        connectionId: TEST_CONNECTION_ID,
+        bindingRevision: 0,
+        commandId: CommandId.makeUnsafe(`cmd-independent-${suffix}`),
+        threadId,
+        message: {
+          messageId: asMessageId(`message-independent-${suffix}`),
+          role: "user",
+          text: suffix,
+          attachments: [],
+        },
+        runtimeMode: "approval-required",
+        createdAt: now,
+      });
+    await Effect.runPromise(startTurn(ThreadId.makeUnsafe("thread-1"), "held"));
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    await Effect.runPromise(startTurn(secondThread, "free"));
+    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+    expect(harness.sendTurn.mock.calls.map(([request]) => request.threadId)).toEqual([
+      ThreadId.makeUnsafe("thread-1"),
+      secondThread,
+    ]);
+    const jobs = await Effect.runPromise(harness.sql<{
+      readonly threadId: string;
+      readonly state: string;
+    }>`
+      SELECT thread_id AS "threadId", state
+      FROM provider_intent_outbox
+      WHERE event_type = 'thread.turn-start-requested'
+      ORDER BY event_sequence
+    `);
+    expect(jobs).toEqual([
+      { threadId: "thread-1", state: "inflight" },
+      { threadId: secondThread, state: "succeeded" },
+    ]);
+    await Effect.runPromise(Deferred.succeed(releaseFirstTurn, undefined));
+    await harness.drain();
+  });
+
   it("REL-01B gate: advances the durable cursor through irrelevant events", async () => {
     const harness = await createHarness({ startReactor: false });
     const before = await Effect.runPromise(
@@ -1402,6 +1514,7 @@ describe("ProviderCommandReactor", () => {
       ),
     );
     const lastSequence = events.at(-1)!.sequence;
+    await harness.prepareLegacyCutover();
     await harness.startReactor();
 
     const after = await Effect.runPromise(
@@ -1478,13 +1591,11 @@ describe("ProviderCommandReactor", () => {
     const interruptRequested = events.find(
       (event) => event.type === "thread.turn-interrupt-requested",
     )!;
-    const delivery = await Effect.runPromise(
-      harness.deliveryRepository.getDelivery({
-        consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
-        eventSequence: interruptRequested.sequence,
-      }),
-    );
-    expect(delivery.pipe(Option.getOrThrow).state).toBe("succeeded");
+    const jobs = await Effect.runPromise(harness.sql<{ readonly state: string }>`
+      SELECT state FROM provider_intent_outbox
+      WHERE event_sequence = ${interruptRequested.sequence}
+    `);
+    expect(jobs[0]?.state).toBe("succeeded");
   });
 
   it("REL-01B gate: reclaims an expired safe claim during startup replay", async () => {
@@ -1506,6 +1617,7 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
+    await harness.prepareLegacyCutover();
     await harness.startReactor();
     const delivery = await Effect.runPromise(
       harness.deliveryRepository.getDelivery({
@@ -1567,6 +1679,7 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
+    await harness.prepareLegacyCutover();
     await harness.startReactor();
 
     expect(harness.interruptTurn).not.toHaveBeenCalled();
@@ -1590,214 +1703,7 @@ describe("ProviderCommandReactor", () => {
     expect(consumerState.pipe(Option.getOrThrow).lastAckedSequence).toBe(events.at(-1)!.sequence);
   });
 
-  // The ambiguous command here is a conversation rollback whose provider
-  // interrupt cannot prove it landed. A bare `thread.turn.interrupt` never
-  // quarantines a thread on purpose: it escalates to a full session stop, so
-  // the stop button can never leave a thread blocked (see the exemption below).
-  it("REL-01B gate: quarantines one thread and resumes it after explicit safe retry", async () => {
-    const failure = new ProviderAdapterRequestError({
-      provider: "codex",
-      method: "turn/interrupt",
-      detail: "connection closed after request write",
-    });
-    let failFirstThreadInterrupt = true;
-    const harness = await createHarness({
-      interruptTurn: (request) => {
-        if (request.threadId === ThreadId.makeUnsafe("thread-1") && failFirstThreadInterrupt) {
-          failFirstThreadInterrupt = false;
-          return Effect.fail(failure);
-        }
-        return Effect.void;
-      },
-    });
-    const now = new Date().toISOString();
-    await seedRollbackTarget(harness, {
-      messageId: asMessageId("user-message-durable-uncertain"),
-      turnId: asTurnId("turn-durable-rolled-back"),
-      createdAt: now,
-    });
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-durable-unrelated-thread"),
-        threadId: ThreadId.makeUnsafe("thread-2"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-2")),
-        folderId: asFolderId("project-1"),
-        title: "Unrelated thread",
-        modelSelection: {
-          provider: "codex",
-          model: "gpt-5-codex",
-        },
-        runtimeMode: "approval-required",
-        createdAt: now,
-      }),
-    );
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.session.set",
-        commandId: CommandId.makeUnsafe("cmd-durable-uncertain-session"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        session: {
-          threadId: ThreadId.makeUnsafe("thread-1"),
-          status: "running",
-          providerName: "codex",
-          runtimeMode: "approval-required",
-          activeTurnId: asTurnId("turn-durable-uncertain"),
-          lastError: null,
-          updatedAt: now,
-        },
-        createdAt: now,
-      }),
-    );
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.session.set",
-        commandId: CommandId.makeUnsafe("cmd-durable-unrelated-session"),
-        threadId: ThreadId.makeUnsafe("thread-2"),
-        session: {
-          threadId: ThreadId.makeUnsafe("thread-2"),
-          status: "running",
-          providerName: "codex",
-          runtimeMode: "approval-required",
-          activeTurnId: asTurnId("turn-durable-unrelated"),
-          lastError: null,
-          updatedAt: now,
-        },
-        createdAt: now,
-      }),
-    );
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.conversation.rollback",
-        commandId: CommandId.makeUnsafe("cmd-durable-uncertain-rollback"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        messageId: asMessageId("user-message-durable-uncertain"),
-        numTurns: 1,
-        createdAt: now,
-      }),
-    );
-
-    await waitFor(async () =>
-      Effect.runPromise(
-        harness.deliveryRepository
-          .firstBlockingDelivery("provider-command-reactor.v1")
-          .pipe(Effect.map(Option.isSome)),
-      ),
-    );
-    const blocker = await Effect.runPromise(
-      harness.deliveryRepository.firstBlockingDelivery("provider-command-reactor.v1"),
-    );
-    expect(blocker.pipe(Option.getOrThrow)).toMatchObject({
-      threadId: "thread-1",
-      state: "uncertain",
-      attemptCount: 1,
-    });
-
-    // Interrupts are the escape hatch out of a quarantined thread, so the
-    // blocked thread still runs its own interrupt; the unrelated thread is
-    // untouched by another thread's quarantine.
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.turn.interrupt",
-        commandId: CommandId.makeUnsafe("cmd-durable-blocked-continuation"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        turnId: asTurnId("turn-durable-uncertain"),
-        createdAt: now,
-      }),
-    );
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.turn.interrupt",
-        commandId: CommandId.makeUnsafe("cmd-durable-unrelated-continuation"),
-        threadId: ThreadId.makeUnsafe("thread-2"),
-        turnId: asTurnId("turn-durable-unrelated"),
-        createdAt: now,
-      }),
-    );
-
-    await waitFor(() => harness.interruptTurn.mock.calls.length === 3);
-    expect(harness.interruptTurn.mock.calls.map(([request]) => request.threadId)).toEqual([
-      ThreadId.makeUnsafe("thread-1"),
-      ThreadId.makeUnsafe("thread-1"),
-      ThreadId.makeUnsafe("thread-2"),
-    ]);
-    // The quarantined command itself never ran: no rollback reached the provider.
-    expect(harness.rollbackConversation.mock.calls.length).toBe(0);
-    const unrelatedBlocker = await Effect.runPromise(
-      harness.deliveryRepository.firstBlockingDeliveryForThread({
-        consumerName: "provider-command-reactor.v1",
-        threadId: "thread-2",
-      }),
-    );
-    expect(Option.isNone(unrelatedBlocker)).toBe(true);
-
-    // A non-exempt side effect on the blocked thread is skipped while the
-    // quarantine holds, and must be replayed once the thread resumes.
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.task.stop",
-        commandId: CommandId.makeUnsafe("cmd-durable-blocked-task-stop"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        taskId: "task-durable-blocked",
-        createdAt: now,
-      }),
-    );
-    const highWater = await Effect.runPromise(harness.engine.getEventHighWaterSequence);
-    await waitFor(async () => {
-      const state = await Effect.runPromise(
-        harness.deliveryRepository.getConsumerState("provider-command-reactor.v1"),
-      );
-      return state.pipe(Option.getOrThrow).lastAckedSequence >= highWater;
-    });
-    expect(harness.stopTask.mock.calls.length).toBe(0);
-
-    const reconciliation = await Effect.runPromise(
-      harness.reactor.reconcileDelivery({
-        eventSequence: blocker.pipe(Option.getOrThrow).eventSequence,
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        expectedState: "uncertain",
-        outcome: "safe_retry",
-        reconciledBy: "test-operator",
-        note: "provider confirmed the first request was not accepted",
-      }),
-    );
-    expect(reconciliation).toMatchObject({
-      outcome: "safe_retry",
-      state: "succeeded",
-    });
-    await waitFor(() => harness.interruptTurn.mock.calls.length === 4);
-    expect(harness.interruptTurn.mock.calls.map(([request]) => request.threadId)).toEqual([
-      ThreadId.makeUnsafe("thread-1"),
-      ThreadId.makeUnsafe("thread-1"),
-      ThreadId.makeUnsafe("thread-2"),
-      ThreadId.makeUnsafe("thread-1"),
-    ]);
-    // The authorized retry completed the previously blocked rollback and
-    // replayed the side effect the quarantine had skipped.
-    expect(harness.rollbackConversation.mock.calls.length).toBe(1);
-    await waitFor(() => harness.stopTask.mock.calls.length === 1);
-    expect(harness.stopTask.mock.calls[0]?.[0]).toEqual({
-      threadId: ThreadId.makeUnsafe("thread-1"),
-      taskId: "task-durable-blocked",
-    });
-    expect(
-      Option.isNone(
-        await Effect.runPromise(
-          harness.deliveryRepository.firstBlockingDeliveryForThread({
-            consumerName: "provider-command-reactor.v1",
-            threadId: "thread-1",
-          }),
-        ),
-      ),
-    ).toBe(true);
-  });
-
-  // Recovery fences the old provider session and never retries the ambiguous
-  // command itself. A later turn-start event is durable proof of work Penkra
-  // skipped locally, so it is dispatched automatically after the barrier.
-  it("REL-01B gate: a new turn automatically recovers a quarantined thread", async () => {
+  it("fences an uncertain rollback and releases another session", async () => {
     const harness = await createHarness({
       interruptTurn: () =>
         Effect.fail(
@@ -1809,62 +1715,60 @@ describe("ProviderCommandReactor", () => {
         ),
     });
     const now = new Date().toISOString();
-    const threadId = ThreadId.makeUnsafe("thread-1");
-    const turnId = asTurnId("turn-abandon-source");
     await seedRollbackTarget(harness, {
-      messageId: asMessageId("user-message-abandon-source"),
-      turnId: asTurnId("turn-abandon-rolled-back"),
+      messageId: asMessageId("outbox-rollback-message"),
+      turnId: asTurnId("outbox-rollback-turn"),
       createdAt: now,
     });
-
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.session.set",
-        commandId: CommandId.makeUnsafe("cmd-abandon-session-running"),
-        threadId,
+        commandId: CommandId.makeUnsafe("cmd-outbox-rollback-session"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
         session: {
-          threadId,
+          threadId: ThreadId.makeUnsafe("thread-1"),
           status: "running",
           providerName: "codex",
           runtimeMode: "approval-required",
-          activeTurnId: turnId,
+          activeTurnId: asTurnId("outbox-rollback-turn"),
           lastError: null,
           updatedAt: now,
         },
         createdAt: now,
       }),
     );
-    // A rollback whose provider interrupt cannot prove it landed is ambiguous,
-    // so it quarantines the thread instead of retrying itself.
+    const secondThread = ThreadId.makeUnsafe("outbox-independent-thread");
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.makeUnsafe("cmd-outbox-independent-create"),
+        threadId: secondThread,
+        deckId: singletonThreadDeckId(secondThread),
+        folderId: asFolderId("project-1"),
+        title: "Independent",
+        modelSelection: { provider: "codex", model: "gpt-5-codex" },
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.conversation.rollback",
-        commandId: CommandId.makeUnsafe("cmd-abandon-rollback"),
-        threadId,
-        messageId: asMessageId("user-message-abandon-source"),
+        commandId: CommandId.makeUnsafe("cmd-outbox-uncertain-rollback"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        messageId: asMessageId("outbox-rollback-message"),
         numTurns: 1,
         createdAt: now,
       }),
     );
-    await waitFor(async () =>
-      Effect.runPromise(
-        harness.deliveryRepository
-          .firstBlockingDeliveryForThread({
-            consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
-            threadId,
-          })
-          .pipe(Effect.map(Option.isSome)),
-      ),
-    );
-
-    // Settle the session so the follow-up message starts a turn instead of queueing.
+    await waitFor(() => harness.interruptTurn.mock.calls.length >= 1);
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.session.set",
-        commandId: CommandId.makeUnsafe("cmd-abandon-session-ready"),
-        threadId,
+        commandId: CommandId.makeUnsafe("cmd-outbox-rollback-settled"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
         session: {
-          threadId,
+          threadId: ThreadId.makeUnsafe("thread-1"),
           status: "ready",
           providerName: "codex",
           runtimeMode: "approval-required",
@@ -1875,46 +1779,168 @@ describe("ProviderCommandReactor", () => {
         createdAt: now,
       }),
     );
-    const skippedTurn = await Effect.runPromise(
+    await waitFor(() => harness.stopRuntimeSession.mock.calls.length >= 1);
+    const rollbackJobs = await Effect.runPromise(harness.sql<{
+      readonly state: string;
+      readonly lastError: string | null;
+    }>`
+      SELECT state, last_error AS "lastError" FROM provider_intent_outbox
+      WHERE event_type = 'thread.conversation-rollback-requested'
+      ORDER BY event_sequence DESC LIMIT 1
+    `);
+    expect(rollbackJobs[0]).toMatchObject({ state: "abandoned" });
+    expect(rollbackJobs[0]?.lastError).toContain("connection closed after request write");
+    expect(harness.rollbackConversation).not.toHaveBeenCalled();
+
+    await Effect.runPromise(
       harness.engine.dispatch({
-        type: "thread.turn.start",
-        connectionId: TEST_CONNECTION_ID,
-        bindingRevision: 0,
-        commandId: CommandId.makeUnsafe("cmd-abandon-skipped-turn"),
-        threadId,
-        message: {
-          messageId: asMessageId("abandon-skipped-user"),
-          role: "user",
-          text: "Message sent while the thread was blocked",
-          attachments: [],
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-outbox-independent-session"),
+        threadId: secondThread,
+        session: {
+          threadId: secondThread,
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: asTurnId("outbox-independent-turn"),
+          lastError: null,
+          updatedAt: now,
         },
-        runtimeMode: "approval-required",
         createdAt: now,
       }),
     );
-    await waitFor(async () => {
-      const state = await Effect.runPromise(
-        harness.deliveryRepository.getConsumerState(PROVIDER_COMMAND_REACTOR_CONSUMER),
-      );
-      return state.pipe(Option.getOrThrow).lastAckedSequence >= skippedTurn.sequence;
-    });
-    // The abandoned rollback is never retried; the new message proceeds only
-    // after the owning provider runtime has been stopped successfully.
-    expect(harness.interruptTurn.mock.calls.length).toBe(1);
-    expect(harness.rollbackConversation.mock.calls.length).toBe(0);
-    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
-    expect(harness.stopRuntimeSession).toHaveBeenCalledWith({ threadId });
-    expect(harness.stopSession).not.toHaveBeenCalled();
-    expect(
-      Option.isNone(
-        await Effect.runPromise(
-          harness.deliveryRepository.firstBlockingDeliveryForThread({
-            consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
-            threadId,
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.interrupt",
+        commandId: CommandId.makeUnsafe("cmd-outbox-independent-interrupt"),
+        threadId: secondThread,
+        turnId: asTurnId("outbox-independent-turn"),
+        createdAt: now,
+      }),
+    );
+    await waitFor(() =>
+      harness.interruptTurn.mock.calls.some(([request]) => request.threadId === secondThread),
+    );
+  });
+
+  it("keeps a lane blocked and exposes evidence when its runtime cannot be fenced", async () => {
+    const harness = await createHarness({
+      interruptTurn: () =>
+        Effect.fail(
+          new ProviderAdapterRequestError({
+            provider: "codex",
+            method: "turn/interrupt",
+            detail: "connection closed after request write",
           }),
         ),
+      stopRuntimeSession: ({ threadId }) =>
+        Effect.fail(
+          new ProviderAdapterProcessError({
+            provider: "codex",
+            threadId,
+            detail: "Process exit could not be proven.",
+          }),
+        ),
+    });
+    const now = new Date().toISOString();
+    await seedRollbackTarget(harness, {
+      messageId: asMessageId("outbox-unfenced-message"),
+      turnId: asTurnId("outbox-unfenced-turn"),
+      createdAt: now,
+    });
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-outbox-unfenced-session"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        session: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: asTurnId("outbox-unfenced-turn"),
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.conversation.rollback",
+        commandId: CommandId.makeUnsafe("cmd-outbox-unfenced-rollback"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        messageId: asMessageId("outbox-unfenced-message"),
+        numTurns: 1,
+        createdAt: now,
+      }),
+    );
+    await waitFor(() => harness.interruptTurn.mock.calls.length >= 1);
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-outbox-unfenced-settled"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        session: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          status: "ready",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+    await waitFor(() => harness.stopRuntimeSession.mock.calls.length >= 1);
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.task.stop",
+        commandId: CommandId.makeUnsafe("cmd-outbox-unfenced-followup"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        taskId: "unfenced-followup",
+        createdAt: now,
+      }),
+    );
+    const blockers = await Effect.runPromise(
+      harness.reactor.listBlockingDeliveries({ threadId: "thread-1", limit: 10 }),
+    );
+    expect(blockers).toContainEqual(
+      expect.objectContaining({
+        consumerName: "provider-intent-outbox.v1",
+        state: "uncertain",
+        threadId: "thread-1",
+      }),
+    );
+    expect(harness.stopTask).not.toHaveBeenCalled();
+    const blocker = blockers.find((entry) => entry.consumerName === "provider-intent-outbox.v1")!;
+    await expect(
+      Effect.runPromise(
+        harness.reactor.reconcileDelivery({
+          eventSequence: blocker.eventSequence,
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          expectedState: "uncertain",
+          outcome: "abandon",
+          reconciledBy: "test-operator",
+        }),
       ),
-    ).toBe(true);
+    ).rejects.toThrow("Provider runtime exit could not be proven");
+    expect(harness.stopTask).not.toHaveBeenCalled();
+
+    harness.stopRuntimeSession.mockImplementation(() => Effect.void);
+    const reconciled = await Effect.runPromise(
+      harness.reactor.reconcileDelivery({
+        eventSequence: blocker.eventSequence,
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        expectedState: "uncertain",
+        outcome: "abandon",
+        reconciledBy: "test-operator",
+        note: "Runtime exit was proven on the second attempt.",
+      }),
+    );
+    expect(reconciled?.state).toBe("abandoned");
+    await waitFor(() => harness.stopTask.mock.calls.length === 1);
   });
 
   it("REL-01B gate: keeps quarantine when provider fencing cannot be proven", async () => {
@@ -2048,26 +2074,16 @@ describe("ProviderCommandReactor", () => {
     );
 
     await waitFor(async () =>
-      Effect.runPromise(
-        harness.deliveryRepository
-          .firstBlockingDeliveryForThread({
-            consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
-            threadId,
-          })
-          .pipe(Effect.map(Option.isSome)),
-      ),
+      (
+        await Effect.runPromise(harness.reactor.listBlockingDeliveries({ threadId, limit: 10 }))
+      ).some((entry) => entry.consumerName === "provider-intent-outbox.v1"),
     );
     expect(interruptAttempts).toBe(1);
     // The ambiguous command stays unexecuted until an operator decides.
     expect(harness.rollbackConversation.mock.calls.length).toBe(0);
     const requested = (
-      await Effect.runPromise(
-        harness.deliveryRepository.firstBlockingDeliveryForThread({
-          consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
-          threadId,
-        }),
-      )
-    ).pipe(Option.getOrThrow);
+      await Effect.runPromise(harness.reactor.listBlockingDeliveries({ threadId, limit: 10 }))
+    ).find((entry) => entry.consumerName === "provider-intent-outbox.v1")!;
 
     const reconciled = await Effect.runPromise(
       harness.reactor.reconcileDelivery({
@@ -2084,17 +2100,13 @@ describe("ProviderCommandReactor", () => {
       eventSequence: requested.eventSequence,
       threadId,
       outcome: "safe_retry",
-      state: "succeeded",
+      state: "retry",
     });
-    expect(interruptAttempts).toBe(2);
+    await waitFor(() => interruptAttempts === 2);
     expect(harness.rollbackConversation.mock.calls.length).toBe(1);
-    const blocker = await Effect.runPromise(
-      harness.deliveryRepository.firstBlockingDeliveryForThread({
-        consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
-        threadId,
-      }),
+    await waitFor(
+      async () => (await harness.getOutboxJob(requested.eventSequence))?.state === "succeeded",
     );
-    expect(Option.isNone(blocker)).toBe(true);
   });
 
   it("REL-01D gate: resumes an operator-authorized retry after process loss", async () => {
@@ -2996,24 +3008,8 @@ describe("ProviderCommandReactor", () => {
       }),
     );
     await waitFor(() => replacementStartCommandIds.length === 1);
-    await waitFor(async () =>
-      Effect.runPromise(
-        harness.deliveryRepository
-          .firstBlockingDeliveryForThread({
-            consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
-            threadId: "thread-1",
-          })
-          .pipe(Effect.map(Option.isSome)),
-      ),
-    );
-    const blocker = (
-      await Effect.runPromise(
-        harness.deliveryRepository.firstBlockingDeliveryForThread({
-          consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
-          threadId: "thread-1",
-        }),
-      )
-    ).pipe(Option.getOrThrow);
+    await waitFor(async () => (await harness.getOutboxBlocker("thread-1")) !== null);
+    const blocker = (await harness.getOutboxBlocker("thread-1"))!;
     await Effect.runPromise(
       harness.reactor.reconcileDelivery({
         eventSequence: blocker.eventSequence,
@@ -3205,14 +3201,12 @@ describe("ProviderCommandReactor", () => {
     );
     expect(editEvent).toBeDefined();
     await waitFor(async () => {
-      const delivery = await Effect.runPromise(
-        harness.deliveryRepository.getDelivery({
-          consumerName: "provider-command-reactor.v1",
-          eventSequence: editEvent!.sequence,
-        }),
-      );
-      return Option.isSome(delivery) && delivery.value.state === "uncertain";
+      const delivery = await harness.getOutboxJob(editEvent!.sequence);
+      return delivery?.state === "abandoned";
     });
+    expect((await harness.getOutboxJob(editEvent!.sequence))?.lastError).toContain(
+      "turn is in progress",
+    );
   });
 
   it("resends an attempt proven to have failed before provider dispatch without native rollback", async () => {
@@ -3403,13 +3397,8 @@ describe("ProviderCommandReactor", () => {
     );
     expect(requested).toBeDefined();
     await waitFor(async () => {
-      const delivery = await Effect.runPromise(
-        harness.deliveryRepository.getDelivery({
-          consumerName: "provider-command-reactor.v1",
-          eventSequence: requested!.sequence,
-        }),
-      );
-      return Option.isSome(delivery) && delivery.value.state === "uncertain";
+      const delivery = await harness.getOutboxJob(requested!.sequence);
+      return delivery?.state === "abandoned";
     });
     expect(harness.clearSessionResumeCursor).not.toHaveBeenCalled();
     expect(harness.stopSession.mock.calls.length).toBe(0);
@@ -4482,25 +4471,18 @@ describe("ProviderCommandReactor", () => {
     expect(
       thread?.activities.some((activity) => activity.kind === "provider.turn.start.failed"),
     ).toBe(true);
-    await waitFor(async () => {
-      const delivery = await Effect.runPromise(
-        harness.deliveryRepository.firstBlockingDeliveryForThread({
-          consumerName: "provider-command-reactor.v1",
-          threadId: "thread-1",
-        }),
-      );
-      return Option.isSome(delivery) && delivery.value.state === "uncertain";
-    });
-    const deliveryBlocker = await Effect.runPromise(
-      harness.deliveryRepository.firstBlockingDeliveryForThread({
-        consumerName: "provider-command-reactor.v1",
-        threadId: "thread-1",
-      }),
+    const events = Array.from(
+      await Effect.runPromise(Stream.runCollect(harness.engine.readEvents(0))),
     );
-    expect(deliveryBlocker.pipe(Option.getOrThrow)).toMatchObject({
-      state: "uncertain",
-      attemptCount: 1,
-    });
+    const turnStart = events.find(
+      (event) =>
+        event.commandId === "cmd-turn-start-fails" && event.type === "thread.turn-start-requested",
+    );
+    expect(turnStart).toBeDefined();
+    await waitFor(
+      async () => (await harness.getOutboxJob(turnStart!.sequence))?.state === "abandoned",
+    );
+    expect(await harness.getOutboxJob(turnStart!.sequence)).toMatchObject({ attemptCount: 1 });
   });
 
   it("L7 evidence: terminal structured runtime failure drains an already queued successor", async () => {
@@ -6465,24 +6447,8 @@ describe("ProviderCommandReactor", () => {
       }),
     );
     await waitFor(() => completionCommandIds.length === 1);
-    await waitFor(async () =>
-      Effect.runPromise(
-        harness.deliveryRepository
-          .firstBlockingDeliveryForThread({
-            consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
-            threadId: "thread-1",
-          })
-          .pipe(Effect.map(Option.isSome)),
-      ),
-    );
-    const blocker = (
-      await Effect.runPromise(
-        harness.deliveryRepository.firstBlockingDeliveryForThread({
-          consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
-          threadId: "thread-1",
-        }),
-      )
-    ).pipe(Option.getOrThrow);
+    await waitFor(async () => (await harness.getOutboxBlocker("thread-1")) !== null);
+    const blocker = (await harness.getOutboxBlocker("thread-1"))!;
     await Effect.runPromise(
       harness.reactor.reconcileDelivery({
         eventSequence: blocker.eventSequence,
@@ -6494,6 +6460,7 @@ describe("ProviderCommandReactor", () => {
     );
 
     await waitFor(() => completionCommandIds.length === 2);
+    await harness.drain();
     expect(completionCommandIds[1]).toBe(completionCommandIds[0]);
     const events = Array.from(
       await Effect.runPromise(Stream.runCollect(harness.engine.readEvents(0))),
@@ -6618,24 +6585,8 @@ describe("ProviderCommandReactor", () => {
       }),
     );
     await waitFor(() => startCommandIds.length === 1);
-    await waitFor(async () =>
-      Effect.runPromise(
-        harness.deliveryRepository
-          .firstBlockingDeliveryForThread({
-            consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
-            threadId: "thread-1",
-          })
-          .pipe(Effect.map(Option.isSome)),
-      ),
-    );
-    const blocker = (
-      await Effect.runPromise(
-        harness.deliveryRepository.firstBlockingDeliveryForThread({
-          consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
-          threadId: "thread-1",
-        }),
-      )
-    ).pipe(Option.getOrThrow);
+    await waitFor(async () => (await harness.getOutboxBlocker("thread-1")) !== null);
+    const blocker = (await harness.getOutboxBlocker("thread-1"))!;
     await Effect.runPromise(
       harness.reactor.reconcileDelivery({
         eventSequence: blocker.eventSequence,
@@ -7393,31 +7344,15 @@ describe("ProviderCommandReactor", () => {
       eventId: "evt-turn-completed-timeout",
     });
     await waitFor(() => harness.sendTurn.mock.calls.length === 1);
-    await waitFor(async () =>
-      Effect.runPromise(
-        harness.deliveryRepository
-          .firstBlockingDeliveryForThread({
-            consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
-            threadId: "thread-1",
-          })
-          .pipe(Effect.map(Option.isSome)),
-      ),
-    );
+    await waitFor(async () => (await harness.getOutboxBlocker("thread-1")) !== null);
 
-    const blocker = (
-      await Effect.runPromise(
-        harness.deliveryRepository.firstBlockingDeliveryForThread({
-          consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
-          threadId: "thread-1",
-        }),
-      )
-    ).pipe(Option.getOrThrow);
+    const blocker = (await harness.getOutboxBlocker("thread-1"))!;
     await Effect.runPromise(
       harness.reactor.reconcileDelivery({
         eventSequence: blocker.eventSequence,
         threadId: ThreadId.makeUnsafe("thread-1"),
         expectedState: "uncertain",
-        outcome: "abandon",
+        outcome: "accepted",
         reconciledBy: "test-operator",
         note: "The provider accepted the timed-out turn.",
       }),
@@ -9714,13 +9649,8 @@ describe("ProviderCommandReactor", () => {
       (event) => event.commandId === "cmd-runtime-mode-set-restart-failure",
     );
     expect(runtimeModeEvent).toBeDefined();
-    const delivery = await Effect.runPromise(
-      harness.deliveryRepository.getDelivery({
-        consumerName: "provider-command-reactor.v1",
-        eventSequence: runtimeModeEvent!.sequence,
-      }),
-    );
-    expect(delivery.pipe(Option.getOrThrow).state).toBe("uncertain");
+    expect((await harness.getOutboxJob(runtimeModeEvent!.sequence))?.state).toBe("uncertain");
+    expect(harness.stopRuntimeSession).not.toHaveBeenCalled();
   });
 
   it("continues a managed-binding restart when provider lifecycle wins the session rebind CAS", async () => {
@@ -10784,13 +10714,7 @@ describe("ProviderCommandReactor", () => {
       (event) => event.commandId === "cmd-approval-respond-stale",
     );
     expect(responseEvent).toBeDefined();
-    const responseDelivery = await Effect.runPromise(
-      harness.deliveryRepository.getDelivery({
-        consumerName: "provider-command-reactor.v1",
-        eventSequence: responseEvent!.sequence,
-      }),
-    );
-    expect(responseDelivery.pipe(Option.getOrThrow).state).toBe("succeeded");
+    expect((await harness.getOutboxJob(responseEvent!.sequence))?.state).toBe("succeeded");
 
     const resolvedActivity = thread?.activities.find(
       (activity) =>
@@ -11144,10 +11068,8 @@ describe("ProviderCommandReactor", () => {
       }),
     );
     await waitFor(async () => {
-      const state = await Effect.runPromise(
-        harness.deliveryRepository.getConsumerState(PROVIDER_COMMAND_REACTOR_CONSUMER),
-      );
-      return state.pipe(Option.getOrThrow).lastAckedSequence >= modeChange.sequence;
+      const job = await harness.getOutboxJob(modeChange.sequence);
+      return job?.state === "succeeded";
     });
 
     expect(harness.startSession).not.toHaveBeenCalled();

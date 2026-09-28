@@ -19,7 +19,7 @@ export interface ProviderDeliveryReconciliationResult {
   readonly eventSequence: number;
   readonly threadId: ThreadId;
   readonly outcome: ProviderDeliveryReconciliationOutcome;
-  readonly state: "retry" | "succeeded" | "dead" | "uncertain";
+  readonly state: "retry" | "succeeded" | "dead" | "uncertain" | "abandoned";
   readonly reconciledAt: string;
 }
 

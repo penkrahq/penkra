@@ -2289,7 +2289,7 @@ export const OrchestrationReconcileProviderDeliveryResult = Schema.Struct({
   eventSequence: NonNegativeInt,
   threadId: ThreadId,
   outcome: ProviderDeliveryReconciliationOutcome,
-  state: Schema.Literals(["retry", "succeeded", "dead", "uncertain"]),
+  state: Schema.Literals(["retry", "succeeded", "dead", "uncertain", "abandoned"]),
   reconciledAt: IsoDateTime,
 });
 export type OrchestrationReconcileProviderDeliveryResult =

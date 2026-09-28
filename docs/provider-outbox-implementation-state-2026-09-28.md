@@ -19,21 +19,24 @@ be used as a release candidate or launched against production data.
   acceptance-ambiguous work.
 - A bounded scheduler can run unrelated lane heads concurrently. A controlled test holds A's
   callback, observes B enter, and confirms A's next job waits until A settles.
+- The reactor now replays the legacy journal only through the migration cutover sequence. New
+  intents execute from outbox lanes. An integration test holds one provider turn and proves a
+  later unrelated turn reaches its provider while the first remains in flight.
+- Startup recovery classifies expired claims, and terminal jobs enter a provider-runtime fence.
+  A failed fence leaves the lane blocked and visible through the existing blocker RPC. Operator
+  reconciliation has a separate append-only outbox audit and can authorize retry, accepted, or
+  fenced-abandon outcomes.
+- The drain follows events created by provider processing rather than stopping at its initial
+  journal high-water mark.
 
-## Not yet connected
+## Remaining before this branch can be considered complete
 
-The old global provider-intent reader remains the active executor. The new scheduler is tested in
-isolation but is not started by the reactor. Migration 170's cutover marker is not yet consumed.
-Running this branch would therefore accumulate outbox jobs while the old executor continues;
-do not launch it against a persistent app database.
-
-Before switching execution, the reactor must drain only pre-cutover legacy events, fence its
-owner, then start the outbox worker. It must preserve the old delivery ledger's dead/uncertain
-blockers and expose new blockers through the existing reconciliation API. A supervised stop path
-must interrupt or fence a busy lane before bypassing its head. Startup must classify expired
-claims by replay safety, and shutdown must leave all jobs recoverable. Retention must prune
-settled outbox rows without deleting unfinished input. Only after the same A/B production
-reproduction and crash/stop matrix pass can the global reader be removed.
+The executor cutover is under regression testing. Stop/interrupt still needs a supervised
+control path that can preempt a stuck ordinary lane. The binding revision and lifecycle
+generation captured in each job are not yet validated before side effects. A recovery sweep
+currently checks terminal blockers once per second; it needs bounded retry/backoff and durable
+fence evidence. Settled outbox rows need retention pruning. Full crash, stop-race, and migration
+upgrade tests are still needed. Do not launch this branch against a persistent app database.
 
 The runtime-event worker, command worker, and socket-admission boundary are separate parts of
 the proposed thread-runtime design and remain unchanged on this branch.

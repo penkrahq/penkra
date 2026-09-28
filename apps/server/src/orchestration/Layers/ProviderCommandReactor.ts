@@ -99,6 +99,9 @@ import {
   selectReconstructedContinuation,
 } from "../../provider/reconstructedContinuation.ts";
 import { OrchestrationEventDeliveryRepositoryLive } from "../../persistence/Layers/OrchestrationEventDeliveries.ts";
+import { ProviderIntentOutboxLive } from "../../persistence/Layers/ProviderIntentOutbox.ts";
+import { ProviderIntentOutbox } from "../../persistence/Services/ProviderIntentOutbox.ts";
+import type { ProviderIntentOutboxJob } from "../../persistence/Services/ProviderIntentOutbox.ts";
 import { ProjectionPendingInteractionRepositoryLive } from "../../persistence/Layers/ProjectionPendingInteractions.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { QueuedTurnPromotionRepositoryLive } from "../../persistence/Layers/QueuedTurnPromotions.ts";
@@ -138,6 +141,7 @@ import { deriveTurnStartSession } from "../turnStartSession.ts";
 import { PLAY_TURN_RECOVERY_PROMPT, RESTART_TURN_RECOVERY_PROMPT } from "../restartTurnRecovery.ts";
 import { resolveProviderSessionThread as resolveProviderSessionThreadFromProjection } from "../providerSessionThread.ts";
 import { userStopPending } from "../userStopPending.ts";
+import { startProviderIntentOutboxWorker } from "../providerIntentOutboxWorker.ts";
 
 type ProviderQueueDrainEvent = Extract<
   ProviderRuntimeEvent,
@@ -490,6 +494,7 @@ const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const providerThreadSwitchCoordinator = yield* ProviderThreadSwitchCoordinator;
   const deliveryRepository = yield* OrchestrationEventDeliveryRepository;
+  const providerIntentOutbox = yield* ProviderIntentOutbox;
   const queuedTurnPromotions = yield* QueuedTurnPromotionRepository;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const providerService = yield* ProviderService;
@@ -4124,22 +4129,11 @@ const make = Effect.gen(function* () {
       }),
     );
 
-  // One attach-before-replay source owns every provider intent. The claimed
-  // canary classes settle before cursor advancement. Remaining classes execute
-  // serially in the same source but do not acquire delivery claims yet.
+  // The migration high-water is an ownership boundary. Only pre-cutover
+  // events use the legacy cursor; every newer provider intent has an atomic
+  // outbox job and runs through its provider-session lane.
   const startProviderIntentSource = Effect.gen(function* () {
-    const liveEventSource = yield* orchestrationEngine.subscribeDomainEvents;
-    // Detach the engine from this reactor's processing latency. The engine
-    // publishes committed events into a bounded PubSub from an uninterruptible
-    // section of its single command worker, so a subscriber that stalls (a hung
-    // provider call, or just slow boot replay below) back-pressures the worker
-    // and then fails every dispatched command with a dispatch timeout. Draining
-    // into an unbounded queue immediately after subscribing keeps the engine
-    // free while boot work runs; ordering is preserved because the queue is FIFO
-    // and `processOrderedEvent` skips anything at or below the durable cursor.
-    const liveEventQueue = yield* Queue.unbounded<OrchestrationEvent, Cause.Done>();
-    yield* Stream.runIntoQueue(liveEventSource, liveEventQueue).pipe(Effect.forkScoped);
-    const liveEvents = Stream.fromQueue(liveEventQueue);
+    const cutover = yield* providerIntentOutbox.getLegacyCutover();
     const consumerState = yield* deliveryRepository.getConsumerState(
       PROVIDER_COMMAND_REACTOR_CONSUMER,
     );
@@ -4748,19 +4742,147 @@ const make = Effect.gen(function* () {
     const processOrderedEventSerially = (event: OrchestrationEvent) =>
       deliverySourceLock.withPermits(1)(processOrderedEvent(event));
 
-    const replayThrough = yield* orchestrationEngine.getEventHighWaterSequence;
+    const replayThrough = cutover.throughSequence;
     yield* Stream.runForEach(
       orchestrationEngine.readEventsThrough(cursor, replayThrough),
       processOrderedEventSerially,
     );
-    yield* Stream.runForEach(liveEvents, processOrderedEventSerially).pipe(
-      Effect.catchCause((cause) =>
-        Effect.logError("provider command durable source stopped", {
-          cause: Cause.pretty(cause),
-        }).pipe(Effect.andThen(Effect.failCause(cause))),
+    yield* refreshCursor;
+    if (cursor < replayThrough) {
+      return yield* Effect.die(
+        new Error(`Legacy provider delivery stopped at ${cursor} before cutover ${replayThrough}`),
+      );
+    }
+    yield* providerIntentOutbox.markLegacyDrained(new Date().toISOString());
+
+    const fenceOutboxLane = (job: ProviderIntentOutboxJob) =>
+      Effect.gen(function* () {
+        if (
+          job.event.type === "thread.runtime-mode-set" &&
+          !(yield* providerIntentOutbox.hasLaterTurnStart({
+            laneKey: job.laneKey,
+            afterSequence: job.eventSequence,
+          }))
+        ) {
+          return;
+        }
+        // A failed auxiliary command must not kill an unrelated turn that is
+        // still active on this session. Preserve the blocker for an explicit
+        // reconciliation or a later recovery sweep after that turn settles.
+        const projectedThread = yield* resolveThread(ThreadId.makeUnsafe(job.laneKey));
+        if (
+          job.event.type !== "thread.turn-interrupt-requested" &&
+          job.event.type !== "thread.session-stop-requested" &&
+          ((projectedThread?.session?.status === "running" &&
+            projectedThread.session.activeTurnId !== null) ||
+            (yield* hasLiveProviderTurn(ThreadId.makeUnsafe(job.laneKey))))
+        ) {
+          return;
+        }
+        if (!providerService.stopRuntimeSession) {
+          yield* Effect.logError("provider outbox cannot fence a terminal lane", {
+            eventSequence: job.eventSequence,
+            laneKey: job.laneKey,
+            reason: "stopRuntimeSession unavailable",
+          });
+          return;
+        }
+        const stopped = yield* runBoundedProviderCall({
+          label: "The provider outbox recovery stop",
+          timeout: PROVIDER_COMMAND_STOP_TIMEOUT,
+          call: providerService.stopRuntimeSession({ threadId: ThreadId.makeUnsafe(job.laneKey) }),
+        });
+        if (stopped._tag !== "ok") {
+          yield* Effect.logWarning("provider outbox lane remains blocked after failed stop", {
+            eventSequence: job.eventSequence,
+            laneKey: job.laneKey,
+            outcome: stopped._tag,
+          });
+          return;
+        }
+        const abandoned = yield* providerIntentOutbox.abandonAfterFence({
+          eventSequence: job.eventSequence,
+          at: new Date().toISOString(),
+        });
+        if (!abandoned) {
+          yield* Effect.logWarning("provider outbox blocker changed after runtime fence", {
+            eventSequence: job.eventSequence,
+            laneKey: job.laneKey,
+          });
+        }
+      });
+
+    const processOutboxJob = (job: ProviderIntentOutboxJob) =>
+      Effect.gen(function* () {
+        if (!isProviderIntentEvent(job.event)) {
+          return { state: "dead", detail: "The outbox payload is not a provider intent." } as const;
+        }
+        const result = yield* runBoundedProviderCall({
+          label: `The provider command '${job.event.type}'`,
+          timeout: commandEventTimeout,
+          call: processDomainEvent(job.event),
+        });
+        if (result._tag === "timeout") {
+          if (job.event.type === "thread.turn-start-requested") {
+            yield* surfaceTimedOutTurnStart(job.event, result.detail);
+          }
+          return { state: "uncertain", detail: result.detail } as const;
+        }
+        if (result._tag === "ok") return { state: "succeeded" } as const;
+        switch (result.outcome._tag) {
+          case "rejected":
+            return { state: "succeeded" } as const;
+          case "safe_retry":
+            return { state: "retry", detail: result.outcome.detail } as const;
+          case "uncertain":
+            return { state: "uncertain", detail: result.outcome.detail } as const;
+        }
+      });
+
+    const recoverOutboxClaimsAndBlockers = Effect.forever(
+      Effect.gen(function* () {
+        const now = new Date().toISOString();
+        const expired = yield* providerIntentOutbox.listExpiredClaims(now);
+        for (const job of expired) {
+          if (job.claimOwner === null) continue;
+          const safeReplay =
+            isProviderIntentEvent(job.event) &&
+            (!isClaimedProviderIntent(job.event) || isReplaySafeClaimedProviderIntent(job.event));
+          const settled = yield* providerIntentOutbox.settleExpiredClaim({
+            eventSequence: job.eventSequence,
+            owner: job.claimOwner,
+            generation: job.claimGeneration,
+            now,
+            state: safeReplay ? "retry" : "uncertain",
+            error: safeReplay
+              ? "Replay-safe provider intent claim expired before settlement."
+              : "Provider intent claim expired without an acceptance result; it was not replayed.",
+          });
+          if (settled && !safeReplay) yield* fenceOutboxLane(job);
+        }
+        const blockers = yield* providerIntentOutbox.listTerminalBlockers(100);
+        for (const blocker of blockers) yield* fenceOutboxLane(blocker);
+        yield* Effect.sleep(Duration.seconds(1));
+      }).pipe(
+        Effect.catchCause((cause) =>
+          Cause.hasInterruptsOnly(cause)
+            ? Effect.failCause(cause)
+            : Effect.logError("provider outbox recovery sweep failed", {
+                cause: Cause.pretty(cause),
+              }).pipe(Effect.andThen(Effect.sleep(Duration.seconds(1)))),
+        ),
       ),
-      Effect.forkScoped,
     );
+    yield* Effect.forkScoped(recoverOutboxClaimsAndBlockers);
+    yield* startProviderIntentOutboxWorker({
+      outbox: providerIntentOutbox,
+      process: processOutboxJob,
+      onTerminal: (job) => fenceOutboxLane(job),
+      options: {
+        callDeadlineMs: Duration.toMillis(commandEventTimeout) + 5_000,
+        claimLeaseMs: Duration.toMillis(commandEventTimeout) + 20_000,
+      },
+    }).pipe(Effect.forkScoped);
   });
 
   const start = seedThreadModelSelections.pipe(
@@ -4800,13 +4922,20 @@ const make = Effect.gen(function* () {
   ) as ProviderCommandReactorShape["start"];
 
   const drain: ProviderCommandReactorShape["drain"] = Effect.gen(function* () {
-    const targetSequence = yield* orchestrationEngine.getEventHighWaterSequence;
+    let targetSequence = yield* orchestrationEngine.getEventHighWaterSequence;
+    const cutover = yield* providerIntentOutbox.getLegacyCutover();
     while (true) {
       const consumerState = yield* deliveryRepository.getConsumerState(
         PROVIDER_COMMAND_REACTOR_CONSUMER,
       );
-      if (Option.isSome(consumerState) && consumerState.value.lastAckedSequence >= targetSequence) {
-        return;
+      const legacyDrained =
+        Option.isSome(consumerState) &&
+        consumerState.value.lastAckedSequence >= cutover.throughSequence;
+      const outboxRemaining = yield* providerIntentOutbox.countDrainableThrough(targetSequence);
+      if (legacyDrained && outboxRemaining === 0) {
+        const latestSequence = yield* orchestrationEngine.getEventHighWaterSequence;
+        if (latestSequence === targetSequence) return;
+        targetSequence = latestSequence;
       }
       yield* Effect.sleep(Duration.millis(5));
     }
@@ -4826,18 +4955,90 @@ const make = Effect.gen(function* () {
     });
 
   const listBlockingDeliveries: ProviderCommandReactorShape["listBlockingDeliveries"] = (input) =>
-    deliveryRepository.listBlockingDeliveries({
-      consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
-      ...(input.threadId === undefined ? {} : { threadId: input.threadId }),
-      limit: Math.max(1, Math.min(100, input.limit)),
+    Effect.gen(function* () {
+      const limit = Math.max(1, Math.min(100, input.limit));
+      const [legacy, outbox] = yield* Effect.all([
+        deliveryRepository.listBlockingDeliveries({
+          consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
+          ...(input.threadId === undefined ? {} : { threadId: input.threadId }),
+          limit,
+        }),
+        providerIntentOutbox.listTerminalBlockers(limit, input.threadId),
+      ]);
+      return [
+        ...legacy,
+        ...outbox.map((job) => ({
+          consumerName: "provider-intent-outbox.v1",
+          eventSequence: job.eventSequence,
+          eventId: job.event.eventId,
+          eventType: job.eventType,
+          occurredAt: job.event.occurredAt,
+          threadId: ThreadId.makeUnsafe(job.threadId),
+          state: job.state === "dead" ? ("dead" as const) : ("uncertain" as const),
+          attemptCount: job.attemptCount,
+          lastError: job.lastError,
+          updatedAt: job.updatedAt,
+          lastReconciliationOutcome: null,
+          lastReconciledAt: null,
+          lastReconciledBy: null,
+          lastReconciliationNote: null,
+        })),
+      ]
+        .sort((a, b) => a.eventSequence - b.eventSequence)
+        .slice(0, limit);
     });
 
   const reconcileDelivery: ProviderCommandReactorShape["reconcileDelivery"] = (input) =>
-    Effect.suspend(() =>
-      reconcileDeliveryRuntime === undefined
-        ? Effect.fail(new Error("Provider delivery reconciliation is not ready"))
-        : reconcileDeliveryRuntime(input),
-    );
+    Effect.gen(function* () {
+      const outboxJob = yield* providerIntentOutbox.getJob(input.eventSequence);
+      if (Option.isNone(outboxJob)) {
+        if (reconcileDeliveryRuntime === undefined) {
+          return yield* Effect.fail(new Error("Provider delivery reconciliation is not ready"));
+        }
+        return yield* reconcileDeliveryRuntime(input);
+      }
+      const job = outboxJob.value;
+      if (job.threadId !== input.threadId || job.state !== input.expectedState) return null;
+      if (input.outcome === "abandon") {
+        if (!providerService.stopRuntimeSession) {
+          return yield* Effect.fail(new Error("Provider runtime stop is unavailable"));
+        }
+        const stopped = yield* runBoundedProviderCall({
+          label: "The reconciled provider outbox runtime stop",
+          timeout: PROVIDER_COMMAND_STOP_TIMEOUT,
+          call: providerService.stopRuntimeSession({
+            threadId: ThreadId.makeUnsafe(job.laneKey),
+          }),
+        });
+        if (stopped._tag !== "ok") {
+          return yield* Effect.fail(new Error("Provider runtime exit could not be proven"));
+        }
+      }
+      const reconciledAt = new Date().toISOString();
+      const changed = yield* providerIntentOutbox.reconcileTerminal({
+        reconciliationId: crypto.randomUUID(),
+        eventSequence: input.eventSequence,
+        threadId: input.threadId,
+        expectedState: input.expectedState,
+        outcome: input.outcome,
+        reconciledBy: input.reconciledBy,
+        ...(input.note === undefined ? {} : { note: input.note }),
+        reconciledAt,
+      });
+      if (!changed) return null;
+      return {
+        eventSequence: input.eventSequence,
+        threadId: input.threadId,
+        outcome: input.outcome,
+        state:
+          input.outcome === "safe_retry"
+            ? "retry"
+            : input.outcome === "abandon"
+              ? "abandoned"
+              : "succeeded",
+        reconciledAt,
+      };
+    });
 
   return {
     start,
@@ -4859,6 +5060,7 @@ export const makeProviderCommandReactorLive = (options?: ProviderCommandReactorL
       }),
     ),
     Layer.provideMerge(OrchestrationEventDeliveryRepositoryLive),
+    Layer.provideMerge(ProviderIntentOutboxLive),
     Layer.provideMerge(QueuedTurnPromotionRepositoryLive),
     Layer.provideMerge(ProjectionPendingInteractionRepositoryLive),
     Layer.provideMerge(ProjectionTurnRepositoryLive),
