@@ -31,6 +31,35 @@ afterEach(() => {
 });
 
 describe("diagnostics store", () => {
+  it("joins desktop and server checkpoints in one trace while both processes are live", () => {
+    const { stateDir, store } = fixture();
+    const desktop = new DiagnosticsStore({
+      stateDir,
+      appVersion: "0.14.3",
+      process: "desktop-main",
+    });
+    desktop.checkpoint({
+      traceId,
+      spanId,
+      threadId: "thread:abc",
+      flow: "send",
+      step: "composer.preflight",
+    });
+    store.checkpoint({
+      traceId,
+      spanId: "1111111111111111",
+      threadId: "thread:abc",
+      flow: "send",
+      step: "server.received",
+    });
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(
+      db.prepare("SELECT step FROM detail WHERE trace_id = ? ORDER BY id").all(traceId),
+    ).toMatchObject([{ step: "composer.preflight" }, { step: "server.received" }]);
+    db.close();
+    desktop.close();
+    store.close();
+  });
   it("resolves expectations and records missed deadlines with the last checkpoint", () => {
     const { stateDir, store } = fixture();
     store.checkpoint({ traceId, spanId, flow: "send", step: "server.received" });

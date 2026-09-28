@@ -29,6 +29,7 @@ import {
   RuntimeMode,
 } from "@penkra/contracts";
 import { getModelCapabilities, normalizeModelSlug } from "@penkra/shared/model";
+import { startDiagnosticTrace } from "@penkra/shared/traceContext";
 import { resolveTailUserMessageEditTarget } from "@penkra/shared/conversationEdit";
 import { threadExportBlockedReason } from "@penkra/shared/threadExport";
 import { pendingRequestInstanceKey } from "@penkra/shared/threadSummary";
@@ -6209,6 +6210,14 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     queuedTurn?: QueuedComposerChatTurn,
   ): Promise<boolean> => {
     e?.preventDefault();
+    const sendTrace = startDiagnosticTrace();
+    const entryCheckpoint = window.desktopBridge?.recordDiagnosticCheckpoint?.({
+      ...sendTrace,
+      ...(activeThread ? { threadId: activeThread.id } : {}),
+      flow: "send",
+      step: "composer.preflight",
+    });
+    await entryCheckpoint?.catch(() => undefined);
     const api = readNativeApi();
     const lateSendHandlers = lateComposerSendHandlersRef.current;
     if (!api || !lateSendHandlers || !activeThread || isVoiceTranscribing) {
@@ -7131,35 +7140,38 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       const bindingRevisionForSend = await resolveThreadBindingRevisionAtAdmission();
       const startReceipt = await stagedTurnAttachments.runWithDispatch((turnAttachments) => {
         startCommandDispatched = true;
-        return api.orchestration.dispatchCommand({
-          type: "thread.turn.start",
-          commandId: newCommandId(),
-          threadId: threadIdForSend,
-          message: {
-            messageId: messageIdForSend,
-            role: "user",
-            text: outgoingMessageText,
-            attachments: turnAttachments,
-            ...(mentionedSkillsForSend.length > 0 ? { skills: mentionedSkillsForSend } : {}),
-            ...(mentionedPluginMentionsForSend.length > 0
-              ? { mentions: mentionedPluginMentionsForSend }
+        return api.orchestration.dispatchCommand(
+          {
+            type: "thread.turn.start",
+            commandId: newCommandId(),
+            threadId: threadIdForSend,
+            message: {
+              messageId: messageIdForSend,
+              role: "user",
+              text: outgoingMessageText,
+              attachments: turnAttachments,
+              ...(mentionedSkillsForSend.length > 0 ? { skills: mentionedSkillsForSend } : {}),
+              ...(mentionedPluginMentionsForSend.length > 0
+                ? { mentions: mentionedPluginMentionsForSend }
+                : {}),
+            },
+            modelSelection: selectedModelSelectionForSend,
+            ...(selectedConnectionIdForSend === undefined
+              ? {}
+              : { connectionId: selectedConnectionIdForSend }),
+            ...(bindingRevisionForSend === undefined
+              ? {}
+              : { bindingRevision: bindingRevisionForSend }),
+            ...(providerOptionsForDispatchForSend
+              ? { providerOptions: providerOptionsForDispatchForSend }
               : {}),
+            assistantDeliveryMode,
+            dispatchMode,
+            runtimeMode: nextRuntimeModeForSend,
+            createdAt: messageCreatedAt,
           },
-          modelSelection: selectedModelSelectionForSend,
-          ...(selectedConnectionIdForSend === undefined
-            ? {}
-            : { connectionId: selectedConnectionIdForSend }),
-          ...(bindingRevisionForSend === undefined
-            ? {}
-            : { bindingRevision: bindingRevisionForSend }),
-          ...(providerOptionsForDispatchForSend
-            ? { providerOptions: providerOptionsForDispatchForSend }
-            : {}),
-          assistantDeliveryMode,
-          dispatchMode,
-          runtimeMode: nextRuntimeModeForSend,
-          createdAt: messageCreatedAt,
-        });
+          sendTrace,
+        );
       });
       turnStartSucceeded = true;
       markComposerSendPreflightAdmission(sendPreflightOwner, startReceipt.sequence);
