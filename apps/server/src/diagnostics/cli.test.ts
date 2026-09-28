@@ -24,6 +24,13 @@ describe("penkra diagnostics reads", () => {
     const traceId = "0123456789abcdef0123456789abcdef";
     const spanId = "0123456789abcdef";
     const threadId = "thread:cli-test";
+    store.sampleHealth({ eventLoopLagMs: 7 });
+    store.setProvenance({
+      entityKind: "thread",
+      entityId: threadId,
+      field: "thread.activeTurnId",
+      traceId,
+    });
     store.checkpoint({ traceId, spanId, threadId, flow: "send", step: "server.received" });
     store.incident({
       traceId,
@@ -63,9 +70,16 @@ describe("penkra diagnostics reads", () => {
     const thread = queryDiagnostics(["thread", threadId, "--home-dir", home]) as {
       incidents: unknown[];
       detail: unknown[];
+      provenance: unknown[];
     };
     expect(thread.incidents).toHaveLength(2);
     expect(thread.detail).toHaveLength(1);
+    expect(thread.provenance).toMatchObject([{ entityKind: "thread", setByTraceId: traceId }]);
+    expect(thread.incidents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ health: expect.objectContaining({ eventLoopLagMs: 7 }) }),
+      ]),
+    );
     const trace = queryDiagnostics(["trace", traceId, "--home-dir", home]) as {
       incidents: unknown[];
       detail: unknown[];
@@ -90,6 +104,14 @@ describe("penkra diagnostics reads", () => {
       step: "server.received",
       fields: { queueDepth: 1 },
     });
+    store.incident({
+      traceId: "0123456789abcdef0123456789abcdef",
+      spanId: "0123456789abcdef",
+      kind: "command.failed",
+      code: "COMMAND_REJECTED",
+      where: "server.command",
+      severity: "error",
+    });
     const output = path.join(home, "export.json");
     expect(queryDiagnostics(["export", "--home-dir", home, "--output", output])).toMatchObject({
       detail: 1,
@@ -103,5 +125,20 @@ describe("penkra diagnostics reads", () => {
     db.prepare("UPDATE detail SET payload_json = ?").run('{"message":"secret"}');
     db.close();
     expect(() => queryDiagnostics(["export", "--home-dir", home])).toThrow("not allowlisted");
+    const secondDb = new DatabaseSync(
+      path.join(home, "userdata", "diagnostics", "diagnostics.sqlite"),
+    );
+    secondDb.prepare("UPDATE detail SET payload_json = '{}'").run();
+    secondDb.prepare("UPDATE incidents SET health_json = ?").run('{"message":"secret"}');
+    secondDb.close();
+    expect(() => queryDiagnostics(["export", "--home-dir", home])).toThrow("not allowlisted");
+    const thirdDb = new DatabaseSync(
+      path.join(home, "userdata", "diagnostics", "diagnostics.sqlite"),
+    );
+    thirdDb.prepare("UPDATE incidents SET health_json = '{}', summary = ?").run("private content");
+    thirdDb.close();
+    expect(JSON.stringify(queryDiagnostics(["export", "--home-dir", home]))).not.toContain(
+      "private content",
+    );
   });
 });

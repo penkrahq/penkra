@@ -169,6 +169,7 @@ const enumValues = {
     "settle-terminal-projection",
     "settle-error",
   ],
+  entityKind: ["thread", "turn", "queue", "session", "connection"],
 } as const;
 const allowedEnumValues: Readonly<Record<string, ReadonlySet<string>>> = Object.fromEntries(
   Object.entries(enumValues).map(([key, values]) => [key, new Set<string>(values)]),
