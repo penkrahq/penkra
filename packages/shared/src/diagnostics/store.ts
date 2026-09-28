@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { compare, valid } from "semver";
 
 import { INCIDENT_SUMMARIES, isIncidentCode, type IncidentCode } from "./codes";
-import { DIAGNOSTIC_LIMITS } from "./limits";
+import { DIAGNOSTIC_LIMITS, type DiagnosticLimitName } from "./limits";
 import {
   validateDiagnosticFields,
   validateDiagnosticId,
@@ -101,6 +101,11 @@ export interface IncidentInput extends DiagnosticContext {
   readonly severity: "error" | "warn";
   readonly expected?: DiagnosticFields;
   readonly actual?: DiagnosticFields;
+  readonly limit?: {
+    readonly name: DiagnosticLimitName;
+    readonly value: number;
+    readonly observed: number;
+  };
   readonly context?: DiagnosticFields;
   readonly lastCheckpoint?: string;
 }
@@ -130,6 +135,18 @@ const EXPECTATION_CODES = {
   "create.completed": "CREATE_TIMEOUT",
   "socket.connected": "WS_HANDSHAKE_SLOW",
 } as const satisfies Record<string, IncidentCode>;
+
+const EXPECTATION_LIMIT_NAMES = {
+  "send.accepted": "sendAcceptedMs",
+  "turn.started": "turnStartedMs",
+  "turn.first_output": "firstOutputMs",
+  "turn.output_continues": "runningSilenceMs",
+  "stop.terminal": "stopTerminalMs",
+  "play.started": "playStartMs",
+  "archive.windows_closed": "archiveWindowsMs",
+  "create.completed": "createMs",
+  "socket.connected": "socketHandshakeMs",
+} as const satisfies Record<ExpectationKind, DiagnosticLimitName>;
 
 export type ExpectationKind = keyof typeof EXPECTATION_CODES;
 
@@ -515,6 +532,15 @@ function prepareEnvelope(
     sqlJson(incident.expected);
     sqlJson(incident.actual);
     sqlJson(incident.context);
+    if (
+      incident.limit &&
+      (!Object.hasOwn(DIAGNOSTIC_LIMITS, incident.limit.name) ||
+        !Number.isFinite(incident.limit.value) ||
+        incident.limit.value < 0 ||
+        !Number.isFinite(incident.limit.observed) ||
+        incident.limit.observed < 0)
+    )
+      throw new TypeError("Invalid incident limit");
     if (incident.severity !== "error" && incident.severity !== "warn") {
       throw new TypeError("Invalid incident severity");
     }
@@ -532,6 +558,7 @@ function prepareEnvelope(
       severity: incident.severity,
       expected: validateDiagnosticFields(incident.expected ?? {}),
       actual: validateDiagnosticFields(incident.actual ?? {}),
+      ...(incident.limit ? { limit: incident.limit } : {}),
       context: validateDiagnosticFields(incident.context ?? {}),
       ...(incident.lastCheckpoint ? { lastCheckpoint: incident.lastCheckpoint } : {}),
     };
@@ -770,7 +797,8 @@ function insertEnvelope(
       count, first_at, last_at, pin_from, pin_until, boot_id, env_json
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(fingerprint) DO UPDATE SET count=count+1, last_at=excluded.last_at,
-      actual_json=excluded.actual_json, context_json=excluded.context_json,
+      actual_json=excluded.actual_json, limit_json=excluded.limit_json,
+      context_json=excluded.context_json,
       provenance_json=excluded.provenance_json, health_json=excluded.health_json,
       last_checkpoint=excluded.last_checkpoint, pin_until=excluded.pin_until`)
       .run(
@@ -789,7 +817,7 @@ function insertEnvelope(
         data.commandId ?? null,
         sqlJson(data.expected),
         sqlJson(data.actual),
-        "{}",
+        JSON.stringify(data.limit ?? {}),
         sqlJson(data.context),
         provenanceJson,
         healthJson,
@@ -826,7 +854,7 @@ function insertEnvelope(
         data.commandId ?? null,
         sqlJson(data.expected),
         sqlJson(data.actual),
-        "{}",
+        JSON.stringify(data.limit ?? {}),
         sqlJson(data.context),
         provenanceJson,
         healthJson,
@@ -1486,6 +1514,11 @@ export class DiagnosticsStore {
           severity: "error",
           expected: { deadlineMs: pending.deadline_ms },
           actual: { elapsedMs: now - Date.parse(pending.armed_at) },
+          limit: {
+            name: EXPECTATION_LIMIT_NAMES[pending.kind],
+            value: pending.deadline_ms,
+            observed: now - Date.parse(pending.armed_at),
+          },
           context: { ...JSON.parse(pending.correlation_json), reason: "late_resolution" },
           ...((last?.step ?? pending.last_checkpoint)
             ? { lastCheckpoint: last?.step ?? pending.last_checkpoint! }
@@ -1563,6 +1596,11 @@ export class DiagnosticsStore {
         severity: "error",
         expected: { deadlineMs: pending.deadline_ms },
         actual: { elapsedMs: Math.max(0, now.getTime() - Date.parse(pending.armed_at)) },
+        limit: {
+          name: EXPECTATION_LIMIT_NAMES[pending.kind],
+          value: pending.deadline_ms,
+          observed: Math.max(0, now.getTime() - Date.parse(pending.armed_at)),
+        },
         context: { ...context, reason: restarted ? "unknown" : "deadline" },
         ...((last?.step ?? pending.last_checkpoint)
           ? { lastCheckpoint: last?.step ?? pending.last_checkpoint! }
