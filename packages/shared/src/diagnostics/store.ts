@@ -1141,10 +1141,13 @@ export class DiagnosticsStore {
       }
       const createdDatabase = !fs.existsSync(this.dbPath);
       const db = new DatabaseSync(this.dbPath);
-      db.exec(SCHEMA);
       db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
         PRAGMA cache_spill=OFF; PRAGMA wal_autocheckpoint=1;
         PRAGMA journal_size_limit=0;`);
+      // Schema creation and startup metadata are writes too. Bound the database
+      // before either can allocate pages, including on a fresh installation.
+      sqlitePhysicalBudget(db, this.dir, this.dbPath, this.maxTotalBytes);
+      db.exec(SCHEMA);
       db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '1')").run();
       db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES ('app_version', ?)").run(
         options.appVersion,
