@@ -157,6 +157,7 @@ export type ExpectationKind = keyof typeof EXPECTATION_CODES;
 export interface ExpectationInput extends DiagnosticContext {
   readonly kind: ExpectationKind;
   readonly deadlineMs: number;
+  readonly armedAt?: string;
   readonly correlation?: DiagnosticFields;
 }
 
@@ -479,6 +480,8 @@ function prepareEnvelope(
       throw new TypeError("Unknown expectation kind");
     if (!Number.isSafeInteger(expectation.deadlineMs) || expectation.deadlineMs < 1)
       throw new TypeError("Invalid expectation deadline");
+    const armedAt =
+      expectation.armedAt === undefined ? undefined : new Date(expectation.armedAt).toISOString();
     safeData = {
       id: expectation.id,
       kind: expectation.kind,
@@ -488,6 +491,7 @@ function prepareEnvelope(
       ...(expectation.threadId ? { threadId: expectation.threadId } : {}),
       ...(expectation.turnId ? { turnId: expectation.turnId } : {}),
       deadlineMs: expectation.deadlineMs,
+      ...(armedAt ? { armedAt } : {}),
       correlation: validateDiagnosticFields(expectation.correlation ?? {}),
     };
   } else if (type !== "incident") {
@@ -671,16 +675,18 @@ function insertEnvelope(
       );
   } else if (event.type === "expectation_arm") {
     const expectation = event.data as ExpectationArmInput;
+    const armedAt = expectation.armedAt ?? event.at;
+    const deadlineAt = new Date(Date.parse(armedAt) + expectation.deadlineMs).toISOString();
     // The desktop writes through a worker. A fast server acceptance can reach
     // SQLite before that worker's spool record is imported.
-    const alreadyAccepted =
+    const accepted =
       expectation.kind === "send.accepted" &&
-      database
+      (database
         .prepare(
-          "SELECT 1 FROM detail WHERE trace_id = ? AND flow = 'send' AND step = 'command.accepted' LIMIT 1",
+          "SELECT at FROM detail WHERE trace_id = ? AND flow = 'send' AND step = 'command.accepted' ORDER BY at LIMIT 1",
         )
-        .get(expectation.traceId);
-    if (!alreadyAccepted) {
+        .get(expectation.traceId) as { at: string } | false | undefined);
+    if (!accepted || Date.parse(accepted.at) > Date.parse(deadlineAt)) {
       const last = database
         .prepare("SELECT step FROM detail WHERE trace_id = ? ORDER BY id DESC LIMIT 1")
         .get(expectation.traceId) as { step: string } | undefined;
@@ -698,8 +704,8 @@ function insertEnvelope(
           expectation.threadId ?? null,
           expectation.turnId ?? null,
           sqlJson(expectation.correlation),
-          event.at,
-          new Date(Date.parse(event.at) + expectation.deadlineMs).toISOString(),
+          armedAt,
+          deadlineAt,
           expectation.deadlineMs,
           last?.step ?? null,
           event.bootId,

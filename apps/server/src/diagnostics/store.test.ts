@@ -462,11 +462,38 @@ describe("diagnostics store", () => {
       process: "desktop-main",
     });
     store.checkpoint({ traceId, spanId, flow: "send", step: "command.accepted", outcome: "ok" });
-    desktop.armExpectation({ traceId, spanId, kind: "send.accepted", deadlineMs: 2_000 });
+    desktop.armExpectation({
+      traceId,
+      spanId,
+      kind: "send.accepted",
+      deadlineMs: 2_000,
+      armedAt: new Date(Date.now() - 500).toISOString(),
+    });
     store.importPeerSpools();
     const db = openDiagnosticsReader(stateDir)!;
     expect(db.prepare("SELECT count(*) AS count FROM expectations").get()).toMatchObject({
       count: 0,
+    });
+    db.close();
+    desktop.close();
+    store.close();
+  });
+
+  it("keeps an imported send expectation when acceptance missed its original deadline", () => {
+    const { stateDir, store } = fixture();
+    const desktop = new DiagnosticsSpoolWriter({
+      stateDir,
+      appVersion: "0.14.3",
+      process: "desktop-main",
+    });
+    const armedAt = new Date(Date.now() - 5_000).toISOString();
+    store.checkpoint({ traceId, spanId, flow: "send", step: "command.accepted", outcome: "ok" });
+    desktop.armExpectation({ traceId, spanId, kind: "send.accepted", deadlineMs: 2_000, armedAt });
+    store.importPeerSpools();
+    expect(store.sweepExpectations()).toBe(1);
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(db.prepare("SELECT code FROM incidents").get()).toMatchObject({
+      code: "SEND_PREFLIGHT_REJECTED",
     });
     db.close();
     desktop.close();
