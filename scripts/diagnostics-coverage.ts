@@ -25,11 +25,42 @@ export interface CoverageException extends FailureSite {
   readonly issue: string;
 }
 
+export interface CoverageBoundary {
+  readonly code: string;
+  readonly where: string;
+  readonly file: string;
+}
+
+/** A propagated site is covered only when its named recording boundary is registered. */
+export function validateCoverageBoundaries(
+  boundaries: ReadonlyArray<CoverageBoundary>,
+  sourceFor: (file: string) => string,
+): Set<string> {
+  const registered = new Set<string>();
+  for (const boundary of boundaries) {
+    const key = `${boundary.code}:${boundary.where}`;
+    if (!isIncidentCode(boundary.code) || registered.has(key))
+      throw new Error(`Invalid or duplicate diagnostics coverage boundary: ${key}`);
+    validateDiagnosticToken(boundary.where, "where");
+    if (!COVERAGE_ROOTS.some((root) => boundary.file.startsWith(`${root}/`)))
+      throw new Error(`Invalid diagnostics coverage boundary file: ${boundary.file}`);
+    const source = sourceFor(boundary.file);
+    if (
+      !source.includes("recordDiagnosticIncident(") ||
+      !source.includes(`code: "${boundary.code}"`) ||
+      !source.includes(`where: "${boundary.where}"`)
+    )
+      throw new Error(`Diagnostics coverage boundary does not record ${key}: ${boundary.file}`);
+    registered.add(key);
+  }
+  return registered;
+}
+
 function siteKey(site: FailureSite): string {
   return `${site.file}:${site.line}:${site.kind}`;
 }
 
-function hasCoverageMarker(source: string, line: number): boolean {
+function hasCoverageMarker(source: string, line: number, boundaries: ReadonlySet<string>): boolean {
   const lines = source.split(/\r?\n/u);
   const previous = lines[line - 2] ?? "";
   const current = lines[line - 1] ?? "";
@@ -39,10 +70,9 @@ function hasCoverageMarker(source: string, line: number): boolean {
     markerPattern.exec(current) ??
     (previous.trim().startsWith("//") ? markerPattern.exec(previous) : null);
   if (!marker || !isIncidentCode(marker[2]!)) return false;
-  if (marker[1] === "covered") return true;
   try {
     validateDiagnosticToken(marker[3] ?? "", "where");
-    return true;
+    return boundaries.has(`${marker[2]}:${marker[3]}`);
   } catch {
     return false;
   }
@@ -53,6 +83,7 @@ export function uncoveredFailureSites(
   sites: ReadonlyArray<FailureSite>,
   sourceFor: (file: string) => string,
   exceptions: ReadonlyArray<CoverageException>,
+  boundaries: ReadonlySet<string> = new Set(),
 ): FailureSite[] {
   const known = new Set(sites.map(siteKey));
   const reviewed = new Set<string>();
@@ -83,7 +114,8 @@ export function uncoveredFailureSites(
       sources.set(site.file, source);
     }
     return (
-      lineCounts.get(`${site.file}:${site.line}`) !== 1 || !hasCoverageMarker(source, site.line)
+      lineCounts.get(`${site.file}:${site.line}`) !== 1 ||
+      !hasCoverageMarker(source, site.line, boundaries)
     );
   });
 }
@@ -169,11 +201,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.met
   if (process.argv.includes("--check")) {
     const exceptionPath = path.join(repoRoot, "scripts/diagnostics-coverage-exceptions.json");
     const exceptions = JSON.parse(fs.readFileSync(exceptionPath, "utf8")) as CoverageException[];
-    const uncovered = uncoveredFailureSites(
-      sites,
-      (file) => fs.readFileSync(path.join(repoRoot, file), "utf8"),
-      exceptions,
-    );
+    const boundaryPath = path.join(repoRoot, "scripts/diagnostics-coverage-boundaries.json");
+    const boundaryList = JSON.parse(fs.readFileSync(boundaryPath, "utf8")) as CoverageBoundary[];
+    const sourceFor = (file: string) => fs.readFileSync(path.join(repoRoot, file), "utf8");
+    const boundaries = validateCoverageBoundaries(boundaryList, sourceFor);
+    const uncovered = uncoveredFailureSites(sites, sourceFor, exceptions, boundaries);
     process.stdout.write(
       `${JSON.stringify({ uncovered: uncovered.length, first: uncovered.slice(0, 20) })}\n`,
     );
