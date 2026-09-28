@@ -6218,11 +6218,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       step: "composer.preflight",
     });
     await entryCheckpoint?.catch(() => undefined);
-    const sendExpectation = window.desktopBridge?.armSendDiagnosticExpectation?.({
-      ...sendTrace,
-      ...(activeThread ? { threadId: activeThread.id } : {}),
-    });
-    await sendExpectation?.catch(() => undefined);
     const api = readNativeApi();
     const lateSendHandlers = lateComposerSendHandlersRef.current;
     if (!api || !lateSendHandlers || !activeThread || isVoiceTranscribing) {
@@ -7144,6 +7139,9 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       // continuation.
       const bindingRevisionForSend = await resolveThreadBindingRevisionAtAdmission();
       const startReceipt = await stagedTurnAttachments.runWithDispatch((turnAttachments) => {
+        void window.desktopBridge
+          ?.armSendDiagnosticExpectation?.({ ...sendTrace, threadId: threadIdForSend })
+          .catch(() => undefined);
         startCommandDispatched = true;
         return api.orchestration.dispatchCommand(
           {
