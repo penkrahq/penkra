@@ -479,7 +479,7 @@ const diagnosticLayer = it.layer(
 );
 
 diagnosticLayer("ProviderRuntimeEventRepository diagnostics", (it) => {
-  it.effect("dual writes admitted episodes without leaking diagnostic text", () =>
+  it.effect("counts every warning report while keeping legacy episode deduplication", () =>
     Effect.gen(function* () {
       const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-provider-episode-"));
       const store = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
@@ -501,10 +501,10 @@ diagnosticLayer("ProviderRuntimeEventRepository diagnostics", (it) => {
             },
           },
         });
-      yield* send("episode-first", "active");
-      yield* send("episode-repeat", "active");
+      assert.isNotNull(yield* send("episode-first", "active"));
+      assert.isNull(yield* send("episode-repeat", "active"));
       yield* send("episode-resolved", "resolved");
-      yield* send("episode-recurred", "active");
+      assert.isNotNull(yield* send("episode-recurred", "active"));
       const db = openDiagnosticsReader(stateDir)!;
       assert.deepStrictEqual(
         db
@@ -512,6 +512,7 @@ diagnosticLayer("ProviderRuntimeEventRepository diagnostics", (it) => {
           .all()
           .map((row) => row.step),
         [
+          "provider.runtime_warning_active",
           "provider.runtime_warning_active",
           "provider.runtime_warning_resolved",
           "provider.runtime_warning_active",
@@ -523,7 +524,7 @@ diagnosticLayer("ProviderRuntimeEventRepository diagnostics", (it) => {
             count: number;
           }
         ).count,
-        2,
+        3,
       );
       db.close();
       for (const name of fs.readdirSync(path.join(stateDir, "diagnostics"))) {

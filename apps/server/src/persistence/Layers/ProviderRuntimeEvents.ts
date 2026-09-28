@@ -236,9 +236,8 @@ const make = Effect.gen(function* () {
           Effect.mapError(
             toPersistenceSqlError("ProviderRuntimeEvent.appendWithDiagnosticAdmission"),
           ),
-          Effect.tap((persisted) =>
+          Effect.tap(() =>
             Effect.sync(() => {
-              if (diagnostic.state === "active" && persisted === null) return;
               const trace = startDiagnosticTrace();
               const context = {
                 ...trace,
