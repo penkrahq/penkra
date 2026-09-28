@@ -100,7 +100,9 @@ import {
 } from "../../provider/reconstructedContinuation.ts";
 import { OrchestrationEventDeliveryRepositoryLive } from "../../persistence/Layers/OrchestrationEventDeliveries.ts";
 import { ProviderIntentOutboxLive } from "../../persistence/Layers/ProviderIntentOutbox.ts";
+import { ProviderRuntimeEventRepositoryLive } from "../../persistence/Layers/ProviderRuntimeEvents.ts";
 import { ProviderIntentOutbox } from "../../persistence/Services/ProviderIntentOutbox.ts";
+import { ProviderRuntimeEventRepository } from "../../persistence/Services/ProviderRuntimeEvents.ts";
 import type { ProviderIntentOutboxJob } from "../../persistence/Services/ProviderIntentOutbox.ts";
 import { ProjectionPendingInteractionRepositoryLive } from "../../persistence/Layers/ProjectionPendingInteractions.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
@@ -495,6 +497,7 @@ const make = Effect.gen(function* () {
   const providerThreadSwitchCoordinator = yield* ProviderThreadSwitchCoordinator;
   const deliveryRepository = yield* OrchestrationEventDeliveryRepository;
   const providerIntentOutbox = yield* ProviderIntentOutbox;
+  const providerRuntimeEvents = yield* ProviderRuntimeEventRepository;
   const queuedTurnPromotions = yield* QueuedTurnPromotionRepository;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const providerService = yield* ProviderService;
@@ -595,6 +598,38 @@ const make = Effect.gen(function* () {
     string,
     Set<Map<TurnId, ObservedTerminalTurn>>
   >();
+  // The terminal event is persisted before publication. Runtime ingestion may
+  // project its session update before this subscriber records the terminal in
+  // the in-memory observer, so use the journal at both acceptance boundaries.
+  const readDurableTerminalTurn = (threadIds: ReadonlyArray<string>, turnId: TurnId) =>
+    Effect.gen(function* () {
+      const throughSequenceInclusive = yield* providerRuntimeEvents.getHighWaterSequence;
+      for (const threadId of new Set(threadIds)) {
+        const [latest] = yield* providerRuntimeEvents.readThreadEvents({
+          threadId,
+          turnId,
+          throughSequenceInclusive,
+          eventTypes: ["turn.completed", "turn.aborted"],
+          limit: 1,
+        });
+        const event = latest?.event;
+        if (event?.type === "turn.aborted") {
+          return { state: "interrupted", completedAt: event.createdAt } as const;
+        }
+        if (event?.type === "turn.completed") {
+          return {
+            state:
+              event.payload.state === "failed"
+                ? "error"
+                : event.payload.state === "interrupted"
+                  ? "interrupted"
+                  : "completed",
+            completedAt: event.createdAt,
+          } as const;
+        }
+      }
+      return undefined;
+    });
   // OpenCode steering interrupts the active turn, then promotes the steered
   // message after that exact turn's terminal event. Binding the barrier to a
   // turn prevents late parent or child events on the shared session from
@@ -2270,8 +2305,15 @@ const make = Effect.gen(function* () {
         Effect.ensuring(Effect.sync(() => editResendTurnStartKeys.delete(editResendKey))),
       );
       const terminalBeforeResult = startedTurn
-        ? terminalTurnsObservedBeforeSettlement.get(startedTurn.turnId)
+        ? (terminalTurnsObservedBeforeSettlement.get(startedTurn.turnId) ??
+          (yield* readDurableTerminalTurn(
+            [sessionThreadId, event.payload.threadId, startedTurn.threadId],
+            startedTurn.turnId,
+          )))
         : undefined;
+      if (startedTurn && terminalBeforeResult !== undefined) {
+        terminalTurnsObservedBeforeSettlement.set(startedTurn.turnId, terminalBeforeResult);
+      }
       const completedBeforeResult = terminalBeforeResult !== undefined;
       const startedTurnStillOwnsRuntime = startedTurn !== undefined && !completedBeforeResult;
       if (startedTurn && isRestartRecovery && startedTurnStillOwnsRuntime) {
@@ -2323,12 +2365,17 @@ const make = Effect.gen(function* () {
             : {}),
           createdAt: new Date().toISOString(),
         });
-        const terminalAfterAcceptance = terminalTurnsObservedBeforeSettlement.get(
-          startedTurn.turnId,
-        );
+        const terminalAfterAcceptance =
+          terminalTurnsObservedBeforeSettlement.get(startedTurn.turnId) ??
+          (yield* readDurableTerminalTurn(
+            [sessionThreadId, event.payload.threadId, startedTurn.threadId],
+            startedTurn.turnId,
+          ));
         if (
           terminalAfterAcceptance !== undefined &&
-          terminalAfterAcceptance !== terminalAtAcceptance
+          (terminalAtAcceptance === undefined ||
+            terminalAfterAcceptance.state !== terminalAtAcceptance.state ||
+            terminalAfterAcceptance.completedAt !== terminalAtAcceptance.completedAt)
         ) {
           yield* orchestrationEngine.dispatch({
             type: "thread.message.delivery.set",
@@ -5061,6 +5108,7 @@ export const makeProviderCommandReactorLive = (options?: ProviderCommandReactorL
     ),
     Layer.provideMerge(OrchestrationEventDeliveryRepositoryLive),
     Layer.provideMerge(ProviderIntentOutboxLive),
+    Layer.provideMerge(ProviderRuntimeEventRepositoryLive),
     Layer.provideMerge(QueuedTurnPromotionRepositoryLive),
     Layer.provideMerge(ProjectionPendingInteractionRepositoryLive),
     Layer.provideMerge(ProjectionTurnRepositoryLive),
