@@ -1,4 +1,7 @@
 import { singletonThreadDeckId } from "@penkra/contracts";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import {
   CommandId,
   EventId,
@@ -40,6 +43,8 @@ import { ServerConfig } from "../../config.ts";
 import { recoverRestartInterruptedTurns } from "../restartTurnRecovery.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { canContinueLatestTurn } from "@penkra/shared/turnContinuation";
+import { DiagnosticsStore, openDiagnosticsReader } from "../../diagnostics/store.ts";
+import { installDiagnosticsStore } from "../../diagnostics/recorder.ts";
 
 /**
  * Command ids whose fingerprinting throws synchronously, standing in for any
@@ -189,6 +194,56 @@ function now() {
 }
 
 describe("OrchestrationEngine", () => {
+  it("joins worker checkpoints to the trace recorded for its command", async () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-worker-trace-"));
+    const store = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
+    const uninstall = installDiagnosticsStore(store);
+    const commandId = CommandId.makeUnsafe("cmd-worker-trace");
+    const traceId = "0123456789abcdef0123456789abcdef";
+    store.checkpoint({
+      traceId,
+      spanId: "0123456789abcdef",
+      commandId,
+      flow: "send",
+      step: "server.received",
+    });
+    let system: Awaited<ReturnType<typeof createOrchestrationSystem>> | undefined;
+    try {
+      system = await createOrchestrationSystem();
+      await system.run(
+        system.engine.dispatch({
+          type: "folder.create",
+          commandId,
+          folderId: asFolderId("folder-worker-trace"),
+          spaceId: TEST_SPACE_ID,
+          title: "Traced folder",
+          workspaceRoot: null,
+          defaultModelSelection: null,
+          createdAt: now(),
+        }),
+      );
+      const db = openDiagnosticsReader(stateDir)!;
+      const rows = db
+        .prepare("SELECT step, trace_id FROM detail WHERE command_id = ? ORDER BY id")
+        .all(commandId) as Array<{ step: string; trace_id: string }>;
+      expect(rows.map((row) => row.step)).toEqual(
+        expect.arrayContaining([
+          "server.received",
+          "command.queued",
+          "command.dequeued",
+          "worker.transaction",
+          "worker.reply",
+        ]),
+      );
+      expect(rows.every((row) => row.trace_id === traceId)).toBe(true);
+      db.close();
+    } finally {
+      await system?.dispose();
+      uninstall();
+      store.close();
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
   it("commits an unrelated command while another thread detail read is slow", async () => {
     const threadA = ThreadId.makeUnsafe("thread-slow-command-a");
     let releaseSlowRead!: () => void;

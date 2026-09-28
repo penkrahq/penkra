@@ -538,7 +538,9 @@ export class WsTransport {
 
       const rpcInput =
         method === ORCHESTRATION_WS_METHODS.dispatchCommand
-          ? (params as { command: unknown }).command
+          ? params && typeof params === "object" && "diagnostics" in params
+            ? params
+            : (params as { command: unknown }).command
           : (params ?? {});
       const normalizedRpcInput = omitNullUserInputAnswers(rpcInput);
       while (true) {

@@ -3,6 +3,17 @@
 // Layer: Orchestration provider reactor
 
 import {
+  childDiagnosticSpan,
+  retryDiagnosticAttempt,
+  startDiagnosticTrace,
+} from "@penkra/shared/traceContext";
+import {
+  recordDiagnosticCheckpoint,
+  recordDiagnosticIncident,
+  traceForDiagnosticCommand,
+} from "../../diagnostics/recorder.ts";
+
+import {
   type ChatAttachment,
   CommandId,
   EventId,
@@ -4480,6 +4491,16 @@ const make = Effect.gen(function* () {
 
     const processClaimedProviderIntent = Effect.fnUntraced(function* (event: ProviderIntentEvent) {
       const threadId = event.payload.threadId;
+      const deliveryTrace = childDiagnosticSpan(
+        event.commandId === null
+          ? startDiagnosticTrace()
+          : (traceForDiagnosticCommand(event.commandId) ?? startDiagnosticTrace()),
+      );
+      const deliveryContext = {
+        ...deliveryTrace,
+        threadId,
+        ...(event.commandId === null ? {} : { commandId: event.commandId }),
+      };
       if (yield* skipQuarantinedSideEffect(event)) return;
 
       const existing = yield* deliveryRepository.getDelivery({
@@ -4534,6 +4555,8 @@ const make = Effect.gen(function* () {
       }
 
       while (true) {
+        const attemptTrace = retryDiagnosticAttempt(deliveryTrace);
+        const attemptContext = { ...deliveryContext, ...attemptTrace };
         const claimOwner = `${processOwner}:${event.sequence}`;
         const claimed = yield* deliveryRepository.claim({
           consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
@@ -4549,12 +4572,51 @@ const make = Effect.gen(function* () {
           );
         }
 
+        yield* Effect.sync(() =>
+          recordDiagnosticCheckpoint({
+            ...attemptContext,
+            flow: "provider_delivery",
+            step: "provider.intent_claimed",
+            fields: { sequence: event.sequence, attempt: claimed.value.attemptCount },
+          }),
+        );
+        const callStartedAt = performance.now();
+        yield* Effect.sync(() =>
+          recordDiagnosticCheckpoint({
+            ...attemptContext,
+            flow: "provider_delivery",
+            step: "provider.call_started",
+          }),
+        );
+
         const workerResult = yield* runBoundedProviderCall({
           label: `The provider command '${event.type}'`,
           timeout: commandEventTimeout,
           call: processDomainEvent(event),
         });
         if (workerResult._tag === "timeout") {
+          yield* Effect.sync(() => {
+            recordDiagnosticCheckpoint({
+              ...attemptContext,
+              flow: "provider_delivery",
+              step: "provider.call_timed_out",
+              outcome: "timed_out",
+              elapsedMs: Math.round(performance.now() - callStartedAt),
+            });
+            recordDiagnosticIncident({
+              ...attemptContext,
+              kind: "timeout",
+              code:
+                event.type === "thread.turn-start-requested"
+                  ? "PROVIDER_START_TIMEOUT"
+                  : "DELIVERY_BLOCKED",
+              where: "provider.delivery",
+              severity: "error",
+              expected: { deadlineMs: Duration.toMillis(commandEventTimeout) },
+              actual: { elapsedMs: Math.round(performance.now() - callStartedAt) },
+              lastCheckpoint: "provider.call_started",
+            });
+          });
           // The delivery lock is single-permit and process-wide, so an attempt
           // that never returns is a total outage. Settle it as uncertain and
           // let the thread quarantine rather than block every other thread.
@@ -4583,7 +4645,29 @@ const make = Effect.gen(function* () {
         switch (outcome._tag) {
           case "accepted":
           case "rejected": {
+            yield* Effect.sync(() =>
+              recordDiagnosticCheckpoint({
+                ...attemptContext,
+                flow: "provider_delivery",
+                step:
+                  outcome._tag === "accepted" ? "provider.call_accepted" : "provider.call_rejected",
+                outcome: outcome._tag === "accepted" ? "ok" : "rejected",
+                elapsedMs: Math.round(performance.now() - callStartedAt),
+              }),
+            );
             if (outcome._tag === "rejected") {
+              yield* Effect.sync(() =>
+                recordDiagnosticIncident({
+                  ...attemptContext,
+                  kind: "external.failed",
+                  code: "PROVIDER_CALL_FAILED",
+                  where: "provider.delivery",
+                  severity: "error",
+                  expected: { accepted: true },
+                  actual: { accepted: false },
+                  lastCheckpoint: "provider.call_rejected",
+                }),
+              );
               yield* Effect.logWarning("provider command was rejected before acceptance", {
                 eventType: event.type,
                 eventSequence: event.sequence,
@@ -4603,10 +4687,29 @@ const make = Effect.gen(function* () {
               );
             }
             yield* refreshCursor;
+            yield* Effect.sync(() =>
+              recordDiagnosticCheckpoint({
+                ...attemptContext,
+                flow: "provider_delivery",
+                step: "provider.cursor_advanced",
+              }),
+            );
             return;
           }
           case "safe_retry": {
             if (claimed.value.attemptCount >= PROVIDER_COMMAND_SAFE_RETRY_LIMIT) {
+              yield* Effect.sync(() =>
+                recordDiagnosticIncident({
+                  ...attemptContext,
+                  kind: "command.failed",
+                  code: "INTENT_QUARANTINED",
+                  where: "provider.delivery",
+                  severity: "error",
+                  expected: { attempt: PROVIDER_COMMAND_SAFE_RETRY_LIMIT },
+                  actual: { attempt: claimed.value.attemptCount },
+                  lastCheckpoint: "provider.call_started",
+                }),
+              );
               yield* settleTerminalFailure({
                 event,
                 claimOwner,
@@ -4627,10 +4730,29 @@ const make = Effect.gen(function* () {
                 new Error(`Provider command delivery ${event.sequence} lost retry ownership`),
               );
             }
+            yield* Effect.sync(() =>
+              recordDiagnosticCheckpoint({
+                ...attemptContext,
+                flow: "provider_delivery",
+                step: "provider.retry_scheduled",
+              }),
+            );
             yield* Effect.sleep(PROVIDER_COMMAND_SAFE_RETRY_DELAY);
             break;
           }
           case "uncertain":
+            yield* Effect.sync(() =>
+              recordDiagnosticIncident({
+                ...attemptContext,
+                kind: "external.failed",
+                code: "PROVIDER_CALL_FAILED",
+                where: "provider.delivery",
+                severity: "error",
+                expected: { accepted: true },
+                actual: { accepted: false },
+                lastCheckpoint: "provider.call_started",
+              }),
+            );
             yield* settleTerminalFailure({
               event,
               claimOwner,
@@ -4898,24 +5020,121 @@ const make = Effect.gen(function* () {
         if (!isProviderIntentEvent(job.event)) {
           return { state: "dead", detail: "The outbox payload is not a provider intent." } as const;
         }
+        const trace = retryDiagnosticAttempt(
+          childDiagnosticSpan(
+            job.event.commandId === null
+              ? startDiagnosticTrace()
+              : (traceForDiagnosticCommand(job.event.commandId) ?? startDiagnosticTrace()),
+          ),
+        );
+        const context = {
+          ...trace,
+          threadId: job.event.payload.threadId,
+          ...(job.event.commandId === null ? {} : { commandId: job.event.commandId }),
+        };
+        yield* Effect.sync(() => {
+          recordDiagnosticCheckpoint({
+            ...context,
+            flow: "provider_delivery",
+            step: "provider.intent_claimed",
+            fields: { sequence: job.eventSequence, attempt: job.attemptCount },
+          });
+          recordDiagnosticCheckpoint({
+            ...context,
+            flow: "provider_delivery",
+            step: "provider.call_started",
+          });
+        });
+        const callStartedAt = performance.now();
         const result = yield* runBoundedProviderCall({
           label: `The provider command '${job.event.type}'`,
           timeout: commandEventTimeout,
           call: processDomainEvent(job.event),
         });
         if (result._tag === "timeout") {
+          yield* Effect.sync(() => {
+            recordDiagnosticCheckpoint({
+              ...context,
+              flow: "provider_delivery",
+              step: "provider.call_timed_out",
+              outcome: "timed_out",
+              elapsedMs: Math.round(performance.now() - callStartedAt),
+            });
+            recordDiagnosticIncident({
+              ...context,
+              kind: "timeout",
+              code:
+                job.event.type === "thread.turn-start-requested"
+                  ? "PROVIDER_START_TIMEOUT"
+                  : "DELIVERY_BLOCKED",
+              where: "provider.delivery",
+              severity: "error",
+              expected: { deadlineMs: Duration.toMillis(commandEventTimeout) },
+              actual: { elapsedMs: Math.round(performance.now() - callStartedAt) },
+              lastCheckpoint: "provider.call_started",
+            });
+          });
           if (job.event.type === "thread.turn-start-requested") {
             yield* surfaceTimedOutTurnStart(job.event, result.detail);
           }
           return { state: "uncertain", detail: result.detail } as const;
         }
-        if (result._tag === "ok") return { state: "succeeded" } as const;
+        if (result._tag === "ok") {
+          yield* Effect.sync(() =>
+            recordDiagnosticCheckpoint({
+              ...context,
+              flow: "provider_delivery",
+              step: "provider.call_accepted",
+              outcome: "ok",
+              elapsedMs: Math.round(performance.now() - callStartedAt),
+            }),
+          );
+          return { state: "succeeded" } as const;
+        }
         switch (result.outcome._tag) {
           case "rejected":
+            yield* Effect.sync(() => {
+              recordDiagnosticCheckpoint({
+                ...context,
+                flow: "provider_delivery",
+                step: "provider.call_rejected",
+                outcome: "rejected",
+                elapsedMs: Math.round(performance.now() - callStartedAt),
+              });
+              recordDiagnosticIncident({
+                ...context,
+                kind: "external.failed",
+                code: "PROVIDER_CALL_FAILED",
+                where: "provider.delivery",
+                severity: "error",
+                expected: { accepted: true },
+                actual: { accepted: false },
+                lastCheckpoint: "provider.call_rejected",
+              });
+            });
             return { state: "succeeded" } as const;
           case "safe_retry":
+            yield* Effect.sync(() =>
+              recordDiagnosticCheckpoint({
+                ...context,
+                flow: "provider_delivery",
+                step: "provider.retry_scheduled",
+              }),
+            );
             return { state: "retry", detail: result.outcome.detail } as const;
           case "uncertain":
+            yield* Effect.sync(() =>
+              recordDiagnosticIncident({
+                ...context,
+                kind: "external.failed",
+                code: "PROVIDER_CALL_FAILED",
+                where: "provider.delivery",
+                severity: "error",
+                expected: { accepted: true },
+                actual: { accepted: false },
+                lastCheckpoint: "provider.call_started",
+              }),
+            );
             return { state: "uncertain", detail: result.outcome.detail } as const;
         }
       });
@@ -4958,6 +5177,39 @@ const make = Effect.gen(function* () {
     yield* startProviderIntentOutboxWorker({
       outbox: providerIntentOutbox,
       process: processOutboxJob,
+      onSettled: (job, outcome) =>
+        Effect.sync(() => {
+          if (!isProviderIntentEvent(job.event)) return;
+          const trace = childDiagnosticSpan(
+            job.event.commandId === null
+              ? startDiagnosticTrace()
+              : (traceForDiagnosticCommand(job.event.commandId) ?? startDiagnosticTrace()),
+          );
+          const context = {
+            ...trace,
+            threadId: job.event.payload.threadId,
+            ...(job.event.commandId === null ? {} : { commandId: job.event.commandId }),
+          };
+          recordDiagnosticCheckpoint({
+            ...context,
+            flow: "provider_delivery",
+            step: "provider.intent_settled",
+            outcome: outcome.state === "succeeded" ? "ok" : "failed",
+            fields: { attempt: job.attemptCount },
+          });
+          if (outcome.state === "dead" || outcome.state === "uncertain") {
+            recordDiagnosticIncident({
+              ...context,
+              kind: "command.failed",
+              code: "INTENT_QUARANTINED",
+              where: "provider.delivery",
+              severity: "error",
+              expected: { accepted: true },
+              actual: { accepted: false },
+              lastCheckpoint: "provider.intent_settled",
+            });
+          }
+        }),
       onTerminal: (job) => fenceOutboxLane(job),
       options: {
         callDeadlineMs: Duration.toMillis(commandEventTimeout) + 5_000,

@@ -8,6 +8,7 @@ import type {
   ThreadId,
 } from "@penkra/contracts";
 import { OrchestrationCommand, ORCHESTRATION_WS_METHODS } from "@penkra/contracts";
+import { childDiagnosticSpan, startDiagnosticTrace } from "@penkra/shared/traceContext";
 import {
   Cause,
   Deferred,
@@ -27,6 +28,12 @@ import {
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { ServerConfig } from "../../config.ts";
+import {
+  recordDiagnosticCheckpoint,
+  recordDiagnosticIncident,
+  traceForDiagnosticCommand,
+} from "../../diagnostics/recorder.ts";
+import { DIAGNOSTIC_LIMITS } from "../../diagnostics/limits.ts";
 import { toPersistenceSqlError, type PersistenceSqlError } from "../../persistence/Errors.ts";
 import { isRetryableSqliteError } from "../../persistence/SqliteSafety.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
@@ -92,7 +99,7 @@ import {
   type OrchestrationEngineShape,
 } from "../Services/OrchestrationEngine.ts";
 
-const ORCHESTRATION_DISPATCH_TIMEOUT_MS = 45_000;
+const ORCHESTRATION_DISPATCH_TIMEOUT_MS = DIAGNOSTIC_LIMITS.commandDispatchMs;
 const DEFERRED_PROJECTION_RETRY_DELAYS_MS = [100, 500, 2_000, 10_000, 30_000] as const;
 const REQUIRED_REPAIR_PROJECTORS = Object.values(ORCHESTRATION_PROJECTOR_NAMES);
 
@@ -112,6 +119,7 @@ type OrchestrationEnginePhase = "running" | "quiescing" | "draining" | "stopped"
 
 interface CommandEnvelope {
   command: OrchestrationCommand;
+  diagnosticTrace: ReturnType<typeof childDiagnosticSpan>;
   attachmentPrincipal: ManagedAttachmentPrincipal;
   allowArchivedProviderProjection?: boolean;
   acceptedProviderSwitch?: NonNullable<OrchestrationDispatchContext["acceptedProviderSwitch"]>;
@@ -1423,6 +1431,13 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   const runEnvelope = (envelope: CommandEnvelope): Effect.Effect<void> =>
     Effect.suspend(() => {
       const startedAt = performance.now();
+      recordDiagnosticCheckpoint({
+        ...envelope.diagnosticTrace,
+        commandId: envelope.command.commandId,
+        ...("threadId" in envelope.command ? { threadId: envelope.command.threadId } : {}),
+        flow: "command_worker",
+        step: "command.dequeued",
+      });
       const workerFiberId = Fiber.getCurrent()?.id ?? null;
       let stage = "preparing";
       const reportSlowCommand = Effect.suspend(() =>
@@ -1461,6 +1476,15 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                 envelope,
                 (nextStage) => {
                   stage = nextStage;
+                  recordDiagnosticCheckpoint({
+                    ...envelope.diagnosticTrace,
+                    commandId: envelope.command.commandId,
+                    ...("threadId" in envelope.command
+                      ? { threadId: envelope.command.threadId }
+                      : {}),
+                    flow: "command_worker",
+                    step: `worker.${nextStage.replaceAll("-", "_")}`,
+                  });
                 },
                 prepared,
               ),
@@ -1640,6 +1664,9 @@ const makeOrchestrationEngine = Effect.gen(function* () {
 
   const dispatch: OrchestrationEngineShape["dispatch"] = (command, context) =>
     Effect.gen(function* () {
+      const diagnosticTrace = childDiagnosticSpan(
+        traceForDiagnosticCommand(command.commandId) ?? startDiagnosticTrace(),
+      );
       const result = yield* Deferred.make<
         OrchestrationDispatchResult,
         OrchestrationDispatchError
@@ -1647,6 +1674,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       const executionState = yield* Ref.make<CommandExecutionState>("queued");
       const envelope: CommandEnvelope = {
         command,
+        diagnosticTrace,
         attachmentPrincipal: context?.attachmentPrincipal ?? LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
         ...(context?.allowArchivedProviderProjection === true
           ? { allowArchivedProviderProjection: true }
@@ -1713,6 +1741,19 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         },
       );
       if (!admission.accepted) {
+        yield* Effect.sync(() =>
+          recordDiagnosticIncident({
+            ...diagnosticTrace,
+            commandId: command.commandId,
+            ...("threadId" in command ? { threadId: command.threadId } : {}),
+            kind: "command.rejected",
+            code: "COMMAND_REJECTED",
+            where: "orchestration.worker",
+            severity: "error",
+            expected: { accepted: true },
+            actual: { accepted: false },
+          }),
+        );
         return yield* new OrchestrationCommandAdmissionError({
           commandId: command.commandId,
           commandType: command.type,
@@ -1721,6 +1762,15 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           reason: admission.reason,
         });
       }
+      yield* Effect.sync(() =>
+        recordDiagnosticCheckpoint({
+          ...diagnosticTrace,
+          commandId: command.commandId,
+          ...("threadId" in command ? { threadId: command.threadId } : {}),
+          flow: "command_worker",
+          step: "command.queued",
+        }),
+      );
       return yield* Deferred.await(result).pipe(
         Effect.timeoutOption(`${ORCHESTRATION_DISPATCH_TIMEOUT_MS} millis`),
         Effect.flatMap((outcome) =>
@@ -1753,7 +1803,22 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                           commandType: command.type,
                           timeoutMs: ORCHESTRATION_DISPATCH_TIMEOUT_MS,
                         }),
-                        Effect.flatMap(() => Effect.fail(makeCommandTimeoutError(command))),
+                        Effect.flatMap(() =>
+                          Effect.sync(() =>
+                            recordDiagnosticIncident({
+                              ...diagnosticTrace,
+                              commandId: command.commandId,
+                              ...("threadId" in command ? { threadId: command.threadId } : {}),
+                              kind: "timeout",
+                              code: "COMMAND_DISPATCH_TIMEOUT",
+                              where: "orchestration.worker",
+                              severity: "error",
+                              expected: { deadlineMs: DIAGNOSTIC_LIMITS.commandDispatchMs },
+                              actual: { elapsedMs: DIAGNOSTIC_LIMITS.commandDispatchMs },
+                              lastCheckpoint: "command.queued",
+                            }),
+                          ).pipe(Effect.andThen(Effect.fail(makeCommandTimeoutError(command)))),
+                        ),
                       ),
                 ),
               ),

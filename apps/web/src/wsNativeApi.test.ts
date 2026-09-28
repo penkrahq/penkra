@@ -406,7 +406,13 @@ describe("wsNativeApi", () => {
 
     expect(requestMock).toHaveBeenCalledWith(
       ORCHESTRATION_WS_METHODS.dispatchCommand,
-      { command },
+      {
+        command,
+        diagnostics: expect.objectContaining({
+          traceId: expect.stringMatching(/^[0-9a-f]{32}$/u),
+          spanId: expect.stringMatching(/^[0-9a-f]{16}$/u),
+        }),
+      },
       { timeoutMs: null, retryOnReconnect: true },
     );
   });
@@ -450,6 +456,10 @@ describe("wsNativeApi", () => {
             Runtime: "Bun",
           },
         },
+        diagnostics: expect.objectContaining({
+          traceId: expect.any(String),
+          spanId: expect.any(String),
+        }),
       },
       { timeoutMs: null, retryOnReconnect: true },
     );
