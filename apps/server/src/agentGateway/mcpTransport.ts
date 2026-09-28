@@ -1,5 +1,12 @@
 import { ThreadId, type OrchestrationThreadShell } from "@penkra/contracts";
 import { Effect, Option } from "effect";
+import { startDiagnosticTrace } from "@penkra/shared/traceContext";
+import { recordDiagnosticCheckpoint } from "../diagnostics/recorder.ts";
+import {
+  recordMcpAuthorityRejected,
+  recordMcpScopeDenied,
+  type McpAuthorityCheck,
+} from "./mcpWriteDiagnostics.ts";
 
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import type { ProjectionTurnRepositoryShape } from "../persistence/Services/ProjectionTurns.ts";
@@ -179,6 +186,12 @@ export function makeAgentGatewayMcpTransport(input: {
               : {};
           const requiredCapability = tool.requiredCapability;
           if (!context.callerCapabilities.has(requiredCapability)) {
+            recordMcpScopeDenied({
+              trace: context.diagnosticTrace,
+              threadId: context.callerThreadId,
+              turnId: context.callerTurnId,
+              capability: requiredCapability,
+            });
             return jsonRpcResult(
               request.id,
               gatewayToolErrorResult(
@@ -240,6 +253,7 @@ export function makeAgentGatewayMcpTransport(input: {
   return (requestInput) =>
     Effect.gen(function* () {
       const mcpRequestArrivedAt = new Date().toISOString();
+      const diagnosticTrace = startDiagnosticTrace();
       const token = extractBearerToken(requestInput.authorizationHeader);
       const callerSession = token ? input.credentials.verifySession(token) : null;
       if (!token || !callerSession) {
@@ -331,13 +345,28 @@ export function makeAgentGatewayMcpTransport(input: {
           ? callerThread.value.session.activeTurnId
           : null) ||
         null;
+      recordDiagnosticCheckpoint({
+        ...diagnosticTrace,
+        threadId: callerThreadId,
+        ...(callerTurnId ? { turnId: callerTurnId } : {}),
+        flow: "mcp_write",
+        step: "mcp.request_received",
+      });
       const failCallerTurnInactive = (
-        failedCheck: string,
+        failedCheck: McpAuthorityCheck,
         error: GatewayToolError,
         observed: typeof ingressAuthority = ingressAuthority,
         session: OrchestrationThreadShell["session"] = callerThread.value.session,
-      ) =>
-        Effect.logWarning("agent_gateway.caller_turn_inactive", {
+      ) => {
+        recordMcpAuthorityRejected({
+          trace: diagnosticTrace,
+          threadId: callerThreadId,
+          arrivedTurnId: callerTurnId,
+          expectedTurnId: callerWriteAuthority?.turnId ?? null,
+          observedTurnId: observed.turnId,
+          failedCheck,
+        });
+        return Effect.logWarning("agent_gateway.caller_turn_inactive", {
           callerThreadId,
           mcpRequestArrivedAt,
           failedCheck,
@@ -352,6 +381,7 @@ export function makeAgentGatewayMcpTransport(input: {
           arrivedTurnId: callerTurnId,
           observedAuthorityTurnId: observed.turnId,
         }).pipe(Effect.andThen(Effect.fail(error)));
+      };
       const assertCallerThreadAuthorized: ToolContext["assertCallerThreadAuthorized"] = () =>
         Effect.gen(function* () {
           const currentSession = input.credentials.verifySession(token);
@@ -476,6 +506,7 @@ export function makeAgentGatewayMcpTransport(input: {
           }
         }).pipe(Effect.asVoid);
       const context: Omit<ToolContext, "jsonRpcRequestId"> = {
+        diagnosticTrace,
         principal: {
           kind: "provider-session",
           sessionKey: callerSession.sessionKey,
