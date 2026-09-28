@@ -19,6 +19,7 @@ export interface DiagnosticsOptions {
   readonly stateDir: string;
   readonly appVersion: string;
   readonly buildId?: string;
+  readonly osMajor?: number | "unknown";
   readonly bundlePath?: string;
   readonly bundleSignature?: BundleSignature;
   readonly process: "server" | "desktop-main" | "renderer" | "provider-child";
@@ -583,19 +584,29 @@ function prepareEnvelope(
   };
 }
 
-let macOsMajor: number | undefined;
+let macOsMajor: number | "unknown" | undefined;
 
-function diagnosticOs(): { osFamily: "darwin" | "linux" | "windows"; osMajor: number } {
+function diagnosticOs(options: DiagnosticsOptions): {
+  osFamily: "darwin" | "linux" | "windows";
+  osMajor: number | "unknown";
+} {
+  if (
+    options.osMajor !== undefined &&
+    options.osMajor !== "unknown" &&
+    (!Number.isSafeInteger(options.osMajor) || options.osMajor < 0)
+  )
+    throw new TypeError("Invalid diagnostics OS major");
   if (process.platform === "darwin") {
+    if (options.osMajor !== undefined) return { osFamily: "darwin", osMajor: options.osMajor };
     if (macOsMajor === undefined) {
       try {
         const parsed = Number.parseInt(
           execFileSync("/usr/bin/sw_vers", ["-productVersion"], { timeout: 1_000 }).toString(),
           10,
         );
-        macOsMajor = Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 0;
+        macOsMajor = Number.isSafeInteger(parsed) && parsed > 0 ? parsed : "unknown";
       } catch {
-        macOsMajor = 0;
+        macOsMajor = "unknown";
       }
     }
     return { osFamily: "darwin", osMajor: macOsMajor };
@@ -603,13 +614,13 @@ function diagnosticOs(): { osFamily: "darwin" | "linux" | "windows"; osMajor: nu
   if (process.platform === "linux" || process.platform === "win32")
     return {
       osFamily: process.platform === "win32" ? "windows" : "linux",
-      osMajor: Number.parseInt(os.release(), 10) || 0,
+      osMajor: options.osMajor ?? (Number.parseInt(os.release(), 10) || "unknown"),
     };
   throw new Error("Unsupported diagnostics OS");
 }
 
 function diagnosticEnvironment(options: DiagnosticsOptions, event: SpoolEnvelope): string {
-  const { osFamily, osMajor } = diagnosticOs();
+  const { osFamily, osMajor } = diagnosticOs(options);
   return JSON.stringify({
     appVersion: options.appVersion,
     buildId: options.buildId ?? "unknown",

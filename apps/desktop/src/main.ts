@@ -424,6 +424,10 @@ function desktopDiagnosticsOptions(): DiagnosticsOptions {
   return {
     stateDir: STATE_DIR,
     appVersion: app.getVersion(),
+    osMajor: (() => {
+      const major = Number.parseInt(process.getSystemVersion(), 10);
+      return Number.isSafeInteger(major) && major > 0 ? major : "unknown";
+    })(),
     ...(resolveAboutCommitHash() ? { buildId: resolveAboutCommitHash()! } : {}),
     ...(startupBundleIdentity?.signature
       ? {

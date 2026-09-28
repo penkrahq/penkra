@@ -78,7 +78,7 @@ reviewed template registry, with no exception text or user value interpolated.
 `buildId` (hex commit ID), `channel` (`production`, `dev`, `test`), optional
 `instance` (bounded numbered Dev identifier), `bootId` (generated hex),
 `process` (registered process enum), `osFamily` (registered enum),
-`osMajor` (nonnegative integer), and health numbers. Unknown keys and
+`osMajor` (nonnegative integer or `unknown` when OS version lookup fails), and health numbers. Unknown keys and
 free-form values are rejected before spool append and again on CLI export.
 
 | Area                      | Stable incident codes                                                                                                                                                                                                                                                                                                                                                                                                                                             |
@@ -294,7 +294,7 @@ type Env = {
   bootId: string; // one per process start
   process: "desktop-main" | "server" | "renderer" | "provider-child";
   osFamily: "darwin" | "linux" | "windows";
-  osMajor: number;
+  osMajor: number | "unknown";
 };
 
 type Checkpoint = TraceContext &

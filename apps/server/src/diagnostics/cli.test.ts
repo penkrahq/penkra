@@ -139,6 +139,11 @@ describe("penkra diagnostics reads", () => {
       env_json: string;
     };
     db.prepare("UPDATE incident_occurrences SET env_json = ?").run(
+      JSON.stringify({ ...JSON.parse(savedEnvironment.env_json), osMajor: "unknown" }),
+    );
+    expect(() => queryDiagnostics(["export", "--home-dir", home])).not.toThrow();
+    db.prepare("UPDATE incident_occurrences SET env_json = ?").run(savedEnvironment.env_json);
+    db.prepare("UPDATE incident_occurrences SET env_json = ?").run(
       JSON.stringify({ ...JSON.parse(savedEnvironment.env_json), buildId: "0000000" }),
     );
     expect(() => queryDiagnostics(["export", "--home-dir", home])).toThrow(
