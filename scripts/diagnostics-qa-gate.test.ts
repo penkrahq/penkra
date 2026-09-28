@@ -22,6 +22,8 @@ describe("diagnostics clean QA gate", () => {
       newIncidentIds: ["repeat"],
       pendingExpectations: 0,
       pendingSpools: 0,
+      storeReset: false,
+      newLosses: 0,
     });
   });
 
@@ -49,6 +51,8 @@ describe("diagnostics clean QA gate", () => {
         newIncidentIds: [],
         pendingExpectations: 0,
         pendingSpools: 0,
+        storeReset: false,
+        newLosses: 0,
       });
       let calls = 0;
       const failure = runDiagnosticsQaGate(stateDir, scripts, () => {
@@ -85,6 +89,37 @@ describe("diagnostics clean QA gate", () => {
       expect(awaiting.passed).toBe(false);
       expect(awaiting.pendingExpectations).toBe(1);
       store.resolveExpectation(expectationId, "cancelled");
+      const ledger = path.join(
+        stateDir,
+        "diagnostics",
+        "loss-0123456789abcdef0123456789abcdef.bin",
+      );
+      let runs = 0;
+      const lost = runDiagnosticsQaGate(stateDir, scripts, () => {
+        if (++runs === 1)
+          fs.writeFileSync(
+            ledger,
+            JSON.stringify({
+              count: 1,
+              reason: "spool",
+              reasons: { capacity: 0, sqlite: 0, spool: 1, stale: 0 },
+            }).padEnd(512),
+          );
+        return true;
+      });
+      expect(lost.passed).toBe(false);
+      expect(lost.newLosses).toBe(1);
+      fs.rmSync(ledger);
+      const identityPath = path.join(stateDir, "diagnostics", "identity");
+      const identity = fs.readFileSync(identityPath, "utf8");
+      runs = 0;
+      const reset = runDiagnosticsQaGate(stateDir, scripts, () => {
+        if (++runs === 1) fs.writeFileSync(identityPath, "new-build-identity");
+        return true;
+      });
+      expect(reset.passed).toBe(false);
+      expect(reset.storeReset).toBe(true);
+      fs.writeFileSync(identityPath, identity);
       store.close();
     } finally {
       fs.rmSync(stateDir, { recursive: true, force: true });

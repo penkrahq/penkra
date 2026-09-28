@@ -27,12 +27,15 @@ export function evaluateDiagnosticsQaGate(
   afterIds: ReadonlySet<string>,
   results: ReadonlyArray<QaFlowResult>,
   pending: { expectations: number; spools: number } = { expectations: 0, spools: 0 },
+  integrity: { storeReset: boolean; newLosses: number } = { storeReset: false, newLosses: 0 },
 ): {
   passed: boolean;
   failedFlows: QaFlow[];
   newIncidentIds: string[];
   pendingExpectations: number;
   pendingSpools: number;
+  storeReset: boolean;
+  newLosses: number;
 } {
   const failedFlows = REQUIRED_QA_FLOWS.filter(
     (flow) =>
@@ -45,18 +48,38 @@ export function evaluateDiagnosticsQaGate(
       failedFlows.length === 0 &&
       newIncidentIds.length === 0 &&
       pending.expectations === 0 &&
-      pending.spools === 0,
+      pending.spools === 0 &&
+      !integrity.storeReset &&
+      integrity.newLosses === 0,
     failedFlows,
     newIncidentIds,
     pendingExpectations: pending.expectations,
     pendingSpools: pending.spools,
+    storeReset: integrity.storeReset,
+    newLosses: integrity.newLosses,
   };
+}
+
+function lossCounts(dir: string): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const name of fs.readdirSync(dir)) {
+    if (!/^loss-[a-f0-9]{32}\.bin$/u.test(name)) continue;
+    const row = JSON.parse(fs.readFileSync(path.join(dir, name), "utf8").trim()) as {
+      count?: unknown;
+    };
+    if (!Number.isSafeInteger(row.count) || (row.count as number) < 0)
+      throw new Error(`Invalid diagnostics loss ledger: ${name}`);
+    counts.set(name, row.count as number);
+  }
+  return counts;
 }
 
 function diagnosticsState(stateDir: string): {
   ids: Set<string>;
   expectations: number;
   spools: number;
+  identity: string;
+  losses: Map<string, number>;
 } {
   const db = openDiagnosticsReader(stateDir);
   if (!db) throw new Error("Diagnostics store must exist before the clean QA gate starts");
@@ -72,7 +95,13 @@ function diagnosticsState(stateDir: string): {
         (name) =>
           /^spool-[a-f0-9]{32}\.jsonl$/u.test(name) && fs.statSync(path.join(dir, name)).size > 0,
       ).length;
-    return { ids: new Set(rows.map((row) => row.id)), expectations, spools };
+    return {
+      ids: new Set(rows.map((row) => row.id)),
+      expectations,
+      spools,
+      identity: fs.readFileSync(path.join(dir, "identity"), "utf8"),
+      losses: lossCounts(dir),
+    };
   } finally {
     db.close();
   }
@@ -99,13 +128,21 @@ export function runDiagnosticsQaGate(
   for (const script of scripts.values()) {
     if (!fs.statSync(script).isFile()) throw new Error(`QA script is not a file: ${script}`);
   }
-  const before = diagnosticsState(stateDir).ids;
+  const before = diagnosticsState(stateDir);
   const results = REQUIRED_QA_FLOWS.map((flow) => ({
     flow,
     passed: runner(scripts.get(flow)!, stateDir),
   }));
   const after = diagnosticsState(stateDir);
-  return evaluateDiagnosticsQaGate(before, after.ids, results, after);
+  const newLosses = [...after.losses].reduce(
+    (sum, [name, count]) => sum + Math.max(0, count - (before.losses.get(name) ?? 0)),
+    0,
+  );
+  return evaluateDiagnosticsQaGate(before.ids, after.ids, results, after, {
+    storeReset:
+      before.identity !== after.identity || [...before.ids].some((id) => !after.ids.has(id)),
+    newLosses,
+  });
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
