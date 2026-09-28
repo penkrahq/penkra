@@ -1265,10 +1265,6 @@ function bootstrapConfiguredAppsForSpaces(): Promise<void> {
     await reconcileConfiguredRequiredApps(spaceIds);
     const registry = appRegistryClient;
     if (registry && (await getPenkraAccountId())) {
-      stopDesktopDiagnosticsHealthSampling?.();
-      stopDesktopDiagnosticsHealthSampling = null;
-      stopDesktopDiagnosticsWatchdog?.();
-      stopDesktopDiagnosticsWatchdog = null;
       try {
         await bootstrapDefaultRegistryApps({
           runtime,
@@ -5074,6 +5070,10 @@ async function shutdownDesktopRuntime(
       await disposeAppCommandPipeServerForShutdown(reason);
       restoreStdIoCapture?.();
       await drainDesktopDiagnosticsWorker();
+      stopDesktopDiagnosticsHealthSampling?.();
+      stopDesktopDiagnosticsHealthSampling = null;
+      stopDesktopDiagnosticsWatchdog?.();
+      stopDesktopDiagnosticsWatchdog = null;
       try {
         desktopDiagnostics?.close();
       } catch {
