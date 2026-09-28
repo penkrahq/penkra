@@ -491,6 +491,32 @@ describe("diagnostics store", () => {
     store.close();
   });
 
+  it("closes a swept deadline in the same transaction as its incident", () => {
+    const { stateDir, store } = fixture();
+    const id = store.armExpectation({ traceId, spanId, kind: "turn.started", deadlineMs: 1 });
+    const afterDeadline = new Date(Date.now() + 100);
+    expect(store.sweepExpectations(afterDeadline)).toBe(1);
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(db.prepare("SELECT count(*) AS count FROM expectations").get()).toMatchObject({
+      count: 0,
+    });
+    expect(db.prepare("SELECT context_json FROM incident_occurrences").get()).toMatchObject({
+      context_json: JSON.stringify({ reason: "deadline", entityId: id }),
+    });
+    db.close();
+    store.close();
+    const resumed = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
+    expect(resumed.sweepExpectations(afterDeadline)).toBe(0);
+    const replayed = openDiagnosticsReader(stateDir)!;
+    expect(
+      replayed.prepare("SELECT count(*) AS count FROM incident_occurrences").get(),
+    ).toMatchObject({
+      count: 1,
+    });
+    replayed.close();
+    resumed.close();
+  });
+
   it("records the supported OS family and product major in the incident environment", () => {
     const { stateDir, store } = fixture();
     store.incident({
@@ -609,13 +635,18 @@ describe("diagnostics store", () => {
 
   it("marks unresolved expectations unknown after a restart", () => {
     const { stateDir, store } = fixture();
-    store.armExpectation({ traceId, spanId, kind: "turn.first_output", deadlineMs: 30_000 });
+    const id = store.armExpectation({
+      traceId,
+      spanId,
+      kind: "turn.first_output",
+      deadlineMs: 30_000,
+    });
     store.close();
     const restarted = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
     const db = openDiagnosticsReader(stateDir)!;
     expect(db.prepare("SELECT code, context_json FROM incidents").get()).toMatchObject({
       code: "EXPECTATION_MISSED",
-      context_json: '{"reason":"unknown"}',
+      context_json: JSON.stringify({ reason: "unknown", entityId: id }),
     });
     expect(db.prepare("SELECT count(*) AS count FROM expectations").get()).toMatchObject({
       count: 0,
