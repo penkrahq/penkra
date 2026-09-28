@@ -67,6 +67,14 @@ throw new Error("three");`;
         () => source,
       ),
     ).toThrow("does not record");
+    const splitRecording = `recordDiagnosticIncident({ code: "COMMAND_REJECTED", where: "server.ws_rpc" });
+      recordDiagnosticIncident({ code: "APP_OPERATION_FAILED", where: "server.command" });`;
+    expect(() =>
+      validateCoverageBoundaries(
+        [{ code: "COMMAND_REJECTED", where: "server.command", file }],
+        () => splitRecording,
+      ),
+    ).toThrow("does not record");
     const recordingSource = `recordDiagnosticIncident({ code: "COMMAND_REJECTED", where: "server.command" });`;
     const boundaries = validateCoverageBoundaries(
       [{ code: "COMMAND_REJECTED", where: "server.command", file }],
