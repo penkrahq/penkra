@@ -49,6 +49,51 @@ export interface IncidentInput extends DiagnosticContext {
   readonly lastCheckpoint?: string;
 }
 
+const EXPECTATION_CODES = {
+  "send.accepted": "SEND_PREFLIGHT_REJECTED",
+  "turn.started": "TURN_START_TIMEOUT",
+  "turn.first_output": "TURN_OUTPUT_SILENT",
+  "turn.output_continues": "TURN_OUTPUT_SILENT",
+  "stop.terminal": "STOP_NOT_EFFECTIVE",
+  "play.started": "PLAY_REJECTED",
+  "archive.windows_closed": "ARCHIVED_THREAD_STILL_OPEN",
+  "create.completed": "CREATE_TIMEOUT",
+  "socket.connected": "WS_HANDSHAKE_SLOW",
+} as const satisfies Record<string, IncidentCode>;
+
+export type ExpectationKind = keyof typeof EXPECTATION_CODES;
+
+export interface ExpectationInput extends DiagnosticContext {
+  readonly kind: ExpectationKind;
+  readonly deadlineMs: number;
+  readonly correlation?: DiagnosticFields;
+}
+
+interface ExpectationRow {
+  id: string;
+  kind: ExpectationKind;
+  trace_id: string;
+  span_id: string;
+  attempt_id: string | null;
+  thread_id: string | null;
+  turn_id: string | null;
+  correlation_json: string;
+  armed_at: string;
+  deadline_at: string;
+  deadline_ms: number;
+  last_checkpoint: string | null;
+  boot_id: string;
+}
+
+function expectationFlow(kind: ExpectationKind): string {
+  if (kind.startsWith("turn.") || kind.startsWith("send.")) return "send";
+  if (kind.startsWith("stop.")) return "stop";
+  if (kind.startsWith("play.")) return "play";
+  if (kind.startsWith("archive.")) return "archive";
+  if (kind.startsWith("create.")) return "thread_create";
+  return "socket_connect";
+}
+
 interface SpoolEnvelope {
   readonly version: 1;
   readonly bootId: string;
@@ -410,6 +455,7 @@ export class DiagnosticsStore {
     });
     const crashedProcesses = this.importSpools();
     fs.writeFileSync(this.activePath, JSON.stringify({ pid: process.pid }), { mode: 0o600 });
+    this.sweepExpectations(new Date(), true);
     if (crashedProcesses > 0) {
       this.incident({
         traceId: randomBytes(16).toString("hex"),
@@ -561,6 +607,109 @@ export class DiagnosticsStore {
 
   incident(data: IncidentInput): void {
     this.write("incident", data);
+  }
+
+  armExpectation(input: ExpectationInput): string {
+    this.assertCurrentVersion();
+    validateContext(input);
+    if (!Object.hasOwn(EXPECTATION_CODES, input.kind))
+      throw new TypeError("Unknown expectation kind");
+    if (!Number.isSafeInteger(input.deadlineMs) || input.deadlineMs < 1)
+      throw new TypeError("Invalid expectation deadline");
+    const correlation = sqlJson(input.correlation);
+    const id = randomUUID();
+    const now = new Date();
+    const last = this.database
+      .prepare("SELECT step FROM detail WHERE trace_id = ? ORDER BY id DESC LIMIT 1")
+      .get(input.traceId) as { step: string } | undefined;
+    this.database
+      .prepare(`INSERT INTO expectations (
+      id, kind, trace_id, span_id, attempt_id, thread_id, turn_id, correlation_json,
+      armed_at, deadline_at, deadline_ms, last_checkpoint, boot_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(
+        id,
+        input.kind,
+        input.traceId,
+        input.spanId,
+        input.attemptId ?? null,
+        input.threadId ?? null,
+        input.turnId ?? null,
+        correlation,
+        now.toISOString(),
+        new Date(now.getTime() + input.deadlineMs).toISOString(),
+        input.deadlineMs,
+        last?.step ?? null,
+        this.bootId,
+      );
+    return id;
+  }
+
+  resolveExpectation(id: string, outcome: "met" | "cancelled" = "met"): boolean {
+    this.assertCurrentVersion();
+    validateDiagnosticId(id);
+    const pending = this.database.prepare("SELECT * FROM expectations WHERE id = ?").get(id) as
+      | ExpectationRow
+      | undefined;
+    if (!pending) return false;
+    this.checkpoint({
+      traceId: pending.trace_id,
+      spanId: pending.span_id,
+      ...(pending.attempt_id ? { attemptId: pending.attempt_id } : {}),
+      ...(pending.thread_id ? { threadId: pending.thread_id } : {}),
+      ...(pending.turn_id ? { turnId: pending.turn_id } : {}),
+      flow: expectationFlow(pending.kind),
+      step: "expectation.resolved",
+      outcome: outcome === "met" ? "ok" : "cancelled",
+      elapsedMs: Math.max(0, Date.now() - Date.parse(pending.armed_at)),
+    });
+    this.database.prepare("DELETE FROM expectations WHERE id = ?").run(id);
+    return true;
+  }
+
+  sweepExpectations(now = new Date(), afterRestart = false): number {
+    this.assertCurrentVersion();
+    const due = this.database
+      .prepare(`SELECT * FROM expectations
+      WHERE deadline_at <= ? OR (? = 1 AND boot_id != ?)
+      ORDER BY deadline_at`)
+      .all(now.toISOString(), afterRestart ? 1 : 0, this.bootId) as unknown as ExpectationRow[];
+    for (const pending of due) {
+      const restarted = pending.boot_id !== this.bootId;
+      const code = restarted ? "EXPECTATION_MISSED" : EXPECTATION_CODES[pending.kind];
+      const last = this.database
+        .prepare("SELECT step FROM detail WHERE trace_id = ? ORDER BY id DESC LIMIT 1")
+        .get(pending.trace_id) as { step: string } | undefined;
+      const context = JSON.parse(pending.correlation_json) as DiagnosticFields;
+      this.incident({
+        traceId: pending.trace_id,
+        spanId: pending.span_id,
+        ...(pending.attempt_id ? { attemptId: pending.attempt_id } : {}),
+        ...(pending.thread_id ? { threadId: pending.thread_id } : {}),
+        ...(pending.turn_id ? { turnId: pending.turn_id } : {}),
+        kind: "expectation.missed",
+        code,
+        where: "diagnostics.expectation",
+        severity: "error",
+        expected: { deadlineMs: pending.deadline_ms },
+        actual: { elapsedMs: Math.max(0, now.getTime() - Date.parse(pending.armed_at)) },
+        context: { ...context, reason: restarted ? "unknown" : "deadline" },
+        ...((last?.step ?? pending.last_checkpoint)
+          ? { lastCheckpoint: last?.step ?? pending.last_checkpoint! }
+          : {}),
+      });
+      this.checkpoint({
+        traceId: pending.trace_id,
+        spanId: pending.span_id,
+        ...(pending.thread_id ? { threadId: pending.thread_id } : {}),
+        ...(pending.turn_id ? { turnId: pending.turn_id } : {}),
+        flow: expectationFlow(pending.kind),
+        step: restarted ? "expectation.unknown_after_restart" : "expectation.missed",
+        outcome: "timed_out",
+      });
+      this.database.prepare("DELETE FROM expectations WHERE id = ?").run(pending.id);
+    }
+    return due.length;
   }
 
   traceForCommand(commandId: string): DiagnosticContext | null {

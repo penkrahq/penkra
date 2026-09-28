@@ -1,13 +1,49 @@
-import type { CheckpointInput, DiagnosticContext, DiagnosticsStore, IncidentInput } from "./store";
+import type {
+  CheckpointInput,
+  DiagnosticContext,
+  DiagnosticsStore,
+  ExpectationInput,
+  IncidentInput,
+} from "./store";
 
 let activeStore: DiagnosticsStore | null = null;
 
 /** Startup installs the single server writer after version reset and spool import. */
 export function installDiagnosticsStore(store: DiagnosticsStore): () => void {
   activeStore = store;
+  const sweep = setInterval(() => {
+    try {
+      store.sweepExpectations();
+    } catch {
+      process.stderr.write("[diagnostics] expectation sweep failed\n");
+    }
+  }, 1_000);
+  sweep.unref();
   return () => {
+    clearInterval(sweep);
     if (activeStore === store) activeStore = null;
   };
+}
+
+export function armDiagnosticExpectation(input: ExpectationInput): string | null {
+  try {
+    return activeStore?.armExpectation(input) ?? null;
+  } catch {
+    process.stderr.write("[diagnostics] expectation arm failed\n");
+    return null;
+  }
+}
+
+export function resolveDiagnosticExpectation(
+  id: string | null,
+  outcome: "met" | "cancelled" = "met",
+): void {
+  if (id === null) return;
+  try {
+    activeStore?.resolveExpectation(id, outcome);
+  } catch {
+    process.stderr.write("[diagnostics] expectation resolution failed\n");
+  }
 }
 
 export function recordDiagnosticCheckpoint(input: CheckpointInput): void {

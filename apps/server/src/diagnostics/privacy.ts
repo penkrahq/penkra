@@ -74,6 +74,9 @@ const enumValues = {
     "provider.intent_settled",
     "provider.retry_scheduled",
     "provider.quarantined",
+    "expectation.resolved",
+    "expectation.missed",
+    "expectation.unknown_after_restart",
   ],
   phase: ["spawn", "handshake", "resume", "request_accepted", "first_event", "terminal"],
   provider: ["codex", "claudeAgent", "opencode"],
@@ -141,6 +144,7 @@ const enumValues = {
   reason: ["deadline", "rejected", "disconnected", "crashed", "invalid_state", "unknown"],
   where: [
     "diagnostics.spool_import",
+    "diagnostics.expectation",
     "orchestration.worker",
     "server.command",
     "server.provider",

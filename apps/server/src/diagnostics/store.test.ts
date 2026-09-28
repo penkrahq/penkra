@@ -31,6 +31,64 @@ afterEach(() => {
 });
 
 describe("diagnostics store", () => {
+  it("resolves expectations and records missed deadlines with the last checkpoint", () => {
+    const { stateDir, store } = fixture();
+    store.checkpoint({ traceId, spanId, flow: "send", step: "server.received" });
+    const met = store.armExpectation({ traceId, spanId, kind: "send.accepted", deadlineMs: 2_000 });
+    expect(store.resolveExpectation(met)).toBe(true);
+    expect(store.resolveExpectation(met)).toBe(false);
+    store.armExpectation({ traceId, spanId, kind: "turn.started", deadlineMs: 10_000 });
+    expect(store.sweepExpectations(new Date(Date.now() + 11_000))).toBe(1);
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(db.prepare("SELECT count(*) AS count FROM expectations").get()).toMatchObject({
+      count: 0,
+    });
+    expect(
+      db.prepare("SELECT code, last_checkpoint, expected_json FROM incidents").get(),
+    ).toMatchObject({
+      code: "TURN_START_TIMEOUT",
+      last_checkpoint: "expectation.resolved",
+      expected_json: '{"deadlineMs":10000}',
+    });
+    db.close();
+    store.close();
+  });
+
+  it("marks unresolved expectations unknown after a restart", () => {
+    const { stateDir, store } = fixture();
+    store.armExpectation({ traceId, spanId, kind: "turn.first_output", deadlineMs: 30_000 });
+    store.close();
+    const restarted = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(db.prepare("SELECT code, context_json FROM incidents").get()).toMatchObject({
+      code: "EXPECTATION_MISSED",
+      context_json: '{"reason":"unknown"}',
+    });
+    expect(db.prepare("SELECT count(*) AS count FROM expectations").get()).toMatchObject({
+      count: 0,
+    });
+    db.close();
+    restarted.close();
+  });
+
+  it("rejects content in expectation correlation before persisting it", () => {
+    const { stateDir, store } = fixture();
+    expect(() =>
+      store.armExpectation({
+        traceId,
+        spanId,
+        kind: "turn.started",
+        deadlineMs: 10_000,
+        correlation: { message: "private prompt content" },
+      }),
+    ).toThrow("not allowlisted");
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(db.prepare("SELECT count(*) AS count FROM expectations").get()).toMatchObject({
+      count: 0,
+    });
+    db.close();
+    store.close();
+  });
   it("records checkpoints and collapses repeated incidents with allowed evidence", () => {
     const { stateDir, store } = fixture();
     store.checkpoint({
