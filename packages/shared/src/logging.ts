@@ -140,7 +140,19 @@ export class RotatingFileSink {
         const temporary = `${backup}.penkra-tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
         try {
           fs.copyFileSync(this.filePath, temporary);
+          const copied = fs.openSync(temporary, "r");
+          try {
+            fs.fsyncSync(copied);
+          } finally {
+            fs.closeSync(copied);
+          }
           fs.renameSync(temporary, backup);
+          const directory = fs.openSync(path.dirname(backup), "r");
+          try {
+            fs.fsyncSync(directory);
+          } finally {
+            fs.closeSync(directory);
+          }
         } finally {
           fs.rmSync(temporary, { force: true });
         }
