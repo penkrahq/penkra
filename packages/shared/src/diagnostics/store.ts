@@ -1955,11 +1955,13 @@ export class DiagnosticsStore {
   }
 
   close(): void {
-    this.database.close();
-    if (fs.existsSync(this.spoolPath) && fs.statSync(this.spoolPath).size === 0) {
-      fs.rmSync(this.spoolPath, { force: true });
-    }
-    fs.rmSync(this.activePath, { force: true });
+    withLifecycleLock(this.dir, () => {
+      this.database.close();
+      if (fs.existsSync(this.spoolPath) && fs.statSync(this.spoolPath).size === 0) {
+        fs.rmSync(this.spoolPath, { force: true });
+      }
+      fs.rmSync(this.activePath, { force: true });
+    });
   }
 }
 
