@@ -344,6 +344,28 @@ describe("diagnostics store", () => {
     store.close();
   });
 
+  it("records a late resolution as a missed deadline before the sweep", async () => {
+    const { stateDir, store } = fixture();
+    const id = store.armExpectation({
+      traceId,
+      spanId,
+      kind: "turn.started",
+      deadlineMs: 1,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(store.resolveExpectation(id)).toBe(true);
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(db.prepare("SELECT code, context_json FROM incidents").get()).toMatchObject({
+      code: "TURN_START_TIMEOUT",
+      context_json: '{"reason":"late_resolution"}',
+    });
+    expect(db.prepare("SELECT count(*) AS count FROM expectations").get()).toMatchObject({
+      count: 0,
+    });
+    db.close();
+    store.close();
+  });
+
   it("marks unresolved expectations unknown after a restart", () => {
     const { stateDir, store } = fixture();
     store.armExpectation({ traceId, spanId, kind: "turn.first_output", deadlineMs: 30_000 });

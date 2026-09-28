@@ -218,6 +218,7 @@ const enumValues = {
   scope: ["thread", "turn", "connection", "window", "app", "global"],
   reason: [
     "deadline",
+    "late_resolution",
     "rejected",
     "disconnected",
     "crashed",
