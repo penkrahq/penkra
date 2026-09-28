@@ -1,11 +1,12 @@
-# Diagnostics design
+# Diagnostics design (0.14.3)
 
-Status: design for review. The incident-specific timing patch is local and uncommitted; the
-end-to-end diagnostic system described here is not built. No release version is selected.
+Status: approved implementation contract. Source: the operator-approved design at
+`cbd0567ee`, with the 0.14.3 decisions below. Implementation progress is tracked
+in repository-root `TODO.md`, not in this contract.
 
 ## Goal
 
-The target is for every critical-flow failure in Penkra to leave enough evidence to find its root cause **without reproducing it**. Instrumentation can still fail under process death, a full disk, or an operating-system failure; those gaps must be detectable where another process or a later boot survives.
+Every failure in Penkra must leave enough evidence to find its root cause **without reproducing it**.
 
 - If an incident cannot be explained from what was recorded, that is a defect in our tracing (a coverage gap), just as an untested path is a test coverage gap.
 - The first fix for a coverage gap is to record what was missing. We do not fix the behaviour until a trace proves the cause.
@@ -17,22 +18,90 @@ Builds on:
 - [`production-thread-stall-evidence-2026-09-27.md`](production-thread-stall-evidence-2026-09-27.md): measured stall boundaries that current logging could not explain.
 - An earlier draft, `production-observability-design-2026-09-27.md`. It is uncommitted in the release worktree, and its content is merged into this document.
 
-## Design inputs and one proposed revision
+## Decisions already made
 
-The prior design selected a full diagnostic reset on every app update. This revision proposes
-retaining unresolved incidents across updates because the reset would erase evidence of a failure
-that an update was used to recover from. That retention change needs review before implementation.
+| Topic                | Decision                                                                                                                                                                                                                |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Content              | Diagnostics store IDs, states, timings and error codes only. Conversation content already lives in the main database and is joined by ID. No prompt text, model output, tool arguments, credentials, paths or raw URLs. |
+| Disk budget          | 1 GB ceiling for all diagnostics. Normal pruning should keep it far below that.                                                                                                                                         |
+| Pruning on update    | Diagnostics accumulate until an app update, then reset completely, so every record belongs to the current version.                                                                                                      |
+| UI                   | None. Recording is completely silent.                                                                                                                                                                                   |
+| Agents               | Diagnostics are readable through the normal `penkra` CLI. Nothing is added to prompts or agent instructions.                                                                                                            |
+| Sending traces to us | Decided later. The design keeps everything local and exportable.                                                                                                                                                        |
+| Deadlines            | We choose defaults and tune them from real incidents.                                                                                                                                                                   |
+| QA                   | Scripted automation (Playwright or RPC), not computer use. A run passes only if its scripts pass **and** zero new incidents are recorded.                                                                               |
 
-| Topic                | Decision                                                                                                                                                                                                                           |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Content              | Diagnostics store IDs, states, timings and error codes only. Conversation content already lives in the main database and is joined by ID. No prompt text, model output, tool arguments, credentials, paths or raw URLs.            |
-| Disk budget          | 1 GB ceiling for all diagnostics. Normal pruning should keep it far below that.                                                                                                                                                    |
-| Pruning on update    | Keep unresolved incidents and their pinned detail across an update, labeled with the build that produced them. Apply ordinary size and age limits; do not erase the evidence needed to diagnose a failure that prompted an update. |
-| UI                   | None. Recording is completely silent.                                                                                                                                                                                              |
-| Agents               | Diagnostics are readable through the normal `penkra` CLI. Nothing is added to prompts or agent instructions.                                                                                                                       |
-| Sending traces to us | Decided later. The design keeps everything local and exportable.                                                                                                                                                                   |
-| Deadlines            | We choose defaults and tune them from real incidents.                                                                                                                                                                              |
-| QA                   | Scripted automation (Playwright or RPC), not computer use. A run passes only if its scripts pass **and** zero new incidents are recorded.                                                                                          |
+### 0.14.3 decisions
+
+1. Ship the complete design in 0.14.3, including all failure sites in the inventory and all listed flows. The P1/P2/P3 labels set implementation order, not release exclusions.
+2. The first start of **every new app version** deletes the entire diagnostics database and every process spool before recording that version's events. No unresolved incident or pinned detail carries over.
+3. Every failure site is in scope, including paths outside the named flows. A site is covered only when its failure decision produces an incident with a stable code and enough allowlisted evidence to explain the cause.
+4. Do not import rows from `operational_diagnostics` or `provider_runtime_diagnostic_episodes`. Existing producers write to the new store from cutover onward. The old rows remain in the main database until normal database retention removes them; they are not diagnostic history for this version.
+
+### Frozen v1 storage contract
+
+The database is `userdata/diagnostics/diagnostics.sqlite`. An interprocess
+diagnostics lifecycle lock serializes version checks, reset, spool import, and
+database creation. A process from an older version must stop writing after the
+new version claims the store. All timestamps are UTC
+ISO 8601, durations are integer milliseconds, identifiers are text, and structured
+fields are JSON objects validated against the privacy allowlist before entering a
+spool. A spool record has a version, process boot ID, monotonically increasing
+sequence, event type, and the same allowlisted payload stored in SQLite. A unique
+`(boot_id, sequence)` key makes crash replay idempotent.
+
+| Table          | Required columns                                                                                                                                                                                                                                                                                                                                                        | Indexes and lifecycle                                                                                                                                                 |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `meta`         | `key TEXT PRIMARY KEY`, `value TEXT NOT NULL`                                                                                                                                                                                                                                                                                                                           | `schema_version=1`, `app_version`, `reset_at`, per-process drop counts and last prune.                                                                                |
+| `detail`       | `id INTEGER PRIMARY KEY`, `boot_id`, `sequence`, `at`, `mono_ms`, `event_type`, `flow`, `step`, `trace_id`, `span_id`, `parent_span_id`, `attempt_id`, `thread_id`, `turn_id`, `command_id`, `correlation_json`, `payload_json`, `pinned_until`                                                                                                                         | Unique `(boot_id, sequence)`; indexes on `(trace_id, at)`, `(thread_id, at)`, and `at`. Event types are `checkpoint`, `external_outcome`, and `expectation_resolved`. |
+| `incidents`    | `id TEXT PRIMARY KEY`, `fingerprint`, `kind`, `code`, `severity`, `where_name`, `summary`, `trace_id`, `span_id`, `attempt_id`, `thread_id`, `turn_id`, `command_id`, `expected_json`, `actual_json`, `limit_json`, `context_json`, `provenance_json`, `health_json`, `last_checkpoint`, `count`, `first_at`, `last_at`, `pin_from`, `pin_until`, `boot_id`, `env_json` | Unique active fingerprint; indexes on `(last_at, id)`, `(thread_id, last_at)`, `(trace_id, last_at)`, `(kind, code, last_at)`. Repeats update count and last time.    |
+| `expectations` | `id TEXT PRIMARY KEY`, `kind`, `trace_id`, `span_id`, `attempt_id`, `thread_id`, `turn_id`, `correlation_json`, `armed_at`, `deadline_at`, `deadline_ms`, `last_checkpoint`, `boot_id`                                                                                                                                                                                  | Index on `deadline_at`. Only pending expectations live here; resolution moves to `detail`. A restart resolves leftovers as `unknown_after_restart` incidents.         |
+| `health`       | `id INTEGER PRIMARY KEY`, `boot_id`, `process`, `at`, `event_loop_lag_ms`, `cpu_pct`, `rss_mb`, `heap_mb`, `open_handles`, `queue_depth`, `oldest_queued_ms`, `machine_load_1m`, `free_mem_mb`, `disk_free_mb`                                                                                                                                                          | Index on `(process, at)`. Thin samples older than 24 h to one per minute.                                                                                             |
+| `provenance`   | `entity_kind`, `entity_id`, `field`, `set_by_trace_id`, `set_at`                                                                                                                                                                                                                                                                                                        | Primary key `(entity_kind, entity_id, field)`; latest change only.                                                                                                    |
+
+The v1 code registry is fixed below. A new failure site may add a reviewed code,
+but must not manufacture a code from exception text, provider output, a URL, or
+user data. `COMMAND_REJECTED_*` and `UPDATE_*` in the flow map are families whose
+members must be explicitly registered before use.
+
+| Area                      | Stable incident codes                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Send, turn, queue         | `SEND_PREFLIGHT_REJECTED`, `WS_NOT_CONNECTED`, `COMMAND_REJECTED`, `TURN_START_TIMEOUT`, `TURN_OUTPUT_SILENT`, `STOP_NOT_EFFECTIVE`, `PROVIDER_INTERRUPT_FAILED`, `PLAY_REJECTED`, `QUEUE_STALLED`, `QUEUE_ORDER_VIOLATION`                                                                                                                                                                                                                                       |
+| Worker, provider          | `COMMAND_DISPATCH_TIMEOUT`, `LOCK_WAIT_EXCEEDED`, `PROVIDER_START_TIMEOUT`, `DELIVERY_BLOCKED`, `INTENT_QUARANTINED`, `PROVIDER_CALL_FAILED`, `PROVIDER_CALL_SLOW`, `PROVIDER_EVENT_DECODE_FAILED`                                                                                                                                                                                                                                                                |
+| Socket, MCP, state        | `WS_HANDSHAKE_SLOW`, `WS_RECONNECT_LOOP`, `CALLER_TURN_INACTIVE`, `SCOPE_DENIED`, `MCP_TIMEOUT`, `TURN_STATE_DIVERGED`, `INVARIANT_VIOLATED`, `RECOVERY_PERFORMED`                                                                                                                                                                                                                                                                                                |
+| Lifecycle and other flows | `ARCHIVE_REFUSED_RUNNING`, `ARCHIVED_THREAD_STILL_OPEN`, `CREATE_TIMEOUT`, `CREATE_COMPENSATED`, `ROUTE_TARGET_MISSING`, `RENDERER_UNRESPONSIVE`, `RENDERER_CRASHED`, `AUTH_FAILED`, `TOKEN_REFRESH_FAILED`, `UPDATE_CHECK_FAILED`, `UPDATE_DOWNLOAD_FAILED`, `UPDATE_VERIFY_FAILED`, `UPDATE_INSTALL_FAILED`, `DB_BUSY`, `DB_WRITE_FAILED`, `DB_MIGRATION_FAILED`, `DB_MAINTENANCE_SLOW`, `APP_OPERATION_FAILED`, `APP_TIMEOUT`, `BOOT_SLOW`, `UNCLEAN_SHUTDOWN` |
+| Diagnostics and process   | `PROCESS_UNRESPONSIVE`, `PROCESS_CRASHED`, `EXPECTATION_MISSED`, `DIAGNOSTICS_DROPPED`, `DIAGNOSTICS_WRITE_FAILED`, `DIAGNOSTICS_CAP_REACHED`, `EXTERNAL_CALL_FAILED`, `EXTERNAL_CALL_SLOW`                                                                                                                                                                                                                                                                       |
+
+All limits use integer bytes or milliseconds. The named-limit registry owns the
+values used by code and the incident's `limit` field:
+
+| Limit                                                                           |                                 Frozen default |
+| ------------------------------------------------------------------------------- | ---------------------------------------------: |
+| Total diagnostics (SQLite, WAL, SHM, and all spools)                            |                    1,073,741,824 bytes (1 GiB) |
+| Prune start                                                                     |                           80% of the total cap |
+| Per-process spool                                                               |                                         16 MiB |
+| Batch interval                                                                  |    at most 250 ms; incidents flush immediately |
+| Incident age                                                                    |                 90 days within one app version |
+| Incident detail pin                                                             | 10 min before through 2 min after the incident |
+| Health sample / heartbeat                                                       |                                      every 5 s |
+| Health thinning                                                                 |  after 24 h, one sample per process per minute |
+| Send acceptance / turn start / first output / running silence                   |                       2 s / 10 s / 30 s / 60 s |
+| Stop terminal / Play start / command dispatch / provider start                  |                       5 s / 5 s / 45 s / 120 s |
+| Socket handshake attempt / archive windows / create / window load / auth / boot |            3 s / 2 s / 5 s / 3 s / 30 s / 20 s |
+| `server.log` rotation                                                           |                      10 MiB per file, 10 files |
+
+### Privacy allowlist
+
+Only known keys and scalar values may enter `correlation_json`, `payload_json`,
+`expected_json`, `actual_json`, `context_json`, and `provenance_json`. Allowed
+values are: generated trace/span/attempt and entity IDs; enumerated flow, step,
+phase, provider, state, outcome, failure code, process and source names; booleans;
+numeric counters, sizes and timings; sanitized operating-system error codes;
+and the timestamp of a state change. Reject unknown keys and free-form strings
+at the producer boundary. In particular, never record message or tool content,
+prompts, model output, credentials, file contents, filesystem paths, raw URLs,
+request bodies, exception messages, or arbitrary provider payloads. The local
+export applies the same allowlist again.
 
 ## Current state (measured)
 
@@ -54,21 +123,21 @@ that an update was used to recover from. That retention change needs review befo
 
 ## Failure inventory
 
-The source-snapshot inventory is in [`diagnostics-failure-inventory.md`](./diagnostics-failure-inventory.md), and its sites are listed in [`diagnostics-failure-sites.md`](./diagnostics-failure-sites.md). It is a read-only scan of `apps/server`, `apps/web` and `apps/desktop` on the earlier design branch, plus a count of the production `server.log`. Its line numbers and counts must be refreshed before enforcement on this branch.
+The full inventory is in [`diagnostics-failure-inventory.md`](./diagnostics-failure-inventory.md), and every site is listed in [`diagnostics-failure-sites.md`](./diagnostics-failure-sites.md). It is a read-only scan of `apps/server`, `apps/web` and `apps/desktop`, plus a count of the production `server.log`.
 
-- **5,327 candidate failure or handling sites** in a historical source scan; this count also includes protected `try` blocks and other boundaries that are not separate failures. 446 were locally classified as silent, and 4,923 had no thread, turn, command or connection ID visible in the local statement. Neither number proves the complete call chain is silent or uncorrelated.
-- **The largest flows in that snapshot:** apps and extensions (1,172), provider delivery (723), socket connect (423), command worker (342), database (267), and windows (215).
-- **Each site has a proposed incident code.** They are a starting list, not final names. Implementation checks each site before adding its incident.
+- **5,327 places where something can fail.** 446 of them fail silently, and 4,923 have no thread, turn, command or connection ID in the local statement.
+- **The largest flows:** provider delivery (706), apps and extensions (603), socket connect (420), command worker (342), database (265) and windows (215).
+- **Each site has a proposed incident code.** Implementation checks each site and adds its reviewed stable code to the v1 registry before using it. The inventory does not waive the every-failure coverage target.
 
 **What production already shows** (counts from the production `server.log`; causes marked unverified have not been traced):
 
-| Message                                               |   Count | Status                                                                                                                                                      | What it means for this design                                                                                                                      |
-| ----------------------------------------------------- | ------: | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `provider runtime journal drain failed`               |   2,275 | Historical fault. Every record has an SQL error, and 737 say `disk I/O error`. Those disk errors cluster on August 1, not during the September 27 incident. | Needs `DB_WRITE_FAILED` with the SQLite error code, plus a disk health sample. Do not use the August errors to explain the September freeze.       |
-| `provider.runtime_event_pump.quarantined_event`       |   2,264 | Fault. Every record is a decode error.                                                                                                                      | The incident must keep the event type and the field that failed to decode, so the provider change behind it can be found.                          |
-| `orchestration lifecycle command rejected`            |  28,997 | Guard working as intended, cause of repetition unverified. 28,986 are `thread.turn.start` without the exact binding revision.                               | Record who sent it (renderer, agent or reactor) and the revision it had against the current one. Something is repeatedly sending a stale revision. |
-| `stale orchestration synchronization acknowledgement` | 155,108 | Unverified. 47% of all log lines.                                                                                                                           | Record which of the three checks failed. Then decide whether it is expected (lower it to debug) or a fault.                                        |
-| `Rejected streaming RPC admission.`                   |   6,233 | Guard working as intended, cause of repetition unverified. 6,053 are duplicate subscriptions.                                                               | Record the connection and lease, to show whether one renderer subscribes twice.                                                                    |
+| Message                                               |   Count | Status                                                                                                                        | What it means for this design                                                                                                                         |
+| ----------------------------------------------------- | ------: | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `provider runtime journal drain failed`               |   2,275 | Fault. Every record has an SQL error, and 737 say `disk I/O error`.                                                           | Needs `DB_WRITE_FAILED` with the SQLite error code, plus a disk health sample. The disk errors may be linked to the freeze on 2026-09-27; unverified. |
+| `provider.runtime_event_pump.quarantined_event`       |   2,264 | Fault. Every record is a decode error.                                                                                        | The incident must keep the event type and the field that failed to decode, so the provider change behind it can be found.                             |
+| `orchestration lifecycle command rejected`            |  28,997 | Guard working as intended, cause of repetition unverified. 28,986 are `thread.turn.start` without the exact binding revision. | Record who sent it (renderer, agent or reactor) and the revision it had against the current one. Something is repeatedly sending a stale revision.    |
+| `stale orchestration synchronization acknowledgement` | 155,108 | Unverified. 47% of all log lines.                                                                                             | Record which of the three checks failed. Then decide whether it is expected (lower it to debug) or a fault.                                           |
+| `Rejected streaming RPC admission.`                   |   6,233 | Guard working as intended, cause of repetition unverified. 6,053 are duplicate subscriptions.                                 | Record the connection and lease, to show whether one renderer subscribes twice.                                                                       |
 
 These five are the first incidents to build in the foundation, because they already fire in production.
 
@@ -175,7 +244,8 @@ This is what separates "the computer was overloaded" from "Penkra was blocked" f
 
 ## Shapes
 
-These are illustrative TypeScript shapes, not final schemas.
+These are illustrative TypeScript API shapes. The v1 SQLite schema and allowlist
+above are the persisted contract.
 
 ```ts
 type TraceContext = {
@@ -197,7 +267,7 @@ type Correlation = {
 };
 
 type Env = {
-  appVersion: string; // "0.14.2"
+  appVersion: string; // "0.14.3"
   build: string; // git sha
   channel: "production" | "dev" | "test";
   instance?: string; // numbered Dev instance
@@ -334,7 +404,7 @@ It includes the socket state (`connecting`, attempt 3, the current handshake tim
 
 ## Flow map
 
-Every flow lists its checkpoints, its expectations and the incident codes it can produce. This table is the coverage contract. The first build instruments the flows marked **P1**.
+Every flow lists its checkpoints, its expectations and the incident codes it can produce. This table is the coverage contract. P1, P2 and P3 determine implementation order; all are required in 0.14.3.
 
 | Flow                             | Checkpoints                                                                                                                             | Expectations (default)                                                         | Incident codes                                                                                                         |
 | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
@@ -363,10 +433,6 @@ A separate database file, `userdata/diagnostics/diagnostics.sqlite`. It is kept 
 - Diagnostic writes never contend with application writes.
 - Diagnostics still work when the main database is locked, slow or being repaired.
 
-Separate files avoid the main database lock; they do not isolate synchronous CPU or disk work from
-the server event loop. Import, indexing, pruning, and export must run off the socket admission
-loop, with bounded queues and a measured per-batch budget.
-
 This database is never authoritative. Deleting it loses history, not data.
 
 | Table          | Contents                                                                                   | Kept                                                                                   |
@@ -375,6 +441,7 @@ This database is never authoritative. Deleting it loses history, not data.
 | `detail`       | checkpoints, external call outcomes, resolved expectations (the rolling "flight recorder") | rolling; pinned rows kept with their incident                                          |
 | `expectations` | pending expectations only, so they survive a restart                                       | until resolved; after a restart, pending ones become `unknown_after_restart` incidents |
 | `health`       | health samples                                                                             | rolling, thinned to one per minute after 24 h                                          |
+| `provenance`   | latest last-changed-by value for important state                                           | until superseded or version reset                                                      |
 | `meta`         | schema version, drop counters, last prune, app version at prune                            | always                                                                                 |
 
 **Surviving a crash.** Each process writes first to a small append-only JSONL spool file of its own:
@@ -383,17 +450,12 @@ This database is never authoritative. Deleting it loses history, not data.
 - Desktop main and the server write their own spools.
 - The server imports the spool into SQLite in batches.
 
-On the next boot, any leftover spool is imported and an `UNCLEAN_SHUTDOWN` incident is written.
-A hard freeze preserves only records that reached the spool before the freeze; a surviving peer's
-missed-heartbeat record and the next boot's unclean-shutdown record help bound the missing interval.
+On the next boot, any leftover spool is imported and an `UNCLEAN_SHUTDOWN` incident is written. A hard freeze therefore still leaves a record.
 
 **Cost limits.**
 
 - Writes are batched, at most every 250 ms. Incidents are flushed immediately.
-- The spool is capped per process. Drops are counted locally while the diagnostics database is
-  unavailable, then imported into `meta` and reported as a `diagnostics.degraded` incident after
-  recovery. A crash or full disk can lose the last unflushed counter, so the next boot also checks
-  spool sequence gaps and reports uncertainty rather than claiming a complete record.
+- The spool is capped per process. Anything dropped is counted in `meta` and reported as a `diagnostics.degraded` incident, so a gap is never silent.
 
 ## Retention
 
@@ -401,12 +463,7 @@ missed-heartbeat record and the next boot's unclean-shutdown record help bound t
 - **Detail:** kept until space is needed. For a pruning window, measured production volume (~1.2 MB/day of text today) suggests days to weeks of full detail. We will measure the real rate in Dev before fixing any numbers.
 - **Detail around an incident:** the detail from 10 minutes before to 2 minutes after each incident is pinned and kept with it. Provenance links reach causes older than that window.
 - **Incidents:** 90 days.
-- **On app update:** preserve unresolved incidents and their pinned detail with their original
-  app version, build, and process boot ID. Start a new build segment for fresh records. Normal
-  retention and the hard size cap still apply. A migration must never discard older evidence
-  before it can read and retain that segment; if migration fails, leave the old file intact and
-  record diagnostic degradation in the new segment. This keeps a failed pre-update attempt
-  available when the operator updates Penkra and then investigates it.
+- **On app update: a full reset.** When the first process of a new app version starts, it deletes all diagnostics (incidents, detail, health, spools) before recording anything. Everything in diagnostics therefore belongs to the running version: "these are all after this update". `meta` records the version and time of the reset. Within one version, the 1 GB ceiling and 90-day incident limit still apply.
 
 ## Noise cleanup (part of the same work)
 
@@ -457,7 +514,7 @@ Coverage is enforced the same way test coverage is.
 - An incident that a script _intended_ to cause (for example, sending to an archived thread) must appear with the expected code. If it is missing, that is a coverage failure.
 - QA reports cite incident IDs and trace IDs instead of screenshots.
 
-## Rollout sequence (version to be approved separately)
+## Rollout (0.14.3)
 
 1. **Foundation:**
    - trace context end to end;
@@ -468,12 +525,10 @@ Coverage is enforced the same way test coverage is.
 2. **P1 flows:** send, stop, play, queue, command worker, provider delivery, socket connect, agent/MCP writes, reconciliation, boot.
 3. **Coverage enforcement:** the lint rule, `limits.ts`, the test helper and the fault injection suite.
 4. **Scripted QA** with the zero-new-incidents gate.
-5. **Only then** investigate the open production bugs from real traces: the five production findings in the failure inventory, turn authority, reconciliation marking turns interrupted, the dispatch stall, cross-thread delivery blocking and slow socket handshakes. Each fix must cite the incident and trace that prove its cause.
+5. **Only then** investigate the open 0.14.2 bugs from real traces: the five production findings in the failure inventory, turn authority, reconciliation marking turns interrupted, the dispatch stall, cross-thread delivery blocking and slow socket handshakes. Each fix must cite the incident and trace that prove its cause.
 
-P2 and P3 flows follow in the same release if time allows. Otherwise they go in the next release, with the gap listed.
+P2 and P3 flows and the full failure-site inventory are required before the 0.14.3 diagnostics work is considered complete.
 
 ## Open points
 
-- The diagnostic architecture, current incident patch, and unrelated product work are separate
-  changes. The release inventory must name each included commit or working-tree change explicitly;
-  copying a dirty checkout wholesale would mix incomplete features with incident diagnostics.
+- The uncommitted drafts in the release worktree (`production-observability-design-2026-09-27.md`, the stall evidence note, the `docs/README.md` edit and an extra cross-thread test in `ProviderCommandReactor.test.ts`) belong to another thread. The evidence note is copied here. Their owner should commit them to this branch or discard them. They are not part of 0.14.1.
