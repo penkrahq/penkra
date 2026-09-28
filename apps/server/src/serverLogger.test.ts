@@ -41,3 +41,20 @@ it("rotates server.log at the configured byte and file limits", async () => {
     .join("");
   expect(retained).toContain("rotation-entry-19");
 });
+
+it("bounds an existing oversized server.log and a single oversized entry", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-server-log-"));
+  directories.push(directory);
+  const filePath = path.join(directory, "server.log");
+  fs.writeFileSync(filePath, "a".repeat(400));
+  const logger = makeRotatingServerFileLogger(filePath, 240, 2);
+  await Effect.runPromise(
+    Effect.logInfo("x".repeat(400)).pipe(
+      Effect.provide(Logger.layer([logger], { mergeWithExisting: false })),
+    ),
+  );
+  const names = fs.readdirSync(directory);
+  expect(names).toContain("server.log");
+  expect(names.length).toBeLessThanOrEqual(2);
+  expect(names.every((name) => fs.statSync(path.join(directory, name)).size <= 240)).toBe(true);
+});
