@@ -835,6 +835,20 @@ function insertEnvelope(
       database.prepare("DELETE FROM expectations WHERE id = ?").run(data.fields.entityId);
   } else {
     const data = event.data as IncidentInput;
+    const expectationId = data.context?.entityId;
+    const closesExpectation =
+      data.kind === "expectation.missed" &&
+      typeof expectationId === "string" &&
+      ["late_resolution", "deadline", "unknown"].includes(String(data.context?.reason));
+    if (
+      closesExpectation &&
+      !database.prepare("SELECT 1 FROM expectations WHERE id = ?").get(expectationId as string)
+    ) {
+      database
+        .prepare("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)")
+        .run(receiptKey, String(event.sequence));
+      return;
+    }
     const provenance = database
       .prepare(`SELECT field, set_by_trace_id, set_at FROM provenance
       WHERE (entity_kind = 'thread' AND entity_id = ?)
@@ -983,10 +997,10 @@ function insertEnvelope(
     // the expectation here prevents a crash from replaying a second miss.
     if (
       data.kind === "expectation.missed" &&
-      data.context?.reason === "late_resolution" &&
-      typeof data.context.entityId === "string"
+      ["late_resolution", "deadline", "unknown"].includes(String(data.context?.reason)) &&
+      typeof expectationId === "string"
     )
-      database.prepare("DELETE FROM expectations WHERE id = ?").run(data.context.entityId);
+      database.prepare("DELETE FROM expectations WHERE id = ?").run(expectationId);
   }
   database
     .prepare("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)")
@@ -1746,20 +1760,10 @@ export class DiagnosticsStore {
           value: pending.deadline_ms,
           observed: Math.max(0, now.getTime() - Date.parse(pending.armed_at)),
         },
-        context: { ...context, reason: restarted ? "unknown" : "deadline" },
+        context: { ...context, reason: restarted ? "unknown" : "deadline", entityId: pending.id },
         ...((last?.step ?? pending.last_checkpoint)
           ? { lastCheckpoint: last?.step ?? pending.last_checkpoint! }
           : {}),
-      });
-      this.write("expectation_resolved", {
-        traceId: pending.trace_id,
-        spanId: pending.span_id,
-        ...(pending.thread_id ? { threadId: pending.thread_id } : {}),
-        ...(pending.turn_id ? { turnId: pending.turn_id } : {}),
-        flow: expectationFlow(pending.kind),
-        step: restarted ? "expectation.unknown_after_restart" : "expectation.missed",
-        outcome: "timed_out",
-        fields: { entityId: pending.id },
       });
       swept++;
     }
