@@ -367,12 +367,19 @@ describe("diagnostics store", () => {
       actual: { elapsedMs: 45_300 },
     } as const;
     store.incident(failure);
-    store.incident(failure);
+    const secondTraceId = "fedcba9876543210fedcba9876543210";
+    store.incident({ ...failure, traceId: secondTraceId, actual: { elapsedMs: 45_900 } });
     const db = openDiagnosticsReader(stateDir)!;
     expect(db.prepare("SELECT count FROM incidents").get()).toMatchObject({ count: 2 });
     expect(db.prepare("SELECT count(*) AS count FROM incident_occurrences").get()).toMatchObject({
       count: 2,
     });
+    expect(
+      db.prepare("SELECT trace_id, actual_json FROM incident_occurrences ORDER BY sequence").all(),
+    ).toMatchObject([
+      { trace_id: traceId, actual_json: '{"elapsedMs":45300}' },
+      { trace_id: secondTraceId, actual_json: '{"elapsedMs":45900}' },
+    ]);
     expect(db.prepare("SELECT count(*) AS count FROM detail").get()).toMatchObject({ count: 1 });
     expect(db.prepare("SELECT expected_json FROM incidents").get()).toMatchObject({
       expected_json: '{"deadlineMs":45000}',
@@ -615,6 +622,32 @@ describe("diagnostics store", () => {
     expect(blocked || row.count < 1_000).toBe(true);
     expect(diskBytes()).toBeLessThanOrEqual(cap);
     db.close();
+    store.close();
+  });
+
+  it("preserves a drop count and reports it after a peer spool fills", () => {
+    const { stateDir, store } = fixture();
+    const peer = new DiagnosticsSpoolWriter({
+      stateDir,
+      appVersion: "0.14.3",
+      process: "desktop-main",
+      maxSpoolBytes: 1,
+    });
+    expect(() =>
+      peer.checkpoint({ traceId, spanId, flow: "send", step: "composer.preflight" }),
+    ).toThrow("capacity");
+    const ledger = path.join(stateDir, "diagnostics", `loss-${peer.bootId}.bin`);
+    expect(JSON.parse(fs.readFileSync(ledger, "utf8"))).toMatchObject({
+      count: 1,
+      reason: "capacity",
+    });
+    store.importPeerSpools();
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(
+      db.prepare("SELECT code FROM incidents WHERE code = 'DIAGNOSTICS_CAP_REACHED'").get(),
+    ).toMatchObject({ code: "DIAGNOSTICS_CAP_REACHED" });
+    db.close();
+    peer.close();
     store.close();
   });
 });
