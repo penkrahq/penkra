@@ -340,6 +340,13 @@ describe("diagnostics store", () => {
       last_checkpoint: "expectation.resolved",
       expected_json: '{"deadlineMs":10000}',
     });
+    const limit = db.prepare("SELECT limit_json FROM incident_occurrences").get() as {
+      limit_json: string;
+    };
+    expect(JSON.parse(limit.limit_json)).toMatchObject({
+      name: "turnStartedMs",
+      value: 10_000,
+    });
     db.close();
     store.close();
   });
@@ -359,6 +366,11 @@ describe("diagnostics store", () => {
       code: "TURN_START_TIMEOUT",
       context_json: '{"reason":"late_resolution"}',
     });
+    expect(
+      JSON.parse(
+        (db.prepare("SELECT limit_json FROM incidents").get() as { limit_json: string }).limit_json,
+      ),
+    ).toMatchObject({ name: "turnStartedMs", value: 1 });
     expect(db.prepare("SELECT count(*) AS count FROM expectations").get()).toMatchObject({
       count: 0,
     });
