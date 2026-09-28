@@ -7,11 +7,8 @@ import {
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
 
-import {
-  ThreadDiagnosticsQuery,
-  type OperationalDiagnostic,
-  type ThreadDiagnosticsQueryShape,
-} from "../../diagnostics/Services/ThreadDiagnosticsQuery.ts";
+import { installDiagnosticsStore } from "../../diagnostics/recorder.ts";
+import { DiagnosticsStore, openDiagnosticsReader } from "../../diagnostics/store.ts";
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
 import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
@@ -29,7 +26,6 @@ const installationId = ProviderInstallationId.makeUnsafe("verify-installation");
 
 let returnedIdentity = "native-session";
 let discarded = false;
-const recordedDiagnostics: OperationalDiagnostic[] = [];
 
 const selection: ResolvedProviderTurnSelection = {
   threadId,
@@ -50,19 +46,6 @@ const selection: ResolvedProviderTurnSelection = {
 };
 
 const dependencies = Layer.mergeAll(
-  Layer.succeed(ThreadDiagnosticsQuery, {
-    recordOperationalDiagnostic: (
-      input: Parameters<ThreadDiagnosticsQueryShape["recordOperationalDiagnostic"]>[0],
-    ) =>
-      Effect.sync(() => {
-        recordedDiagnostics.push({
-          ...input,
-          sequence: recordedDiagnostics.length + 1,
-          threadId: input.threadId ?? null,
-          code: input.code ?? null,
-        });
-      }),
-  } as never),
   Layer.succeed(ThreadProviderBindingRepository, {
     getHarnessState: () =>
       Effect.succeed(
@@ -124,9 +107,11 @@ layer("ProviderNativeContinuationVerifier", (it) => {
   it.effect("accepts only the same exact native identity and discards rejected clones", () =>
     Effect.gen(function* () {
       const verifier = yield* ProviderNativeContinuationVerifier;
+      const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-native-verifier-"));
+      const store = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
+      const uninstall = installDiagnosticsStore(store);
       returnedIdentity = "native-session";
       discarded = false;
-      recordedDiagnostics.length = 0;
       const verified = yield* verifier.verifySwitch({
         selection,
         sourceStorage: "connection-profile",
@@ -137,13 +122,20 @@ layer("ProviderNativeContinuationVerifier", (it) => {
       assert.strictEqual(verified.providerSessionId, "native-session");
       assert.strictEqual(verified.generationId, targetGenerationId);
       assert.strictEqual(discarded, false);
+      let db = openDiagnosticsReader(stateDir)!;
       assert.deepStrictEqual(
-        recordedDiagnostics.map((diagnostic) => diagnostic.code),
-        ["NATIVE_CONTINUATION_VERIFICATION_STARTED", "NATIVE_CONTINUATION_VERIFICATION_SUCCEEDED"],
+        db
+          .prepare("SELECT step FROM detail ORDER BY id")
+          .all()
+          .map((row) => row.step),
+        [
+          "provider.continuation_verification_started",
+          "provider.continuation_verification_succeeded",
+        ],
       );
+      db.close();
 
       returnedIdentity = "different-session";
-      recordedDiagnostics.length = 0;
       const mismatch = yield* Effect.exit(
         verifier.verifySwitch({
           selection,
@@ -155,11 +147,35 @@ layer("ProviderNativeContinuationVerifier", (it) => {
       );
       assert.strictEqual(mismatch._tag, "Failure");
       assert.strictEqual(discarded, true);
+      db = openDiagnosticsReader(stateDir)!;
       assert.deepStrictEqual(
-        recordedDiagnostics.map((diagnostic) => diagnostic.code),
-        ["NATIVE_CONTINUATION_VERIFICATION_STARTED", "NATIVE_CONTINUATION_VERIFICATION_FAILED"],
+        db
+          .prepare("SELECT step FROM detail ORDER BY id DESC LIMIT 2")
+          .all()
+          .map((row) => row.step),
+        ["provider.continuation_verification_failed", "provider.continuation_verification_started"],
       );
-      assert.strictEqual(recordedDiagnostics[1]?.detail.stage, "validate-resumed-identity");
+      const incident = db.prepare("SELECT code, context_json FROM incidents").get() as {
+        code: string;
+        context_json: string;
+      };
+      assert.strictEqual(incident.code, "APP_OPERATION_FAILED");
+      assert.deepStrictEqual(
+        { ...JSON.parse(incident.context_json), elapsedMs: 0 },
+        { provider: "opencode", verificationStage: "validate-resumed-identity", elapsedMs: 0 },
+      );
+      db.close();
+      for (const name of fs.readdirSync(path.join(stateDir, "diagnostics"))) {
+        const file = path.join(stateDir, "diagnostics", name);
+        if (fs.statSync(file).isFile())
+          assert.strictEqual(fs.readFileSync(file).includes("different-session"), false);
+      }
+      uninstall();
+      store.close();
+      fs.rmSync(stateDir, { recursive: true, force: true });
     }),
   );
 });
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
