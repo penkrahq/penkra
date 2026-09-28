@@ -497,6 +497,9 @@ includes the last durable sequence and a bounded loss/gap count when known.
   recovery files. Before a write, reserve enough room for its worst-case spool
   and SQLite/WAL growth; check actual total size again after the transaction and
   checkpoint. If the reserve cannot be made, count and report the dropped event.
+  SQLite disables cache spill during a transaction and sets a per-write page
+  limit so the database, one WAL frame per page, WAL-index regions, and other
+  diagnostics files fit inside the ceiling. A busy checkpoint rejects the write.
   Do not allow a successful write to leave the directory over the ceiling.
   Pruning begins at 80% and continues in this order: oldest unpinned detail;
   oldest health; occurrences past 90 days and their now-unused detail; oldest
