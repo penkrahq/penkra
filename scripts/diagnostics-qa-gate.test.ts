@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 import { DiagnosticsStore } from "@penkra/shared/diagnostics/store";
 import { describe, expect, it } from "vitest";
@@ -110,6 +111,21 @@ describe("diagnostics clean QA gate", () => {
       expect(lost.passed).toBe(false);
       expect(lost.newLosses).toBe(1);
       fs.rmSync(ledger);
+      const databasePath = path.join(stateDir, "diagnostics", "diagnostics.sqlite");
+      runs = 0;
+      const anomaly = runDiagnosticsQaGate(stateDir, scripts, () => {
+        if (++runs === 1) {
+          const db = new DatabaseSync(databasePath);
+          db.prepare("INSERT INTO meta(key, value) VALUES (?, ?)").run(
+            "spool-invalid:0123456789abcdef0123456789abcdef",
+            "1",
+          );
+          db.close();
+        }
+        return true;
+      });
+      expect(anomaly.passed).toBe(false);
+      expect(anomaly.newLosses).toBe(1);
       const identityPath = path.join(stateDir, "diagnostics", "identity");
       const identity = fs.readFileSync(identityPath, "utf8");
       runs = 0;
