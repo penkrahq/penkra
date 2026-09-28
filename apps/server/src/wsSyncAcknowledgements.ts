@@ -2,6 +2,8 @@ import * as Crypto from "node:crypto";
 
 import { WsRpcError } from "@penkra/contracts";
 import { Effect } from "effect";
+import { startDiagnosticTrace } from "@penkra/shared/traceContext";
+import { recordDiagnosticIncident } from "./diagnostics/recorder";
 
 interface ActiveSyncLease {
   readonly generation: string;
@@ -80,6 +82,22 @@ export function makeSyncAcknowledgements() {
     Effect.gen(function* () {
       const lease = active.get(clientId);
       if (!lease || lease.deliveryId !== input.deliveryId || lease.deliveredSequence === null) {
+        recordDiagnosticIncident({
+          ...startDiagnosticTrace(),
+          kind: "command.rejected",
+          code: "SYNC_ACK_STALE",
+          where: "server.sync_ack",
+          severity: "warn",
+          expected: { accepted: true },
+          actual: { accepted: false, clientId },
+          context: {
+            check: !lease
+              ? "lease_exists"
+              : lease.deliveryId !== input.deliveryId
+                ? "delivery_matches"
+                : "sequence_delivered",
+          },
+        });
         yield* Effect.logWarning("stale orchestration synchronization acknowledgement").pipe(
           Effect.annotateLogs({ clientId, deliveryId: input.deliveryId }),
         );

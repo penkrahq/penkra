@@ -9,6 +9,8 @@
  */
 import type { ProviderKind, ProviderRuntimeEvent } from "@penkra/contracts";
 import { Cause, Effect, Stream } from "effect";
+import { startDiagnosticTrace } from "@penkra/shared/traceContext";
+import { recordDiagnosticIncident } from "../diagnostics/recorder.ts";
 
 import type {
   ProviderRuntimeEventPumpHealth,
@@ -230,6 +232,36 @@ export function runProviderRuntimeEventPump<R>(
                   successesSinceQuarantine = 0;
                   lastQuarantinedEventId = event.eventId;
                   lastQuarantinedAt = new Date().toISOString();
+                }),
+              ),
+              Effect.andThen(
+                Effect.sync(() => {
+                  const decodeField = /threadId/u.test(detail)
+                    ? "threadId"
+                    : /turnId/u.test(detail)
+                      ? "turnId"
+                      : /payload/u.test(detail)
+                        ? "payload"
+                        : /\btype\b/u.test(detail)
+                          ? "type"
+                          : "unknown";
+                  recordDiagnosticIncident({
+                    ...startDiagnosticTrace(),
+                    threadId: event.threadId,
+                    ...(event.turnId ? { turnId: event.turnId } : {}),
+                    kind: "external.failed",
+                    code: "PROVIDER_EVENT_DECODE_FAILED",
+                    where: "provider.runtime_event_pump",
+                    severity: "error",
+                    expected: { accepted: true },
+                    actual: { accepted: false },
+                    context: {
+                      provider: options.provider,
+                      eventId: event.eventId,
+                      providerEventType: event.type,
+                      decodeField,
+                    },
+                  });
                 }),
               ),
               Effect.andThen(
