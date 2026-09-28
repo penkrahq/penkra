@@ -343,6 +343,12 @@ const make = Effect.gen(function* () {
   ) => {
     const limit = Math.max(1, Math.min(1_000, Math.floor(input.limit)));
     const maxPerThread = Math.max(1, Math.min(limit, Math.floor(input.maxPerThread)));
+    const excludeActiveThreads =
+      input.excludeThreadIds === undefined || input.excludeThreadIds.length === 0
+        ? sql``
+        : sql`AND event.thread_id NOT IN ${sql.in(input.excludeThreadIds)}`;
+    const onlyThread =
+      input.onlyThreadId === undefined ? sql`` : sql`AND event.thread_id = ${input.onlyThreadId}`;
     const availableAt = new Date().toISOString();
     return Effect.gen(function* () {
       const rows = yield* sql<Record<string, unknown>>`
@@ -360,6 +366,8 @@ const make = Effect.gen(function* () {
             ON cursor.thread_id = event.thread_id
           WHERE event.sequence > COALESCE(cursor.last_acked_sequence, 0)
             AND event.sequence <= ${input.throughSequenceInclusive}
+            ${excludeActiveThreads}
+            ${onlyThread}
             AND NOT EXISTS (
               SELECT 1
               FROM provider_runtime_projection_failures AS failure

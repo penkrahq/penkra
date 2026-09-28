@@ -82,6 +82,8 @@ export interface ProviderRuntimeEventRepositoryShape {
     readonly throughSequenceInclusive: number;
     readonly limit: number;
     readonly maxPerThread: number;
+    readonly excludeThreadIds?: ReadonlyArray<string>;
+    readonly onlyThreadId?: string;
   }) => Effect.Effect<
     ReadonlyArray<PersistedProviderRuntimeEvent>,
     ProviderRuntimeEventRepositoryError
