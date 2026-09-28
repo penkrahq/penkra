@@ -9,6 +9,11 @@ import { Effect, Layer, Option } from "effect";
 
 import { installDiagnosticsStore } from "../../diagnostics/recorder.ts";
 import { DiagnosticsStore, openDiagnosticsReader } from "../../diagnostics/store.ts";
+import {
+  ThreadDiagnosticsQuery,
+  type OperationalDiagnostic,
+  type ThreadDiagnosticsQueryShape,
+} from "../../diagnostics/Services/ThreadDiagnosticsQuery.ts";
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
 import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
@@ -26,6 +31,7 @@ const installationId = ProviderInstallationId.makeUnsafe("verify-installation");
 
 let returnedIdentity = "native-session";
 let discarded = false;
+const recordedDiagnostics: OperationalDiagnostic[] = [];
 
 const selection: ResolvedProviderTurnSelection = {
   threadId,
@@ -46,6 +52,19 @@ const selection: ResolvedProviderTurnSelection = {
 };
 
 const dependencies = Layer.mergeAll(
+  Layer.succeed(ThreadDiagnosticsQuery, {
+    recordOperationalDiagnostic: (
+      input: Parameters<ThreadDiagnosticsQueryShape["recordOperationalDiagnostic"]>[0],
+    ) =>
+      Effect.sync(() => {
+        recordedDiagnostics.push({
+          ...input,
+          sequence: recordedDiagnostics.length + 1,
+          threadId: input.threadId ?? null,
+          code: input.code ?? null,
+        });
+      }),
+  } as never),
   Layer.succeed(ThreadProviderBindingRepository, {
     getHarnessState: () =>
       Effect.succeed(
@@ -112,6 +131,7 @@ layer("ProviderNativeContinuationVerifier", (it) => {
       const uninstall = installDiagnosticsStore(store);
       returnedIdentity = "native-session";
       discarded = false;
+      recordedDiagnostics.length = 0;
       const verified = yield* verifier.verifySwitch({
         selection,
         sourceStorage: "connection-profile",
@@ -122,6 +142,10 @@ layer("ProviderNativeContinuationVerifier", (it) => {
       assert.strictEqual(verified.providerSessionId, "native-session");
       assert.strictEqual(verified.generationId, targetGenerationId);
       assert.strictEqual(discarded, false);
+      assert.deepStrictEqual(
+        recordedDiagnostics.map((diagnostic) => diagnostic.code),
+        ["NATIVE_CONTINUATION_VERIFICATION_STARTED", "NATIVE_CONTINUATION_VERIFICATION_SUCCEEDED"],
+      );
       let db = openDiagnosticsReader(stateDir)!;
       assert.deepStrictEqual(
         db
@@ -136,6 +160,7 @@ layer("ProviderNativeContinuationVerifier", (it) => {
       db.close();
 
       returnedIdentity = "different-session";
+      recordedDiagnostics.length = 0;
       const mismatch = yield* Effect.exit(
         verifier.verifySwitch({
           selection,
@@ -147,6 +172,11 @@ layer("ProviderNativeContinuationVerifier", (it) => {
       );
       assert.strictEqual(mismatch._tag, "Failure");
       assert.strictEqual(discarded, true);
+      assert.deepStrictEqual(
+        recordedDiagnostics.map((diagnostic) => diagnostic.code),
+        ["NATIVE_CONTINUATION_VERIFICATION_STARTED", "NATIVE_CONTINUATION_VERIFICATION_FAILED"],
+      );
+      assert.strictEqual(recordedDiagnostics[1]?.detail.stage, "validate-resumed-identity");
       db = openDiagnosticsReader(stateDir)!;
       assert.deepStrictEqual(
         db
