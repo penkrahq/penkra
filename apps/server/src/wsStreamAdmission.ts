@@ -154,7 +154,7 @@ export const makeWsStreamAdmission = (
                     context: { reason: outcome.reason },
                   }),
                 );
-                yield* Effect.logWarning("Rejected streaming RPC admission.").pipe(
+                yield* Effect.logDebug("Rejected streaming RPC admission.").pipe(
                   Effect.annotateLogs({
                     reason: outcome.reason,
                     active: outcome.active,
