@@ -4,6 +4,7 @@ import { resolvePenkraHomeDirectory } from "@penkra/shared/penkraHome";
 
 import { openDiagnosticsReader } from "./store";
 import { INCIDENT_SUMMARIES, isIncidentCode, type IncidentCode } from "./codes";
+import { DIAGNOSTIC_LIMITS } from "./limits";
 import { validateDiagnosticFields, validateDiagnosticId, validateDiagnosticToken } from "./privacy";
 
 type Row = Record<string, unknown>;
@@ -96,6 +97,25 @@ function safeTimestamp(value: unknown): string {
 function safeJson(key: string, value: unknown): unknown {
   if (typeof value !== "string") throw new TypeError("Invalid diagnostics JSON");
   const parsed = JSON.parse(value) as unknown;
+  if (key === "limit_json") {
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      throw new TypeError("Invalid diagnostics limit");
+    const limit = parsed as Record<string, unknown>;
+    if (Object.keys(limit).length === 0) return {};
+    if (
+      Object.keys(limit).sort().join(",") !== "name,observed,value" ||
+      typeof limit.name !== "string" ||
+      !Object.hasOwn(DIAGNOSTIC_LIMITS, limit.name) ||
+      typeof limit.value !== "number" ||
+      !Number.isFinite(limit.value) ||
+      limit.value < 0 ||
+      typeof limit.observed !== "number" ||
+      !Number.isFinite(limit.observed) ||
+      limit.observed < 0
+    )
+      throw new TypeError("Invalid diagnostics limit");
+    return { name: limit.name, value: limit.value, observed: limit.observed };
+  }
   if (key === "provenance_json") {
     if (!Array.isArray(parsed)) throw new TypeError("Invalid diagnostics provenance");
     return parsed.map((item) =>

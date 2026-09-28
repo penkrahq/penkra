@@ -111,6 +111,7 @@ describe("penkra diagnostics reads", () => {
       code: "COMMAND_REJECTED",
       where: "server.command",
       severity: "error",
+      limit: { name: "turnStartedMs", value: 10_000, observed: 10_001 },
     });
     const output = path.join(home, "export.json");
     expect(queryDiagnostics(["export", "--home-dir", home, "--output", output])).toMatchObject({
@@ -120,9 +121,18 @@ describe("penkra diagnostics reads", () => {
     expect(text).toContain("queueDepth");
     expect(text).not.toContain("messageContent");
     const exported = JSON.parse(text) as {
-      incidents: Array<{ summary: string; env: Record<string, unknown> }>;
+      incidents: Array<{
+        summary: string;
+        env: Record<string, unknown>;
+        limit: Record<string, unknown>;
+      }>;
     };
     expect(exported.incidents[0]?.summary).toBe("Command was rejected.");
+    expect(exported.incidents[0]?.limit).toEqual({
+      name: "turnStartedMs",
+      value: 10_000,
+      observed: 10_001,
+    });
     expect(exported.incidents[0]?.env).toMatchObject({
       appVersion: "0.14.3",
       buildId: "unknown",

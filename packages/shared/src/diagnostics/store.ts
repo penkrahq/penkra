@@ -543,7 +543,8 @@ function prepareEnvelope(
     sqlJson(incident.context);
     if (
       incident.limit &&
-      (!Object.hasOwn(DIAGNOSTIC_LIMITS, incident.limit.name) ||
+      (Object.keys(incident.limit).sort().join(",") !== "name,observed,value" ||
+        !Object.hasOwn(DIAGNOSTIC_LIMITS, incident.limit.name) ||
         !Number.isFinite(incident.limit.value) ||
         incident.limit.value < 0 ||
         !Number.isFinite(incident.limit.observed) ||
@@ -567,7 +568,15 @@ function prepareEnvelope(
       severity: incident.severity,
       expected: validateDiagnosticFields(incident.expected ?? {}),
       actual: validateDiagnosticFields(incident.actual ?? {}),
-      ...(incident.limit ? { limit: incident.limit } : {}),
+      ...(incident.limit
+        ? {
+            limit: {
+              name: incident.limit.name,
+              value: incident.limit.value,
+              observed: incident.limit.observed,
+            },
+          }
+        : {}),
       context: validateDiagnosticFields(incident.context ?? {}),
       ...(incident.lastCheckpoint ? { lastCheckpoint: incident.lastCheckpoint } : {}),
     };
