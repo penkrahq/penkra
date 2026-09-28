@@ -89,6 +89,23 @@ export interface ExpectationInput extends DiagnosticContext {
   readonly correlation?: DiagnosticFields;
 }
 
+interface ExpectationArmInput extends ExpectationInput {
+  readonly id: string;
+}
+
+interface HealthRecord {
+  readonly eventLoopLagMs: number;
+  readonly cpuPct: number;
+  readonly rssMb: number;
+  readonly heapMb: number;
+  readonly openHandles: number;
+  readonly queueDepth: number | null;
+  readonly oldestQueuedMs: number | null;
+  readonly machineLoad1m: number;
+  readonly freeMemMb: number;
+  readonly diskFreeMb: number;
+}
+
 interface ExpectationRow {
   id: string;
   kind: ExpectationKind;
@@ -118,11 +135,17 @@ interface SpoolEnvelope {
   readonly version: 1;
   readonly bootId: string;
   readonly sequence: number;
-  readonly type: "checkpoint" | "external_outcome" | "expectation_resolved" | "incident";
+  readonly type:
+    | "checkpoint"
+    | "external_outcome"
+    | "expectation_resolved"
+    | "incident"
+    | "expectation_arm"
+    | "health";
   readonly at: string;
   readonly monoMs: number;
   readonly process: DiagnosticsOptions["process"];
-  readonly data: CheckpointInput | IncidentInput;
+  readonly data: CheckpointInput | IncidentInput | ExpectationArmInput | HealthRecord;
 }
 
 const SCHEMA = `
@@ -246,17 +269,52 @@ function prepareEnvelope(
   sequence: number,
   processName: DiagnosticsOptions["process"],
   type: SpoolEnvelope["type"],
-  data: CheckpointInput | IncidentInput,
+  data: SpoolEnvelope["data"],
 ): SpoolEnvelope {
-  validateContext(data);
+  if (type !== "health") validateContext(data as DiagnosticContext);
   validateDiagnosticId(bootId);
   if (!["server", "desktop-main", "renderer", "provider-child"].includes(processName)) {
     throw new TypeError("Invalid diagnostic process");
   }
   if (!Number.isSafeInteger(sequence) || sequence < 1)
     throw new TypeError("Invalid spool sequence");
-  let safeData: CheckpointInput | IncidentInput;
-  if (type !== "incident") {
+  let safeData: SpoolEnvelope["data"];
+  if (type === "health") {
+    const health = data as HealthRecord;
+    const safe = validateDiagnosticFields({
+      eventLoopLagMs: health.eventLoopLagMs,
+      cpuPct: health.cpuPct,
+      rssMb: health.rssMb,
+      heapMb: health.heapMb,
+      openHandles: health.openHandles,
+      queueDepth: health.queueDepth,
+      oldestQueuedMs: health.oldestQueuedMs,
+      machineLoad1m: health.machineLoad1m,
+      freeMemMb: health.freeMemMb,
+      diskFreeMb: health.diskFreeMb,
+    });
+    if (Object.values(safe).some((value) => typeof value === "number" && value < 0))
+      throw new TypeError("Negative health metric");
+    safeData = safe as unknown as HealthRecord;
+  } else if (type === "expectation_arm") {
+    const expectation = data as ExpectationArmInput;
+    validateDiagnosticId(expectation.id);
+    if (!Object.hasOwn(EXPECTATION_CODES, expectation.kind))
+      throw new TypeError("Unknown expectation kind");
+    if (!Number.isSafeInteger(expectation.deadlineMs) || expectation.deadlineMs < 1)
+      throw new TypeError("Invalid expectation deadline");
+    safeData = {
+      id: expectation.id,
+      kind: expectation.kind,
+      traceId: expectation.traceId,
+      spanId: expectation.spanId,
+      ...(expectation.attemptId ? { attemptId: expectation.attemptId } : {}),
+      ...(expectation.threadId ? { threadId: expectation.threadId } : {}),
+      ...(expectation.turnId ? { turnId: expectation.turnId } : {}),
+      deadlineMs: expectation.deadlineMs,
+      correlation: validateDiagnosticFields(expectation.correlation ?? {}),
+    };
+  } else if (type !== "incident") {
     const checkpoint = data as CheckpointInput;
     validateDiagnosticToken(checkpoint.flow, "flow");
     validateDiagnosticToken(checkpoint.step, "step");
@@ -341,7 +399,54 @@ function insertEnvelope(database: DatabaseSync, event: SpoolEnvelope, appVersion
     | { value: string }
     | undefined;
   if (lastSequence && Number(lastSequence.value) >= event.sequence) return;
-  if (event.type !== "incident") {
+  if (event.type === "health") {
+    const health = event.data as HealthRecord;
+    database
+      .prepare(`INSERT INTO health (
+      boot_id, process, at, event_loop_lag_ms, cpu_pct, rss_mb, heap_mb,
+      open_handles, queue_depth, oldest_queued_ms, machine_load_1m, free_mem_mb, disk_free_mb
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(
+        event.bootId,
+        event.process,
+        event.at,
+        health.eventLoopLagMs,
+        health.cpuPct,
+        health.rssMb,
+        health.heapMb,
+        health.openHandles,
+        health.queueDepth,
+        health.oldestQueuedMs,
+        health.machineLoad1m,
+        health.freeMemMb,
+        health.diskFreeMb,
+      );
+  } else if (event.type === "expectation_arm") {
+    const expectation = event.data as ExpectationArmInput;
+    const last = database
+      .prepare("SELECT step FROM detail WHERE trace_id = ? ORDER BY id DESC LIMIT 1")
+      .get(expectation.traceId) as { step: string } | undefined;
+    database
+      .prepare(`INSERT OR IGNORE INTO expectations (
+      id, kind, trace_id, span_id, attempt_id, thread_id, turn_id, correlation_json,
+      armed_at, deadline_at, deadline_ms, last_checkpoint, boot_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(
+        expectation.id,
+        expectation.kind,
+        expectation.traceId,
+        expectation.spanId,
+        expectation.attemptId ?? null,
+        expectation.threadId ?? null,
+        expectation.turnId ?? null,
+        sqlJson(expectation.correlation),
+        event.at,
+        new Date(Date.parse(event.at) + expectation.deadlineMs).toISOString(),
+        expectation.deadlineMs,
+        last?.step ?? null,
+        event.bootId,
+      );
+  } else if (event.type !== "incident") {
     const data = event.data as CheckpointInput;
     const pin = database
       .prepare(
@@ -522,6 +627,7 @@ export class DiagnosticsStore {
             fs.rmSync(path.join(this.dir, entry), { recursive: true, force: true });
         }
       }
+      const createdDatabase = !fs.existsSync(this.dbPath);
       const db = new DatabaseSync(this.dbPath);
       db.exec(SCHEMA);
       db.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;");
@@ -529,7 +635,7 @@ export class DiagnosticsStore {
       db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES ('app_version', ?)").run(
         options.appVersion,
       );
-      if (oldVersion !== options.appVersion) {
+      if (oldVersion !== options.appVersion || createdDatabase) {
         db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES ('reset_at', ?)").run(
           new Date().toISOString(),
         );
@@ -564,74 +670,105 @@ export class DiagnosticsStore {
   }
 
   private importSpools(): number {
-    let crashedProcesses = 0;
-    for (const entry of fs.readdirSync(this.dir)) {
-      if (!/^spool-[a-f0-9]{32}\.jsonl$/u.test(entry) || entry === path.basename(this.spoolPath))
-        continue;
-      const bootId = entry.slice(6, -6);
-      const activePath = path.join(this.dir, `active-${bootId}.json`);
-      if (fs.existsSync(activePath)) {
+    return withLifecycleLock(this.dir, () => {
+      let crashedProcesses = 0;
+      for (const entry of fs.readdirSync(this.dir)) {
+        if (!/^spool-[a-f0-9]{32}\.jsonl$/u.test(entry) || entry === path.basename(this.spoolPath))
+          continue;
+        const bootId = entry.slice(6, -6);
+        const activePath = path.join(this.dir, `active-${bootId}.json`);
+        const closedPath = path.join(this.dir, `closed-${bootId}.json`);
+        let live = false;
+        if (fs.existsSync(activePath)) {
+          try {
+            const owner = JSON.parse(fs.readFileSync(activePath, "utf8")) as { pid: number };
+            process.kill(owner.pid, 0);
+            live = true;
+          } catch (cause) {
+            if ((cause as NodeJS.ErrnoException).code !== "ESRCH") continue;
+          }
+        }
+        const spoolPath = path.join(this.dir, entry);
+        const lines = fs.readFileSync(spoolPath, "utf8").split("\n");
+        this.database.exec("BEGIN IMMEDIATE");
+        try {
+          for (const line of lines) {
+            if (!line) continue;
+            let event: SpoolEnvelope;
+            try {
+              event = JSON.parse(line) as SpoolEnvelope;
+              if (event.version !== 1 || event.bootId !== bootId) continue;
+              if (
+                ![
+                  "checkpoint",
+                  "external_outcome",
+                  "expectation_resolved",
+                  "incident",
+                  "expectation_arm",
+                  "health",
+                ].includes(event.type)
+              )
+                continue;
+              if (!Number.isFinite(Date.parse(event.at)) || !Number.isFinite(event.monoMs))
+                continue;
+              const safe = prepareEnvelope(
+                event.bootId,
+                event.sequence,
+                event.process,
+                event.type,
+                event.data,
+              );
+              event = { ...safe, at: new Date(event.at).toISOString(), monoMs: event.monoMs };
+            } catch {
+              continue; // Torn final line or invalid/unallowlisted payload.
+            }
+            insertEnvelope(this.database, event, this.options.appVersion);
+          }
+          this.database.exec("COMMIT");
+        } catch (cause) {
+          this.database.exec("ROLLBACK");
+          throw cause;
+        }
+        if (live) {
+          fs.truncateSync(spoolPath, 0);
+        } else {
+          fs.rmSync(spoolPath, { force: true });
+          fs.rmSync(activePath, { force: true });
+          if (!fs.existsSync(closedPath)) crashedProcesses++;
+          fs.rmSync(closedPath, { force: true });
+        }
+      }
+      for (const entry of fs.readdirSync(this.dir)) {
+        if (!/^active-[a-f0-9]{32}\.json$/u.test(entry) || entry === path.basename(this.activePath))
+          continue;
+        const activePath = path.join(this.dir, entry);
         try {
           const owner = JSON.parse(fs.readFileSync(activePath, "utf8")) as { pid: number };
           process.kill(owner.pid, 0);
-          continue;
         } catch (cause) {
           if ((cause as NodeJS.ErrnoException).code !== "ESRCH") continue;
+          fs.rmSync(activePath, { force: true });
+          crashedProcesses++;
         }
       }
-      const spoolPath = path.join(this.dir, entry);
-      const lines = fs.readFileSync(spoolPath, "utf8").split("\n");
-      this.database.exec("BEGIN IMMEDIATE");
-      try {
-        for (const line of lines) {
-          if (!line) continue;
-          let event: SpoolEnvelope;
-          try {
-            event = JSON.parse(line) as SpoolEnvelope;
-            if (event.version !== 1 || event.bootId !== bootId) continue;
-            if (
-              !["checkpoint", "external_outcome", "expectation_resolved", "incident"].includes(
-                event.type,
-              )
-            )
-              continue;
-            if (!Number.isFinite(Date.parse(event.at)) || !Number.isFinite(event.monoMs)) continue;
-            const safe = prepareEnvelope(
-              event.bootId,
-              event.sequence,
-              event.process,
-              event.type,
-              event.data,
-            );
-            event = { ...safe, at: new Date(event.at).toISOString(), monoMs: event.monoMs };
-          } catch {
-            continue; // Torn final line or invalid/unallowlisted payload.
-          }
-          insertEnvelope(this.database, event, this.options.appVersion);
-        }
-        this.database.exec("COMMIT");
-      } catch (cause) {
-        this.database.exec("ROLLBACK");
-        throw cause;
-      }
-      fs.rmSync(spoolPath, { force: true });
-      fs.rmSync(activePath, { force: true });
-      crashedProcesses++;
-    }
-    for (const entry of fs.readdirSync(this.dir)) {
-      if (!/^active-[a-f0-9]{32}\.json$/u.test(entry) || entry === path.basename(this.activePath))
-        continue;
-      const activePath = path.join(this.dir, entry);
-      try {
-        const owner = JSON.parse(fs.readFileSync(activePath, "utf8")) as { pid: number };
-        process.kill(owner.pid, 0);
-      } catch (cause) {
-        if ((cause as NodeJS.ErrnoException).code !== "ESRCH") continue;
-        fs.rmSync(activePath, { force: true });
-        crashedProcesses++;
-      }
-    }
-    return crashedProcesses;
+      return crashedProcesses;
+    });
+  }
+
+  importPeerSpools(): number {
+    this.assertCurrentVersion();
+    const crashed = this.importSpools();
+    if (crashed > 0)
+      this.incident({
+        traceId: randomBytes(16).toString("hex"),
+        spanId: randomBytes(8).toString("hex"),
+        kind: "process.crashed",
+        code: "UNCLEAN_SHUTDOWN",
+        where: "diagnostics.spool_import",
+        severity: "warn",
+        actual: { count: crashed },
+      });
+    return crashed;
   }
 
   private write(type: SpoolEnvelope["type"], data: CheckpointInput | IncidentInput): void {
@@ -664,9 +801,14 @@ export class DiagnosticsStore {
         if (
           pending.version !== 1 ||
           pending.bootId !== this.bootId ||
-          !["checkpoint", "external_outcome", "expectation_resolved", "incident"].includes(
-            pending.type,
-          )
+          ![
+            "checkpoint",
+            "external_outcome",
+            "expectation_resolved",
+            "incident",
+            "expectation_arm",
+            "health",
+          ].includes(pending.type)
         ) {
           throw new Error("Current diagnostics spool is invalid");
         }
@@ -938,8 +1080,22 @@ export class DiagnosticsStore {
       WHERE deadline_at <= ? OR (? = 1 AND boot_id != ?)
       ORDER BY deadline_at`)
       .all(now.toISOString(), afterRestart ? 1 : 0, this.bootId) as unknown as ExpectationRow[];
+    let swept = 0;
     for (const pending of due) {
-      const restarted = pending.boot_id !== this.bootId;
+      const markerPath = path.join(this.dir, `active-${pending.boot_id}.json`);
+      let ownerAlive = pending.boot_id === this.bootId;
+      if (!ownerAlive && fs.existsSync(markerPath)) {
+        try {
+          const owner = JSON.parse(fs.readFileSync(markerPath, "utf8")) as { pid: number };
+          process.kill(owner.pid, 0);
+          ownerAlive = true;
+        } catch {
+          // A missing process makes its expectation unknown after restart.
+        }
+      }
+      const expired = Date.parse(pending.deadline_at) <= now.getTime();
+      if (!expired && ownerAlive) continue;
+      const restarted = !ownerAlive;
       const code = restarted ? "EXPECTATION_MISSED" : EXPECTATION_CODES[pending.kind];
       const last = this.database
         .prepare("SELECT step FROM detail WHERE trace_id = ? ORDER BY id DESC LIMIT 1")
@@ -972,8 +1128,9 @@ export class DiagnosticsStore {
         outcome: "timed_out",
       });
       this.database.prepare("DELETE FROM expectations WHERE id = ?").run(pending.id);
+      swept++;
     }
-    return due.length;
+    return swept;
   }
 
   traceForCommand(commandId: string): DiagnosticContext | null {
@@ -1050,6 +1207,216 @@ export class DiagnosticsStore {
       fs.rmSync(this.spoolPath, { force: true });
     }
     fs.rmSync(this.activePath, { force: true });
+  }
+}
+
+/** Desktop/child writer: fsyncs an allowlisted spool; only the server imports it into SQLite. */
+export class DiagnosticsSpoolWriter {
+  readonly bootId = randomBytes(16).toString("hex");
+  private readonly dir: string;
+  private readonly spoolPath: string;
+  private readonly activePath: string;
+  private readonly reportedProcessFailures = new Set<string>();
+  private sequence = 0;
+  private lastCpuUsage = process.cpuUsage();
+  private lastHealthAt = performance.now();
+
+  constructor(private readonly options: DiagnosticsOptions) {
+    if (!/^\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?$/u.test(options.appVersion))
+      throw new TypeError("Invalid app version");
+    this.dir = diagnosticsDir(options.stateDir);
+    this.spoolPath = path.join(this.dir, `spool-${this.bootId}.jsonl`);
+    this.activePath = path.join(this.dir, `active-${this.bootId}.json`);
+    fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
+    if (process.platform !== "win32") fs.chmodSync(this.dir, 0o700);
+    withLifecycleLock(this.dir, () => {
+      const versionPath = path.join(this.dir, "version");
+      const oldVersion = fs.existsSync(versionPath) ? fs.readFileSync(versionPath, "utf8") : null;
+      if (oldVersion !== options.appVersion) {
+        for (const entry of fs.readdirSync(this.dir)) {
+          if (entry !== ".lifecycle-lock")
+            fs.rmSync(path.join(this.dir, entry), { recursive: true, force: true });
+        }
+        fs.writeFileSync(versionPath, options.appVersion, { mode: 0o600 });
+      }
+      fs.writeFileSync(
+        this.activePath,
+        JSON.stringify({ pid: process.pid, process: options.process }),
+        { mode: 0o600 },
+      );
+    });
+  }
+
+  private append(type: SpoolEnvelope["type"], data: SpoolEnvelope["data"]): void {
+    withLifecycleLock(this.dir, () => {
+      if (fs.readFileSync(path.join(this.dir, "version"), "utf8") !== this.options.appVersion)
+        throw new Error("Diagnostics store belongs to a newer app version");
+      const event = prepareEnvelope(this.bootId, ++this.sequence, this.options.process, type, data);
+      const line = `${JSON.stringify(event)}\n`;
+      const bytes = Buffer.byteLength(line);
+      const spoolBytes = fs.existsSync(this.spoolPath) ? fs.statSync(this.spoolPath).size : 0;
+      if (
+        spoolBytes + bytes >
+          (this.options.maxSpoolBytes ?? DIAGNOSTIC_LIMITS.spoolBytesPerProcess) ||
+        totalBytes(this.dir) + bytes > (this.options.maxTotalBytes ?? DIAGNOSTIC_LIMITS.totalBytes)
+      )
+        throw new Error("Diagnostics capacity reached");
+      const handle = fs.openSync(this.spoolPath, "a", 0o600);
+      try {
+        fs.writeSync(handle, line);
+        fs.fsyncSync(handle);
+      } finally {
+        fs.closeSync(handle);
+      }
+    });
+  }
+
+  checkpoint(data: CheckpointInput): void {
+    this.append("checkpoint", data);
+  }
+  incident(data: IncidentInput): void {
+    this.append("incident", data);
+  }
+
+  armExpectation(input: ExpectationInput): string {
+    const id = randomUUID();
+    this.append("expectation_arm", { ...input, id });
+    return id;
+  }
+
+  sampleHealth(input: HealthSampleInput): void {
+    const now = performance.now();
+    const usage = process.cpuUsage(this.lastCpuUsage);
+    this.lastCpuUsage = process.cpuUsage();
+    const elapsedMs = Math.max(1, now - this.lastHealthAt);
+    this.lastHealthAt = now;
+    const memory = process.memoryUsage();
+    const disk = fs.statfsSync(this.options.stateDir);
+    const handles = (
+      process as NodeJS.Process & { _getActiveHandles?: () => unknown[] }
+    )._getActiveHandles?.();
+    this.append("health", {
+      eventLoopLagMs: input.eventLoopLagMs,
+      cpuPct: ((usage.user + usage.system) / (elapsedMs * 1_000)) * 100,
+      rssMb: memory.rss / 1_048_576,
+      heapMb: memory.heapUsed / 1_048_576,
+      openHandles: handles?.length ?? 0,
+      queueDepth: input.queueDepth ?? null,
+      oldestQueuedMs: input.oldestQueuedMs ?? null,
+      machineLoad1m: os.loadavg()[0] ?? 0,
+      freeMemMb: os.freemem() / 1_048_576,
+      diskFreeMb: (Number(disk.bavail) * Number(disk.bsize)) / 1_048_576,
+    });
+  }
+
+  startHealthSampling(): () => void {
+    const period = DIAGNOSTIC_LIMITS.healthSampleMs;
+    let expectedAt = performance.now() + period;
+    try {
+      this.sampleHealth({ eventLoopLagMs: 0 });
+    } catch {
+      process.stderr.write("[diagnostics] initial health sample failed\n");
+    }
+    const timer = setInterval(() => {
+      const now = performance.now();
+      const lag = Math.max(0, now - expectedAt);
+      expectedAt = now + period;
+      try {
+        this.sampleHealth({ eventLoopLagMs: lag });
+      } catch {
+        process.stderr.write("[diagnostics] health sample failed\n");
+      }
+    }, period);
+    timer.unref();
+    return () => clearInterval(timer);
+  }
+
+  checkProcessHealth(now = new Date()): number {
+    const database = openDiagnosticsReader(this.options.stateDir);
+    let detected = 0;
+    try {
+      for (const name of fs.readdirSync(this.dir)) {
+        if (!/^active-[a-f0-9]{32}\.json$/u.test(name) || name === path.basename(this.activePath))
+          continue;
+        const markerPath = path.join(this.dir, name);
+        const bootId = name.slice(7, -5);
+        let marker: { pid: number; process?: string };
+        try {
+          marker = JSON.parse(fs.readFileSync(markerPath, "utf8")) as typeof marker;
+          if (!Number.isSafeInteger(marker.pid) || marker.pid < 1) continue;
+        } catch {
+          continue;
+        }
+        const latest = database
+          ?.prepare("SELECT at, process FROM health WHERE boot_id = ? ORDER BY at DESC LIMIT 1")
+          .get(bootId) as { at: string; process: string } | undefined;
+        const elapsedMs = Math.max(
+          0,
+          now.getTime() - (latest ? Date.parse(latest.at) : fs.statSync(markerPath).mtimeMs),
+        );
+        if (elapsedMs < DIAGNOSTIC_LIMITS.healthSampleMs * 3) {
+          this.reportedProcessFailures.delete(`${bootId}:PROCESS_UNRESPONSIVE`);
+          continue;
+        }
+        let alive = true;
+        try {
+          process.kill(marker.pid, 0);
+        } catch (cause) {
+          alive = (cause as NodeJS.ErrnoException).code !== "ESRCH";
+        }
+        const code = alive ? "PROCESS_UNRESPONSIVE" : "PROCESS_CRASHED";
+        const key = `${bootId}:${code}`;
+        if (this.reportedProcessFailures.has(key)) continue;
+        this.incident({
+          traceId: randomBytes(16).toString("hex"),
+          spanId: randomBytes(8).toString("hex"),
+          kind: alive ? "process.unresponsive" : "process.crashed",
+          code,
+          where: "diagnostics.watchdog",
+          severity: "error",
+          expected: { deadlineMs: DIAGNOSTIC_LIMITS.healthSampleMs * 3 },
+          actual: { elapsedMs, alive },
+          context: {
+            bootId,
+            ...((latest?.process ?? marker.process)
+              ? { process: latest?.process ?? marker.process! }
+              : {}),
+          },
+        });
+        this.reportedProcessFailures.add(key);
+        detected++;
+      }
+    } finally {
+      database?.close();
+    }
+    return detected;
+  }
+
+  startProcessWatchdog(): () => void {
+    const timer = setInterval(() => {
+      try {
+        this.checkProcessHealth();
+      } catch {
+        process.stderr.write("[diagnostics] process watchdog failed\n");
+      }
+    }, DIAGNOSTIC_LIMITS.healthSampleMs);
+    timer.unref();
+    return () => clearInterval(timer);
+  }
+
+  close(): void {
+    withLifecycleLock(this.dir, () => {
+      fs.rmSync(this.activePath, { force: true });
+      if (fs.existsSync(this.spoolPath)) {
+        if (fs.statSync(this.spoolPath).size === 0) {
+          fs.rmSync(this.spoolPath, { force: true });
+        } else {
+          fs.writeFileSync(path.join(this.dir, `closed-${this.bootId}.json`), "{}", {
+            mode: 0o600,
+          });
+        }
+      }
+    });
   }
 }
 
