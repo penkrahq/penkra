@@ -537,7 +537,17 @@ function insertEnvelope(database: DatabaseSync, event: SpoolEnvelope, appVersion
           diskFreeMb: nearestHealth.disk_free_mb,
         })
       : "{}";
-    const fingerprint = `${data.kind}:${data.code}:${data.where}:${data.threadId ?? ""}:${data.context?.bootId ?? ""}`;
+    const fingerprint = JSON.stringify([
+      data.kind,
+      data.code,
+      data.where,
+      data.threadId ?? null,
+      data.context?.bootId ?? null,
+      data.context?.check ?? null,
+      data.context?.reason ?? null,
+      data.context?.providerEventType ?? null,
+      data.actual?.errorCode ?? null,
+    ]);
     const from = new Date(Date.parse(event.at) - DIAGNOSTIC_LIMITS.detailPinBeforeMs).toISOString();
     const until = new Date(Date.parse(event.at) + DIAGNOSTIC_LIMITS.detailPinAfterMs).toISOString();
     database
