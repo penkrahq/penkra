@@ -222,6 +222,36 @@ describe("OrchestrationEngine", () => {
           createdAt: now(),
         }),
       );
+      const threadId = ThreadId.makeUnsafe("thread-worker-provenance");
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.makeUnsafe("cmd-worker-thread-create"),
+          threadId,
+          deckId: singletonThreadDeckId(threadId),
+          folderId: asFolderId("folder-worker-trace"),
+          title: "Trace provenance",
+          modelSelection: { provider: "codex", model: "gpt-5-codex" },
+          runtimeMode: "approval-required",
+          createdAt: now(),
+        }),
+      );
+      const archiveCommandId = CommandId.makeUnsafe("cmd-worker-archive");
+      store.checkpoint({
+        traceId,
+        spanId: "0123456789abcdef",
+        commandId: archiveCommandId,
+        flow: "archive",
+        step: "server.received",
+      });
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.archive",
+          commandId: archiveCommandId,
+          threadId,
+          createdAt: now(),
+        }),
+      );
       const db = openDiagnosticsReader(stateDir)!;
       const rows = db
         .prepare("SELECT step, trace_id FROM detail WHERE command_id = ? ORDER BY id")
@@ -236,6 +266,11 @@ describe("OrchestrationEngine", () => {
         ]),
       );
       expect(rows.every((row) => row.trace_id === traceId)).toBe(true);
+      expect(
+        db
+          .prepare("SELECT field, set_by_trace_id FROM provenance WHERE entity_id = ?")
+          .all(threadId),
+      ).toMatchObject([{ field: "thread.archived", set_by_trace_id: traceId }]);
       db.close();
     } finally {
       await system?.dispose();

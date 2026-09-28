@@ -5,6 +5,7 @@ import type {
   ExpectationInput,
   ExternalOutcomeInput,
   IncidentInput,
+  ProvenanceInput,
   ExpectationKind,
 } from "./store";
 
@@ -85,6 +86,14 @@ export function recordDiagnosticIncident(input: IncidentInput): void {
     activeStore?.incident(input);
   } catch {
     process.stderr.write("[diagnostics] incident write failed\n");
+  }
+}
+
+export function recordDiagnosticProvenance(input: ProvenanceInput): void {
+  try {
+    activeStore?.setProvenance(input);
+  } catch {
+    process.stderr.write("[diagnostics] provenance write failed\n");
   }
 }
 

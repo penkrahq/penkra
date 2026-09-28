@@ -31,6 +31,7 @@ import { ServerConfig } from "../../config.ts";
 import {
   recordDiagnosticCheckpoint,
   recordDiagnosticIncident,
+  recordDiagnosticProvenance,
   traceForDiagnosticCommand,
 } from "../../diagnostics/recorder.ts";
 import { DIAGNOSTIC_LIMITS } from "../../diagnostics/limits.ts";
@@ -1224,6 +1225,66 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         );
 
       commandReadModel = committedCommand.nextCommandReadModel;
+      yield* Effect.sync(() => {
+        const traceId = envelope.diagnosticTrace.traceId;
+        for (const event of committedCommand.committedEvents) {
+          const at = event.occurredAt;
+          switch (event.type) {
+            case "thread.archived":
+            case "thread.unarchived":
+              recordDiagnosticProvenance({
+                entityKind: "thread",
+                entityId: event.payload.threadId,
+                field: "thread.archived",
+                traceId,
+                at,
+              });
+              break;
+            case "thread.turn-queued":
+              recordDiagnosticProvenance({
+                entityKind: "queue",
+                entityId: event.payload.messageId,
+                field: "queue.entry",
+                traceId,
+                at,
+              });
+              break;
+            case "thread.turn-start-requested":
+              recordDiagnosticProvenance({
+                entityKind: "thread",
+                entityId: event.payload.threadId,
+                field: "thread.activeTurnId",
+                traceId,
+                at,
+              });
+              if (event.payload.turnId)
+                recordDiagnosticProvenance({
+                  entityKind: "turn",
+                  entityId: event.payload.turnId,
+                  field: "turn.state",
+                  traceId,
+                  at,
+                });
+              break;
+            case "thread.session-set":
+              recordDiagnosticProvenance({
+                entityKind: "session",
+                entityId: event.payload.threadId,
+                field: "session.binding",
+                traceId,
+                at,
+              });
+              recordDiagnosticProvenance({
+                entityKind: "thread",
+                entityId: event.payload.threadId,
+                field: "thread.activeTurnId",
+                traceId,
+                at,
+              });
+              break;
+          }
+        }
+      });
       setStage("deferred-projection");
       yield* Effect.forEach(
         committedCommand.committedEvents,

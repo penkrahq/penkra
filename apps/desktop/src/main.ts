@@ -7842,6 +7842,11 @@ if (desktopPlatform.deepLinks.inspectInitialArgv) {
 
 async function bootstrap(): Promise<void> {
   writeDesktopLogHeader("bootstrap start");
+  try {
+    getDesktopDiagnosticsStore();
+  } catch {
+    process.stderr.write("[diagnostics] desktop startup failed\n");
+  }
   // Ahead of the recovery gate on purpose. A startup that blocks below returns
   // early, and every path that could ship the fix for whatever blocked it lives
   // after that return: an install wedged on a bad migration would be unable to

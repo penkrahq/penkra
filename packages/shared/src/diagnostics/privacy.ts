@@ -74,6 +74,9 @@ const enumValues = {
     "provider.intent_settled",
     "provider.retry_scheduled",
     "provider.quarantined",
+    "reconciliation.detected",
+    "reconciliation.repair_started",
+    "reconciliation.repair_applied",
     "expectation.resolved",
     "expectation.missed",
     "expectation.unknown_after_restart",
@@ -151,10 +154,17 @@ const enumValues = {
     "server.provider",
     "server.ws_rpc",
     "provider.delivery",
+    "provider.reconciliation",
   ],
   eventType: ["checkpoint", "external_outcome", "expectation_resolved"],
   callerTurnSource: ["foreground", "background-task-notification", "agent", "reactor"],
   providerState: ["idle", "starting", "running", "stopping", "completed", "failed"],
+  recoveryAction: [
+    "align-running-turn",
+    "settle-interrupted",
+    "settle-terminal-projection",
+    "settle-error",
+  ],
 } as const;
 const allowedEnumValues: Readonly<Record<string, ReadonlySet<string>>> = Object.fromEntries(
   Object.entries(enumValues).map(([key, values]) => [key, new Set<string>(values)]),
