@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { resolvePenkraHomeDirectory } from "@penkra/shared/penkraHome";
 
 import { openDiagnosticsReader } from "./store";
+import { isIncidentCode } from "./codes";
 import { validateDiagnosticFields, validateDiagnosticId, validateDiagnosticToken } from "./privacy";
 
 type Row = Record<string, unknown>;
@@ -85,24 +86,122 @@ function readCursor(raw: string | undefined): { lastAt: string; id: string } | n
   return parsed;
 }
 
+function safeTimestamp(value: unknown): string {
+  if (typeof value !== "string" || Number.isNaN(Date.parse(value))) {
+    throw new TypeError("Invalid diagnostics timestamp");
+  }
+  return new Date(value).toISOString();
+}
+
+function safeJson(key: string, value: unknown): unknown {
+  if (typeof value !== "string") throw new TypeError("Invalid diagnostics JSON");
+  const parsed = JSON.parse(value) as unknown;
+  if (key === "provenance_json") {
+    if (!Array.isArray(parsed)) throw new TypeError("Invalid diagnostics provenance");
+    return parsed.map((item) =>
+      validateDiagnosticFields(item as Record<string, string | number | boolean | null>),
+    );
+  }
+  if (key === "env_json") {
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      throw new TypeError("Invalid diagnostics environment");
+    const env = parsed as Record<string, unknown>;
+    if (
+      Object.keys(env).sort().join(",") !== "appVersion,process" ||
+      typeof env.appVersion !== "string" ||
+      !/^\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?$/u.test(env.appVersion)
+    ) {
+      throw new TypeError("Invalid diagnostics environment");
+    }
+    return {
+      appVersion: env.appVersion,
+      ...validateDiagnosticFields({ process: env.process as string }),
+    };
+  }
+  return validateDiagnosticFields(parsed as Record<string, string | number | boolean | null>);
+}
+
 function jsonFields(row: Row): Row {
-  const result = { ...row };
-  for (const [key, value] of Object.entries(result)) {
-    if (key.endsWith("_json") && typeof value === "string") {
-      const parsed = JSON.parse(value) as unknown;
-      result[key.slice(0, -5)] = [
-        "correlation_json",
-        "payload_json",
-        "expected_json",
-        "actual_json",
-        "context_json",
-      ].includes(key)
-        ? validateDiagnosticFields(parsed as Record<string, string | number | boolean | null>)
-        : parsed;
-      delete result[key];
+  const result: Row = {};
+  const jsonKeys = new Set([
+    "correlation_json",
+    "payload_json",
+    "expected_json",
+    "actual_json",
+    "limit_json",
+    "context_json",
+    "provenance_json",
+    "health_json",
+    "env_json",
+  ]);
+  const idKeys = new Set([
+    "boot_id",
+    "trace_id",
+    "span_id",
+    "parent_span_id",
+    "attempt_id",
+    "thread_id",
+    "turn_id",
+    "command_id",
+  ]);
+  const timeKeys = new Set(["at", "first_at", "last_at", "pin_from", "pin_until", "pinned_until"]);
+  const numberKeys = new Set(["id", "sequence", "mono_ms", "count"]);
+  const enumKeys: Readonly<Record<string, "flow" | "step" | "eventType" | "kind" | "where">> = {
+    flow: "flow",
+    step: "step",
+    event_type: "eventType",
+    kind: "kind",
+    where_name: "where",
+    last_checkpoint: "step",
+  };
+  for (const [key, value] of Object.entries(row)) {
+    if (
+      !jsonKeys.has(key) &&
+      !idKeys.has(key) &&
+      !timeKeys.has(key) &&
+      !numberKeys.has(key) &&
+      !enumKeys[key] &&
+      !["code", "severity", "fingerprint", "summary"].includes(key)
+    ) {
+      throw new TypeError(`Unrecognized diagnostics column ${key}`);
+    }
+    if (value === null) {
+      result[key] = null;
+      continue;
+    }
+    if (jsonKeys.has(key)) {
+      result[key.slice(0, -5)] = safeJson(key, value);
+    } else if (idKeys.has(key) || (key === "id" && typeof value === "string")) {
+      result[key] = validateDiagnosticId(value as string);
+    } else if (timeKeys.has(key)) {
+      result[key] = safeTimestamp(value);
+    } else if (numberKeys.has(key)) {
+      if (typeof value !== "number" || !Number.isFinite(value))
+        throw new TypeError("Invalid diagnostics number");
+      result[key] = value;
+    } else if (enumKeys[key]) {
+      result[key] = validateDiagnosticToken(value as string, enumKeys[key]);
+    } else if (key === "code") {
+      if (typeof value !== "string" || !isIncidentCode(value))
+        throw new TypeError("Invalid incident code");
+      result[key] = value;
+    } else if (key === "severity") {
+      if (value !== "error" && value !== "warn") throw new TypeError("Invalid incident severity");
+      result[key] = value;
     }
   }
+  if ("code" in result) result.summary = result.code;
   return result;
+}
+
+function provenanceRow(row: Row): Row {
+  return validateDiagnosticFields({
+    entityKind: row.entity_kind as string,
+    entityId: row.entity_id as string,
+    field: row.field as string,
+    setByTraceId: row.set_by_trace_id as string,
+    setAt: row.set_at as string,
+  });
 }
 
 export function queryDiagnostics(args: string[]): unknown {
@@ -180,7 +279,11 @@ export function queryDiagnostics(args: string[]): unknown {
           : (database
               .prepare("SELECT * FROM provenance WHERE set_by_trace_id = ? ORDER BY set_at")
               .all(id) as Row[]);
-      return { incidents: incidents.map(jsonFields), detail: detail.map(jsonFields), provenance };
+      return {
+        incidents: incidents.map(jsonFields),
+        detail: detail.map(jsonFields),
+        provenance: provenance.map(provenanceRow),
+      };
     }
     if (command === "export") {
       if (positional.length) throw new Error("export takes no positional arguments");
