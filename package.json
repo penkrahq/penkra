@@ -43,6 +43,7 @@
     "verify:affected": "bun run brand:check && bun run fmt:check && bun run lint && turbo run typecheck --affected && turbo run test --affected",
     "lint": "oxlint --quiet --report-unused-disable-directives",
     "diagnostics:coverage:audit": "bun scripts/diagnostics-coverage.ts",
+    "diagnostics:coverage:check": "bun scripts/diagnostics-coverage.ts --check",
     "diagnostics:qa:gate": "bun scripts/diagnostics-qa-gate.ts",
     "lint:advisory": "oxlint --report-unused-disable-directives",
     "test": "turbo run test",

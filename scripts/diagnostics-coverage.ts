@@ -1,6 +1,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import ts from "typescript";
+import { isIncidentCode } from "@penkra/shared/diagnostics/codes";
+import { validateDiagnosticToken } from "@penkra/shared/diagnostics/privacy";
 
 export const COVERAGE_ROOTS = [
   "apps/server/src",
@@ -14,6 +16,76 @@ export interface FailureSite {
   readonly file: string;
   readonly line: number;
   readonly kind: FailureSiteKind;
+}
+
+export interface CoverageException extends FailureSite {
+  readonly disposition: "validation" | "rethrow" | "cannot-fail";
+  readonly reason: string;
+  readonly reviewer: string;
+  readonly issue: string;
+}
+
+function siteKey(site: FailureSite): string {
+  return `${site.file}:${site.line}:${site.kind}`;
+}
+
+function hasCoverageMarker(source: string, line: number): boolean {
+  const lines = source.split(/\r?\n/u);
+  const previous = lines[line - 2] ?? "";
+  const current = lines[line - 1] ?? "";
+  const markerPattern =
+    /(?:\/\/|\/\*)\s*diagnostics-(covered|propagates):\s*([A-Z][A-Z0-9_]*)(?:\s+([a-z][a-z0-9._-]*))?/u;
+  const marker =
+    markerPattern.exec(current) ??
+    (previous.trim().startsWith("//") ? markerPattern.exec(previous) : null);
+  if (!marker || !isIncidentCode(marker[2]!)) return false;
+  if (marker[1] === "covered") return true;
+  try {
+    validateDiagnosticToken(marker[3] ?? "", "where");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Reject unclassified sites and stale or blanket exceptions. */
+export function uncoveredFailureSites(
+  sites: ReadonlyArray<FailureSite>,
+  sourceFor: (file: string) => string,
+  exceptions: ReadonlyArray<CoverageException>,
+): FailureSite[] {
+  const known = new Set(sites.map(siteKey));
+  const reviewed = new Set<string>();
+  const lineCounts = new Map<string, number>();
+  for (const site of sites) {
+    const lineKey = `${site.file}:${site.line}`;
+    lineCounts.set(lineKey, (lineCounts.get(lineKey) ?? 0) + 1);
+  }
+  for (const entry of exceptions) {
+    const key = siteKey(entry);
+    if (
+      !known.has(key) ||
+      reviewed.has(key) ||
+      !["validation", "rethrow", "cannot-fail"].includes(entry.disposition) ||
+      entry.reason.trim().length < 20 ||
+      entry.reviewer.trim().length < 2 ||
+      !entry.issue.startsWith("https://")
+    )
+      throw new Error(`Invalid or stale diagnostics coverage exception: ${key}`);
+    reviewed.add(key);
+  }
+  const sources = new Map<string, string>();
+  return sites.filter((site) => {
+    if (reviewed.has(siteKey(site))) return false;
+    let source = sources.get(site.file);
+    if (source === undefined) {
+      source = sourceFor(site.file);
+      sources.set(site.file, source);
+    }
+    return (
+      lineCounts.get(`${site.file}:${site.line}`) !== 1 || !hasCoverageMarker(source, site.line)
+    );
+  });
 }
 
 function callKind(node: ts.CallExpression): FailureSiteKind | null {
@@ -94,4 +166,17 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.met
     `${JSON.stringify({ roots: COVERAGE_ROOTS, count: sites.length, counts })}\n`,
   );
   if (process.argv.includes("--json")) process.stdout.write(`${JSON.stringify(sites)}\n`);
+  if (process.argv.includes("--check")) {
+    const exceptionPath = path.join(repoRoot, "scripts/diagnostics-coverage-exceptions.json");
+    const exceptions = JSON.parse(fs.readFileSync(exceptionPath, "utf8")) as CoverageException[];
+    const uncovered = uncoveredFailureSites(
+      sites,
+      (file) => fs.readFileSync(path.join(repoRoot, file), "utf8"),
+      exceptions,
+    );
+    process.stdout.write(
+      `${JSON.stringify({ uncovered: uncovered.length, first: uncovered.slice(0, 20) })}\n`,
+    );
+    if (uncovered.length > 0) process.exitCode = 1;
+  }
 }
