@@ -3500,10 +3500,12 @@ describe("ProviderCommandReactor", () => {
     const db = openDiagnosticsReader(harness.stateDir)!;
     const accepted = db
       .prepare(
-        "SELECT step, trace_id, command_id FROM detail WHERE step = 'provider.call_accepted' AND command_id = 'cmd-turn-start-1'",
+        "SELECT step, trace_id, command_id, event_type FROM detail WHERE step = 'provider.call_accepted' AND command_id = 'cmd-turn-start-1'",
       )
       .all();
-    expect(accepted).toMatchObject([{ command_id: "cmd-turn-start-1", trace_id: traceId }]);
+    expect(accepted).toMatchObject([
+      { command_id: "cmd-turn-start-1", trace_id: traceId, event_type: "external_outcome" },
+    ]);
     const rows = db
       .prepare("SELECT step, trace_id, command_id FROM detail WHERE command_id = ? ORDER BY id")
       .all("cmd-turn-start-1") as Array<{

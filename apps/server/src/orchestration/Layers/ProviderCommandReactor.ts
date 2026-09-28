@@ -9,6 +9,7 @@ import {
 } from "@penkra/shared/traceContext";
 import {
   recordDiagnosticCheckpoint,
+  recordDiagnosticExternalOutcome,
   recordDiagnosticIncident,
   traceForDiagnosticCommand,
 } from "../../diagnostics/recorder.ts";
@@ -4596,7 +4597,7 @@ const make = Effect.gen(function* () {
         });
         if (workerResult._tag === "timeout") {
           yield* Effect.sync(() => {
-            recordDiagnosticCheckpoint({
+            recordDiagnosticExternalOutcome({
               ...attemptContext,
               flow: "provider_delivery",
               step: "provider.call_timed_out",
@@ -4646,7 +4647,7 @@ const make = Effect.gen(function* () {
           case "accepted":
           case "rejected": {
             yield* Effect.sync(() =>
-              recordDiagnosticCheckpoint({
+              recordDiagnosticExternalOutcome({
                 ...attemptContext,
                 flow: "provider_delivery",
                 step:
@@ -5053,7 +5054,7 @@ const make = Effect.gen(function* () {
         });
         if (result._tag === "timeout") {
           yield* Effect.sync(() => {
-            recordDiagnosticCheckpoint({
+            recordDiagnosticExternalOutcome({
               ...context,
               flow: "provider_delivery",
               step: "provider.call_timed_out",
@@ -5081,7 +5082,7 @@ const make = Effect.gen(function* () {
         }
         if (result._tag === "ok") {
           yield* Effect.sync(() =>
-            recordDiagnosticCheckpoint({
+            recordDiagnosticExternalOutcome({
               ...context,
               flow: "provider_delivery",
               step: "provider.call_accepted",
@@ -5094,7 +5095,7 @@ const make = Effect.gen(function* () {
         switch (result.outcome._tag) {
           case "rejected":
             yield* Effect.sync(() => {
-              recordDiagnosticCheckpoint({
+              recordDiagnosticExternalOutcome({
                 ...context,
                 flow: "provider_delivery",
                 step: "provider.call_rejected",

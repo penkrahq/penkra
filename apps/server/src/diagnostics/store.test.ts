@@ -31,6 +31,37 @@ afterEach(() => {
 });
 
 describe("diagnostics store", () => {
+  it("stores typed external outcomes and expectation resolutions without payload content", () => {
+    const { stateDir, store } = fixture();
+    store.externalOutcome({
+      traceId,
+      spanId,
+      flow: "provider_delivery",
+      step: "provider.call_accepted",
+      outcome: "ok",
+      elapsedMs: 42,
+    });
+    const id = store.armExpectation({ traceId, spanId, kind: "turn.started", deadlineMs: 10_000 });
+    store.resolveExpectation(id);
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(db.prepare("SELECT event_type FROM detail ORDER BY id").all()).toMatchObject([
+      { event_type: "external_outcome" },
+      { event_type: "expectation_resolved" },
+    ]);
+    expect(() =>
+      store.externalOutcome({
+        traceId,
+        spanId,
+        flow: "provider_delivery",
+        step: "provider.call_accepted",
+        outcome: "ok",
+        elapsedMs: 1,
+        fields: { output: "private answer" },
+      }),
+    ).toThrow("not allowlisted");
+    db.close();
+    store.close();
+  });
   it("reports stalled and crashed peer processes once per observed failure", () => {
     const { stateDir, store } = fixture();
     const desktop = new DiagnosticsStore({
