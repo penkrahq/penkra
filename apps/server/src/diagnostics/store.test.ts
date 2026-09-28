@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { DiagnosticsStore, openDiagnosticsReader } from "./store";
+import { DiagnosticsSpoolWriter, DiagnosticsStore, openDiagnosticsReader } from "./store";
 
 const roots: string[] = [];
 
@@ -99,12 +99,13 @@ describe("diagnostics store", () => {
   });
   it("reports stalled and crashed peer processes once per observed failure", () => {
     const { stateDir, store } = fixture();
-    const desktop = new DiagnosticsStore({
+    const desktop = new DiagnosticsSpoolWriter({
       stateDir,
       appVersion: "0.14.3",
       process: "desktop-main",
     });
     desktop.sampleHealth({ eventLoopLagMs: 0 });
+    store.importPeerSpools();
     const databasePath = path.join(stateDir, "diagnostics", "diagnostics.sqlite");
     const writer = new DatabaseSync(databasePath);
     const stale = new Date(Date.now() - 20_000).toISOString();
@@ -166,7 +167,7 @@ describe("diagnostics store", () => {
   });
   it("joins desktop and server checkpoints in one trace while both processes are live", () => {
     const { stateDir, store } = fixture();
-    const desktop = new DiagnosticsStore({
+    const desktop = new DiagnosticsSpoolWriter({
       stateDir,
       appVersion: "0.14.3",
       process: "desktop-main",
@@ -185,6 +186,12 @@ describe("diagnostics store", () => {
       kind: "send.accepted",
       deadlineMs: 2_000,
     });
+    const beforeImport = openDiagnosticsReader(stateDir)!;
+    expect(beforeImport.prepare("SELECT count(*) AS count FROM detail").get()).toMatchObject({
+      count: 0,
+    });
+    beforeImport.close();
+    store.importPeerSpools();
     store.checkpoint({
       traceId,
       spanId: "1111111111111111",
@@ -204,6 +211,60 @@ describe("diagnostics store", () => {
     ]);
     db.close();
     desktop.close();
+    store.close();
+  });
+  it("imports a gracefully closed desktop spool without marking a crash", () => {
+    const { stateDir, store } = fixture();
+    const desktop = new DiagnosticsSpoolWriter({
+      stateDir,
+      appVersion: "0.14.3",
+      process: "desktop-main",
+    });
+    desktop.sampleHealth({ eventLoopLagMs: 8 });
+    desktop.incident({
+      traceId,
+      spanId,
+      kind: "timeout",
+      code: "WS_HANDSHAKE_SLOW",
+      where: "browser.socket_connect",
+      severity: "error",
+      expected: { deadlineMs: 3_000 },
+    });
+    desktop.close();
+    expect(store.importPeerSpools()).toBe(0);
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(db.prepare("SELECT process, event_loop_lag_ms FROM health").get()).toMatchObject({
+      process: "desktop-main",
+      event_loop_lag_ms: 8,
+    });
+    expect(db.prepare("SELECT code FROM incidents").all()).toMatchObject([
+      { code: "WS_HANDSHAKE_SLOW" },
+    ]);
+    db.close();
+    store.close();
+  });
+
+  it("imports a crashed desktop spool and reports the unclean shutdown", () => {
+    const { stateDir, store } = fixture();
+    const desktop = new DiagnosticsSpoolWriter({
+      stateDir,
+      appVersion: "0.14.3",
+      process: "desktop-main",
+    });
+    desktop.checkpoint({ traceId, spanId, flow: "send", step: "composer.preflight" });
+    const marker = path.join(stateDir, "diagnostics", `active-${desktop.bootId}.json`);
+    fs.writeFileSync(marker, JSON.stringify({ pid: 999_999_999, process: "desktop-main" }));
+    expect(store.importPeerSpools()).toBe(1);
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(
+      db.prepare("SELECT step FROM detail WHERE boot_id = ?").get(desktop.bootId),
+    ).toMatchObject({
+      step: "composer.preflight",
+    });
+    expect(db.prepare("SELECT code FROM incidents").all()).toMatchObject([
+      { code: "UNCLEAN_SHUTDOWN" },
+    ]);
+    db.close();
     store.close();
   });
   it("resolves expectations and records missed deadlines with the last checkpoint", () => {
@@ -243,6 +304,26 @@ describe("diagnostics store", () => {
       count: 0,
     });
     db.close();
+    restarted.close();
+  });
+
+  it("keeps a live desktop expectation pending when the server restarts", () => {
+    const { stateDir, store } = fixture();
+    const desktop = new DiagnosticsSpoolWriter({
+      stateDir,
+      appVersion: "0.14.3",
+      process: "desktop-main",
+    });
+    desktop.armExpectation({ traceId, spanId, kind: "send.accepted", deadlineMs: 30_000 });
+    store.close();
+    const restarted = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(db.prepare("SELECT count(*) AS count FROM expectations").get()).toMatchObject({
+      count: 1,
+    });
+    expect(db.prepare("SELECT count(*) AS count FROM incidents").get()).toMatchObject({ count: 0 });
+    db.close();
+    desktop.close();
     restarted.close();
   });
 
@@ -344,6 +425,37 @@ describe("diagnostics store", () => {
     next.close();
   });
 
+  it("resets old data when the desktop starts the new version first", () => {
+    const { stateDir, store } = fixture("0.14.2");
+    store.incident({
+      traceId,
+      spanId,
+      kind: "command.failed",
+      code: "COMMAND_REJECTED",
+      where: "orchestration.worker",
+      severity: "error",
+    });
+    store.close();
+    const desktop = new DiagnosticsSpoolWriter({
+      stateDir,
+      appVersion: "0.14.3",
+      process: "desktop-main",
+    });
+    desktop.checkpoint({ traceId, spanId, flow: "send", step: "composer.preflight" });
+    const next = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(db.prepare("SELECT count(*) AS count FROM incidents").get()).toMatchObject({ count: 0 });
+    expect(db.prepare("SELECT step FROM detail").all()).toMatchObject([
+      { step: "composer.preflight" },
+    ]);
+    expect(db.prepare("SELECT value FROM meta WHERE key='reset_at'").get()).toMatchObject({
+      value: expect.any(String),
+    });
+    db.close();
+    desktop.close();
+    next.close();
+  });
+
   it("replays an orphaned spool once and marks the unclean shutdown", () => {
     const { stateDir, store } = fixture();
     store.close();
@@ -423,6 +535,30 @@ describe("diagnostics store", () => {
         expect(fs.readFileSync(path.join(dir, name)).includes(secret)).toBe(false);
       }
     }
+  });
+
+  it("rejects content fields from the desktop before writing a spool", () => {
+    const { stateDir, store } = fixture();
+    const desktop = new DiagnosticsSpoolWriter({
+      stateDir,
+      appVersion: "0.14.3",
+      process: "desktop-main",
+    });
+    const secret = "private prompt content and token";
+    expect(() =>
+      desktop.checkpoint({
+        traceId,
+        spanId,
+        flow: "send",
+        step: "composer.preflight",
+        fields: { message: secret } as never,
+      }),
+    ).toThrow("not allowlisted");
+    expect(fs.existsSync(path.join(stateDir, "diagnostics", `spool-${desktop.bootId}.jsonl`))).toBe(
+      false,
+    );
+    desktop.close();
+    store.close();
   });
 
   it("keeps writes inside an injected cap", () => {

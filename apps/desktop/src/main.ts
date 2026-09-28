@@ -74,7 +74,7 @@ import { POSSIBLE_MODEL_CATALOG } from "@penkra/shared/possibleModels";
 import { applyShellEnvironmentHydrationMarker } from "@penkra/shared/shell";
 import { RotatingFileSink } from "@penkra/shared/logging";
 import {
-  DiagnosticsStore,
+  DiagnosticsSpoolWriter,
   type CheckpointInput,
   type IncidentInput,
 } from "@penkra/shared/diagnostics/store";
@@ -412,13 +412,13 @@ const BASE_DIR =
   process.env.PENKRA_HOME?.trim() ||
   Path.join(OS.homedir(), desktopIdentity.defaultHomeDirectoryName);
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
-let desktopDiagnostics: DiagnosticsStore | null = null;
+let desktopDiagnostics: DiagnosticsSpoolWriter | null = null;
 let stopDesktopDiagnosticsHealthSampling: (() => void) | null = null;
 let stopDesktopDiagnosticsWatchdog: (() => void) | null = null;
 
-function getDesktopDiagnosticsStore(): DiagnosticsStore {
+function getDesktopDiagnosticsStore(): DiagnosticsSpoolWriter {
   if (!desktopDiagnostics) {
-    desktopDiagnostics = new DiagnosticsStore({
+    desktopDiagnostics = new DiagnosticsSpoolWriter({
       stateDir: STATE_DIR,
       appVersion: app.getVersion(),
       process: "desktop-main",

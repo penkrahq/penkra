@@ -8,6 +8,7 @@ import type {
   ProvenanceInput,
   ExpectationKind,
 } from "./store";
+import { DIAGNOSTIC_LIMITS } from "./limits";
 
 let activeStore: DiagnosticsStore | null = null;
 
@@ -16,6 +17,14 @@ export function installDiagnosticsStore(store: DiagnosticsStore): () => void {
   activeStore = store;
   const stopHealthSampling = store.startHealthSampling();
   const stopProcessWatchdog = store.startProcessWatchdog();
+  const importTimer = setInterval(() => {
+    try {
+      store.importPeerSpools();
+    } catch {
+      process.stderr.write("[diagnostics] peer spool import failed\n");
+    }
+  }, DIAGNOSTIC_LIMITS.batchMs);
+  importTimer.unref();
   const sweep = setInterval(() => {
     try {
       store.sweepExpectations();
@@ -26,6 +35,7 @@ export function installDiagnosticsStore(store: DiagnosticsStore): () => void {
   sweep.unref();
   return () => {
     clearInterval(sweep);
+    clearInterval(importTimer);
     stopHealthSampling();
     stopProcessWatchdog();
     if (activeStore === store) activeStore = null;
@@ -58,6 +68,7 @@ export function resolveDiagnosticExpectationsForTrace(
   kind: ExpectationKind,
 ): void {
   try {
+    activeStore?.importPeerSpools();
     activeStore?.resolveExpectationsForTrace(traceId, kind);
   } catch {
     process.stderr.write("[diagnostics] trace expectation resolution failed\n");
