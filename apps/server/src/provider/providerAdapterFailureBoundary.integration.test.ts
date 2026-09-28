@@ -50,10 +50,7 @@ import { ThreadProviderBindingRepository } from "../persistence/Services/ThreadP
 import { TextGeneration } from "../textGeneration/Services/TextGeneration.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import { OrchestrationEventDeliveryRepositoryLive } from "../persistence/Layers/OrchestrationEventDeliveries.ts";
-import {
-  OrchestrationEventDeliveryRepository,
-  PROVIDER_COMMAND_REACTOR_CONSUMER,
-} from "../persistence/Services/OrchestrationEventDeliveries.ts";
+import { ProviderIntentOutbox } from "../persistence/Services/ProviderIntentOutbox.ts";
 import { OrchestrationEventStore } from "../persistence/Services/OrchestrationEventStore.ts";
 import { ProviderAdapterRegistry } from "./Services/ProviderAdapterRegistry.ts";
 import { CodexAdapter } from "./Services/CodexAdapter.ts";
@@ -482,7 +479,7 @@ async function makeProviderRuntime(
   const ingestion = await runtime.runPromise(Effect.service(ProviderRuntimeIngestionService));
   const reactor = await runtime.runPromise(Effect.service(ProviderCommandReactor));
   const orchestrationEvents = await runtime.runPromise(Effect.service(OrchestrationEventStore));
-  const deliveries = await runtime.runPromise(Effect.service(OrchestrationEventDeliveryRepository));
+  const outbox = await runtime.runPromise(Effect.service(ProviderIntentOutbox));
   if (!initialize) {
     return {
       runtime,
@@ -493,7 +490,7 @@ async function makeProviderRuntime(
       ingestion,
       reactor,
       orchestrationEvents,
-      deliveries,
+      outbox,
       workerScope: undefined,
     };
   }
@@ -618,7 +615,7 @@ async function makeProviderRuntime(
     ingestion,
     reactor,
     orchestrationEvents,
-    deliveries,
+    outbox,
     workerScope,
   };
 }
@@ -664,7 +661,6 @@ async function persistedBoundaryTrace(
       }
     | undefined;
   readonly commandDelivery: unknown;
-  readonly blockingDelivery: unknown;
   readonly pendingStartOutcome: unknown;
   readonly latestTurn: unknown;
   readonly messageDelivery: unknown;
@@ -692,18 +688,7 @@ async function persistedBoundaryTrace(
   const commandDelivery =
     intentEvent === undefined
       ? Option.none()
-      : await harness.runtime.runPromise(
-          harness.deliveries.getDelivery({
-            consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
-            eventSequence: intentEvent.sequence,
-          }),
-        );
-  const blockingDelivery = await harness.runtime.runPromise(
-    harness.deliveries.firstBlockingDeliveryForThread({
-      consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
-      threadId: THREAD_ID,
-    }),
-  );
+      : await harness.runtime.runPromise(harness.outbox.getJob(intentEvent.sequence));
   const pendingStartOutcome = await harness.runtime.runPromise(
     harness.projection.getPendingStartOutcome({
       threadId: THREAD_ID,
@@ -723,7 +708,6 @@ async function persistedBoundaryTrace(
             payload: intentEvent.payload as Record<string, unknown>,
           },
     commandDelivery: Option.isSome(commandDelivery) ? commandDelivery.value : null,
-    blockingDelivery: Option.isSome(blockingDelivery) ? blockingDelivery.value : null,
     pendingStartOutcome,
     latestTurn: thread?.latestTurn ?? null,
     messageDelivery: message?.delivery ?? null,
@@ -1200,7 +1184,7 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
         {
           threadId: THREAD_ID,
           status: "error",
-          activeTurnId: TURN_ID,
+          activeTurnId: null,
         },
       );
       expect(
@@ -1229,7 +1213,7 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
       expect(retained.threads.find((thread) => thread.id === THREAD_ID)?.session).toMatchObject({
         threadId: THREAD_ID,
         status: "error",
-        activeTurnId: TURN_ID,
+        activeTurnId: null,
       });
       expect(manager.startInputs).toHaveLength(1);
       expect(manager.sendInputs).toHaveLength(1);
@@ -1294,7 +1278,7 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
       await harness.runtime.runPromise(harness.ingestion.drain);
       const p1Trace = await persistedBoundaryTrace(harness, messageId);
       expect(p1Trace.commandDelivery).toMatchObject({
-        state: "uncertain",
+        state: "abandoned",
         attemptCount: 1,
       });
       expect(p1Trace.messageDelivery).toMatchObject({
@@ -1320,7 +1304,7 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
       expect(thread?.session).toMatchObject({
         threadId: THREAD_ID,
         status: "error",
-        activeTurnId: TURN_ID,
+        activeTurnId: null,
       });
       expect(thread?.session?.lastError).toContain("usage limit reached");
       const highWater = await harness.runtime.runPromise(harness.events.getHighWaterSequence);
@@ -1371,10 +1355,10 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
       expect(retainedThread?.session).toMatchObject({
         threadId: THREAD_ID,
         status: "error",
-        activeTurnId: TURN_ID,
+        activeTurnId: null,
       });
       expect(retainedTrace.commandDelivery).toMatchObject({
-        state: "uncertain",
+        state: "abandoned",
         attemptCount: 1,
       });
       expect(retainedTrace.pendingStartOutcome).toMatchObject({
@@ -1671,7 +1655,7 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
       await harness.runtime.runPromise(harness.ingestion.drain);
       const p4SendTrace = await persistedBoundaryTrace(harness, messageId);
       expect(p4SendTrace.commandDelivery).toMatchObject({
-        state: "uncertain",
+        state: "abandoned",
         attemptCount: 1,
       });
       expect(p4SendTrace.messageDelivery).toMatchObject({
@@ -1726,7 +1710,7 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
         activeTurnId: null,
       });
       expect(retainedTrace.commandDelivery).toMatchObject({
-        state: "uncertain",
+        state: "abandoned",
         attemptCount: 1,
       });
       expect(retainedTrace.pendingStartOutcome).toMatchObject({
