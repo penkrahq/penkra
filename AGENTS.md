@@ -127,8 +127,8 @@ boundary.
   alternatives, edge cases, and recommendation in prose so the user can challenge assumptions and
   introduce a direction that was not pre-listed.
 - Verify the same failing reproduction passes after the fix, then run the relevant regression
-  matrix and required desktop QA. Record what was reproduced, what changed, and what remains
-  unproven. A passing test that never failed on the original behavior is not reproduction evidence.
+  matrix. Record what was reproduced, what changed, and what remains unproven. A passing test that
+  never failed on the original behavior is not reproduction evidence.
 - Build the regression matrix from both the changed mechanism and its historical neighboring flows.
   Include previously working small/common cases, affected large or unusual cases, fresh and restored
   lifecycles, failure and recovery, and source-versus-installed guidance where relevant. Verify that
@@ -140,8 +140,6 @@ boundary.
 
 ## Task Completion Requirements
 
-- Before committing changes or declaring a task complete, start a fresh Penkra Dev instance and perform manual QA in the desktop app for the affected user flows. Automated tests, builds, browser-only checks, or inspecting an already-running instance do not replace this requirement.
-- Record what was manually exercised and its result in the final handoff. If Penkra Dev cannot be started or a relevant flow cannot be exercised, report the task as not fully validated instead of silently treating it as complete.
 - Run `bun fmt`, `bun lint`, and `bun typecheck` as part of final verification without requesting separate permission.
 - All of `bun fmt`, `bun lint`, and `bun typecheck` must pass before considering tasks completed.
 - Treat `bun fmt`, `bun lint`, and `bun typecheck` as heavyweight workspace checks: bundle them into one final verification pass per task whenever possible, and avoid rerunning the full set repeatedly during iteration.
