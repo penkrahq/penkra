@@ -191,11 +191,17 @@ interface SpoolEnvelope {
     | "expectation_resolved"
     | "incident"
     | "expectation_arm"
-    | "health";
+    | "health"
+    | "provenance_set";
   readonly at: string;
   readonly monoMs: number;
   readonly process: DiagnosticsOptions["process"];
-  readonly data: CheckpointInput | IncidentInput | ExpectationArmInput | HealthRecord;
+  readonly data:
+    | CheckpointInput
+    | IncidentInput
+    | ExpectationArmInput
+    | HealthRecord
+    | ProvenanceInput;
 }
 
 const SCHEMA = `
@@ -406,7 +412,7 @@ function prepareEnvelope(
   type: SpoolEnvelope["type"],
   data: SpoolEnvelope["data"],
 ): SpoolEnvelope {
-  if (type !== "health") validateContext(data as DiagnosticContext);
+  if (type !== "health" && type !== "provenance_set") validateContext(data as DiagnosticContext);
   validateDiagnosticId(bootId);
   if (!["server", "desktop-main", "renderer", "provider-child"].includes(processName)) {
     throw new TypeError("Invalid diagnostic process");
@@ -431,6 +437,20 @@ function prepareEnvelope(
     if (Object.values(safe).some((value) => typeof value === "number" && value < 0))
       throw new TypeError("Negative health metric");
     safeData = safe as unknown as HealthRecord;
+  } else if (type === "provenance_set") {
+    const provenance = data as ProvenanceInput;
+    validateDiagnosticId(provenance.entityId);
+    validateDiagnosticId(provenance.traceId);
+    validateDiagnosticToken(provenance.entityKind, "entityKind");
+    validateDiagnosticToken(provenance.field, "field");
+    const at = provenance.at === undefined ? undefined : new Date(provenance.at).toISOString();
+    safeData = {
+      entityKind: provenance.entityKind,
+      entityId: provenance.entityId,
+      field: provenance.field,
+      traceId: provenance.traceId,
+      ...(at ? { at } : {}),
+    };
   } else if (type === "expectation_arm") {
     const expectation = data as ExpectationArmInput;
     validateDiagnosticId(expectation.id);
@@ -558,7 +578,21 @@ function insertEnvelope(
     | { value: string }
     | undefined;
   if (lastSequence && Number(lastSequence.value) >= event.sequence) return;
-  if (event.type === "health") {
+  if (event.type === "provenance_set") {
+    const provenance = event.data as ProvenanceInput;
+    database
+      .prepare(`INSERT INTO provenance (
+        entity_kind, entity_id, field, set_by_trace_id, set_at
+      ) VALUES (?, ?, ?, ?, ?) ON CONFLICT(entity_kind, entity_id, field)
+      DO UPDATE SET set_by_trace_id = excluded.set_by_trace_id, set_at = excluded.set_at`)
+      .run(
+        provenance.entityKind,
+        provenance.entityId,
+        provenance.field,
+        provenance.traceId,
+        provenance.at ?? event.at,
+      );
+  } else if (event.type === "health") {
     const health = event.data as HealthRecord;
     database
       .prepare(`INSERT INTO health (
@@ -641,6 +675,8 @@ function insertEnvelope(
         }),
         pin.until,
       );
+    if (event.type === "expectation_resolved" && typeof data.fields?.entityId === "string")
+      database.prepare("DELETE FROM expectations WHERE id = ?").run(data.fields.entityId);
   } else {
     const data = event.data as IncidentInput;
     const provenance = database
@@ -964,6 +1000,7 @@ export class DiagnosticsStore {
                 "incident",
                 "expectation_arm",
                 "health",
+                "provenance_set",
               ].includes(event.type)
             )
               continue;
@@ -1130,6 +1167,7 @@ export class DiagnosticsStore {
             "incident",
             "expectation_arm",
             "health",
+            "provenance_set",
           ].includes(pending.type)
         ) {
           throw new Error("Current diagnostics spool is invalid");
@@ -1186,22 +1224,7 @@ export class DiagnosticsStore {
   }
 
   setProvenance(input: ProvenanceInput): void {
-    if (!["thread", "turn", "queue", "session", "connection"].includes(input.entityKind)) {
-      throw new TypeError("Invalid provenance entity kind");
-    }
-    validateDiagnosticId(input.entityId);
-    validateDiagnosticId(input.traceId);
-    validateDiagnosticToken(input.field, "field");
-    const at = input.at === undefined ? new Date().toISOString() : new Date(input.at).toISOString();
-    withLifecycleLock(this.dir, () => {
-      this.assertCurrentVersion();
-      this.database
-        .prepare(`INSERT INTO provenance (
-      entity_kind, entity_id, field, set_by_trace_id, set_at
-    ) VALUES (?, ?, ?, ?, ?) ON CONFLICT(entity_kind, entity_id, field)
-    DO UPDATE SET set_by_trace_id = excluded.set_by_trace_id, set_at = excluded.set_at`)
-        .run(input.entityKind, input.entityId, input.field, input.traceId, at);
-    });
+    this.write("provenance_set", input);
   }
 
   sampleHealth(input: HealthSampleInput): void {
@@ -1351,8 +1374,8 @@ export class DiagnosticsStore {
         step: "expectation.resolved",
         outcome: outcome === "met" ? "ok" : "cancelled",
         elapsedMs: Math.max(0, Date.now() - Date.parse(pending.armed_at)),
+        fields: { entityId: id },
       });
-      this.database.prepare("DELETE FROM expectations WHERE id = ?").run(id);
       return true;
     });
   }
@@ -1417,7 +1440,7 @@ export class DiagnosticsStore {
           ? { lastCheckpoint: last?.step ?? pending.last_checkpoint! }
           : {}),
       });
-      this.checkpoint({
+      this.write("expectation_resolved", {
         traceId: pending.trace_id,
         spanId: pending.span_id,
         ...(pending.thread_id ? { threadId: pending.thread_id } : {}),
@@ -1425,10 +1448,7 @@ export class DiagnosticsStore {
         flow: expectationFlow(pending.kind),
         step: restarted ? "expectation.unknown_after_restart" : "expectation.missed",
         outcome: "timed_out",
-      });
-      withLifecycleLock(this.dir, () => {
-        this.assertCurrentVersion();
-        this.database.prepare("DELETE FROM expectations WHERE id = ?").run(pending.id);
+        fields: { entityId: pending.id },
       });
       swept++;
     }
