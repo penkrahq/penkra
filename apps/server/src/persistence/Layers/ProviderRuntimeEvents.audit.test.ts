@@ -16,6 +16,7 @@ const source = readFileSync(new URL("./ProviderRuntimeEvents.ts", import.meta.ur
 const section = source.slice(source.indexOf("const readPendingThreadEvents:"));
 const query = section
   .slice(section.indexOf("WITH eligible AS ("), section.indexOf("`.pipe("))
+  .replace(/\$\{excludeActiveThreads\}|\$\{onlyThread\}/g, "")
   .replace(/\$\{[^}]+\}/g, "?");
 const stamp = "2026-09-09T00:00:00.000Z";
 const event = {

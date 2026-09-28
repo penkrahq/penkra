@@ -1,9 +1,9 @@
 # Thread stall candidate composition — 2026-09-28
 
-This is a local, unreleased candidate based on the 0.14.1 release source. It has no approved next
-version and is not installed in production. The intended release candidate combines the targeted
-diagnostics and the runtime fixes; the user chose this composition on 2026-09-28. This is a
-composition decision, not approval to release an unfinished build.
+This is the 0.14.2 release candidate based on the 0.14.1 release source. The user explicitly
+approved version 0.14.2 and authorized release on 2026-09-28. It combines targeted diagnostics
+with the verified runtime isolation changes. The installed production app remains 0.14.1 until
+the published update is installed.
 
 | Commit                  | Included change                                                                                                                                                      | Status                                                              |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
@@ -40,7 +40,8 @@ Verification through `a2e2d2a5b`: server and repository typechecks passed; the p
 suite passed (167/167), including the start/terminal race and pruned-journal fallback; the runtime
 ingestion suite passed (153/153); the focused command engine suite passed (26/26); outbox
 persistence tests passed (2/2); migration lineage passed across 134 shipped tags. These checks
-do not establish release readiness while the stop and shared commit boundaries remain open.
+establish the controlled isolation cases; they do not prove the historical production socket or
+Claude causes, or remove the same-session stop and shared commit limits.
 Direct `bun test` is not the repository's runner and fails SQLite safety because its embedded
 SQLite is 3.51.0; the supported Node/Vitest runner uses SQLite 3.53.3.
 

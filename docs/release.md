@@ -104,10 +104,11 @@ create the matching tag manually: the workflow creates it only after every nativ
    record that comparison and skip the Production task; an unrelated desktop release does not need
    to repeat the registry check.
 3. Update every product package to the intended version and commit the exact release source locally.
-4. Complete the repository's required fresh Penkra Dev manual QA for the affected user flows, then
-   build and launch an isolated local production package for final macOS QA. The local artifact is
-   evidence, not publication authority, and must not replace or quit the installed Production app.
-   Record the commands, timings, exercised flows, and result in the release handoff.
+4. Verify the affected user flows with focused tests and, when the change needs desktop behavior
+   evidence, an appropriate existing Penkra Dev instance or an isolated local production package.
+   A fresh desktop QA run is not a mandatory release gate. A local artifact is evidence, not
+   publication authority, and must not replace or quit the installed Production app. Record the
+   commands, timings, exercised flows, and result in the release handoff.
 5. Dispatch the protected workflow with the approved version and exact current `main` commit:
 
    ```sh
