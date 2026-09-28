@@ -47,6 +47,8 @@ is the incident-scoped precursor.
 [`thread-runtime-isolation-design-2026-09-28.md`](thread-runtime-isolation-design-2026-09-28.md)
 proposes a complete thread-runtime isolation architecture and distinguishes its guarantees from
 the unresolved socket and Claude startup causes.
+[`thread-stall-candidate-composition-2026-09-28.md`](thread-stall-candidate-composition-2026-09-28.md)
+lists the exact local candidate commits, exclusions, and verification status.
 
 When information is useful to both audiences, keep the stable public contract in the public guide
 and link to it from the contributor document. Do not copy internal environment mechanics into the
