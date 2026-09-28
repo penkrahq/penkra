@@ -7,6 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { DiagnosticsSpoolWriter, DiagnosticsStore, openDiagnosticsReader } from "./store";
+import { DIAGNOSTIC_LIMITS } from "./limits";
 
 const roots: string[] = [];
 
@@ -1085,6 +1086,43 @@ describe("diagnostics store", () => {
     expect(diskBytes()).toBeLessThanOrEqual(cap);
     db.close();
     peer.close();
+    store.close();
+  }, 30_000);
+
+  it("bounds incident-index and WAL growth with SQLite's page limit", () => {
+    expect(DIAGNOSTIC_LIMITS.totalBytes).toBe(1_073_741_824);
+    const cap = 384 * 1024;
+    const { stateDir, store } = fixture("0.14.3", cap);
+    const dir = path.join(stateDir, "diagnostics");
+    const diskBytes = () =>
+      fs.readdirSync(dir).reduce((sum, name) => {
+        const file = path.join(dir, name);
+        return sum + (fs.statSync(file).isFile() ? fs.statSync(file).size : 0);
+      }, 0);
+    for (let i = 0; i < 200; i++) {
+      try {
+        store.incident({
+          traceId,
+          spanId,
+          kind: "command.failed",
+          code: "COMMAND_REJECTED",
+          where: "server.command",
+          severity: "error",
+          actual: { sequence: i },
+        });
+      } catch (cause) {
+        expect((cause as Error).message).toContain("capacity");
+        break;
+      }
+      expect(diskBytes()).toBeLessThanOrEqual(cap);
+    }
+    expect(diskBytes()).toBeLessThanOrEqual(cap);
+    const db = openDiagnosticsReader(stateDir)!;
+    const occurrences = db.prepare("SELECT count(*) AS count FROM incident_occurrences").get() as {
+      count: number;
+    };
+    expect(occurrences.count).toBeGreaterThan(0);
+    db.close();
     store.close();
   }, 30_000);
 

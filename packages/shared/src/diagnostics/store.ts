@@ -304,11 +304,40 @@ function totalBytes(dir: string): number {
   }, 0);
 }
 
-function sqliteGrowthReserve(dbPath: string, pendingSpoolBytes: number): number {
-  const databaseBytes = fs.existsSync(dbPath) ? fs.statSync(dbPath).size : 0;
-  // A WAL transaction can contain the existing database pages plus new pages.
-  // Reserve a full rewrite and ample index/page overhead for every pending byte.
-  return Math.ceil(databaseBytes * 1.02) + pendingSpoolBytes * 32 + 1_048_576;
+function sqlitePhysicalBudget(
+  database: DatabaseSync,
+  dir: string,
+  dbPath: string,
+  maxTotalBytes: number,
+  pendingExternalBytes = 0,
+): void {
+  const walPath = `${dbPath}-wal`;
+  const walBytes = fs.existsSync(walPath) ? fs.statSync(walPath).size : 0;
+  if (totalBytes(dir) + walBytes + pendingExternalBytes > maxTotalBytes)
+    throw new Error("Diagnostics capacity reached before SQLite checkpoint");
+  const checkpoint = database.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get() as {
+    busy: number;
+  };
+  if (checkpoint.busy) throw new Error("Diagnostics capacity reached while SQLite is busy");
+  const pageSize = (database.prepare("PRAGMA page_size").get() as { page_size: number }).page_size;
+  const pageCount = (database.prepare("PRAGMA page_count").get() as { page_count: number })
+    .page_count;
+  const currentDatabaseBytes = fs.statSync(dbPath).size;
+  const currentWalBytes = fs.existsSync(walPath) ? fs.statSync(walPath).size : 0;
+  const externalBytes =
+    totalBytes(dir) - currentDatabaseBytes - currentWalBytes + pendingExternalBytes;
+  // With cache spill disabled, one transaction contributes at most one WAL
+  // frame per database page. Account for both full-size files, frame headers,
+  // and the WAL-index's 32 KiB regions before allowing SQLite to write.
+  const fixedOverhead = 65_536;
+  const bytesPerPage = pageSize * 2 + 32;
+  const maxPages = Math.floor((maxTotalBytes - externalBytes - fixedOverhead) / bytesPerPage);
+  if (maxPages < pageCount || maxPages < 1)
+    throw new Error("Diagnostics capacity reached before SQLite write");
+  const applied = (
+    database.prepare(`PRAGMA max_page_count = ${maxPages}`).get() as { max_page_count: number }
+  ).max_page_count;
+  if (applied > maxPages) throw new Error("Diagnostics capacity reached before SQLite write");
 }
 
 const LOSS_LEDGER_BYTES = 256;
@@ -1093,7 +1122,9 @@ export class DiagnosticsStore {
       const createdDatabase = !fs.existsSync(this.dbPath);
       const db = new DatabaseSync(this.dbPath);
       db.exec(SCHEMA);
-      db.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;");
+      db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
+        PRAGMA cache_spill=OFF; PRAGMA wal_autocheckpoint=1;
+        PRAGMA journal_size_limit=0;`);
       db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '1')").run();
       db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES ('app_version', ?)").run(
         options.appVersion,
@@ -1171,9 +1202,12 @@ export class DiagnosticsStore {
         }
         continue;
       }
-      const reserve = sqliteGrowthReserve(this.dbPath, fs.statSync(spoolPath).size);
-      this.pruneLocked(new Date(), Math.max(0, this.maxTotalBytes - reserve));
-      if (totalBytes(this.dir) + reserve > this.maxTotalBytes) continue;
+      this.pruneLocked();
+      try {
+        sqlitePhysicalBudget(this.database, this.dir, this.dbPath, this.maxTotalBytes);
+      } catch {
+        continue;
+      }
       this.database.exec("BEGIN IMMEDIATE");
       try {
         let invalid = 0;
@@ -1252,7 +1286,7 @@ export class DiagnosticsStore {
           throw new Error("Diagnostics capacity reached during spool import");
         this.database.exec("COMMIT");
       } catch (cause) {
-        this.database.exec("ROLLBACK");
+        if (this.database.isTransaction) this.database.exec("ROLLBACK");
         this.database.exec("PRAGMA wal_checkpoint(TRUNCATE)");
         if ((cause as Error).message.includes("capacity reached")) continue;
         throw cause;
@@ -1336,6 +1370,7 @@ export class DiagnosticsStore {
           });
           withLifecycleLock(this.dir, () => {
             this.assertCurrentVersion();
+            sqlitePhysicalBudget(this.database, this.dir, this.dbPath, this.maxTotalBytes);
             this.database
               .prepare("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)")
               .run(key, String(loss.reasons[reason]));
@@ -1383,6 +1418,7 @@ export class DiagnosticsStore {
         });
         withLifecycleLock(this.dir, () => {
           this.assertCurrentVersion();
+          sqlitePhysicalBudget(this.database, this.dir, this.dbPath, this.maxTotalBytes);
           this.database
             .prepare("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)")
             .run(reportedKey, String(observed));
@@ -1406,14 +1442,18 @@ export class DiagnosticsStore {
     const line = `${JSON.stringify(event)}\n`;
     const bytes = Buffer.byteLength(line);
     const currentSpoolBytes = fs.existsSync(this.spoolPath) ? fs.statSync(this.spoolPath).size : 0;
-    const reserve = sqliteGrowthReserve(this.dbPath, currentSpoolBytes + bytes);
-    this.pruneLocked(new Date(), Math.max(0, this.maxTotalBytes - reserve));
     if (
       currentSpoolBytes + bytes > this.maxSpoolBytes ||
-      totalBytes(this.dir) + reserve > this.maxTotalBytes
+      totalBytes(this.dir) + bytes > this.maxTotalBytes
     ) {
       if (reportFailure) recordLoss(this.dir, this.bootId, "capacity");
       throw new Error("Diagnostics capacity reached");
+    }
+    try {
+      sqlitePhysicalBudget(this.database, this.dir, this.dbPath, this.maxTotalBytes, bytes);
+    } catch (cause) {
+      if (reportFailure) recordLoss(this.dir, this.bootId, "capacity");
+      throw cause;
     }
     try {
       const handle = fs.openSync(this.spoolPath, "a", 0o600);
@@ -1470,14 +1510,19 @@ export class DiagnosticsStore {
         throw new Error("Diagnostics capacity reached during SQLite write");
       this.database.exec("COMMIT");
     } catch (cause) {
-      this.database.exec("ROLLBACK");
+      if (this.database.isTransaction) this.database.exec("ROLLBACK");
       this.database.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+      const atPageLimit = /database or disk is full|SQLITE_FULL/iu.test((cause as Error).message);
       if (reportFailure)
         recordLoss(
           this.dir,
           this.bootId,
-          (cause as Error).message.includes("capacity reached") ? "capacity" : "sqlite",
+          atPageLimit || (cause as Error).message.includes("capacity reached")
+            ? "capacity"
+            : "sqlite",
         );
+      if (atPageLimit)
+        throw new Error("Diagnostics capacity reached during SQLite write", { cause });
       throw cause;
     }
     fs.truncateSync(this.spoolPath, 0);
@@ -1800,54 +1845,91 @@ export class DiagnosticsStore {
   ): void {
     const maintenanceReserve = Math.min(8 * 1024 * 1024, Math.floor(this.maxTotalBytes * 0.2));
     if (totalBytes(this.dir) > this.maxTotalBytes - maintenanceReserve) return;
-    if (now.getTime() - this.lastHealthThinAt >= 60_000) {
-      const healthCutoff = new Date(
-        now.getTime() - DIAGNOSTIC_LIMITS.healthThinAfterMs,
-      ).toISOString();
-      this.database
-        .prepare(`DELETE FROM health WHERE at < ? AND id NOT IN (
-        SELECT MIN(id) FROM health WHERE at < ?
-        GROUP BY process, strftime('%Y-%m-%dT%H:%M', at)
-      )`)
-        .run(healthCutoff, healthCutoff);
-      this.lastHealthThinAt = now.getTime();
-    }
+    if (totalBytes(this.dir) <= targetBytes && now.getTime() - this.lastHealthThinAt < 60_000)
+      return;
     const cutoff = new Date(
       now.getTime() - DIAGNOSTIC_LIMITS.incidentDays * 86_400_000,
     ).toISOString();
-    const expired = this.database
-      .prepare("DELETE FROM incident_occurrences WHERE at < ?")
-      .run(cutoff);
-    if (expired.changes > 0) this.recountIncidents();
-    if (totalBytes(this.dir) <= targetBytes) return;
-    for (let i = 0; i < 100_000 && totalBytes(this.dir) > targetBytes; i++) {
-      const result = this.database
-        .prepare(`DELETE FROM detail WHERE id IN (
+    for (let i = 0; i < 100_000; i++) {
+      try {
+        sqlitePhysicalBudget(this.database, this.dir, this.dbPath, this.maxTotalBytes);
+      } catch {
+        return;
+      }
+      let changed = 0;
+      let thinned = false;
+      this.database.exec("BEGIN IMMEDIATE");
+      try {
+        if (now.getTime() - this.lastHealthThinAt >= 60_000) {
+          const healthCutoff = new Date(
+            now.getTime() - DIAGNOSTIC_LIMITS.healthThinAfterMs,
+          ).toISOString();
+          changed += Number(
+            this.database
+              .prepare(`DELETE FROM health WHERE at < ? AND id NOT IN (
+              SELECT MIN(id) FROM health WHERE at < ?
+              GROUP BY process, strftime('%Y-%m-%dT%H:%M', at)
+            )`)
+              .run(healthCutoff, healthCutoff).changes,
+          );
+          thinned = true;
+        }
+        const expired = this.database
+          .prepare("DELETE FROM incident_occurrences WHERE at < ?")
+          .run(cutoff);
+        changed += Number(expired.changes);
+        if (expired.changes > 0) this.recountIncidents();
+        if (totalBytes(this.dir) > targetBytes) {
+          const detail = this.database
+            .prepare(`DELETE FROM detail WHERE id IN (
         SELECT id FROM detail WHERE NOT EXISTS (
           SELECT 1 FROM incident_occurrences o
           WHERE detail.at BETWEEN o.pin_from AND o.pin_until
         ) ORDER BY at LIMIT 100
       )`)
-        .run();
-      if (result.changes === 0) {
-        const health = this.database
-          .prepare("DELETE FROM health WHERE id IN (SELECT id FROM health ORDER BY at LIMIT 100)")
-          .run();
-        if (health.changes === 0) {
-          const occurrence = this.database
-            .prepare(`DELETE FROM incident_occurrences WHERE id IN (
+            .run();
+          changed += Number(detail.changes);
+          if (detail.changes === 0) {
+            const health = this.database
+              .prepare(
+                "DELETE FROM health WHERE id IN (SELECT id FROM health ORDER BY at LIMIT 100)",
+              )
+              .run();
+            changed += Number(health.changes);
+            if (health.changes === 0) {
+              const occurrence = this.database
+                .prepare(`DELETE FROM incident_occurrences WHERE id IN (
               SELECT id FROM incident_occurrences ORDER BY at, id LIMIT 10
             )`)
-            .run();
-          if (occurrence.changes === 0) break;
-          this.database
-            .prepare(`INSERT INTO meta(key, value) VALUES ('incident_evictions', ?)
+                .run();
+              changed += Number(occurrence.changes);
+              if (occurrence.changes > 0) {
+                this.database
+                  .prepare(`INSERT INTO meta(key, value) VALUES ('incident_evictions', ?)
               ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + ?`)
-            .run(String(occurrence.changes), occurrence.changes);
-          this.recountIncidents();
+                  .run(String(occurrence.changes), occurrence.changes);
+                this.recountIncidents();
+              }
+            }
+          }
         }
+        this.database.exec("COMMIT");
+      } catch (cause) {
+        if (this.database.isTransaction) this.database.exec("ROLLBACK");
+        throw cause;
       }
-      this.database.exec("PRAGMA incremental_vacuum(100); PRAGMA wal_checkpoint(TRUNCATE);");
+      if (thinned) this.lastHealthThinAt = now.getTime();
+      try {
+        sqlitePhysicalBudget(this.database, this.dir, this.dbPath, this.maxTotalBytes);
+      } catch {
+        return;
+      }
+      const freePages = (
+        this.database.prepare("PRAGMA freelist_count").get() as { freelist_count: number }
+      ).freelist_count;
+      if (freePages > 0) this.database.exec("PRAGMA incremental_vacuum(100)");
+      this.database.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+      if (totalBytes(this.dir) <= targetBytes || (changed === 0 && freePages === 0)) break;
     }
   }
 
