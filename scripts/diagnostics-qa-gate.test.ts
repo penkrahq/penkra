@@ -20,6 +20,8 @@ describe("diagnostics clean QA gate", () => {
       passed: false,
       failedFlows: ["play"],
       newIncidentIds: ["repeat"],
+      pendingExpectations: 0,
+      pendingSpools: 0,
     });
   });
 
@@ -45,6 +47,8 @@ describe("diagnostics clean QA gate", () => {
         passed: true,
         failedFlows: [],
         newIncidentIds: [],
+        pendingExpectations: 0,
+        pendingSpools: 0,
       });
       let calls = 0;
       const failure = runDiagnosticsQaGate(stateDir, scripts, () => {
@@ -61,6 +65,26 @@ describe("diagnostics clean QA gate", () => {
       });
       expect(failure.passed).toBe(false);
       expect(failure.newIncidentIds).toHaveLength(1);
+      const spool = path.join(
+        stateDir,
+        "diagnostics",
+        "spool-0123456789abcdef0123456789abcdef.jsonl",
+      );
+      fs.writeFileSync(spool, "pending\n");
+      const pending = runDiagnosticsQaGate(stateDir, scripts, () => true);
+      expect(pending.passed).toBe(false);
+      expect(pending.pendingSpools).toBe(1);
+      fs.rmSync(spool);
+      const expectationId = store.armExpectation({
+        traceId: "0123456789abcdef0123456789abcdef",
+        spanId: "0123456789abcdef",
+        kind: "turn.started",
+        deadlineMs: 60_000,
+      });
+      const awaiting = runDiagnosticsQaGate(stateDir, scripts, () => true);
+      expect(awaiting.passed).toBe(false);
+      expect(awaiting.pendingExpectations).toBe(1);
+      store.resolveExpectation(expectationId, "cancelled");
       store.close();
     } finally {
       fs.rmSync(stateDir, { recursive: true, force: true });
