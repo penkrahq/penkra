@@ -1973,6 +1973,11 @@ export class DiagnosticsSpoolWriter {
   private lastCpuUsage = process.cpuUsage();
   private lastHealthAt = performance.now();
 
+  recordDrop(reason: "capacity" | "spool", count = 1): void {
+    if (!Number.isSafeInteger(count) || count < 1) throw new TypeError("Invalid loss count");
+    withLifecycleLock(this.dir, () => recordLoss(this.dir, this.bootId, reason, count));
+  }
+
   constructor(private readonly options: DiagnosticsOptions) {
     if (!/^\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?$/u.test(options.appVersion))
       throw new TypeError("Invalid app version");

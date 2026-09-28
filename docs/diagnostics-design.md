@@ -97,6 +97,7 @@ values used by code and the incident's `limit` field:
 | Total diagnostics (SQLite, WAL, SHM, and all spools)                            |                    1,073,741,824 bytes (1 GiB) |
 | Prune start                                                                     |                           80% of the total cap |
 | Per-process spool                                                               |                                         16 MiB |
+| Desktop diagnostics worker queue / message / shutdown drain                     |                       256 / 64 KiB / 2 seconds |
 | Batch interval                                                                  |    at most 250 ms; incidents flush immediately |
 | Incident age                                                                    |                 90 days within one app version |
 | Incident detail pin                                                             | 10 min before through 2 min after the incident |

@@ -17,8 +17,12 @@ const worker = new Worker(path.join(desktopDir, "dist-electron/diagnosticsWorker
 });
 
 try {
+  let acknowledgements = 0;
   const drained = new Promise((resolve, reject) => {
-    worker.once("message", resolve);
+    worker.on("message", (message) => {
+      if (message.kind === "ack") acknowledgements++;
+      if (message.kind === "drained") resolve(message);
+    });
     worker.once("error", reject);
     worker.once("exit", (code) => {
       if (code !== 0) reject(new Error(`Diagnostics worker exited with ${code}`));
@@ -35,8 +39,18 @@ try {
   });
   const armedAt = new Date().toISOString();
   worker.postMessage({ kind: "sendExpectation", input: { ...trace, armedAt } });
+  worker.postMessage({
+    kind: "checkpoint",
+    input: {
+      ...trace,
+      flow: "send",
+      step: "server.received",
+      fields: { messageContent: "private message" },
+    },
+  });
   worker.postMessage({ kind: "shutdown" });
   assert.deepEqual(await drained, { kind: "drained" });
+  assert.equal(acknowledgements, 3);
 
   const diagnosticDir = path.join(stateDir, "diagnostics");
   const spool = fs.readdirSync(diagnosticDir).find((name) => name.startsWith("spool-"));
@@ -47,6 +61,10 @@ try {
     .split("\n")
     .map((line) => JSON.parse(line))
     .filter((record) => record.type !== "health");
+  assert.equal(
+    fs.readFileSync(path.join(diagnosticDir, spool), "utf8").includes("private message"),
+    false,
+  );
   assert.deepEqual(
     records.map((record) => record.type),
     ["checkpoint", "expectation_arm"],
@@ -54,6 +72,12 @@ try {
   assert.equal(records[0].data.traceId, trace.traceId);
   assert.equal(records[1].data.kind, "send.accepted");
   assert.equal(records[1].data.armedAt, armedAt);
+  const loss = fs.readdirSync(diagnosticDir).find((name) => name.startsWith("loss-"));
+  assert.ok(loss);
+  assert.equal(
+    JSON.parse(fs.readFileSync(path.join(diagnosticDir, loss), "utf8")).reasons.spool,
+    1,
+  );
   assert.equal(
     fs.readdirSync(diagnosticDir).some((name) => name.startsWith("active-")),
     false,
