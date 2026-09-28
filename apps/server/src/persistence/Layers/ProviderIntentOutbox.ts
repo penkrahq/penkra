@@ -20,6 +20,8 @@ interface RawJobRow {
   readonly eventId: string;
   readonly threadId: string;
   readonly laneKey: string;
+  readonly bindingRevision: number | null;
+  readonly lifecycleGeneration: string | null;
   readonly eventType: string;
   readonly eventJson: string;
   readonly state: ProviderIntentOutboxJob["state"];
@@ -41,6 +43,8 @@ const decodeJobRows = (rows: ReadonlyArray<RawJobRow>) =>
         eventId: row.eventId,
         threadId: row.threadId,
         laneKey: row.laneKey,
+        bindingRevision: row.bindingRevision,
+        lifecycleGeneration: row.lifecycleGeneration,
         eventType: row.eventType,
         event,
         state: row.state,
@@ -59,6 +63,8 @@ export const ProviderIntentOutboxLive = Layer.effect(
     const jobColumns = sql`
       event_sequence AS "eventSequence", event_id AS "eventId",
       thread_id AS "threadId", lane_key AS "laneKey", event_type AS "eventType",
+      binding_revision AS "bindingRevision",
+      lifecycle_generation AS "lifecycleGeneration",
       event_json AS "eventJson", state,
       claim_generation AS "claimGeneration", claim_owner AS "claimOwner",
       claim_expires_at AS "claimExpiresAt", attempt_count AS "attemptCount"
@@ -123,12 +129,22 @@ export const ProviderIntentOutboxLive = Layer.effect(
           );
         }
         const laneKey = ancestor?.laneKey ?? startThreadId;
+        const binding = yield* sql<{ readonly revision: number }>`
+          SELECT binding_revision AS revision FROM thread_runtime_bindings
+          WHERE thread_id = ${laneKey}
+        `;
+        const lifecycle = yield* sql<{ readonly generation: string }>`
+          SELECT lifecycle_generation AS generation FROM provider_session_runtime
+          WHERE thread_id = ${laneKey}
+        `;
         yield* sql`
             INSERT INTO provider_intent_outbox (
-              event_sequence, event_id, thread_id, lane_key, event_type,
+              event_sequence, event_id, thread_id, lane_key,
+              binding_revision, lifecycle_generation, event_type,
               event_json, state, created_at, updated_at
             ) VALUES (
               ${event.sequence}, ${event.eventId}, ${event.payload.threadId}, ${laneKey},
+              ${binding[0]?.revision ?? null}, ${lifecycle[0]?.generation ?? null},
               ${event.type}, ${JSON.stringify(event)}, 'pending',
               ${event.occurredAt}, ${event.occurredAt}
             )

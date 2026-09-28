@@ -30,6 +30,8 @@ export default Effect.gen(function* () {
       event_id TEXT NOT NULL UNIQUE,
       thread_id TEXT NOT NULL,
       lane_key TEXT NOT NULL,
+      binding_revision INTEGER,
+      lifecycle_generation TEXT,
       event_type TEXT NOT NULL,
       event_json TEXT NOT NULL CHECK (json_valid(event_json)),
       state TEXT NOT NULL DEFAULT 'pending' CHECK (
