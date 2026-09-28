@@ -14,6 +14,7 @@ composition decision, not approval to release an unfinished build.
 | `05babd490`             | Process provider runtime events in bounded per-thread lanes and commit each lane's cursor independently                                                              | Committed locally; unreleased                                       |
 | `0d16d2037`             | Prepare orchestration commands in bounded per-aggregate lanes                                                                                                        | Committed locally; unreleased                                       |
 | `da2818ade`–`a2e2d2a5b` | Preserve exact terminal turn evidence across start/ingestion races, including after runtime-journal pruning                                                          | Committed locally; unreleased                                       |
+| `74ccbad03`             | Correlate runtime reconciliation commands, activity, and failed write stage by attempt ID                                                                            | Committed locally; unreleased                                       |
 
 The source tag `v0.14.1` already includes confirmation before archiving one thread and before
 archiving all threads in a project. The primary checkout's Sidebar difference adds split-view
@@ -42,3 +43,11 @@ persistence tests passed (2/2); migration lineage passed across 134 shipped tags
 do not establish release readiness while the stop and shared commit boundaries remain open.
 Direct `bun test` is not the repository's runner and fails SQLite safety because its embedded
 SQLite is 3.51.0; the supported Node/Vitest runner uses SQLite 3.53.3.
+
+After `74ccbad03`, server typecheck and the reconciler test file (2/2) passed. The installed
+production 0.14.1 backend does not contain that attempt-ID change. At 08:55–08:56 UTC on
+2026-09-28, its latest journal metrics repeatedly returned to zero backlog; five `/health`
+requests completed in 3–415 ms, and five direct WebSocket bootstraps opened in 0–8 ms.
+Earlier in the same live log, the journal intermittently fell hundreds of events behind and
+reported multi-second SQLite waits and transactions. These measurements establish an
+intermittent condition, not the owner of the historical socket delay.
