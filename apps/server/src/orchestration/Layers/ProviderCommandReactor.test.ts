@@ -5367,6 +5367,55 @@ describe("ProviderCommandReactor", () => {
     ).toBe(true);
   });
 
+  it("diagnostic: a stalled provider start on one thread delays another thread", async () => {
+    const harness = await createHarness({ commandEventTimeout: Duration.millis(400) });
+    const now = new Date().toISOString();
+    const secondThreadId = ThreadId.makeUnsafe("thread-2");
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.makeUnsafe("cmd-diagnostic-create-second-thread"),
+        threadId: secondThreadId,
+        deckId: singletonThreadDeckId(secondThreadId),
+        folderId: asFolderId("project-1"),
+        title: "Second thread",
+        modelSelection: { provider: "codex", model: "gpt-5-codex" },
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+    harness.startSession.mockImplementationOnce(() => Effect.never);
+    const dispatchTurn = (threadId: ThreadId, suffix: string) =>
+      Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.turn.start",
+          connectionId: TEST_CONNECTION_ID,
+          bindingRevision: 0,
+          commandId: CommandId.makeUnsafe(`cmd-diagnostic-${suffix}`),
+          threadId,
+          message: {
+            messageId: asMessageId(`message-diagnostic-${suffix}`),
+            role: "user",
+            text: suffix,
+            attachments: [],
+          },
+          runtimeMode: "approval-required",
+          createdAt: now,
+        }),
+      );
+
+    await dispatchTurn(ThreadId.makeUnsafe("thread-1"), "first");
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    await dispatchTurn(secondThreadId, "second");
+    await waitFor(
+      async () =>
+        (await readHarnessThread(harness, secondThreadId))?.session?.status === "starting",
+    );
+    expect(harness.startSession.mock.calls).toHaveLength(1);
+    await waitFor(() => harness.startSession.mock.calls.length === 2);
+    expect(harness.startSession.mock.calls[1]?.[1]).toMatchObject({ threadId: secondThreadId });
+  });
+
   it("uses the runtime mode requested by thread.turn.start when starting the provider session", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

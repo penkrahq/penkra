@@ -21,6 +21,7 @@ import {
   Deferred,
   Duration,
   Effect,
+  Fiber,
   Layer,
   Option,
   Queue,
@@ -978,9 +979,25 @@ const make = Effect.gen(function* () {
     expectedProviderLifecycleGeneration?: string,
     expectedProviderSessionOwnership?: OrchestrationDispatchContext["expectedProviderSessionOwnership"],
   ) {
-    const existingReceipt = yield* commandReceipts.getByCommandId({
-      commandId: command.commandId,
-    });
+    const logSlowStage = (stage: "receipt-lookup" | "dispatch", startedAt: number) =>
+      Effect.suspend(() => {
+        const durationMs = Math.round(performance.now() - startedAt);
+        return durationMs < 5_000
+          ? Effect.void
+          : Effect.logWarning("provider runtime command stage slow").pipe(
+              Effect.annotateLogs({
+                commandId: command.commandId,
+                commandType: command.type,
+                ...("threadId" in command ? { threadId: command.threadId } : {}),
+                stage,
+                durationMs,
+              }),
+            );
+      });
+    const receiptLookupStartedAt = performance.now();
+    const existingReceipt = yield* commandReceipts
+      .getByCommandId({ commandId: command.commandId })
+      .pipe(Effect.ensuring(logSlowStage("receipt-lookup", receiptLookupStartedAt)));
     if (Option.isSome(existingReceipt) && existingReceipt.value.status === "accepted") {
       if (
         command.type === "thread.session.set" &&
@@ -1017,15 +1034,18 @@ const make = Effect.gen(function* () {
       }
       return { sequence: existingReceipt.value.resultSequence };
     }
-    return yield* orchestrationEngine.dispatch(command, {
-      allowArchivedProviderProjection: true,
-      ...(expectedProviderLifecycleGeneration === undefined
-        ? {}
-        : { expectedProviderLifecycleGeneration }),
-      ...(expectedProviderSessionOwnership === undefined
-        ? {}
-        : { expectedProviderSessionOwnership }),
-    });
+    const dispatchStartedAt = performance.now();
+    return yield* orchestrationEngine
+      .dispatch(command, {
+        allowArchivedProviderProjection: true,
+        ...(expectedProviderLifecycleGeneration === undefined
+          ? {}
+          : { expectedProviderLifecycleGeneration }),
+        ...(expectedProviderSessionOwnership === undefined
+          ? {}
+          : { expectedProviderSessionOwnership }),
+      })
+      .pipe(Effect.ensuring(logSlowStage("dispatch", dispatchStartedAt)));
   });
 
   const claimNativeChildSlot = Effect.fnUntraced(function* (
@@ -2420,6 +2440,53 @@ const make = Effect.gen(function* () {
   const processInput = (input: RuntimeIngestionInput): Effect.Effect<void, unknown> => {
     if (input.source !== "runtime") return processDomainEvent(input.event);
     const processingStartedAt = performance.now();
+    const recordProcessingDuration = Effect.gen(function* () {
+      const elapsedMs = performance.now() - processingStartedAt;
+      observeRuntimeJournalTiming("journalEventProcessing", elapsedMs);
+      const durationMs = Math.round(elapsedMs);
+      if (durationMs >= 5_000) {
+        yield* Effect.logWarning("provider runtime event processing slow").pipe(
+          Effect.annotateLogs({
+            threadId: input.event.threadId,
+            turnId: input.event.turnId ?? null,
+            eventId: input.event.eventId,
+            sequence: input.sequence,
+            eventType: input.event.type,
+            provider: input.event.provider,
+            durationMs,
+          }),
+        );
+      }
+    });
+    const observeProcessing = (process: Effect.Effect<void, unknown>) =>
+      Effect.forkChild(
+        Effect.gen(function* () {
+          yield* Effect.sleep(5_000);
+          yield* reportInFlightEvent;
+          yield* Effect.sleep(25_000);
+          yield* reportInFlightEvent;
+        }),
+      ).pipe(
+        Effect.flatMap((watchdog) =>
+          process.pipe(
+            Effect.ensuring(recordProcessingDuration),
+            Effect.ensuring(Fiber.interrupt(watchdog)),
+          ),
+        ),
+      );
+    const reportInFlightEvent = Effect.suspend(() =>
+      Effect.logWarning("provider runtime event processing still in flight").pipe(
+        Effect.annotateLogs({
+          threadId: input.event.threadId,
+          turnId: input.event.turnId ?? null,
+          eventId: input.event.eventId,
+          sequence: input.sequence,
+          eventType: input.event.type,
+          provider: input.event.provider,
+          elapsedMs: Math.round(performance.now() - processingStartedAt),
+        }),
+      ),
+    );
     if (
       input.event.type === "content.delta" &&
       input.event.providerRefs === undefined &&
@@ -2427,43 +2494,31 @@ const make = Effect.gen(function* () {
         input.event.payload.streamKind === "file_change_output" ||
         input.event.payload.streamKind === "reasoning_summary_text")
     ) {
-      return bufferNonAssistantContentDelta(input.event).pipe(
-        Effect.andThen(
-          Effect.sync(() => {
-            runtimeCommitsPendingThisPage.push({
-              input,
-              canonicalEvent: undefined,
-              processedAt: Date.now(),
-            });
-          }),
-        ),
-        Effect.ensuring(
-          Effect.sync(() =>
-            observeRuntimeJournalTiming(
-              "journalEventProcessing",
-              performance.now() - processingStartedAt,
-            ),
+      return observeProcessing(
+        bufferNonAssistantContentDelta(input.event).pipe(
+          Effect.andThen(
+            Effect.sync(() => {
+              runtimeCommitsPendingThisPage.push({
+                input,
+                canonicalEvent: undefined,
+                processedAt: Date.now(),
+              });
+            }),
           ),
         ),
       );
     }
     let canonicalEvent: ProviderRuntimeEvent | undefined;
-    return processRuntimeEvent(input.event, (event) =>
-      Effect.sync(() => {
-        canonicalEvent = event;
-      }),
-    ).pipe(
-      Effect.andThen(
+    return observeProcessing(
+      processRuntimeEvent(input.event, (event) =>
         Effect.sync(() => {
-          runtimeCommitsPendingThisPage.push({ input, canonicalEvent, processedAt: Date.now() });
+          canonicalEvent = event;
         }),
-      ),
-      Effect.ensuring(
-        Effect.sync(() =>
-          observeRuntimeJournalTiming(
-            "journalEventProcessing",
-            performance.now() - processingStartedAt,
-          ),
+      ).pipe(
+        Effect.andThen(
+          Effect.sync(() => {
+            runtimeCommitsPendingThisPage.push({ input, canonicalEvent, processedAt: Date.now() });
+          }),
         ),
       ),
     );
@@ -2673,30 +2728,73 @@ const make = Effect.gen(function* () {
           const pendingCommits = runtimeCommitsPendingThisPage;
           runtimeCommitsPendingThisPage = [];
           if (pendingCommits.length > 0) {
-            yield* sql.withTransaction(
-              Effect.forEach(
-                pendingCommits,
-                ({ input, canonicalEvent }) =>
-                  Effect.gen(function* () {
-                    if (canonicalEvent !== undefined) {
-                      yield* commitCanonicalRuntimeEventInCurrentTransaction(canonicalEvent);
-                    }
-                    const advanced = yield* runtimeEvents.advanceThreadCursorInCurrentTransaction({
-                      threadId: input.event.threadId,
-                      eventSequence: input.sequence,
-                      updatedAt: new Date().toISOString(),
-                    });
-                    if (!advanced) {
-                      return yield* Effect.die(
-                        new Error(
-                          `Provider runtime thread cursor could not advance through event ${input.sequence}`,
-                        ),
-                      );
-                    }
-                  }),
-                { concurrency: 1, discard: true },
+            const batchStartedAt = performance.now();
+            const batchFiberId = Fiber.getCurrent()?.id ?? null;
+            let transactionStartedAt: number | null = null;
+            let batchStage = "sqlite-wait";
+            let activeSequence: number | null = null;
+            const reportSlowBatch = Effect.suspend(() =>
+              Effect.logWarning("provider runtime journal cursor batch slow").pipe(
+                Effect.annotateLogs({
+                  batchFiberId,
+                  firstSequence: pendingCommits[0]!.input.sequence,
+                  lastSequence: pendingCommits.at(-1)!.input.sequence,
+                  eventCount: pendingCommits.length,
+                  stage: batchStage,
+                  activeSequence,
+                  elapsedMs: Math.round(performance.now() - batchStartedAt),
+                  transactionMs:
+                    transactionStartedAt === null
+                      ? null
+                      : Math.round(performance.now() - transactionStartedAt),
+                }),
               ),
             );
+            const batchWatchdog = yield* Effect.forkChild(
+              Effect.gen(function* () {
+                yield* Effect.sleep(5_000);
+                yield* reportSlowBatch;
+                yield* Effect.sleep(25_000);
+                yield* reportSlowBatch;
+              }),
+            );
+            yield* sql
+              .withTransaction(
+                Effect.gen(function* () {
+                  transactionStartedAt = performance.now();
+                  yield* Effect.forEach(
+                    pendingCommits,
+                    ({ input, canonicalEvent }) =>
+                      Effect.gen(function* () {
+                        activeSequence = input.sequence;
+                        if (canonicalEvent !== undefined) {
+                          batchStage = "canonical-event";
+                          yield* commitCanonicalRuntimeEventInCurrentTransaction(canonicalEvent);
+                        }
+                        batchStage = "thread-cursor";
+                        const advanced =
+                          yield* runtimeEvents.advanceThreadCursorInCurrentTransaction({
+                            threadId: input.event.threadId,
+                            eventSequence: input.sequence,
+                            updatedAt: new Date().toISOString(),
+                          });
+                        if (!advanced) {
+                          return yield* Effect.die(
+                            new Error(
+                              `Provider runtime thread cursor could not advance through event ${input.sequence}`,
+                            ),
+                          );
+                        }
+                      }),
+                    { concurrency: 1, discard: true },
+                  );
+                }),
+              )
+              .pipe(Effect.ensuring(Fiber.interrupt(batchWatchdog)));
+            if (performance.now() - batchStartedAt >= 5_000) {
+              batchStage = "completed";
+              yield* reportSlowBatch;
+            }
             const committedAt = Date.now();
             for (const { input, processedAt } of pendingCommits) {
               lastProcessedSequence = Math.max(lastProcessedSequence, input.sequence);

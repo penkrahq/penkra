@@ -261,6 +261,53 @@ type BoundedProviderCallResult<E> =
       readonly cause: Cause.Cause<E>;
     };
 
+const observeProviderCall = <A, E, R>(input: {
+  readonly operation: "session.start" | "turn.send" | "turn.steer" | "review.start";
+  readonly provider: ProviderKind;
+  readonly threadId: ThreadId;
+  readonly messageId?: string;
+  readonly call: Effect.Effect<A, E, R>;
+}): Effect.Effect<A, E, R> =>
+  Effect.suspend(() => {
+    const startedAt = performance.now();
+    const fields = {
+      operation: input.operation,
+      provider: input.provider,
+      threadId: input.threadId,
+      ...(input.messageId === undefined ? {} : { messageId: input.messageId }),
+    };
+    const warnInFlight = (thresholdMs: number) => {
+      const timer = setTimeout(() => {
+        console.warn("[provider-command] provider call still in flight", {
+          ...fields,
+          elapsedMs: Math.round(performance.now() - startedAt),
+          thresholdMs,
+          observedAtUtc: new Date().toISOString(),
+        });
+      }, thresholdMs);
+      timer.unref();
+      return timer;
+    };
+    const slowTimer = warnInFlight(5_000);
+    const verySlowTimer = warnInFlight(30_000);
+    return input.call.pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          clearTimeout(slowTimer);
+          clearTimeout(verySlowTimer);
+          const elapsedMs = Math.round(performance.now() - startedAt);
+          if (elapsedMs >= 5_000) {
+            console.warn("[provider-command] provider call completed slowly", {
+              ...fields,
+              elapsedMs,
+              completedAtUtc: new Date().toISOString(),
+            });
+          }
+        }),
+      ),
+    );
+  });
+
 /**
  * Runs a provider call under a hard deadline and reduces it to a decision.
  * A call that never returns cannot simply be awaited here: the caller holds the
@@ -1047,11 +1094,16 @@ const make = Effect.gen(function* () {
         .pipe(Effect.map((sessions) => sessions.find((session) => session.threadId === threadId)));
 
     const startProviderSession = (resumeCursor?: unknown) =>
-      providerService.startSession(threadId, {
-        ...providerSessionOptions,
-        ...(preferredProvider ? { provider: preferredProvider } : {}),
-        ...(options?.requiresReconstruction === true ? { resumePolicy: "fresh" as const } : {}),
-        ...(resumeCursor !== undefined ? { resumeCursor } : {}),
+      observeProviderCall({
+        operation: "session.start",
+        provider: preferredProvider,
+        threadId,
+        call: providerService.startSession(threadId, {
+          ...providerSessionOptions,
+          ...(preferredProvider ? { provider: preferredProvider } : {}),
+          ...(options?.requiresReconstruction === true ? { resumePolicy: "fresh" as const } : {}),
+          ...(resumeCursor !== undefined ? { resumeCursor } : {}),
+        }),
       });
 
     const bindSessionToThread = (session: ProviderSession) =>
@@ -1611,22 +1663,40 @@ const make = Effect.gen(function* () {
       ...(modelForTurn !== undefined ? { modelSelection: modelForTurn } : {}),
     };
     const sendQueuedProviderTurn = (messageText: string | undefined) =>
-      providerService.sendTurn({
-        ...providerTurnInput,
-        ...(messageText ? { input: messageText } : {}),
+      observeProviderCall({
+        operation: "turn.send",
+        provider: selectedProvider as ProviderKind,
+        threadId: input.threadId,
+        messageId: input.messageId,
+        call: providerService.sendTurn({
+          ...providerTurnInput,
+          ...(messageText ? { input: messageText } : {}),
+        }),
       });
 
     let startedTurn: ProviderTurnStartResult | undefined;
 
     if (input.reviewTarget !== undefined) {
-      startedTurn = yield* providerService.startReview({
+      startedTurn = yield* observeProviderCall({
+        operation: "review.start",
+        provider: selectedProvider as ProviderKind,
         threadId: input.threadId,
-        target: input.reviewTarget,
+        messageId: input.messageId,
+        call: providerService.startReview({
+          threadId: input.threadId,
+          target: input.reviewTarget,
+        }),
       });
     } else if (input.dispatchMode === "steer") {
-      startedTurn = yield* providerService.steerTurn({
-        ...providerTurnInput,
-        ...(normalizedInput ? { input: normalizedInput } : {}),
+      startedTurn = yield* observeProviderCall({
+        operation: "turn.steer",
+        provider: selectedProvider as ProviderKind,
+        threadId: input.threadId,
+        messageId: input.messageId,
+        call: providerService.steerTurn({
+          ...providerTurnInput,
+          ...(normalizedInput ? { input: normalizedInput } : {}),
+        }),
       });
     } else {
       const ensureSessionForStaleRetry = ensureSessionForThread(input.threadId, input.createdAt, {

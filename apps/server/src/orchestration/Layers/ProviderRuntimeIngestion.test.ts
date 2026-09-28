@@ -240,6 +240,7 @@ describe("ProviderRuntimeIngestion", () => {
     readonly startIngestion?: boolean;
     readonly provider?: ProviderKind;
     readonly seedSession?: boolean;
+    readonly beforeDispatch?: (commandId: CommandId) => Effect.Effect<void>;
   }) {
     const providerKind = options?.provider ?? "codex";
     const model = providerKind === "claudeAgent" ? "claude-opus-5" : "gpt-5-codex";
@@ -252,11 +253,23 @@ describe("ProviderRuntimeIngestion", () => {
       Layer.provide(OrchestrationEventStoreLive),
       Layer.provide(OrchestrationCommandReceiptRepositoryLive),
     );
+    const observedOrchestrationLayer = options?.beforeDispatch
+      ? Layer.effect(
+          OrchestrationEngineService,
+          Effect.map(Effect.service(OrchestrationEngineService), (engine) => ({
+            ...engine,
+            dispatch: (command, context) =>
+              options.beforeDispatch!(command.commandId).pipe(
+                Effect.andThen(engine.dispatch(command, context)),
+              ),
+          })),
+        ).pipe(Layer.provide(orchestrationLayer))
+      : orchestrationLayer;
     const runtimeEventRepositoryLayer = ProviderRuntimeEventRepositoryLive.pipe(
       Layer.provideMerge(SqlitePersistenceMemory),
     );
     const layer = ProviderRuntimeIngestionLive.pipe(
-      Layer.provideMerge(orchestrationLayer),
+      Layer.provideMerge(observedOrchestrationLayer),
       Layer.provideMerge(OrchestrationProjectionSnapshotQueryLive),
       Layer.provideMerge(SqlitePersistenceMemory),
       Layer.provideMerge(runtimeEventRepositoryLayer),
@@ -368,6 +381,81 @@ describe("ProviderRuntimeIngestion", () => {
       sql,
     };
   }
+
+  it("holds an unrelated thread's runtime event behind one slow event", async () => {
+    let releaseSlowEvent!: () => void;
+    const slowEventReleased = new Promise<void>((resolve) => {
+      releaseSlowEvent = resolve;
+    });
+    let signalSlowEventEntered!: () => void;
+    const slowEventEntered = new Promise<void>((resolve) => {
+      signalSlowEventEntered = resolve;
+    });
+    const harness = await createHarness({
+      startIngestion: false,
+      beforeDispatch: (commandId) =>
+        String(commandId).includes("evt-slow-runtime-a")
+          ? Effect.promise(() => {
+              signalSlowEventEntered();
+              return slowEventReleased;
+            })
+          : Effect.void,
+    });
+    const threadB = asThreadId("thread-slow-runtime-b");
+    const createdAt = new Date().toISOString();
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.makeUnsafe("cmd-slow-runtime-thread-b"),
+        threadId: threadB,
+        deckId: singletonThreadDeckId(threadB),
+        folderId: asFolderId("project-1"),
+        title: "Independent thread",
+        modelSelection: { provider: "codex", model: "gpt-5-codex" },
+        runtimeMode: "approval-required",
+        workingDirectory: null,
+        createdAt,
+      }),
+    );
+    const eventA: ProviderRuntimeEvent = {
+      type: "runtime.warning",
+      eventId: asEventId("evt-slow-runtime-a"),
+      provider: "codex",
+      createdAt,
+      threadId: asThreadId("thread-1"),
+      payload: { message: "Slow event" },
+    };
+    const eventB: ProviderRuntimeEvent = {
+      type: "runtime.warning",
+      eventId: asEventId("evt-slow-runtime-b"),
+      provider: "codex",
+      createdAt,
+      threadId: threadB,
+      payload: { message: "Unrelated event" },
+    };
+    await Effect.runPromise(harness.runtimeEventRepository.append(eventA));
+    const persistedB = await Effect.runPromise(harness.runtimeEventRepository.append(eventB));
+    const starting = harness.startIngestion();
+    try {
+      await slowEventEntered;
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(await Effect.runPromise(harness.runtimeEventRepository.getThreadCursor(threadB))).toBe(
+        0,
+      );
+      const threadBeforeRelease = (
+        await Effect.runPromise(harness.engine.getReadModel())
+      ).threads.find((thread) => thread.id === threadB);
+      expect(
+        threadBeforeRelease?.activities.some((activity) => activity.id === eventB.eventId),
+      ).toBe(false);
+    } finally {
+      releaseSlowEvent();
+    }
+    await starting;
+    expect(await Effect.runPromise(harness.runtimeEventRepository.getThreadCursor(threadB))).toBe(
+      persistedB.sequence,
+    );
+  }, 10_000);
 
   it.each(
     PROVIDER_KINDS.flatMap((provider) =>

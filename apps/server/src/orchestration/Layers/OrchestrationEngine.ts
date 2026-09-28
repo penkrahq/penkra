@@ -678,7 +678,10 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   // Callers must build this effect inside a fiber (see `runEnvelope`): the body
   // runs synchronously, so anything it throws is only contained when it is raised
   // while an effect is being evaluated.
-  const processEnvelope = (envelope: CommandEnvelope): Effect.Effect<void, never> => {
+  const processEnvelope = (
+    envelope: CommandEnvelope,
+    setStage: (stage: string) => void,
+  ): Effect.Effect<void, never> => {
     const dispatchStartSequence = commandReadModel.snapshotSequence;
     const remainingBudgetMs = Math.max(0, envelope.deadlineAtMs - Date.now());
     const commandFingerprint = fingerprintOrchestrationCommand(envelope.command);
@@ -716,6 +719,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         return yield* makeCommandTimeoutError(envelope.command);
       }
 
+      setStage("receipt-lookup");
       const existingReceipt = yield* commandReceiptRepository.getByCommandId({
         commandId: envelope.command.commandId,
       });
@@ -810,7 +814,9 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         };
       }
 
+      setStage("read-model");
       const deciderReadModel = yield* buildDeciderReadModel(command);
+      setStage("decider");
       const eventBase = yield* decideOrchestrationCommand({
         command,
         readModel: deciderReadModel,
@@ -1166,6 +1172,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         }),
       );
 
+      setStage("transaction");
       const committedCommand = yield* sql
         .withTransaction(transactionalCommitEffect)
         .pipe(
@@ -1177,6 +1184,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         );
 
       commandReadModel = committedCommand.nextCommandReadModel;
+      setStage("deferred-projection");
       yield* Effect.forEach(
         committedCommand.committedEvents,
         (event) =>
@@ -1216,9 +1224,11 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           }),
         { concurrency: 1 },
       );
+      setStage("publication");
       for (const event of committedCommand.committedEvents) {
         yield* publishCommittedEvent(event);
       }
+      setStage("reply");
       yield* Deferred.succeed(
         envelope.result,
         hasProviderLifecycleGuard(envelope)
@@ -1341,7 +1351,10 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       }),
     );
 
-    return maintenanceLock.withPermits(1)(runCommand);
+    setStage("maintenance-lock-wait");
+    return maintenanceLock.withPermits(1)(
+      runCommand.pipe(Effect.tap(() => Effect.sync(() => setStage("completed")))),
+    );
   };
 
   yield* projectionPipeline.bootstrap;
@@ -1376,7 +1389,38 @@ const makeOrchestrationEngine = Effect.gen(function* () {
    * effect, which is contained per envelope so one poisoned command fails alone.
    */
   const runEnvelope = (envelope: CommandEnvelope): Effect.Effect<void> =>
-    Effect.suspend(() => processEnvelope(envelope)).pipe(
+    Effect.suspend(() => {
+      const startedAt = performance.now();
+      const workerFiberId = Fiber.getCurrent()?.id ?? null;
+      let stage = "preparing";
+      const reportSlowCommand = Effect.suspend(() =>
+        Effect.logWarning("orchestration command worker slow stage").pipe(
+          Effect.annotateLogs({
+            commandId: envelope.command.commandId,
+            commandType: envelope.command.type,
+            workerFiberId,
+            ...("threadId" in envelope.command ? { threadId: envelope.command.threadId } : {}),
+            stage,
+            elapsedMs: Math.round(performance.now() - startedAt),
+          }),
+        ),
+      );
+      const watchdog = Effect.gen(function* () {
+        yield* Effect.sleep(5_000);
+        yield* reportSlowCommand;
+        yield* Effect.sleep(25_000);
+        yield* reportSlowCommand;
+      });
+      return Effect.forkChild(watchdog).pipe(
+        Effect.flatMap((watchdogFiber) =>
+          Effect.suspend(() =>
+            processEnvelope(envelope, (nextStage) => {
+              stage = nextStage;
+            }),
+          ).pipe(Effect.ensuring(Fiber.interrupt(watchdogFiber))),
+        ),
+      );
+    }).pipe(
       Effect.catchCause((cause): Effect.Effect<void> => {
         if (Cause.hasInterruptsOnly(cause)) {
           return Effect.interrupt;

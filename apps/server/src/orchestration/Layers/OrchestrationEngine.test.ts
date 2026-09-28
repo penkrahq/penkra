@@ -10,7 +10,7 @@ import {
   type OrchestrationCommand,
   type OrchestrationEvent,
 } from "@penkra/contracts";
-import { Effect, Layer, ManagedRuntime, Option, Queue, Stream } from "effect";
+import { Effect, Layer, Logger, ManagedRuntime, Option, Queue, References, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { describe, expect, it, vi } from "vitest";
 
@@ -27,6 +27,7 @@ import { ThreadProviderBindingRepository } from "../../persistence/Services/Thre
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
@@ -104,39 +105,69 @@ const createTestSpace = (engine: OrchestrationEngineShape) =>
     createdAt: "2026-01-01T00:00:00.000Z",
   });
 
-async function createOrchestrationSystem(options?: { readonly withRuntimeBinding?: boolean }) {
+async function createOrchestrationSystem(options?: {
+  readonly withRuntimeBinding?: boolean;
+  readonly onLog?: (message: string, annotations: Record<string, unknown>) => void;
+  readonly beforeThreadDetail?: (threadId: ThreadId) => Effect.Effect<void>;
+}) {
   const ServerConfigLayer = TestServerConfigLayer;
+  const snapshotQueryLayer = options?.beforeThreadDetail
+    ? Layer.effect(
+        ProjectionSnapshotQuery,
+        Effect.map(Effect.service(ProjectionSnapshotQuery), (query) => ({
+          ...query,
+          getThreadDetailById: (threadId) =>
+            options.beforeThreadDetail!(threadId).pipe(
+              Effect.andThen(query.getThreadDetailById(threadId)),
+            ),
+        })),
+      ).pipe(Layer.provide(OrchestrationProjectionSnapshotQueryLive))
+    : OrchestrationProjectionSnapshotQueryLive;
   const orchestrationLayer = OrchestrationEngineLive.pipe(
     Layer.provide(OrchestrationProjectionPipelineLive),
-    Layer.provide(OrchestrationProjectionSnapshotQueryLive),
+    Layer.provide(snapshotQueryLayer),
     Layer.provide(OrchestrationEventStoreLive),
     Layer.provide(OrchestrationCommandReceiptRepositoryLive),
     Layer.provideMerge(SqlitePersistenceMemory),
     Layer.provideMerge(ServerConfigLayer),
     Layer.provideMerge(NodeServices.layer),
   );
+  const configuredLayer = options?.withRuntimeBinding
+    ? orchestrationLayer.pipe(
+        Layer.provideMerge(
+          Layer.succeed(ThreadProviderBindingRepository, {
+            getRuntimeBinding: (threadId: ThreadId) =>
+              Effect.succeed(
+                Option.some({
+                  threadId,
+                  connectionId: null,
+                  installationId: "test-installation",
+                  internalProviderId: null,
+                  modelId: "gpt-5-codex",
+                  revision: 0,
+                  createdAt: now(),
+                  updatedAt: now(),
+                }),
+              ),
+          } as never),
+        ),
+      )
+    : orchestrationLayer;
   const runtime = ManagedRuntime.make(
-    options?.withRuntimeBinding
-      ? orchestrationLayer.pipe(
+    options?.onLog
+      ? configuredLayer.pipe(
           Layer.provideMerge(
-            Layer.succeed(ThreadProviderBindingRepository, {
-              getRuntimeBinding: (threadId: ThreadId) =>
-                Effect.succeed(
-                  Option.some({
-                    threadId,
-                    connectionId: null,
-                    installationId: "test-installation",
-                    internalProviderId: null,
-                    modelId: "gpt-5-codex",
-                    revision: 0,
-                    createdAt: now(),
-                    updatedAt: now(),
-                  }),
+            Logger.layer(
+              [
+                Logger.make(({ message, fiber }) =>
+                  options.onLog?.(String(message), fiber.getRef(References.CurrentLogAnnotations)),
                 ),
-            } as never),
+              ],
+              { mergeWithExisting: false },
+            ),
           ),
         )
-      : orchestrationLayer,
+      : configuredLayer,
   );
   const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
   await runtime.runPromise(createTestSpace(engine));
@@ -158,6 +189,150 @@ function now() {
 }
 
 describe("OrchestrationEngine", () => {
+  it("holds an unrelated command behind one slow thread read", async () => {
+    const threadA = ThreadId.makeUnsafe("thread-slow-command-a");
+    let releaseSlowRead!: () => void;
+    const slowReadReleased = new Promise<void>((resolve) => {
+      releaseSlowRead = resolve;
+    });
+    let signalSlowReadEntered!: () => void;
+    const slowReadEntered = new Promise<void>((resolve) => {
+      signalSlowReadEntered = resolve;
+    });
+    const system = await createOrchestrationSystem({
+      beforeThreadDetail: (threadId) =>
+        threadId === threadA
+          ? Effect.promise(() => {
+              signalSlowReadEntered();
+              return slowReadReleased;
+            })
+          : Effect.void,
+    });
+    try {
+      await system.run(
+        system.engine.dispatch({
+          type: "folder.create",
+          commandId: CommandId.makeUnsafe("cmd-slow-command-folder-a"),
+          folderId: asFolderId("folder-slow-command-a"),
+          title: "Folder A",
+          workspaceRoot: null,
+          spaceId: TEST_SPACE_ID,
+          defaultModelSelection: { provider: "codex", model: "gpt-5-codex" },
+          createdAt: now(),
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.makeUnsafe("cmd-slow-command-thread-a"),
+          threadId: threadA,
+          deckId: singletonThreadDeckId(threadA),
+          folderId: asFolderId("folder-slow-command-a"),
+          title: "Thread A",
+          modelSelection: { provider: "codex", model: "gpt-5-codex" },
+          runtimeMode: "approval-required",
+          workingDirectory: null,
+          createdAt: now(),
+        }),
+      );
+      const slow = system.run(
+        system.engine.dispatch({
+          type: "thread.archive",
+          commandId: CommandId.makeUnsafe("cmd-slow-command-archive-a"),
+          threadId: threadA,
+          createdAt: now(),
+        }),
+      );
+      await slowReadEntered;
+      let unrelatedCompleted = false;
+      const unrelated = system.run(
+        system.engine.dispatch({
+          type: "folder.create",
+          commandId: CommandId.makeUnsafe("cmd-slow-command-folder-b"),
+          folderId: asFolderId("folder-slow-command-b"),
+          title: "Folder B",
+          workspaceRoot: null,
+          spaceId: TEST_SPACE_ID,
+          defaultModelSelection: { provider: "codex", model: "gpt-5-codex" },
+          createdAt: now(),
+        }),
+      );
+      unrelated.then(() => {
+        unrelatedCompleted = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(unrelatedCompleted).toBe(false);
+      releaseSlowRead();
+      await Promise.all([slow, unrelated]);
+      expect(unrelatedCompleted).toBe(true);
+    } finally {
+      releaseSlowRead();
+      await system.dispose();
+    }
+  }, 10_000);
+
+  it("identifies the active command stage when SQLite holds the worker for five seconds", async () => {
+    const logs: Array<{ message: string; annotations: Record<string, unknown> }> = [];
+    const system = await createOrchestrationSystem({
+      onLog: (message, annotations) => logs.push({ message, annotations }),
+    });
+    let releaseTransaction!: () => void;
+    const release = new Promise<void>((resolve) => {
+      releaseTransaction = resolve;
+    });
+    let signalAcquired!: () => void;
+    const acquired = new Promise<void>((resolve) => {
+      signalAcquired = resolve;
+    });
+    try {
+      const holder = system.run(
+        system.sql.withTransaction(
+          Effect.promise(() => {
+            signalAcquired();
+            return release;
+          }),
+        ),
+      );
+      await acquired;
+      const commandId = CommandId.makeUnsafe("cmd-slow-worker-stage");
+      const pending = system.run(
+        system.engine.dispatch({
+          type: "folder.create",
+          commandId,
+          folderId: asFolderId("folder-slow-worker-stage"),
+          title: "Slow worker stage",
+          workspaceRoot: null,
+          spaceId: TEST_SPACE_ID,
+          defaultModelSelection: { provider: "codex", model: "gpt-5-codex" },
+          createdAt: now(),
+        }),
+      );
+      await vi.waitFor(
+        () =>
+          expect(logs).toContainEqual({
+            message: "orchestration command worker slow stage",
+            annotations: expect.objectContaining({
+              commandId,
+              stage: "receipt-lookup",
+            }),
+          }),
+        { timeout: 7_000 },
+      );
+      releaseTransaction();
+      await Promise.all([holder, pending]);
+      expect(logs).toContainEqual({
+        message: "sqlite transaction held connection",
+        annotations: expect.objectContaining({
+          ownerFiberId: expect.any(Number),
+          holdMs: expect.any(Number),
+        }),
+      });
+    } finally {
+      releaseTransaction();
+      await system.dispose();
+    }
+  }, 10_000);
+
   it.each(["assistant", "delivery"] as const)(
     "projects a %s completion before an interrupted session as interrupted",
     async (completion) => {

@@ -34,6 +34,7 @@ import { ServerAuth } from "./auth/Services/ServerAuth";
 import * as SqlitePersistence from "./persistence/Layers/Sqlite";
 import { makeServerApplicationLayers } from "./serverLayers";
 import { startServerMemoryDiagnostics } from "./memoryDiagnostics";
+import { startServerEventLoopDiagnostics } from "./eventLoopDiagnostics";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ProviderSessionReaperLive } from "./provider/Layers/ProviderSessionReaper";
 import { ProviderRuntimeReconcilerLive } from "./provider/Layers/ProviderRuntimeReconciler";
@@ -396,6 +397,7 @@ const makeServerProgram = (input: CliInput) => {
 
     const config = yield* ServerConfig;
     yield* Effect.sync(() => startServerMemoryDiagnostics({ mode: config.mode }));
+    yield* Effect.sync(() => startServerEventLoopDiagnostics({ mode: config.mode }));
 
     if (!config.devUrl && !config.staticDir) {
       yield* Effect.logWarning(

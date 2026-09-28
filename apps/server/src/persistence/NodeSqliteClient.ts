@@ -4,6 +4,7 @@
  *
  * @module SqliteClient
  */
+import { createHash } from "node:crypto";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 
 import * as Cache from "effect/Cache";
@@ -125,18 +126,44 @@ const makeWithDatabase = (
         statementReaderCache.set(statement, value);
         return value;
       };
+      const reportSlowStatement = (
+        sql: string,
+        parameterCount: number,
+        startedAt: number,
+        phase: "prepare" | "execute" = "execute",
+      ): void => {
+        const durationMs = Math.round(performance.now() - startedAt);
+        if (durationMs < 2_000) return;
+        console.warn("[sqlite] synchronous operation slow", {
+          ownerFiberId: Fiber.getCurrent()?.id ?? null,
+          phase,
+          queryHash: createHash("sha256").update(sql).digest("hex").slice(0, 16),
+          parameterCount,
+          durationMs,
+          completedAtUtc: new Date().toISOString(),
+        });
+      };
+      const prepareStatement = (sql: string): StatementSync => {
+        const startedAt = performance.now();
+        try {
+          return db.prepare(sql);
+        } finally {
+          reportSlowStatement(sql, 0, startedAt, "prepare");
+        }
+      };
 
       const prepareCache = yield* Cache.make({
         capacity: options.prepareCacheSize ?? 200,
         timeToLive: options.prepareCacheTTL ?? Duration.minutes(10),
         lookup: (sql: string) =>
           Effect.try({
-            try: () => db.prepare(sql),
+            try: () => prepareStatement(sql),
             catch: (cause) => makeSqlError(cause, "Failed to prepare statement"),
           }),
       });
 
       const runStatement = (
+        sql: string,
         statement: StatementSync,
         params: ReadonlyArray<unknown>,
         raw: boolean,
@@ -144,6 +171,7 @@ const makeWithDatabase = (
         Effect.withFiber<ReadonlyArray<any>, SqlError>((fiber) => {
           if (fatalSqlError !== null) return Effect.fail(fatalSqlError);
           statement.setReadBigInts(Boolean(ServiceMap.get(fiber.services, Client.SafeIntegers)));
+          const startedAt = performance.now();
           try {
             if (hasRows(statement)) {
               return Effect.succeed(statement.all(...(params as any)));
@@ -152,11 +180,13 @@ const makeWithDatabase = (
             return Effect.succeed(raw ? (result as unknown as ReadonlyArray<any>) : []);
           } catch (cause) {
             return Effect.fail(makeSqlError(cause, "Failed to execute statement"));
+          } finally {
+            reportSlowStatement(sql, params.length, startedAt);
           }
         });
 
       const run = (sql: string, params: ReadonlyArray<unknown>, raw = false) =>
-        Effect.flatMap(Cache.get(prepareCache, sql), (s) => runStatement(s, params, raw));
+        Effect.flatMap(Cache.get(prepareCache, sql), (s) => runStatement(sql, s, params, raw));
 
       const runValues = (sql: string, params: ReadonlyArray<unknown>) =>
         Effect.acquireUseRelease(
@@ -165,15 +195,20 @@ const makeWithDatabase = (
             Effect.try({
               try: () => {
                 if (fatalSqlError !== null) throw fatalSqlError;
-                if (hasRows(statement)) {
-                  statement.setReturnArrays(true);
-                  // Safe to cast to array after we've setReturnArrays(true)
-                  return statement.all(...(params as any)) as unknown as ReadonlyArray<
-                    ReadonlyArray<unknown>
-                  >;
+                const startedAt = performance.now();
+                try {
+                  if (hasRows(statement)) {
+                    statement.setReturnArrays(true);
+                    // Safe to cast to array after we've setReturnArrays(true)
+                    return statement.all(...(params as any)) as unknown as ReadonlyArray<
+                      ReadonlyArray<unknown>
+                    >;
+                  }
+                  statement.run(...(params as any));
+                  return [];
+                } finally {
+                  reportSlowStatement(sql, params.length, startedAt);
                 }
-                statement.run(...(params as any));
-                return [];
               },
               catch: (cause) => makeSqlError(cause, "Failed to execute statement"),
             }),
@@ -198,10 +233,10 @@ const makeWithDatabase = (
         executeUnprepared(sql, params, rowTransform) {
           const effect = Effect.flatMap(
             Effect.try({
-              try: () => db.prepare(sql),
+              try: () => prepareStatement(sql),
               catch: (cause) => makeSqlError(cause, "Failed to prepare statement"),
             }),
-            (statement) => runStatement(statement, params ?? [], false),
+            (statement) => runStatement(sql, statement, params ?? [], false),
           );
           return rowTransform ? Effect.map(effect, rowTransform) : effect;
         },
@@ -230,12 +265,30 @@ const makeWithDatabase = (
       return Effect.as(
         Effect.tap(restore(semaphore.take(1)), () => {
           const acquiredAt = performance.now();
+          const acquiredAtUtc = new Date().toISOString();
           observeRuntimeJournalTiming("sqliteSemaphoreWait", acquiredAt - waitStartedAt);
           return Scope.addFinalizer(
             scope,
             Effect.sync(() => {
-              observeRuntimeJournalTiming("sqliteTransactionHold", performance.now() - acquiredAt);
-            }).pipe(Effect.andThen(semaphore.release(1))),
+              const elapsedMs = performance.now() - acquiredAt;
+              observeRuntimeJournalTiming("sqliteTransactionHold", elapsedMs);
+              return Math.round(elapsedMs);
+            }).pipe(
+              Effect.ensuring(semaphore.release(1)),
+              Effect.flatMap((holdMs) =>
+                holdMs < 5_000
+                  ? Effect.void
+                  : Effect.logWarning("sqlite transaction held connection").pipe(
+                      Effect.annotateLogs({
+                        ownerFiberId: fiber.id,
+                        acquiredAtUtc,
+                        releasedAtUtc: new Date().toISOString(),
+                        waitMs: Math.round(acquiredAt - waitStartedAt),
+                        holdMs,
+                      }),
+                    ),
+              ),
+            ),
           );
         }),
         connection,

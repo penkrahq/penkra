@@ -60,7 +60,26 @@ export const makeBoundedNodeHttpServer = Effect.fnUntraced(function* (
       }),
   ).pipe(Scope.provide(scope));
 
+  const bootstrapUpgrades = new WeakMap<
+    http.IncomingMessage,
+    {
+      startedAt: number;
+      timer: NodeJS.Timeout;
+      onSocketClose: () => void;
+    }
+  >();
+
   webSocketServer.on("connection", (socket, request) => {
+    const bootstrapUpgrade = bootstrapUpgrades.get(request);
+    if (bootstrapUpgrade) {
+      clearTimeout(bootstrapUpgrade.timer);
+      request.socket.off("close", bootstrapUpgrade.onSocketClose);
+      bootstrapUpgrades.delete(request);
+      const durationMs = Math.round(performance.now() - bootstrapUpgrade.startedAt);
+      if (durationMs >= 2_000) {
+        console.warn("[server-transport] bootstrap WebSocket upgrade slow", { durationMs });
+      }
+    }
     const openedAtMs = Date.now();
     const requestPath = (() => {
       try {
@@ -115,13 +134,55 @@ export const makeBoundedNodeHttpServer = Effect.fnUntraced(function* (
           scope: serveScope,
         },
       );
+      const observeHealthRequest = (
+        request: http.IncomingMessage,
+        response: http.ServerResponse,
+      ) => {
+        if (request.url !== "/health") return;
+        const startedAt = performance.now();
+        const timer = setTimeout(() => {
+          console.warn("[server-transport] health request still in flight", {
+            elapsedMs: Math.round(performance.now() - startedAt),
+          });
+        }, 3_500);
+        timer.unref();
+        const finish = () => {
+          clearTimeout(timer);
+          const durationMs = Math.round(performance.now() - startedAt);
+          if (durationMs >= 2_000) {
+            console.warn("[server-transport] health response slow", { durationMs });
+          }
+        };
+        response.once("finish", finish);
+        response.once("close", () => clearTimeout(timer));
+      };
+      const observeBootstrapUpgrade = (request: http.IncomingMessage) => {
+        if (request.url?.split("?", 1)[0] !== "/ws/bootstrap") return;
+        const startedAt = performance.now();
+        const timer = setTimeout(() => {
+          console.warn("[server-transport] bootstrap WebSocket upgrade still in flight", {
+            elapsedMs: Math.round(performance.now() - startedAt),
+          });
+        }, 3_500);
+        timer.unref();
+        const onSocketClose = () => {
+          clearTimeout(timer);
+          bootstrapUpgrades.delete(request);
+        };
+        bootstrapUpgrades.set(request, { startedAt, timer, onSocketClose });
+        request.socket.once("close", onSocketClose);
+      };
 
       yield* Effect.addFinalizer(() =>
         Effect.sync(() => {
+          server.off("request", observeHealthRequest);
+          server.off("upgrade", observeBootstrapUpgrade);
           server.off("request", handler);
           server.off("upgrade", upgradeHandler);
         }),
       );
+      server.on("request", observeHealthRequest);
+      server.on("upgrade", observeBootstrapUpgrade);
       server.on("request", handler);
       server.on("upgrade", upgradeHandler);
     }),
