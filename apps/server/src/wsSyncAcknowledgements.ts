@@ -108,6 +108,16 @@ export function makeSyncAcknowledgements() {
         });
       }
       if (input.appliedSequence > lease.deliveredSequence) {
+        recordDiagnosticIncident({
+          ...startDiagnosticTrace(),
+          kind: "command.rejected",
+          code: "COMMAND_REJECTED",
+          where: "server.sync_ack",
+          severity: "warn",
+          expected: { sequence: lease.deliveredSequence },
+          actual: { sequence: input.appliedSequence, clientId },
+          context: { check: "sequence_delivered" },
+        });
         yield* Effect.logWarning("ahead orchestration synchronization acknowledgement").pipe(
           Effect.annotateLogs({
             clientId,
