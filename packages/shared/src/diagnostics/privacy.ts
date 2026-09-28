@@ -228,6 +228,7 @@ const enumValues = {
     "capacity",
     "sqlite",
     "spool",
+    "stale",
   ],
   where: [
     "diagnostics.spool_import",
