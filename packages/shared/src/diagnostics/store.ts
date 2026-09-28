@@ -1021,6 +1021,26 @@ function insertEnvelope(
       .prepare(`UPDATE detail SET pinned_until = ?
       WHERE at >= ? AND at <= ? AND (pinned_until IS NULL OR pinned_until < ?)`)
       .run(until, from, until, until);
+    if (
+      data.kind === "diagnostics.degraded" &&
+      typeof data.context?.bootId === "string" &&
+      typeof data.context.count === "number" &&
+      Number.isSafeInteger(data.context.count)
+    ) {
+      const reason = data.context.reason;
+      const lossKey =
+        data.where === "diagnostics.write" && LOSS_REASONS.includes(reason as LossReason)
+          ? `loss-reported:${data.context.bootId}:${reason}`
+          : data.where === "diagnostics.spool_import" && reason === "invalid-record"
+            ? `loss-reported:spool-invalid:${data.context.bootId}`
+            : data.where === "diagnostics.spool_import" && reason === "sequence-gap"
+              ? `loss-reported:sequence-gap:${data.context.bootId}`
+              : null;
+      if (lossKey)
+        database
+          .prepare("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)")
+          .run(lossKey, String(data.context.count));
+    }
     // A late resolution is one spool record and one SQLite transaction. Closing
     // the expectation here prevents a crash from replaying a second miss.
     if (
@@ -1366,14 +1386,7 @@ export class DiagnosticsStore {
             where: "diagnostics.write",
             severity: "error",
             actual: { count: delta },
-            context: { bootId, reason },
-          });
-          withLifecycleLock(this.dir, () => {
-            this.assertCurrentVersion();
-            sqlitePhysicalBudget(this.database, this.dir, this.dbPath, this.maxTotalBytes);
-            this.database
-              .prepare("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)")
-              .run(key, String(loss.reasons[reason]));
+            context: { bootId, reason, count: loss.reasons[reason] },
           });
         } catch {
           // The preallocated ledger remains the durable source until space is available.
@@ -1414,14 +1427,8 @@ export class DiagnosticsStore {
           context: {
             bootId,
             reason: row.key.startsWith("spool-invalid:") ? "invalid-record" : "sequence-gap",
+            count: observed,
           },
-        });
-        withLifecycleLock(this.dir, () => {
-          this.assertCurrentVersion();
-          sqlitePhysicalBudget(this.database, this.dir, this.dbPath, this.maxTotalBytes);
-          this.database
-            .prepare("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)")
-            .run(reportedKey, String(observed));
         });
       } catch {
         // The meta count remains pending until the next successful import.

@@ -1147,9 +1147,25 @@ describe("diagnostics store", () => {
     expect(
       db.prepare("SELECT code FROM incidents WHERE code = 'DIAGNOSTICS_CAP_REACHED'").get(),
     ).toMatchObject({ code: "DIAGNOSTICS_CAP_REACHED" });
+    expect(
+      db
+        .prepare("SELECT value FROM meta WHERE key = ?")
+        .get(`loss-reported:${peer.bootId}:capacity`),
+    ).toMatchObject({ value: "1" });
     db.close();
     peer.close();
     store.close();
+    const resumed = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
+    const afterRestart = openDiagnosticsReader(stateDir)!;
+    expect(
+      afterRestart
+        .prepare(
+          "SELECT count(*) AS count FROM incident_occurrences WHERE incident_id IN (SELECT id FROM incidents WHERE code = 'DIAGNOSTICS_CAP_REACHED')",
+        )
+        .get(),
+    ).toMatchObject({ count: 1 });
+    afterRestart.close();
+    resumed.close();
   });
 
   it("keeps separate durable counts for each write failure reason", () => {
