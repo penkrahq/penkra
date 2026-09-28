@@ -341,9 +341,10 @@ function sqlitePhysicalBudget(
 }
 
 const LOSS_LEDGER_BYTES = 256;
-type LossReason = "capacity" | "sqlite" | "spool" | "stale";
+const LOSS_LEDGER_FILE_BYTES = LOSS_LEDGER_BYTES * 2;
+export type LossReason = "capacity" | "sqlite" | "spool" | "stale";
 const LOSS_REASONS: readonly LossReason[] = ["capacity", "sqlite", "spool", "stale"];
-type LossCounts = Record<LossReason, number>;
+export type LossCounts = Record<LossReason, number>;
 
 function emptyLossCounts(): LossCounts {
   return { capacity: 0, sqlite: 0, spool: 0, stale: 0 };
@@ -355,13 +356,19 @@ function lossLedgerPath(dir: string, bootId: string): string {
 
 function writeLossLedger(file: string, reasons: LossCounts, reason: LossReason): void {
   const count = LOSS_REASONS.reduce((sum, key) => sum + reasons[key], 0);
-  const content = Buffer.from(JSON.stringify({ count, reason, reasons }));
+  const generation = (fs.existsSync(file) ? readLossLedger(file)?.generation : null) ?? 0;
+  const payload = { generation: generation + 1, count, reason, reasons };
+  const checksum = createHash("sha256").update(JSON.stringify(payload)).digest("hex").slice(0, 16);
+  const content = Buffer.from(JSON.stringify({ ...payload, checksum }));
   if (content.length > LOSS_LEDGER_BYTES) throw new Error("Diagnostics loss ledger overflow");
   const handle = fs.openSync(file, fs.existsSync(file) ? "r+" : "w+", 0o600);
   try {
+    if (fs.fstatSync(handle).size < LOSS_LEDGER_FILE_BYTES)
+      fs.ftruncateSync(handle, LOSS_LEDGER_FILE_BYTES);
     const record = Buffer.alloc(LOSS_LEDGER_BYTES, 0x20);
     content.copy(record);
-    fs.writeSync(handle, record, 0, record.length, 0);
+    const slot = generation % 2 === 0 ? 0 : 1;
+    fs.writeSync(handle, record, 0, record.length, slot * LOSS_LEDGER_BYTES);
     fs.fsyncSync(handle);
   } finally {
     fs.closeSync(handle);
@@ -380,25 +387,76 @@ function recordLoss(dir: string, bootId: string, reason: LossReason, count = 1):
   }
 }
 
-function readLossLedger(
+export function readLossLedger(
   file: string,
-): { count: number; reason: LossReason; reasons: LossCounts } | null {
+): { count: number; reason: LossReason; reasons: LossCounts; generation: number } | null {
   try {
-    const row = JSON.parse(fs.readFileSync(file, "utf8").trim()) as {
+    const content = fs.readFileSync(file);
+    const records =
+      content.length === LOSS_LEDGER_BYTES
+        ? [content.toString("utf8")]
+        : [0, 1].map((slot) =>
+            content
+              .subarray(slot * LOSS_LEDGER_BYTES, (slot + 1) * LOSS_LEDGER_BYTES)
+              .toString("utf8"),
+          );
+    const valid: Array<{
       count: number;
       reason: LossReason;
       reasons: LossCounts;
-    };
-    return Number.isSafeInteger(row.count) &&
-      row.count >= 0 &&
-      LOSS_REASONS.includes(row.reason) &&
-      row.reasons &&
-      LOSS_REASONS.every(
-        (reason) => Number.isSafeInteger(row.reasons[reason]) && row.reasons[reason] >= 0,
-      ) &&
-      LOSS_REASONS.reduce((sum, reason) => sum + row.reasons[reason], 0) === row.count
-      ? row
-      : null;
+      generation: number;
+    }> = [];
+    for (const record of records) {
+      let row: {
+        count: number;
+        reason: LossReason;
+        reasons: LossCounts;
+        generation?: number;
+        checksum?: string;
+      };
+      try {
+        row = JSON.parse(record.trim());
+      } catch {
+        continue;
+      }
+      const legacy = content.length === LOSS_LEDGER_BYTES;
+      const generation = legacy ? 0 : row.generation;
+      const checksum = legacy
+        ? true
+        : typeof row.checksum === "string" &&
+          row.checksum ===
+            createHash("sha256")
+              .update(
+                JSON.stringify({
+                  generation,
+                  count: row.count,
+                  reason: row.reason,
+                  reasons: row.reasons,
+                }),
+              )
+              .digest("hex")
+              .slice(0, 16);
+      if (
+        checksum &&
+        Number.isSafeInteger(generation) &&
+        (generation ?? 0) >= 0 &&
+        Number.isSafeInteger(row.count) &&
+        row.count >= 0 &&
+        LOSS_REASONS.includes(row.reason) &&
+        row.reasons &&
+        LOSS_REASONS.every(
+          (reason) => Number.isSafeInteger(row.reasons[reason]) && row.reasons[reason] >= 0,
+        ) &&
+        LOSS_REASONS.reduce((sum, reason) => sum + row.reasons[reason], 0) === row.count
+      )
+        valid.push({
+          count: row.count,
+          reason: row.reason,
+          reasons: row.reasons,
+          generation: generation!,
+        });
+    }
+    return valid.toSorted((left, right) => right.generation - left.generation)[0] ?? null;
   } catch {
     return null;
   }
@@ -2020,7 +2078,7 @@ export class DiagnosticsSpoolWriter {
         Buffer.byteLength(this.identity) +
         Buffer.byteLength(active) +
         (this.stale ? 2 : 0) +
-        LOSS_LEDGER_BYTES;
+        LOSS_LEDGER_FILE_BYTES;
       if (totalBytes(this.dir) + needed > (options.maxTotalBytes ?? DIAGNOSTIC_LIMITS.totalBytes))
         throw new Error("Diagnostics capacity reached before spool startup");
       fs.writeFileSync(marker, this.identity, {
