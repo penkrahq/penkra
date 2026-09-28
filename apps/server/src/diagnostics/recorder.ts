@@ -12,6 +12,7 @@ let activeStore: DiagnosticsStore | null = null;
 /** Startup installs the single server writer after version reset and spool import. */
 export function installDiagnosticsStore(store: DiagnosticsStore): () => void {
   activeStore = store;
+  const stopHealthSampling = store.startHealthSampling();
   const sweep = setInterval(() => {
     try {
       store.sweepExpectations();
@@ -22,6 +23,7 @@ export function installDiagnosticsStore(store: DiagnosticsStore): () => void {
   sweep.unref();
   return () => {
     clearInterval(sweep);
+    stopHealthSampling();
     if (activeStore === store) activeStore = null;
   };
 }

@@ -409,13 +409,17 @@ const BASE_DIR =
   Path.join(OS.homedir(), desktopIdentity.defaultHomeDirectoryName);
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
 let desktopDiagnostics: DiagnosticsStore | null = null;
+let stopDesktopDiagnosticsHealthSampling: (() => void) | null = null;
 
 function getDesktopDiagnosticsStore(): DiagnosticsStore {
-  desktopDiagnostics ??= new DiagnosticsStore({
-    stateDir: STATE_DIR,
-    appVersion: app.getVersion(),
-    process: "desktop-main",
-  });
+  if (!desktopDiagnostics) {
+    desktopDiagnostics = new DiagnosticsStore({
+      stateDir: STATE_DIR,
+      appVersion: app.getVersion(),
+      process: "desktop-main",
+    });
+    stopDesktopDiagnosticsHealthSampling = desktopDiagnostics.startHealthSampling();
+  }
   return desktopDiagnostics;
 }
 
@@ -1207,6 +1211,8 @@ function bootstrapConfiguredAppsForSpaces(): Promise<void> {
     await reconcileConfiguredRequiredApps(spaceIds);
     const registry = appRegistryClient;
     if (registry && (await getPenkraAccountId())) {
+      stopDesktopDiagnosticsHealthSampling?.();
+      stopDesktopDiagnosticsHealthSampling = null;
       try {
         await bootstrapDefaultRegistryApps({
           runtime,

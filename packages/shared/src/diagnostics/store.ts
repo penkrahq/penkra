@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
@@ -47,6 +48,12 @@ export interface IncidentInput extends DiagnosticContext {
   readonly actual?: DiagnosticFields;
   readonly context?: DiagnosticFields;
   readonly lastCheckpoint?: string;
+}
+
+export interface HealthSampleInput {
+  readonly eventLoopLagMs: number;
+  readonly queueDepth?: number;
+  readonly oldestQueuedMs?: number;
 }
 
 const EXPECTATION_CODES = {
@@ -353,6 +360,41 @@ function insertEnvelope(database: DatabaseSync, event: SpoolEnvelope, appVersion
       );
   } else {
     const data = event.data as IncidentInput;
+    const nearestHealth = database
+      .prepare(`SELECT at, event_loop_lag_ms, cpu_pct, rss_mb,
+      heap_mb, open_handles, queue_depth, oldest_queued_ms, machine_load_1m,
+      free_mem_mb, disk_free_mb FROM health WHERE process = ? AND at <= ?
+      ORDER BY at DESC LIMIT 1`)
+      .get(event.process, event.at) as
+      | {
+          at: string;
+          event_loop_lag_ms: number;
+          cpu_pct: number;
+          rss_mb: number;
+          heap_mb: number;
+          open_handles: number;
+          queue_depth: number | null;
+          oldest_queued_ms: number | null;
+          machine_load_1m: number;
+          free_mem_mb: number;
+          disk_free_mb: number;
+        }
+      | undefined;
+    const healthJson = nearestHealth
+      ? JSON.stringify({
+          at: nearestHealth.at,
+          eventLoopLagMs: nearestHealth.event_loop_lag_ms,
+          cpuPct: nearestHealth.cpu_pct,
+          rssMb: nearestHealth.rss_mb,
+          heapMb: nearestHealth.heap_mb,
+          openHandles: nearestHealth.open_handles,
+          queueDepth: nearestHealth.queue_depth,
+          oldestQueuedMs: nearestHealth.oldest_queued_ms,
+          machineLoad1m: nearestHealth.machine_load_1m,
+          freeMemMb: nearestHealth.free_mem_mb,
+          diskFreeMb: nearestHealth.disk_free_mb,
+        })
+      : "{}";
     const fingerprint = `${data.kind}:${data.code}:${data.where}:${data.threadId ?? ""}`;
     const from = new Date(Date.parse(event.at) - DIAGNOSTIC_LIMITS.detailPinBeforeMs).toISOString();
     const until = new Date(Date.parse(event.at) + DIAGNOSTIC_LIMITS.detailPinAfterMs).toISOString();
@@ -385,7 +427,7 @@ function insertEnvelope(database: DatabaseSync, event: SpoolEnvelope, appVersion
         "{}",
         sqlJson(data.context),
         "[]",
-        "{}",
+        healthJson,
         data.lastCheckpoint ?? null,
         1,
         event.at,
@@ -408,6 +450,9 @@ function insertEnvelope(database: DatabaseSync, event: SpoolEnvelope, appVersion
 /** A local diagnostics writer. Spool append is synced before the SQLite write. */
 export class DiagnosticsStore {
   readonly bootId = randomBytes(16).toString("hex");
+  private lastCpuUsage = process.cpuUsage();
+  private lastHealthAt = performance.now();
+  private lastHealthThinAt = 0;
   readonly dir: string;
   readonly dbPath: string;
   readonly spoolPath: string;
@@ -609,6 +654,71 @@ export class DiagnosticsStore {
     this.write("incident", data);
   }
 
+  sampleHealth(input: HealthSampleInput): void {
+    this.assertCurrentVersion();
+    const metrics = validateDiagnosticFields({
+      eventLoopLagMs: input.eventLoopLagMs,
+      ...(input.queueDepth === undefined ? {} : { queueDepth: input.queueDepth }),
+      ...(input.oldestQueuedMs === undefined ? {} : { oldestQueuedMs: input.oldestQueuedMs }),
+    });
+    if (Object.values(metrics).some((value) => typeof value === "number" && value < 0)) {
+      throw new TypeError("Negative health metric");
+    }
+    const now = performance.now();
+    const usage = process.cpuUsage(this.lastCpuUsage);
+    this.lastCpuUsage = process.cpuUsage();
+    const elapsedMs = Math.max(1, now - this.lastHealthAt);
+    this.lastHealthAt = now;
+    const memory = process.memoryUsage();
+    const disk = fs.statfsSync(this.options.stateDir);
+    const handles = (
+      process as NodeJS.Process & { _getActiveHandles?: () => unknown[] }
+    )._getActiveHandles?.();
+    this.database
+      .prepare(`INSERT INTO health (
+      boot_id, process, at, event_loop_lag_ms, cpu_pct, rss_mb, heap_mb,
+      open_handles, queue_depth, oldest_queued_ms, machine_load_1m, free_mem_mb, disk_free_mb
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(
+        this.bootId,
+        this.options.process,
+        new Date().toISOString(),
+        input.eventLoopLagMs,
+        ((usage.user + usage.system) / (elapsedMs * 1_000)) * 100,
+        memory.rss / 1_048_576,
+        memory.heapUsed / 1_048_576,
+        handles?.length ?? 0,
+        input.queueDepth ?? null,
+        input.oldestQueuedMs ?? null,
+        os.loadavg()[0] ?? 0,
+        os.freemem() / 1_048_576,
+        (Number(disk.bavail) * Number(disk.bsize)) / 1_048_576,
+      );
+    this.prune();
+  }
+
+  startHealthSampling(): () => void {
+    const period = DIAGNOSTIC_LIMITS.healthSampleMs;
+    let expectedAt = performance.now() + period;
+    try {
+      this.sampleHealth({ eventLoopLagMs: 0 });
+    } catch {
+      process.stderr.write("[diagnostics] initial health sample failed\n");
+    }
+    const timer = setInterval(() => {
+      const now = performance.now();
+      const lag = Math.max(0, now - expectedAt);
+      expectedAt = now + period;
+      try {
+        this.sampleHealth({ eventLoopLagMs: lag });
+      } catch {
+        process.stderr.write("[diagnostics] health sample failed\n");
+      }
+    }, period);
+    timer.unref();
+    return () => clearInterval(timer);
+  }
+
   armExpectation(input: ExpectationInput): string {
     this.assertCurrentVersion();
     validateContext(input);
@@ -754,6 +864,18 @@ export class DiagnosticsStore {
   }
 
   prune(now = new Date()): void {
+    if (now.getTime() - this.lastHealthThinAt >= 60_000) {
+      const healthCutoff = new Date(
+        now.getTime() - DIAGNOSTIC_LIMITS.healthThinAfterMs,
+      ).toISOString();
+      this.database
+        .prepare(`DELETE FROM health WHERE at < ? AND id NOT IN (
+        SELECT MIN(id) FROM health WHERE at < ?
+        GROUP BY process, strftime('%Y-%m-%dT%H:%M', at)
+      )`)
+        .run(healthCutoff, healthCutoff);
+      this.lastHealthThinAt = now.getTime();
+    }
     const cutoff = new Date(
       now.getTime() - DIAGNOSTIC_LIMITS.incidentDays * 86_400_000,
     ).toISOString();
