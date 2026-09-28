@@ -136,6 +136,13 @@ const enumValues = {
     "runtime.error",
   ],
   decodeField: ["type", "payload", "threadId", "turnId", "unknown"],
+  bootStage: [
+    "provider-native-state-deletion.recover",
+    "provider-connection-lifecycle.recover",
+    "provider-connection-login.recover",
+    "default-spaces.ensure",
+    "http-runtime.start",
+  ],
   state: [
     "idle",
     "queued",
@@ -222,6 +229,7 @@ const enumValues = {
     "server.stream_admission",
     "provider.runtime_event_pump",
     "provider.runtime_journal",
+    "server.boot",
     "provider.delivery",
     "provider.reconciliation",
     "browser.socket_connect",

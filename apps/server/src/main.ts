@@ -49,6 +49,13 @@ import { Server } from "./effectServer";
 import { ServerLoggerLive } from "./serverLogger";
 import { DiagnosticsStore } from "./diagnostics/store";
 import { installDiagnosticsStore } from "./diagnostics/recorder";
+import {
+  measuredBootStage,
+  recordBootReady,
+  recordBootSlow,
+  type BootStage,
+} from "./diagnostics/boot";
+import { DIAGNOSTIC_LIMITS } from "./diagnostics/limits";
 import { version as serverPackageVersion } from "../package.json" with { type: "json" };
 import { ServerSettingsService } from "./serverSettings";
 import { formatHostForUrl, isLoopbackHost, isWildcardHost } from "./startupAccess";
@@ -58,7 +65,6 @@ import { OrchestrationEngineService } from "./orchestration/Services/Orchestrati
 import { ensureDefaultSpaces } from "./orchestration/defaultSpacesBootstrap";
 import { startThreadRetentionJob } from "./threadRetention";
 import { ThreadPurge } from "./threadPurge";
-import { runStartupStage } from "./startupTiming";
 import {
   consumeDesktopParentPidFromEnvironment,
   waitForDesktopParentDisconnect,
@@ -400,6 +406,10 @@ const makeServerProgram = (input: CliInput) => {
     yield* cliConfig.fixPath;
 
     const config = yield* ServerConfig;
+    const bootStartedAt = performance.now();
+    const bootStages: Array<{ stage: BootStage; elapsedMs: number }> = [];
+    let activeBootStage: BootStage | undefined;
+    let bootTimedOut = false;
     const diagnostics = yield* Effect.acquireRelease(
       Effect.sync(
         () =>
@@ -424,6 +434,32 @@ const makeServerProgram = (input: CliInput) => {
         step: "server.starting",
       }),
     );
+    const bootTimer = yield* Effect.acquireRelease(
+      Effect.sync(() => {
+        const timer = setTimeout(
+          () => {
+            bootTimedOut = true;
+            try {
+              recordBootSlow(
+                diagnostics,
+                bootTraceId,
+                Math.round(performance.now() - bootStartedAt),
+                activeBootStage,
+              );
+            } catch {
+              process.stderr.write("[diagnostics] boot deadline write failed\n");
+            }
+          },
+          Math.max(0, DIAGNOSTIC_LIMITS.bootMs - (performance.now() - bootStartedAt)),
+        );
+        timer.unref();
+        return timer;
+      }),
+      (timer) => Effect.sync(() => clearTimeout(timer)),
+    );
+    const noteBootStage = (stage: BootStage) => {
+      activeBootStage = stage;
+    };
     yield* Effect.sync(() => startServerMemoryDiagnostics({ mode: config.mode }));
     yield* Effect.sync(() => startServerEventLoopDiagnostics({ mode: config.mode }));
 
@@ -437,28 +473,45 @@ const makeServerProgram = (input: CliInput) => {
     }
 
     const orchestrationEngine = yield* OrchestrationEngineService;
-    yield* runStartupStage(
+    yield* measuredBootStage(
       "provider-native-state-deletion.recover",
       providerNativeStateDeletionCoordinator.recover,
+      bootStages,
+      noteBootStage,
     );
-    yield* runStartupStage(
+    yield* measuredBootStage(
       "provider-connection-lifecycle.recover",
       providerConnectionLifecycle.recover,
+      bootStages,
+      noteBootStage,
     );
-    yield* runStartupStage(
+    yield* measuredBootStage(
       "provider-connection-login.recover",
       providerConnectionLoginCoordinator.recover,
+      bootStages,
+      noteBootStage,
     );
-    yield* runStartupStage("default-spaces.ensure", ensureDefaultSpaces(orchestrationEngine));
-    const startedServer = yield* runStartupStage("http-runtime.start", start);
+    yield* measuredBootStage(
+      "default-spaces.ensure",
+      ensureDefaultSpaces(orchestrationEngine),
+      bootStages,
+      noteBootStage,
+    );
+    const startedServer = yield* measuredBootStage(
+      "http-runtime.start",
+      start,
+      bootStages,
+      noteBootStage,
+    );
+    clearTimeout(bootTimer);
     yield* Effect.sync(() =>
-      diagnostics.checkpoint({
-        traceId: bootTraceId,
-        spanId: randomBytes(8).toString("hex"),
-        flow: "boot",
-        step: "server.ready",
-        outcome: "ok",
-      }),
+      recordBootReady(
+        diagnostics,
+        bootTraceId,
+        Math.round(performance.now() - bootStartedAt),
+        bootStages,
+        bootTimedOut,
+      ),
     );
 
     const localUrl = `http://localhost:${config.port}`;
