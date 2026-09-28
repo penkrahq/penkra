@@ -179,6 +179,20 @@ CREATE INDEX IF NOT EXISTS incidents_last_at ON incidents(last_at, id);
 CREATE INDEX IF NOT EXISTS incidents_thread_at ON incidents(thread_id, last_at);
 CREATE INDEX IF NOT EXISTS incidents_trace_at ON incidents(trace_id, last_at);
 CREATE INDEX IF NOT EXISTS incidents_kind_code_at ON incidents(kind, code, last_at);
+CREATE TABLE IF NOT EXISTS incident_occurrences (
+  id TEXT PRIMARY KEY, incident_id TEXT NOT NULL REFERENCES incidents(id),
+  boot_id TEXT NOT NULL, sequence INTEGER NOT NULL, at TEXT NOT NULL,
+  trace_id TEXT NOT NULL, span_id TEXT NOT NULL, attempt_id TEXT,
+  thread_id TEXT, turn_id TEXT, command_id TEXT,
+  expected_json TEXT NOT NULL, actual_json TEXT NOT NULL, limit_json TEXT NOT NULL,
+  context_json TEXT NOT NULL, provenance_json TEXT NOT NULL, health_json TEXT NOT NULL,
+  last_checkpoint TEXT, pin_from TEXT NOT NULL, pin_until TEXT NOT NULL,
+  env_json TEXT NOT NULL, UNIQUE(boot_id, sequence)
+);
+CREATE INDEX IF NOT EXISTS incident_occurrences_at ON incident_occurrences(at, id);
+CREATE INDEX IF NOT EXISTS incident_occurrences_thread_at ON incident_occurrences(thread_id, at);
+CREATE INDEX IF NOT EXISTS incident_occurrences_trace_at ON incident_occurrences(trace_id, at);
+CREATE INDEX IF NOT EXISTS incident_occurrences_incident_at ON incident_occurrences(incident_id, at);
 CREATE TABLE IF NOT EXISTS expectations (
   id TEXT PRIMARY KEY, kind TEXT NOT NULL, trace_id TEXT NOT NULL,
   span_id TEXT NOT NULL, attempt_id TEXT, thread_id TEXT, turn_id TEXT,
@@ -591,6 +605,39 @@ function insertEnvelope(database: DatabaseSync, event: SpoolEnvelope, appVersion
         event.bootId,
         JSON.stringify({ appVersion, process: event.process }),
       );
+    const aggregate = database
+      .prepare("SELECT id FROM incidents WHERE fingerprint = ?")
+      .get(fingerprint) as { id: string };
+    database
+      .prepare(`INSERT INTO incident_occurrences (
+        id, incident_id, boot_id, sequence, at, trace_id, span_id, attempt_id,
+        thread_id, turn_id, command_id, expected_json, actual_json, limit_json,
+        context_json, provenance_json, health_json, last_checkpoint, pin_from,
+        pin_until, env_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(
+        randomUUID(),
+        aggregate.id,
+        event.bootId,
+        event.sequence,
+        event.at,
+        data.traceId,
+        data.spanId,
+        data.attemptId ?? null,
+        data.threadId ?? null,
+        data.turnId ?? null,
+        data.commandId ?? null,
+        sqlJson(data.expected),
+        sqlJson(data.actual),
+        "{}",
+        sqlJson(data.context),
+        provenanceJson,
+        healthJson,
+        data.lastCheckpoint ?? null,
+        from,
+        until,
+        JSON.stringify({ appVersion, process: event.process }),
+      );
     database
       .prepare(`UPDATE detail SET pinned_until = ?
       WHERE at >= ? AND at <= ? AND (pinned_until IS NULL OR pinned_until < ?)`)
@@ -612,7 +659,7 @@ export class DiagnosticsStore {
   readonly dbPath: string;
   readonly spoolPath: string;
   private readonly activePath: string;
-  private readonly database: DatabaseSync;
+  private database!: DatabaseSync;
   private readonly maxTotalBytes: number;
   private readonly maxSpoolBytes: number;
   private sequence = 0;
@@ -629,7 +676,7 @@ export class DiagnosticsStore {
     this.maxSpoolBytes = options.maxSpoolBytes ?? DIAGNOSTIC_LIMITS.spoolBytesPerProcess;
     fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
     if (process.platform !== "win32") fs.chmodSync(this.dir, 0o700);
-    this.database = withLifecycleLock(this.dir, () => {
+    const crashedProcesses = withLifecycleLock(this.dir, () => {
       const versionPath = path.join(this.dir, "version");
       const oldVersion = fs.existsSync(versionPath) ? fs.readFileSync(versionPath, "utf8") : null;
       if (oldVersion && valid(oldVersion) && compare(oldVersion, options.appVersion) > 0)
@@ -654,14 +701,15 @@ export class DiagnosticsStore {
         );
         fs.writeFileSync(versionPath, options.appVersion, { mode: 0o600 });
       }
-      return db;
+      this.database = db;
+      const crashedProcesses = this.importSpoolsLocked();
+      fs.writeFileSync(
+        this.activePath,
+        JSON.stringify({ pid: process.pid, process: options.process }),
+        { mode: 0o600 },
+      );
+      return crashedProcesses;
     });
-    const crashedProcesses = this.importSpools();
-    fs.writeFileSync(
-      this.activePath,
-      JSON.stringify({ pid: process.pid, process: options.process }),
-      { mode: 0o600 },
-    );
     this.sweepExpectations(new Date(), true);
     if (crashedProcesses > 0) {
       this.incident({
@@ -682,95 +730,94 @@ export class DiagnosticsStore {
     }
   }
 
-  private importSpools(): number {
-    return withLifecycleLock(this.dir, () => {
-      let crashedProcesses = 0;
-      for (const entry of fs.readdirSync(this.dir)) {
-        if (!/^spool-[a-f0-9]{32}\.jsonl$/u.test(entry) || entry === path.basename(this.spoolPath))
-          continue;
-        const bootId = entry.slice(6, -6);
-        const activePath = path.join(this.dir, `active-${bootId}.json`);
-        const closedPath = path.join(this.dir, `closed-${bootId}.json`);
-        let live = false;
-        if (fs.existsSync(activePath)) {
-          try {
-            const owner = JSON.parse(fs.readFileSync(activePath, "utf8")) as { pid: number };
-            process.kill(owner.pid, 0);
-            live = true;
-          } catch (cause) {
-            if ((cause as NodeJS.ErrnoException).code !== "ESRCH") continue;
-          }
-        }
-        const spoolPath = path.join(this.dir, entry);
-        const lines = fs.readFileSync(spoolPath, "utf8").split("\n");
-        this.database.exec("BEGIN IMMEDIATE");
-        try {
-          for (const line of lines) {
-            if (!line) continue;
-            let event: SpoolEnvelope;
-            try {
-              event = JSON.parse(line) as SpoolEnvelope;
-              if (event.version !== 1 || event.bootId !== bootId) continue;
-              if (
-                ![
-                  "checkpoint",
-                  "external_outcome",
-                  "expectation_resolved",
-                  "incident",
-                  "expectation_arm",
-                  "health",
-                ].includes(event.type)
-              )
-                continue;
-              if (!Number.isFinite(Date.parse(event.at)) || !Number.isFinite(event.monoMs))
-                continue;
-              const safe = prepareEnvelope(
-                event.bootId,
-                event.sequence,
-                event.process,
-                event.type,
-                event.data,
-              );
-              event = { ...safe, at: new Date(event.at).toISOString(), monoMs: event.monoMs };
-            } catch {
-              continue; // Torn final line or invalid/unallowlisted payload.
-            }
-            insertEnvelope(this.database, event, this.options.appVersion);
-          }
-          this.database.exec("COMMIT");
-        } catch (cause) {
-          this.database.exec("ROLLBACK");
-          throw cause;
-        }
-        if (live) {
-          fs.truncateSync(spoolPath, 0);
-        } else {
-          fs.rmSync(spoolPath, { force: true });
-          fs.rmSync(activePath, { force: true });
-          if (!fs.existsSync(closedPath)) crashedProcesses++;
-          fs.rmSync(closedPath, { force: true });
-        }
-      }
-      for (const entry of fs.readdirSync(this.dir)) {
-        if (!/^active-[a-f0-9]{32}\.json$/u.test(entry) || entry === path.basename(this.activePath))
-          continue;
-        const activePath = path.join(this.dir, entry);
+  private importSpoolsLocked(): number {
+    let crashedProcesses = 0;
+    for (const entry of fs.readdirSync(this.dir)) {
+      if (!/^spool-[a-f0-9]{32}\.jsonl$/u.test(entry) || entry === path.basename(this.spoolPath))
+        continue;
+      const bootId = entry.slice(6, -6);
+      const activePath = path.join(this.dir, `active-${bootId}.json`);
+      const closedPath = path.join(this.dir, `closed-${bootId}.json`);
+      let live = false;
+      if (fs.existsSync(activePath)) {
         try {
           const owner = JSON.parse(fs.readFileSync(activePath, "utf8")) as { pid: number };
           process.kill(owner.pid, 0);
+          live = true;
         } catch (cause) {
           if ((cause as NodeJS.ErrnoException).code !== "ESRCH") continue;
-          fs.rmSync(activePath, { force: true });
-          crashedProcesses++;
         }
       }
-      return crashedProcesses;
-    });
+      const spoolPath = path.join(this.dir, entry);
+      const lines = fs.readFileSync(spoolPath, "utf8").split("\n");
+      this.database.exec("BEGIN IMMEDIATE");
+      try {
+        for (const line of lines) {
+          if (!line) continue;
+          let event: SpoolEnvelope;
+          try {
+            event = JSON.parse(line) as SpoolEnvelope;
+            if (event.version !== 1 || event.bootId !== bootId) continue;
+            if (
+              ![
+                "checkpoint",
+                "external_outcome",
+                "expectation_resolved",
+                "incident",
+                "expectation_arm",
+                "health",
+              ].includes(event.type)
+            )
+              continue;
+            if (!Number.isFinite(Date.parse(event.at)) || !Number.isFinite(event.monoMs)) continue;
+            const safe = prepareEnvelope(
+              event.bootId,
+              event.sequence,
+              event.process,
+              event.type,
+              event.data,
+            );
+            event = { ...safe, at: new Date(event.at).toISOString(), monoMs: event.monoMs };
+          } catch {
+            continue; // Torn final line or invalid/unallowlisted payload.
+          }
+          insertEnvelope(this.database, event, this.options.appVersion);
+        }
+        this.database.exec("COMMIT");
+      } catch (cause) {
+        this.database.exec("ROLLBACK");
+        throw cause;
+      }
+      if (live) {
+        fs.truncateSync(spoolPath, 0);
+      } else {
+        fs.rmSync(spoolPath, { force: true });
+        fs.rmSync(activePath, { force: true });
+        if (!fs.existsSync(closedPath)) crashedProcesses++;
+        fs.rmSync(closedPath, { force: true });
+      }
+    }
+    for (const entry of fs.readdirSync(this.dir)) {
+      if (!/^active-[a-f0-9]{32}\.json$/u.test(entry) || entry === path.basename(this.activePath))
+        continue;
+      const activePath = path.join(this.dir, entry);
+      try {
+        const owner = JSON.parse(fs.readFileSync(activePath, "utf8")) as { pid: number };
+        process.kill(owner.pid, 0);
+      } catch (cause) {
+        if ((cause as NodeJS.ErrnoException).code !== "ESRCH") continue;
+        fs.rmSync(activePath, { force: true });
+        crashedProcesses++;
+      }
+    }
+    return crashedProcesses;
   }
 
   importPeerSpools(): number {
-    this.assertCurrentVersion();
-    const crashed = this.importSpools();
+    const crashed = withLifecycleLock(this.dir, () => {
+      this.assertCurrentVersion();
+      return this.importSpoolsLocked();
+    });
     if (crashed > 0)
       this.incident({
         traceId: randomBytes(16).toString("hex"),
@@ -785,6 +832,10 @@ export class DiagnosticsStore {
   }
 
   private write(type: SpoolEnvelope["type"], data: CheckpointInput | IncidentInput): void {
+    withLifecycleLock(this.dir, () => this.writeLocked(type, data));
+  }
+
+  private writeLocked(type: SpoolEnvelope["type"], data: CheckpointInput | IncidentInput): void {
     this.assertCurrentVersion();
     this.prune();
     const event = prepareEnvelope(this.bootId, ++this.sequence, this.options.process, type, data);

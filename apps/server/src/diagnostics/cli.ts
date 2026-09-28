@@ -143,6 +143,7 @@ function jsonFields(row: Row): Row {
     "thread_id",
     "turn_id",
     "command_id",
+    "incident_id",
   ]);
   const timeKeys = new Set(["at", "first_at", "last_at", "pin_from", "pin_until", "pinned_until"]);
   const numberKeys = new Set(["id", "sequence", "mono_ms", "count"]);
@@ -220,31 +221,35 @@ export function queryDiagnostics(args: string[]): unknown {
       const where: string[] = [];
       const params: (string | number)[] = [];
       if (flags.thread) {
-        where.push("thread_id = ?");
+        where.push("o.thread_id = ?");
         params.push(validateDiagnosticId(flags.thread));
       }
       if (flags.kind) {
-        where.push("kind = ?");
+        where.push("i.kind = ?");
         params.push(validateDiagnosticToken(flags.kind));
       }
       if (flags.code) {
-        where.push("code = ?");
+        where.push("i.code = ?");
         params.push(validateDiagnosticToken(flags.code));
       }
       const since = isoSince(flags.since);
       if (since) {
-        where.push("last_at >= ?");
+        where.push("o.at >= ?");
         params.push(since);
       }
       const cursor = readCursor(flags.cursor);
       if (cursor) {
-        where.push("(last_at < ? OR (last_at = ? AND id < ?))");
+        where.push("(o.at < ? OR (o.at = ? AND o.id < ?))");
         params.push(cursor.lastAt, cursor.lastAt, cursor.id);
       }
       const limit = pageLimit(flags.limit);
       const rows = database
         .prepare(
-          `SELECT * FROM incidents ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY last_at DESC, id DESC LIMIT ?`,
+          `SELECT o.*, i.fingerprint, i.kind, i.code, i.severity, i.where_name,
+          i.summary, i.count, i.first_at, i.last_at
+          FROM incident_occurrences o JOIN incidents i ON i.id = o.incident_id
+          ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+          ORDER BY o.at DESC, o.id DESC LIMIT ?`,
         )
         .all(...params, limit + 1) as Row[];
       const items = rows.slice(0, limit).map(jsonFields);
@@ -254,9 +259,7 @@ export function queryDiagnostics(args: string[]): unknown {
         pageInfo: {
           nextCursor:
             rows.length > limit && last
-              ? Buffer.from(JSON.stringify({ lastAt: last.last_at, id: last.id })).toString(
-                  "base64url",
-                )
+              ? Buffer.from(JSON.stringify({ lastAt: last.at, id: last.id })).toString("base64url")
               : null,
         },
       };
@@ -266,7 +269,9 @@ export function queryDiagnostics(args: string[]): unknown {
       const id = validateDiagnosticId(positional[0]!);
       const key = command === "thread" ? "thread_id" : "trace_id";
       const incidents = database
-        .prepare(`SELECT * FROM incidents WHERE ${key} = ? ORDER BY first_at`)
+        .prepare(`SELECT o.*, i.fingerprint, i.kind, i.code, i.severity, i.where_name,
+          i.summary, i.count, i.first_at, i.last_at FROM incident_occurrences o
+          JOIN incidents i ON i.id = o.incident_id WHERE o.${key} = ? ORDER BY o.at`)
         .all(id) as Row[];
       const detail = database
         .prepare(`SELECT * FROM detail WHERE ${key} = ? ORDER BY at, id`)
@@ -279,7 +284,17 @@ export function queryDiagnostics(args: string[]): unknown {
           : (database
               .prepare("SELECT * FROM provenance WHERE set_by_trace_id = ? ORDER BY set_at")
               .all(id) as Row[]);
+      const timeline = [
+        ...incidents.map((row) => ({ type: "incident", at: row.at as string, ...jsonFields(row) })),
+        ...detail.map((row) => ({ type: "detail", at: row.at as string, ...jsonFields(row) })),
+        ...provenance.map((row) => ({
+          type: "provenance",
+          at: row.set_at as string,
+          ...provenanceRow(row),
+        })),
+      ].sort((a, b) => a.at.localeCompare(b.at));
       return {
+        timeline,
         incidents: incidents.map(jsonFields),
         detail: detail.map(jsonFields),
         provenance: provenance.map(provenanceRow),
@@ -292,16 +307,19 @@ export function queryDiagnostics(args: string[]): unknown {
       const where: string[] = [];
       const params: string[] = [];
       if (thread) {
-        where.push("thread_id = ?");
+        where.push("o.thread_id = ?");
         params.push(thread);
       }
       if (since) {
-        where.push("last_at >= ?");
+        where.push("o.at >= ?");
         params.push(since);
       }
       const incidents = database
         .prepare(
-          `SELECT * FROM incidents ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY last_at`,
+          `SELECT o.*, i.fingerprint, i.kind, i.code, i.severity, i.where_name,
+          i.summary, i.count, i.first_at, i.last_at FROM incident_occurrences o
+          JOIN incidents i ON i.id = o.incident_id
+          ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY o.at`,
         )
         .all(...params) as Row[];
       const detailWhere: string[] = [];

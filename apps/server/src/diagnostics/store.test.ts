@@ -370,6 +370,9 @@ describe("diagnostics store", () => {
     store.incident(failure);
     const db = openDiagnosticsReader(stateDir)!;
     expect(db.prepare("SELECT count FROM incidents").get()).toMatchObject({ count: 2 });
+    expect(db.prepare("SELECT count(*) AS count FROM incident_occurrences").get()).toMatchObject({
+      count: 2,
+    });
     expect(db.prepare("SELECT count(*) AS count FROM detail").get()).toMatchObject({ count: 1 });
     expect(db.prepare("SELECT expected_json FROM incidents").get()).toMatchObject({
       expected_json: '{"deadlineMs":45000}',
