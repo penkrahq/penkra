@@ -8,6 +8,10 @@ import { installDiagnosticsStore } from "./recorder";
 import { DiagnosticsStore, openDiagnosticsReader } from "./store";
 import { makeSyncAcknowledgements } from "../wsSyncAcknowledgements";
 import { makeWsStreamAdmission } from "../wsStreamAdmission";
+import {
+  recordMcpAuthorityRejected,
+  recordMcpScopeDenied,
+} from "../agentGateway/mcpWriteDiagnostics";
 
 const roots: string[] = [];
 function fixture() {
@@ -29,6 +33,38 @@ afterEach(() => {
 });
 
 describe("production failure incidents", () => {
+  it("records a denied MCP capability by stable name", () => {
+    const { stateDir, close } = fixture();
+    recordMcpScopeDenied({ threadId: "thread-3", turnId: null, capability: "thread:write" });
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(db.prepare("SELECT code, context_json FROM incidents").get()).toMatchObject({
+      code: "SCOPE_DENIED",
+      context_json: '{"capability":"thread:write"}',
+    });
+    db.close();
+    close();
+  });
+  it("records the inactive caller turn with its failed authority check", () => {
+    const { stateDir, close } = fixture();
+    recordMcpAuthorityRejected({
+      trace: { traceId: "0123456789abcdef0123456789abcdef", spanId: "0123456789abcdef" },
+      threadId: "thread-3",
+      arrivedTurnId: "turn-old",
+      expectedTurnId: "turn-old",
+      observedTurnId: "turn-new",
+      failedCheck: "authorized_turn_no_longer_active",
+    });
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(db.prepare("SELECT code, actual_json, context_json FROM incidents").get()).toMatchObject(
+      {
+        code: "CALLER_TURN_INACTIVE",
+        actual_json: '{"accepted":false,"activeTurnId":"turn-new","callerTurnId":"turn-old"}',
+        context_json: '{"mcpCheck":"authorized_turn_no_longer_active"}',
+      },
+    );
+    db.close();
+    close();
+  });
   it("names the failed synchronization acknowledgement check", async () => {
     const { stateDir, close } = fixture();
     const acknowledgements = makeSyncAcknowledgements();

@@ -1,4 +1,5 @@
 import type { ProviderKind } from "@penkra/contracts";
+import type { DiagnosticTraceContext } from "@penkra/contracts";
 import type { Effect } from "effect";
 
 import type { AgentGatewayTargetError } from "./targetResolver.ts";
@@ -51,6 +52,7 @@ export interface ExternalClientPrincipal {
 export type AgentGatewayPrincipal = ProviderSessionPrincipal | ExternalClientPrincipal;
 
 export interface ToolContext {
+  readonly diagnosticTrace?: DiagnosticTraceContext;
   readonly principal: ProviderSessionPrincipal;
   readonly callerThreadId: string;
   readonly callerSessionKey: string;
