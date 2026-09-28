@@ -381,6 +381,25 @@ describe("diagnostics store", () => {
     restarted.close();
   });
 
+  it("does not leave a late imported send expectation after server acceptance", () => {
+    const { stateDir, store } = fixture();
+    const desktop = new DiagnosticsSpoolWriter({
+      stateDir,
+      appVersion: "0.14.3",
+      process: "desktop-main",
+    });
+    store.checkpoint({ traceId, spanId, flow: "send", step: "command.accepted", outcome: "ok" });
+    desktop.armExpectation({ traceId, spanId, kind: "send.accepted", deadlineMs: 2_000 });
+    store.importPeerSpools();
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(db.prepare("SELECT count(*) AS count FROM expectations").get()).toMatchObject({
+      count: 0,
+    });
+    db.close();
+    desktop.close();
+    store.close();
+  });
+
   it("rejects content in expectation correlation before persisting it", () => {
     const { stateDir, store } = fixture();
     expect(() =>

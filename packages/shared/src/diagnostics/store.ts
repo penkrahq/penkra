@@ -622,29 +622,40 @@ function insertEnvelope(
       );
   } else if (event.type === "expectation_arm") {
     const expectation = event.data as ExpectationArmInput;
-    const last = database
-      .prepare("SELECT step FROM detail WHERE trace_id = ? ORDER BY id DESC LIMIT 1")
-      .get(expectation.traceId) as { step: string } | undefined;
-    database
-      .prepare(`INSERT OR IGNORE INTO expectations (
+    // The desktop writes through a worker. A fast server acceptance can reach
+    // SQLite before that worker's spool record is imported.
+    const alreadyAccepted =
+      expectation.kind === "send.accepted" &&
+      database
+        .prepare(
+          "SELECT 1 FROM detail WHERE trace_id = ? AND flow = 'send' AND step = 'command.accepted' LIMIT 1",
+        )
+        .get(expectation.traceId);
+    if (!alreadyAccepted) {
+      const last = database
+        .prepare("SELECT step FROM detail WHERE trace_id = ? ORDER BY id DESC LIMIT 1")
+        .get(expectation.traceId) as { step: string } | undefined;
+      database
+        .prepare(`INSERT OR IGNORE INTO expectations (
       id, kind, trace_id, span_id, attempt_id, thread_id, turn_id, correlation_json,
       armed_at, deadline_at, deadline_ms, last_checkpoint, boot_id
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(
-        expectation.id,
-        expectation.kind,
-        expectation.traceId,
-        expectation.spanId,
-        expectation.attemptId ?? null,
-        expectation.threadId ?? null,
-        expectation.turnId ?? null,
-        sqlJson(expectation.correlation),
-        event.at,
-        new Date(Date.parse(event.at) + expectation.deadlineMs).toISOString(),
-        expectation.deadlineMs,
-        last?.step ?? null,
-        event.bootId,
-      );
+        .run(
+          expectation.id,
+          expectation.kind,
+          expectation.traceId,
+          expectation.spanId,
+          expectation.attemptId ?? null,
+          expectation.threadId ?? null,
+          expectation.turnId ?? null,
+          sqlJson(expectation.correlation),
+          event.at,
+          new Date(Date.parse(event.at) + expectation.deadlineMs).toISOString(),
+          expectation.deadlineMs,
+          last?.step ?? null,
+          event.bootId,
+        );
+    }
   } else if (event.type !== "incident") {
     const data = event.data as CheckpointInput;
     const pin = database
