@@ -196,6 +196,14 @@ async function waitForThread(
   return poll();
 }
 
+async function waitFor(predicate: () => Promise<boolean>, timeoutMs = 2000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!(await predicate())) {
+    if (Date.now() >= deadline) throw new Error("Timed out waiting for expectation.");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 type ProviderRuntimeTestReadModel = OrchestrationReadModel;
 type ProviderRuntimeTestThread = ProviderRuntimeTestReadModel["threads"][number];
 type ProviderRuntimeTestMessage = ProviderRuntimeTestThread["messages"][number];
@@ -382,7 +390,7 @@ describe("ProviderRuntimeIngestion", () => {
     };
   }
 
-  it("holds an unrelated thread's runtime event behind one slow event", async () => {
+  it("commits an unrelated thread's runtime event while one thread is slow", async () => {
     let releaseSlowEvent!: () => void;
     const slowEventReleased = new Promise<void>((resolve) => {
       releaseSlowEvent = resolve;
@@ -438,23 +446,87 @@ describe("ProviderRuntimeIngestion", () => {
     const starting = harness.startIngestion();
     try {
       await slowEventEntered;
-      await new Promise((resolve) => setTimeout(resolve, 150));
-      expect(await Effect.runPromise(harness.runtimeEventRepository.getThreadCursor(threadB))).toBe(
-        0,
+      await waitFor(
+        async () =>
+          (await Effect.runPromise(harness.runtimeEventRepository.getThreadCursor(threadB))) ===
+          persistedB.sequence,
       );
       const threadBeforeRelease = (
         await Effect.runPromise(harness.engine.getReadModel())
       ).threads.find((thread) => thread.id === threadB);
       expect(
         threadBeforeRelease?.activities.some((activity) => activity.id === eventB.eventId),
-      ).toBe(false);
+      ).toBe(true);
+      const laterB: ProviderRuntimeEvent = {
+        ...eventB,
+        eventId: asEventId("evt-slow-runtime-b-later"),
+        payload: { message: "Later unrelated event" },
+      };
+      harness.emit(laterB);
+      await waitFor(async () => {
+        const readModel = await Effect.runPromise(harness.engine.getReadModel());
+        return (
+          readModel.threads
+            .find((thread) => thread.id === threadB)
+            ?.activities.some((activity) => activity.id === laterB.eventId) ?? false
+        );
+      });
+      expect(
+        await Effect.runPromise(harness.runtimeEventRepository.getThreadCursor(threadB)),
+      ).toBeGreaterThan(persistedB.sequence);
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.makeUnsafe("cmd-slow-runtime-b-streaming"),
+          threadId: threadB,
+          message: {
+            messageId: asMessageId("msg-slow-runtime-b-streaming"),
+            role: "user",
+            text: "stream while A is slow",
+            attachments: [],
+          },
+          assistantDeliveryMode: "streaming",
+          runtimeMode: "approval-required",
+          createdAt,
+        }),
+      );
+      harness.emit({
+        type: "turn.started",
+        eventId: asEventId("evt-slow-runtime-b-turn-started"),
+        provider: "codex",
+        createdAt,
+        threadId: threadB,
+        turnId: asTurnId("turn-slow-runtime-b-streaming"),
+      });
+      harness.emit({
+        type: "content.delta",
+        eventId: asEventId("evt-slow-runtime-b-assistant-delta"),
+        provider: "codex",
+        createdAt,
+        threadId: threadB,
+        turnId: asTurnId("turn-slow-runtime-b-streaming"),
+        itemId: asItemId("item-slow-runtime-b-assistant"),
+        payload: { streamKind: "assistant_text", delta: "B is moving" },
+      });
+      await waitForThread(
+        harness.engine,
+        (thread) =>
+          thread.messages.some(
+            (message) =>
+              message.id === "assistant:item-slow-runtime-b-assistant" &&
+              message.streaming &&
+              message.text === "B is moving",
+          ),
+        2_000,
+        threadB,
+      );
     } finally {
       releaseSlowEvent();
     }
     await starting;
-    expect(await Effect.runPromise(harness.runtimeEventRepository.getThreadCursor(threadB))).toBe(
-      persistedB.sequence,
-    );
+    expect(
+      await Effect.runPromise(harness.runtimeEventRepository.getThreadCursor(threadB)),
+    ).toBeGreaterThan(persistedB.sequence + 1);
   }, 10_000);
 
   it.each(
@@ -875,8 +947,10 @@ describe("ProviderRuntimeIngestion", () => {
     const openedTransactions = Array.from(sqlCounts.entries())
       .filter(([sql]) => sql === "BEGIN")
       .reduce((total, [, count]) => total + count, 0);
-    expect(eligibilityScans).toBeLessThanOrEqual(4);
-    expect(openedTransactions).toBeLessThanOrEqual(4);
+    // Per-thread lanes commit independently and may wake during the burst.
+    // The work must still scale with batches, rather than one scan/commit per delta.
+    expect(eligibilityScans).toBeLessThanOrEqual(8);
+    expect(openedTransactions).toBeLessThanOrEqual(8);
   });
 
   it("does not scan the durable journal repeatedly while ingestion is idle", async () => {

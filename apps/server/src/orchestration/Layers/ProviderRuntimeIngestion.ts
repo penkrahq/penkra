@@ -2431,11 +2431,18 @@ const make = Effect.gen(function* () {
       });
     });
 
-  let runtimeCommitsPendingThisPage: Array<{
+  type RuntimePendingCommit = {
     readonly input: Extract<RuntimeIngestionInput, { readonly source: "runtime" }>;
     readonly canonicalEvent: ProviderRuntimeEvent | undefined;
     readonly processedAt: number;
-  }> = [];
+  };
+  const runtimeCommitsByThread = new Map<string, Array<RuntimePendingCommit>>();
+  const recordRuntimeCommit = (commit: RuntimePendingCommit) => {
+    const threadId = commit.input.event.threadId;
+    const entries = runtimeCommitsByThread.get(threadId);
+    if (entries) entries.push(commit);
+    else runtimeCommitsByThread.set(threadId, [commit]);
+  };
 
   const processInput = (input: RuntimeIngestionInput): Effect.Effect<void, unknown> => {
     if (input.source !== "runtime") return processDomainEvent(input.event);
@@ -2498,7 +2505,7 @@ const make = Effect.gen(function* () {
         bufferNonAssistantContentDelta(input.event).pipe(
           Effect.andThen(
             Effect.sync(() => {
-              runtimeCommitsPendingThisPage.push({
+              recordRuntimeCommit({
                 input,
                 canonicalEvent: undefined,
                 processedAt: Date.now(),
@@ -2517,7 +2524,7 @@ const make = Effect.gen(function* () {
       ).pipe(
         Effect.andThen(
           Effect.sync(() => {
-            runtimeCommitsPendingThisPage.push({ input, canonicalEvent, processedAt: Date.now() });
+            recordRuntimeCommit({ input, canonicalEvent, processedAt: Date.now() });
           }),
         ),
       ),
@@ -2574,6 +2581,11 @@ const make = Effect.gen(function* () {
   // the SQLite journal remains the authoritative, crash-safe queue.
   const runtimeJournalWake = yield* Queue.sliding<void>(1);
   const runtimeJournalRetryScheduleChanged = yield* Queue.sliding<void>(1);
+  const domainPendingCapacity = yield* Semaphore.make(PROVIDER_RUNTIME_INGESTION_CAPACITY);
+  const domainPendingByThread = new Map<
+    string,
+    Array<{ readonly event: RuntimeIngestionDomainEvent; readonly runtimeFence: number }>
+  >();
 
   const processInputSafely = (input: RuntimeIngestionInput): Effect.Effect<void> =>
     input.source === "runtime" && runtimeThreadsBlockedThisDrain.has(input.event.threadId)
@@ -2658,9 +2670,23 @@ const make = Effect.gen(function* () {
           }),
         );
 
-  const worker = yield* makeDrainableWorker(processInputSafely, {
-    capacity: PROVIDER_RUNTIME_INGESTION_CAPACITY,
-  });
+  const admitDomainInput = (event: RuntimeIngestionDomainEvent) =>
+    Effect.gen(function* () {
+      const runtimeFence = yield* runtimeEvents.getHighWaterSequence;
+      yield* domainPendingCapacity.take(1);
+      const pending = domainPendingByThread.get(event.payload.threadId);
+      if (pending) pending.push({ event, runtimeFence });
+      else domainPendingByThread.set(event.payload.threadId, [{ event, runtimeFence }]);
+      yield* Queue.offer(runtimeJournalWake, undefined);
+    });
+
+  const worker = yield* makeDrainableWorker(
+    (input: RuntimeIngestionInput) =>
+      input.source === "domain" ? admitDomainInput(input.event) : processInputSafely(input),
+    {
+      capacity: PROVIDER_RUNTIME_INGESTION_CAPACITY,
+    },
+  );
   const runtimeJournalDrainLock = yield* Semaphore.make(1);
   let lastJournalMetricsAt = 0;
   let lastReplayFenceSequence = 0;
@@ -2690,151 +2716,247 @@ const make = Effect.gen(function* () {
       suppressedSlowEventCount = 0;
     });
 
-  const drainRuntimeJournalThrough = (throughSequenceInclusive?: number) =>
+  const runtimeLaneScope = yield* Effect.scope;
+  const activeRuntimeLanes = new Set<string>();
+  const MAX_ACTIVE_RUNTIME_LANES = 8;
+
+  const commitRuntimeLane = (
+    threadId: string,
+    pendingCommits: ReadonlyArray<RuntimePendingCommit>,
+  ) =>
+    Effect.gen(function* () {
+      if (pendingCommits.length === 0) return;
+      const batchStartedAt = performance.now();
+      const batchFiberId = Fiber.getCurrent()?.id ?? null;
+      let transactionStartedAt: number | null = null;
+      let batchStage = "sqlite-wait";
+      let activeSequence: number | null = null;
+      const reportSlowBatch = Effect.suspend(() =>
+        Effect.logWarning("provider runtime journal cursor batch slow").pipe(
+          Effect.annotateLogs({
+            batchFiberId,
+            threadId,
+            firstSequence: pendingCommits[0]!.input.sequence,
+            lastSequence: pendingCommits.at(-1)!.input.sequence,
+            eventCount: pendingCommits.length,
+            stage: batchStage,
+            activeSequence,
+            elapsedMs: Math.round(performance.now() - batchStartedAt),
+            transactionMs:
+              transactionStartedAt === null
+                ? null
+                : Math.round(performance.now() - transactionStartedAt),
+          }),
+        ),
+      );
+      const batchWatchdog = yield* Effect.forkChild(
+        Effect.gen(function* () {
+          yield* Effect.sleep(5_000);
+          yield* reportSlowBatch;
+          yield* Effect.sleep(25_000);
+          yield* reportSlowBatch;
+        }),
+      );
+      yield* sql
+        .withTransaction(
+          Effect.gen(function* () {
+            transactionStartedAt = performance.now();
+            yield* Effect.forEach(
+              pendingCommits,
+              ({ input, canonicalEvent }) =>
+                Effect.gen(function* () {
+                  activeSequence = input.sequence;
+                  if (canonicalEvent !== undefined) {
+                    batchStage = "canonical-event";
+                    yield* commitCanonicalRuntimeEventInCurrentTransaction(canonicalEvent);
+                  }
+                  batchStage = "thread-cursor";
+                  const advanced = yield* runtimeEvents.advanceThreadCursorInCurrentTransaction({
+                    threadId: input.event.threadId,
+                    eventSequence: input.sequence,
+                    updatedAt: new Date().toISOString(),
+                  });
+                  if (!advanced) {
+                    return yield* Effect.die(
+                      new Error(
+                        `Provider runtime thread cursor could not advance through event ${input.sequence}`,
+                      ),
+                    );
+                  }
+                }),
+              { concurrency: 1, discard: true },
+            );
+          }),
+        )
+        .pipe(Effect.ensuring(Fiber.interrupt(batchWatchdog)));
+      if (performance.now() - batchStartedAt >= 5_000) {
+        batchStage = "completed";
+        yield* reportSlowBatch;
+      }
+      const committedAt = Date.now();
+      for (const { input, processedAt } of pendingCommits) {
+        lastProcessedSequence = Math.max(lastProcessedSequence, input.sequence);
+        const receivedAt = Date.parse(input.event.createdAt);
+        const persistedAt = input.persistedAt ? Date.parse(input.persistedAt) : NaN;
+        const pendingBeforeProcessMs =
+          processedAt - (Number.isFinite(persistedAt) ? persistedAt : receivedAt);
+        const receiveToCommitMs = committedAt - receivedAt;
+        if (pendingBeforeProcessMs >= 5_000 || receiveToCommitMs >= 5_000) {
+          const lastLoggedAt = lastSlowEventLogAtByThread.get(input.event.threadId) ?? 0;
+          if (committedAt - lastLoggedAt < 60_000) {
+            suppressedSlowEventCount++;
+            continue;
+          }
+          if (lastSlowEventLogAtByThread.size >= 1_024) lastSlowEventLogAtByThread.clear();
+          lastSlowEventLogAtByThread.set(input.event.threadId, committedAt);
+          yield* Effect.logWarning("provider runtime journal slow event", {
+            threadId: input.event.threadId,
+            turnId: input.event.turnId ?? null,
+            eventId: input.event.eventId,
+            sequence: input.sequence,
+            eventType: input.event.type,
+            adapterReceivedAt: input.event.createdAt,
+            persistedAt: input.persistedAt ?? null,
+            processingFinishedAt: new Date(processedAt).toISOString(),
+            cursorCommittedAt: new Date(committedAt).toISOString(),
+            pendingBeforeProcessMs,
+            receiveToCommitMs,
+          });
+        }
+      }
+    });
+
+  const runRuntimeLane = (
+    threadId: string,
+    entries: ReadonlyArray<{
+      readonly sequence: number;
+      readonly event: ProviderRuntimeEvent;
+      readonly persistedAt?: string;
+    }>,
+  ) =>
+    Effect.gen(function* () {
+      runtimeThreadsBlockedThisDrain.delete(threadId);
+      runtimeCommitsByThread.delete(threadId);
+      for (const entry of entries) {
+        yield* processInputSafely({
+          source: "runtime",
+          sequence: entry.sequence,
+          event: entry.event,
+          ...(entry.persistedAt ? { persistedAt: entry.persistedAt } : {}),
+        });
+      }
+      const pendingCommits = runtimeCommitsByThread.get(threadId) ?? [];
+      runtimeCommitsByThread.delete(threadId);
+      yield* commitRuntimeLane(threadId, pendingCommits);
+    }).pipe(
+      Effect.catchCause((cause) =>
+        Cause.hasInterruptsOnly(cause)
+          ? Effect.failCause(cause)
+          : Effect.logWarning("provider runtime lane failed", {
+              threadId,
+              cause: Cause.pretty(cause),
+            }),
+      ),
+      Effect.ensuring(
+        Effect.sync(() => {
+          runtimeCommitsByThread.delete(threadId);
+          activeRuntimeLanes.delete(threadId);
+          if (activeRuntimeLanes.size === 0) oldestPendingWorkerAt = null;
+        }).pipe(Effect.andThen(Queue.offer(runtimeJournalWake, undefined))),
+      ),
+    );
+
+  const runDomainLane = (threadId: string, event: RuntimeIngestionDomainEvent) =>
+    processInputSafely({ source: "domain", event }).pipe(
+      Effect.ensuring(
+        domainPendingCapacity.release(1).pipe(
+          Effect.andThen(
+            Effect.sync(() => {
+              activeRuntimeLanes.delete(threadId);
+            }),
+          ),
+          Effect.andThen(Queue.offer(runtimeJournalWake, undefined)),
+        ),
+      ),
+    );
+
+  const scheduleRuntimeJournalThrough = (throughSequenceInclusive?: number) =>
     runtimeJournalDrainLock.withPermits(1)(
       Effect.gen(function* () {
+        if (activeRuntimeLanes.size >= MAX_ACTIVE_RUNTIME_LANES) return;
         const replayFence = throughSequenceInclusive ?? (yield* runtimeEvents.getHighWaterSequence);
         lastReplayFenceSequence = replayFence;
-        runtimeThreadsBlockedThisDrain = new Set<string>();
-        while (true) {
-          const pageStartedAt = performance.now();
-          const page = yield* runtimeEvents.readPendingThreadEvents({
-            throughSequenceInclusive: replayFence,
-            limit: PROVIDER_RUNTIME_REPLAY_PAGE_SIZE,
-            maxPerThread: PROVIDER_RUNTIME_REPLAY_EVENTS_PER_THREAD,
-          });
-          observeRuntimeJournalTiming("journalPageRead", performance.now() - pageStartedAt);
-          if (page.length === 0) {
-            lastProcessedSequence = Math.max(lastProcessedSequence, replayFence);
-            return;
-          }
-
-          const processablePage = page.filter(
-            (entry) => !runtimeThreadsBlockedThisDrain.has(entry.event.threadId),
-          );
-          if (processablePage.length === 0) return;
-
-          runtimeCommitsPendingThisPage = [];
+        const pageStartedAt = performance.now();
+        const page = yield* runtimeEvents.readPendingThreadEvents({
+          throughSequenceInclusive: replayFence,
+          limit: PROVIDER_RUNTIME_REPLAY_PAGE_SIZE,
+          maxPerThread: PROVIDER_RUNTIME_REPLAY_EVENTS_PER_THREAD,
+          excludeThreadIds: [...activeRuntimeLanes],
+        });
+        observeRuntimeJournalTiming("journalPageRead", performance.now() - pageStartedAt);
+        const lanes = new Map<string, typeof page>();
+        for (const entry of page) {
+          const threadId = entry.event.threadId;
+          const domainFence = domainPendingByThread.get(threadId)?.[0]?.runtimeFence;
+          if (domainFence !== undefined && entry.sequence > domainFence) continue;
+          const group = lanes.get(threadId);
+          if (group) (group as Array<typeof entry>).push(entry);
+          else lanes.set(threadId, [entry]);
+        }
+        for (const [threadId, entries] of lanes) {
+          if (activeRuntimeLanes.size >= MAX_ACTIVE_RUNTIME_LANES) break;
+          activeRuntimeLanes.add(threadId);
           oldestPendingWorkerAt ??= Date.now();
-          yield* Effect.forEach(processablePage, (entry) =>
-            worker.enqueue({
-              source: "runtime",
-              sequence: entry.sequence,
-              event: entry.event,
-              ...(entry.persistedAt ? { persistedAt: entry.persistedAt } : {}),
-            }),
-          );
-          yield* worker.drain;
-          const pendingCommits = runtimeCommitsPendingThisPage;
-          runtimeCommitsPendingThisPage = [];
-          if (pendingCommits.length > 0) {
-            const batchStartedAt = performance.now();
-            const batchFiberId = Fiber.getCurrent()?.id ?? null;
-            let transactionStartedAt: number | null = null;
-            let batchStage = "sqlite-wait";
-            let activeSequence: number | null = null;
-            const reportSlowBatch = Effect.suspend(() =>
-              Effect.logWarning("provider runtime journal cursor batch slow").pipe(
-                Effect.annotateLogs({
-                  batchFiberId,
-                  firstSequence: pendingCommits[0]!.input.sequence,
-                  lastSequence: pendingCommits.at(-1)!.input.sequence,
-                  eventCount: pendingCommits.length,
-                  stage: batchStage,
-                  activeSequence,
-                  elapsedMs: Math.round(performance.now() - batchStartedAt),
-                  transactionMs:
-                    transactionStartedAt === null
-                      ? null
-                      : Math.round(performance.now() - transactionStartedAt),
-                }),
-              ),
-            );
-            const batchWatchdog = yield* Effect.forkChild(
-              Effect.gen(function* () {
-                yield* Effect.sleep(5_000);
-                yield* reportSlowBatch;
-                yield* Effect.sleep(25_000);
-                yield* reportSlowBatch;
-              }),
-            );
-            yield* sql
-              .withTransaction(
-                Effect.gen(function* () {
-                  transactionStartedAt = performance.now();
-                  yield* Effect.forEach(
-                    pendingCommits,
-                    ({ input, canonicalEvent }) =>
-                      Effect.gen(function* () {
-                        activeSequence = input.sequence;
-                        if (canonicalEvent !== undefined) {
-                          batchStage = "canonical-event";
-                          yield* commitCanonicalRuntimeEventInCurrentTransaction(canonicalEvent);
-                        }
-                        batchStage = "thread-cursor";
-                        const advanced =
-                          yield* runtimeEvents.advanceThreadCursorInCurrentTransaction({
-                            threadId: input.event.threadId,
-                            eventSequence: input.sequence,
-                            updatedAt: new Date().toISOString(),
-                          });
-                        if (!advanced) {
-                          return yield* Effect.die(
-                            new Error(
-                              `Provider runtime thread cursor could not advance through event ${input.sequence}`,
-                            ),
-                          );
-                        }
-                      }),
-                    { concurrency: 1, discard: true },
-                  );
-                }),
-              )
-              .pipe(Effect.ensuring(Fiber.interrupt(batchWatchdog)));
-            if (performance.now() - batchStartedAt >= 5_000) {
-              batchStage = "completed";
-              yield* reportSlowBatch;
-            }
-            const committedAt = Date.now();
-            for (const { input, processedAt } of pendingCommits) {
-              lastProcessedSequence = Math.max(lastProcessedSequence, input.sequence);
-              const receivedAt = Date.parse(input.event.createdAt);
-              const persistedAt = input.persistedAt ? Date.parse(input.persistedAt) : NaN;
-              const pendingBeforeProcessMs =
-                processedAt - (Number.isFinite(persistedAt) ? persistedAt : receivedAt);
-              const receiveToCommitMs = committedAt - receivedAt;
-              if (pendingBeforeProcessMs >= 5_000 || receiveToCommitMs >= 5_000) {
-                const lastLoggedAt = lastSlowEventLogAtByThread.get(input.event.threadId) ?? 0;
-                if (committedAt - lastLoggedAt < 60_000) {
-                  suppressedSlowEventCount++;
-                  continue;
-                }
-                if (lastSlowEventLogAtByThread.size >= 1_024) lastSlowEventLogAtByThread.clear();
-                lastSlowEventLogAtByThread.set(input.event.threadId, committedAt);
-                yield* Effect.logWarning("provider runtime journal slow event", {
-                  threadId: input.event.threadId,
-                  turnId: input.event.turnId ?? null,
-                  eventId: input.event.eventId,
-                  sequence: input.sequence,
-                  eventType: input.event.type,
-                  adapterReceivedAt: input.event.createdAt,
-                  persistedAt: input.persistedAt ?? null,
-                  processingFinishedAt: new Date(processedAt).toISOString(),
-                  cursorCommittedAt: new Date(committedAt).toISOString(),
-                  pendingBeforeProcessMs,
-                  receiveToCommitMs,
-                });
-              }
-            }
+          yield* Effect.forkIn(runRuntimeLane(threadId, entries), runtimeLaneScope);
+        }
+        for (const [threadId, pending] of domainPendingByThread) {
+          if (activeRuntimeLanes.size >= MAX_ACTIVE_RUNTIME_LANES) break;
+          if (activeRuntimeLanes.has(threadId)) continue;
+          const first = pending[0];
+          if (!first) continue;
+          const earlierRuntime = yield* runtimeEvents.readPendingThreadEvents({
+            throughSequenceInclusive: first.runtimeFence,
+            limit: 1,
+            maxPerThread: 1,
+            onlyThreadId: threadId,
+          });
+          if (earlierRuntime.length > 0) {
+            activeRuntimeLanes.add(threadId);
+            oldestPendingWorkerAt ??= Date.now();
+            yield* Effect.forkIn(runRuntimeLane(threadId, earlierRuntime), runtimeLaneScope);
+            continue;
           }
-          oldestPendingWorkerAt = null;
+          pending.shift();
+          if (pending.length === 0) domainPendingByThread.delete(threadId);
+          activeRuntimeLanes.add(threadId);
+          yield* Effect.forkIn(runDomainLane(threadId, first.event), runtimeLaneScope);
         }
       }),
     );
 
+  const drainRuntimeJournalThrough = (throughSequenceInclusive?: number) =>
+    Effect.gen(function* () {
+      const replayFence = throughSequenceInclusive ?? (yield* runtimeEvents.getHighWaterSequence);
+      while (true) {
+        yield* scheduleRuntimeJournalThrough(replayFence);
+        if (activeRuntimeLanes.size === 0) {
+          const remaining = yield* runtimeEvents.readPendingThreadEvents({
+            throughSequenceInclusive: replayFence,
+            limit: 1,
+            maxPerThread: 1,
+          });
+          if (remaining.length === 0) {
+            lastProcessedSequence = Math.max(lastProcessedSequence, replayFence);
+            return;
+          }
+        }
+        yield* Effect.sleep(Duration.millis(25));
+      }
+    });
+
   const drainRuntimeJournal = drainRuntimeJournalThrough();
 
-  const drainRuntimeJournalSafely = drainRuntimeJournal.pipe(
+  const scheduleRuntimeJournalSafely = scheduleRuntimeJournalThrough().pipe(
     Effect.catchCause((cause) => {
       if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
       return Effect.logWarning("provider runtime journal drain failed", {
@@ -3073,11 +3195,12 @@ const make = Effect.gen(function* () {
       { concurrency: 1 },
     );
   });
-  const startupRuntimeReplayComplete = yield* Deferred.make<void>();
+  const startupRuntimeWakeReady = yield* Deferred.make<void>();
 
   const start: ProviderRuntimeIngestionShape["start"] = startDrainableWorkerProducers(
     worker,
     Effect.gen(function* () {
+      yield* Effect.addFinalizer(() => drainThroughCurrentHighWater);
       // The exact pending aggregate scans the retained event table. Run it in
       // its own fiber so a slow diagnostic query never holds the drain lock.
       yield* Effect.forkScoped(
@@ -3097,7 +3220,7 @@ const make = Effect.gen(function* () {
       yield* Effect.forkScoped(
         Effect.forever(
           Queue.take(runtimeJournalWake).pipe(
-            Effect.andThen(drainRuntimeJournalSafely),
+            Effect.andThen(scheduleRuntimeJournalSafely),
             Effect.ensuring(Queue.offer(runtimeJournalRetryScheduleChanged, undefined)),
           ),
         ),
@@ -3108,7 +3231,7 @@ const make = Effect.gen(function* () {
           // ProviderService publishes only after its supervised pump has
           // durably admitted this event. This subscriber is therefore a wake
           // signal, not a second journal writer.
-          Deferred.await(startupRuntimeReplayComplete).pipe(
+          Deferred.await(startupRuntimeWakeReady).pipe(
             Effect.andThen(Queue.offer(runtimeJournalWake, undefined)),
           ),
         ),
@@ -3126,7 +3249,7 @@ const make = Effect.gen(function* () {
           ) {
             return Effect.void;
           }
-          return Deferred.await(startupRuntimeReplayComplete).pipe(
+          return Deferred.await(startupRuntimeWakeReady).pipe(
             Effect.andThen(worker.enqueue({ source: "domain", event })),
           );
         }),
@@ -3139,6 +3262,11 @@ const make = Effect.gen(function* () {
       yield* runtimeEvents.pruneSettledOpenTurns;
       yield* rebuildAcceptedOpenTurnState;
       yield* releaseQuarantinedThreadsForStartupRetry;
+      // Runtime wake signals can enter the per-thread scheduler while another
+      // thread's startup replay is slow. Each thread still reads from its own
+      // durable cursor, so later events cannot overtake its older events.
+      yield* scheduleRuntimeJournalThrough();
+      yield* Deferred.succeed(startupRuntimeWakeReady, undefined);
       yield* drainRuntimeJournal;
       // Only heads that failed their startup retry should retain/recreate the
       // user-visible quarantine attention state.
@@ -3147,14 +3275,17 @@ const make = Effect.gen(function* () {
       // Restore those timers explicitly now that idle polling no longer serves
       // as an accidental retry scheduler.
       yield* Queue.offer(runtimeJournalRetryScheduleChanged, undefined);
-      yield* Deferred.succeed(startupRuntimeReplayComplete, undefined);
     }),
   ).pipe(Effect.orDie);
 
   const drainThroughCurrentHighWater = Effect.gen(function* () {
     const replayFence = yield* runtimeEvents.getHighWaterSequence;
-    yield* drainRuntimeJournalThrough(replayFence);
-    yield* worker.drain;
+    while (true) {
+      yield* worker.drain;
+      yield* drainRuntimeJournalThrough(replayFence);
+      if (domainPendingByThread.size === 0 && activeRuntimeLanes.size === 0) return;
+      yield* Effect.sleep(Duration.millis(25));
+    }
   }).pipe(Effect.orDie);
 
   return {
