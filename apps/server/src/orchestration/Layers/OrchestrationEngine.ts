@@ -12,6 +12,7 @@ import {
   Cause,
   Deferred,
   Effect,
+  Exit,
   Fiber,
   Layer,
   Option,
@@ -66,6 +67,7 @@ import {
   ORCHESTRATION_COMMAND_CONTROL_RESERVE,
   ORCHESTRATION_COMMAND_QUEUE_CAPACITY,
   ORCHESTRATION_EVENT_PUBSUB_CAPACITY,
+  orchestrationCommandLane,
   type OrchestrationCommandAdmissionDecision,
   type OrchestrationCommandQueues,
   takeNextOrchestrationCommand,
@@ -135,6 +137,11 @@ type CommittedCommandResult = {
   readonly lastSequence: number;
   readonly nextCommandReadModel: OrchestrationReadModel;
   readonly disposition: "applied" | "skipped";
+};
+
+type PreparedCommandReadModel = {
+  readonly snapshotSequence: number;
+  readonly model: OrchestrationReadModel;
 };
 
 type ProviderSessionOwnership = Exclude<
@@ -576,22 +583,39 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       ),
     );
 
-  const buildDeciderReadModel = (
+  const prepareCommandReadModel = (
     command: OrchestrationCommand,
-  ): Effect.Effect<OrchestrationReadModel, OrchestrationDispatchError> => {
+  ): Effect.Effect<PreparedCommandReadModel | undefined, OrchestrationDispatchError> => {
+    const snapshot = commandReadModel;
+    let threadId: ThreadId;
     switch (command.type) {
       case "thread.fork.create":
-        return loadThreadDetailForDecider(command, commandReadModel, command.sourceThreadId);
+        threadId = command.sourceThreadId;
+        break;
       case "thread.conversation.rollback":
       case "thread.message.edit-and-resend":
       case "thread.message.assistant.complete":
       case "thread.turn.recover":
       case "thread.archive":
-        return loadThreadDetailForDecider(command, commandReadModel, command.threadId);
+        threadId = command.threadId;
+        break;
       default:
-        return Effect.succeed(commandReadModel);
+        return Effect.succeed(undefined);
     }
+    return loadThreadDetailForDecider(command, snapshot, threadId).pipe(
+      Effect.map((model) => ({ snapshotSequence: snapshot.snapshotSequence, model })),
+    );
   };
+
+  const buildDeciderReadModel = (
+    command: OrchestrationCommand,
+    prepared: PreparedCommandReadModel | undefined,
+  ): Effect.Effect<OrchestrationReadModel, OrchestrationDispatchError> =>
+    prepared?.snapshotSequence === commandReadModel.snapshotSequence
+      ? Effect.succeed(prepared.model)
+      : prepareCommandReadModel(command).pipe(
+          Effect.map((next) => next?.model ?? commandReadModel),
+        );
 
   // Rebuild only the folder/space projection rows and snapshot cursors.
   // Existing thread/chat projection rows stay in place so older installs do not
@@ -685,6 +709,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   const processEnvelope = (
     envelope: CommandEnvelope,
     setStage: (stage: string) => void,
+    prepared: PreparedCommandReadModel | undefined,
   ): Effect.Effect<void, never> => {
     const dispatchStartSequence = commandReadModel.snapshotSequence;
     const remainingBudgetMs = Math.max(0, envelope.deadlineAtMs - Date.now());
@@ -819,7 +844,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       }
 
       setStage("read-model");
-      const deciderReadModel = yield* buildDeciderReadModel(command);
+      const deciderReadModel = yield* buildDeciderReadModel(command, prepared);
       setStage("decider");
       const eventBase = yield* decideOrchestrationCommand({
         command,
@@ -1420,11 +1445,32 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       });
       return Effect.forkChild(watchdog).pipe(
         Effect.flatMap((watchdogFiber) =>
-          Effect.suspend(() =>
-            processEnvelope(envelope, (nextStage) => {
-              stage = nextStage;
-            }),
-          ).pipe(Effect.ensuring(Fiber.interrupt(watchdogFiber))),
+          Effect.gen(function* () {
+            stage = "preparing-thread-detail";
+            const prepared = yield* prepareCommandReadModel(envelope.command).pipe(
+              Effect.timeoutOption(Math.max(0, envelope.deadlineAtMs - Date.now())),
+              Effect.flatMap((outcome) =>
+                Option.match(outcome, {
+                  onNone: () => Effect.fail(makeCommandTimeoutError(envelope.command)),
+                  onSome: Effect.succeed,
+                }),
+              ),
+            );
+            yield* Effect.suspend(() =>
+              processEnvelope(
+                envelope,
+                (nextStage) => {
+                  stage = nextStage;
+                },
+                prepared,
+              ),
+            );
+          }).pipe(
+            Effect.catch((error: OrchestrationDispatchError) =>
+              Deferred.fail(envelope.result, error).pipe(Effect.asVoid),
+            ),
+            Effect.ensuring(Fiber.interrupt(watchdogFiber)),
+          ),
         ),
       );
     }).pipe(
@@ -1453,8 +1499,50 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       Effect.ensuring(finishEnvelope),
     );
 
+  const commandExecutionScope = yield* Scope.make("sequential");
+  const pendingCommandLanes = new Map<string, CommandEnvelope[]>();
+  const activeCommandLanes = new Set<string>();
+  const MAX_ACTIVE_COMMAND_LANES = 8;
+  const commandLaneKey = (command: OrchestrationCommand) => {
+    const aggregate = commandToAggregateRef(command);
+    return `${aggregate.aggregateKind}:${aggregate.aggregateId}`;
+  };
+  const scheduleCommandLanes: Effect.Effect<void> = Effect.suspend(() =>
+    Effect.gen(function* () {
+      for (const [laneKey, pending] of pendingCommandLanes) {
+        if (activeCommandLanes.size >= MAX_ACTIVE_COMMAND_LANES) break;
+        if (activeCommandLanes.has(laneKey)) continue;
+        const envelope = pending.shift();
+        if (!envelope) {
+          pendingCommandLanes.delete(laneKey);
+          continue;
+        }
+        if (pending.length === 0) pendingCommandLanes.delete(laneKey);
+        activeCommandLanes.add(laneKey);
+        yield* Effect.forkIn(
+          runEnvelope(envelope).pipe(
+            Effect.ensuring(
+              Effect.sync(() => {
+                activeCommandLanes.delete(laneKey);
+              }).pipe(Effect.andThen(scheduleCommandLanes)),
+            ),
+          ),
+          commandExecutionScope,
+        );
+      }
+    }),
+  );
   const worker = Effect.forever(
-    takeNextOrchestrationCommand(commandQueues).pipe(Effect.flatMap(runEnvelope)),
+    takeNextOrchestrationCommand(commandQueues).pipe(
+      Effect.flatMap((envelope) =>
+        Effect.sync(() => {
+          const laneKey = commandLaneKey(envelope.command);
+          const pending = pendingCommandLanes.get(laneKey);
+          if (pending) pending.push(envelope);
+          else pendingCommandLanes.set(laneKey, [envelope]);
+        }).pipe(Effect.andThen(scheduleCommandLanes)),
+      ),
+    ),
   );
   const workerFiber = yield* Effect.forkScoped(worker);
 
@@ -1505,6 +1593,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       ),
       Effect.andThen(Fiber.await(workerFiber).pipe(Effect.asVoid)),
       Effect.andThen(drain),
+      Effect.andThen(Scope.close(commandExecutionScope, Exit.void)),
       Effect.andThen(
         Ref.update(
           engineAdmissionState,
@@ -1594,6 +1683,16 @@ const makeOrchestrationEngine = Effect.gen(function* () {
             (current.phase === "quiescing" && !usesReservedCommandAdmission(command.type))
           ) {
             return [{ accepted: false, reason: "stopped" as const }, current] as const;
+          }
+          // The worker moves accepted envelopes into bounded per-aggregate
+          // mailboxes. Count those as outstanding so empty front queues cannot
+          // admit an unbounded backlog behind a slow aggregate.
+          const admissionLimit =
+            orchestrationCommandLane(command.type) === "control"
+              ? ORCHESTRATION_COMMAND_QUEUE_CAPACITY
+              : ORCHESTRATION_COMMAND_QUEUE_CAPACITY - ORCHESTRATION_COMMAND_CONTROL_RESERVE;
+          if (current.outstanding >= admissionLimit) {
+            return [{ accepted: false, reason: "overloaded" as const }, current] as const;
           }
           const decision = tryAdmitOrchestrationCommand({
             queues: commandQueues,

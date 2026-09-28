@@ -189,7 +189,7 @@ function now() {
 }
 
 describe("OrchestrationEngine", () => {
-  it("holds an unrelated command behind one slow thread read", async () => {
+  it("commits an unrelated command while another thread detail read is slow", async () => {
     const threadA = ThreadId.makeUnsafe("thread-slow-command-a");
     let releaseSlowRead!: () => void;
     const slowReadReleased = new Promise<void>((resolve) => {
@@ -260,11 +260,30 @@ describe("OrchestrationEngine", () => {
       unrelated.then(() => {
         unrelatedCompleted = true;
       });
-      await new Promise((resolve) => setTimeout(resolve, 150));
-      expect(unrelatedCompleted).toBe(false);
+      let sameThreadSettled = false;
+      const sameThread = system
+        .run(
+          system.engine.dispatch({
+            type: "thread.archive",
+            commandId: CommandId.makeUnsafe("cmd-slow-command-archive-a-again"),
+            threadId: threadA,
+            createdAt: now(),
+          }),
+        )
+        .then(
+          () => {
+            sameThreadSettled = true;
+          },
+          () => {
+            sameThreadSettled = true;
+          },
+        );
+      await vi.waitFor(() => expect(unrelatedCompleted).toBe(true), { timeout: 2_000 });
+      expect(sameThreadSettled).toBe(false);
       releaseSlowRead();
-      await Promise.all([slow, unrelated]);
+      await Promise.all([slow, unrelated, sameThread]);
       expect(unrelatedCompleted).toBe(true);
+      expect(sameThreadSettled).toBe(true);
     } finally {
       releaseSlowRead();
       await system.dispose();
