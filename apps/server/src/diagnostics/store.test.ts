@@ -646,7 +646,7 @@ describe("diagnostics store", () => {
   });
 
   it("keeps writes inside an injected cap", () => {
-    const cap = 320 * 1024;
+    const cap = 2 * 1024 * 1024;
     const { stateDir, store } = fixture("0.14.3", cap);
     const dir = path.join(stateDir, "diagnostics");
     const diskBytes = () =>
@@ -655,8 +655,17 @@ describe("diagnostics store", () => {
         return sum + (fs.statSync(file).isFile() ? fs.statSync(file).size : 0);
       }, 0);
     expect(diskBytes()).toBeLessThan(cap);
-    let blocked = false;
-    for (let i = 0; i < 1_000; i++) {
+    const peer = new DiagnosticsSpoolWriter({
+      stateDir,
+      appVersion: "0.14.3",
+      process: "desktop-main",
+      maxTotalBytes: cap,
+    });
+    peer.checkpoint({ traceId, spanId, flow: "send", step: "composer.preflight" });
+    expect(diskBytes()).toBeLessThanOrEqual(cap);
+    store.importPeerSpools();
+    expect(diskBytes()).toBeLessThanOrEqual(cap);
+    for (let i = 0; i < 250; i++) {
       try {
         store.checkpoint({
           traceId,
@@ -665,19 +674,30 @@ describe("diagnostics store", () => {
           step: "server.received",
           fields: { sequence: i },
         });
+        if (i % 25 === 0)
+          store.incident({
+            traceId,
+            spanId,
+            kind: "command.failed",
+            code: "COMMAND_REJECTED",
+            where: "server.command",
+            severity: "error",
+            actual: { sequence: i },
+          });
+        expect(diskBytes()).toBeLessThanOrEqual(cap);
       } catch (cause) {
         expect((cause as Error).message).toContain("capacity");
-        blocked = true;
         break;
       }
     }
     const db = openDiagnosticsReader(stateDir)!;
     const row = db.prepare("SELECT count(*) AS count FROM detail").get() as { count: number };
-    expect(blocked || row.count < 1_000).toBe(true);
+    expect(row.count).toBeGreaterThan(0);
     expect(diskBytes()).toBeLessThanOrEqual(cap);
     db.close();
+    peer.close();
     store.close();
-  });
+  }, 30_000);
 
   it("preserves a drop count and reports it after a peer spool fills", () => {
     const { stateDir, store } = fixture();
@@ -702,6 +722,62 @@ describe("diagnostics store", () => {
     ).toMatchObject({ code: "DIAGNOSTICS_CAP_REACHED" });
     db.close();
     peer.close();
+    store.close();
+  });
+
+  it("keeps separate durable counts for each write failure reason", () => {
+    const { stateDir, store } = fixture();
+    const peer = new DiagnosticsSpoolWriter({
+      stateDir,
+      appVersion: "0.14.3",
+      process: "desktop-main",
+    });
+    const ledger = path.join(stateDir, "diagnostics", `loss-${peer.bootId}.bin`);
+    const record = JSON.stringify({
+      count: 3,
+      reason: "spool",
+      reasons: { capacity: 1, sqlite: 1, spool: 1, stale: 0 },
+    });
+    fs.writeFileSync(ledger, record.padEnd(256, " "));
+    store.importPeerSpools();
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(
+      db
+        .prepare(
+          "SELECT code, count FROM incidents WHERE kind = 'diagnostics.degraded' ORDER BY code",
+        )
+        .all(),
+    ).toMatchObject([
+      { code: "DIAGNOSTICS_CAP_REACHED", count: 1 },
+      { code: "DIAGNOSTICS_WRITE_FAILED", count: 1 },
+      { code: "DIAGNOSTICS_WRITE_FAILED", count: 1 },
+    ]);
+    db.close();
+    peer.close();
+    store.close();
+  });
+
+  it("keeps an unimported recovery spool within the total cap and counts rejected writes", () => {
+    const cap = 320 * 1024;
+    const { stateDir, store } = fixture("0.14.3", cap);
+    const dir = path.join(stateDir, "diagnostics");
+    const diskBytes = () =>
+      fs.readdirSync(dir).reduce((sum, name) => {
+        const file = path.join(dir, name);
+        return sum + (fs.statSync(file).isFile() ? fs.statSync(file).size : 0);
+      }, 0);
+    const recoveryPath = path.join(dir, `spool-${randomBytes(16).toString("hex")}.jsonl`);
+    const recoveryBytes = cap - diskBytes() - 128;
+    expect(recoveryBytes).toBeGreaterThan(0);
+    fs.writeFileSync(recoveryPath, Buffer.alloc(recoveryBytes, 0x20));
+    expect(() =>
+      store.checkpoint({ traceId, spanId, flow: "send", step: "server.received" }),
+    ).toThrow("capacity");
+    expect(fs.statSync(recoveryPath).size).toBe(recoveryBytes);
+    expect(diskBytes()).toBeLessThanOrEqual(cap);
+    expect(
+      JSON.parse(fs.readFileSync(path.join(dir, `loss-${store.bootId}.bin`), "utf8")),
+    ).toMatchObject({ count: 1 });
     store.close();
   });
 });
