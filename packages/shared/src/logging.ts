@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { randomBytes } from "node:crypto";
 
 export interface RotatingFileSinkOptions {
   readonly filePath: string;
@@ -46,7 +47,7 @@ export class RotatingFileSink {
 
     try {
       if (this.currentSize > 0 && this.currentSize + buffer.length > this.maxBytes) {
-        this.rotate();
+        if (!this.rotate()) return;
       }
 
       if (this.mode === undefined) {
@@ -84,7 +85,7 @@ export class RotatingFileSink {
       } finally {
         fs.closeSync(handle);
       }
-      fs.writeFileSync(filePath, tail, this.mode === undefined ? undefined : { mode: this.mode });
+      this.replaceFile(filePath, tail);
       return tail.length;
     } catch {
       if (this.throwOnError) throw new Error(`Failed to clamp log file ${filePath}`);
@@ -92,12 +93,34 @@ export class RotatingFileSink {
     }
   }
 
-  private rotate(): void {
+  private replaceFile(filePath: string, contents: Buffer): void {
+    const temporary = `${filePath}.penkra-tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
+    try {
+      const handle = fs.openSync(temporary, "wx", this.mode ?? 0o600);
+      try {
+        fs.writeFileSync(handle, contents);
+        fs.fsyncSync(handle);
+      } finally {
+        fs.closeSync(handle);
+      }
+      fs.renameSync(temporary, filePath);
+      const directory = fs.openSync(path.dirname(filePath), "r");
+      try {
+        fs.fsyncSync(directory);
+      } finally {
+        fs.closeSync(directory);
+      }
+    } finally {
+      fs.rmSync(temporary, { force: true });
+    }
+  }
+
+  private rotate(): boolean {
     try {
       if (this.maxFiles === 0) {
-        fs.rmSync(this.filePath, { force: true });
+        this.replaceFile(this.filePath, Buffer.alloc(0));
         this.currentSize = 0;
-        return;
+        return true;
       }
       const oldest = this.withSuffix(this.maxFiles);
       if (fs.existsSync(oldest)) {
@@ -113,15 +136,25 @@ export class RotatingFileSink {
       }
 
       if (fs.existsSync(this.filePath)) {
-        fs.renameSync(this.filePath, this.withSuffix(1));
+        const backup = this.withSuffix(1);
+        const temporary = `${backup}.penkra-tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
+        try {
+          fs.copyFileSync(this.filePath, temporary);
+          fs.renameSync(temporary, backup);
+        } finally {
+          fs.rmSync(temporary, { force: true });
+        }
+        this.replaceFile(this.filePath, Buffer.alloc(0));
       }
 
       this.currentSize = 0;
+      return true;
     } catch {
       this.currentSize = this.readCurrentSize();
       if (this.throwOnError) {
         throw new Error(`Failed to rotate log file ${this.filePath}`);
       }
+      return false;
     }
   }
 
@@ -130,6 +163,10 @@ export class RotatingFileSink {
       const dir = path.dirname(this.filePath);
       const baseName = path.basename(this.filePath);
       for (const entry of fs.readdirSync(dir)) {
+        if (entry.startsWith(`${baseName}.`) && entry.includes(".penkra-tmp-")) {
+          fs.rmSync(path.join(dir, entry), { force: true });
+          continue;
+        }
         if (!entry.startsWith(`${baseName}.`)) continue;
         const suffix = Number(entry.slice(baseName.length + 1));
         if (!Number.isInteger(suffix)) continue;
