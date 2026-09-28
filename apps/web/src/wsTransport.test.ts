@@ -1013,10 +1013,32 @@ describe("WsTransport", () => {
     await expect(attempt(Promise.reject(new Error("offline")), 1)).rejects.toThrow("offline");
     await expect(attempt(Promise.reject(new Error("offline")), 2)).rejects.toThrow("offline");
     const failures = recordDiagnosticIncident.mock.calls
-      .map(([input]) => input as { code: string; actual: { attempt: number } })
-      .filter((input) => input.code === "WS_RECONNECT_LOOP");
+      .map(
+        ([input]) =>
+          input as {
+            code: string;
+            actual: { attempt: number; errorCode: string; reason: string };
+          },
+      )
+      .filter((input) => input.code === "EXTERNAL_CALL_FAILED");
     expect(failures).toHaveLength(2);
     expect(failures.map((input) => input.actual.attempt)).toEqual([1, 2]);
+    expect(failures.map((input) => input.actual.errorCode)).toEqual(["OTHER", "OTHER"]);
+    expect(failures.map((input) => input.actual.reason)).toEqual(["disconnected", "disconnected"]);
+    expect(
+      recordDiagnosticIncident.mock.calls.some(
+        ([input]) => (input as { code: string }).code === "WS_RECONNECT_LOOP",
+      ),
+    ).toBe(false);
+    await expect(
+      attempt(Promise.reject(Object.assign(new Error("offline"), { code: "ECONNRESET" })), 3),
+    ).rejects.toThrow("offline");
+    expect(recordDiagnosticIncident).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "WS_RECONNECT_LOOP",
+        actual: expect.objectContaining({ errorCode: "ECONNRESET", attempt: 3 }),
+      }),
+    );
     await transport.dispose();
   });
 

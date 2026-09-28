@@ -822,18 +822,27 @@ export class WsTransport {
       void pending?.catch(() => undefined);
     };
     const incident = (
-      code: "WS_HANDSHAKE_SLOW" | "WS_RECONNECT_LOOP",
+      code: "WS_HANDSHAKE_SLOW" | "WS_RECONNECT_LOOP" | "EXTERNAL_CALL_FAILED",
       expected: Record<string, number | boolean>,
-      actual: Record<string, number | boolean>,
+      actual: Record<string, number | boolean | string>,
     ) => {
       const pending = window.desktopBridge?.recordDiagnosticIncident?.({
         ...trace,
-        kind: code === "WS_HANDSHAKE_SLOW" ? "timeout" : "limit.exceeded",
+        kind:
+          code === "WS_HANDSHAKE_SLOW"
+            ? "timeout"
+            : code === "WS_RECONNECT_LOOP"
+              ? "limit.exceeded"
+              : "external.failed",
         code,
         where: "browser.socket_connect",
         severity: "error",
         expected,
-        actual,
+        actual: {
+          ...actual,
+          phase: "handshake",
+          reason: code === "WS_HANDSHAKE_SLOW" ? "deadline" : "disconnected",
+        },
         lastCheckpoint: "socket.handshake_started",
       });
       void pending?.catch(() => undefined);
@@ -874,7 +883,32 @@ export class WsTransport {
             { elapsedMs: Math.round(performance.now() - startedAt), attempt },
           );
         } else {
-          incident("WS_RECONNECT_LOOP", { connected: true }, { connected: false, attempt });
+          const rawCode =
+            error && typeof error === "object" && "code" in error ? error.code : undefined;
+          const errorCode =
+            typeof rawCode === "string" &&
+            [
+              "EACCES",
+              "ENOENT",
+              "ENOSPC",
+              "ETIMEDOUT",
+              "ECONNREFUSED",
+              "ECONNRESET",
+              "EPIPE",
+            ].includes(rawCode)
+              ? rawCode
+              : "OTHER";
+          incident(
+            "EXTERNAL_CALL_FAILED",
+            { connected: true },
+            { connected: false, attempt, errorCode },
+          );
+          if (attempt >= 3)
+            incident(
+              "WS_RECONNECT_LOOP",
+              { connected: true },
+              { connected: false, attempt, errorCode },
+            );
         }
       }
       throw error;
