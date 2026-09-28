@@ -1468,6 +1468,30 @@ export class DiagnosticsStore {
         | ExpectationRow
         | undefined;
       if (!pending) return false;
+      const now = Date.now();
+      const late = outcome === "met" && now > Date.parse(pending.deadline_at);
+      if (late) {
+        const last = this.database
+          .prepare("SELECT step FROM detail WHERE trace_id = ? ORDER BY id DESC LIMIT 1")
+          .get(pending.trace_id) as { step: string } | undefined;
+        this.writeLocked("incident", {
+          traceId: pending.trace_id,
+          spanId: pending.span_id,
+          ...(pending.attempt_id ? { attemptId: pending.attempt_id } : {}),
+          ...(pending.thread_id ? { threadId: pending.thread_id } : {}),
+          ...(pending.turn_id ? { turnId: pending.turn_id } : {}),
+          kind: "expectation.missed",
+          code: EXPECTATION_CODES[pending.kind],
+          where: "diagnostics.expectation",
+          severity: "error",
+          expected: { deadlineMs: pending.deadline_ms },
+          actual: { elapsedMs: now - Date.parse(pending.armed_at) },
+          context: { ...JSON.parse(pending.correlation_json), reason: "late_resolution" },
+          ...((last?.step ?? pending.last_checkpoint)
+            ? { lastCheckpoint: last?.step ?? pending.last_checkpoint! }
+            : {}),
+        });
+      }
       this.writeLocked("expectation_resolved", {
         traceId: pending.trace_id,
         spanId: pending.span_id,
@@ -1475,9 +1499,9 @@ export class DiagnosticsStore {
         ...(pending.thread_id ? { threadId: pending.thread_id } : {}),
         ...(pending.turn_id ? { turnId: pending.turn_id } : {}),
         flow: expectationFlow(pending.kind),
-        step: "expectation.resolved",
-        outcome: outcome === "met" ? "ok" : "cancelled",
-        elapsedMs: Math.max(0, Date.now() - Date.parse(pending.armed_at)),
+        step: late ? "expectation.missed" : "expectation.resolved",
+        outcome: late ? "timed_out" : outcome === "met" ? "ok" : "cancelled",
+        elapsedMs: Math.max(0, now - Date.parse(pending.armed_at)),
         fields: { entityId: id },
       });
       return true;
