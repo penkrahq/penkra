@@ -47,7 +47,7 @@ import { ProviderConnectionLoginCoordinator } from "./provider/Services/Provider
 import { ProviderNativeStateDeletionCoordinator } from "./provider/Services/ProviderNativeStateDeletionCoordinator";
 import { Server } from "./effectServer";
 import { ServerLoggerLive } from "./serverLogger";
-import { DiagnosticsStore } from "./diagnostics/store";
+import { DiagnosticsStore, parseDiagnosticsBundleSignature } from "./diagnostics/store";
 import { installDiagnosticsStore } from "./diagnostics/recorder";
 import {
   measuredBootStage,
@@ -416,6 +416,15 @@ const makeServerProgram = (input: CliInput) => {
           new DiagnosticsStore({
             stateDir: config.stateDir,
             appVersion: process.env.PENKRA_APP_VERSION ?? serverPackageVersion,
+            buildId: process.env.PENKRA_DIAGNOSTICS_BUILD_ID ?? "0000000",
+            ...(process.env.PENKRA_DIAGNOSTICS_BUNDLE_PATH
+              ? {
+                  bundlePath: process.env.PENKRA_DIAGNOSTICS_BUNDLE_PATH,
+                  bundleSignature: parseDiagnosticsBundleSignature(
+                    process.env.PENKRA_DIAGNOSTICS_BUNDLE_SIGNATURE,
+                  )!,
+                }
+              : {}),
             process: "server",
           }),
       ),

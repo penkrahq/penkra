@@ -17,9 +17,58 @@ import {
 export interface DiagnosticsOptions {
   readonly stateDir: string;
   readonly appVersion: string;
+  readonly buildId?: string;
+  readonly bundlePath?: string;
+  readonly bundleSignature?: BundleSignature;
   readonly process: "server" | "desktop-main" | "renderer" | "provider-child";
   readonly maxTotalBytes?: number;
   readonly maxSpoolBytes?: number;
+}
+
+export interface BundleSignature {
+  readonly size: number;
+  readonly mtimeMs: number;
+  readonly inode: number;
+}
+
+function isBundleSignature(value: unknown): value is BundleSignature {
+  if (!value || typeof value !== "object") return false;
+  const signature = value as Record<string, unknown>;
+  return [signature.size, signature.mtimeMs, signature.inode].every(
+    (field) => typeof field === "number" && Number.isFinite(field) && field >= 0,
+  );
+}
+
+export function parseDiagnosticsBundleSignature(
+  value: string | undefined,
+): BundleSignature | undefined {
+  if (!value) return undefined;
+  const parsed: unknown = JSON.parse(value);
+  if (!isBundleSignature(parsed)) throw new TypeError("Invalid diagnostics bundle signature");
+  return parsed;
+}
+
+function storeIdentity(options: DiagnosticsOptions): string {
+  if (options.buildId && !/^[a-f0-9]{7,64}$/u.test(options.buildId))
+    throw new TypeError("Invalid diagnostics build ID");
+  if (options.bundlePath && !isBundleSignature(options.bundleSignature))
+    throw new TypeError("Missing diagnostics bundle signature");
+  return JSON.stringify({
+    appVersion: options.appVersion,
+    buildId: options.buildId ?? "0000000",
+    bundleSignature: options.bundleSignature ?? null,
+  });
+}
+
+function runningBundleIsInstalled(options: DiagnosticsOptions): boolean {
+  if (!options.bundlePath) return true;
+  try {
+    const stats = fs.statSync(options.bundlePath);
+    const current = { size: stats.size, mtimeMs: stats.mtimeMs, inode: stats.ino };
+    return JSON.stringify(current) === JSON.stringify(options.bundleSignature);
+  } catch {
+    return false;
+  }
 }
 
 export interface DiagnosticContext {
@@ -228,7 +277,7 @@ function totalBytes(dir: string): number {
 }
 
 const LOSS_LEDGER_BYTES = 256;
-type LossReason = "capacity" | "sqlite" | "spool";
+type LossReason = "capacity" | "sqlite" | "spool" | "stale";
 
 function lossLedgerPath(dir: string, bootId: string): string {
   return path.join(dir, `loss-${bootId}.bin`);
@@ -248,11 +297,13 @@ function writeLossLedger(file: string, count: number, reason: LossReason): void 
   }
 }
 
-function recordLoss(dir: string, bootId: string, reason: LossReason): void {
+function recordLoss(dir: string, bootId: string, reason: LossReason, count = 1): void {
   const file = lossLedgerPath(dir, bootId);
   try {
-    const previous = JSON.parse(fs.readFileSync(file, "utf8").trim()) as { count: number };
-    writeLossLedger(file, previous.count + 1, reason);
+    const previous = fs.existsSync(file)
+      ? (JSON.parse(fs.readFileSync(file, "utf8").trim()) as { count: number })
+      : { count: 0 };
+    writeLossLedger(file, previous.count + count, reason);
   } catch {
     process.stderr.write("[diagnostics] durable loss count unavailable\n");
   }
@@ -266,7 +317,7 @@ function readLossLedger(file: string): { count: number; reason: LossReason } | n
     };
     return Number.isSafeInteger(row.count) &&
       row.count >= 0 &&
-      ["capacity", "sqlite", "spool"].includes(row.reason)
+      ["capacity", "sqlite", "spool", "stale"].includes(row.reason)
       ? row
       : null;
   } catch {
@@ -709,6 +760,7 @@ export class DiagnosticsStore {
   private database!: DatabaseSync;
   private readonly maxTotalBytes: number;
   private readonly maxSpoolBytes: number;
+  private readonly identity: string;
   private sequence = 0;
 
   constructor(private readonly options: DiagnosticsOptions) {
@@ -721,14 +773,36 @@ export class DiagnosticsStore {
     this.activePath = path.join(this.dir, `active-${this.bootId}.json`);
     this.maxTotalBytes = options.maxTotalBytes ?? DIAGNOSTIC_LIMITS.totalBytes;
     this.maxSpoolBytes = options.maxSpoolBytes ?? DIAGNOSTIC_LIMITS.spoolBytesPerProcess;
+    this.identity = storeIdentity(options);
     fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
     if (process.platform !== "win32") fs.chmodSync(this.dir, 0o700);
-    const crashedProcesses = withLifecycleLock(this.dir, () => {
+    const startup = withLifecycleLock(this.dir, () => {
+      if (!runningBundleIsInstalled(options))
+        throw new Error("Diagnostics process has a stale app bundle");
       const versionPath = path.join(this.dir, "version");
       const oldVersion = fs.existsSync(versionPath) ? fs.readFileSync(versionPath, "utf8") : null;
-      if (oldVersion && valid(oldVersion) && compare(oldVersion, options.appVersion) > 0)
+      const identityPath = path.join(this.dir, "identity");
+      const previousIdentity = fs.existsSync(identityPath)
+        ? fs.readFileSync(identityPath, "utf8")
+        : null;
+      if (
+        !options.bundlePath &&
+        oldVersion &&
+        valid(oldVersion) &&
+        compare(oldVersion, options.appVersion) > 0
+      )
         throw new Error("Diagnostics store belongs to a newer app version");
-      if (oldVersion !== options.appVersion) {
+      let staleDropped = 0;
+      if (previousIdentity !== this.identity) {
+        for (const name of fs.readdirSync(this.dir)) {
+          if (!/^spool-[a-f0-9]{32}\.jsonl$/u.test(name)) continue;
+          const bootId = name.slice(6, -6);
+          if (!fs.existsSync(path.join(this.dir, `stale-${bootId}.json`))) continue;
+          staleDropped += fs
+            .readFileSync(path.join(this.dir, name), "utf8")
+            .split("\n")
+            .filter(Boolean).length;
+        }
         for (const entry of fs.readdirSync(this.dir)) {
           if (entry !== ".lifecycle-lock")
             fs.rmSync(path.join(this.dir, entry), { recursive: true, force: true });
@@ -742,11 +816,12 @@ export class DiagnosticsStore {
       db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES ('app_version', ?)").run(
         options.appVersion,
       );
-      if (oldVersion !== options.appVersion || createdDatabase) {
+      if (previousIdentity !== this.identity || createdDatabase) {
         db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES ('reset_at', ?)").run(
           new Date().toISOString(),
         );
         fs.writeFileSync(versionPath, options.appVersion, { mode: 0o600 });
+        fs.writeFileSync(identityPath, this.identity, { mode: 0o600 });
       }
       this.database = db;
       const crashedProcesses = this.importSpoolsLocked();
@@ -756,10 +831,10 @@ export class DiagnosticsStore {
         { mode: 0o600 },
       );
       writeLossLedger(lossLedgerPath(this.dir, this.bootId), 0, "capacity");
-      return crashedProcesses;
+      return { crashedProcesses, staleDropped };
     });
     this.sweepExpectations(new Date(), true);
-    if (crashedProcesses > 0) {
+    if (startup.crashedProcesses > 0) {
       this.incident({
         traceId: randomBytes(16).toString("hex"),
         spanId: randomBytes(8).toString("hex"),
@@ -767,16 +842,29 @@ export class DiagnosticsStore {
         code: "UNCLEAN_SHUTDOWN",
         where: "diagnostics.spool_import",
         severity: "warn",
-        actual: { count: crashedProcesses },
+        actual: { count: startup.crashedProcesses },
+      });
+    }
+    if (startup.staleDropped > 0) {
+      this.incident({
+        traceId: randomBytes(16).toString("hex"),
+        spanId: randomBytes(8).toString("hex"),
+        kind: "diagnostics.degraded",
+        code: "DIAGNOSTICS_DROPPED",
+        where: "diagnostics.write",
+        severity: "warn",
+        actual: { count: startup.staleDropped },
+        context: { reason: "stale" },
       });
     }
     this.reportLosses();
   }
 
   private assertCurrentVersion(): void {
-    if (fs.readFileSync(path.join(this.dir, "version"), "utf8") !== this.options.appVersion) {
-      throw new Error("Diagnostics store belongs to a newer app version");
-    }
+    if (!runningBundleIsInstalled(this.options))
+      throw new Error("Diagnostics process has a stale app bundle");
+    if (fs.readFileSync(path.join(this.dir, "identity"), "utf8") !== this.identity)
+      throw new Error("Diagnostics store belongs to a different app bundle");
   }
 
   private importSpoolsLocked(): number {
@@ -799,6 +887,18 @@ export class DiagnosticsStore {
       }
       const spoolPath = path.join(this.dir, entry);
       const lines = fs.readFileSync(spoolPath, "utf8").split("\n");
+      const stalePath = path.join(this.dir, `stale-${bootId}.json`);
+      if (fs.existsSync(stalePath)) {
+        const dropped = lines.filter(Boolean).length;
+        if (dropped > 0) recordLoss(this.dir, bootId, "stale", dropped);
+        if (live) fs.truncateSync(spoolPath, 0);
+        else {
+          fs.rmSync(spoolPath, { force: true });
+          fs.rmSync(activePath, { force: true });
+          fs.rmSync(stalePath, { force: true });
+        }
+        continue;
+      }
       this.database.exec("BEGIN IMMEDIATE");
       try {
         for (const line of lines) {
@@ -898,7 +998,12 @@ export class DiagnosticsStore {
           traceId: randomBytes(16).toString("hex"),
           spanId: randomBytes(8).toString("hex"),
           kind: "diagnostics.degraded",
-          code: loss.reason === "capacity" ? "DIAGNOSTICS_CAP_REACHED" : "DIAGNOSTICS_WRITE_FAILED",
+          code:
+            loss.reason === "capacity"
+              ? "DIAGNOSTICS_CAP_REACHED"
+              : loss.reason === "stale"
+                ? "DIAGNOSTICS_DROPPED"
+                : "DIAGNOSTICS_WRITE_FAILED",
           where: "diagnostics.write",
           severity: "error",
           actual: { count: delta },
@@ -1394,6 +1499,8 @@ export class DiagnosticsStore {
 /** Desktop/child writer: fsyncs an allowlisted spool; only the server imports it into SQLite. */
 export class DiagnosticsSpoolWriter {
   readonly bootId = randomBytes(16).toString("hex");
+  private readonly identity: string;
+  private stale = false;
   private readonly dir: string;
   private readonly spoolPath: string;
   private readonly activePath: string;
@@ -1406,35 +1513,56 @@ export class DiagnosticsSpoolWriter {
     if (!/^\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?$/u.test(options.appVersion))
       throw new TypeError("Invalid app version");
     this.dir = diagnosticsDir(options.stateDir);
+    this.identity = storeIdentity(options);
     this.spoolPath = path.join(this.dir, `spool-${this.bootId}.jsonl`);
     this.activePath = path.join(this.dir, `active-${this.bootId}.json`);
     fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
     if (process.platform !== "win32") fs.chmodSync(this.dir, 0o700);
     withLifecycleLock(this.dir, () => {
+      this.stale = !runningBundleIsInstalled(options);
       const versionPath = path.join(this.dir, "version");
+      const identityPath = path.join(this.dir, "identity");
       const oldVersion = fs.existsSync(versionPath) ? fs.readFileSync(versionPath, "utf8") : null;
-      if (oldVersion && valid(oldVersion) && compare(oldVersion, options.appVersion) > 0)
+      const previousIdentity = fs.existsSync(identityPath)
+        ? fs.readFileSync(identityPath, "utf8")
+        : null;
+      if (
+        !this.stale &&
+        !options.bundlePath &&
+        oldVersion &&
+        valid(oldVersion) &&
+        compare(oldVersion, options.appVersion) > 0
+      )
         throw new Error("Diagnostics store belongs to a newer app version");
-      if (oldVersion !== options.appVersion) {
+      if (!this.stale && previousIdentity !== this.identity) {
         for (const entry of fs.readdirSync(this.dir)) {
           if (entry !== ".lifecycle-lock")
             fs.rmSync(path.join(this.dir, entry), { recursive: true, force: true });
         }
         fs.writeFileSync(versionPath, options.appVersion, { mode: 0o600 });
+        fs.writeFileSync(identityPath, this.identity, { mode: 0o600 });
       }
       fs.writeFileSync(
         this.activePath,
-        JSON.stringify({ pid: process.pid, process: options.process }),
+        JSON.stringify({ pid: process.pid, process: options.process, stale: this.stale }),
         { mode: 0o600 },
       );
+      if (this.stale)
+        fs.writeFileSync(path.join(this.dir, `stale-${this.bootId}.json`), "{}", { mode: 0o600 });
       writeLossLedger(lossLedgerPath(this.dir, this.bootId), 0, "capacity");
     });
   }
 
   private append(type: SpoolEnvelope["type"], data: SpoolEnvelope["data"]): void {
     withLifecycleLock(this.dir, () => {
-      if (fs.readFileSync(path.join(this.dir, "version"), "utf8") !== this.options.appVersion)
-        throw new Error("Diagnostics store belongs to a newer app version");
+      if (
+        !runningBundleIsInstalled(this.options) ||
+        !fs.existsSync(path.join(this.dir, "identity")) ||
+        fs.readFileSync(path.join(this.dir, "identity"), "utf8") !== this.identity
+      ) {
+        this.stale = true;
+        fs.writeFileSync(path.join(this.dir, `stale-${this.bootId}.json`), "{}", { mode: 0o600 });
+      }
       const event = prepareEnvelope(this.bootId, ++this.sequence, this.options.process, type, data);
       const line = `${JSON.stringify(event)}\n`;
       const bytes = Buffer.byteLength(line);

@@ -31,6 +31,60 @@ afterEach(() => {
 });
 
 describe("diagnostics store", () => {
+  it("resets a same-version installed rebuild and rejects the stale process", () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-diagnostics-"));
+    roots.push(stateDir);
+    const bundlePath = path.join(stateDir, "app.asar");
+    fs.writeFileSync(bundlePath, "first bundle");
+    const signature = () => {
+      const stats = fs.statSync(bundlePath);
+      return { size: stats.size, mtimeMs: stats.mtimeMs, inode: stats.ino };
+    };
+    const oldOptions = {
+      stateDir,
+      appVersion: "0.14.3",
+      buildId: "aaaaaaa",
+      bundlePath,
+      bundleSignature: signature(),
+      process: "server" as const,
+    };
+    const old = new DiagnosticsStore(oldOptions);
+    old.incident({
+      traceId,
+      spanId,
+      kind: "command.failed",
+      code: "COMMAND_REJECTED",
+      where: "server.command",
+      severity: "error",
+    });
+    const replacement = path.join(stateDir, "replacement.asar");
+    fs.writeFileSync(replacement, "second bundle");
+    fs.renameSync(replacement, bundlePath);
+    expect(() =>
+      old.checkpoint({ traceId, spanId, flow: "send", step: "server.received" }),
+    ).toThrow("stale app bundle");
+    const stale = new DiagnosticsSpoolWriter({ ...oldOptions, process: "desktop-main" });
+    stale.checkpoint({ traceId, spanId, flow: "send", step: "composer.preflight" });
+    const current = new DiagnosticsStore({
+      ...oldOptions,
+      buildId: "bbbbbbb",
+      bundleSignature: signature(),
+    });
+    stale.checkpoint({ traceId, spanId, flow: "send", step: "composer.preflight" });
+    current.importPeerSpools();
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(
+      db
+        .prepare("SELECT SUM(count) AS count FROM incidents WHERE code = 'DIAGNOSTICS_DROPPED'")
+        .get(),
+    ).toMatchObject({ count: 2 });
+    expect(db.prepare("SELECT count(*) AS count FROM detail").get()).toMatchObject({ count: 0 });
+    expect(() => new DiagnosticsStore(oldOptions)).toThrow("stale app bundle");
+    db.close();
+    stale.close();
+    old.close();
+    current.close();
+  });
   it("copies last-changed-by provenance into a related incident", () => {
     const { stateDir, store } = fixture();
     store.setProvenance({

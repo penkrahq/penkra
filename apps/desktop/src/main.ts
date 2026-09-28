@@ -418,9 +418,18 @@ let stopDesktopDiagnosticsWatchdog: (() => void) | null = null;
 
 function getDesktopDiagnosticsStore(): DiagnosticsSpoolWriter {
   if (!desktopDiagnostics) {
+    if (app.isPackaged && !startupBundleIdentity?.signature)
+      throw new Error("Installed app bundle identity is unavailable");
     desktopDiagnostics = new DiagnosticsSpoolWriter({
       stateDir: STATE_DIR,
       appVersion: app.getVersion(),
+      ...(resolveAboutCommitHash() ? { buildId: resolveAboutCommitHash()! } : {}),
+      ...(startupBundleIdentity?.signature
+        ? {
+            bundlePath: startupBundleIdentity.path,
+            bundleSignature: startupBundleIdentity.signature,
+          }
+        : {}),
       process: "desktop-main",
     });
     stopDesktopDiagnosticsHealthSampling = desktopDiagnostics.startHealthSampling();
@@ -4471,6 +4480,8 @@ function backendNodeArgs(): string[] {
 }
 
 function backendEnv(): NodeJS.ProcessEnv {
+  if (app.isPackaged && !startupBundleIdentity?.signature)
+    throw new Error("Installed app bundle identity is unavailable");
   const servedStaticRoot = resolveServedStaticRoot();
   const env = bindDesktopParentPid(
     {
@@ -4481,6 +4492,13 @@ function backendEnv(): NodeJS.ProcessEnv {
       ...(servedStaticRoot?.snapshotted ? { PENKRA_STATIC_DIR: servedStaticRoot.dir } : {}),
       PENKRA_MODE: "desktop",
       PENKRA_APP_VERSION: app.getVersion(),
+      PENKRA_DIAGNOSTICS_BUILD_ID: resolveAboutCommitHash() ?? "0000000",
+      ...(startupBundleIdentity?.signature
+        ? {
+            PENKRA_DIAGNOSTICS_BUNDLE_PATH: startupBundleIdentity.path,
+            PENKRA_DIAGNOSTICS_BUNDLE_SIGNATURE: JSON.stringify(startupBundleIdentity.signature),
+          }
+        : {}),
       PENKRA_NO_BROWSER: "1",
       PENKRA_PORT: String(backendPort),
       PENKRA_HOME: BASE_DIR,
