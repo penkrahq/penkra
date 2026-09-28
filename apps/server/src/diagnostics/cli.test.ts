@@ -138,8 +138,16 @@ describe("penkra diagnostics reads", () => {
     thirdDb.prepare("UPDATE incident_occurrences SET health_json = '{}'").run();
     thirdDb.prepare("UPDATE incidents SET summary = ?").run("private content");
     thirdDb.close();
-    expect(JSON.stringify(queryDiagnostics(["export", "--home-dir", home]))).not.toContain(
-      "private content",
+    expect(() => queryDiagnostics(["export", "--home-dir", home])).toThrow(
+      "Invalid diagnostics summary",
+    );
+    const fourthDb = new DatabaseSync(
+      path.join(home, "userdata", "diagnostics", "diagnostics.sqlite"),
+    );
+    fourthDb.prepare("UPDATE incident_occurrences SET env_json = ?").run('{"message":"secret"}');
+    fourthDb.close();
+    expect(() => queryDiagnostics(["export", "--home-dir", home])).toThrow(
+      "Invalid diagnostics environment",
     );
   });
 });

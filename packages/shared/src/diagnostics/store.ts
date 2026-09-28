@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { compare, valid } from "semver";
 
-import { isIncidentCode, type IncidentCode } from "./codes";
+import { INCIDENT_SUMMARIES, isIncidentCode, type IncidentCode } from "./codes";
 import { DIAGNOSTIC_LIMITS } from "./limits";
 import {
   validateDiagnosticFields,
@@ -506,7 +506,31 @@ function prepareEnvelope(
   };
 }
 
-function insertEnvelope(database: DatabaseSync, event: SpoolEnvelope, appVersion: string): void {
+function diagnosticEnvironment(options: DiagnosticsOptions, event: SpoolEnvelope): string {
+  const osFamily =
+    process.platform === "darwin"
+      ? "macos"
+      : process.platform === "win32"
+        ? "windows"
+        : process.platform === "linux"
+          ? "linux"
+          : "other";
+  return JSON.stringify({
+    appVersion: options.appVersion,
+    buildId: options.buildId ?? "0000000",
+    channel: options.bundlePath ? "production" : process.env.NODE_ENV === "test" ? "test" : "dev",
+    bootId: event.bootId,
+    process: event.process,
+    osFamily,
+    osMajor: Number.parseInt(os.release(), 10) || 0,
+  });
+}
+
+function insertEnvelope(
+  database: DatabaseSync,
+  event: SpoolEnvelope,
+  options: DiagnosticsOptions,
+): void {
   const receiptKey = `last-sequence:${event.bootId}`;
   const lastSequence = database.prepare("SELECT value FROM meta WHERE key = ?").get(receiptKey) as
     | { value: string }
@@ -681,7 +705,7 @@ function insertEnvelope(database: DatabaseSync, event: SpoolEnvelope, appVersion
         data.code,
         data.severity,
         data.where,
-        data.code,
+        INCIDENT_SUMMARIES[data.code],
         data.traceId,
         data.spanId,
         data.attemptId ?? null,
@@ -701,7 +725,7 @@ function insertEnvelope(database: DatabaseSync, event: SpoolEnvelope, appVersion
         from,
         until,
         event.bootId,
-        JSON.stringify({ appVersion, process: event.process }),
+        diagnosticEnvironment(options, event),
       );
     const aggregate = database
       .prepare("SELECT id FROM incidents WHERE fingerprint = ?")
@@ -734,7 +758,7 @@ function insertEnvelope(database: DatabaseSync, event: SpoolEnvelope, appVersion
         data.lastCheckpoint ?? null,
         from,
         until,
-        JSON.stringify({ appVersion, process: event.process }),
+        diagnosticEnvironment(options, event),
       );
     database
       .prepare(`UPDATE detail SET pinned_until = ?
@@ -930,7 +954,7 @@ export class DiagnosticsStore {
           } catch {
             continue; // Torn final line or invalid/unallowlisted payload.
           }
-          insertEnvelope(this.database, event, this.options.appVersion);
+          insertEnvelope(this.database, event, this.options);
         }
         this.database.exec("COMMIT");
       } catch (cause) {
@@ -1090,7 +1114,7 @@ export class DiagnosticsStore {
             at: new Date(pending.at).toISOString(),
             monoMs: pending.monoMs,
           },
-          this.options.appVersion,
+          this.options,
         );
       }
       this.database.exec("COMMIT");
