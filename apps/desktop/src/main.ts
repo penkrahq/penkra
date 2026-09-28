@@ -5163,12 +5163,13 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC.diagnosticsSendExpectation, (event, input: unknown) => {
     requireMainRenderer(event);
     if (!input || typeof input !== "object" || Array.isArray(input)) return;
-    const { traceId, spanId, threadId } = input as Record<string, unknown>;
+    const { traceId, spanId, threadId, armedAt } = input as Record<string, unknown>;
     if (typeof traceId !== "string" || typeof spanId !== "string") return;
     enqueueDesktopDiagnosticWrite("sendExpectation", {
       traceId,
       spanId,
       ...(typeof threadId === "string" ? { threadId } : {}),
+      ...(typeof armedAt === "string" ? { armedAt } : {}),
     });
   });
   ipcMain.removeListener(IPC.threadApiState, acceptThreadApiState);

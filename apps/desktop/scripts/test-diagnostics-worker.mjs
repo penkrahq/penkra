@@ -33,7 +33,8 @@ try {
     kind: "checkpoint",
     input: { ...trace, flow: "send", step: "composer.preflight" },
   });
-  worker.postMessage({ kind: "sendExpectation", input: trace });
+  const armedAt = new Date().toISOString();
+  worker.postMessage({ kind: "sendExpectation", input: { ...trace, armedAt } });
   worker.postMessage({ kind: "shutdown" });
   assert.deepEqual(await drained, { kind: "drained" });
 
@@ -52,6 +53,7 @@ try {
   );
   assert.equal(records[0].data.traceId, trace.traceId);
   assert.equal(records[1].data.kind, "send.accepted");
+  assert.equal(records[1].data.armedAt, armedAt);
   assert.equal(
     fs.readdirSync(diagnosticDir).some((name) => name.startsWith("active-")),
     false,

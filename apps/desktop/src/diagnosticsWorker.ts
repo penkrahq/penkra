@@ -13,7 +13,7 @@ type DiagnosticsMessage =
   | { readonly kind: "incident"; readonly input: IncidentInput }
   | {
       readonly kind: "sendExpectation";
-      readonly input: { traceId: string; spanId: string; threadId?: string };
+      readonly input: { traceId: string; spanId: string; threadId?: string; armedAt?: string };
     };
 
 const writer = new DiagnosticsSpoolWriter(workerData as DiagnosticsOptions);
