@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { resolvePenkraHomeDirectory } from "@penkra/shared/penkraHome";
 
 import { openDiagnosticsReader } from "./store";
-import { isIncidentCode } from "./codes";
+import { INCIDENT_SUMMARIES, isIncidentCode, type IncidentCode } from "./codes";
 import { validateDiagnosticFields, validateDiagnosticId, validateDiagnosticToken } from "./privacy";
 
 type Row = Record<string, unknown>;
@@ -107,14 +107,26 @@ function safeJson(key: string, value: unknown): unknown {
       throw new TypeError("Invalid diagnostics environment");
     const env = parsed as Record<string, unknown>;
     if (
-      Object.keys(env).sort().join(",") !== "appVersion,process" ||
+      Object.keys(env).sort().join(",") !==
+        "appVersion,bootId,buildId,channel,osFamily,osMajor,process" ||
       typeof env.appVersion !== "string" ||
-      !/^\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?$/u.test(env.appVersion)
+      !/^\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?$/u.test(env.appVersion) ||
+      typeof env.buildId !== "string" ||
+      !/^[a-f0-9]{7,64}$/u.test(env.buildId) ||
+      !["production", "dev", "test"].includes(env.channel as string) ||
+      !["macos", "windows", "linux", "other"].includes(env.osFamily as string) ||
+      !Number.isSafeInteger(env.osMajor) ||
+      (env.osMajor as number) < 0
     ) {
       throw new TypeError("Invalid diagnostics environment");
     }
     return {
       appVersion: env.appVersion,
+      buildId: env.buildId,
+      channel: env.channel,
+      bootId: validateDiagnosticId(env.bootId as string),
+      osFamily: env.osFamily,
+      osMajor: env.osMajor,
       ...validateDiagnosticFields({ process: env.process as string }),
     };
   }
@@ -191,7 +203,11 @@ function jsonFields(row: Row): Row {
       result[key] = value;
     }
   }
-  if ("code" in result) result.summary = result.code;
+  if ("code" in result) {
+    if (row.summary !== INCIDENT_SUMMARIES[result.code as IncidentCode])
+      throw new TypeError("Invalid diagnostics summary");
+    result.summary = row.summary;
+  }
   return result;
 }
 
