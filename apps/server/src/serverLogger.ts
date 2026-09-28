@@ -21,8 +21,18 @@ export function makeRotatingServerFileLogger(
   return Logger.map(Logger.formatSimple, (line) => sink.write(`${line}\n`));
 }
 
+export function shouldWriteServerFileLog(environment: NodeJS.ProcessEnv): boolean {
+  // Desktop captures the server's stdout into the rotating server-child.log.
+  // Writing the same formatted lines to server.log doubles the disk cost.
+  return !environment.PENKRA_SERVER_ENTRY;
+}
+
 export const ServerLoggerLive = Effect.gen(function* () {
   const { logsDir, serverLogPath } = yield* ServerConfig;
+
+  if (!shouldWriteServerFileLog(process.env)) {
+    return Logger.layer([Logger.defaultLogger], { mergeWithExisting: false });
+  }
 
   yield* Effect.sync(() => {
     ensurePrivateDirectorySync(logsDir);
