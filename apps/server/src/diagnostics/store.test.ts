@@ -31,6 +31,41 @@ afterEach(() => {
 });
 
 describe("diagnostics store", () => {
+  it("copies last-changed-by provenance into a related incident", () => {
+    const { stateDir, store } = fixture();
+    store.setProvenance({
+      entityKind: "thread",
+      entityId: "thread:abc",
+      field: "thread.activeTurnId",
+      traceId,
+    });
+    store.incident({
+      traceId,
+      spanId,
+      threadId: "thread:abc",
+      kind: "invariant.violated",
+      code: "TURN_STATE_DIVERGED",
+      where: "orchestration.worker",
+      severity: "error",
+    });
+    const db = openDiagnosticsReader(stateDir)!;
+    const row = db.prepare("SELECT provenance_json FROM incidents").get() as {
+      provenance_json: string;
+    };
+    expect(JSON.parse(row.provenance_json)).toMatchObject([
+      { field: "thread.activeTurnId", setByTraceId: traceId },
+    ]);
+    expect(() =>
+      store.setProvenance({
+        entityKind: "thread",
+        entityId: "thread:abc",
+        field: "private.message",
+        traceId,
+      }),
+    ).toThrow("Invalid diagnostic field");
+    db.close();
+    store.close();
+  });
   it("stores typed external outcomes and expectation resolutions without payload content", () => {
     const { stateDir, store } = fixture();
     store.externalOutcome({

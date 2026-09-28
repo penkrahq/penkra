@@ -61,6 +61,14 @@ export interface HealthSampleInput {
   readonly oldestQueuedMs?: number;
 }
 
+export interface ProvenanceInput {
+  readonly entityKind: "thread" | "turn" | "queue" | "session" | "connection";
+  readonly entityId: string;
+  readonly field: string;
+  readonly traceId: string;
+  readonly at?: string;
+}
+
 const EXPECTATION_CODES = {
   "send.accepted": "SEND_PREFLIGHT_REJECTED",
   "turn.started": "TURN_START_TIMEOUT",
@@ -371,6 +379,24 @@ function insertEnvelope(database: DatabaseSync, event: SpoolEnvelope, appVersion
       );
   } else {
     const data = event.data as IncidentInput;
+    const provenance = database
+      .prepare(`SELECT field, set_by_trace_id, set_at FROM provenance
+      WHERE (entity_kind = 'thread' AND entity_id = ?)
+         OR (entity_kind = 'session' AND entity_id = ?)
+         OR (entity_kind = 'turn' AND entity_id = ?)
+      ORDER BY field`)
+      .all(data.threadId ?? "", data.threadId ?? "", data.turnId ?? "") as Array<{
+      field: string;
+      set_by_trace_id: string;
+      set_at: string;
+    }>;
+    const provenanceJson = JSON.stringify(
+      provenance.map((row) => ({
+        field: row.field,
+        setByTraceId: row.set_by_trace_id,
+        setAt: row.set_at,
+      })),
+    );
     const nearestHealth = database
       .prepare(`SELECT at, event_loop_lag_ms, cpu_pct, rss_mb,
       heap_mb, open_handles, queue_depth, oldest_queued_ms, machine_load_1m,
@@ -418,6 +444,7 @@ function insertEnvelope(database: DatabaseSync, event: SpoolEnvelope, appVersion
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(fingerprint) DO UPDATE SET count=count+1, last_at=excluded.last_at,
       actual_json=excluded.actual_json, context_json=excluded.context_json,
+      provenance_json=excluded.provenance_json, health_json=excluded.health_json,
       last_checkpoint=excluded.last_checkpoint, pin_until=excluded.pin_until`)
       .run(
         randomUUID(),
@@ -437,7 +464,7 @@ function insertEnvelope(database: DatabaseSync, event: SpoolEnvelope, appVersion
         sqlJson(data.actual),
         "{}",
         sqlJson(data.context),
-        "[]",
+        provenanceJson,
         healthJson,
         data.lastCheckpoint ?? null,
         1,
@@ -679,6 +706,23 @@ export class DiagnosticsStore {
 
   incident(data: IncidentInput): void {
     this.write("incident", data);
+  }
+
+  setProvenance(input: ProvenanceInput): void {
+    this.assertCurrentVersion();
+    if (!["thread", "turn", "queue", "session", "connection"].includes(input.entityKind)) {
+      throw new TypeError("Invalid provenance entity kind");
+    }
+    validateDiagnosticId(input.entityId);
+    validateDiagnosticId(input.traceId);
+    validateDiagnosticToken(input.field, "field");
+    const at = input.at === undefined ? new Date().toISOString() : new Date(input.at).toISOString();
+    this.database
+      .prepare(`INSERT INTO provenance (
+      entity_kind, entity_id, field, set_by_trace_id, set_at
+    ) VALUES (?, ?, ?, ?, ?) ON CONFLICT(entity_kind, entity_id, field)
+    DO UPDATE SET set_by_trace_id = excluded.set_by_trace_id, set_at = excluded.set_at`)
+      .run(input.entityKind, input.entityId, input.field, input.traceId, at);
   }
 
   sampleHealth(input: HealthSampleInput): void {
