@@ -4,6 +4,7 @@ import {
   COVERAGE_ROOTS,
   scanFailureSites,
   uncoveredFailureSites,
+  validateCoverageBoundaries,
   type CoverageException,
 } from "./diagnostics-coverage";
 
@@ -31,13 +32,17 @@ describe("diagnostics failure inventory", () => {
 
   it("requires an exact marker or a reviewed site exception", () => {
     const file = "apps/server/src/example.ts";
-    const source = `// diagnostics-covered: COMMAND_REJECTED
+    const source = `// diagnostics-covered: COMMAND_REJECTED server.command
 throw new Error("one");
 // diagnostics-propagates: APP_OPERATION_FAILED server.command
 throw new Error("two");
 throw new Error("three");`;
     const sites = scanFailureSites(file, source);
-    expect(uncoveredFailureSites(sites, () => source, [])).toEqual([sites[2]]);
+    const boundaries = new Set([
+      "COMMAND_REJECTED:server.command",
+      "APP_OPERATION_FAILED:server.command",
+    ]);
+    expect(uncoveredFailureSites(sites, () => source, [], boundaries)).toEqual([sites[2]]);
     const exception: CoverageException = {
       ...sites[2]!,
       disposition: "validation",
@@ -45,10 +50,29 @@ throw new Error("three");`;
       reviewer: "reviewer@example.com",
       issue: "https://example.com/issue/1",
     };
-    expect(uncoveredFailureSites(sites, () => source, [exception])).toEqual([]);
-    expect(() => uncoveredFailureSites(sites, () => source, [{ ...exception, line: 99 }])).toThrow(
-      "stale",
+    expect(uncoveredFailureSites(sites, () => source, [exception], boundaries)).toEqual([]);
+    expect(() =>
+      uncoveredFailureSites(sites, () => source, [{ ...exception, line: 99 }], boundaries),
+    ).toThrow("stale");
+  });
+
+  it("rejects unregistered markers and boundaries without the named recording call", () => {
+    const file = "apps/server/src/example.ts";
+    const source = `// diagnostics-propagates: COMMAND_REJECTED server.command\nthrow new Error("one");`;
+    const sites = scanFailureSites(file, source);
+    expect(uncoveredFailureSites(sites, () => source, [])).toEqual(sites);
+    expect(() =>
+      validateCoverageBoundaries(
+        [{ code: "COMMAND_REJECTED", where: "server.command", file }],
+        () => source,
+      ),
+    ).toThrow("does not record");
+    const recordingSource = `recordDiagnosticIncident({ code: "COMMAND_REJECTED", where: "server.command" });`;
+    const boundaries = validateCoverageBoundaries(
+      [{ code: "COMMAND_REJECTED", where: "server.command", file }],
+      () => recordingSource,
     );
+    expect(uncoveredFailureSites(sites, () => source, [], boundaries)).toEqual([]);
   });
 
   it("does not let one marker cover two decisions on the same line", () => {
