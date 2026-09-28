@@ -26,7 +26,14 @@ export function evaluateDiagnosticsQaGate(
   beforeIds: ReadonlySet<string>,
   afterIds: ReadonlySet<string>,
   results: ReadonlyArray<QaFlowResult>,
-): { passed: boolean; failedFlows: QaFlow[]; newIncidentIds: string[] } {
+  pending: { expectations: number; spools: number } = { expectations: 0, spools: 0 },
+): {
+  passed: boolean;
+  failedFlows: QaFlow[];
+  newIncidentIds: string[];
+  pendingExpectations: number;
+  pendingSpools: number;
+} {
   const failedFlows = REQUIRED_QA_FLOWS.filter(
     (flow) =>
       results.filter((result) => result.flow === flow).length !== 1 ||
@@ -34,18 +41,38 @@ export function evaluateDiagnosticsQaGate(
   );
   const newIncidentIds = [...afterIds].filter((id) => !beforeIds.has(id)).toSorted();
   return {
-    passed: failedFlows.length === 0 && newIncidentIds.length === 0,
+    passed:
+      failedFlows.length === 0 &&
+      newIncidentIds.length === 0 &&
+      pending.expectations === 0 &&
+      pending.spools === 0,
     failedFlows,
     newIncidentIds,
+    pendingExpectations: pending.expectations,
+    pendingSpools: pending.spools,
   };
 }
 
-function occurrenceIds(stateDir: string): Set<string> {
+function diagnosticsState(stateDir: string): {
+  ids: Set<string>;
+  expectations: number;
+  spools: number;
+} {
   const db = openDiagnosticsReader(stateDir);
   if (!db) throw new Error("Diagnostics store must exist before the clean QA gate starts");
   try {
     const rows = db.prepare("SELECT id FROM incident_occurrences").all() as Array<{ id: string }>;
-    return new Set(rows.map((row) => row.id));
+    const expectations = (
+      db.prepare("SELECT COUNT(*) AS count FROM expectations").get() as { count: number }
+    ).count;
+    const dir = path.join(stateDir, "diagnostics");
+    const spools = fs
+      .readdirSync(dir)
+      .filter(
+        (name) =>
+          /^spool-[a-f0-9]{32}\.jsonl$/u.test(name) && fs.statSync(path.join(dir, name)).size > 0,
+      ).length;
+    return { ids: new Set(rows.map((row) => row.id)), expectations, spools };
   } finally {
     db.close();
   }
@@ -72,12 +99,13 @@ export function runDiagnosticsQaGate(
   for (const script of scripts.values()) {
     if (!fs.statSync(script).isFile()) throw new Error(`QA script is not a file: ${script}`);
   }
-  const before = occurrenceIds(stateDir);
+  const before = diagnosticsState(stateDir).ids;
   const results = REQUIRED_QA_FLOWS.map((flow) => ({
     flow,
     passed: runner(scripts.get(flow)!, stateDir),
   }));
-  return evaluateDiagnosticsQaGate(before, occurrenceIds(stateDir), results);
+  const after = diagnosticsState(stateDir);
+  return evaluateDiagnosticsQaGate(before, after.ids, results, after);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
