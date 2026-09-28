@@ -1,10 +1,6 @@
 import { Cause, Duration, Effect, Exit, Option, Scope } from "effect";
 import type { DiagnosticTraceContext } from "@penkra/contracts";
-import {
-  childDiagnosticSpan,
-  retryDiagnosticAttempt,
-  startDiagnosticTrace,
-} from "@penkra/shared/traceContext";
+import { retryDiagnosticAttempt, startDiagnosticTrace } from "@penkra/shared/traceContext";
 
 import type {
   ProviderIntentOutboxJob,
@@ -69,7 +65,7 @@ export const startProviderIntentOutboxWorker = <E, R>(input: {
         if (Option.isNone(claim)) return;
         const claimed = claim.value;
         const attemptTrace = retryDiagnosticAttempt(
-          childDiagnosticSpan(claimed.diagnosticTrace ?? startDiagnosticTrace()),
+          claimed.diagnosticTrace ?? startDiagnosticTrace(),
         );
         const outcome = !isProviderIntentEvent(claimed.event)
           ? ({ state: "dead", detail: "Outbox job is not a provider intent." } as const)
