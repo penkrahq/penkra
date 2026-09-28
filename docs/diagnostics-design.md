@@ -34,35 +34,47 @@ Builds on:
 ### 0.14.3 decisions
 
 1. Ship the complete design in 0.14.3, including all failure sites in the inventory and all listed flows. The P1/P2/P3 labels set implementation order, not release exclusions.
-2. The first start of **every new app version** deletes the entire diagnostics database and every process spool before recording that version's events. No unresolved incident or pinned detail carries over.
+2. Every installed app update deletes the entire diagnostics database and every process spool before recording the new installation's events, including a rebuild installed with the same version number. The reset identity is the installed version, build ID, and an installer update generation; version text alone is insufficient. No unresolved incident or pinned detail carries over. An older process must never reset a newer installation's store.
 3. Every failure site is in scope, including paths outside the named flows. A site is covered only when its failure decision produces an incident with a stable code and enough allowlisted evidence to explain the cause.
 4. Do not import rows from `operational_diagnostics` or `provider_runtime_diagnostic_episodes`. Existing producers write to the new store from cutover onward. The old rows remain in the main database until normal database retention removes them; they are not diagnostic history for this version.
 
 ### Frozen v1 storage contract
 
 The database is `userdata/diagnostics/diagnostics.sqlite`. An interprocess
-diagnostics lifecycle lock serializes version checks, reset, spool import, and
-database creation. A process from an older version must stop writing after the
-new version claims the store. All timestamps are UTC
+diagnostics lifecycle lock serializes the installation identity check, reset,
+database creation, spool import, and each write's identity check. A process
+from an older installation must stop writing after the new installation claims
+the store. All timestamps are UTC
 ISO 8601, durations are integer milliseconds, identifiers are text, and structured
 fields are JSON objects validated against the privacy allowlist before entering a
 spool. A spool record has a version, process boot ID, monotonically increasing
 sequence, event type, and the same allowlisted payload stored in SQLite. A unique
 `(boot_id, sequence)` key makes crash replay idempotent.
 
-| Table          | Required columns                                                                                                                                                                                                                                                                                                                                                        | Indexes and lifecycle                                                                                                                                                 |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `meta`         | `key TEXT PRIMARY KEY`, `value TEXT NOT NULL`                                                                                                                                                                                                                                                                                                                           | `schema_version=1`, `app_version`, `reset_at`, per-process drop counts and last prune.                                                                                |
-| `detail`       | `id INTEGER PRIMARY KEY`, `boot_id`, `sequence`, `at`, `mono_ms`, `event_type`, `flow`, `step`, `trace_id`, `span_id`, `parent_span_id`, `attempt_id`, `thread_id`, `turn_id`, `command_id`, `correlation_json`, `payload_json`, `pinned_until`                                                                                                                         | Unique `(boot_id, sequence)`; indexes on `(trace_id, at)`, `(thread_id, at)`, and `at`. Event types are `checkpoint`, `external_outcome`, and `expectation_resolved`. |
-| `incidents`    | `id TEXT PRIMARY KEY`, `fingerprint`, `kind`, `code`, `severity`, `where_name`, `summary`, `trace_id`, `span_id`, `attempt_id`, `thread_id`, `turn_id`, `command_id`, `expected_json`, `actual_json`, `limit_json`, `context_json`, `provenance_json`, `health_json`, `last_checkpoint`, `count`, `first_at`, `last_at`, `pin_from`, `pin_until`, `boot_id`, `env_json` | Unique active fingerprint; indexes on `(last_at, id)`, `(thread_id, last_at)`, `(trace_id, last_at)`, `(kind, code, last_at)`. Repeats update count and last time.    |
-| `expectations` | `id TEXT PRIMARY KEY`, `kind`, `trace_id`, `span_id`, `attempt_id`, `thread_id`, `turn_id`, `correlation_json`, `armed_at`, `deadline_at`, `deadline_ms`, `last_checkpoint`, `boot_id`                                                                                                                                                                                  | Index on `deadline_at`. Only pending expectations live here; resolution moves to `detail`. A restart resolves leftovers as `unknown_after_restart` incidents.         |
-| `health`       | `id INTEGER PRIMARY KEY`, `boot_id`, `process`, `at`, `event_loop_lag_ms`, `cpu_pct`, `rss_mb`, `heap_mb`, `open_handles`, `queue_depth`, `oldest_queued_ms`, `machine_load_1m`, `free_mem_mb`, `disk_free_mb`                                                                                                                                                          | Index on `(process, at)`. Thin samples older than 24 h to one per minute.                                                                                             |
-| `provenance`   | `entity_kind`, `entity_id`, `field`, `set_by_trace_id`, `set_at`                                                                                                                                                                                                                                                                                                        | Primary key `(entity_kind, entity_id, field)`; latest change only.                                                                                                    |
+| Table                  | Required columns                                                                                                                                                                                                                                                                                     | Indexes and lifecycle                                                                                                                                                                                        |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `meta`                 | `key TEXT PRIMARY KEY`, `value TEXT NOT NULL`                                                                                                                                                                                                                                                        | `schema_version=1`, `app_version`, `build_id`, `install_generation`, `reset_at`, per-process drop counts and last prune.                                                                                     |
+| `detail`               | `id INTEGER PRIMARY KEY`, `boot_id`, `sequence`, `at`, `mono_ms`, `event_type`, `flow`, `step`, `trace_id`, `span_id`, `parent_span_id`, `attempt_id`, `thread_id`, `turn_id`, `command_id`, `correlation_json`, `payload_json`, `pinned_until`                                                      | Unique `(boot_id, sequence)`; indexes on `(trace_id, at)`, `(thread_id, at)`, and `at`. Event types are `checkpoint`, `external_outcome`, and `expectation_resolved`.                                        |
+| `incidents`            | `id TEXT PRIMARY KEY`, `fingerprint`, `kind`, `code`, `severity`, `where_name`, `summary`, `thread_id`, `count`, `first_at`, `last_at`                                                                                                                                                               | Unique active fingerprint; aggregate lookup and repeat count only. It does not replace occurrence evidence.                                                                                                  |
+| `incident_occurrences` | `id TEXT PRIMARY KEY`, `incident_id`, `boot_id`, `sequence`, `at`, `trace_id`, `span_id`, `attempt_id`, `thread_id`, `turn_id`, `command_id`, `expected_json`, `actual_json`, `limit_json`, `context_json`, `provenance_json`, `health_json`, `last_checkpoint`, `pin_from`, `pin_until`, `env_json` | Unique `(boot_id, sequence)`; indexes on `(at, id)`, `(thread_id, at)`, `(trace_id, at)`, `(incident_id, at)`. Every occurrence survives folding and has its own pinned detail window. QA counts these rows. |
+| `expectations`         | `id TEXT PRIMARY KEY`, `kind`, `trace_id`, `span_id`, `attempt_id`, `thread_id`, `turn_id`, `correlation_json`, `armed_at`, `deadline_at`, `deadline_ms`, `last_checkpoint`, `boot_id`                                                                                                               | Index on `deadline_at`. Only pending expectations live here; resolution moves to `detail`. A restart resolves leftovers as `unknown_after_restart` incidents.                                                |
+| `health`               | `id INTEGER PRIMARY KEY`, `boot_id`, `process`, `at`, `event_loop_lag_ms`, `cpu_pct`, `rss_mb`, `heap_mb`, `open_handles`, `queue_depth`, `oldest_queued_ms`, `machine_load_1m`, `free_mem_mb`, `disk_free_mb`                                                                                       | Index on `(process, at)`. Thin samples older than 24 h to one per minute.                                                                                                                                    |
+| `provenance`           | `entity_kind`, `entity_id`, `field`, `set_by_trace_id`, `set_at`                                                                                                                                                                                                                                     | Primary key `(entity_kind, entity_id, field)`; latest change only.                                                                                                                                           |
 
 The v1 code registry is fixed below. A new failure site may add a reviewed code,
 but must not manufacture a code from exception text, provider output, a URL, or
 user data. `COMMAND_REJECTED_*` and `UPDATE_*` in the flow map are families whose
 members must be explicitly registered before use.
+
+`summary` is a fixed, content-free sentence selected by incident code from a
+reviewed template registry, with no exception text or user value interpolated.
+`where_name` is a registered source-site token, not a path or arbitrary string.
+`env_json` has exactly the validated scalar keys `appVersion` (semver),
+`buildId` (hex commit ID), `channel` (`production`, `dev`, `test`), optional
+`instance` (bounded numbered Dev identifier), `bootId` (generated hex),
+`process` (registered process enum), `osFamily` (registered enum),
+`osMajor` (nonnegative integer), and health numbers. Unknown keys and
+free-form values are rejected before spool append and again on CLI export.
 
 | Area                      | Stable incident codes                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -191,7 +203,10 @@ An incident is written for:
 
 The incident is written where the failure is decided, together with the evidence of _why_: the expected value, the actual value and the check that failed.
 
-Repeats of the same incident with the same key collapse into one row, with a count and first and last times. A new kind of failure is never suppressed.
+Repeats of the same incident with the same key update one aggregate row, with a
+count and first and last times. **Every occurrence also gets its own immutable
+row**, including its trace, time, actual values and detail pin window. A repeat
+is a new incident for the QA gate; the aggregate is only a navigation aid.
 
 ### 5. Invariants: states that must never exist
 
@@ -268,12 +283,13 @@ type Correlation = {
 
 type Env = {
   appVersion: string; // "0.14.3"
-  build: string; // git sha
+  buildId: string; // validated hex git sha
   channel: "production" | "dev" | "test";
-  instance?: string; // numbered Dev instance
+  instance?: string; // bounded numbered Dev identifier
   bootId: string; // one per process start
   process: "desktop-main" | "server" | "renderer" | "provider-child";
-  os: string; // "darwin 25.3.0"
+  osFamily: "darwin" | "linux" | "windows";
+  osMajor: number;
 };
 
 type Checkpoint = TraceContext &
@@ -302,8 +318,8 @@ type Incident = TraceContext &
     kind: IncidentKind;
     code: string; // stable, reviewed error code: "COMMAND_DISPATCH_TIMEOUT"
     severity: "error" | "warn";
-    where: string; // "server/orchestration/OrchestrationEngine"
-    summary: string; // one sentence, no user content
+    where: string; // registered source-site token
+    summary: string; // fixed sentence keyed by code; no interpolation
     expected?: Record<string, Scalar>;
     actual?: Record<string, Scalar>;
     limit?: { name: string; value: number; observed: number };
@@ -312,11 +328,12 @@ type Incident = TraceContext &
     context: Record<string, Scalar>; // allowlisted keys only
     health?: HealthSample; // nearest sample at time of incident
     env: Env;
-    fingerprint: string; // kind + code + where; used for collapsing
-    count: number;
+    fingerprint: string; // kind + code + where; aggregate lookup only
+    occurrenceId: string; // immutable, unique for every failure
+    count: number; // aggregate count; each occurrence remains queryable
     firstAt: string;
     lastAt: string;
-    detailWindow: { from: string; to: string }; // detail journal range pinned
+    detailWindow: { from: string; to: string }; // per-occurrence range pinned
   };
 
 type IncidentKind =
@@ -435,14 +452,15 @@ A separate database file, `userdata/diagnostics/diagnostics.sqlite`. It is kept 
 
 This database is never authoritative. Deleting it loses history, not data.
 
-| Table          | Contents                                                                                   | Kept                                                                                   |
-| -------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
-| `incidents`    | the Incident shape above; indexed by thread, turn, trace, kind, code, time                 | per [Retention](#retention)                                                            |
-| `detail`       | checkpoints, external call outcomes, resolved expectations (the rolling "flight recorder") | rolling; pinned rows kept with their incident                                          |
-| `expectations` | pending expectations only, so they survive a restart                                       | until resolved; after a restart, pending ones become `unknown_after_restart` incidents |
-| `health`       | health samples                                                                             | rolling, thinned to one per minute after 24 h                                          |
-| `provenance`   | latest last-changed-by value for important state                                           | until superseded or version reset                                                      |
-| `meta`         | schema version, drop counters, last prune, app version at prune                            | always                                                                                 |
+| Table                  | Contents                                                                                   | Kept                                                                                   |
+| ---------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| `incidents`            | fold aggregates, indexed by fingerprint and last time                                      | until their last occurrence is pruned                                                  |
+| `incident_occurrences` | every incident's trace, timestamp, values and detail window                                | per [Retention](#retention); the QA gate counts rows here                              |
+| `detail`               | checkpoints, external call outcomes, resolved expectations (the rolling "flight recorder") | rolling; pinned rows kept with their incident                                          |
+| `expectations`         | pending expectations only, so they survive a restart                                       | until resolved; after a restart, pending ones become `unknown_after_restart` incidents |
+| `health`               | health samples                                                                             | rolling, thinned to one per minute after 24 h                                          |
+| `provenance`           | latest last-changed-by value for important state                                           | until superseded or version reset                                                      |
+| `meta`                 | schema version, drop counters, last prune, app version at prune                            | always                                                                                 |
 
 **Surviving a crash.** Each process writes first to a small append-only JSONL spool file of its own:
 
@@ -450,20 +468,46 @@ This database is never authoritative. Deleting it loses history, not data.
 - Desktop main and the server write their own spools.
 - The server imports the spool into SQLite in batches.
 
-On the next boot, any leftover spool is imported and an `UNCLEAN_SHUTDOWN` incident is written. A hard freeze therefore still leaves a record.
+On the next boot, every complete, synced spool record is replayed idempotently.
+An unclean process exit writes `UNCLEAN_SHUTDOWN` on recovery. A hard freeze
+preserves only records whose spool sync completed; a torn final record, a failed
+spool sync, or storage hardware failure can lose evidence. The recovery record
+includes the last durable sequence and a bounded loss/gap count when known.
 
 **Cost limits.**
 
 - Writes are batched, at most every 250 ms. Incidents are flushed immediately.
-- The spool is capped per process. Anything dropped is counted in `meta` and reported as a `diagnostics.degraded` incident, so a gap is never silent.
+- The spool is capped per process. Reserve fixed-size, preallocated loss-ledger
+  space at process start, outside the normal event budget. When capacity or a
+  SQLite/spool write fails, increment a per-process durable drop counter there
+  before returning control. The server imports counters into `meta` and writes
+  one `diagnostics.degraded` occurrence with the count and reason when space is
+  available. A physical failure that also prevents updating the preallocated
+  ledger cannot be promised durable; emit a bounded stderr signal and mark the
+  next recovered sequence gap as unknown. Never claim that such data survived.
 
 ## Retention
 
-- **Hard ceiling:** 1 GB across the database and spools. When usage is over 80%, the oldest unpinned detail is deleted first, then the oldest health samples, then the oldest incidents.
+- **Hard ceiling:** 1 GB across SQLite, WAL, SHM, all spools, loss ledgers, and
+  recovery files. Before a write, reserve enough room for its worst-case spool
+  and SQLite/WAL growth; check actual total size again after the transaction and
+  checkpoint. If the reserve cannot be made, count and report the dropped event.
+  Do not allow a successful write to leave the directory over the ceiling.
+  Pruning begins at 80% and continues in this order: oldest unpinned detail;
+  oldest health; occurrences past 90 days and their now-unused detail; oldest
+  remaining occurrences with their pinned windows; orphaned pinned detail.
+  Recompute aggregate counts after occurrence deletion. Import or account for
+  crash-recovery spools before deleting any of their records; if unimported
+  spools alone reach the cap, reject and count new writes. Never silently remove
+  the only durable copy of an event.
 - **Detail:** kept until space is needed. For a pruning window, measured production volume (~1.2 MB/day of text today) suggests days to weeks of full detail. We will measure the real rate in Dev before fixing any numbers.
-- **Detail around an incident:** the detail from 10 minutes before to 2 minutes after each incident is pinned and kept with it. Provenance links reach causes older than that window.
+- **Detail around an incident:** the detail from 10 minutes before to 2 minutes after each occurrence is pinned while that occurrence remains. Under cap pressure, evict the oldest occurrence and its pinned window together, with a retained eviction count. Provenance links reach causes older than that window.
 - **Incidents:** 90 days.
-- **On app update: a full reset.** When the first process of a new app version starts, it deletes all diagnostics (incidents, detail, health, spools) before recording anything. Everything in diagnostics therefore belongs to the running version: "these are all after this update". `meta` records the version and time of the reset. Within one version, the 1 GB ceiling and 90-day incident limit still apply.
+- **On app update: a full reset.** The installer advances an update generation,
+  including for a same-version rebuild. The first process for that installation
+  deletes all diagnostics (database, spools and loss ledgers) under the lifecycle
+  lock before recording anything. `meta` records version, build, generation and
+  reset time. Older processes cannot reset or append to the new installation.
 
 ## Noise cleanup (part of the same work)
 
@@ -481,8 +525,8 @@ On the next boot, any leftover spool is imported and an `UNCLEAN_SHUTDOWN` incid
 
 ## Access
 
-- `penkra diagnostics incidents [--thread <id>] [--since <t>] [--kind <k>] [--code <c>]`: a paged list that follows `pageInfo.nextCursor` like every other list.
-- `penkra diagnostics thread <id>`: one ordered timeline for a thread, covering incidents, pinned detail and the provenance chain, joined to turn and message IDs from the main database.
+- `penkra diagnostics incidents [--thread <id>] [--since <t>] [--kind <k>] [--code <c>]`: a paged list of individual occurrences (with aggregate count) that follows `pageInfo.nextCursor` like every other list.
+- `penkra diagnostics thread <id>`: one ordered timeline, interleaving occurrences, pinned detail and provenance changes and joining turn and message IDs from the main database. Separate arrays do not satisfy this command.
 - `penkra diagnostics trace <traceId>`: every checkpoint for one action, across processes.
 - `penkra diagnostics export [--thread] [--since]`: a local bundle, allowlisted fields only. Sending it anywhere is a later decision.
 - `ThreadDiagnosticsQuery` and the existing `ProviderRuntimeDiagnosticEpisodes` table are folded into this system.
@@ -493,7 +537,7 @@ No UI and no prompt changes.
 
 Coverage is enforced the same way test coverage is.
 
-1. **One way to fail.** Server code raises domain failures through helpers (`reject(code, expected, actual)`, `timeout(limit, observed)`) that write the incident. A lint rule flags a bare `Effect.fail`, a bare `Effect.timeout` or a `catchAll` in `apps/server/src/orchestration`, `provider`, `agent` and `ws` that does not go through them.
+1. **One way to fail.** Server code raises domain failures through helpers (`reject(code, expected, actual)`, `timeout(limit, observed)`) that write the incident. Coverage lint scans all production code in `apps/server`, `apps/web`, `apps/desktop` and shared runtime packages, including silent catches, bare throws, rejected effects and timeout paths. A documented, reviewed exception is required for a site that truly cannot fail. A scan of selected server folders is insufficient.
 2. **Every limit is named.** Each timeout, cap and budget constant is registered in one `limits.ts`, so every limit shows up in its incident with its name and value.
 3. **Tests assert incidents.** Existing rejection and timeout tests also assert that the expected incident code was written. A shared test helper makes this one line.
 4. **A fault injection suite.** It runs the known failure boundaries in Dev and checks that each produces an incident naming the boundary:
@@ -510,8 +554,8 @@ Coverage is enforced the same way test coverage is.
 ## QA with diagnostics
 
 - Scripted flows drive a numbered Dev instance through RPC and Playwright: send, stop, play, queue, archive, multi-window, thread create, reconnect and provider switch. No computer use.
-- **Pass:** every script meets its expectations, and `penkra diagnostics incidents --since <run start>` returns zero unexplained incidents.
-- An incident that a script _intended_ to cause (for example, sending to an archived thread) must appear with the expected code. If it is missing, that is a coverage failure.
+- **Pass for the clean QA run:** every script meets its expectations, and `penkra diagnostics incidents --since <run start>` returns **zero new occurrences**, including repeats of an existing aggregate. No unexplained-incident exemption exists.
+- Expected-failure and fault-injection scripts run separately from the clean gate. Each intended failure (for example, sending to an archived thread) must produce its expected code and occurrence, or coverage fails. Their incident-producing interval is excluded only by running a separate clean gate with a fresh baseline, not by filtering incidents from that gate.
 - QA reports cite incident IDs and trace IDs instead of screenshots.
 
 ## Rollout (0.14.3)
