@@ -416,6 +416,31 @@ describe("diagnostics store", () => {
     store.close();
   });
 
+  it("rejects extra incident limit fields before writing the spool", () => {
+    const { stateDir, store } = fixture();
+    expect(() =>
+      store.incident({
+        traceId,
+        spanId,
+        kind: "command.failed",
+        code: "COMMAND_REJECTED",
+        where: "server.command",
+        severity: "error",
+        limit: {
+          name: "turnStartedMs",
+          value: 10_000,
+          observed: 10_001,
+          messageContent: "private message",
+        } as never,
+      }),
+    ).toThrow("Invalid incident limit");
+    expect(fs.existsSync(store.spoolPath)).toBe(false);
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(db.prepare("SELECT count(*) AS count FROM incidents").get()).toMatchObject({ count: 0 });
+    db.close();
+    store.close();
+  });
+
   it("records a late resolution as a missed deadline before the sweep", async () => {
     const { stateDir, store } = fixture();
     const id = store.armExpectation({
