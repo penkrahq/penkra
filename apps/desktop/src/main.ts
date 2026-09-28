@@ -106,6 +106,7 @@ import {
 } from "./appTabResourceStores";
 import { resolveBackendNodeArgs } from "./backendNodeOptions";
 import { ActiveWorkPowerBlocker } from "./activeWorkPowerBlocker";
+import { recordDesktopOsLookupFailure, resolveDesktopOsMajor } from "./desktopDiagnosticOs";
 import {
   retainLiveBackendAfterShutdownFailure,
   requireWindowsBackendExit,
@@ -417,6 +418,7 @@ let desktopDiagnostics: DiagnosticsSpoolWriter | null = null;
 let desktopDiagnosticsWorker: Worker | null = null;
 let stopDesktopDiagnosticsHealthSampling: (() => void) | null = null;
 let stopDesktopDiagnosticsWatchdog: (() => void) | null = null;
+const desktopOsMajor = resolveDesktopOsMajor(() => process.getSystemVersion());
 
 function desktopDiagnosticsOptions(): DiagnosticsOptions {
   if (app.isPackaged && !startupBundleIdentity?.signature)
@@ -424,10 +426,7 @@ function desktopDiagnosticsOptions(): DiagnosticsOptions {
   return {
     stateDir: STATE_DIR,
     appVersion: app.getVersion(),
-    osMajor: (() => {
-      const major = Number.parseInt(process.getSystemVersion(), 10);
-      return Number.isSafeInteger(major) && major > 0 ? major : "unknown";
-    })(),
+    osMajor: desktopOsMajor,
     ...(resolveAboutCommitHash() ? { buildId: resolveAboutCommitHash()! } : {}),
     ...(startupBundleIdentity?.signature
       ? {
@@ -442,6 +441,11 @@ function desktopDiagnosticsOptions(): DiagnosticsOptions {
 function getDesktopDiagnosticsStore(): DiagnosticsSpoolWriter {
   if (!desktopDiagnostics) {
     desktopDiagnostics = new DiagnosticsSpoolWriter(desktopDiagnosticsOptions());
+    try {
+      recordDesktopOsLookupFailure(desktopOsMajor, desktopDiagnostics);
+    } catch {
+      process.stderr.write("[diagnostics] desktop OS lookup incident failed\n");
+    }
     stopDesktopDiagnosticsHealthSampling = desktopDiagnostics.startHealthSampling();
     stopDesktopDiagnosticsWatchdog = desktopDiagnostics.startProcessWatchdog();
   }

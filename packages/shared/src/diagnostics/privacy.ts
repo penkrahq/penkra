@@ -239,6 +239,7 @@ const enumValues = {
     "diagnostics.expectation",
     "diagnostics.watchdog",
     "diagnostics.write",
+    "desktop.os_lookup",
     "orchestration.worker",
     "server.command",
     "server.provider",
