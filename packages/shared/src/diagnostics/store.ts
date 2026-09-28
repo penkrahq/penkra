@@ -1,4 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -575,15 +576,33 @@ function prepareEnvelope(
   };
 }
 
+let macOsMajor: number | undefined;
+
+function diagnosticOs(): { osFamily: "darwin" | "linux" | "windows"; osMajor: number } {
+  if (process.platform === "darwin") {
+    if (macOsMajor === undefined) {
+      try {
+        const parsed = Number.parseInt(
+          execFileSync("/usr/bin/sw_vers", ["-productVersion"], { timeout: 1_000 }).toString(),
+          10,
+        );
+        macOsMajor = Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 0;
+      } catch {
+        macOsMajor = 0;
+      }
+    }
+    return { osFamily: "darwin", osMajor: macOsMajor };
+  }
+  if (process.platform === "linux" || process.platform === "win32")
+    return {
+      osFamily: process.platform === "win32" ? "windows" : "linux",
+      osMajor: Number.parseInt(os.release(), 10) || 0,
+    };
+  throw new Error("Unsupported diagnostics OS");
+}
+
 function diagnosticEnvironment(options: DiagnosticsOptions, event: SpoolEnvelope): string {
-  const osFamily =
-    process.platform === "darwin"
-      ? "macos"
-      : process.platform === "win32"
-        ? "windows"
-        : process.platform === "linux"
-          ? "linux"
-          : "other";
+  const { osFamily, osMajor } = diagnosticOs();
   return JSON.stringify({
     appVersion: options.appVersion,
     buildId: options.buildId ?? "0000000",
@@ -591,7 +610,7 @@ function diagnosticEnvironment(options: DiagnosticsOptions, event: SpoolEnvelope
     bootId: event.bootId,
     process: event.process,
     osFamily,
-    osMajor: Number.parseInt(os.release(), 10) || 0,
+    osMajor,
   });
 }
 

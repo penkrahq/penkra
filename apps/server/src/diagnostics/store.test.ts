@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -347,6 +348,31 @@ describe("diagnostics store", () => {
       name: "turnStartedMs",
       value: 10_000,
     });
+    db.close();
+    store.close();
+  });
+
+  it("records the supported OS family and product major in the incident environment", () => {
+    const { stateDir, store } = fixture();
+    store.incident({
+      traceId,
+      spanId,
+      kind: "command.failed",
+      code: "COMMAND_REJECTED",
+      where: "server.command",
+      severity: "error",
+    });
+    const db = openDiagnosticsReader(stateDir)!;
+    const row = db.prepare("SELECT env_json FROM incident_occurrences").get() as {
+      env_json: string;
+    };
+    const environment = JSON.parse(row.env_json);
+    expect(environment.osFamily).toBe(process.platform === "win32" ? "windows" : process.platform);
+    if (process.platform === "darwin") {
+      expect(environment.osMajor).toBe(
+        Number.parseInt(execFileSync("/usr/bin/sw_vers", ["-productVersion"]).toString(), 10),
+      );
+    }
     db.close();
     store.close();
   });
