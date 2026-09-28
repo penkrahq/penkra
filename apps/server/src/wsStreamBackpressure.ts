@@ -1,4 +1,5 @@
 import { Effect, Stream } from "effect";
+import { DIAGNOSTIC_LIMITS } from "@penkra/shared/diagnostics/limits";
 
 // FILE: wsStreamBackpressure.ts
 // Purpose: Bound UI-facing websocket stream backlogs without weakening durable event processing.
@@ -6,7 +7,7 @@ import { Effect, Stream } from "effect";
 // Exports: bufferLiveUiStream, normalizeLiveUiStreamBufferCapacity, recordLiveUiStreamIngress
 // Depends on: Effect Stream
 
-export const DEFAULT_LIVE_UI_STREAM_BUFFER_CAPACITY = 1_024;
+export const DEFAULT_LIVE_UI_STREAM_BUFFER_CAPACITY = DIAGNOSTIC_LIMITS.liveUiStreamBufferCapacity;
 const DROP_REPORT_GROWTH_STEP = 500;
 
 export interface LiveUiStreamLagState {

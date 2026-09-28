@@ -88,8 +88,8 @@ import { TerminalManager } from "./terminal/Services/Manager";
 import { TerminalThreadTitleTracker } from "./terminal/terminalThreadTitleTracker";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
-import { MAX_STREAMS_PER_RPC_CLIENT, makeWsStreamAdmission } from "./wsStreamAdmission";
-import { ThreadDiagnosticsQuery } from "./diagnostics/Services/ThreadDiagnosticsQuery";
+import { makeWsStreamAdmission } from "./wsStreamAdmission";
+import { recordWsResnapshot, recordWsStreamDrop } from "./diagnostics/wsStream";
 import {
   recordDiagnosticCheckpoint,
   recordDiagnosticIncident,
@@ -315,57 +315,16 @@ const makeWsRpcHandlersLayer = () =>
       const workspaceEntries = yield* WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem;
       const workspaceWatcher = yield* WorkspaceWatcher;
-      const threadDiagnostics = yield* ThreadDiagnosticsQuery;
       const syncAcknowledgements = makeSyncAcknowledgements();
-      const streamAdmission = yield* makeWsStreamAdmission({
-        recordRejection: (incident) =>
-          threadDiagnostics
-            .recordOperationalDiagnostic({
-              ...(incident.threadId ? { threadId: incident.threadId } : {}),
-              source: "server",
-              kind: "ws.stream-admission-rejected",
-              severity: "warning",
-              code: incident.errorCode,
-              detail: {
-                reason: incident.reason,
-                active: incident.active,
-                activeThreads: incident.activeThreads,
-                streamLimit: MAX_STREAMS_PER_RPC_CLIENT,
-              },
-              occurredAt: new Date().toISOString(),
-            })
-            .pipe(
-              Effect.catch((error) =>
-                Effect.logWarning("Failed to persist streaming RPC rejection diagnostic.", {
-                  error: String(error),
-                }),
-              ),
-            ),
-      });
+      const streamAdmission = yield* makeWsStreamAdmission();
       const recordThreadStreamDrop = (threadId: string, report: LiveUiStreamDropReport) =>
-        threadDiagnostics
-          .recordOperationalDiagnostic({
+        Effect.sync(() =>
+          recordWsStreamDrop({
             threadId,
-            source: "server",
-            kind: "ws.thread-stream-events-dropped",
-            severity: "error",
-            code: "THREAD_STREAM_EVENTS_DROPPED",
-            detail: {
-              label: report.label,
-              capacity: report.capacity,
-              droppedAtLeast: report.droppedAtLeast,
-            },
-            occurredAt: new Date().toISOString(),
-          })
-          .pipe(
-            Effect.catch((error) =>
-              Effect.logWarning("Failed to persist thread stream drop diagnostic.", {
-                error: String(error),
-              }),
-            ),
-            (diagnostic) => Effect.sync(() => Effect.runFork(diagnostic)),
-            Effect.andThen(failLiveUiStreamForSnapshotResync(report)),
-          );
+            capacity: report.capacity,
+            droppedAtLeast: report.droppedAtLeast,
+          }),
+        ).pipe(Effect.andThen(failLiveUiStreamForSnapshotResync(report)));
       const recordThreadResnapshotRequired = (
         threadId: string,
         report: {
@@ -375,28 +334,14 @@ const makeWsRpcHandlersLayer = () =>
           readonly replayLimit: number;
         },
       ) =>
-        threadDiagnostics
-          .recordOperationalDiagnostic({
+        Effect.sync(() =>
+          recordWsResnapshot({
             threadId,
-            source: "server",
-            kind: "ws.thread-stream-resnapshot-required",
-            severity: "warning",
-            code: "ORCHESTRATION_RESNAPSHOT_REQUIRED",
-            detail: {
-              snapshotSequence: report.snapshotSequence,
-              highWaterSequence: report.highWaterSequence,
-              replayCount: report.replayCount,
-              replayLimit: report.replayLimit,
-            },
-            occurredAt: new Date().toISOString(),
-          })
-          .pipe(
-            Effect.catch((error) =>
-              Effect.logWarning("Failed to persist thread resnapshot diagnostic.", {
-                error: String(error),
-              }),
-            ),
-          );
+            snapshotSequence: report.snapshotSequence,
+            highWaterSequence: report.highWaterSequence,
+            replayCount: report.replayCount,
+          }),
+        );
 
       const canonicalizeProjectWorkspaceRoot = Effect.fnUntraced(function* (
         workspaceRoot: string,

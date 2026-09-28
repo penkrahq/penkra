@@ -21,6 +21,7 @@ export const DIAGNOSTIC_LIMITS = {
   commandDispatchMs: 45_000,
   providerStartMs: 120_000,
   socketHandshakeMs: 3_000,
+  liveUiStreamBufferCapacity: 1_024,
   archiveWindowsMs: 2_000,
   createMs: 5_000,
   windowLoadMs: 3_000,
