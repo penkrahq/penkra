@@ -561,6 +561,17 @@ Coverage is enforced the same way test coverage is.
    - a full disk.
 5. **The gap rule.** When a real incident cannot be explained from its record, the missing checkpoint or field is filed as a coverage defect and fixed before the behaviour fix.
 
+The coverage check tracks each catch, throw, explicit rejection and timeout site by file,
+line and syntax kind. A `diagnostics-covered: CODE where` marker means that the same
+file records that failure. A `diagnostics-propagates: CODE where` marker means the
+failure reaches a registered recording boundary. Each boundary is
+registered with its stable incident code, location and source file, and the checker
+verifies that one recording call contains both values. Validation failures and
+rethrows also require a recording boundary. An exact-site exception is allowed
+only for a path proven unreachable; it records the proof, reviewer and tracking
+issue. A stale exception fails the check. The check must cover all production roots
+before it is added to the default lint gate.
+
 ## QA with diagnostics
 
 - Scripted flows drive a numbered Dev instance through RPC and Playwright: send, stop, play, queue, archive, multi-window, thread create, reconnect and provider switch. No computer use.
