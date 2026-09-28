@@ -65,8 +65,8 @@ throw new Error("three");`;
     ).toContainEqual(sites[0]);
     const exception: CoverageException = {
       ...sites[2]!,
-      disposition: "validation",
-      reason: "Input validation is recorded at the command boundary.",
+      disposition: "cannot-fail",
+      reason: "This branch is proven unreachable by the input type invariant.",
       reviewer: "reviewer@example.com",
       issue: "https://example.com/issue/1",
     };
@@ -74,6 +74,14 @@ throw new Error("three");`;
     expect(() =>
       uncoveredFailureSites(sites, () => source, [{ ...exception, line: 99 }], boundaries),
     ).toThrow("stale");
+    expect(() =>
+      uncoveredFailureSites(
+        sites,
+        () => source,
+        [{ ...exception, disposition: "validation" } as unknown as CoverageException],
+        boundaries,
+      ),
+    ).toThrow("Invalid");
   });
 
   it("rejects unregistered markers and boundaries without the named recording call", () => {
