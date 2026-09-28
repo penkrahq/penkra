@@ -4,7 +4,6 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { compare, valid } from "semver";
 
 import { INCIDENT_SUMMARIES, isIncidentCode, type IncidentCode } from "./codes";
 import { DIAGNOSTIC_LIMITS, type DiagnosticLimitName } from "./limits";
@@ -1041,18 +1040,10 @@ export class DiagnosticsStore {
       if (!runningBundleIsInstalled(options))
         throw new Error("Diagnostics process has a stale app bundle");
       const versionPath = path.join(this.dir, "version");
-      const oldVersion = fs.existsSync(versionPath) ? fs.readFileSync(versionPath, "utf8") : null;
       const identityPath = path.join(this.dir, "identity");
       const previousIdentity = fs.existsSync(identityPath)
         ? fs.readFileSync(identityPath, "utf8")
         : null;
-      if (
-        !options.bundlePath &&
-        oldVersion &&
-        valid(oldVersion) &&
-        compare(oldVersion, options.appVersion) > 0
-      )
-        throw new Error("Diagnostics store belongs to a newer app version");
       if (previousIdentity !== this.identity) {
         const keep = new Set<string>([".lifecycle-lock", "reset-loss.json"]);
         for (const name of fs.readdirSync(this.dir)) {
@@ -1904,16 +1895,6 @@ export class DiagnosticsSpoolWriter {
     if (process.platform !== "win32") fs.chmodSync(this.dir, 0o700);
     withLifecycleLock(this.dir, () => {
       this.stale = !runningBundleIsInstalled(options);
-      const versionPath = path.join(this.dir, "version");
-      const oldVersion = fs.existsSync(versionPath) ? fs.readFileSync(versionPath, "utf8") : null;
-      if (
-        !this.stale &&
-        !options.bundlePath &&
-        oldVersion &&
-        valid(oldVersion) &&
-        compare(oldVersion, options.appVersion) > 0
-      )
-        throw new Error("Diagnostics store belongs to a newer app version");
       // Only the SQLite owner resets on an update. A desktop process may start
       // first; its current spool must survive the server's later reset.
       fs.writeFileSync(path.join(this.dir, `spool-identity-${this.bootId}.json`), this.identity, {
