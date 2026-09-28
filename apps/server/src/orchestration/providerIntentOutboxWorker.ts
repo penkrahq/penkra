@@ -1,4 +1,10 @@
 import { Cause, Duration, Effect, Exit, Option, Scope } from "effect";
+import type { DiagnosticTraceContext } from "@penkra/contracts";
+import {
+  childDiagnosticSpan,
+  retryDiagnosticAttempt,
+  startDiagnosticTrace,
+} from "@penkra/shared/traceContext";
 
 import type {
   ProviderIntentOutboxJob,
@@ -27,7 +33,10 @@ export interface ProviderIntentOutboxWorkerOptions {
  */
 export const startProviderIntentOutboxWorker = <E, R>(input: {
   readonly outbox: ProviderIntentOutboxShape;
-  readonly process: (job: ProviderIntentOutboxJob) => Effect.Effect<ProviderIntentOutcome, E, R>;
+  readonly process: (
+    job: ProviderIntentOutboxJob,
+    attemptTrace: DiagnosticTraceContext,
+  ) => Effect.Effect<ProviderIntentOutcome, E, R>;
   readonly onTerminal?: (
     job: ProviderIntentOutboxJob,
     outcome: Extract<ProviderIntentOutcome, { readonly state: "dead" | "uncertain" }>,
@@ -35,6 +44,7 @@ export const startProviderIntentOutboxWorker = <E, R>(input: {
   readonly onSettled?: (
     job: ProviderIntentOutboxJob,
     outcome: ProviderIntentOutcome,
+    attemptTrace: DiagnosticTraceContext,
   ) => Effect.Effect<void, unknown, R>;
   readonly options?: ProviderIntentOutboxWorkerOptions;
 }): Effect.Effect<void, PersistenceSqlError | PersistenceDecodeError, Scope.Scope | R> =>
@@ -58,9 +68,12 @@ export const startProviderIntentOutboxWorker = <E, R>(input: {
         });
         if (Option.isNone(claim)) return;
         const claimed = claim.value;
+        const attemptTrace = retryDiagnosticAttempt(
+          childDiagnosticSpan(claimed.diagnosticTrace ?? startDiagnosticTrace()),
+        );
         const outcome = !isProviderIntentEvent(claimed.event)
           ? ({ state: "dead", detail: "Outbox job is not a provider intent." } as const)
-          : yield* input.process(claimed).pipe(
+          : yield* input.process(claimed, attemptTrace).pipe(
               Effect.timeoutOption(Duration.millis(callDeadlineMs)),
               Effect.exit,
               Effect.map((exit): ProviderIntentOutcome => {
@@ -98,7 +111,7 @@ export const startProviderIntentOutboxWorker = <E, R>(input: {
           });
         }
         if (settled) {
-          yield* input.onSettled?.(claimed, finalOutcome) ?? Effect.void;
+          yield* input.onSettled?.(claimed, finalOutcome, attemptTrace) ?? Effect.void;
         }
         if (settled && (finalOutcome.state === "dead" || finalOutcome.state === "uncertain")) {
           yield* input.onTerminal?.(claimed, finalOutcome) ?? Effect.void;

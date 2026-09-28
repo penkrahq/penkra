@@ -9,6 +9,7 @@ import * as Socket from "effect/unstable/socket/Socket";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ORCHESTRATION_WS_CHANNELS,
+  type DiagnosticTraceContext,
   ORCHESTRATION_WS_METHODS,
   WS_CHANNELS,
   WS_COMPATIBILITY_QUERY,
@@ -670,8 +671,8 @@ describe("WsTransport", () => {
   it("retries an idempotent orchestration command after reconnect", async () => {
     const transport = new WsTransport();
     const method = ORCHESTRATION_WS_METHODS.dispatchCommand;
-    const firstClient = { [method]: vi.fn(() => ({ attempt: 1 })) };
-    const secondClient = { [method]: vi.fn(() => ({ attempt: 2 })) };
+    const firstClient = { [method]: vi.fn((_input: unknown) => ({ attempt: 1 })) };
+    const secondClient = { [method]: vi.fn((_input: unknown) => ({ attempt: 2 })) };
     const firstRuntime = {
       runPromise: vi.fn().mockRejectedValue(
         new RpcClientError.RpcClientError({
@@ -697,13 +698,38 @@ describe("WsTransport", () => {
     await expect(
       transport.request(
         method,
-        { command: { commandId: "stable-command-id" } },
+        {
+          command: { commandId: "stable-command-id" },
+          diagnostics: {
+            traceId: "11111111111111111111111111111111",
+            spanId: "2222222222222222",
+            attemptId: "3333333333333333",
+          },
+        },
         { timeoutMs: null, retryOnReconnect: true },
       ),
     ).resolves.toEqual({ sequence: 42 });
     expect(reconnect).toHaveBeenCalledTimes(1);
     expect(firstClient[method]).toHaveBeenCalledTimes(1);
     expect(secondClient[method]).toHaveBeenCalledTimes(1);
+    const firstTrace = (
+      firstClient[method].mock.calls[0]?.[0] as { diagnostics: DiagnosticTraceContext }
+    ).diagnostics;
+    const retryTrace = (
+      secondClient[method].mock.calls[0]?.[0] as {
+        diagnostics: DiagnosticTraceContext;
+      }
+    ).diagnostics;
+    expect(firstTrace).toMatchObject({
+      traceId: "11111111111111111111111111111111",
+      attemptId: "3333333333333333",
+    });
+    expect(retryTrace).toMatchObject({
+      traceId: firstTrace.traceId,
+      parentSpanId: firstTrace.spanId,
+    });
+    expect(retryTrace.spanId).not.toBe(firstTrace.spanId);
+    expect(retryTrace.attemptId).not.toBe(firstTrace.attemptId);
     await transport.dispose();
   });
 

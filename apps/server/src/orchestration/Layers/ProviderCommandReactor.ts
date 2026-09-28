@@ -5016,18 +5016,14 @@ const make = Effect.gen(function* () {
         }
       });
 
-    const processOutboxJob = (job: ProviderIntentOutboxJob) =>
+    const processOutboxJob = (
+      job: ProviderIntentOutboxJob,
+      trace: import("@penkra/contracts").DiagnosticTraceContext,
+    ) =>
       Effect.gen(function* () {
         if (!isProviderIntentEvent(job.event)) {
           return { state: "dead", detail: "The outbox payload is not a provider intent." } as const;
         }
-        const trace = retryDiagnosticAttempt(
-          childDiagnosticSpan(
-            job.event.commandId === null
-              ? startDiagnosticTrace()
-              : (traceForDiagnosticCommand(job.event.commandId) ?? startDiagnosticTrace()),
-          ),
-        );
         const context = {
           ...trace,
           threadId: job.event.payload.threadId,
@@ -5178,14 +5174,9 @@ const make = Effect.gen(function* () {
     yield* startProviderIntentOutboxWorker({
       outbox: providerIntentOutbox,
       process: processOutboxJob,
-      onSettled: (job, outcome) =>
+      onSettled: (job, outcome, trace) =>
         Effect.sync(() => {
           if (!isProviderIntentEvent(job.event)) return;
-          const trace = childDiagnosticSpan(
-            job.event.commandId === null
-              ? startDiagnosticTrace()
-              : (traceForDiagnosticCommand(job.event.commandId) ?? startDiagnosticTrace()),
-          );
           const context = {
             ...trace,
             threadId: job.event.payload.threadId,
