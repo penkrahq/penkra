@@ -995,6 +995,31 @@ describe("WsTransport", () => {
     }
   });
 
+  it("records every failed reconnect handshake attempt", async () => {
+    const recordDiagnosticIncident = vi.fn((_input: unknown) => Promise.resolve());
+    window.desktopBridge = {
+      getWsUrl: () => null,
+      recordDiagnosticIncident,
+    } as never;
+    const transport = new WsTransport();
+    const attempt = (
+      transport as unknown as {
+        withConnectionAttemptTimeout: (
+          promise: Promise<unknown>,
+          attempt: number,
+        ) => Promise<unknown>;
+      }
+    ).withConnectionAttemptTimeout.bind(transport);
+    await expect(attempt(Promise.reject(new Error("offline")), 1)).rejects.toThrow("offline");
+    await expect(attempt(Promise.reject(new Error("offline")), 2)).rejects.toThrow("offline");
+    const failures = recordDiagnosticIncident.mock.calls
+      .map(([input]) => input as { code: string; actual: { attempt: number } })
+      .filter((input) => input.code === "WS_RECONNECT_LOOP");
+    expect(failures).toHaveLength(2);
+    expect(failures.map((input) => input.actual.attempt)).toEqual([1, 2]);
+    await transport.dispose();
+  });
+
   it("abandons a hung reconnect attempt and keeps recovering", async () => {
     vi.useFakeTimers();
     try {

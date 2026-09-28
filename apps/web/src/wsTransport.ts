@@ -873,7 +873,7 @@ export class WsTransport {
             { deadlineMs: WS_RECONNECT_ATTEMPT_TIMEOUT_MS },
             { elapsedMs: Math.round(performance.now() - startedAt), attempt },
           );
-        } else if (attempt === 3) {
+        } else {
           incident("WS_RECONNECT_LOOP", { connected: true }, { connected: false, attempt });
         }
       }
