@@ -107,6 +107,7 @@ import {
 import { resolveBackendNodeArgs } from "./backendNodeOptions";
 import { ActiveWorkPowerBlocker } from "./activeWorkPowerBlocker";
 import { recordDesktopOsLookupFailure, resolveDesktopOsMajor } from "./desktopDiagnosticOs";
+import { startDesktopDiagnosticsMonitors } from "./desktopDiagnosticsMonitors";
 import {
   retainLiveBackendAfterShutdownFailure,
   requireWindowsBackendExit,
@@ -416,8 +417,7 @@ const BASE_DIR =
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
 let desktopDiagnostics: DiagnosticsSpoolWriter | null = null;
 let desktopDiagnosticsWorker: Worker | null = null;
-let stopDesktopDiagnosticsHealthSampling: (() => void) | null = null;
-let stopDesktopDiagnosticsWatchdog: (() => void) | null = null;
+let stopDesktopDiagnosticsMonitors: (() => void) | null = null;
 const desktopOsMajor = resolveDesktopOsMajor(() => process.getSystemVersion());
 
 function desktopDiagnosticsOptions(): DiagnosticsOptions {
@@ -446,8 +446,7 @@ function getDesktopDiagnosticsStore(): DiagnosticsSpoolWriter {
     } catch {
       process.stderr.write("[diagnostics] desktop OS lookup incident failed\n");
     }
-    stopDesktopDiagnosticsHealthSampling = desktopDiagnostics.startHealthSampling();
-    stopDesktopDiagnosticsWatchdog = desktopDiagnostics.startProcessWatchdog();
+    stopDesktopDiagnosticsMonitors = startDesktopDiagnosticsMonitors(desktopDiagnostics);
   }
   return desktopDiagnostics;
 }
@@ -5078,10 +5077,8 @@ async function shutdownDesktopRuntime(
       await disposeAppCommandPipeServerForShutdown(reason);
       restoreStdIoCapture?.();
       await drainDesktopDiagnosticsWorker();
-      stopDesktopDiagnosticsHealthSampling?.();
-      stopDesktopDiagnosticsHealthSampling = null;
-      stopDesktopDiagnosticsWatchdog?.();
-      stopDesktopDiagnosticsWatchdog = null;
+      stopDesktopDiagnosticsMonitors?.();
+      stopDesktopDiagnosticsMonitors = null;
       try {
         desktopDiagnostics?.close();
       } catch {
