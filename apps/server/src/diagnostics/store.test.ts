@@ -390,6 +390,32 @@ describe("diagnostics store", () => {
     store.close();
   });
 
+  it("records an unavailable OS major as unknown", () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-diagnostics-"));
+    roots.push(stateDir);
+    const store = new DiagnosticsStore({
+      stateDir,
+      appVersion: "0.14.3",
+      process: "desktop-main",
+      osMajor: "unknown",
+    });
+    store.incident({
+      traceId,
+      spanId,
+      kind: "command.failed",
+      code: "COMMAND_REJECTED",
+      where: "server.command",
+      severity: "error",
+    });
+    const db = openDiagnosticsReader(stateDir)!;
+    const row = db.prepare("SELECT env_json FROM incident_occurrences").get() as {
+      env_json: string;
+    };
+    expect(JSON.parse(row.env_json).osMajor).toBe("unknown");
+    db.close();
+    store.close();
+  });
+
   it("records a late resolution as a missed deadline before the sweep", async () => {
     const { stateDir, store } = fixture();
     const id = store.armExpectation({

@@ -116,8 +116,8 @@ function safeJson(key: string, value: unknown): unknown {
       (env.buildId !== "unknown" && !/^[a-f0-9]{7,64}$/u.test(env.buildId)) ||
       !["production", "dev", "test"].includes(env.channel as string) ||
       !["darwin", "windows", "linux"].includes(env.osFamily as string) ||
-      !Number.isSafeInteger(env.osMajor) ||
-      (env.osMajor as number) < 0
+      (env.osMajor !== "unknown" &&
+        (!Number.isSafeInteger(env.osMajor) || (env.osMajor as number) < 0))
     ) {
       throw new TypeError("Invalid diagnostics environment");
     }
