@@ -74,12 +74,23 @@ function lossCounts(dir: string): Map<string, number> {
   return counts;
 }
 
+function countGrowth(
+  afterCounts: ReadonlyMap<string, number>,
+  beforeCounts: ReadonlyMap<string, number>,
+): number {
+  return [...afterCounts].reduce(
+    (sum, [name, count]) => sum + Math.max(0, count - (beforeCounts.get(name) ?? 0)),
+    0,
+  );
+}
+
 function diagnosticsState(stateDir: string): {
   ids: Set<string>;
   expectations: number;
   spools: number;
   identity: string;
   losses: Map<string, number>;
+  spoolAnomalies: Map<string, number>;
 } {
   const db = openDiagnosticsReader(stateDir);
   if (!db) throw new Error("Diagnostics store must exist before the clean QA gate starts");
@@ -88,6 +99,18 @@ function diagnosticsState(stateDir: string): {
     const expectations = (
       db.prepare("SELECT COUNT(*) AS count FROM expectations").get() as { count: number }
     ).count;
+    const anomalyRows = db
+      .prepare(
+        "SELECT key, value FROM meta WHERE key LIKE 'spool-invalid:%' OR key LIKE 'sequence-gap:%'",
+      )
+      .all() as Array<{ key: string; value: string }>;
+    const spoolAnomalies = new Map<string, number>();
+    for (const row of anomalyRows) {
+      const count = Number(row.value);
+      if (!Number.isSafeInteger(count) || count < 0)
+        throw new Error(`Invalid diagnostics spool anomaly count: ${row.key}`);
+      spoolAnomalies.set(row.key, count);
+    }
     const dir = path.join(stateDir, "diagnostics");
     const spools = fs
       .readdirSync(dir)
@@ -101,6 +124,7 @@ function diagnosticsState(stateDir: string): {
       spools,
       identity: fs.readFileSync(path.join(dir, "identity"), "utf8"),
       losses: lossCounts(dir),
+      spoolAnomalies,
     };
   } finally {
     db.close();
@@ -134,10 +158,9 @@ export function runDiagnosticsQaGate(
     passed: runner(scripts.get(flow)!, stateDir),
   }));
   const after = diagnosticsState(stateDir);
-  const newLosses = [...after.losses].reduce(
-    (sum, [name, count]) => sum + Math.max(0, count - (before.losses.get(name) ?? 0)),
-    0,
-  );
+  const newLosses =
+    countGrowth(after.losses, before.losses) +
+    countGrowth(after.spoolAnomalies, before.spoolAnomalies);
   return evaluateDiagnosticsQaGate(before.ids, after.ids, results, after, {
     storeReset:
       before.identity !== after.identity || [...before.ids].some((id) => !after.ids.has(id)),
