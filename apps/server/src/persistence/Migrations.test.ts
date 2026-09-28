@@ -12,6 +12,45 @@ import SpacesMigration from "./Migrations/079_Spaces.ts";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
 
+layer("provider intent outbox cutover", (it) => {
+  it.effect("records the legacy high-water mark without replaying older provider intents", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations({ toMigrationInclusive: 169 });
+      const now = "2026-09-28T00:00:00.000Z";
+      yield* sql`
+        INSERT INTO orchestration_events (
+          event_id, aggregate_kind, stream_id, stream_version, event_type,
+          occurred_at, actor_kind, payload_json, metadata_json
+        ) VALUES (
+          'legacy-intent-cutover', 'thread', 'legacy-thread-cutover', 0,
+          'thread.archived', ${now}, 'client',
+          '{"threadId":"legacy-thread-cutover","archivedAt":"2026-09-28T00:00:00.000Z","updatedAt":"2026-09-28T00:00:00.000Z"}',
+          '{"persistedEventSchemaVersion":2}'
+        )
+      `;
+      const highWater = yield* sql<{ readonly sequence: number }>`
+        SELECT sequence FROM orchestration_events WHERE event_id = 'legacy-intent-cutover'
+      `;
+      yield* runMigrations();
+      const marker = yield* sql<{
+        readonly throughSequence: number;
+        readonly drainedAt: string | null;
+      }>`
+        SELECT legacy_through_sequence AS "throughSequence", legacy_drained_at AS "drainedAt"
+        FROM provider_intent_outbox_cutover WHERE id = 1
+      `;
+      assert.deepStrictEqual(marker, [
+        { throughSequence: highWater[0]!.sequence, drainedAt: null },
+      ]);
+      const jobs = yield* sql<{ readonly count: number }>`
+        SELECT COUNT(*) AS count FROM provider_intent_outbox
+      `;
+      assert.equal(jobs[0]?.count, 0);
+    }),
+  );
+});
+
 layer("removed provider data migration", (it) => {
   it.effect("deletes removed-provider threads and connections while retaining live providers", () =>
     Effect.gen(function* () {
@@ -83,6 +122,7 @@ layer("removed provider data migration", (it) => {
         [167, "ProviderAuthCircuits"],
         [168, "ProjectionThreadConnectionSelection"],
         [169, "ProjectionMessageSenderThread"],
+        [170, "ProviderIntentOutbox"],
       ]);
 
       const threads = yield* sql<{ readonly threadId: string }>`
@@ -945,6 +985,7 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [167, "ProviderAuthCircuits"],
         [168, "ProjectionThreadConnectionSelection"],
         [169, "ProjectionMessageSenderThread"],
+        [170, "ProviderIntentOutbox"],
       ]);
 
       const tracker = yield* trackerRows(sql);
