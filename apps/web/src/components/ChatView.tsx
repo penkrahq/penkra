@@ -6218,6 +6218,11 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       step: "composer.preflight",
     });
     await entryCheckpoint?.catch(() => undefined);
+    const sendExpectation = window.desktopBridge?.armSendDiagnosticExpectation?.({
+      ...sendTrace,
+      ...(activeThread ? { threadId: activeThread.id } : {}),
+    });
+    await sendExpectation?.catch(() => undefined);
     const api = readNativeApi();
     const lateSendHandlers = lateComposerSendHandlersRef.current;
     if (!api || !lateSendHandlers || !activeThread || isVoiceTranscribing) {

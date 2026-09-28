@@ -667,6 +667,21 @@ export class DiagnosticsStore {
     return true;
   }
 
+  resolveExpectationsForTrace(
+    traceId: string,
+    kind: ExpectationKind,
+    outcome: "met" | "cancelled" = "met",
+  ): number {
+    this.assertCurrentVersion();
+    validateDiagnosticId(traceId);
+    if (!Object.hasOwn(EXPECTATION_CODES, kind)) throw new TypeError("Unknown expectation kind");
+    const rows = this.database
+      .prepare("SELECT id FROM expectations WHERE trace_id = ? AND kind = ? ORDER BY armed_at")
+      .all(traceId, kind) as Array<{ id: string }>;
+    for (const row of rows) this.resolveExpectation(row.id, outcome);
+    return rows.length;
+  }
+
   sweepExpectations(now = new Date(), afterRestart = false): number {
     this.assertCurrentVersion();
     const due = this.database

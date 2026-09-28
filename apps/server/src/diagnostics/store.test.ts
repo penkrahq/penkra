@@ -45,6 +45,13 @@ describe("diagnostics store", () => {
       flow: "send",
       step: "composer.preflight",
     });
+    desktop.armExpectation({
+      traceId,
+      spanId,
+      threadId: "thread:abc",
+      kind: "send.accepted",
+      deadlineMs: 2_000,
+    });
     store.checkpoint({
       traceId,
       spanId: "1111111111111111",
@@ -52,10 +59,16 @@ describe("diagnostics store", () => {
       flow: "send",
       step: "server.received",
     });
+    expect(store.resolveExpectationsForTrace(traceId, "send.accepted")).toBe(1);
+    expect(store.resolveExpectationsForTrace(traceId, "send.accepted")).toBe(0);
     const db = openDiagnosticsReader(stateDir)!;
     expect(
       db.prepare("SELECT step FROM detail WHERE trace_id = ? ORDER BY id").all(traceId),
-    ).toMatchObject([{ step: "composer.preflight" }, { step: "server.received" }]);
+    ).toMatchObject([
+      { step: "composer.preflight" },
+      { step: "server.received" },
+      { step: "expectation.resolved" },
+    ]);
     db.close();
     desktop.close();
     store.close();

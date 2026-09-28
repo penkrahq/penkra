@@ -74,6 +74,7 @@ import { POSSIBLE_MODEL_CATALOG } from "@penkra/shared/possibleModels";
 import { applyShellEnvironmentHydrationMarker } from "@penkra/shared/shell";
 import { RotatingFileSink } from "@penkra/shared/logging";
 import { DiagnosticsStore, type CheckpointInput } from "@penkra/shared/diagnostics/store";
+import { DIAGNOSTIC_LIMITS } from "@penkra/shared/diagnostics/limits";
 import { ensureStaticSnapshot, findAsarArchivePath } from "@penkra/shared/staticSnapshot";
 import { isBackendReadinessAborted, waitForHttpReady } from "./backendReadiness";
 import { queryAppPermission } from "./appPermissionQuery";
@@ -409,15 +410,19 @@ const BASE_DIR =
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
 let desktopDiagnostics: DiagnosticsStore | null = null;
 
+function getDesktopDiagnosticsStore(): DiagnosticsStore {
+  desktopDiagnostics ??= new DiagnosticsStore({
+    stateDir: STATE_DIR,
+    appVersion: app.getVersion(),
+    process: "desktop-main",
+  });
+  return desktopDiagnostics;
+}
+
 function recordDesktopDiagnosticCheckpoint(input: unknown): void {
   if (!input || typeof input !== "object" || Array.isArray(input)) return;
   try {
-    desktopDiagnostics ??= new DiagnosticsStore({
-      stateDir: STATE_DIR,
-      appVersion: app.getVersion(),
-      process: "desktop-main",
-    });
-    desktopDiagnostics.checkpoint(input as CheckpointInput);
+    getDesktopDiagnosticsStore().checkpoint(input as CheckpointInput);
   } catch {
     process.stderr.write("[diagnostics] desktop checkpoint write failed\n");
   }
@@ -5076,6 +5081,23 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC.diagnosticsCheckpoint, (event, input: unknown) => {
     requireMainRenderer(event);
     recordDesktopDiagnosticCheckpoint(input);
+  });
+  ipcMain.handle(IPC.diagnosticsSendExpectation, (event, input: unknown) => {
+    requireMainRenderer(event);
+    if (!input || typeof input !== "object" || Array.isArray(input)) return;
+    const { traceId, spanId, threadId } = input as Record<string, unknown>;
+    if (typeof traceId !== "string" || typeof spanId !== "string") return;
+    try {
+      getDesktopDiagnosticsStore().armExpectation({
+        traceId,
+        spanId,
+        ...(typeof threadId === "string" ? { threadId } : {}),
+        kind: "send.accepted",
+        deadlineMs: DIAGNOSTIC_LIMITS.sendAcceptedMs,
+      });
+    } catch {
+      process.stderr.write("[diagnostics] desktop expectation arm failed\n");
+    }
   });
   ipcMain.removeListener(IPC.threadApiState, acceptThreadApiState);
   ipcMain.on(IPC.threadApiState, acceptThreadApiState);
