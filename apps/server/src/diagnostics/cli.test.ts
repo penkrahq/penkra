@@ -129,13 +129,14 @@ describe("penkra diagnostics reads", () => {
       path.join(home, "userdata", "diagnostics", "diagnostics.sqlite"),
     );
     secondDb.prepare("UPDATE detail SET payload_json = '{}'").run();
-    secondDb.prepare("UPDATE incidents SET health_json = ?").run('{"message":"secret"}');
+    secondDb.prepare("UPDATE incident_occurrences SET health_json = ?").run('{"message":"secret"}');
     secondDb.close();
     expect(() => queryDiagnostics(["export", "--home-dir", home])).toThrow("not allowlisted");
     const thirdDb = new DatabaseSync(
       path.join(home, "userdata", "diagnostics", "diagnostics.sqlite"),
     );
-    thirdDb.prepare("UPDATE incidents SET health_json = '{}', summary = ?").run("private content");
+    thirdDb.prepare("UPDATE incident_occurrences SET health_json = '{}'").run();
+    thirdDb.prepare("UPDATE incidents SET summary = ?").run("private content");
     thirdDb.close();
     expect(JSON.stringify(queryDiagnostics(["export", "--home-dir", home]))).not.toContain(
       "private content",
