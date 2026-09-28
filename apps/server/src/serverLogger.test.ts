@@ -32,6 +32,8 @@ it("rotates server.log at the configured byte and file limits", async () => {
   const names = fs.readdirSync(directory).sort();
   expect(names).toContain("server.log.1");
   expect(names).not.toContain("server.log.3");
+  expect(names).not.toContain("server.log.2");
+  expect(names.length).toBeLessThanOrEqual(2);
   expect(names.every((name) => fs.statSync(path.join(directory, name)).size <= 240)).toBe(true);
   expect(fs.statSync(filePath).mode & 0o777).toBe(0o600);
   const retained = names

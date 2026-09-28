@@ -21,8 +21,8 @@ export class RotatingFileSink {
     if (options.maxBytes < 1) {
       throw new Error(`maxBytes must be >= 1 (received ${options.maxBytes})`);
     }
-    if (options.maxFiles < 1) {
-      throw new Error(`maxFiles must be >= 1 (received ${options.maxFiles})`);
+    if (options.maxFiles < 0) {
+      throw new Error(`maxFiles must be >= 0 (received ${options.maxFiles})`);
     }
 
     this.filePath = options.filePath;
@@ -65,6 +65,11 @@ export class RotatingFileSink {
 
   private rotate(): void {
     try {
+      if (this.maxFiles === 0) {
+        fs.rmSync(this.filePath, { force: true });
+        this.currentSize = 0;
+        return;
+      }
       const oldest = this.withSuffix(this.maxFiles);
       if (fs.existsSync(oldest)) {
         fs.rmSync(oldest, { force: true });
