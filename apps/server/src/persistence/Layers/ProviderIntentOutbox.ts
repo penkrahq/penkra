@@ -29,6 +29,8 @@ interface RawJobRow {
   readonly claimOwner: string | null;
   readonly claimExpiresAt: string | null;
   readonly attemptCount: number;
+  readonly lastError: string | null;
+  readonly updatedAt: string;
 }
 
 const decodeJobRows = (rows: ReadonlyArray<RawJobRow>) =>
@@ -52,6 +54,8 @@ const decodeJobRows = (rows: ReadonlyArray<RawJobRow>) =>
         claimOwner: row.claimOwner,
         claimExpiresAt: row.claimExpiresAt,
         attemptCount: row.attemptCount,
+        lastError: row.lastError,
+        updatedAt: row.updatedAt,
       })),
     ),
   );
@@ -67,7 +71,8 @@ export const ProviderIntentOutboxLive = Layer.effect(
       lifecycle_generation AS "lifecycleGeneration",
       event_json AS "eventJson", state,
       claim_generation AS "claimGeneration", claim_owner AS "claimOwner",
-      claim_expires_at AS "claimExpiresAt", attempt_count AS "attemptCount"
+      claim_expires_at AS "claimExpiresAt", attempt_count AS "attemptCount",
+      last_error AS "lastError", updated_at AS "updatedAt"
     `;
 
     const getLegacyCutover: ProviderIntentOutboxShape["getLegacyCutover"] = () =>
@@ -241,16 +246,24 @@ export const ProviderIntentOutboxLive = Layer.effect(
         Effect.mapError(toPersistenceSqlError("ProviderIntentOutbox.settleClaim")),
       );
 
-    const countUnsettledThrough: ProviderIntentOutboxShape["countUnsettledThrough"] = (
+    const countDrainableThrough: ProviderIntentOutboxShape["countDrainableThrough"] = (
       throughSequence,
     ) =>
       sql<{ readonly count: number }>`
-          SELECT COUNT(*) AS count FROM provider_intent_outbox
-          WHERE event_sequence <= ${throughSequence}
-            AND state NOT IN ('succeeded', 'abandoned')
+          SELECT COUNT(*) AS count FROM provider_intent_outbox AS job
+          WHERE job.event_sequence <= ${throughSequence}
+            AND (
+              job.state = 'inflight' OR
+              (job.state IN ('pending', 'retry') AND NOT EXISTS (
+                SELECT 1 FROM provider_intent_outbox AS older
+                WHERE older.lane_key = job.lane_key
+                  AND older.event_sequence < job.event_sequence
+                  AND older.state NOT IN ('succeeded', 'abandoned')
+              ))
+            )
         `.pipe(
         Effect.map((rows) => rows[0]?.count ?? 0),
-        Effect.mapError(toPersistenceSqlError("ProviderIntentOutbox.countUnsettledThrough")),
+        Effect.mapError(toPersistenceSqlError("ProviderIntentOutbox.countDrainableThrough")),
       );
 
     const listExpiredClaims: ProviderIntentOutboxShape["listExpiredClaims"] = (now) =>
@@ -268,6 +281,58 @@ export const ProviderIntentOutboxLive = Layer.effect(
             "ProviderIntentOutbox.listExpiredClaims:event",
           ),
         ),
+      );
+
+    const listTerminalBlockers: ProviderIntentOutboxShape["listTerminalBlockers"] = (
+      limit,
+      threadId,
+    ) =>
+      Effect.gen(function* () {
+        const rows = yield* sql<RawJobRow>`
+          SELECT ${jobColumns} FROM provider_intent_outbox
+          WHERE state IN ('dead', 'uncertain')
+            AND (${threadId ?? null} IS NULL OR thread_id = ${threadId ?? null})
+          ORDER BY event_sequence LIMIT ${Math.max(1, Math.min(limit, 500))}
+        `;
+        return yield* decodeJobRows(rows);
+      }).pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "ProviderIntentOutbox.listTerminalBlockers",
+            "ProviderIntentOutbox.listTerminalBlockers:event",
+          ),
+        ),
+      );
+
+    const getJob: ProviderIntentOutboxShape["getJob"] = (eventSequence) =>
+      Effect.gen(function* () {
+        const rows = yield* sql<RawJobRow>`
+          SELECT ${jobColumns} FROM provider_intent_outbox
+          WHERE event_sequence = ${eventSequence}
+        `;
+        const jobs = yield* decodeJobRows(rows);
+        return Option.fromNullishOr(jobs[0]);
+      }).pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "ProviderIntentOutbox.getJob",
+            "ProviderIntentOutbox.getJob:event",
+          ),
+        ),
+      );
+
+    const hasLaterTurnStart: ProviderIntentOutboxShape["hasLaterTurnStart"] = (input) =>
+      sql<{ readonly present: number }>`
+        SELECT EXISTS (
+          SELECT 1 FROM provider_intent_outbox
+          WHERE lane_key = ${input.laneKey}
+            AND event_sequence > ${input.afterSequence}
+            AND event_type IN ('thread.turn-start-requested', 'thread.message-edit-resend-requested')
+            AND state IN ('pending', 'retry')
+        ) AS present
+      `.pipe(
+        Effect.map((rows) => rows[0]?.present === 1),
+        Effect.mapError(toPersistenceSqlError("ProviderIntentOutbox.hasLaterTurnStart")),
       );
 
     const settleExpiredClaim: ProviderIntentOutboxShape["settleExpiredClaim"] = (input) =>
@@ -299,6 +364,36 @@ export const ProviderIntentOutboxLive = Layer.effect(
         Effect.mapError(toPersistenceSqlError("ProviderIntentOutbox.abandonAfterFence")),
       );
 
+    const reconcileTerminal: ProviderIntentOutboxShape["reconcileTerminal"] = (input) =>
+      sql
+        .withTransaction(
+          Effect.gen(function* () {
+            const updated = yield* sql<{ readonly eventSequence: number }>`
+            UPDATE provider_intent_outbox
+            SET state = ${input.outcome === "safe_retry" ? "retry" : input.outcome === "accepted" ? "succeeded" : "abandoned"},
+              completed_at = ${input.outcome === "safe_retry" ? null : input.reconciledAt},
+              updated_at = ${input.reconciledAt}
+            WHERE event_sequence = ${input.eventSequence}
+              AND thread_id = ${input.threadId}
+              AND state = ${input.expectedState}
+            RETURNING event_sequence AS "eventSequence"
+          `;
+            if (updated.length !== 1) return false;
+            yield* sql`
+            INSERT INTO provider_intent_outbox_reconciliations (
+              reconciliation_id, event_sequence, thread_id, previous_state,
+              outcome, reconciled_by, note, reconciled_at
+            ) VALUES (
+              ${input.reconciliationId}, ${input.eventSequence}, ${input.threadId},
+              ${input.expectedState}, ${input.outcome}, ${input.reconciledBy},
+              ${input.note ?? null}, ${input.reconciledAt}
+            )
+          `;
+            return true;
+          }),
+        )
+        .pipe(Effect.mapError(toPersistenceSqlError("ProviderIntentOutbox.reconcileTerminal")));
+
     return {
       getLegacyCutover,
       markLegacyDrained,
@@ -307,10 +402,14 @@ export const ProviderIntentOutboxLive = Layer.effect(
       listRunnableLaneHeads,
       claimLaneHead,
       settleClaim,
-      countUnsettledThrough,
+      countDrainableThrough,
       listExpiredClaims,
+      listTerminalBlockers,
+      getJob,
+      hasLaterTurnStart,
       settleExpiredClaim,
       abandonAfterFence,
+      reconcileTerminal,
     };
   }),
 );

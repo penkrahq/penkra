@@ -9,7 +9,9 @@ import { isProviderIntentEvent } from "./providerIntentClassification.ts";
 
 export type ProviderIntentOutcome =
   | { readonly state: "succeeded" }
-  | { readonly state: "retry" | "dead" | "uncertain"; readonly detail: string };
+  | { readonly state: "retry"; readonly detail: string }
+  | { readonly state: "dead"; readonly detail: string }
+  | { readonly state: "uncertain"; readonly detail: string };
 
 export interface ProviderIntentOutboxWorkerOptions {
   readonly maxActiveLanes?: number;
@@ -26,6 +28,10 @@ export interface ProviderIntentOutboxWorkerOptions {
 export const startProviderIntentOutboxWorker = <E, R>(input: {
   readonly outbox: ProviderIntentOutboxShape;
   readonly process: (job: ProviderIntentOutboxJob) => Effect.Effect<ProviderIntentOutcome, E, R>;
+  readonly onTerminal?: (
+    job: ProviderIntentOutboxJob,
+    outcome: Extract<ProviderIntentOutcome, { readonly state: "dead" | "uncertain" }>,
+  ) => Effect.Effect<void, unknown, R>;
   readonly options?: ProviderIntentOutboxWorkerOptions;
 }): Effect.Effect<void, PersistenceSqlError | PersistenceDecodeError, Scope.Scope | R> =>
   Effect.gen(function* () {
@@ -86,6 +92,9 @@ export const startProviderIntentOutboxWorker = <E, R>(input: {
             laneKey: claimed.laneKey,
             generation: claimed.claimGeneration,
           });
+        }
+        if (settled && (finalOutcome.state === "dead" || finalOutcome.state === "uncertain")) {
+          yield* input.onTerminal?.(claimed, finalOutcome) ?? Effect.void;
         }
       }).pipe(
         Effect.catchCause((cause) =>

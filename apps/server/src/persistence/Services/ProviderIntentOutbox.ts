@@ -3,6 +3,7 @@ import { ServiceMap, type Effect, type Option } from "effect";
 
 import type { PersistenceDecodeError, PersistenceSqlError } from "../Errors.ts";
 import type { ProviderIntentEvent } from "../../orchestration/providerIntentClassification.ts";
+import type { ProviderDeliveryReconciliationOutcome } from "./OrchestrationEventDeliveries.ts";
 
 export interface ProviderIntentOutboxShape {
   readonly getLegacyCutover: () => Effect.Effect<
@@ -47,7 +48,7 @@ export interface ProviderIntentOutboxShape {
     readonly at: string;
     readonly error?: string;
   }) => Effect.Effect<boolean, PersistenceSqlError>;
-  readonly countUnsettledThrough: (
+  readonly countDrainableThrough: (
     throughSequence: number,
   ) => Effect.Effect<number, PersistenceSqlError>;
   readonly listExpiredClaims: (
@@ -56,6 +57,23 @@ export interface ProviderIntentOutboxShape {
     ReadonlyArray<ProviderIntentOutboxJob>,
     PersistenceSqlError | PersistenceDecodeError
   >;
+  readonly listTerminalBlockers: (
+    limit: number,
+    threadId?: string,
+  ) => Effect.Effect<
+    ReadonlyArray<ProviderIntentOutboxJob>,
+    PersistenceSqlError | PersistenceDecodeError
+  >;
+  readonly getJob: (
+    eventSequence: number,
+  ) => Effect.Effect<
+    Option.Option<ProviderIntentOutboxJob>,
+    PersistenceSqlError | PersistenceDecodeError
+  >;
+  readonly hasLaterTurnStart: (input: {
+    readonly laneKey: string;
+    readonly afterSequence: number;
+  }) => Effect.Effect<boolean, PersistenceSqlError>;
   readonly settleExpiredClaim: (input: {
     readonly eventSequence: number;
     readonly owner: string;
@@ -67,6 +85,16 @@ export interface ProviderIntentOutboxShape {
   readonly abandonAfterFence: (input: {
     readonly eventSequence: number;
     readonly at: string;
+  }) => Effect.Effect<boolean, PersistenceSqlError>;
+  readonly reconcileTerminal: (input: {
+    readonly reconciliationId: string;
+    readonly eventSequence: number;
+    readonly threadId: string;
+    readonly expectedState: "dead" | "uncertain";
+    readonly outcome: ProviderDeliveryReconciliationOutcome;
+    readonly reconciledBy: string;
+    readonly note?: string;
+    readonly reconciledAt: string;
   }) => Effect.Effect<boolean, PersistenceSqlError>;
 }
 
@@ -91,6 +119,8 @@ export interface ProviderIntentOutboxJob {
   readonly claimOwner: string | null;
   readonly claimExpiresAt: string | null;
   readonly attemptCount: number;
+  readonly lastError: string | null;
+  readonly updatedAt: string;
 }
 
 export class ProviderIntentOutbox extends ServiceMap.Service<

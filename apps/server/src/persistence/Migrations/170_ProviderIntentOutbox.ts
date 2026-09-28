@@ -60,4 +60,22 @@ export default Effect.gen(function* () {
     ON provider_intent_outbox(state, event_sequence)
     WHERE state IN ('pending', 'retry')
   `;
+  yield* sql`
+    CREATE TABLE IF NOT EXISTS provider_intent_outbox_reconciliations (
+      reconciliation_id TEXT PRIMARY KEY,
+      event_sequence INTEGER NOT NULL,
+      thread_id TEXT NOT NULL,
+      previous_state TEXT NOT NULL CHECK (previous_state IN ('dead', 'uncertain')),
+      outcome TEXT NOT NULL CHECK (outcome IN ('accepted', 'safe_retry', 'abandon')),
+      reconciled_by TEXT NOT NULL,
+      note TEXT,
+      reconciled_at TEXT NOT NULL,
+      FOREIGN KEY (event_sequence) REFERENCES provider_intent_outbox(event_sequence)
+        ON DELETE CASCADE
+    )
+  `;
+  yield* sql`
+    CREATE INDEX IF NOT EXISTS idx_provider_intent_outbox_reconciliations_job
+    ON provider_intent_outbox_reconciliations(event_sequence, reconciled_at DESC)
+  `;
 });
