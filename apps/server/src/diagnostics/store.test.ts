@@ -33,6 +33,26 @@ afterEach(() => {
 });
 
 describe("diagnostics store", () => {
+  it("bounds fresh schema creation before its first SQLite write", () => {
+    const cap = 128 * 1024;
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-diagnostics-"));
+    roots.push(stateDir);
+    expect(
+      () =>
+        new DiagnosticsStore({
+          stateDir,
+          appVersion: "0.14.3",
+          process: "server",
+          maxTotalBytes: cap,
+        }),
+    ).toThrow();
+    const dir = path.join(stateDir, "diagnostics");
+    const bytes = fs.readdirSync(dir).reduce((sum, name) => {
+      const file = path.join(dir, name);
+      return sum + (fs.statSync(file).isFile() ? fs.statSync(file).size : 0);
+    }, 0);
+    expect(bytes).toBeLessThanOrEqual(cap);
+  });
   it("rejects a fabricated all-zero build ID", () => {
     const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-diagnostics-"));
     roots.push(stateDir);
@@ -1201,7 +1221,7 @@ describe("diagnostics store", () => {
   });
 
   it("keeps an unimported recovery spool within the total cap and counts rejected writes", () => {
-    const cap = 320 * 1024;
+    const cap = 384 * 1024;
     const { stateDir, store } = fixture("0.14.3", cap);
     const dir = path.join(stateDir, "diagnostics");
     const diskBytes = () =>
