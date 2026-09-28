@@ -31,6 +31,46 @@ afterEach(() => {
 });
 
 describe("diagnostics store", () => {
+  it("records allowlisted process health and attaches it to incidents", () => {
+    const { stateDir, store } = fixture();
+    store.sampleHealth({ eventLoopLagMs: 12, queueDepth: 3, oldestQueuedMs: 50 });
+    store.incident({
+      traceId,
+      spanId,
+      kind: "command.failed",
+      code: "COMMAND_DISPATCH_TIMEOUT",
+      where: "orchestration.worker",
+      severity: "error",
+    });
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(
+      db.prepare("SELECT process, event_loop_lag_ms, queue_depth FROM health").get(),
+    ).toMatchObject({
+      process: "server",
+      event_loop_lag_ms: 12,
+      queue_depth: 3,
+    });
+    const row = db.prepare("SELECT health_json FROM incidents").get() as { health_json: string };
+    expect(JSON.parse(row.health_json)).toMatchObject({ eventLoopLagMs: 12, queueDepth: 3 });
+    db.close();
+    store.close();
+  });
+  it("thins old health to one sample per process per minute", () => {
+    const { stateDir, store } = fixture();
+    store.sampleHealth({ eventLoopLagMs: 1 });
+    store.sampleHealth({ eventLoopLagMs: 2 });
+    store.sampleHealth({ eventLoopLagMs: 3 });
+    const writer = new DatabaseSync(path.join(stateDir, "diagnostics", "diagnostics.sqlite"));
+    writer
+      .prepare("UPDATE health SET at = ? WHERE id <= 2")
+      .run(new Date(Date.now() - 2 * 86_400_000).toISOString());
+    writer.close();
+    store.prune(new Date(Date.now() + 61_000));
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(db.prepare("SELECT count(*) AS count FROM health").get()).toMatchObject({ count: 2 });
+    db.close();
+    store.close();
+  });
   it("joins desktop and server checkpoints in one trace while both processes are live", () => {
     const { stateDir, store } = fixture();
     const desktop = new DiagnosticsStore({
