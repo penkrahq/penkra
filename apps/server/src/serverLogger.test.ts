@@ -4,12 +4,17 @@ import * as path from "node:path";
 import { Effect, Logger } from "effect";
 import { afterEach, expect, it } from "vitest";
 
-import { makeRotatingServerFileLogger } from "./serverLogger";
+import { makeRotatingServerFileLogger, shouldWriteServerFileLog } from "./serverLogger";
 
 const directories: string[] = [];
 afterEach(() => {
   for (const directory of directories.splice(0))
     fs.rmSync(directory, { recursive: true, force: true });
+});
+
+it("uses the desktop child capture instead of duplicating server.log", () => {
+  expect(shouldWriteServerFileLog({ PENKRA_SERVER_ENTRY: "/tmp/server.mjs" })).toBe(false);
+  expect(shouldWriteServerFileLog({})).toBe(true);
 });
 
 it("rotates server.log at the configured byte and file limits", async () => {
