@@ -70,8 +70,8 @@ function recordsAtBoundary(source: string, boundary: CoverageBoundary): boolean 
 export function validateCoverageBoundaries(
   boundaries: ReadonlyArray<CoverageBoundary>,
   sourceFor: (file: string) => string,
-): Set<string> {
-  const registered = new Set<string>();
+): Map<string, string> {
+  const registered = new Map<string, string>();
   for (const boundary of boundaries) {
     const key = `${boundary.code}:${boundary.where}`;
     if (!isIncidentCode(boundary.code) || registered.has(key))
@@ -81,7 +81,7 @@ export function validateCoverageBoundaries(
       throw new Error(`Invalid diagnostics coverage boundary file: ${boundary.file}`);
     if (!recordsAtBoundary(sourceFor(boundary.file), boundary))
       throw new Error(`Diagnostics coverage boundary does not record ${key}: ${boundary.file}`);
-    registered.add(key);
+    registered.set(key, boundary.file);
   }
   return registered;
 }
@@ -90,10 +90,14 @@ function siteKey(site: FailureSite): string {
   return `${site.file}:${site.line}:${site.kind}`;
 }
 
-function hasCoverageMarker(source: string, line: number, boundaries: ReadonlySet<string>): boolean {
+function hasCoverageMarker(
+  source: string,
+  site: FailureSite,
+  boundaries: ReadonlyMap<string, string>,
+): boolean {
   const lines = source.split(/\r?\n/u);
-  const previous = lines[line - 2] ?? "";
-  const current = lines[line - 1] ?? "";
+  const previous = lines[site.line - 2] ?? "";
+  const current = lines[site.line - 1] ?? "";
   const markerPattern =
     /(?:\/\/|\/\*)\s*diagnostics-(covered|propagates):\s*([A-Z][A-Z0-9_]*)(?:\s+([a-z][a-z0-9._-]*))?/u;
   const marker =
@@ -102,7 +106,8 @@ function hasCoverageMarker(source: string, line: number, boundaries: ReadonlySet
   if (!marker || !isIncidentCode(marker[2]!)) return false;
   try {
     validateDiagnosticToken(marker[3] ?? "", "where");
-    return boundaries.has(`${marker[2]}:${marker[3]}`);
+    const recordingFile = boundaries.get(`${marker[2]}:${marker[3]}`);
+    return Boolean(recordingFile && (marker[1] === "propagates" || recordingFile === site.file));
   } catch {
     return false;
   }
@@ -113,7 +118,7 @@ export function uncoveredFailureSites(
   sites: ReadonlyArray<FailureSite>,
   sourceFor: (file: string) => string,
   exceptions: ReadonlyArray<CoverageException>,
-  boundaries: ReadonlySet<string> = new Set(),
+  boundaries: ReadonlyMap<string, string> = new Map(),
 ): FailureSite[] {
   const known = new Set(sites.map(siteKey));
   const reviewed = new Set<string>();
@@ -145,7 +150,7 @@ export function uncoveredFailureSites(
     }
     return (
       lineCounts.get(`${site.file}:${site.line}`) !== 1 ||
-      !hasCoverageMarker(source, site.line, boundaries)
+      !hasCoverageMarker(source, site, boundaries)
     );
   });
 }
