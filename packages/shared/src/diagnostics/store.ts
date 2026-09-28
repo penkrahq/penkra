@@ -227,6 +227,53 @@ function totalBytes(dir: string): number {
   }, 0);
 }
 
+const LOSS_LEDGER_BYTES = 256;
+type LossReason = "capacity" | "sqlite" | "spool";
+
+function lossLedgerPath(dir: string, bootId: string): string {
+  return path.join(dir, `loss-${bootId}.bin`);
+}
+
+function writeLossLedger(file: string, count: number, reason: LossReason): void {
+  const content = Buffer.from(JSON.stringify({ count, reason }));
+  if (content.length > LOSS_LEDGER_BYTES) throw new Error("Diagnostics loss ledger overflow");
+  const handle = fs.openSync(file, fs.existsSync(file) ? "r+" : "w+", 0o600);
+  try {
+    const record = Buffer.alloc(LOSS_LEDGER_BYTES, 0x20);
+    content.copy(record);
+    fs.writeSync(handle, record, 0, record.length, 0);
+    fs.fsyncSync(handle);
+  } finally {
+    fs.closeSync(handle);
+  }
+}
+
+function recordLoss(dir: string, bootId: string, reason: LossReason): void {
+  const file = lossLedgerPath(dir, bootId);
+  try {
+    const previous = JSON.parse(fs.readFileSync(file, "utf8").trim()) as { count: number };
+    writeLossLedger(file, previous.count + 1, reason);
+  } catch {
+    process.stderr.write("[diagnostics] durable loss count unavailable\n");
+  }
+}
+
+function readLossLedger(file: string): { count: number; reason: LossReason } | null {
+  try {
+    const row = JSON.parse(fs.readFileSync(file, "utf8").trim()) as {
+      count: number;
+      reason: LossReason;
+    };
+    return Number.isSafeInteger(row.count) &&
+      row.count >= 0 &&
+      ["capacity", "sqlite", "spool"].includes(row.reason)
+      ? row
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function withLifecycleLock<T>(dir: string, action: () => T): T {
   const lockDir = path.join(dir, ".lifecycle-lock");
   const sleeper = new Int32Array(new SharedArrayBuffer(4));
@@ -708,6 +755,7 @@ export class DiagnosticsStore {
         JSON.stringify({ pid: process.pid, process: options.process }),
         { mode: 0o600 },
       );
+      writeLossLedger(lossLedgerPath(this.dir, this.bootId), 0, "capacity");
       return crashedProcesses;
     });
     this.sweepExpectations(new Date(), true);
@@ -722,6 +770,7 @@ export class DiagnosticsStore {
         actual: { count: crashedProcesses },
       });
     }
+    this.reportLosses();
   }
 
   private assertCurrentVersion(): void {
@@ -828,7 +877,43 @@ export class DiagnosticsStore {
         severity: "warn",
         actual: { count: crashed },
       });
+    this.reportLosses();
     return crashed;
+  }
+
+  private reportLosses(): void {
+    for (const entry of fs.readdirSync(this.dir)) {
+      if (!/^loss-[a-f0-9]{32}\.bin$/u.test(entry)) continue;
+      const bootId = entry.slice(5, -4);
+      const loss = readLossLedger(path.join(this.dir, entry));
+      if (!loss || loss.count === 0) continue;
+      const key = `loss-reported:${bootId}`;
+      const reported = this.database.prepare("SELECT value FROM meta WHERE key = ?").get(key) as
+        | { value: string }
+        | undefined;
+      const delta = loss.count - Number(reported?.value ?? 0);
+      if (delta <= 0) continue;
+      try {
+        this.incident({
+          traceId: randomBytes(16).toString("hex"),
+          spanId: randomBytes(8).toString("hex"),
+          kind: "diagnostics.degraded",
+          code: loss.reason === "capacity" ? "DIAGNOSTICS_CAP_REACHED" : "DIAGNOSTICS_WRITE_FAILED",
+          where: "diagnostics.write",
+          severity: "error",
+          actual: { count: delta },
+          context: { bootId, reason: loss.reason },
+        });
+        withLifecycleLock(this.dir, () => {
+          this.assertCurrentVersion();
+          this.database
+            .prepare("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)")
+            .run(key, String(loss.count));
+        });
+      } catch {
+        // The preallocated ledger remains the durable source until space is available.
+      }
+    }
   }
 
   private write(type: SpoolEnvelope["type"], data: CheckpointInput | IncidentInput): void {
@@ -837,23 +922,33 @@ export class DiagnosticsStore {
 
   private writeLocked(type: SpoolEnvelope["type"], data: CheckpointInput | IncidentInput): void {
     this.assertCurrentVersion();
+    const reportFailure =
+      type !== "incident" || (data as IncidentInput).kind !== "diagnostics.degraded";
     this.prune();
     const event = prepareEnvelope(this.bootId, ++this.sequence, this.options.process, type, data);
     const line = `${JSON.stringify(event)}\n`;
     const bytes = Buffer.byteLength(line);
+    const reserve = bytes * 2 + 64 * 1024;
+    this.prune(new Date(), Math.max(0, this.maxTotalBytes - reserve));
     const currentSpoolBytes = fs.existsSync(this.spoolPath) ? fs.statSync(this.spoolPath).size : 0;
     if (
       currentSpoolBytes + bytes > this.maxSpoolBytes ||
-      totalBytes(this.dir) + bytes > this.maxTotalBytes
+      totalBytes(this.dir) + reserve > this.maxTotalBytes
     ) {
+      if (reportFailure) recordLoss(this.dir, this.bootId, "capacity");
       throw new Error("Diagnostics capacity reached");
     }
-    const handle = fs.openSync(this.spoolPath, "a", 0o600);
     try {
-      fs.writeSync(handle, line);
-      fs.fsyncSync(handle);
-    } finally {
-      fs.closeSync(handle);
+      const handle = fs.openSync(this.spoolPath, "a", 0o600);
+      try {
+        fs.writeSync(handle, line);
+        fs.fsyncSync(handle);
+      } finally {
+        fs.closeSync(handle);
+      }
+    } catch (cause) {
+      if (reportFailure) recordLoss(this.dir, this.bootId, "spool");
+      throw cause;
     }
     this.database.exec("BEGIN IMMEDIATE");
     try {
@@ -896,10 +991,15 @@ export class DiagnosticsStore {
       this.database.exec("COMMIT");
     } catch (cause) {
       this.database.exec("ROLLBACK");
+      if (reportFailure) recordLoss(this.dir, this.bootId, "sqlite");
       throw cause;
     }
     fs.truncateSync(this.spoolPath, 0);
-    this.prune();
+    this.prune(new Date(), this.maxTotalBytes);
+    if (totalBytes(this.dir) > this.maxTotalBytes) {
+      if (reportFailure) recordLoss(this.dir, this.bootId, "capacity");
+      throw new Error("Diagnostics capacity reached");
+    }
   }
 
   checkpoint(data: CheckpointInput): void {
@@ -1223,7 +1323,7 @@ export class DiagnosticsStore {
       : null;
   }
 
-  prune(now = new Date()): void {
+  prune(now = new Date(), targetBytes = this.maxTotalBytes * DIAGNOSTIC_LIMITS.pruneAtRatio): void {
     if (now.getTime() - this.lastHealthThinAt >= 60_000) {
       const healthCutoff = new Date(
         now.getTime() - DIAGNOSTIC_LIMITS.healthThinAfterMs,
@@ -1239,30 +1339,47 @@ export class DiagnosticsStore {
     const cutoff = new Date(
       now.getTime() - DIAGNOSTIC_LIMITS.incidentDays * 86_400_000,
     ).toISOString();
-    this.database.prepare("DELETE FROM incidents WHERE last_at < ?").run(cutoff);
-    const threshold = this.maxTotalBytes * DIAGNOSTIC_LIMITS.pruneAtRatio;
-    if (totalBytes(this.dir) <= threshold) return;
-    for (let i = 0; i < 1_000 && totalBytes(this.dir) > threshold; i++) {
+    const expired = this.database
+      .prepare("DELETE FROM incident_occurrences WHERE at < ?")
+      .run(cutoff);
+    if (expired.changes > 0) this.recountIncidents();
+    if (totalBytes(this.dir) <= targetBytes) return;
+    for (let i = 0; i < 100_000 && totalBytes(this.dir) > targetBytes; i++) {
       const result = this.database
         .prepare(`DELETE FROM detail WHERE id IN (
-        SELECT id FROM detail WHERE pinned_until IS NULL OR pinned_until < ? ORDER BY at LIMIT 100
+        SELECT id FROM detail WHERE NOT EXISTS (
+          SELECT 1 FROM incident_occurrences o
+          WHERE detail.at BETWEEN o.pin_from AND o.pin_until
+        ) ORDER BY at LIMIT 100
       )`)
-        .run(now.toISOString());
+        .run();
       if (result.changes === 0) {
         const health = this.database
           .prepare("DELETE FROM health WHERE id IN (SELECT id FROM health ORDER BY at LIMIT 100)")
           .run();
         if (health.changes === 0) {
-          const incident = this.database
-            .prepare(
-              "DELETE FROM incidents WHERE id IN (SELECT id FROM incidents ORDER BY last_at LIMIT 10)",
-            )
+          const occurrence = this.database
+            .prepare(`DELETE FROM incident_occurrences WHERE id IN (
+              SELECT id FROM incident_occurrences ORDER BY at, id LIMIT 10
+            )`)
             .run();
-          if (incident.changes === 0) break;
+          if (occurrence.changes === 0) break;
+          this.recountIncidents();
         }
       }
       this.database.exec("PRAGMA incremental_vacuum(100); PRAGMA wal_checkpoint(TRUNCATE);");
     }
+  }
+
+  private recountIncidents(): void {
+    this.database.exec(`UPDATE incidents SET
+      count = (SELECT COUNT(*) FROM incident_occurrences o WHERE o.incident_id = incidents.id),
+      first_at = (SELECT MIN(at) FROM incident_occurrences o WHERE o.incident_id = incidents.id),
+      last_at = (SELECT MAX(at) FROM incident_occurrences o WHERE o.incident_id = incidents.id)
+      WHERE EXISTS (SELECT 1 FROM incident_occurrences o WHERE o.incident_id = incidents.id);
+      DELETE FROM incidents WHERE NOT EXISTS (
+        SELECT 1 FROM incident_occurrences o WHERE o.incident_id = incidents.id
+      );`);
   }
 
   close(): void {
@@ -1310,6 +1427,7 @@ export class DiagnosticsSpoolWriter {
         JSON.stringify({ pid: process.pid, process: options.process }),
         { mode: 0o600 },
       );
+      writeLossLedger(lossLedgerPath(this.dir, this.bootId), 0, "capacity");
     });
   }
 
@@ -1325,14 +1443,21 @@ export class DiagnosticsSpoolWriter {
         spoolBytes + bytes >
           (this.options.maxSpoolBytes ?? DIAGNOSTIC_LIMITS.spoolBytesPerProcess) ||
         totalBytes(this.dir) + bytes > (this.options.maxTotalBytes ?? DIAGNOSTIC_LIMITS.totalBytes)
-      )
+      ) {
+        recordLoss(this.dir, this.bootId, "capacity");
         throw new Error("Diagnostics capacity reached");
-      const handle = fs.openSync(this.spoolPath, "a", 0o600);
+      }
       try {
-        fs.writeSync(handle, line);
-        fs.fsyncSync(handle);
-      } finally {
-        fs.closeSync(handle);
+        const handle = fs.openSync(this.spoolPath, "a", 0o600);
+        try {
+          fs.writeSync(handle, line);
+          fs.fsyncSync(handle);
+        } finally {
+          fs.closeSync(handle);
+        }
+      } catch (cause) {
+        recordLoss(this.dir, this.bootId, "spool");
+        throw cause;
       }
     });
   }
