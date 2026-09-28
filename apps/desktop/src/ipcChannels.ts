@@ -14,6 +14,7 @@ export const DESKTOP_IPC_CHANNELS = {
   contextMenu: "desktop:context-menu",
   openExternal: "desktop:open-external",
   showInFolder: "desktop:show-in-folder",
+  diagnosticsCheckpoint: "desktop:diagnostics-checkpoint",
   resourceOpen: "desktop:resource-open",
   resourceContextMenu: "desktop:resource-context-menu",
   clipboardWriteImage: "desktop:clipboard-write-image",

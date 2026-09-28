@@ -4,6 +4,22 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./diagnostics/codes": {
+      "types": "./src/diagnostics/codes.ts",
+      "import": "./src/diagnostics/codes.ts"
+    },
+    "./diagnostics/limits": {
+      "types": "./src/diagnostics/limits.ts",
+      "import": "./src/diagnostics/limits.ts"
+    },
+    "./diagnostics/privacy": {
+      "types": "./src/diagnostics/privacy.ts",
+      "import": "./src/diagnostics/privacy.ts"
+    },
+    "./diagnostics/store": {
+      "types": "./src/diagnostics/store.ts",
+      "import": "./src/diagnostics/store.ts"
+    },
     "./traceContext": {
       "types": "./src/traceContext.ts",
       "import": "./src/traceContext.ts"

@@ -73,6 +73,7 @@ import { NetService } from "@penkra/shared/Net";
 import { POSSIBLE_MODEL_CATALOG } from "@penkra/shared/possibleModels";
 import { applyShellEnvironmentHydrationMarker } from "@penkra/shared/shell";
 import { RotatingFileSink } from "@penkra/shared/logging";
+import { DiagnosticsStore, type CheckpointInput } from "@penkra/shared/diagnostics/store";
 import { ensureStaticSnapshot, findAsarArchivePath } from "@penkra/shared/staticSnapshot";
 import { isBackendReadinessAborted, waitForHttpReady } from "./backendReadiness";
 import { queryAppPermission } from "./appPermissionQuery";
@@ -406,6 +407,21 @@ const BASE_DIR =
   process.env.PENKRA_HOME?.trim() ||
   Path.join(OS.homedir(), desktopIdentity.defaultHomeDirectoryName);
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
+let desktopDiagnostics: DiagnosticsStore | null = null;
+
+function recordDesktopDiagnosticCheckpoint(input: unknown): void {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return;
+  try {
+    desktopDiagnostics ??= new DiagnosticsStore({
+      stateDir: STATE_DIR,
+      appVersion: app.getVersion(),
+      process: "desktop-main",
+    });
+    desktopDiagnostics.checkpoint(input as CheckpointInput);
+  } catch {
+    process.stderr.write("[diagnostics] desktop checkpoint write failed\n");
+  }
+}
 const DESKTOP_WINDOW_STATE_PATH = Path.join(STATE_DIR, "desktop-window-state.json");
 const DESKTOP_SCHEME = desktopIdentity.scheme;
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
@@ -4981,6 +4997,12 @@ async function shutdownDesktopRuntime(
       cancelBackendReadinessWait();
       await disposeAppCommandPipeServerForShutdown(reason);
       restoreStdIoCapture?.();
+      try {
+        desktopDiagnostics?.close();
+      } catch {
+        process.stderr.write("[diagnostics] desktop close failed\n");
+      }
+      desktopDiagnostics = null;
       desktopShutdownComplete = true;
       writeDesktopLogHeader(`${reason} shutdown complete`);
     },
@@ -5051,6 +5073,10 @@ function registerIpcHandlers(): void {
       throw new Error("Composer drafts are available only to the Penkra shell.");
     }
   };
+  ipcMain.handle(IPC.diagnosticsCheckpoint, (event, input: unknown) => {
+    requireMainRenderer(event);
+    recordDesktopDiagnosticCheckpoint(input);
+  });
   ipcMain.removeListener(IPC.threadApiState, acceptThreadApiState);
   ipcMain.on(IPC.threadApiState, acceptThreadApiState);
   ipcMain.removeAllListeners(IPC.threadHomeView);

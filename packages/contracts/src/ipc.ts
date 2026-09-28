@@ -734,6 +734,14 @@ export interface DesktopComposerDraftsBridge {
 
 export interface DesktopBridge {
   getWsUrl: () => string | null;
+  recordDiagnosticCheckpoint?: (input: {
+    traceId: string;
+    spanId: string;
+    threadId?: string;
+    commandId?: string;
+    flow: string;
+    step: string;
+  }) => Promise<void>;
   /**
    * Absolute filesystem path for a File from drag/drop or file inputs.
    * Electron only (`webUtils.getPathForFile`). Returns null when unavailable.
