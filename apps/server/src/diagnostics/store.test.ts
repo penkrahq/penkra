@@ -1188,6 +1188,29 @@ describe("diagnostics store", () => {
     resumed.close();
   });
 
+  it("refuses spool startup before marker files exceed the total cap", () => {
+    const { stateDir, store } = fixture();
+    const dir = path.join(stateDir, "diagnostics");
+    const diskBytes = () =>
+      fs.readdirSync(dir).reduce((sum, name) => {
+        const file = path.join(dir, name);
+        return sum + (fs.statSync(file).isFile() ? fs.statSync(file).size : 0);
+      }, 0);
+    const cap = diskBytes() + 128;
+    expect(
+      () =>
+        new DiagnosticsSpoolWriter({
+          stateDir,
+          appVersion: "0.14.3",
+          process: "desktop-main",
+          maxTotalBytes: cap,
+        }),
+    ).toThrow("capacity");
+    expect(diskBytes()).toBeLessThanOrEqual(cap);
+    expect(fs.readdirSync(dir).filter((name) => name.startsWith("spool-identity-"))).toEqual([]);
+    store.close();
+  });
+
   it("keeps separate durable counts for each write failure reason", () => {
     const { stateDir, store } = fixture();
     const peer = new DiagnosticsSpoolWriter({

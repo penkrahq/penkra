@@ -1994,14 +1994,23 @@ export class DiagnosticsSpoolWriter {
       this.stale = !runningBundleIsInstalled(options);
       // Only the SQLite owner resets on an update. A desktop process may start
       // first; its current spool must survive the server's later reset.
-      fs.writeFileSync(path.join(this.dir, `spool-identity-${this.bootId}.json`), this.identity, {
+      const marker = path.join(this.dir, `spool-identity-${this.bootId}.json`);
+      const active = JSON.stringify({
+        pid: process.pid,
+        process: options.process,
+        stale: this.stale,
+      });
+      const needed =
+        Buffer.byteLength(this.identity) +
+        Buffer.byteLength(active) +
+        (this.stale ? 2 : 0) +
+        LOSS_LEDGER_BYTES;
+      if (totalBytes(this.dir) + needed > (options.maxTotalBytes ?? DIAGNOSTIC_LIMITS.totalBytes))
+        throw new Error("Diagnostics capacity reached before spool startup");
+      fs.writeFileSync(marker, this.identity, {
         mode: 0o600,
       });
-      fs.writeFileSync(
-        this.activePath,
-        JSON.stringify({ pid: process.pid, process: options.process, stale: this.stale }),
-        { mode: 0o600 },
-      );
+      fs.writeFileSync(this.activePath, active, { mode: 0o600 });
       if (this.stale)
         fs.writeFileSync(path.join(this.dir, `stale-${this.bootId}.json`), "{}", { mode: 0o600 });
       writeLossLedger(lossLedgerPath(this.dir, this.bootId), emptyLossCounts(), "capacity");
@@ -2012,11 +2021,21 @@ export class DiagnosticsSpoolWriter {
     withLifecycleLock(this.dir, () => {
       if (!runningBundleIsInstalled(this.options)) this.stale = true;
       const marker = path.join(this.dir, `spool-identity-${this.bootId}.json`);
+      const stalePath = path.join(this.dir, `stale-${this.bootId}.json`);
+      const markerBytes = fs.existsSync(marker) ? 0 : Buffer.byteLength(this.identity);
+      const staleBytes = this.stale && !fs.existsSync(stalePath) ? 2 : 0;
+      if (
+        totalBytes(this.dir) + markerBytes + staleBytes >
+        (this.options.maxTotalBytes ?? DIAGNOSTIC_LIMITS.totalBytes)
+      ) {
+        recordLoss(this.dir, this.bootId, "capacity");
+        throw new Error("Diagnostics capacity reached before spool marker");
+      }
       if (!fs.existsSync(marker)) fs.writeFileSync(marker, this.identity, { mode: 0o600 });
       if (fs.readFileSync(marker, "utf8") !== this.identity)
         throw new Error("Diagnostics spool identity changed");
       if (this.stale) {
-        fs.writeFileSync(path.join(this.dir, `stale-${this.bootId}.json`), "{}", { mode: 0o600 });
+        fs.writeFileSync(stalePath, "{}", { mode: 0o600 });
       }
       const event = prepareEnvelope(this.bootId, ++this.sequence, this.options.process, type, data);
       const line = `${JSON.stringify(event)}\n`;
