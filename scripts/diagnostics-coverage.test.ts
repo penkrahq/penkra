@@ -21,12 +21,24 @@ describe("diagnostics failure inventory", () => {
   it("finds catches, throws, rejected effects and timeouts by syntax", () => {
     const source = `
       try { throw new Error("failed") } catch (cause) { Effect.catch(handle) }
+      Promise.resolve().catch(handle); Effect.catchTag("Error", handle);
       Effect.fail("failed"); Effect.die("failed"); Promise.reject("failed");
       Effect.timeout(task, 1000); setTimeout(done, 1000);
       const text = "throw new Error and setTimeout(";
     `;
     expect(scanFailureSites("apps/server/src/example.ts", source).map((site) => site.kind)).toEqual(
-      ["throw", "catch", "catch", "rejection", "rejection", "rejection", "timeout", "timeout"],
+      [
+        "throw",
+        "catch",
+        "catch",
+        "catch",
+        "catch",
+        "rejection",
+        "rejection",
+        "rejection",
+        "timeout",
+        "timeout",
+      ],
     );
   });
 

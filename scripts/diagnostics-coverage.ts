@@ -158,10 +158,16 @@ export function uncoveredFailureSites(
 function callKind(node: ts.CallExpression): FailureSiteKind | null {
   const callee = node.expression;
   if (ts.isIdentifier(callee) && callee.text === "setTimeout") return "timeout";
-  if (!ts.isPropertyAccessExpression(callee) || !ts.isIdentifier(callee.expression)) return null;
-  const owner = callee.expression.text;
+  if (!ts.isPropertyAccessExpression(callee)) return null;
   const method = callee.name.text;
-  if (owner === "Effect" && ["catch", "catchAll", "catchCause"].includes(method)) return "catch";
+  if (method === "catch") return "catch";
+  if (!ts.isIdentifier(callee.expression)) return null;
+  const owner = callee.expression.text;
+  if (
+    owner === "Effect" &&
+    ["catchAll", "catchCause", "catchIf", "catchTag", "catchTags"].includes(method)
+  )
+    return "catch";
   if (owner === "Effect" && method === "timeout") return "timeout";
   if (
     (owner === "Effect" && ["fail", "die", "try"].includes(method)) ||
