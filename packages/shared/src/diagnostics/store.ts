@@ -376,6 +376,70 @@ function readLossLedger(
   }
 }
 
+interface ResetLossManifest {
+  bootId: string;
+  spools: Record<string, number>;
+  ledgers: Record<string, number>;
+}
+
+function resetLossPath(dir: string): string {
+  return path.join(dir, "reset-loss.json");
+}
+
+function readResetLossManifest(dir: string): ResetLossManifest {
+  const file = resetLossPath(dir);
+  if (!fs.existsSync(file))
+    return { bootId: randomBytes(16).toString("hex"), spools: {}, ledgers: {} };
+  const manifest = JSON.parse(fs.readFileSync(file, "utf8")) as ResetLossManifest;
+  if (
+    !/^[a-f0-9]{32}$/u.test(manifest.bootId) ||
+    ![manifest.spools, manifest.ledgers].every(
+      (counts) =>
+        counts &&
+        typeof counts === "object" &&
+        Object.entries(counts).every(
+          ([bootId, count]) =>
+            /^[a-f0-9]{32}$/u.test(bootId) && Number.isSafeInteger(count) && count >= 0,
+        ),
+    )
+  )
+    throw new Error("Invalid diagnostics reset loss manifest");
+  return manifest;
+}
+
+function writeResetLossManifest(dir: string, manifest: ResetLossManifest): void {
+  const file = resetLossPath(dir);
+  const temporary = `${file}.tmp`;
+  const handle = fs.openSync(temporary, "w", 0o600);
+  try {
+    fs.writeFileSync(handle, JSON.stringify(manifest));
+    fs.fsyncSync(handle);
+  } finally {
+    fs.closeSync(handle);
+  }
+  fs.renameSync(temporary, file);
+  const directory = fs.openSync(dir, "r");
+  try {
+    fs.fsyncSync(directory);
+  } finally {
+    fs.closeSync(directory);
+  }
+}
+
+function flushResetLossManifest(dir: string): void {
+  if (!fs.existsSync(resetLossPath(dir))) return;
+  const manifest = readResetLossManifest(dir);
+  const count = [...Object.values(manifest.spools), ...Object.values(manifest.ledgers)].reduce(
+    (sum, value) => sum + value,
+    0,
+  );
+  const file = lossLedgerPath(dir, manifest.bootId);
+  const reasons = (fs.existsSync(file) ? readLossLedger(file)?.reasons : null) ?? emptyLossCounts();
+  reasons.stale = Math.max(reasons.stale, count);
+  writeLossLedger(file, reasons, "stale");
+  fs.rmSync(resetLossPath(dir), { force: true });
+}
+
 function withLifecycleLock<T>(dir: string, action: () => T): T {
   const lockDir = path.join(dir, ".lifecycle-lock");
   const sleeper = new Int32Array(new SharedArrayBuffer(4));
@@ -975,9 +1039,8 @@ export class DiagnosticsStore {
         compare(oldVersion, options.appVersion) > 0
       )
         throw new Error("Diagnostics store belongs to a newer app version");
-      let staleDropped = 0;
       if (previousIdentity !== this.identity) {
-        const keep = new Set<string>([".lifecycle-lock"]);
+        const keep = new Set<string>([".lifecycle-lock", "reset-loss.json"]);
         for (const name of fs.readdirSync(this.dir)) {
           const match = /^spool-identity-([a-f0-9]{32})\.json$/u.exec(name);
           if (!match) continue;
@@ -996,16 +1059,27 @@ export class DiagnosticsStore {
           ])
             keep.add(related);
         }
+        const manifest = readResetLossManifest(this.dir);
         for (const name of fs.readdirSync(this.dir)) {
           if (keep.has(name)) continue;
-          if (!/^spool-[a-f0-9]{32}\.jsonl$/u.test(name)) continue;
-          const bootId = name.slice(6, -6);
-          if (!fs.existsSync(path.join(this.dir, `stale-${bootId}.json`))) continue;
-          staleDropped += fs
-            .readFileSync(path.join(this.dir, name), "utf8")
-            .split("\n")
-            .filter(Boolean).length;
+          const spool = /^spool-([a-f0-9]{32})\.jsonl$/u.exec(name);
+          if (spool) {
+            const bootId = spool[1]!;
+            const count = fs
+              .readFileSync(path.join(this.dir, name), "utf8")
+              .split("\n")
+              .filter(Boolean).length;
+            manifest.spools[bootId] = Math.max(manifest.spools[bootId] ?? 0, count);
+          }
+          const ledger = /^loss-([a-f0-9]{32})\.bin$/u.exec(name);
+          if (ledger) {
+            const bootId = ledger[1]!;
+            const count = readLossLedger(path.join(this.dir, name))?.count ?? 0;
+            manifest.ledgers[bootId] = Math.max(manifest.ledgers[bootId] ?? 0, count);
+          }
         }
+        if (Object.keys(manifest.spools).length + Object.keys(manifest.ledgers).length > 0)
+          writeResetLossManifest(this.dir, manifest);
         for (const entry of fs.readdirSync(this.dir)) {
           if (!keep.has(entry))
             fs.rmSync(path.join(this.dir, entry), { recursive: true, force: true });
@@ -1027,6 +1101,7 @@ export class DiagnosticsStore {
         fs.writeFileSync(identityPath, this.identity, { mode: 0o600 });
       }
       this.database = db;
+      flushResetLossManifest(this.dir);
       const crashedProcesses = this.importSpoolsLocked();
       fs.writeFileSync(
         this.activePath,
@@ -1034,7 +1109,7 @@ export class DiagnosticsStore {
         { mode: 0o600 },
       );
       writeLossLedger(lossLedgerPath(this.dir, this.bootId), emptyLossCounts(), "capacity");
-      return { crashedProcesses, staleDropped };
+      return { crashedProcesses };
     });
     this.sweepExpectations(new Date(), true);
     if (startup.crashedProcesses > 0) {
@@ -1046,18 +1121,6 @@ export class DiagnosticsStore {
         where: "diagnostics.spool_import",
         severity: "warn",
         actual: { count: startup.crashedProcesses },
-      });
-    }
-    if (startup.staleDropped > 0) {
-      this.incident({
-        traceId: randomBytes(16).toString("hex"),
-        spanId: randomBytes(8).toString("hex"),
-        kind: "diagnostics.degraded",
-        code: "DIAGNOSTICS_DROPPED",
-        where: "diagnostics.write",
-        severity: "warn",
-        actual: { count: startup.staleDropped },
-        context: { reason: "stale" },
       });
     }
     this.reportLosses();

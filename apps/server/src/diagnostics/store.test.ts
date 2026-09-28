@@ -141,6 +141,90 @@ describe("diagnostics store", () => {
     desktop.close();
     server.close();
   });
+  it("persists stale spool and loss counts before an update reset", () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-diagnostics-"));
+    roots.push(stateDir);
+    const bundlePath = path.join(stateDir, "app.asar");
+    fs.writeFileSync(bundlePath, "first bundle");
+    const signature = () => {
+      const stats = fs.statSync(bundlePath);
+      return { size: stats.size, mtimeMs: stats.mtimeMs, inode: stats.ino };
+    };
+    const oldOptions = {
+      stateDir,
+      appVersion: "0.14.3",
+      buildId: "aaaaaaa",
+      bundlePath,
+      bundleSignature: signature(),
+      process: "server" as const,
+    };
+    new DiagnosticsStore(oldOptions).close();
+    const replacement = path.join(stateDir, "replacement.asar");
+    fs.writeFileSync(replacement, "second bundle");
+    fs.renameSync(replacement, bundlePath);
+    const stale = new DiagnosticsSpoolWriter({ ...oldOptions, process: "desktop-main" });
+    stale.checkpoint({ traceId, spanId, flow: "send", step: "composer.preflight" });
+    fs.writeFileSync(
+      path.join(stateDir, "diagnostics", `loss-${stale.bootId}.bin`),
+      JSON.stringify({
+        count: 2,
+        reason: "capacity",
+        reasons: { capacity: 2, sqlite: 0, spool: 0, stale: 0 },
+      }).padEnd(256, " "),
+    );
+    const currentOptions = { ...oldOptions, buildId: "bbbbbbb", bundleSignature: signature() };
+    const current = new DiagnosticsStore(currentOptions);
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(db.prepare("SELECT code, actual_json FROM incidents").get()).toMatchObject({
+      code: "DIAGNOSTICS_DROPPED",
+      actual_json: '{"count":3}',
+    });
+    db.close();
+    current.close();
+    const restarted = new DiagnosticsStore(currentOptions);
+    const afterRestart = openDiagnosticsReader(stateDir)!;
+    expect(
+      afterRestart.prepare("SELECT code, actual_json, count FROM incidents").get(),
+    ).toMatchObject({
+      code: "DIAGNOSTICS_DROPPED",
+      actual_json: '{"count":3}',
+      count: 1,
+    });
+    afterRestart.close();
+    restarted.close();
+    stale.close();
+  });
+  it("recovers a reset loss manifest left by a crashed startup", () => {
+    const { stateDir, store } = fixture();
+    store.close();
+    const manifestPath = path.join(stateDir, "diagnostics", "reset-loss.json");
+    fs.writeFileSync(
+      manifestPath,
+      JSON.stringify({
+        bootId: "abcdabcdabcdabcdabcdabcdabcdabcd",
+        spools: { deadbeefdeadbeefdeadbeefdeadbeef: 2 },
+        ledgers: {},
+      }),
+    );
+    const resumed = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
+    expect(fs.existsSync(manifestPath)).toBe(false);
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(db.prepare("SELECT code, actual_json FROM incidents").get()).toMatchObject({
+      code: "DIAGNOSTICS_DROPPED",
+      actual_json: '{"count":2}',
+    });
+    db.close();
+    resumed.close();
+    const restarted = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
+    const afterRestart = openDiagnosticsReader(stateDir)!;
+    expect(
+      afterRestart.prepare("SELECT count(*) AS count FROM incident_occurrences").get(),
+    ).toMatchObject({
+      count: 1,
+    });
+    afterRestart.close();
+    restarted.close();
+  });
   it("copies last-changed-by provenance into a related incident", () => {
     const { stateDir, store } = fixture();
     store.setProvenance({
@@ -706,7 +790,9 @@ describe("diagnostics store", () => {
     const next = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
     expect(fs.existsSync(oldSpool)).toBe(false);
     const db = openDiagnosticsReader(stateDir)!;
-    expect(db.prepare("SELECT count(*) AS count FROM incidents").get()).toMatchObject({ count: 0 });
+    expect(db.prepare("SELECT code, actual_json FROM incidents").all()).toEqual([
+      { code: "DIAGNOSTICS_DROPPED", actual_json: '{"count":1}' },
+    ]);
     expect(db.prepare("SELECT value FROM meta WHERE key='app_version'").get()).toMatchObject({
       value: "0.14.3",
     });
