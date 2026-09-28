@@ -39,6 +39,7 @@ import {
 } from "./targetResolver.ts";
 import { ToolInputError, errorText } from "./toolInput.ts";
 import { GatewayToolError, gatewayToolErrorResult } from "./toolRuntime.ts";
+import { recordGatewayCreateFailure } from "./createFailureDiagnostics.ts";
 
 const REQUEST_FINGERPRINT_VERSION = 1;
 const CREATION_PLAN_SCHEMA_VERSION = 1;
@@ -460,6 +461,7 @@ export const makeCreateThreadHandler = Effect.fn(function* (
 
         const provenance = extractGatewayErrorProvenance(error);
         const retainedThread = dispatchAttempted;
+        recordGatewayCreateFailure(idsForError.threadId, retainedThread);
         const diagnosticWrite: Effect.Effect<"retained" | "write-failed" | null> = retainedThread
           ? diagnostics
               .recordOperationalDiagnostic({

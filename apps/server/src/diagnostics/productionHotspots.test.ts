@@ -10,6 +10,7 @@ import { expectIncidentOccurrences } from "./testHelpers";
 import { recordWsResnapshot, recordWsStreamDrop } from "./wsStream";
 import { makeSyncAcknowledgements } from "../wsSyncAcknowledgements";
 import { makeWsStreamAdmission } from "../wsStreamAdmission";
+import { recordGatewayCreateFailure } from "../agentGateway/createFailureDiagnostics";
 import {
   recordMcpAuthorityRejected,
   recordMcpScopeDenied,
@@ -35,6 +36,22 @@ afterEach(() => {
 });
 
 describe("production failure incidents", () => {
+  it("records gateway creation failure with only a retained thread ID", () => {
+    const { stateDir, close } = fixture();
+    recordGatewayCreateFailure("thread-3", true);
+    expectIncidentOccurrences(stateDir, "APP_OPERATION_FAILED");
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(
+      db.prepare("SELECT thread_id, where_name, expected_json, actual_json FROM incidents").get(),
+    ).toMatchObject({
+      thread_id: "thread-3",
+      where_name: "agent.mcp_write",
+      expected_json: '{"accepted":true}',
+      actual_json: '{"accepted":false}',
+    });
+    db.close();
+    close();
+  });
   it("records stream loss and resnapshot without an arbitrary stream label", () => {
     const { stateDir, close } = fixture();
     recordWsStreamDrop({ threadId: "thread-3", capacity: 100, droppedAtLeast: 4 });
