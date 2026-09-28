@@ -114,7 +114,7 @@ function safeJson(key: string, value: unknown): unknown {
       typeof env.buildId !== "string" ||
       !/^[a-f0-9]{7,64}$/u.test(env.buildId) ||
       !["production", "dev", "test"].includes(env.channel as string) ||
-      !["macos", "windows", "linux", "other"].includes(env.osFamily as string) ||
+      !["darwin", "windows", "linux"].includes(env.osFamily as string) ||
       !Number.isSafeInteger(env.osMajor) ||
       (env.osMajor as number) < 0
     ) {
