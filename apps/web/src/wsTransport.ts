@@ -35,11 +35,12 @@ import {
   type WsPushChannel,
   type WsPushMessage,
   type WsBootstrapNegotiateResult,
+  type DiagnosticTraceContext,
 } from "@penkra/contracts";
 import { Cause, Data, Effect, Exit, Layer, ManagedRuntime, Schema, Scope, Stream } from "effect";
 import { RpcClient, RpcClientError, RpcSerialization } from "effect/unstable/rpc";
 import * as Socket from "effect/unstable/socket/Socket";
-import { startDiagnosticTrace } from "@penkra/shared/traceContext";
+import { retryDiagnosticAttempt, startDiagnosticTrace } from "@penkra/shared/traceContext";
 
 import { APP_VERSION } from "./branding";
 import type { WsTransportState } from "./wsTransportEvents";
@@ -543,7 +544,7 @@ export class WsTransport {
             ? params
             : (params as { command: unknown }).command
           : (params ?? {});
-      const normalizedRpcInput = omitNullUserInputAnswers(rpcInput);
+      let normalizedRpcInput = omitNullUserInputAnswers(rpcInput);
       while (true) {
         const call = (
           client as unknown as Record<
@@ -593,6 +594,20 @@ export class WsTransport {
             error,
           });
           client = await awaitWithAbort(this.reconnect(), abortScope.signal);
+          if (
+            method === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+            normalizedRpcInput &&
+            typeof normalizedRpcInput === "object" &&
+            "diagnostics" in normalizedRpcInput &&
+            normalizedRpcInput.diagnostics
+          ) {
+            normalizedRpcInput = {
+              ...normalizedRpcInput,
+              diagnostics: retryDiagnosticAttempt(
+                normalizedRpcInput.diagnostics as DiagnosticTraceContext,
+              ),
+            };
+          }
         }
       }
     } catch (error) {

@@ -1137,7 +1137,10 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         for (const nextEvent of admittedEventBases) {
           const savedEvent = yield* eventStore.append(nextEvent);
           if (isProviderIntentEvent(savedEvent)) {
-            yield* providerIntentOutbox.enqueueInCurrentTransaction(savedEvent);
+            yield* providerIntentOutbox.enqueueInCurrentTransaction(
+              savedEvent,
+              envelope.diagnosticTrace,
+            );
           }
           nextCommandReadModel = yield* projectEvent(nextCommandReadModel, savedEvent);
           if (isShellMetadataEvent(savedEvent)) {

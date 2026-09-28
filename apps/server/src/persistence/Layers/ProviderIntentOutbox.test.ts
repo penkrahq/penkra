@@ -1,4 +1,4 @@
-import { EventId, ThreadId } from "@penkra/contracts";
+import { EventId, ThreadId, type DiagnosticTraceContext } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Deferred, Effect, Layer } from "effect";
 import { TestClock } from "effect/testing";
@@ -60,10 +60,13 @@ layer("ProviderIntentOutbox", (it) => {
         const releaseA = yield* Deferred.make<void>();
         const aTwoEntered = yield* Deferred.make<void>();
         const bEntered = yield* Deferred.make<void>();
+        let firstAttemptTrace: DiagnosticTraceContext | undefined;
+        let firstSettledTrace: DiagnosticTraceContext | undefined;
         yield* startProviderIntentOutboxWorker({
           outbox,
-          process: (job) =>
-            job.eventId === "event-a-one"
+          process: (job, trace) => {
+            if (job.eventId === "event-a-one") firstAttemptTrace = trace;
+            return job.eventId === "event-a-one"
               ? Deferred.succeed(aEntered, undefined).pipe(
                   Effect.andThen(Deferred.await(releaseA)),
                   Effect.as({ state: "succeeded" as const }),
@@ -74,7 +77,12 @@ layer("ProviderIntentOutbox", (it) => {
                   )
                 : Deferred.succeed(bEntered, undefined).pipe(
                     Effect.as({ state: "succeeded" as const }),
-                  ),
+                  );
+          },
+          onSettled: (job, _outcome, trace) =>
+            Effect.sync(() => {
+              if (job.eventId === "event-a-one") firstSettledTrace = trace;
+            }),
           options: { pollIntervalMs: 10, maxActiveLanes: 2 },
         }).pipe(Effect.forkScoped);
 
@@ -87,6 +95,8 @@ layer("ProviderIntentOutbox", (it) => {
         yield* Deferred.succeed(releaseA, undefined);
         yield* TestClock.adjust("100 millis");
         yield* Deferred.await(aTwoEntered);
+        assert.equal(firstAttemptTrace?.attemptId, firstSettledTrace?.attemptId);
+        assert.equal(firstAttemptTrace?.spanId, firstSettledTrace?.spanId);
       }),
     ),
   );
@@ -97,6 +107,11 @@ layer("ProviderIntentOutbox", (it) => {
       const events = yield* OrchestrationEventStore;
       const outbox = yield* ProviderIntentOutbox;
       const now = "2026-09-28T00:00:00.000Z";
+      const diagnosticTrace = {
+        traceId: "11111111111111111111111111111111",
+        spanId: "2222222222222222",
+        attemptId: "3333333333333333",
+      };
       yield* sql`DELETE FROM provider_intent_outbox`;
       const cutover = yield* outbox.getLegacyCutover();
       assert.equal(cutover.drainedAt, null);
@@ -135,7 +150,7 @@ layer("ProviderIntentOutbox", (it) => {
           if (!isProviderIntentEvent(event)) {
             return yield* Effect.die(new Error("Expected a provider intent"));
           }
-          yield* outbox.enqueueInCurrentTransaction(event);
+          yield* outbox.enqueueInCurrentTransaction(event, diagnosticTrace);
           return event;
         });
 
@@ -143,6 +158,7 @@ layer("ProviderIntentOutbox", (it) => {
       const childNext = yield* sql.withTransaction(appendIntent("evt-child-next", "lane-child"));
       const fork = yield* sql.withTransaction(appendIntent("evt-fork", "lane-fork"));
       const jobs = yield* outbox.readPending(10);
+      assert.deepStrictEqual(jobs[0]?.diagnosticTrace, diagnosticTrace);
       assert.deepStrictEqual(
         jobs.map((job) => [job.eventSequence, job.laneKey, job.event.eventId]),
         [
