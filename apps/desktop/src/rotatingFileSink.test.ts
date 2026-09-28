@@ -20,6 +20,15 @@ afterEach(() => {
 });
 
 describe("RotatingFileSink", () => {
+  it("can keep only the current file", () => {
+    const dir = makeTempDir();
+    const logPath = path.join(dir, "single.log");
+    const sink = new RotatingFileSink({ filePath: logPath, maxBytes: 4, maxFiles: 0 });
+    sink.write("aaaa");
+    sink.write("bbbb");
+    expect(fs.readdirSync(dir)).toEqual(["single.log"]);
+    expect(fs.readFileSync(logPath, "utf8")).toBe("bbbb");
+  });
   it("rotates when writes exceed max bytes", () => {
     const dir = makeTempDir();
     const logPath = path.join(dir, "desktop-main.log");

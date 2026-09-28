@@ -14,7 +14,7 @@ export function makeRotatingServerFileLogger(
   const sink = new RotatingFileSink({
     filePath: serverLogPath,
     maxBytes,
-    maxFiles,
+    maxFiles: Math.max(0, maxFiles - 1),
     mode: 0o600,
     throwOnError: true,
   });
