@@ -39,6 +39,7 @@ import {
 import { Cause, Data, Effect, Exit, Layer, ManagedRuntime, Schema, Scope, Stream } from "effect";
 import { RpcClient, RpcClientError, RpcSerialization } from "effect/unstable/rpc";
 import * as Socket from "effect/unstable/socket/Socket";
+import { startDiagnosticTrace } from "@penkra/shared/traceContext";
 
 import { APP_VERSION } from "./branding";
 import type { WsTransportState } from "./wsTransportEvents";
@@ -792,21 +793,76 @@ export class WsTransport {
 
   private async withConnectionAttemptTimeout(
     clientPromise: Promise<RpcClientInstance>,
+    attempt = 0,
   ): Promise<RpcClientInstance> {
+    const trace = startDiagnosticTrace();
+    const startedAt = performance.now();
+    const checkpoint = (step: string, outcome?: "ok" | "failed" | "timed_out") => {
+      const pending = window.desktopBridge?.recordDiagnosticCheckpoint?.({
+        ...trace,
+        flow: "socket_connect",
+        step,
+        ...(outcome ? { outcome, elapsedMs: Math.round(performance.now() - startedAt) } : {}),
+      });
+      void pending?.catch(() => undefined);
+    };
+    const incident = (
+      code: "WS_HANDSHAKE_SLOW" | "WS_RECONNECT_LOOP",
+      expected: Record<string, number | boolean>,
+      actual: Record<string, number | boolean>,
+    ) => {
+      const pending = window.desktopBridge?.recordDiagnosticIncident?.({
+        ...trace,
+        kind: code === "WS_HANDSHAKE_SLOW" ? "timeout" : "limit.exceeded",
+        code,
+        where: "browser.socket_connect",
+        severity: "error",
+        expected,
+        actual,
+        lastCheckpoint: "socket.handshake_started",
+      });
+      void pending?.catch(() => undefined);
+    };
+    checkpoint("socket.handshake_started");
     let timeoutId: number | undefined;
+    let timedOut = false;
     // Closing a timed-out scope can settle the raw client promise later. The
     // bounded attempt owns that settlement so it never becomes unhandled.
     void clientPromise.catch(() => undefined);
     try {
-      return await Promise.race([
+      const client = await Promise.race([
         clientPromise,
         new Promise<never>((_, reject) => {
-          timeoutId = window.setTimeout(
-            () => reject(new Error("WebSocket connection attempt timed out.")),
-            WS_RECONNECT_ATTEMPT_TIMEOUT_MS,
-          );
+          timeoutId = window.setTimeout(() => {
+            timedOut = true;
+            reject(new Error("WebSocket connection attempt timed out."));
+          }, WS_RECONNECT_ATTEMPT_TIMEOUT_MS);
         }),
       ]);
+      checkpoint("socket.handshake_open", "ok");
+      const elapsedMs = Math.round(performance.now() - startedAt);
+      if (elapsedMs > WS_RECONNECT_ATTEMPT_TIMEOUT_MS) {
+        incident(
+          "WS_HANDSHAKE_SLOW",
+          { deadlineMs: WS_RECONNECT_ATTEMPT_TIMEOUT_MS },
+          { elapsedMs },
+        );
+      }
+      return client;
+    } catch (error) {
+      if (!this.disposed) {
+        checkpoint("socket.handshake_failed", timedOut ? "timed_out" : "failed");
+        if (timedOut) {
+          incident(
+            "WS_HANDSHAKE_SLOW",
+            { deadlineMs: WS_RECONNECT_ATTEMPT_TIMEOUT_MS },
+            { elapsedMs: Math.round(performance.now() - startedAt), attempt },
+          );
+        } else if (attempt === 3) {
+          incident("WS_RECONNECT_LOOP", { connected: true }, { connected: false, attempt });
+        }
+      }
+      throw error;
     } finally {
       if (timeoutId !== undefined) window.clearTimeout(timeoutId);
     }
@@ -928,7 +984,10 @@ export class WsTransport {
       const session = this.createSession();
       this.runtime = session.runtime;
       this.clientScope = session.clientScope;
-      this.clientPromise = this.withConnectionAttemptTimeout(session.clientPromise);
+      this.clientPromise = this.withConnectionAttemptTimeout(
+        session.clientPromise,
+        this.reconnectFailures,
+      );
 
       try {
         // A WebSocket open can remain pending across an embedded-backend restart.

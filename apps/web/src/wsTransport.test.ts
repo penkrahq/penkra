@@ -917,6 +917,13 @@ describe("WsTransport", () => {
   it("moves a hung initial connection into the reconnect path", async () => {
     vi.useFakeTimers();
     try {
+      const recordDiagnosticCheckpoint = vi.fn().mockResolvedValue(undefined);
+      const recordDiagnosticIncident = vi.fn().mockResolvedValue(undefined);
+      window.desktopBridge = {
+        getWsUrl: () => null,
+        recordDiagnosticCheckpoint,
+        recordDiagnosticIncident,
+      } as never;
       window.setTimeout = globalThis.setTimeout.bind(globalThis);
       window.clearTimeout = globalThis.clearTimeout.bind(globalThis);
       const transport = new WsTransport();
@@ -943,6 +950,19 @@ describe("WsTransport", () => {
 
       await expect(client).resolves.toBe(recoveredClient);
       expect(reconnect).toHaveBeenCalledTimes(1);
+      expect(recordDiagnosticCheckpoint).toHaveBeenCalledWith(
+        expect.objectContaining({
+          flow: "socket_connect",
+          step: "socket.handshake_started",
+        }),
+      );
+      expect(recordDiagnosticIncident).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: "WS_HANDSHAKE_SLOW",
+          where: "browser.socket_connect",
+          expected: { deadlineMs: WS_RECONNECT_ATTEMPT_TIMEOUT_MS },
+        }),
+      );
       await transport.dispose();
     } finally {
       vi.useRealTimers();
