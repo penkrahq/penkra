@@ -32,6 +32,10 @@ export const startProviderIntentOutboxWorker = <E, R>(input: {
     job: ProviderIntentOutboxJob,
     outcome: Extract<ProviderIntentOutcome, { readonly state: "dead" | "uncertain" }>,
   ) => Effect.Effect<void, unknown, R>;
+  readonly onSettled?: (
+    job: ProviderIntentOutboxJob,
+    outcome: ProviderIntentOutcome,
+  ) => Effect.Effect<void, unknown, R>;
   readonly options?: ProviderIntentOutboxWorkerOptions;
 }): Effect.Effect<void, PersistenceSqlError | PersistenceDecodeError, Scope.Scope | R> =>
   Effect.gen(function* () {
@@ -92,6 +96,9 @@ export const startProviderIntentOutboxWorker = <E, R>(input: {
             laneKey: claimed.laneKey,
             generation: claimed.claimGeneration,
           });
+        }
+        if (settled) {
+          yield* input.onSettled?.(claimed, finalOutcome) ?? Effect.void;
         }
         if (settled && (finalOutcome.state === "dead" || finalOutcome.state === "uncertain")) {
           yield* input.onTerminal?.(claimed, finalOutcome) ?? Effect.void;

@@ -12,6 +12,7 @@ import type {
   AuthSessionState,
   AuthWebSocketTokenResult,
 } from "./auth";
+import type { DiagnosticTraceContext } from "./diagnostics";
 import type { ProviderConnectionId } from "./baseSchemas";
 import type {
   ProjectCreateLocalFilePreviewGrantInput,
@@ -1076,7 +1077,10 @@ export interface NativeApi {
       input: OrchestrationGetPendingStartOutcomeInput,
     ) => Promise<OrchestrationGetPendingStartOutcomeResult>;
     acknowledgeSync: (input: OrchestrationAcknowledgeSyncInput) => Promise<void>;
-    dispatchCommand: (command: ClientOrchestrationCommand) => Promise<{ sequence: number }>;
+    dispatchCommand: (
+      command: ClientOrchestrationCommand,
+      diagnostics?: DiagnosticTraceContext,
+    ) => Promise<{ sequence: number }>;
     importThread: (
       input: OrchestrationImportThreadInput,
     ) => Promise<OrchestrationImportThreadResult>;

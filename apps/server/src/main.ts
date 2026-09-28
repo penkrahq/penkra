@@ -48,6 +48,7 @@ import { ProviderNativeStateDeletionCoordinator } from "./provider/Services/Prov
 import { Server } from "./effectServer";
 import { ServerLoggerLive } from "./serverLogger";
 import { DiagnosticsStore } from "./diagnostics/store";
+import { installDiagnosticsStore } from "./diagnostics/recorder";
 import { version as serverPackageVersion } from "../package.json" with { type: "json" };
 import { ServerSettingsService } from "./serverSettings";
 import { formatHostForUrl, isLoopbackHost, isWildcardHost } from "./startupAccess";
@@ -409,6 +410,10 @@ const makeServerProgram = (input: CliInput) => {
           }),
       ),
       (store) => Effect.sync(() => store.close()),
+    );
+    yield* Effect.acquireRelease(
+      Effect.sync(() => installDiagnosticsStore(diagnostics)),
+      (uninstall) => Effect.sync(uninstall),
     );
     const bootTraceId = randomBytes(16).toString("hex");
     yield* Effect.sync(() =>

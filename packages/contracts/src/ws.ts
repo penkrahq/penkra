@@ -24,6 +24,7 @@ import {
   OrchestrationGetSnapshotInput,
   OrchestrationReplayEventsInput,
 } from "./orchestration";
+import { DiagnosticTraceContext } from "./diagnostics";
 import {
   TerminalAckOutputInput,
   TerminalClearInput,
@@ -192,7 +193,10 @@ const WebSocketRequestBody = Schema.Union([
   // Orchestration methods
   tagRequestBody(
     ORCHESTRATION_WS_METHODS.dispatchCommand,
-    Schema.Struct({ command: ClientOrchestrationCommand }),
+    Schema.Struct({
+      command: ClientOrchestrationCommand,
+      diagnostics: Schema.optional(DiagnosticTraceContext),
+    }),
   ),
   tagRequestBody(ORCHESTRATION_WS_METHODS.importThread, OrchestrationImportThreadInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.getSnapshot, OrchestrationGetSnapshotInput),

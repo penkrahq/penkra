@@ -23,8 +23,8 @@ export interface DiagnosticsOptions {
 export interface DiagnosticContext {
   readonly traceId: string;
   readonly spanId: string;
-  readonly parentSpanId?: string;
-  readonly attemptId?: string;
+  readonly parentSpanId?: string | undefined;
+  readonly attemptId?: string | undefined;
   readonly threadId?: string;
   readonly turnId?: string;
   readonly commandId?: string;
@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS detail (
 );
 CREATE INDEX IF NOT EXISTS detail_trace_at ON detail(trace_id, at);
 CREATE INDEX IF NOT EXISTS detail_thread_at ON detail(thread_id, at);
+CREATE INDEX IF NOT EXISTS detail_command_id ON detail(command_id, at);
 CREATE INDEX IF NOT EXISTS detail_at ON detail(at);
 CREATE TABLE IF NOT EXISTS incidents (
   id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL UNIQUE, kind TEXT NOT NULL,
@@ -560,6 +561,32 @@ export class DiagnosticsStore {
 
   incident(data: IncidentInput): void {
     this.write("incident", data);
+  }
+
+  traceForCommand(commandId: string): DiagnosticContext | null {
+    validateDiagnosticId(commandId);
+    const row = this.database
+      .prepare(`SELECT trace_id, span_id, attempt_id, thread_id, turn_id
+      FROM detail WHERE command_id = ? ORDER BY id LIMIT 1`)
+      .get(commandId) as
+      | {
+          trace_id: string;
+          span_id: string;
+          attempt_id: string | null;
+          thread_id: string | null;
+          turn_id: string | null;
+        }
+      | undefined;
+    return row
+      ? {
+          traceId: row.trace_id,
+          spanId: row.span_id,
+          commandId,
+          ...(row.attempt_id ? { attemptId: row.attempt_id } : {}),
+          ...(row.thread_id ? { threadId: row.thread_id } : {}),
+          ...(row.turn_id ? { turnId: row.turn_id } : {}),
+        }
+      : null;
   }
 
   prune(now = new Date()): void {

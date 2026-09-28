@@ -48,6 +48,8 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { deriveServerPaths, ServerConfig } from "../../config.ts";
+import { DiagnosticsStore, openDiagnosticsReader } from "../../diagnostics/store.ts";
+import { installDiagnosticsStore } from "../../diagnostics/recorder.ts";
 import { TextGenerationError } from "../../textGeneration/Errors.ts";
 import {
   ProviderAdapterProcessError,
@@ -177,6 +179,8 @@ async function waitFor(
 }
 
 describe("ProviderCommandReactor", () => {
+  let diagnosticsStore: DiagnosticsStore | null = null;
+  let uninstallDiagnostics: (() => void) | null = null;
   let runtime: ManagedRuntime.ManagedRuntime<
     OrchestrationEngineService | ProviderCommandReactor | ProviderRuntimeIngestionService,
     unknown
@@ -186,6 +190,10 @@ describe("ProviderCommandReactor", () => {
   const createdBaseDirs = new Set<string>();
 
   afterEach(async () => {
+    uninstallDiagnostics?.();
+    uninstallDiagnostics = null;
+    diagnosticsStore?.close();
+    diagnosticsStore = null;
     if (scope) {
       await Effect.runPromise(Scope.close(scope, Exit.void));
     }
@@ -3427,6 +3435,20 @@ describe("ProviderCommandReactor", () => {
 
   it("reacts to thread.turn.start by ensuring session and sending provider turn", async () => {
     const harness = await createHarness();
+    diagnosticsStore = new DiagnosticsStore({
+      stateDir: harness.stateDir,
+      appVersion: "0.14.3",
+      process: "server",
+    });
+    uninstallDiagnostics = installDiagnosticsStore(diagnosticsStore);
+    const traceId = "0123456789abcdef0123456789abcdef";
+    diagnosticsStore.checkpoint({
+      traceId,
+      spanId: "0123456789abcdef",
+      commandId: "cmd-turn-start-1",
+      flow: "send",
+      step: "server.received",
+    });
     const now = new Date().toISOString();
 
     await Effect.runPromise(
@@ -3461,6 +3483,46 @@ describe("ProviderCommandReactor", () => {
     const thread = await readHarnessThread(harness);
     expect(thread?.session?.threadId).toBe("thread-1");
     expect(thread?.session?.runtimeMode).toBe("approval-required");
+    await waitFor(() => {
+      const db = openDiagnosticsReader(harness.stateDir)!;
+      try {
+        return Boolean(
+          db
+            .prepare(
+              "SELECT 1 FROM detail WHERE step = 'provider.intent_settled' AND command_id = 'cmd-turn-start-1'",
+            )
+            .get(),
+        );
+      } finally {
+        db.close();
+      }
+    });
+    const db = openDiagnosticsReader(harness.stateDir)!;
+    const accepted = db
+      .prepare(
+        "SELECT step, trace_id, command_id FROM detail WHERE step = 'provider.call_accepted' AND command_id = 'cmd-turn-start-1'",
+      )
+      .all();
+    expect(accepted).toMatchObject([{ command_id: "cmd-turn-start-1", trace_id: traceId }]);
+    const rows = db
+      .prepare("SELECT step, trace_id, command_id FROM detail WHERE command_id = ? ORDER BY id")
+      .all("cmd-turn-start-1") as Array<{
+      step: string;
+      trace_id: string;
+      command_id: string | null;
+    }>;
+    expect(rows.map((row) => row.step)).toEqual(
+      expect.arrayContaining([
+        "server.received",
+        "command.queued",
+        "provider.intent_claimed",
+        "provider.call_started",
+        "provider.call_accepted",
+        "provider.intent_settled",
+      ]),
+    );
+    expect(rows.every((row) => row.trace_id === traceId)).toBe(true);
+    db.close();
   });
 
   it("routes subagent-thread turn starts to the parent session as steers", async () => {
