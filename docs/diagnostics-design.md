@@ -34,7 +34,7 @@ Builds on:
 ### 0.14.3 decisions
 
 1. Ship the complete design in 0.14.3, including all failure sites in the inventory and all listed flows. The P1/P2/P3 labels set implementation order, not release exclusions.
-2. Every installed app update deletes the entire diagnostics database and every process spool before recording the new installation's events, including a rebuild installed with the same version number. The reset identity is the installed version, build ID, and an installer update generation; version text alone is insufficient. No unresolved incident or pinned detail carries over. An older process must never reset a newer installation's store.
+2. Every installed app update deletes the entire diagnostics database and every process spool before recording the new installation's events, including a rebuild installed with the same version number. The reset identity is the app version, commit hash, and bundle signature; version text alone is insufficient. No unresolved incident or pinned detail carries over. A stale process must never reset the installed bundle's store.
 3. Every failure site is in scope, including paths outside the named flows. A site is covered only when its failure decision produces an incident with a stable code and enough allowlisted evidence to explain the cause.
 4. Do not import rows from `operational_diagnostics` or `provider_runtime_diagnostic_episodes`. Existing producers write to the new store from cutover onward. The old rows remain in the main database until normal database retention removes them; they are not diagnostic history for this version.
 
@@ -43,8 +43,13 @@ Builds on:
 The database is `userdata/diagnostics/diagnostics.sqlite`. An interprocess
 diagnostics lifecycle lock serializes the installation identity check, reset,
 database creation, spool import, and each write's identity check. A process
-from an older installation must stop writing after the new installation claims
-the store. All timestamps are UTC
+whose running bundle identity differs from the bundle currently installed on
+disk is stale: it cannot reset or write SQLite. It may write only its own spool,
+marked stale; the current process counts those records as dropped with a reason
+and does not import them. A packaged process re-reads the installed bundle
+identity before each lifecycle operation. Only a process whose running identity
+matches it may reset when the store identity differs. Dev and unpackaged builds
+have no installed bundle, so their running identity is authoritative. All timestamps are UTC
 ISO 8601, durations are integer milliseconds, identifiers are text, and structured
 fields are JSON objects validated against the privacy allowlist before entering a
 spool. A spool record has a version, process boot ID, monotonically increasing
@@ -503,11 +508,12 @@ includes the last durable sequence and a bounded loss/gap count when known.
 - **Detail:** kept until space is needed. For a pruning window, measured production volume (~1.2 MB/day of text today) suggests days to weeks of full detail. We will measure the real rate in Dev before fixing any numbers.
 - **Detail around an incident:** the detail from 10 minutes before to 2 minutes after each occurrence is pinned while that occurrence remains. Under cap pressure, evict the oldest occurrence and its pinned window together, with a retained eviction count. Provenance links reach causes older than that window.
 - **Incidents:** 90 days.
-- **On app update: a full reset.** The installer advances an update generation,
-  including for a same-version rebuild. The first process for that installation
-  deletes all diagnostics (database, spools and loss ledgers) under the lifecycle
-  lock before recording anything. `meta` records version, build, generation and
-  reset time. Older processes cannot reset or append to the new installation.
+- **On app update: a full reset.** The first process whose own running identity
+  matches the currently installed bundle reads its app version, commit hash and
+  bundle signature, then deletes all diagnostics (database, spools and loss
+  ledgers) under the lifecycle lock if that identity differs from the store.
+  `meta` records the identity and reset time. A stale process cannot reset or
+  write SQLite; its marked spool is counted as dropped rather than imported.
 
 ## Noise cleanup (part of the same work)
 
