@@ -1,6 +1,11 @@
 import { Effect } from "effect";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 
+import { installDiagnosticsStore } from "./diagnostics/recorder";
+import { DiagnosticsStore, openDiagnosticsReader } from "./diagnostics/store";
 import { makeSyncAcknowledgements } from "./wsSyncAcknowledgements";
 
 describe("makeSyncAcknowledgements", () => {
@@ -69,6 +74,37 @@ describe("makeSyncAcknowledgements", () => {
       ),
     ).rejects.toMatchObject({ code: "SYNC_ACKNOWLEDGEMENT_AHEAD" });
     await Effect.runPromise(lease.close);
+  });
+
+  it("records a refused acknowledgement ahead of delivery", async () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-sync-ack-"));
+    const store = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
+    const uninstall = installDiagnosticsStore(store);
+    try {
+      const acknowledgements = makeSyncAcknowledgements();
+      const lease = await Effect.runPromise(acknowledgements.open(7));
+      await Effect.runPromise(lease.recordDelivery(9));
+      await expect(
+        Effect.runPromise(
+          acknowledgements.acknowledge(7, { deliveryId: lease.deliveryId, appliedSequence: 10 }),
+        ),
+      ).rejects.toMatchObject({ code: "SYNC_ACKNOWLEDGEMENT_AHEAD" });
+      const db = openDiagnosticsReader(stateDir)!;
+      expect(
+        db.prepare("SELECT code, where_name, expected_json, actual_json FROM incidents").get(),
+      ).toMatchObject({
+        code: "COMMAND_REJECTED",
+        where_name: "server.sync_ack",
+        expected_json: '{"sequence":9}',
+        actual_json: '{"sequence":10,"clientId":7}',
+      });
+      db.close();
+      await Effect.runPromise(lease.close);
+    } finally {
+      uninstall();
+      store.close();
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
   });
 
   it("supersedes the old connection lease without waiting for an in-flight cursor", async () => {
