@@ -456,6 +456,26 @@ describe("diagnostics store", () => {
     next.close();
   });
 
+  it("rejects a late old process without erasing the new version", () => {
+    const { stateDir, store } = fixture("0.14.3");
+    store.checkpoint({ traceId, spanId, flow: "send", step: "server.received" });
+    const databasePath = path.join(stateDir, "diagnostics", "diagnostics.sqlite");
+    const before = fs.statSync(databasePath).size;
+    expect(
+      () => new DiagnosticsSpoolWriter({ stateDir, appVersion: "0.14.2", process: "desktop-main" }),
+    ).toThrow("newer app version");
+    expect(
+      () => new DiagnosticsStore({ stateDir, appVersion: "0.14.2", process: "server" }),
+    ).toThrow("newer app version");
+    expect(fs.statSync(databasePath).size).toBe(before);
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(db.prepare("SELECT step FROM detail").all()).toMatchObject([
+      { step: "server.received" },
+    ]);
+    db.close();
+    store.close();
+  });
+
   it("replays an orphaned spool once and marks the unclean shutdown", () => {
     const { stateDir, store } = fixture();
     store.close();

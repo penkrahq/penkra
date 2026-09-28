@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { compare, valid } from "semver";
 
 import { isIncidentCode, type IncidentCode } from "./codes";
 import { DIAGNOSTIC_LIMITS } from "./limits";
@@ -631,6 +632,8 @@ export class DiagnosticsStore {
     this.database = withLifecycleLock(this.dir, () => {
       const versionPath = path.join(this.dir, "version");
       const oldVersion = fs.existsSync(versionPath) ? fs.readFileSync(versionPath, "utf8") : null;
+      if (oldVersion && valid(oldVersion) && compare(oldVersion, options.appVersion) > 0)
+        throw new Error("Diagnostics store belongs to a newer app version");
       if (oldVersion !== options.appVersion) {
         for (const entry of fs.readdirSync(this.dir)) {
           if (entry !== ".lifecycle-lock")
@@ -1242,6 +1245,8 @@ export class DiagnosticsSpoolWriter {
     withLifecycleLock(this.dir, () => {
       const versionPath = path.join(this.dir, "version");
       const oldVersion = fs.existsSync(versionPath) ? fs.readFileSync(versionPath, "utf8") : null;
+      if (oldVersion && valid(oldVersion) && compare(oldVersion, options.appVersion) > 0)
+        throw new Error("Diagnostics store belongs to a newer app version");
       if (oldVersion !== options.appVersion) {
         for (const entry of fs.readdirSync(this.dir)) {
           if (entry !== ".lifecycle-lock")
