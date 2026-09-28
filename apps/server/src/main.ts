@@ -7,6 +7,7 @@
  * @module CliConfig
  */
 import OS from "node:os";
+import { randomBytes } from "node:crypto";
 import { Config, Data, Effect, FileSystem, Layer, Option, Path, Schema, ServiceMap } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 import { NetService } from "@penkra/shared/Net";
@@ -46,6 +47,8 @@ import { ProviderConnectionLoginCoordinator } from "./provider/Services/Provider
 import { ProviderNativeStateDeletionCoordinator } from "./provider/Services/ProviderNativeStateDeletionCoordinator";
 import { Server } from "./effectServer";
 import { ServerLoggerLive } from "./serverLogger";
+import { DiagnosticsStore } from "./diagnostics/store";
+import { version as serverPackageVersion } from "../package.json" with { type: "json" };
 import { ServerSettingsService } from "./serverSettings";
 import { formatHostForUrl, isLoopbackHost, isWildcardHost } from "./startupAccess";
 import { AnalyticsServiceLayerLive } from "./telemetry/Layers/AnalyticsService";
@@ -396,6 +399,26 @@ const makeServerProgram = (input: CliInput) => {
     yield* cliConfig.fixPath;
 
     const config = yield* ServerConfig;
+    const diagnostics = yield* Effect.acquireRelease(
+      Effect.sync(
+        () =>
+          new DiagnosticsStore({
+            stateDir: config.stateDir,
+            appVersion: process.env.PENKRA_APP_VERSION ?? serverPackageVersion,
+            process: "server",
+          }),
+      ),
+      (store) => Effect.sync(() => store.close()),
+    );
+    const bootTraceId = randomBytes(16).toString("hex");
+    yield* Effect.sync(() =>
+      diagnostics.checkpoint({
+        traceId: bootTraceId,
+        spanId: randomBytes(8).toString("hex"),
+        flow: "boot",
+        step: "server.starting",
+      }),
+    );
     yield* Effect.sync(() => startServerMemoryDiagnostics({ mode: config.mode }));
     yield* Effect.sync(() => startServerEventLoopDiagnostics({ mode: config.mode }));
 
@@ -423,6 +446,15 @@ const makeServerProgram = (input: CliInput) => {
     );
     yield* runStartupStage("default-spaces.ensure", ensureDefaultSpaces(orchestrationEngine));
     const startedServer = yield* runStartupStage("http-runtime.start", start);
+    yield* Effect.sync(() =>
+      diagnostics.checkpoint({
+        traceId: bootTraceId,
+        spanId: randomBytes(8).toString("hex"),
+        flow: "boot",
+        step: "server.ready",
+        outcome: "ok",
+      }),
+    );
 
     const localUrl = `http://localhost:${config.port}`;
     const bindUrl =

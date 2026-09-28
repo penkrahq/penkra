@@ -4445,6 +4445,7 @@ function backendEnv(): NodeJS.ProcessEnv {
       // penkra:// protocol serves, so both surfaces survive app.asar being replaced.
       ...(servedStaticRoot?.snapshotted ? { PENKRA_STATIC_DIR: servedStaticRoot.dir } : {}),
       PENKRA_MODE: "desktop",
+      PENKRA_APP_VERSION: app.getVersion(),
       PENKRA_NO_BROWSER: "1",
       PENKRA_PORT: String(backendPort),
       PENKRA_HOME: BASE_DIR,

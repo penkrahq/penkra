@@ -1,0 +1,30 @@
+/** Named diagnostics budgets. Keep these in sync with docs/diagnostics-design.md. */
+export const DIAGNOSTIC_LIMITS = {
+  totalBytes: 1_073_741_824,
+  pruneAtRatio: 0.8,
+  spoolBytesPerProcess: 16 * 1024 * 1024,
+  batchMs: 250,
+  incidentDays: 90,
+  detailPinBeforeMs: 10 * 60_000,
+  detailPinAfterMs: 2 * 60_000,
+  healthSampleMs: 5_000,
+  healthThinAfterMs: 24 * 60 * 60_000,
+  sendAcceptedMs: 2_000,
+  turnStartedMs: 10_000,
+  firstOutputMs: 30_000,
+  runningSilenceMs: 60_000,
+  stopTerminalMs: 5_000,
+  playStartMs: 5_000,
+  commandDispatchMs: 45_000,
+  providerStartMs: 120_000,
+  socketHandshakeMs: 3_000,
+  archiveWindowsMs: 2_000,
+  createMs: 5_000,
+  windowLoadMs: 3_000,
+  authMs: 30_000,
+  bootMs: 20_000,
+  serverLogBytes: 10 * 1024 * 1024,
+  serverLogFiles: 10,
+} as const;
+
+export type DiagnosticLimitName = keyof typeof DIAGNOSTIC_LIMITS;
