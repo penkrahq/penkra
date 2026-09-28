@@ -403,7 +403,7 @@ describe("diagnostics store", () => {
     const db = openDiagnosticsReader(stateDir)!;
     expect(db.prepare("SELECT code, context_json FROM incidents").get()).toMatchObject({
       code: "TURN_START_TIMEOUT",
-      context_json: '{"reason":"late_resolution"}',
+      context_json: JSON.stringify({ reason: "late_resolution", entityId: id }),
     });
     expect(
       JSON.parse(
@@ -413,8 +413,21 @@ describe("diagnostics store", () => {
     expect(db.prepare("SELECT count(*) AS count FROM expectations").get()).toMatchObject({
       count: 0,
     });
+    expect(db.prepare("SELECT count(*) AS count FROM incident_occurrences").get()).toMatchObject({
+      count: 1,
+    });
     db.close();
     store.close();
+    const reopened = new DiagnosticsStore({ stateDir, process: "server", appVersion: "0.14.3" });
+    expect(reopened.resolveExpectation(id)).toBe(false);
+    const replayed = openDiagnosticsReader(stateDir)!;
+    expect(
+      replayed.prepare("SELECT count(*) AS count FROM incident_occurrences").get(),
+    ).toMatchObject({
+      count: 1,
+    });
+    replayed.close();
+    reopened.close();
   });
 
   it("marks unresolved expectations unknown after a restart", () => {

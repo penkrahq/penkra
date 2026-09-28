@@ -895,6 +895,14 @@ function insertEnvelope(
       .prepare(`UPDATE detail SET pinned_until = ?
       WHERE at >= ? AND at <= ? AND (pinned_until IS NULL OR pinned_until < ?)`)
       .run(until, from, until, until);
+    // A late resolution is one spool record and one SQLite transaction. Closing
+    // the expectation here prevents a crash from replaying a second miss.
+    if (
+      data.kind === "expectation.missed" &&
+      data.context?.reason === "late_resolution" &&
+      typeof data.context.entityId === "string"
+    )
+      database.prepare("DELETE FROM expectations WHERE id = ?").run(data.context.entityId);
   }
   database
     .prepare("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)")
@@ -1547,11 +1555,16 @@ export class DiagnosticsStore {
             value: pending.deadline_ms,
             observed: now - Date.parse(pending.armed_at),
           },
-          context: { ...JSON.parse(pending.correlation_json), reason: "late_resolution" },
+          context: {
+            ...JSON.parse(pending.correlation_json),
+            reason: "late_resolution",
+            entityId: id,
+          },
           ...((last?.step ?? pending.last_checkpoint)
             ? { lastCheckpoint: last?.step ?? pending.last_checkpoint! }
             : {}),
         });
+        return true;
       }
       this.writeLocked("expectation_resolved", {
         traceId: pending.trace_id,
