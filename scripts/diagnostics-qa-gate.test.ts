@@ -104,7 +104,7 @@ describe("diagnostics clean QA gate", () => {
               count: 1,
               reason: "spool",
               reasons: { capacity: 0, sqlite: 0, spool: 1, stale: 0 },
-            }).padEnd(512),
+            }).padEnd(256),
           );
         return true;
       });

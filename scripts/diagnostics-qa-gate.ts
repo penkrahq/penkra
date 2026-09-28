@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { openDiagnosticsReader } from "@penkra/shared/diagnostics/store";
+import { openDiagnosticsReader, readLossLedger } from "@penkra/shared/diagnostics/store";
 
 export const REQUIRED_QA_FLOWS = [
   "send",
@@ -64,12 +64,9 @@ function lossCounts(dir: string): Map<string, number> {
   const counts = new Map<string, number>();
   for (const name of fs.readdirSync(dir)) {
     if (!/^loss-[a-f0-9]{32}\.bin$/u.test(name)) continue;
-    const row = JSON.parse(fs.readFileSync(path.join(dir, name), "utf8").trim()) as {
-      count?: unknown;
-    };
-    if (!Number.isSafeInteger(row.count) || (row.count as number) < 0)
-      throw new Error(`Invalid diagnostics loss ledger: ${name}`);
-    counts.set(name, row.count as number);
+    const row = readLossLedger(path.join(dir, name));
+    if (!row) throw new Error(`Invalid diagnostics loss ledger: ${name}`);
+    counts.set(name, row.count);
   }
   return counts;
 }

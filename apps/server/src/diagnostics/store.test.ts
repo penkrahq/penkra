@@ -6,7 +6,12 @@ import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { DiagnosticsSpoolWriter, DiagnosticsStore, openDiagnosticsReader } from "./store";
+import {
+  DiagnosticsSpoolWriter,
+  DiagnosticsStore,
+  openDiagnosticsReader,
+  readLossLedger,
+} from "./store";
 import { DIAGNOSTIC_LIMITS } from "./limits";
 
 const roots: string[] = [];
@@ -1172,7 +1177,7 @@ describe("diagnostics store", () => {
       peer.checkpoint({ traceId, spanId, flow: "send", step: "composer.preflight" }),
     ).toThrow("capacity");
     const ledger = path.join(stateDir, "diagnostics", `loss-${peer.bootId}.bin`);
-    expect(JSON.parse(fs.readFileSync(ledger, "utf8"))).toMatchObject({
+    expect(readLossLedger(ledger)).toMatchObject({
       count: 1,
       reason: "capacity",
     });
@@ -1200,6 +1205,41 @@ describe("diagnostics store", () => {
     ).toMatchObject({ count: 1 });
     afterRestart.close();
     resumed.close();
+  });
+
+  it("recovers the prior loss count after a torn ledger slot rewrite", () => {
+    const { stateDir, store } = fixture();
+    const peer = new DiagnosticsSpoolWriter({
+      stateDir,
+      appVersion: "0.14.3",
+      process: "desktop-main",
+    });
+    peer.recordDrop("spool");
+    peer.recordDrop("capacity");
+    const ledger = path.join(stateDir, "diagnostics", `loss-${peer.bootId}.bin`);
+    expect(fs.statSync(ledger).size).toBe(512);
+    expect(readLossLedger(ledger)).toMatchObject({
+      count: 2,
+      reasons: { spool: 1, capacity: 1 },
+    });
+    const handle = fs.openSync(ledger, "r+");
+    try {
+      fs.writeSync(handle, Buffer.alloc(32), 0, 32, 0);
+      fs.fsyncSync(handle);
+    } finally {
+      fs.closeSync(handle);
+    }
+    expect(readLossLedger(ledger)).toMatchObject({
+      count: 1,
+      reasons: { spool: 1, capacity: 0 },
+    });
+    peer.recordDrop("capacity");
+    expect(readLossLedger(ledger)).toMatchObject({
+      count: 2,
+      reasons: { spool: 1, capacity: 1 },
+    });
+    peer.close();
+    store.close();
   });
 
   it("reports a loss once after a fault between its occurrence and receipt", () => {
@@ -1323,9 +1363,7 @@ describe("diagnostics store", () => {
     ).toThrow("capacity");
     expect(fs.statSync(recoveryPath).size).toBe(recoveryBytes);
     expect(diskBytes()).toBeLessThanOrEqual(cap);
-    expect(
-      JSON.parse(fs.readFileSync(path.join(dir, `loss-${store.bootId}.bin`), "utf8")),
-    ).toMatchObject({ count: 1 });
+    expect(readLossLedger(path.join(dir, `loss-${store.bootId}.bin`))).toMatchObject({ count: 1 });
     store.close();
   });
 });
