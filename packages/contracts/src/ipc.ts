@@ -742,6 +742,11 @@ export interface DesktopBridge {
     flow: string;
     step: string;
   }) => Promise<void>;
+  armSendDiagnosticExpectation?: (input: {
+    traceId: string;
+    spanId: string;
+    threadId?: string;
+  }) => Promise<void>;
   /**
    * Absolute filesystem path for a File from drag/drop or file inputs.
    * Electron only (`webUtils.getPathForFile`). Returns null when unavailable.

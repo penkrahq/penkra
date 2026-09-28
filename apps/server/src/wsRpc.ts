@@ -90,7 +90,11 @@ import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
 import { MAX_STREAMS_PER_RPC_CLIENT, makeWsStreamAdmission } from "./wsStreamAdmission";
 import { ThreadDiagnosticsQuery } from "./diagnostics/Services/ThreadDiagnosticsQuery";
-import { recordDiagnosticCheckpoint, recordDiagnosticIncident } from "./diagnostics/recorder";
+import {
+  recordDiagnosticCheckpoint,
+  recordDiagnosticIncident,
+  resolveDiagnosticExpectationsForTrace,
+} from "./diagnostics/recorder";
 import { WorkspaceWatcher } from "./workspaceWatcher";
 import { makeWsRequestAdmission } from "./wsRequestAdmission";
 import {
@@ -862,6 +866,13 @@ const makeWsRpcHandlersLayer = () =>
                       fields: { sequence: receipt.sequence },
                     }),
                   ).pipe(
+                    Effect.tap(() =>
+                      Effect.sync(() => {
+                        if (normalizedCommand.type === "thread.turn.start") {
+                          resolveDiagnosticExpectationsForTrace(trace.traceId, "send.accepted");
+                        }
+                      }),
+                    ),
                     Effect.andThen(
                       Effect.logInfo("orchestration command accepted").pipe(
                         Effect.annotateLogs({

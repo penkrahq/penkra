@@ -4,6 +4,7 @@ import type {
   DiagnosticsStore,
   ExpectationInput,
   IncidentInput,
+  ExpectationKind,
 } from "./store";
 
 let activeStore: DiagnosticsStore | null = null;
@@ -43,6 +44,17 @@ export function resolveDiagnosticExpectation(
     activeStore?.resolveExpectation(id, outcome);
   } catch {
     process.stderr.write("[diagnostics] expectation resolution failed\n");
+  }
+}
+
+export function resolveDiagnosticExpectationsForTrace(
+  traceId: string,
+  kind: ExpectationKind,
+): void {
+  try {
+    activeStore?.resolveExpectationsForTrace(traceId, kind);
+  } catch {
+    process.stderr.write("[diagnostics] trace expectation resolution failed\n");
   }
 }
 
