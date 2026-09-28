@@ -288,7 +288,7 @@ type Correlation = {
 
 type Env = {
   appVersion: string; // "0.14.3"
-  buildId: string; // validated hex git sha
+  buildId: string; // validated hex git sha, or "unknown" when unavailable; never a fake SHA
   channel: "production" | "dev" | "test";
   instance?: string; // bounded numbered Dev identifier
   bootId: string; // one per process start

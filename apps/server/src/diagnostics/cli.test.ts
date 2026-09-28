@@ -119,9 +119,32 @@ describe("penkra diagnostics reads", () => {
     const text = fs.readFileSync(output, "utf8");
     expect(text).toContain("queueDepth");
     expect(text).not.toContain("messageContent");
+    const exported = JSON.parse(text) as {
+      incidents: Array<{ summary: string; env: Record<string, unknown> }>;
+    };
+    expect(exported.incidents[0]?.summary).toBe("Command was rejected.");
+    expect(exported.incidents[0]?.env).toMatchObject({
+      appVersion: "0.14.3",
+      buildId: "unknown",
+      bootId: store.bootId,
+      process: "server",
+      osFamily: process.platform === "win32" ? "windows" : process.platform,
+    });
+    expect(exported.incidents[0]?.env).toHaveProperty("channel");
+    expect(exported.incidents[0]?.env).toHaveProperty("osMajor");
     if (process.platform !== "win32") expect(fs.statSync(output).mode & 0o077).toBe(0);
     store.close();
     const db = new DatabaseSync(path.join(home, "userdata", "diagnostics", "diagnostics.sqlite"));
+    const savedEnvironment = db.prepare("SELECT env_json FROM incident_occurrences").get() as {
+      env_json: string;
+    };
+    db.prepare("UPDATE incident_occurrences SET env_json = ?").run(
+      JSON.stringify({ ...JSON.parse(savedEnvironment.env_json), buildId: "0000000" }),
+    );
+    expect(() => queryDiagnostics(["export", "--home-dir", home])).toThrow(
+      "Invalid diagnostics environment",
+    );
+    db.prepare("UPDATE incident_occurrences SET env_json = ?").run(savedEnvironment.env_json);
     db.prepare("UPDATE detail SET payload_json = ?").run('{"message":"secret"}');
     db.close();
     expect(() => queryDiagnostics(["export", "--home-dir", home])).toThrow("not allowlisted");
