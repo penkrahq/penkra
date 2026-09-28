@@ -38,5 +38,27 @@ currently checks terminal blockers once per second; it needs bounded retry/backo
 fence evidence. Settled outbox rows need retention pruning. Full crash, stop-race, and migration
 upgrade tests are still needed. Do not launch this branch against a persistent app database.
 
-The runtime-event worker, command worker, and socket-admission boundary are separate parts of
-the proposed thread-runtime design and remain unchanged on this branch.
+## Subsequent isolation work on this branch
+
+- `05babd490` moves provider runtime journal projection into bounded per-thread lanes, with a
+  separate cursor commit per lane. Domain events wait behind older runtime events for the same
+  thread. The controlled A/B stall case and all 153 runtime-ingestion tests pass.
+- `0d16d2037` moves command preparation into bounded aggregate mailboxes. A controlled test
+  holds a thread-detail read in A, sees unrelated command B commit, and confirms a second A
+  command waits for the first. The 26 engine tests and server typecheck pass. The shared
+  maintenance lock still covers the decision, SQLite commit, deferred projection, and live
+  publication, so this change does not eliminate all cross-thread command contention.
+- The full provider-reactor integration run initially exposed four terminal-before-acceptance
+  races after runtime-lane isolation. The reactor now checks the exact turn's durable terminal
+  event before a restart running write and after binding an accepted delivery. All four targeted
+  cases and the full 166-case reactor suite pass. The journal lookup uses the existing
+  `(thread_id, turn_id, sequence)` index.
+- The installed production 0.14.1 bundle does not contain the local slow-stage, event-loop,
+  or slow socket-upgrade probes. Its reconciliation logs include repeated attempts and failures,
+  including 45-second command timeouts. The runtime-journal metrics from the same period show
+  long SQLite waits, but they do not identify the owner of those waits.
+
+The remaining release blockers include a supervised stop/control path, binding-generation
+validation at provider execution, crash and migration upgrade cases, command publication and
+deferred projection isolation, and a traced owner for the intermittent socket delay. The Claude
+turn-start phase remains unverified. No commit on this branch has been released.
