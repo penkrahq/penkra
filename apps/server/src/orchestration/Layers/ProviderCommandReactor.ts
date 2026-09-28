@@ -101,8 +101,11 @@ import {
 import { OrchestrationEventDeliveryRepositoryLive } from "../../persistence/Layers/OrchestrationEventDeliveries.ts";
 import { ProviderIntentOutboxLive } from "../../persistence/Layers/ProviderIntentOutbox.ts";
 import { ProviderRuntimeEventRepositoryLive } from "../../persistence/Layers/ProviderRuntimeEvents.ts";
+import { ProviderSessionRuntimeRepositoryLive } from "../../persistence/Layers/ProviderSessionRuntime.ts";
+import { ProviderSessionDirectoryLive } from "../../provider/Layers/ProviderSessionDirectory.ts";
 import { ProviderIntentOutbox } from "../../persistence/Services/ProviderIntentOutbox.ts";
 import { ProviderRuntimeEventRepository } from "../../persistence/Services/ProviderRuntimeEvents.ts";
+import { ProviderSessionDirectory } from "../../provider/Services/ProviderSessionDirectory.ts";
 import type { ProviderIntentOutboxJob } from "../../persistence/Services/ProviderIntentOutbox.ts";
 import { ProjectionPendingInteractionRepositoryLive } from "../../persistence/Layers/ProjectionPendingInteractions.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
@@ -498,6 +501,7 @@ const make = Effect.gen(function* () {
   const deliveryRepository = yield* OrchestrationEventDeliveryRepository;
   const providerIntentOutbox = yield* ProviderIntentOutbox;
   const providerRuntimeEvents = yield* ProviderRuntimeEventRepository;
+  const providerSessionDirectory = yield* ProviderSessionDirectory;
   const queuedTurnPromotions = yield* QueuedTurnPromotionRepository;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const providerService = yield* ProviderService;
@@ -627,6 +631,36 @@ const make = Effect.gen(function* () {
             completedAt: event.createdAt,
           } as const;
         }
+      }
+      // Accepted journal rows are retained only as a bounded tail. The
+      // provider writes the most recent terminal ownership to its durable
+      // session binding before publishing the event, so it can cover a pruned
+      // exact-turn event while the start result is still being reconciled.
+      for (const threadId of new Set(threadIds)) {
+        const binding = yield* providerSessionDirectory.getBinding(ThreadId.makeUnsafe(threadId));
+        if (Option.isNone(binding)) continue;
+        const payload = binding.value.runtimePayload;
+        if (typeof payload !== "object" || payload === null) continue;
+        const terminal = payload as Record<string, unknown>;
+        if (
+          terminal.lastTerminalTurnId !== turnId ||
+          typeof terminal.lastTerminalEventAt !== "string" ||
+          (terminal.lastTerminalEvent !== "turn.completed" &&
+            terminal.lastTerminalEvent !== "turn.aborted")
+        ) {
+          continue;
+        }
+        return {
+          state:
+            terminal.lastTerminalEvent === "turn.aborted" ||
+            terminal.lastTerminalState === "interrupted" ||
+            terminal.lastTerminalState === "cancelled"
+              ? "interrupted"
+              : terminal.lastTerminalState === "failed"
+                ? "error"
+                : "completed",
+          completedAt: terminal.lastTerminalEventAt,
+        } as const;
       }
       return undefined;
     });
@@ -5109,6 +5143,9 @@ export const makeProviderCommandReactorLive = (options?: ProviderCommandReactorL
     Layer.provideMerge(OrchestrationEventDeliveryRepositoryLive),
     Layer.provideMerge(ProviderIntentOutboxLive),
     Layer.provideMerge(ProviderRuntimeEventRepositoryLive),
+    Layer.provideMerge(
+      ProviderSessionDirectoryLive.pipe(Layer.provide(ProviderSessionRuntimeRepositoryLive)),
+    ),
     Layer.provideMerge(QueuedTurnPromotionRepositoryLive),
     Layer.provideMerge(ProjectionPendingInteractionRepositoryLive),
     Layer.provideMerge(ProjectionTurnRepositoryLive),
