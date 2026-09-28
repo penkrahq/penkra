@@ -177,6 +177,7 @@ export const makeWsStreamAdmission = (
                     );
                   });
                 }
+                // diagnostics-covered: REJECTED_STREAMING_RPC_ADMISSION server.stream_admission
                 return yield* Effect.fail(outcome.error);
               }),
         ),

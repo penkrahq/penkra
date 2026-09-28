@@ -38,11 +38,19 @@ throw new Error("one");
 throw new Error("two");
 throw new Error("three");`;
     const sites = scanFailureSites(file, source);
-    const boundaries = new Set([
-      "COMMAND_REJECTED:server.command",
-      "APP_OPERATION_FAILED:server.command",
+    const boundaries = new Map([
+      ["COMMAND_REJECTED:server.command", file],
+      ["APP_OPERATION_FAILED:server.command", "apps/server/src/commandBoundary.ts"],
     ]);
     expect(uncoveredFailureSites(sites, () => source, [], boundaries)).toEqual([sites[2]]);
+    expect(
+      uncoveredFailureSites(
+        sites,
+        () => source,
+        [],
+        new Map([["COMMAND_REJECTED:server.command", "apps/server/src/other.ts"]]),
+      ),
+    ).toContainEqual(sites[0]);
     const exception: CoverageException = {
       ...sites[2]!,
       disposition: "validation",
