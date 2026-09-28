@@ -118,6 +118,12 @@ describe("diagnostics store", () => {
     db.close();
     stale.close();
     old.close();
+    current.checkpoint({ traceId, spanId, flow: "send", step: "server.received" });
+    const afterOldClose = openDiagnosticsReader(stateDir)!;
+    expect(afterOldClose.prepare("SELECT step FROM detail").all()).toEqual([
+      { step: "server.received" },
+    ]);
+    afterOldClose.close();
     current.close();
   });
   it("preserves a current desktop spool when desktop starts before the server resets", () => {
