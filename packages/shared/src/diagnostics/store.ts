@@ -977,7 +977,27 @@ export class DiagnosticsStore {
         throw new Error("Diagnostics store belongs to a newer app version");
       let staleDropped = 0;
       if (previousIdentity !== this.identity) {
+        const keep = new Set<string>([".lifecycle-lock"]);
         for (const name of fs.readdirSync(this.dir)) {
+          const match = /^spool-identity-([a-f0-9]{32})\.json$/u.exec(name);
+          if (!match) continue;
+          const bootId = match[1]!;
+          if (
+            fs.readFileSync(path.join(this.dir, name), "utf8") !== this.identity ||
+            fs.existsSync(path.join(this.dir, `stale-${bootId}.json`))
+          )
+            continue;
+          for (const related of [
+            name,
+            `spool-${bootId}.jsonl`,
+            `active-${bootId}.json`,
+            `closed-${bootId}.json`,
+            `loss-${bootId}.bin`,
+          ])
+            keep.add(related);
+        }
+        for (const name of fs.readdirSync(this.dir)) {
+          if (keep.has(name)) continue;
           if (!/^spool-[a-f0-9]{32}\.jsonl$/u.test(name)) continue;
           const bootId = name.slice(6, -6);
           if (!fs.existsSync(path.join(this.dir, `stale-${bootId}.json`))) continue;
@@ -987,7 +1007,7 @@ export class DiagnosticsStore {
             .filter(Boolean).length;
         }
         for (const entry of fs.readdirSync(this.dir)) {
-          if (entry !== ".lifecycle-lock")
+          if (!keep.has(entry))
             fs.rmSync(path.join(this.dir, entry), { recursive: true, force: true });
         }
       }
@@ -1176,6 +1196,7 @@ export class DiagnosticsStore {
         fs.rmSync(activePath, { force: true });
         if (!fs.existsSync(closedPath)) crashedProcesses++;
         fs.rmSync(closedPath, { force: true });
+        fs.rmSync(path.join(this.dir, `spool-identity-${bootId}.json`), { force: true });
       }
       this.pruneLocked(new Date(), this.maxTotalBytes);
       if (totalBytes(this.dir) > this.maxTotalBytes)
@@ -1817,11 +1838,7 @@ export class DiagnosticsSpoolWriter {
     withLifecycleLock(this.dir, () => {
       this.stale = !runningBundleIsInstalled(options);
       const versionPath = path.join(this.dir, "version");
-      const identityPath = path.join(this.dir, "identity");
       const oldVersion = fs.existsSync(versionPath) ? fs.readFileSync(versionPath, "utf8") : null;
-      const previousIdentity = fs.existsSync(identityPath)
-        ? fs.readFileSync(identityPath, "utf8")
-        : null;
       if (
         !this.stale &&
         !options.bundlePath &&
@@ -1830,14 +1847,11 @@ export class DiagnosticsSpoolWriter {
         compare(oldVersion, options.appVersion) > 0
       )
         throw new Error("Diagnostics store belongs to a newer app version");
-      if (!this.stale && previousIdentity !== this.identity) {
-        for (const entry of fs.readdirSync(this.dir)) {
-          if (entry !== ".lifecycle-lock")
-            fs.rmSync(path.join(this.dir, entry), { recursive: true, force: true });
-        }
-        fs.writeFileSync(versionPath, options.appVersion, { mode: 0o600 });
-        fs.writeFileSync(identityPath, this.identity, { mode: 0o600 });
-      }
+      // Only the SQLite owner resets on an update. A desktop process may start
+      // first; its current spool must survive the server's later reset.
+      fs.writeFileSync(path.join(this.dir, `spool-identity-${this.bootId}.json`), this.identity, {
+        mode: 0o600,
+      });
       fs.writeFileSync(
         this.activePath,
         JSON.stringify({ pid: process.pid, process: options.process, stale: this.stale }),
@@ -1851,12 +1865,12 @@ export class DiagnosticsSpoolWriter {
 
   private append(type: SpoolEnvelope["type"], data: SpoolEnvelope["data"]): void {
     withLifecycleLock(this.dir, () => {
-      if (
-        !runningBundleIsInstalled(this.options) ||
-        !fs.existsSync(path.join(this.dir, "identity")) ||
-        fs.readFileSync(path.join(this.dir, "identity"), "utf8") !== this.identity
-      ) {
-        this.stale = true;
+      if (!runningBundleIsInstalled(this.options)) this.stale = true;
+      const marker = path.join(this.dir, `spool-identity-${this.bootId}.json`);
+      if (!fs.existsSync(marker)) fs.writeFileSync(marker, this.identity, { mode: 0o600 });
+      if (fs.readFileSync(marker, "utf8") !== this.identity)
+        throw new Error("Diagnostics spool identity changed");
+      if (this.stale) {
         fs.writeFileSync(path.join(this.dir, `stale-${this.bootId}.json`), "{}", { mode: 0o600 });
       }
       const event = prepareEnvelope(this.bootId, ++this.sequence, this.options.process, type, data);

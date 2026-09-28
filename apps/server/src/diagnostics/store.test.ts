@@ -99,6 +99,48 @@ describe("diagnostics store", () => {
     old.close();
     current.close();
   });
+  it("preserves a current desktop spool when desktop starts before the server resets", () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-diagnostics-"));
+    roots.push(stateDir);
+    const bundlePath = path.join(stateDir, "app.asar");
+    fs.writeFileSync(bundlePath, "first bundle");
+    const signature = () => {
+      const stats = fs.statSync(bundlePath);
+      return { size: stats.size, mtimeMs: stats.mtimeMs, inode: stats.ino };
+    };
+    const options = {
+      stateDir,
+      appVersion: "0.14.3",
+      bundlePath,
+      process: "server" as const,
+    };
+    const old = new DiagnosticsStore({
+      ...options,
+      buildId: "aaaaaaa",
+      bundleSignature: signature(),
+    });
+    old.checkpoint({ traceId, spanId, flow: "send", step: "server.received" });
+    old.close();
+    const replacement = path.join(stateDir, "replacement.asar");
+    fs.writeFileSync(replacement, "second bundle");
+    fs.renameSync(replacement, bundlePath);
+    const currentOptions = { ...options, buildId: "bbbbbbb", bundleSignature: signature() };
+    const desktop = new DiagnosticsSpoolWriter({ ...currentOptions, process: "desktop-main" });
+    desktop.checkpoint({ traceId, spanId, flow: "send", step: "composer.preflight" });
+    const before = openDiagnosticsReader(stateDir)!;
+    expect(before.prepare("SELECT count(*) AS count FROM detail").get()).toMatchObject({
+      count: 1,
+    });
+    before.close();
+    const server = new DiagnosticsStore(currentOptions);
+    const after = openDiagnosticsReader(stateDir)!;
+    expect(after.prepare("SELECT step FROM detail").all()).toEqual([
+      { step: "composer.preflight" },
+    ]);
+    after.close();
+    desktop.close();
+    server.close();
+  });
   it("copies last-changed-by provenance into a related incident", () => {
     const { stateDir, store } = fixture();
     store.setProvenance({
