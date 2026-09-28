@@ -995,6 +995,43 @@ describe("WsTransport", () => {
     }
   });
 
+  it("records the constructor's first failed connection without calling it a reconnect loop", async () => {
+    const recordDiagnosticIncident = vi.fn().mockResolvedValue(undefined);
+    window.desktopBridge = {
+      getWsUrl: () => null,
+      recordDiagnosticIncident,
+    } as never;
+    const session = vi
+      .spyOn(WsTransport.prototype as unknown as { createSession: () => unknown }, "createSession")
+      .mockReturnValue({
+        runtime: {
+          runPromise: vi.fn().mockResolvedValue(undefined),
+          dispose: vi.fn().mockResolvedValue(undefined),
+        },
+        clientScope: Effect.runSync(Scope.make()),
+        clientPromise: Promise.reject(
+          Object.assign(new Error("offline"), { code: "ECONNREFUSED" }),
+        ),
+      } as never);
+    try {
+      const transport = new WsTransport();
+      const initial = (transport as unknown as { clientPromise: Promise<unknown> }).clientPromise;
+      await expect(initial).rejects.toThrow("offline");
+      expect(recordDiagnosticIncident).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: "EXTERNAL_CALL_FAILED",
+          actual: expect.objectContaining({ attempt: 0, errorCode: "ECONNREFUSED" }),
+        }),
+      );
+      expect(recordDiagnosticIncident).not.toHaveBeenCalledWith(
+        expect.objectContaining({ code: "WS_RECONNECT_LOOP" }),
+      );
+      await transport.dispose();
+    } finally {
+      session.mockRestore();
+    }
+  });
+
   it("records every failed reconnect handshake attempt", async () => {
     const recordDiagnosticIncident = vi.fn((_input: unknown) => Promise.resolve());
     window.desktopBridge = {
