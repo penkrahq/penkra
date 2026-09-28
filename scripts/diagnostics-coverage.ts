@@ -19,7 +19,7 @@ export interface FailureSite {
 }
 
 export interface CoverageException extends FailureSite {
-  readonly disposition: "validation" | "rethrow" | "cannot-fail";
+  readonly disposition: "cannot-fail";
   readonly reason: string;
   readonly reviewer: string;
   readonly issue: string;
@@ -132,7 +132,7 @@ export function uncoveredFailureSites(
     if (
       !known.has(key) ||
       reviewed.has(key) ||
-      !["validation", "rethrow", "cannot-fail"].includes(entry.disposition) ||
+      entry.disposition !== "cannot-fail" ||
       entry.reason.trim().length < 20 ||
       entry.reviewer.trim().length < 2 ||
       !entry.issue.startsWith("https://")
