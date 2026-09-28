@@ -1202,6 +1202,54 @@ describe("diagnostics store", () => {
     resumed.close();
   });
 
+  it("reports a loss once after a fault between its occurrence and receipt", () => {
+    const { stateDir, store } = fixture();
+    const peer = new DiagnosticsSpoolWriter({
+      stateDir,
+      appVersion: "0.14.3",
+      process: "desktop-main",
+    });
+    peer.recordDrop("spool");
+    const db = new DatabaseSync(path.join(stateDir, "diagnostics", "diagnostics.sqlite"));
+    db.exec(`CREATE TRIGGER fail_loss_receipt BEFORE INSERT ON meta
+      WHEN NEW.key LIKE 'loss-reported:%'
+      BEGIN SELECT RAISE(ABORT, 'fault-before-loss-receipt'); END`);
+    store.importPeerSpools();
+    expect(
+      db
+        .prepare(
+          "SELECT COUNT(*) AS count FROM incident_occurrences WHERE incident_id IN (SELECT id FROM incidents WHERE code = 'DIAGNOSTICS_WRITE_FAILED')",
+        )
+        .get(),
+    ).toMatchObject({ count: 0 });
+    db.exec("DROP TRIGGER fail_loss_receipt");
+    store.importPeerSpools();
+    expect(
+      db
+        .prepare(
+          "SELECT COUNT(*) AS count FROM incident_occurrences WHERE incident_id IN (SELECT id FROM incidents WHERE code = 'DIAGNOSTICS_WRITE_FAILED')",
+        )
+        .get(),
+    ).toMatchObject({ count: 1 });
+    expect(
+      db.prepare("SELECT value FROM meta WHERE key = ?").get(`loss-reported:${peer.bootId}:spool`),
+    ).toMatchObject({ value: "1" });
+    db.close();
+    peer.close();
+    store.close();
+    const restarted = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
+    const afterRestart = openDiagnosticsReader(stateDir)!;
+    expect(
+      afterRestart
+        .prepare(
+          "SELECT COUNT(*) AS count FROM incident_occurrences WHERE incident_id IN (SELECT id FROM incidents WHERE code = 'DIAGNOSTICS_WRITE_FAILED')",
+        )
+        .get(),
+    ).toMatchObject({ count: 1 });
+    afterRestart.close();
+    restarted.close();
+  });
+
   it("refuses spool startup before marker files exceed the total cap", () => {
     const { stateDir, store } = fixture();
     const dir = path.join(stateDir, "diagnostics");
