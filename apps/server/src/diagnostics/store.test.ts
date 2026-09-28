@@ -1165,6 +1165,108 @@ describe("diagnostics store", () => {
     store.close();
   }, 30_000);
 
+  it("keeps every diagnostic write path within the injected total cap", () => {
+    const cap = 384 * 1024;
+    const { stateDir, store } = fixture("0.14.3", cap);
+    const peer = new DiagnosticsSpoolWriter({
+      stateDir,
+      appVersion: "0.14.3",
+      process: "desktop-main",
+      maxTotalBytes: cap,
+    });
+    const dir = path.join(stateDir, "diagnostics");
+    const diskBytes = () =>
+      fs.readdirSync(dir).reduce((sum, name) => {
+        const file = path.join(dir, name);
+        return sum + (fs.statSync(file).isFile() ? fs.statSync(file).size : 0);
+      }, 0);
+    const withinCap = () => expect(diskBytes()).toBeLessThanOrEqual(cap);
+    const actions = [
+      (i: number) =>
+        store.checkpoint({
+          traceId,
+          spanId,
+          flow: "send",
+          step: "server.received",
+          fields: { sequence: i },
+        }),
+      (i: number) =>
+        store.incident({
+          traceId,
+          spanId,
+          kind: "command.failed",
+          code: "COMMAND_REJECTED",
+          where: "server.command",
+          severity: "error",
+          actual: { sequence: i },
+        }),
+      (i: number) =>
+        store.armExpectation({
+          traceId,
+          spanId,
+          kind: "send.accepted",
+          deadlineMs: 30_000,
+          correlation: { sequence: i },
+        }),
+      (i: number) => store.sampleHealth({ eventLoopLagMs: i }),
+      (i: number) =>
+        store.setProvenance({
+          entityKind: "thread",
+          entityId: `thread:${i}`,
+          field: "thread.activeTurnId",
+          traceId,
+        }),
+    ];
+    try {
+      peer.recordDrop("spool");
+      store.importPeerSpools();
+      const db = openDiagnosticsReader(stateDir)!;
+      expect(
+        db
+          .prepare("SELECT value FROM meta WHERE key = ?")
+          .get(`loss-reported:${peer.bootId}:spool`),
+      ).toMatchObject({ value: "1" });
+      db.close();
+      withinCap();
+      for (let i = 0; i < 20; i++) {
+        actions[i % actions.length]!(i);
+        withinCap();
+      }
+      store.prune(new Date(Date.now() + 61_000), 0);
+      withinCap();
+      let rejected = false;
+      for (let i = 20; i < 800; i++) {
+        try {
+          actions[i % actions.length]!(i);
+        } catch (cause) {
+          expect((cause as Error).message).toContain("capacity");
+          rejected = true;
+          withinCap();
+          break;
+        }
+        withinCap();
+      }
+      expect(rejected).toBe(true);
+      for (const [index, action] of actions.entries()) {
+        try {
+          action(900 + index);
+        } catch (cause) {
+          expect((cause as Error).message).toContain("capacity");
+        }
+        withinCap();
+      }
+      store.prune(new Date(Date.now() + 2 * 86_400_000), 0);
+      withinCap();
+      peer.recordDrop("spool");
+      store.importPeerSpools();
+      withinCap();
+    } finally {
+      peer.close();
+      store.close();
+      withinCap();
+    }
+  }, 30_000);
+
   it("preserves a drop count and reports it after a peer spool fills", () => {
     const { stateDir, store } = fixture();
     const peer = new DiagnosticsSpoolWriter({

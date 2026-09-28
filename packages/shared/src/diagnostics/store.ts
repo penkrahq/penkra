@@ -1933,6 +1933,7 @@ export class DiagnosticsStore {
       now.getTime() - DIAGNOSTIC_LIMITS.incidentDays * 86_400_000,
     ).toISOString();
     for (let i = 0; i < 100_000; i++) {
+      const beforeBytes = totalBytes(this.dir);
       try {
         sqlitePhysicalBudget(this.database, this.dir, this.dbPath, this.maxTotalBytes);
       } catch {
@@ -1995,11 +1996,16 @@ export class DiagnosticsStore {
             }
           }
         }
+        if (totalBytes(this.dir) > this.maxTotalBytes)
+          throw new Error("Diagnostics capacity reached during pruning");
         this.database.exec("COMMIT");
       } catch (cause) {
         if (this.database.isTransaction) this.database.exec("ROLLBACK");
+        this.database.exec("PRAGMA wal_checkpoint(TRUNCATE)");
         throw cause;
       }
+      if (totalBytes(this.dir) > this.maxTotalBytes)
+        throw new Error("Diagnostics capacity reached after pruning");
       if (thinned) this.lastHealthThinAt = now.getTime();
       try {
         sqlitePhysicalBudget(this.database, this.dir, this.dbPath, this.maxTotalBytes);
@@ -2009,9 +2015,28 @@ export class DiagnosticsStore {
       const freePages = (
         this.database.prepare("PRAGMA freelist_count").get() as { freelist_count: number }
       ).freelist_count;
-      if (freePages > 0) this.database.exec("PRAGMA incremental_vacuum(100)");
+      if (freePages > 0) {
+        this.database.exec("BEGIN IMMEDIATE");
+        try {
+          this.database.exec("PRAGMA incremental_vacuum(100)");
+          if (totalBytes(this.dir) > this.maxTotalBytes)
+            throw new Error("Diagnostics capacity reached during vacuum");
+          this.database.exec("COMMIT");
+        } catch (cause) {
+          if (this.database.isTransaction) this.database.exec("ROLLBACK");
+          this.database.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+          throw cause;
+        }
+      }
       this.database.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-      if (totalBytes(this.dir) <= targetBytes || (changed === 0 && freePages === 0)) break;
+      if (totalBytes(this.dir) > this.maxTotalBytes)
+        throw new Error("Diagnostics capacity reached after vacuum");
+      const afterBytes = totalBytes(this.dir);
+      if (
+        afterBytes <= targetBytes ||
+        (changed === 0 && (freePages === 0 || afterBytes >= beforeBytes))
+      )
+        break;
     }
   }
 
@@ -2273,16 +2298,16 @@ export class DiagnosticsSpoolWriter {
 
   close(): void {
     withLifecycleLock(this.dir, () => {
-      fs.rmSync(this.activePath, { force: true });
       if (fs.existsSync(this.spoolPath)) {
         if (fs.statSync(this.spoolPath).size === 0) {
           fs.rmSync(this.spoolPath, { force: true });
         } else {
-          fs.writeFileSync(path.join(this.dir, `closed-${this.bootId}.json`), "{}", {
-            mode: 0o600,
-          });
+          // Reuse the active marker's bytes instead of allocating space at cap.
+          if (fs.existsSync(this.activePath))
+            fs.renameSync(this.activePath, path.join(this.dir, `closed-${this.bootId}.json`));
         }
       }
+      fs.rmSync(this.activePath, { force: true });
     });
   }
 }
