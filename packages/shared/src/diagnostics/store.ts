@@ -395,7 +395,7 @@ function insertEnvelope(database: DatabaseSync, event: SpoolEnvelope, appVersion
           diskFreeMb: nearestHealth.disk_free_mb,
         })
       : "{}";
-    const fingerprint = `${data.kind}:${data.code}:${data.where}:${data.threadId ?? ""}`;
+    const fingerprint = `${data.kind}:${data.code}:${data.where}:${data.threadId ?? ""}:${data.context?.bootId ?? ""}`;
     const from = new Date(Date.parse(event.at) - DIAGNOSTIC_LIMITS.detailPinBeforeMs).toISOString();
     const until = new Date(Date.parse(event.at) + DIAGNOSTIC_LIMITS.detailPinAfterMs).toISOString();
     database
@@ -450,6 +450,7 @@ function insertEnvelope(database: DatabaseSync, event: SpoolEnvelope, appVersion
 /** A local diagnostics writer. Spool append is synced before the SQLite write. */
 export class DiagnosticsStore {
   readonly bootId = randomBytes(16).toString("hex");
+  private readonly reportedProcessFailures = new Set<string>();
   private lastCpuUsage = process.cpuUsage();
   private lastHealthAt = performance.now();
   private lastHealthThinAt = 0;
@@ -499,7 +500,11 @@ export class DiagnosticsStore {
       return db;
     });
     const crashedProcesses = this.importSpools();
-    fs.writeFileSync(this.activePath, JSON.stringify({ pid: process.pid }), { mode: 0o600 });
+    fs.writeFileSync(
+      this.activePath,
+      JSON.stringify({ pid: process.pid, process: options.process }),
+      { mode: 0o600 },
+    );
     this.sweepExpectations(new Date(), true);
     if (crashedProcesses > 0) {
       this.incident({
@@ -715,6 +720,74 @@ export class DiagnosticsStore {
         process.stderr.write("[diagnostics] health sample failed\n");
       }
     }, period);
+    timer.unref();
+    return () => clearInterval(timer);
+  }
+
+  checkProcessHealth(now = new Date()): number {
+    this.assertCurrentVersion();
+    const deadlineMs = DIAGNOSTIC_LIMITS.healthSampleMs * 3;
+    let detected = 0;
+    for (const name of fs.readdirSync(this.dir)) {
+      if (!/^active-[a-f0-9]{32}\.json$/u.test(name) || name === path.basename(this.activePath))
+        continue;
+      const markerPath = path.join(this.dir, name);
+      const bootId = name.slice(7, -5);
+      let marker: { pid: number; process?: string };
+      try {
+        marker = JSON.parse(fs.readFileSync(markerPath, "utf8")) as typeof marker;
+        if (!Number.isSafeInteger(marker.pid) || marker.pid < 1) continue;
+      } catch {
+        continue;
+      }
+      const latest = this.database
+        .prepare("SELECT at, process FROM health WHERE boot_id = ? ORDER BY at DESC LIMIT 1")
+        .get(bootId) as { at: string; process: string } | undefined;
+      const lastAt = latest ? Date.parse(latest.at) : fs.statSync(markerPath).mtimeMs;
+      const elapsedMs = Math.max(0, now.getTime() - lastAt);
+      if (elapsedMs < deadlineMs) {
+        this.reportedProcessFailures.delete(`${bootId}:PROCESS_UNRESPONSIVE`);
+        continue;
+      }
+      let alive = true;
+      try {
+        process.kill(marker.pid, 0);
+      } catch (cause) {
+        alive = (cause as NodeJS.ErrnoException).code !== "ESRCH";
+      }
+      const code = alive ? "PROCESS_UNRESPONSIVE" : "PROCESS_CRASHED";
+      const key = `${bootId}:${code}`;
+      if (this.reportedProcessFailures.has(key)) continue;
+      this.incident({
+        traceId: randomBytes(16).toString("hex"),
+        spanId: randomBytes(8).toString("hex"),
+        kind: alive ? "process.unresponsive" : "process.crashed",
+        code,
+        where: "diagnostics.watchdog",
+        severity: "error",
+        expected: { deadlineMs },
+        actual: { elapsedMs, alive },
+        context: {
+          bootId,
+          ...((latest?.process ?? marker.process)
+            ? { process: latest?.process ?? marker.process! }
+            : {}),
+        },
+      });
+      this.reportedProcessFailures.add(key);
+      detected++;
+    }
+    return detected;
+  }
+
+  startProcessWatchdog(): () => void {
+    const timer = setInterval(() => {
+      try {
+        this.checkProcessHealth();
+      } catch {
+        process.stderr.write("[diagnostics] process watchdog failed\n");
+      }
+    }, DIAGNOSTIC_LIMITS.healthSampleMs);
     timer.unref();
     return () => clearInterval(timer);
   }

@@ -145,6 +145,7 @@ const enumValues = {
   where: [
     "diagnostics.spool_import",
     "diagnostics.expectation",
+    "diagnostics.watchdog",
     "orchestration.worker",
     "server.command",
     "server.provider",

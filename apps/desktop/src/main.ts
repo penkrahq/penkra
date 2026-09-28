@@ -410,6 +410,7 @@ const BASE_DIR =
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
 let desktopDiagnostics: DiagnosticsStore | null = null;
 let stopDesktopDiagnosticsHealthSampling: (() => void) | null = null;
+let stopDesktopDiagnosticsWatchdog: (() => void) | null = null;
 
 function getDesktopDiagnosticsStore(): DiagnosticsStore {
   if (!desktopDiagnostics) {
@@ -419,6 +420,7 @@ function getDesktopDiagnosticsStore(): DiagnosticsStore {
       process: "desktop-main",
     });
     stopDesktopDiagnosticsHealthSampling = desktopDiagnostics.startHealthSampling();
+    stopDesktopDiagnosticsWatchdog = desktopDiagnostics.startProcessWatchdog();
   }
   return desktopDiagnostics;
 }
@@ -1213,6 +1215,8 @@ function bootstrapConfiguredAppsForSpaces(): Promise<void> {
     if (registry && (await getPenkraAccountId())) {
       stopDesktopDiagnosticsHealthSampling?.();
       stopDesktopDiagnosticsHealthSampling = null;
+      stopDesktopDiagnosticsWatchdog?.();
+      stopDesktopDiagnosticsWatchdog = null;
       try {
         await bootstrapDefaultRegistryApps({
           runtime,
