@@ -276,15 +276,29 @@ function totalBytes(dir: string): number {
   }, 0);
 }
 
+function sqliteGrowthReserve(dbPath: string, pendingSpoolBytes: number): number {
+  const databaseBytes = fs.existsSync(dbPath) ? fs.statSync(dbPath).size : 0;
+  // A WAL transaction can contain the existing database pages plus new pages.
+  // Reserve a full rewrite and ample index/page overhead for every pending byte.
+  return Math.ceil(databaseBytes * 1.02) + pendingSpoolBytes * 32 + 1_048_576;
+}
+
 const LOSS_LEDGER_BYTES = 256;
 type LossReason = "capacity" | "sqlite" | "spool" | "stale";
+const LOSS_REASONS: readonly LossReason[] = ["capacity", "sqlite", "spool", "stale"];
+type LossCounts = Record<LossReason, number>;
+
+function emptyLossCounts(): LossCounts {
+  return { capacity: 0, sqlite: 0, spool: 0, stale: 0 };
+}
 
 function lossLedgerPath(dir: string, bootId: string): string {
   return path.join(dir, `loss-${bootId}.bin`);
 }
 
-function writeLossLedger(file: string, count: number, reason: LossReason): void {
-  const content = Buffer.from(JSON.stringify({ count, reason }));
+function writeLossLedger(file: string, reasons: LossCounts, reason: LossReason): void {
+  const count = LOSS_REASONS.reduce((sum, key) => sum + reasons[key], 0);
+  const content = Buffer.from(JSON.stringify({ count, reason, reasons }));
   if (content.length > LOSS_LEDGER_BYTES) throw new Error("Diagnostics loss ledger overflow");
   const handle = fs.openSync(file, fs.existsSync(file) ? "r+" : "w+", 0o600);
   try {
@@ -300,24 +314,32 @@ function writeLossLedger(file: string, count: number, reason: LossReason): void 
 function recordLoss(dir: string, bootId: string, reason: LossReason, count = 1): void {
   const file = lossLedgerPath(dir, bootId);
   try {
-    const previous = fs.existsSync(file)
-      ? (JSON.parse(fs.readFileSync(file, "utf8").trim()) as { count: number })
-      : { count: 0 };
-    writeLossLedger(file, previous.count + count, reason);
+    const reasons =
+      (fs.existsSync(file) ? readLossLedger(file)?.reasons : null) ?? emptyLossCounts();
+    reasons[reason] += count;
+    writeLossLedger(file, reasons, reason);
   } catch {
     process.stderr.write("[diagnostics] durable loss count unavailable\n");
   }
 }
 
-function readLossLedger(file: string): { count: number; reason: LossReason } | null {
+function readLossLedger(
+  file: string,
+): { count: number; reason: LossReason; reasons: LossCounts } | null {
   try {
     const row = JSON.parse(fs.readFileSync(file, "utf8").trim()) as {
       count: number;
       reason: LossReason;
+      reasons: LossCounts;
     };
     return Number.isSafeInteger(row.count) &&
       row.count >= 0 &&
-      ["capacity", "sqlite", "spool", "stale"].includes(row.reason)
+      LOSS_REASONS.includes(row.reason) &&
+      row.reasons &&
+      LOSS_REASONS.every(
+        (reason) => Number.isSafeInteger(row.reasons[reason]) && row.reasons[reason] >= 0,
+      ) &&
+      LOSS_REASONS.reduce((sum, reason) => sum + row.reasons[reason], 0) === row.count
       ? row
       : null;
   } catch {
@@ -854,7 +876,7 @@ export class DiagnosticsStore {
         JSON.stringify({ pid: process.pid, process: options.process }),
         { mode: 0o600 },
       );
-      writeLossLedger(lossLedgerPath(this.dir, this.bootId), 0, "capacity");
+      writeLossLedger(lossLedgerPath(this.dir, this.bootId), emptyLossCounts(), "capacity");
       return { crashedProcesses, staleDropped };
     });
     this.sweepExpectations(new Date(), true);
@@ -923,6 +945,9 @@ export class DiagnosticsStore {
         }
         continue;
       }
+      const reserve = sqliteGrowthReserve(this.dbPath, fs.statSync(spoolPath).size);
+      this.pruneLocked(new Date(), Math.max(0, this.maxTotalBytes - reserve));
+      if (totalBytes(this.dir) + reserve > this.maxTotalBytes) continue;
       this.database.exec("BEGIN IMMEDIATE");
       try {
         for (const line of lines) {
@@ -956,9 +981,13 @@ export class DiagnosticsStore {
           }
           insertEnvelope(this.database, event, this.options);
         }
+        if (totalBytes(this.dir) > this.maxTotalBytes)
+          throw new Error("Diagnostics capacity reached during spool import");
         this.database.exec("COMMIT");
       } catch (cause) {
         this.database.exec("ROLLBACK");
+        this.database.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+        if ((cause as Error).message.includes("capacity reached")) continue;
         throw cause;
       }
       if (live) {
@@ -969,6 +998,9 @@ export class DiagnosticsStore {
         if (!fs.existsSync(closedPath)) crashedProcesses++;
         fs.rmSync(closedPath, { force: true });
       }
+      this.pruneLocked(new Date(), this.maxTotalBytes);
+      if (totalBytes(this.dir) > this.maxTotalBytes)
+        throw new Error("Diagnostics capacity reached after spool import");
     }
     for (const entry of fs.readdirSync(this.dir)) {
       if (!/^active-[a-f0-9]{32}\.json$/u.test(entry) || entry === path.basename(this.activePath))
@@ -1011,55 +1043,57 @@ export class DiagnosticsStore {
       const bootId = entry.slice(5, -4);
       const loss = readLossLedger(path.join(this.dir, entry));
       if (!loss || loss.count === 0) continue;
-      const key = `loss-reported:${bootId}`;
-      const reported = this.database.prepare("SELECT value FROM meta WHERE key = ?").get(key) as
-        | { value: string }
-        | undefined;
-      const delta = loss.count - Number(reported?.value ?? 0);
-      if (delta <= 0) continue;
-      try {
-        this.incident({
-          traceId: randomBytes(16).toString("hex"),
-          spanId: randomBytes(8).toString("hex"),
-          kind: "diagnostics.degraded",
-          code:
-            loss.reason === "capacity"
-              ? "DIAGNOSTICS_CAP_REACHED"
-              : loss.reason === "stale"
-                ? "DIAGNOSTICS_DROPPED"
-                : "DIAGNOSTICS_WRITE_FAILED",
-          where: "diagnostics.write",
-          severity: "error",
-          actual: { count: delta },
-          context: { bootId, reason: loss.reason },
-        });
-        withLifecycleLock(this.dir, () => {
-          this.assertCurrentVersion();
-          this.database
-            .prepare("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)")
-            .run(key, String(loss.count));
-        });
-      } catch {
-        // The preallocated ledger remains the durable source until space is available.
+      for (const reason of LOSS_REASONS) {
+        const key = `loss-reported:${bootId}:${reason}`;
+        const reported = this.database.prepare("SELECT value FROM meta WHERE key = ?").get(key) as
+          | { value: string }
+          | undefined;
+        const delta = loss.reasons[reason] - Number(reported?.value ?? 0);
+        if (delta <= 0) continue;
+        try {
+          this.incident({
+            traceId: randomBytes(16).toString("hex"),
+            spanId: randomBytes(8).toString("hex"),
+            kind: "diagnostics.degraded",
+            code:
+              reason === "capacity"
+                ? "DIAGNOSTICS_CAP_REACHED"
+                : reason === "stale"
+                  ? "DIAGNOSTICS_DROPPED"
+                  : "DIAGNOSTICS_WRITE_FAILED",
+            where: "diagnostics.write",
+            severity: "error",
+            actual: { count: delta },
+            context: { bootId, reason },
+          });
+          withLifecycleLock(this.dir, () => {
+            this.assertCurrentVersion();
+            this.database
+              .prepare("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)")
+              .run(key, String(loss.reasons[reason]));
+          });
+        } catch {
+          // The preallocated ledger remains the durable source until space is available.
+        }
       }
     }
   }
 
-  private write(type: SpoolEnvelope["type"], data: CheckpointInput | IncidentInput): void {
+  private write(type: SpoolEnvelope["type"], data: SpoolEnvelope["data"]): void {
     withLifecycleLock(this.dir, () => this.writeLocked(type, data));
   }
 
-  private writeLocked(type: SpoolEnvelope["type"], data: CheckpointInput | IncidentInput): void {
+  private writeLocked(type: SpoolEnvelope["type"], data: SpoolEnvelope["data"]): void {
     this.assertCurrentVersion();
     const reportFailure =
       type !== "incident" || (data as IncidentInput).kind !== "diagnostics.degraded";
-    this.prune();
+    this.pruneLocked();
     const event = prepareEnvelope(this.bootId, ++this.sequence, this.options.process, type, data);
     const line = `${JSON.stringify(event)}\n`;
     const bytes = Buffer.byteLength(line);
-    const reserve = bytes * 2 + 64 * 1024;
-    this.prune(new Date(), Math.max(0, this.maxTotalBytes - reserve));
     const currentSpoolBytes = fs.existsSync(this.spoolPath) ? fs.statSync(this.spoolPath).size : 0;
+    const reserve = sqliteGrowthReserve(this.dbPath, currentSpoolBytes + bytes);
+    this.pruneLocked(new Date(), Math.max(0, this.maxTotalBytes - reserve));
     if (
       currentSpoolBytes + bytes > this.maxSpoolBytes ||
       totalBytes(this.dir) + reserve > this.maxTotalBytes
@@ -1117,14 +1151,22 @@ export class DiagnosticsStore {
           this.options,
         );
       }
+      if (totalBytes(this.dir) > this.maxTotalBytes)
+        throw new Error("Diagnostics capacity reached during SQLite write");
       this.database.exec("COMMIT");
     } catch (cause) {
       this.database.exec("ROLLBACK");
-      if (reportFailure) recordLoss(this.dir, this.bootId, "sqlite");
+      this.database.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+      if (reportFailure)
+        recordLoss(
+          this.dir,
+          this.bootId,
+          (cause as Error).message.includes("capacity reached") ? "capacity" : "sqlite",
+        );
       throw cause;
     }
     fs.truncateSync(this.spoolPath, 0);
-    this.prune(new Date(), this.maxTotalBytes);
+    this.pruneLocked(new Date(), this.maxTotalBytes);
     if (totalBytes(this.dir) > this.maxTotalBytes) {
       if (reportFailure) recordLoss(this.dir, this.bootId, "capacity");
       throw new Error("Diagnostics capacity reached");
@@ -1144,7 +1186,6 @@ export class DiagnosticsStore {
   }
 
   setProvenance(input: ProvenanceInput): void {
-    this.assertCurrentVersion();
     if (!["thread", "turn", "queue", "session", "connection"].includes(input.entityKind)) {
       throw new TypeError("Invalid provenance entity kind");
     }
@@ -1152,16 +1193,18 @@ export class DiagnosticsStore {
     validateDiagnosticId(input.traceId);
     validateDiagnosticToken(input.field, "field");
     const at = input.at === undefined ? new Date().toISOString() : new Date(input.at).toISOString();
-    this.database
-      .prepare(`INSERT INTO provenance (
+    withLifecycleLock(this.dir, () => {
+      this.assertCurrentVersion();
+      this.database
+        .prepare(`INSERT INTO provenance (
       entity_kind, entity_id, field, set_by_trace_id, set_at
     ) VALUES (?, ?, ?, ?, ?) ON CONFLICT(entity_kind, entity_id, field)
     DO UPDATE SET set_by_trace_id = excluded.set_by_trace_id, set_at = excluded.set_at`)
-      .run(input.entityKind, input.entityId, input.field, input.traceId, at);
+        .run(input.entityKind, input.entityId, input.field, input.traceId, at);
+    });
   }
 
   sampleHealth(input: HealthSampleInput): void {
-    this.assertCurrentVersion();
     const metrics = validateDiagnosticFields({
       eventLoopLagMs: input.eventLoopLagMs,
       ...(input.queueDepth === undefined ? {} : { queueDepth: input.queueDepth }),
@@ -1180,27 +1223,18 @@ export class DiagnosticsStore {
     const handles = (
       process as NodeJS.Process & { _getActiveHandles?: () => unknown[] }
     )._getActiveHandles?.();
-    this.database
-      .prepare(`INSERT INTO health (
-      boot_id, process, at, event_loop_lag_ms, cpu_pct, rss_mb, heap_mb,
-      open_handles, queue_depth, oldest_queued_ms, machine_load_1m, free_mem_mb, disk_free_mb
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(
-        this.bootId,
-        this.options.process,
-        new Date().toISOString(),
-        input.eventLoopLagMs,
-        ((usage.user + usage.system) / (elapsedMs * 1_000)) * 100,
-        memory.rss / 1_048_576,
-        memory.heapUsed / 1_048_576,
-        handles?.length ?? 0,
-        input.queueDepth ?? null,
-        input.oldestQueuedMs ?? null,
-        os.loadavg()[0] ?? 0,
-        os.freemem() / 1_048_576,
-        (Number(disk.bavail) * Number(disk.bsize)) / 1_048_576,
-      );
-    this.prune();
+    this.write("health", {
+      eventLoopLagMs: input.eventLoopLagMs,
+      cpuPct: ((usage.user + usage.system) / (elapsedMs * 1_000)) * 100,
+      rssMb: memory.rss / 1_048_576,
+      heapMb: memory.heapUsed / 1_048_576,
+      openHandles: handles?.length ?? 0,
+      queueDepth: input.queueDepth ?? null,
+      oldestQueuedMs: input.oldestQueuedMs ?? null,
+      machineLoad1m: os.loadavg()[0] ?? 0,
+      freeMemMb: os.freemem() / 1_048_576,
+      diskFreeMb: (Number(disk.bavail) * Number(disk.bsize)) / 1_048_576,
+    });
   }
 
   startHealthSampling(): () => void {
@@ -1294,61 +1328,33 @@ export class DiagnosticsStore {
   }
 
   armExpectation(input: ExpectationInput): string {
-    this.assertCurrentVersion();
-    validateContext(input);
-    if (!Object.hasOwn(EXPECTATION_CODES, input.kind))
-      throw new TypeError("Unknown expectation kind");
-    if (!Number.isSafeInteger(input.deadlineMs) || input.deadlineMs < 1)
-      throw new TypeError("Invalid expectation deadline");
-    const correlation = sqlJson(input.correlation);
     const id = randomUUID();
-    const now = new Date();
-    const last = this.database
-      .prepare("SELECT step FROM detail WHERE trace_id = ? ORDER BY id DESC LIMIT 1")
-      .get(input.traceId) as { step: string } | undefined;
-    this.database
-      .prepare(`INSERT INTO expectations (
-      id, kind, trace_id, span_id, attempt_id, thread_id, turn_id, correlation_json,
-      armed_at, deadline_at, deadline_ms, last_checkpoint, boot_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(
-        id,
-        input.kind,
-        input.traceId,
-        input.spanId,
-        input.attemptId ?? null,
-        input.threadId ?? null,
-        input.turnId ?? null,
-        correlation,
-        now.toISOString(),
-        new Date(now.getTime() + input.deadlineMs).toISOString(),
-        input.deadlineMs,
-        last?.step ?? null,
-        this.bootId,
-      );
+    this.write("expectation_arm", { ...input, id });
     return id;
   }
 
   resolveExpectation(id: string, outcome: "met" | "cancelled" = "met"): boolean {
-    this.assertCurrentVersion();
     validateDiagnosticId(id);
-    const pending = this.database.prepare("SELECT * FROM expectations WHERE id = ?").get(id) as
-      | ExpectationRow
-      | undefined;
-    if (!pending) return false;
-    this.write("expectation_resolved", {
-      traceId: pending.trace_id,
-      spanId: pending.span_id,
-      ...(pending.attempt_id ? { attemptId: pending.attempt_id } : {}),
-      ...(pending.thread_id ? { threadId: pending.thread_id } : {}),
-      ...(pending.turn_id ? { turnId: pending.turn_id } : {}),
-      flow: expectationFlow(pending.kind),
-      step: "expectation.resolved",
-      outcome: outcome === "met" ? "ok" : "cancelled",
-      elapsedMs: Math.max(0, Date.now() - Date.parse(pending.armed_at)),
+    return withLifecycleLock(this.dir, () => {
+      this.assertCurrentVersion();
+      const pending = this.database.prepare("SELECT * FROM expectations WHERE id = ?").get(id) as
+        | ExpectationRow
+        | undefined;
+      if (!pending) return false;
+      this.writeLocked("expectation_resolved", {
+        traceId: pending.trace_id,
+        spanId: pending.span_id,
+        ...(pending.attempt_id ? { attemptId: pending.attempt_id } : {}),
+        ...(pending.thread_id ? { threadId: pending.thread_id } : {}),
+        ...(pending.turn_id ? { turnId: pending.turn_id } : {}),
+        flow: expectationFlow(pending.kind),
+        step: "expectation.resolved",
+        outcome: outcome === "met" ? "ok" : "cancelled",
+        elapsedMs: Math.max(0, Date.now() - Date.parse(pending.armed_at)),
+      });
+      this.database.prepare("DELETE FROM expectations WHERE id = ?").run(id);
+      return true;
     });
-    this.database.prepare("DELETE FROM expectations WHERE id = ?").run(id);
-    return true;
   }
 
   resolveExpectationsForTrace(
@@ -1420,7 +1426,10 @@ export class DiagnosticsStore {
         step: restarted ? "expectation.unknown_after_restart" : "expectation.missed",
         outcome: "timed_out",
       });
-      this.database.prepare("DELETE FROM expectations WHERE id = ?").run(pending.id);
+      withLifecycleLock(this.dir, () => {
+        this.assertCurrentVersion();
+        this.database.prepare("DELETE FROM expectations WHERE id = ?").run(pending.id);
+      });
       swept++;
     }
     return swept;
@@ -1453,6 +1462,18 @@ export class DiagnosticsStore {
   }
 
   prune(now = new Date(), targetBytes = this.maxTotalBytes * DIAGNOSTIC_LIMITS.pruneAtRatio): void {
+    withLifecycleLock(this.dir, () => {
+      this.assertCurrentVersion();
+      this.pruneLocked(now, targetBytes);
+    });
+  }
+
+  private pruneLocked(
+    now = new Date(),
+    targetBytes = this.maxTotalBytes * DIAGNOSTIC_LIMITS.pruneAtRatio,
+  ): void {
+    const maintenanceReserve = Math.min(8 * 1024 * 1024, Math.floor(this.maxTotalBytes * 0.2));
+    if (totalBytes(this.dir) > this.maxTotalBytes - maintenanceReserve) return;
     if (now.getTime() - this.lastHealthThinAt >= 60_000) {
       const healthCutoff = new Date(
         now.getTime() - DIAGNOSTIC_LIMITS.healthThinAfterMs,
@@ -1493,6 +1514,10 @@ export class DiagnosticsStore {
             )`)
             .run();
           if (occurrence.changes === 0) break;
+          this.database
+            .prepare(`INSERT INTO meta(key, value) VALUES ('incident_evictions', ?)
+              ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + ?`)
+            .run(String(occurrence.changes), occurrence.changes);
           this.recountIncidents();
         }
       }
@@ -1573,7 +1598,7 @@ export class DiagnosticsSpoolWriter {
       );
       if (this.stale)
         fs.writeFileSync(path.join(this.dir, `stale-${this.bootId}.json`), "{}", { mode: 0o600 });
-      writeLossLedger(lossLedgerPath(this.dir, this.bootId), 0, "capacity");
+      writeLossLedger(lossLedgerPath(this.dir, this.bootId), emptyLossCounts(), "capacity");
     });
   }
 
