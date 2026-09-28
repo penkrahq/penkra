@@ -39,6 +39,11 @@ export interface CheckpointInput extends DiagnosticContext {
   readonly fields?: DiagnosticFields;
 }
 
+export interface ExternalOutcomeInput extends CheckpointInput {
+  readonly outcome: NonNullable<CheckpointInput["outcome"]>;
+  readonly elapsedMs: number;
+}
+
 export interface IncidentInput extends DiagnosticContext {
   readonly kind: string;
   readonly code: IncidentCode;
@@ -105,7 +110,7 @@ interface SpoolEnvelope {
   readonly version: 1;
   readonly bootId: string;
   readonly sequence: number;
-  readonly type: "checkpoint" | "incident";
+  readonly type: "checkpoint" | "external_outcome" | "expectation_resolved" | "incident";
   readonly at: string;
   readonly monoMs: number;
   readonly process: DiagnosticsOptions["process"];
@@ -243,7 +248,7 @@ function prepareEnvelope(
   if (!Number.isSafeInteger(sequence) || sequence < 1)
     throw new TypeError("Invalid spool sequence");
   let safeData: CheckpointInput | IncidentInput;
-  if (type === "checkpoint") {
+  if (type !== "incident") {
     const checkpoint = data as CheckpointInput;
     validateDiagnosticToken(checkpoint.flow, "flow");
     validateDiagnosticToken(checkpoint.step, "step");
@@ -259,6 +264,12 @@ function prepareEnvelope(
       !["ok", "rejected", "failed", "timed_out", "cancelled"].includes(checkpoint.outcome)
     ) {
       throw new TypeError("Invalid checkpoint outcome");
+    }
+    if (
+      type === "external_outcome" &&
+      (checkpoint.outcome === undefined || checkpoint.elapsedMs === undefined)
+    ) {
+      throw new TypeError("External outcomes require outcome and duration");
     }
     safeData = {
       traceId: checkpoint.traceId,
@@ -322,7 +333,7 @@ function insertEnvelope(database: DatabaseSync, event: SpoolEnvelope, appVersion
     | { value: string }
     | undefined;
   if (lastSequence && Number(lastSequence.value) >= event.sequence) return;
-  if (event.type === "checkpoint") {
+  if (event.type !== "incident") {
     const data = event.data as CheckpointInput;
     const pin = database
       .prepare(
@@ -340,7 +351,7 @@ function insertEnvelope(database: DatabaseSync, event: SpoolEnvelope, appVersion
         event.sequence,
         event.at,
         event.monoMs,
-        "checkpoint",
+        event.type,
         data.flow,
         data.step,
         data.traceId,
@@ -551,7 +562,12 @@ export class DiagnosticsStore {
           try {
             event = JSON.parse(line) as SpoolEnvelope;
             if (event.version !== 1 || event.bootId !== bootId) continue;
-            if (event.type !== "checkpoint" && event.type !== "incident") continue;
+            if (
+              !["checkpoint", "external_outcome", "expectation_resolved", "incident"].includes(
+                event.type,
+              )
+            )
+              continue;
             if (!Number.isFinite(Date.parse(event.at)) || !Number.isFinite(event.monoMs)) continue;
             const safe = prepareEnvelope(
               event.bootId,
@@ -621,7 +637,9 @@ export class DiagnosticsStore {
         if (
           pending.version !== 1 ||
           pending.bootId !== this.bootId ||
-          (pending.type !== "checkpoint" && pending.type !== "incident")
+          !["checkpoint", "external_outcome", "expectation_resolved", "incident"].includes(
+            pending.type,
+          )
         ) {
           throw new Error("Current diagnostics spool is invalid");
         }
@@ -653,6 +671,10 @@ export class DiagnosticsStore {
 
   checkpoint(data: CheckpointInput): void {
     this.write("checkpoint", data);
+  }
+
+  externalOutcome(data: ExternalOutcomeInput): void {
+    this.write("external_outcome", data);
   }
 
   incident(data: IncidentInput): void {
@@ -835,7 +857,7 @@ export class DiagnosticsStore {
       | ExpectationRow
       | undefined;
     if (!pending) return false;
-    this.checkpoint({
+    this.write("expectation_resolved", {
       traceId: pending.trace_id,
       spanId: pending.span_id,
       ...(pending.attempt_id ? { attemptId: pending.attempt_id } : {}),

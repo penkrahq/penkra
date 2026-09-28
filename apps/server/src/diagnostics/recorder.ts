@@ -3,6 +3,7 @@ import type {
   DiagnosticContext,
   DiagnosticsStore,
   ExpectationInput,
+  ExternalOutcomeInput,
   IncidentInput,
   ExpectationKind,
 } from "./store";
@@ -68,6 +69,14 @@ export function recordDiagnosticCheckpoint(input: CheckpointInput): void {
   } catch {
     // A diagnostics failure must not prevent the command it was observing.
     process.stderr.write("[diagnostics] checkpoint write failed\n");
+  }
+}
+
+export function recordDiagnosticExternalOutcome(input: ExternalOutcomeInput): void {
+  try {
+    activeStore?.externalOutcome(input);
+  } catch {
+    process.stderr.write("[diagnostics] external outcome write failed\n");
   }
 }
 
