@@ -11,7 +11,9 @@ be used as a release candidate or launched against production data.
 - The orchestration command transaction inserts a provider-intent job alongside its event,
   projection, and command receipt. Transaction rollback removes the job and event together.
 - Lane keys follow the persisted `parent_thread_id` ancestry for subagents. A native fork with no
-  parent owns a separate lane.
+  parent owns a separate lane. Each job also snapshots the lane owner's runtime binding revision
+  and provider lifecycle generation when present; the executor still needs to validate and fence
+  these snapshots before side effects.
 - Database claims allow only the first unsettled job in each lane to run. Claims have owner and
   generation checks; an expired unclassified claim can become uncertain instead of replaying
   acceptance-ambiguous work.

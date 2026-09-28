@@ -75,6 +75,8 @@ export interface ProviderIntentOutboxJob {
   readonly eventId: string;
   readonly threadId: string;
   readonly laneKey: string;
+  readonly bindingRevision: number | null;
+  readonly lifecycleGeneration: string | null;
   readonly eventType: string;
   readonly event: OrchestrationEvent;
   readonly state:
