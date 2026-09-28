@@ -108,6 +108,7 @@ import { resolveBackendNodeArgs } from "./backendNodeOptions";
 import { ActiveWorkPowerBlocker } from "./activeWorkPowerBlocker";
 import { recordDesktopOsLookupFailure, resolveDesktopOsMajor } from "./desktopDiagnosticOs";
 import { startDesktopDiagnosticsMonitors } from "./desktopDiagnosticsMonitors";
+import { DesktopDiagnosticsQueue } from "./desktopDiagnosticsQueue";
 import {
   retainLiveBackendAfterShutdownFailure,
   requireWindowsBackendExit,
@@ -416,7 +417,7 @@ const BASE_DIR =
   Path.join(OS.homedir(), desktopIdentity.defaultHomeDirectoryName);
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
 let desktopDiagnostics: DiagnosticsSpoolWriter | null = null;
-let desktopDiagnosticsWorker: Worker | null = null;
+let desktopDiagnosticsQueue: DesktopDiagnosticsQueue | null = null;
 let stopDesktopDiagnosticsMonitors: (() => void) | null = null;
 const desktopOsMajor = resolveDesktopOsMajor(() => process.getSystemVersion());
 
@@ -456,41 +457,28 @@ function enqueueDesktopDiagnosticWrite(
   input: unknown,
 ): void {
   try {
-    if (!desktopDiagnosticsWorker) {
-      const worker = new Worker(Path.join(__dirname, "diagnosticsWorker.js"), {
-        workerData: desktopDiagnosticsOptions(),
-      });
-      desktopDiagnosticsWorker = worker;
-      worker.unref();
-      worker.on("error", () => {
-        if (desktopDiagnosticsWorker === worker) desktopDiagnosticsWorker = null;
-        process.stderr.write("[diagnostics] desktop worker failed\n");
-      });
-      worker.on("exit", () => {
-        if (desktopDiagnosticsWorker === worker) desktopDiagnosticsWorker = null;
-      });
-    }
-    desktopDiagnosticsWorker.postMessage({ kind, input });
+    desktopDiagnosticsQueue ??= new DesktopDiagnosticsQueue(
+      () =>
+        new Worker(Path.join(__dirname, "diagnosticsWorker.js"), {
+          workerData: desktopDiagnosticsOptions(),
+        }),
+      (reason, count) => {
+        try {
+          getDesktopDiagnosticsStore().recordDrop(reason, count);
+        } catch {
+          process.stderr.write("[diagnostics] desktop queue loss count failed\n");
+        }
+      },
+    );
+    desktopDiagnosticsQueue.enqueue(kind, input);
   } catch {
     process.stderr.write("[diagnostics] desktop worker enqueue failed\n");
   }
 }
 
 async function drainDesktopDiagnosticsWorker(): Promise<void> {
-  const worker = desktopDiagnosticsWorker;
-  if (!worker) return;
-  await new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, 2_000);
-    const done = () => {
-      clearTimeout(timer);
-      resolve();
-    };
-    worker.once("message", done);
-    worker.once("exit", done);
-    worker.postMessage({ kind: "shutdown" });
-  });
-  await worker.terminate();
-  if (desktopDiagnosticsWorker === worker) desktopDiagnosticsWorker = null;
+  await desktopDiagnosticsQueue?.drain();
+  desktopDiagnosticsQueue = null;
 }
 const DESKTOP_WINDOW_STATE_PATH = Path.join(STATE_DIR, "desktop-window-state.json");
 const DESKTOP_SCHEME = desktopIdentity.scheme;

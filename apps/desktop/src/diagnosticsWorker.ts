@@ -47,8 +47,17 @@ parentPort?.on("message", (message: DiagnosticsMessage) => {
         });
         break;
     }
-  } catch {
+  } catch (cause) {
+    if (cause instanceof TypeError) {
+      try {
+        writer.recordDrop("spool");
+      } catch {
+        process.stderr.write("[diagnostics] desktop worker loss count failed\n");
+      }
+    }
     process.stderr.write("[diagnostics] desktop worker write failed\n");
+  } finally {
+    if (message.kind !== "shutdown") parentPort?.postMessage({ kind: "ack" });
   }
 });
 process.once("exit", close);
