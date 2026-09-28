@@ -111,6 +111,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
 import { ProviderLaunchResolver } from "../../provider/Services/ProviderLaunchResolver.ts";
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
+import { ProviderSessionDirectory } from "../../provider/Services/ProviderSessionDirectory.ts";
 import { PLAY_TURN_RECOVERY_PROMPT, RESTART_TURN_RECOVERY_PROMPT } from "../restartTurnRecovery.ts";
 import { isProviderIntentEvent } from "../providerIntentClassification.ts";
 
@@ -678,6 +679,9 @@ describe("ProviderCommandReactor", () => {
     const runtimeEventRepository = await runtime.runPromise(
       Effect.service(ProviderRuntimeEventRepository),
     );
+    const providerSessionDirectory = await runtime.runPromise(
+      Effect.service(ProviderSessionDirectory),
+    );
     const emitRuntimeEvent = (event: ProviderRuntimeEvent) =>
       Effect.runPromise(
         runtimeEventRepository
@@ -846,6 +850,10 @@ describe("ProviderCommandReactor", () => {
       },
       drain,
       emitRuntimeEvent,
+      appendRuntimeEventWithoutPublication: (event: ProviderRuntimeEvent) =>
+        runtime.runPromise(runtimeEventRepository.append(event)),
+      drainRuntimeIngestion: () => runtime.runPromise(ingestion.drain),
+      providerSessionDirectory,
       setRuntimeSessionTurnState,
       startReactor,
       deliveryRepository,
@@ -4986,6 +4994,86 @@ describe("ProviderCommandReactor", () => {
       startedAt: null,
       completedAt,
     });
+  });
+
+  it("uses durable terminal ownership when the accepted runtime event has been pruned", async () => {
+    const harness = await createHarness({ startRuntimeIngestion: true });
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const turnId = asTurnId("turn-terminal-pruned-before-acceptance");
+    const messageId = asMessageId("message-terminal-pruned-before-acceptance");
+    const completedAt = "2026-09-07T06:02:00.000Z";
+    const acceptedWriteAdmitted = await Effect.runPromise(Deferred.make<void>());
+    const releaseAcceptedWrite = await Effect.runPromise(Deferred.make<void>());
+    harness.sendTurn.mockImplementationOnce(() => Effect.succeed({ threadId, turnId }));
+    harness.interceptEngineDispatch((command, dispatch) =>
+      command.type === "thread.message.delivery.set" &&
+      command.state === "accepted" &&
+      command.messageId === messageId
+        ? Deferred.succeed(acceptedWriteAdmitted, undefined).pipe(
+            Effect.andThen(Deferred.await(releaseAcceptedWrite)),
+            Effect.andThen(dispatch(command)),
+          )
+        : undefined,
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        connectionId: TEST_CONNECTION_ID,
+        bindingRevision: 0,
+        commandId: CommandId.makeUnsafe("cmd-terminal-pruned-before-acceptance"),
+        threadId,
+        message: { messageId, role: "user", text: "run", attachments: [] },
+        runtimeMode: "approval-required",
+        createdAt: new Date().toISOString(),
+      }),
+    );
+    await Effect.runPromise(Deferred.await(acceptedWriteAdmitted));
+    await harness.appendRuntimeEventWithoutPublication({
+      type: "turn.completed",
+      eventId: asEventId("evt-terminal-pruned-before-acceptance"),
+      provider: "codex",
+      threadId,
+      turnId,
+      createdAt: completedAt,
+      payload: { state: "failed", errorMessage: "failed before acceptance" },
+      providerRefs: {},
+    });
+    await harness.drainRuntimeIngestion();
+    await harness.providerSessionDirectory
+      .upsert({
+        threadId,
+        provider: "codex",
+        status: "error",
+        runtimePayload: {
+          activeTurnId: null,
+          lastTerminalEvent: "turn.completed",
+          lastTerminalEventAt: completedAt,
+          lastTerminalTurnId: turnId,
+          lastTerminalState: "failed",
+        },
+      })
+      .pipe(Effect.runPromise);
+    await Effect.runPromise(harness.sql`
+      DELETE FROM provider_runtime_events
+      WHERE event_id = ${"evt-terminal-pruned-before-acceptance"}
+    `);
+    await Effect.runPromise(Deferred.succeed(releaseAcceptedWrite, undefined));
+    await waitFor(async () => {
+      const turn = await Effect.runPromise(
+        harness.projectionTurnRepository.getByTurnId({
+          threadId,
+          turnId: asTurnId("turn:cmd-terminal-pruned-before-acceptance"),
+        }),
+      );
+      return Option.isSome(turn) && turn.value.state === "error";
+    });
+    const turn = await Effect.runPromise(
+      harness.projectionTurnRepository.getByTurnId({
+        threadId,
+        turnId: asTurnId("turn:cmd-terminal-pruned-before-acceptance"),
+      }),
+    );
+    expect(turn.pipe(Option.getOrThrow).completedAt).toBe(completedAt);
   });
 
   it("releases an early-terminal queued promotion and drains its successor exactly once", async () => {
