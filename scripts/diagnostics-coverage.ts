@@ -31,6 +31,41 @@ export interface CoverageBoundary {
   readonly file: string;
 }
 
+function recordsAtBoundary(source: string, boundary: CoverageBoundary): boolean {
+  const parsed = ts.createSourceFile(boundary.file, source, ts.ScriptTarget.Latest, true);
+  let found = false;
+  function visit(node: ts.Node): void {
+    if (found) return;
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === "recordDiagnosticIncident" &&
+      node.arguments[0] &&
+      ts.isObjectLiteralExpression(node.arguments[0])
+    ) {
+      const fields = new Map(
+        node.arguments[0].properties
+          .filter(ts.isPropertyAssignment)
+          .filter(
+            (property) =>
+              ts.isIdentifier(property.name) && ts.isStringLiteralLike(property.initializer),
+          )
+          .map((property) => [
+            property.name.getText(parsed),
+            property.initializer.getText(parsed).slice(1, -1),
+          ]),
+      );
+      if (fields.get("code") === boundary.code && fields.get("where") === boundary.where) {
+        found = true;
+        return;
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(parsed);
+  return found;
+}
+
 /** A propagated site is covered only when its named recording boundary is registered. */
 export function validateCoverageBoundaries(
   boundaries: ReadonlyArray<CoverageBoundary>,
@@ -44,12 +79,7 @@ export function validateCoverageBoundaries(
     validateDiagnosticToken(boundary.where, "where");
     if (!COVERAGE_ROOTS.some((root) => boundary.file.startsWith(`${root}/`)))
       throw new Error(`Invalid diagnostics coverage boundary file: ${boundary.file}`);
-    const source = sourceFor(boundary.file);
-    if (
-      !source.includes("recordDiagnosticIncident(") ||
-      !source.includes(`code: "${boundary.code}"`) ||
-      !source.includes(`where: "${boundary.where}"`)
-    )
+    if (!recordsAtBoundary(sourceFor(boundary.file), boundary))
       throw new Error(`Diagnostics coverage boundary does not record ${key}: ${boundary.file}`);
     registered.add(key);
   }
