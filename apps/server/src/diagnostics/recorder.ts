@@ -13,6 +13,7 @@ let activeStore: DiagnosticsStore | null = null;
 export function installDiagnosticsStore(store: DiagnosticsStore): () => void {
   activeStore = store;
   const stopHealthSampling = store.startHealthSampling();
+  const stopProcessWatchdog = store.startProcessWatchdog();
   const sweep = setInterval(() => {
     try {
       store.sweepExpectations();
@@ -24,6 +25,7 @@ export function installDiagnosticsStore(store: DiagnosticsStore): () => void {
   return () => {
     clearInterval(sweep);
     stopHealthSampling();
+    stopProcessWatchdog();
     if (activeStore === store) activeStore = null;
   };
 }

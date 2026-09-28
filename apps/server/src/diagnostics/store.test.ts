@@ -31,6 +31,33 @@ afterEach(() => {
 });
 
 describe("diagnostics store", () => {
+  it("reports stalled and crashed peer processes once per observed failure", () => {
+    const { stateDir, store } = fixture();
+    const desktop = new DiagnosticsStore({
+      stateDir,
+      appVersion: "0.14.3",
+      process: "desktop-main",
+    });
+    desktop.sampleHealth({ eventLoopLagMs: 0 });
+    const databasePath = path.join(stateDir, "diagnostics", "diagnostics.sqlite");
+    const writer = new DatabaseSync(databasePath);
+    const stale = new Date(Date.now() - 20_000).toISOString();
+    writer.prepare("UPDATE health SET at = ? WHERE boot_id = ?").run(stale, desktop.bootId);
+    writer.close();
+    expect(store.checkProcessHealth()).toBe(1);
+    expect(store.checkProcessHealth()).toBe(0);
+    const activePath = path.join(stateDir, "diagnostics", `active-${desktop.bootId}.json`);
+    fs.writeFileSync(activePath, JSON.stringify({ pid: 999_999_999, process: "desktop-main" }));
+    expect(store.checkProcessHealth()).toBe(1);
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(db.prepare("SELECT code FROM incidents ORDER BY code").all()).toMatchObject([
+      { code: "PROCESS_CRASHED" },
+      { code: "PROCESS_UNRESPONSIVE" },
+    ]);
+    db.close();
+    desktop.close();
+    store.close();
+  });
   it("records allowlisted process health and attaches it to incidents", () => {
     const { stateDir, store } = fixture();
     store.sampleHealth({ eventLoopLagMs: 12, queueDepth: 3, oldestQueuedMs: 50 });
