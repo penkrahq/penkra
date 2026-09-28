@@ -73,7 +73,11 @@ import { NetService } from "@penkra/shared/Net";
 import { POSSIBLE_MODEL_CATALOG } from "@penkra/shared/possibleModels";
 import { applyShellEnvironmentHydrationMarker } from "@penkra/shared/shell";
 import { RotatingFileSink } from "@penkra/shared/logging";
-import { DiagnosticsStore, type CheckpointInput } from "@penkra/shared/diagnostics/store";
+import {
+  DiagnosticsStore,
+  type CheckpointInput,
+  type IncidentInput,
+} from "@penkra/shared/diagnostics/store";
 import { DIAGNOSTIC_LIMITS } from "@penkra/shared/diagnostics/limits";
 import { ensureStaticSnapshot, findAsarArchivePath } from "@penkra/shared/staticSnapshot";
 import { isBackendReadinessAborted, waitForHttpReady } from "./backendReadiness";
@@ -5091,6 +5095,15 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC.diagnosticsCheckpoint, (event, input: unknown) => {
     requireMainRenderer(event);
     recordDesktopDiagnosticCheckpoint(input);
+  });
+  ipcMain.handle(IPC.diagnosticsIncident, (event, input: unknown) => {
+    requireMainRenderer(event);
+    if (!input || typeof input !== "object" || Array.isArray(input)) return;
+    try {
+      getDesktopDiagnosticsStore().incident(input as IncidentInput);
+    } catch {
+      process.stderr.write("[diagnostics] desktop incident write failed\n");
+    }
   });
   ipcMain.handle(IPC.diagnosticsSendExpectation, (event, input: unknown) => {
     requireMainRenderer(event);

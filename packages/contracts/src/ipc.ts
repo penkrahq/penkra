@@ -741,6 +741,19 @@ export interface DesktopBridge {
     commandId?: string;
     flow: string;
     step: string;
+    outcome?: "ok" | "failed" | "timed_out";
+    elapsedMs?: number;
+  }) => Promise<void>;
+  recordDiagnosticIncident?: (input: {
+    traceId: string;
+    spanId: string;
+    kind: string;
+    code: string;
+    where: string;
+    severity: "error" | "warn";
+    expected?: Readonly<Record<string, string | number | boolean | null>>;
+    actual?: Readonly<Record<string, string | number | boolean | null>>;
+    lastCheckpoint?: string;
   }) => Promise<void>;
   armSendDiagnosticExpectation?: (input: {
     traceId: string;
