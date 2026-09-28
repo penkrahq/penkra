@@ -53,6 +53,7 @@ const enumValues = {
     "server.received",
     "server.starting",
     "server.ready",
+    "server.boot_stage_failed",
     "command.accepted",
     "command.rejected",
     "command.queued",

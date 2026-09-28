@@ -51,6 +51,7 @@ import { DiagnosticsStore, parseDiagnosticsBundleSignature } from "./diagnostics
 import { installDiagnosticsStore } from "./diagnostics/recorder";
 import {
   measuredBootStage,
+  recordBootStageFailure,
   recordBootReady,
   recordBootSlow,
   type BootStage,
@@ -469,6 +470,13 @@ const makeServerProgram = (input: CliInput) => {
     const noteBootStage = (stage: BootStage) => {
       activeBootStage = stage;
     };
+    const noteBootStageFailure = (stage: BootStage, elapsedMs: number) => {
+      try {
+        recordBootStageFailure(diagnostics, bootTraceId, stage, elapsedMs);
+      } catch {
+        process.stderr.write("[diagnostics] boot stage failure write failed\n");
+      }
+    };
     yield* Effect.sync(() => startServerMemoryDiagnostics({ mode: config.mode }));
     yield* Effect.sync(() => startServerEventLoopDiagnostics({ mode: config.mode }));
 
@@ -487,30 +495,35 @@ const makeServerProgram = (input: CliInput) => {
       providerNativeStateDeletionCoordinator.recover,
       bootStages,
       noteBootStage,
+      noteBootStageFailure,
     );
     yield* measuredBootStage(
       "provider-connection-lifecycle.recover",
       providerConnectionLifecycle.recover,
       bootStages,
       noteBootStage,
+      noteBootStageFailure,
     );
     yield* measuredBootStage(
       "provider-connection-login.recover",
       providerConnectionLoginCoordinator.recover,
       bootStages,
       noteBootStage,
+      noteBootStageFailure,
     );
     yield* measuredBootStage(
       "default-spaces.ensure",
       ensureDefaultSpaces(orchestrationEngine),
       bootStages,
       noteBootStage,
+      noteBootStageFailure,
     );
     const startedServer = yield* measuredBootStage(
       "http-runtime.start",
       start,
       bootStages,
       noteBootStage,
+      noteBootStageFailure,
     );
     clearTimeout(bootTimer);
     yield* Effect.sync(() =>
