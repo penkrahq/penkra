@@ -104,6 +104,9 @@ interface AppTabRecord {
   popupOpeners: HostedPage[];
   ownerWindowId: number | null;
   bounds: Rectangle;
+  dockWidth: number;
+  rightInset: number;
+  bottom: number;
   pageTop: number;
   browserVersion: number;
   lastFrame: NativeImage | null;
@@ -222,13 +225,23 @@ export function shouldKeepPresentationAnimation(input: {
   );
 }
 
-export function clipAppTabBounds(bounds: Rectangle, viewport: Rectangle): Rectangle | null {
-  const x = Math.max(0, Math.min(viewport.width, Math.round(bounds.x)));
-  const y = Math.max(0, Math.min(viewport.height, Math.round(bounds.y)));
-  const right = Math.max(0, Math.min(viewport.width, Math.round(bounds.x + bounds.width)));
-  const bottom = Math.max(0, Math.min(viewport.height, Math.round(bounds.y + bounds.height)));
-  if (right <= x || bottom <= y) return null;
-  return { x, y, width: right - x, height: bottom - y };
+export function resizedAppTabBounds(input: {
+  bounds: Rectangle;
+  dockWidth: number;
+  rightInset: number;
+  bottom: number;
+  width: number;
+  height: number;
+}): Rectangle {
+  const windowWidth = Math.max(1, input.width);
+  const rightInset = Math.max(0, Math.min(windowWidth - 1, Math.round(input.rightInset)));
+  const width = Math.max(1, Math.min(Math.round(input.dockWidth), windowWidth - rightInset));
+  return {
+    x: windowWidth - rightInset - width,
+    y: input.bounds.y,
+    width,
+    height: Math.max(1, input.height - input.bottom - input.bounds.y),
+  };
 }
 
 export function detachedHostLayoutBounds(
@@ -674,8 +687,14 @@ export class AppTabViewHost implements AppTabHost {
       return;
     }
     const content = window.getContentBounds();
-    const bounds = clipAppTabBounds(input.bounds, content);
-    if (!bounds) return;
+    const width = Math.max(1, Math.min(Math.round(input.bounds.width), content.width));
+    const y = Math.max(0, Math.min(Math.round(input.bounds.y), content.height - 1));
+    const bounds = {
+      x: content.width - width,
+      y,
+      width,
+      height: Math.max(1, content.height - y),
+    };
 
     for (const other of this.#records.values()) {
       if (other === record) continue;
@@ -974,6 +993,10 @@ export class AppTabViewHost implements AppTabHost {
       this.#attachPage(record);
     }
     record.bounds = normalizedBounds;
+    const contentBounds = targetWindow.getContentBounds();
+    record.dockWidth = record.bounds.width;
+    record.rightInset = Math.max(0, contentBounds.width - record.bounds.x - record.bounds.width);
+    record.bottom = Math.max(0, contentBounds.height - record.bounds.y - record.bounds.height);
     record.visibleRequested = true;
     record.ownerWindowVisible = targetWindow.isVisible() && !targetWindow.isMinimized();
     const revealFromDock = record.hiddenByDock || animate;
@@ -1401,23 +1424,14 @@ export class AppTabViewHost implements AppTabHost {
   resizeWindow(windowId: number, width: number, height: number): void {
     for (const record of this.#records.values()) {
       if (record.ownerWindowId !== windowId) continue;
-      // Until the renderer publishes its new host rect, retain only the part of
-      // the last measured view that still fits the window.
-      const next = clipAppTabBounds(record.bounds, { x: 0, y: 0, width, height });
-      if (!next) {
-        this.#stopAnimation(record);
-        const wasVisible = record.visibleRequested;
-        record.visibleRequested = false;
-        record.appView.setVisible(false);
-        record.page?.view.setVisible(false);
-        const presentation = this.#presentationsByTabId.get(record.descriptor.id)?.get(windowId);
-        const presentationWasVisible = presentation?.visible === true;
-        if (presentation) presentation.visible = false;
-        if (this.#lastVisibleTabId === record.descriptor.id) this.#lastVisibleTabId = null;
-        if (wasVisible) this.#sendEvent(record, "lifecycle.visibility", { active: false });
-        if (wasVisible || presentationWasVisible) this.#emitPresentation(record.descriptor.id);
-        continue;
-      }
+      const next = resizedAppTabBounds({
+        bounds: record.bounds,
+        dockWidth: record.dockWidth,
+        rightInset: record.rightInset,
+        bottom: record.bottom,
+        width,
+        height,
+      });
       this.setBounds(record.descriptor.id, next);
       const presentation = this.#presentationsByTabId.get(record.descriptor.id)?.get(windowId);
       if (presentation) presentation.bounds = next;
@@ -1817,6 +1831,9 @@ export class AppTabViewHost implements AppTabHost {
         popupOpeners: [],
         ownerWindowId: null,
         bounds: { x: 0, y: 0, width: 600, height: 700 },
+        dockWidth: 0,
+        rightInset: 0,
+        bottom: 0,
         // Browser's toolbar measures itself with ResizeObserver/rAF, which may not run
         // until the tab is presented. Reserve its normal toolbar height immediately.
         pageTop: input.app.appId === "com.penkra.browser" ? 48 : 0,
