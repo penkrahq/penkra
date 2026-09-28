@@ -98,7 +98,7 @@ export function makeSyncAcknowledgements() {
                 : "sequence_delivered",
           },
         });
-        yield* Effect.logWarning("stale orchestration synchronization acknowledgement").pipe(
+        yield* Effect.logDebug("stale orchestration synchronization acknowledgement").pipe(
           Effect.annotateLogs({ clientId, deliveryId: input.deliveryId }),
         );
         return yield* new WsRpcError({
