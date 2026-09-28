@@ -1408,14 +1408,10 @@ export class DiagnosticsStore {
       const previous = this.database
         .prepare("SELECT value FROM meta WHERE key = ?")
         .get(reportedKey) as { value: string } | undefined;
-      const invalid = row.key.startsWith("sequence-gap:")
-        ? (this.database
-            .prepare("SELECT value FROM meta WHERE key = ?")
-            .get(`spool-invalid:${bootId}`) as { value: string } | undefined)
-        : undefined;
-      const observed = row.key.startsWith("sequence-gap:")
-        ? Math.max(0, Number(row.value) - Number(invalid?.value ?? 0))
-        : Number(row.value);
+      // A missing sequence is a separate loss from an invalid spool line.
+      // An invalid line may not even carry a sequence, so subtracting one
+      // counter from the other silently discards independent failures.
+      const observed = Number(row.value);
       const delta = observed - Number(previous?.value ?? 0);
       if (!Number.isSafeInteger(delta) || delta <= 0) continue;
       try {

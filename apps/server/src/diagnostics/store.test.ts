@@ -985,7 +985,15 @@ describe("diagnostics store", () => {
           "SELECT count(*) AS count FROM incident_occurrences WHERE incident_id IN (SELECT id FROM incidents WHERE code = 'DIAGNOSTICS_DROPPED')",
         )
         .get(),
-    ).toMatchObject({ count: 1 });
+    ).toMatchObject({ count: 2 });
+    expect(
+      db
+        .prepare(`SELECT context_json FROM incident_occurrences
+          WHERE incident_id IN (SELECT id FROM incidents WHERE code = 'DIAGNOSTICS_DROPPED')`)
+        .all()
+        .map((row) => JSON.parse((row as { context_json: string }).context_json).reason)
+        .toSorted(),
+    ).toEqual(["invalid-record", "sequence-gap"]);
     db.close();
     fs.writeFileSync(spoolPath, spoolContent);
     recovered.importPeerSpools();
