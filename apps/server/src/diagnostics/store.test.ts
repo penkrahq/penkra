@@ -581,6 +581,50 @@ describe("diagnostics store", () => {
     recovered.close();
   });
 
+  it("records torn spool lines and missing sequence numbers before removing recovery data", () => {
+    const { stateDir, store } = fixture();
+    store.close();
+    const bootId = randomBytes(16).toString("hex");
+    const dir = path.join(stateDir, "diagnostics");
+    const event = {
+      version: 1,
+      bootId,
+      sequence: 1,
+      type: "checkpoint",
+      at: new Date().toISOString(),
+      monoMs: 1,
+      process: "desktop-main",
+      data: { traceId, spanId, flow: "send", step: "composer.preflight" },
+    };
+    const spoolPath = path.join(dir, `spool-${bootId}.jsonl`);
+    const spoolContent = `${JSON.stringify(event)}\n{"private":"torn"\n${JSON.stringify({ ...event, sequence: 3 })}\n`;
+    fs.writeFileSync(spoolPath, spoolContent);
+    const recovered = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(
+      db.prepare("SELECT value FROM meta WHERE key = ?").get(`spool-invalid:${bootId}`),
+    ).toMatchObject({ value: "1" });
+    expect(
+      db.prepare("SELECT value FROM meta WHERE key = ?").get(`sequence-gap:${bootId}`),
+    ).toMatchObject({ value: "1" });
+    expect(
+      db
+        .prepare(
+          "SELECT count(*) AS count FROM incident_occurrences WHERE incident_id IN (SELECT id FROM incidents WHERE code = 'DIAGNOSTICS_DROPPED')",
+        )
+        .get(),
+    ).toMatchObject({ count: 1 });
+    db.close();
+    fs.writeFileSync(spoolPath, spoolContent);
+    recovered.importPeerSpools();
+    const replayed = openDiagnosticsReader(stateDir)!;
+    expect(
+      replayed.prepare("SELECT value FROM meta WHERE key = ?").get(`spool-invalid:${bootId}`),
+    ).toMatchObject({ value: "1" });
+    replayed.close();
+    recovered.close();
+  });
+
   it("rejects content fields before any spool or database write", () => {
     const { stateDir, store } = fixture();
     const secret = "private prompt content and token";
