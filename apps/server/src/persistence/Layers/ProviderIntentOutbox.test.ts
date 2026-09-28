@@ -26,6 +26,10 @@ layer("ProviderIntentOutbox", (it) => {
         const events = yield* OrchestrationEventStore;
         const outbox = yield* ProviderIntentOutbox;
         const now = "2026-09-28T00:00:00.000Z";
+        const commandTrace = {
+          traceId: "11111111111111111111111111111111",
+          spanId: "2222222222222222",
+        };
         yield* sql`DELETE FROM provider_intent_outbox`;
         const append = (eventId: string, threadId: string) =>
           sql.withTransaction(
@@ -49,7 +53,7 @@ layer("ProviderIntentOutbox", (it) => {
               if (!isProviderIntentEvent(event)) {
                 return yield* Effect.die(new Error("Expected provider intent"));
               }
-              yield* outbox.enqueueInCurrentTransaction(event);
+              yield* outbox.enqueueInCurrentTransaction(event, commandTrace);
             }),
           );
         yield* append("event-a-one", "thread-a");
@@ -97,6 +101,8 @@ layer("ProviderIntentOutbox", (it) => {
         yield* Deferred.await(aTwoEntered);
         assert.equal(firstAttemptTrace?.attemptId, firstSettledTrace?.attemptId);
         assert.equal(firstAttemptTrace?.spanId, firstSettledTrace?.spanId);
+        assert.equal(firstAttemptTrace?.traceId, commandTrace.traceId);
+        assert.equal(firstAttemptTrace?.parentSpanId, commandTrace.spanId);
       }),
     ),
   );
