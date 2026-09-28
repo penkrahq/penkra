@@ -229,6 +229,8 @@ const enumValues = {
     "sqlite",
     "spool",
     "stale",
+    "invalid-record",
+    "sequence-gap",
   ],
   where: [
     "diagnostics.spool_import",

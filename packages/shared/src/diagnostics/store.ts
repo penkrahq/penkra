@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -578,6 +578,12 @@ function insertEnvelope(
     | { value: string }
     | undefined;
   if (lastSequence && Number(lastSequence.value) >= event.sequence) return;
+  const gap = event.sequence - Number(lastSequence?.value ?? 0) - 1;
+  if (gap > 0)
+    database
+      .prepare(`INSERT INTO meta(key, value) VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + ?`)
+      .run(`sequence-gap:${event.bootId}`, String(gap), gap);
   if (event.type === "provenance_set") {
     const provenance = event.data as ProvenanceInput;
     database
@@ -968,7 +974,8 @@ export class DiagnosticsStore {
         }
       }
       const spoolPath = path.join(this.dir, entry);
-      const lines = fs.readFileSync(spoolPath, "utf8").split("\n");
+      const spoolContent = fs.readFileSync(spoolPath, "utf8");
+      const lines = spoolContent.split("\n");
       const stalePath = path.join(this.dir, `stale-${bootId}.json`);
       if (fs.existsSync(stalePath)) {
         const dropped = lines.filter(Boolean).length;
@@ -986,12 +993,38 @@ export class DiagnosticsStore {
       if (totalBytes(this.dir) + reserve > this.maxTotalBytes) continue;
       this.database.exec("BEGIN IMMEDIATE");
       try {
+        let invalid = 0;
+        const observedKey = `spool-observed:${bootId}`;
+        const observed = this.database
+          .prepare("SELECT value FROM meta WHERE key = ?")
+          .get(observedKey) as { value: string } | undefined;
+        let priorBytes = 0;
+        if (observed) {
+          try {
+            const prior = JSON.parse(observed.value) as { bytes: number; hash: string };
+            if (
+              Number.isSafeInteger(prior.bytes) &&
+              prior.bytes >= 0 &&
+              prior.bytes <= Buffer.byteLength(spoolContent) &&
+              createHash("sha256")
+                .update(Buffer.from(spoolContent).subarray(0, prior.bytes))
+                .digest("hex") === prior.hash
+            )
+              priorBytes = prior.bytes;
+          } catch {
+            // An invalid observation marker cannot justify skipping a loss count.
+          }
+        }
+        let lineOffset = 0;
         for (const line of lines) {
+          const currentOffset = lineOffset;
+          lineOffset += Buffer.byteLength(line) + 1;
           if (!line) continue;
           let event: SpoolEnvelope;
           try {
             event = JSON.parse(line) as SpoolEnvelope;
-            if (event.version !== 1 || event.bootId !== bootId) continue;
+            if (event.version !== 1 || event.bootId !== bootId)
+              throw new Error("Invalid diagnostics spool identity");
             if (
               ![
                 "checkpoint",
@@ -1003,8 +1036,9 @@ export class DiagnosticsStore {
                 "provenance_set",
               ].includes(event.type)
             )
-              continue;
-            if (!Number.isFinite(Date.parse(event.at)) || !Number.isFinite(event.monoMs)) continue;
+              throw new Error("Invalid diagnostics spool event type");
+            if (!Number.isFinite(Date.parse(event.at)) || !Number.isFinite(event.monoMs))
+              throw new Error("Invalid diagnostics spool timestamp");
             const safe = prepareEnvelope(
               event.bootId,
               event.sequence,
@@ -1014,10 +1048,23 @@ export class DiagnosticsStore {
             );
             event = { ...safe, at: new Date(event.at).toISOString(), monoMs: event.monoMs };
           } catch {
+            if (currentOffset >= priorBytes) invalid++;
             continue; // Torn final line or invalid/unallowlisted payload.
           }
           insertEnvelope(this.database, event, this.options);
         }
+        if (invalid > 0)
+          this.database
+            .prepare(`INSERT INTO meta(key, value) VALUES (?, ?)
+              ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + ?`)
+            .run(`spool-invalid:${bootId}`, String(invalid), invalid);
+        this.database.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)").run(
+          observedKey,
+          JSON.stringify({
+            bytes: Buffer.byteLength(spoolContent),
+            hash: createHash("sha256").update(spoolContent).digest("hex"),
+          }),
+        );
         if (totalBytes(this.dir) > this.maxTotalBytes)
           throw new Error("Diagnostics capacity reached during spool import");
         this.database.exec("COMMIT");
@@ -1112,6 +1159,52 @@ export class DiagnosticsStore {
         } catch {
           // The preallocated ledger remains the durable source until space is available.
         }
+      }
+    }
+    const stored = this.database
+      .prepare(
+        "SELECT key, value FROM meta WHERE key LIKE 'spool-invalid:%' OR key LIKE 'sequence-gap:%'",
+      )
+      .all() as Array<{ key: string; value: string }>;
+    for (const row of stored) {
+      const bootId = row.key.slice(row.key.indexOf(":") + 1);
+      if (!/^[a-f0-9]{32}$/u.test(bootId)) continue;
+      const reportedKey = `loss-reported:${row.key}`;
+      const previous = this.database
+        .prepare("SELECT value FROM meta WHERE key = ?")
+        .get(reportedKey) as { value: string } | undefined;
+      const invalid = row.key.startsWith("sequence-gap:")
+        ? (this.database
+            .prepare("SELECT value FROM meta WHERE key = ?")
+            .get(`spool-invalid:${bootId}`) as { value: string } | undefined)
+        : undefined;
+      const observed = row.key.startsWith("sequence-gap:")
+        ? Math.max(0, Number(row.value) - Number(invalid?.value ?? 0))
+        : Number(row.value);
+      const delta = observed - Number(previous?.value ?? 0);
+      if (!Number.isSafeInteger(delta) || delta <= 0) continue;
+      try {
+        this.incident({
+          traceId: randomBytes(16).toString("hex"),
+          spanId: randomBytes(8).toString("hex"),
+          kind: "diagnostics.degraded",
+          code: "DIAGNOSTICS_DROPPED",
+          where: "diagnostics.spool_import",
+          severity: "error",
+          actual: { count: delta },
+          context: {
+            bootId,
+            reason: row.key.startsWith("spool-invalid:") ? "invalid-record" : "sequence-gap",
+          },
+        });
+        withLifecycleLock(this.dir, () => {
+          this.assertCurrentVersion();
+          this.database
+            .prepare("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)")
+            .run(reportedKey, String(observed));
+        });
+      } catch {
+        // The meta count remains pending until the next successful import.
       }
     }
   }
