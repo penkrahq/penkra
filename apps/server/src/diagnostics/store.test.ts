@@ -862,24 +862,27 @@ describe("diagnostics store", () => {
     next.close();
   });
 
-  it("rejects a late old process without erasing the new version", () => {
+  it("treats a running unpackaged build as authoritative even after a version decrease", () => {
     const { stateDir, store } = fixture("0.14.3");
     store.checkpoint({ traceId, spanId, flow: "send", step: "server.received" });
-    const databasePath = path.join(stateDir, "diagnostics", "diagnostics.sqlite");
-    const before = fs.statSync(databasePath).size;
-    expect(
-      () => new DiagnosticsSpoolWriter({ stateDir, appVersion: "0.14.2", process: "desktop-main" }),
-    ).toThrow("newer app version");
-    expect(
-      () => new DiagnosticsStore({ stateDir, appVersion: "0.14.2", process: "server" }),
-    ).toThrow("newer app version");
-    expect(fs.statSync(databasePath).size).toBe(before);
+    store.close();
+    const desktop = new DiagnosticsSpoolWriter({
+      stateDir,
+      appVersion: "0.14.2",
+      process: "desktop-main",
+    });
+    desktop.checkpoint({ traceId, spanId, flow: "send", step: "composer.preflight" });
+    const current = new DiagnosticsStore({ stateDir, appVersion: "0.14.2", process: "server" });
     const db = openDiagnosticsReader(stateDir)!;
     expect(db.prepare("SELECT step FROM detail").all()).toMatchObject([
-      { step: "server.received" },
+      { step: "composer.preflight" },
     ]);
+    expect(db.prepare("SELECT value FROM meta WHERE key = 'app_version'").get()).toMatchObject({
+      value: "0.14.2",
+    });
     db.close();
-    store.close();
+    desktop.close();
+    current.close();
   });
 
   it("replays an orphaned spool once and marks the unclean shutdown", () => {
