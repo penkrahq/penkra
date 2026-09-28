@@ -6211,13 +6211,14 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
   ): Promise<boolean> => {
     e?.preventDefault();
     const sendTrace = startDiagnosticTrace();
-    const entryCheckpoint = window.desktopBridge?.recordDiagnosticCheckpoint?.({
-      ...sendTrace,
-      ...(activeThread ? { threadId: activeThread.id } : {}),
-      flow: "send",
-      step: "composer.preflight",
-    });
-    await entryCheckpoint?.catch(() => undefined);
+    void window.desktopBridge
+      ?.recordDiagnosticCheckpoint?.({
+        ...sendTrace,
+        ...(activeThread ? { threadId: activeThread.id } : {}),
+        flow: "send",
+        step: "composer.preflight",
+      })
+      .catch(() => undefined);
     const api = readNativeApi();
     const lateSendHandlers = lateComposerSendHandlersRef.current;
     if (!api || !lateSendHandlers || !activeThread || isVoiceTranscribing) {
