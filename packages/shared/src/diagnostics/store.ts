@@ -50,13 +50,16 @@ export function parseDiagnosticsBundleSignature(
 }
 
 function storeIdentity(options: DiagnosticsOptions): string {
-  if (options.buildId && !/^[a-f0-9]{7,64}$/u.test(options.buildId))
+  if (
+    (options.buildId !== undefined && /^0{7,64}$/u.test(options.buildId)) ||
+    (options.buildId && options.buildId !== "unknown" && !/^[a-f0-9]{7,64}$/u.test(options.buildId))
+  )
     throw new TypeError("Invalid diagnostics build ID");
   if (options.bundlePath && !isBundleSignature(options.bundleSignature))
     throw new TypeError("Missing diagnostics bundle signature");
   return JSON.stringify({
     appVersion: options.appVersion,
-    buildId: options.buildId ?? "0000000",
+    buildId: options.buildId ?? "unknown",
     bundleSignature: options.bundleSignature ?? null,
   });
 }
@@ -605,7 +608,7 @@ function diagnosticEnvironment(options: DiagnosticsOptions, event: SpoolEnvelope
   const { osFamily, osMajor } = diagnosticOs();
   return JSON.stringify({
     appVersion: options.appVersion,
-    buildId: options.buildId ?? "0000000",
+    buildId: options.buildId ?? "unknown",
     channel: options.bundlePath ? "production" : process.env.NODE_ENV === "test" ? "test" : "dev",
     bootId: event.bootId,
     process: event.process,

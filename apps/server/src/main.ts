@@ -416,7 +416,7 @@ const makeServerProgram = (input: CliInput) => {
           new DiagnosticsStore({
             stateDir: config.stateDir,
             appVersion: process.env.PENKRA_APP_VERSION ?? serverPackageVersion,
-            buildId: process.env.PENKRA_DIAGNOSTICS_BUILD_ID ?? "0000000",
+            buildId: process.env.PENKRA_DIAGNOSTICS_BUILD_ID ?? "unknown",
             ...(process.env.PENKRA_DIAGNOSTICS_BUNDLE_PATH
               ? {
                   bundlePath: process.env.PENKRA_DIAGNOSTICS_BUNDLE_PATH,

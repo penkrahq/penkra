@@ -4527,7 +4527,7 @@ function backendEnv(): NodeJS.ProcessEnv {
       ...(servedStaticRoot?.snapshotted ? { PENKRA_STATIC_DIR: servedStaticRoot.dir } : {}),
       PENKRA_MODE: "desktop",
       PENKRA_APP_VERSION: app.getVersion(),
-      PENKRA_DIAGNOSTICS_BUILD_ID: resolveAboutCommitHash() ?? "0000000",
+      PENKRA_DIAGNOSTICS_BUILD_ID: resolveAboutCommitHash() ?? "unknown",
       ...(startupBundleIdentity?.signature
         ? {
             PENKRA_DIAGNOSTICS_BUNDLE_PATH: startupBundleIdentity.path,

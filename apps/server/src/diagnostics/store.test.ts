@@ -32,6 +32,19 @@ afterEach(() => {
 });
 
 describe("diagnostics store", () => {
+  it("rejects a fabricated all-zero build ID", () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-diagnostics-"));
+    roots.push(stateDir);
+    expect(
+      () =>
+        new DiagnosticsStore({
+          stateDir,
+          appVersion: "0.14.3",
+          process: "server",
+          buildId: "0000000",
+        }),
+    ).toThrow("Invalid diagnostics build ID");
+  });
   it("resets a same-version installed rebuild and rejects the stale process", () => {
     const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-diagnostics-"));
     roots.push(stateDir);
