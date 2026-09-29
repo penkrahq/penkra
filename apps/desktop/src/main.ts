@@ -5250,7 +5250,11 @@ function registerIpcHandlers(): void {
       activeThreadId,
       window?.isFocused() ?? false,
     );
-    qaWindowTracker.synced(window!.id, { ...appliedSync, views: validViews, activeThreadId });
+    qaWindowTracker.synced(window!.id, {
+      ...appliedSync,
+      activeThreadId,
+      cloneUrl: window!.webContents.getURL(),
+    });
     for (const view of validViews) {
       const selectedThreadId = threadHomeWindow.consumeThreadSelection(view.deckId);
       if (selectedThreadId && selectedThreadId !== activeThreadId) {
@@ -7503,7 +7507,7 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
         traceId: Crypto.randomBytes(16).toString("hex"),
         spanId: Crypto.randomBytes(8).toString("hex"),
       },
-      threadHomeWindow.snapshot(cloneFrom.id),
+      cloneFrom.webContents.getURL(),
     );
   window.on("closed", () => qaWindowTracker.closed(window.id));
   // `ready-to-show` is not guaranteed by every development compositor path.
