@@ -78,6 +78,24 @@ function isRecordingCall(node: ts.Node, code: string, where: string): boolean {
       where === "server.provider"
     )
       return true;
+    if (
+      node.expression.text === "reportProviderReactorFailure" &&
+      code === "EXTERNAL_CALL_FAILED" &&
+      where === "provider.reactor"
+    )
+      return true;
+    if (
+      node.expression.text === "makeSqlError" &&
+      code === "APP_OPERATION_FAILED" &&
+      where === "server.database"
+    )
+      return true;
+    if (
+      node.expression.text === "recordDatabaseHealthFailure" &&
+      code === "INVARIANT_VIOLATED" &&
+      where === "server.database"
+    )
+      return true;
   }
   if (
     ts.isCallExpression(node) &&
@@ -169,9 +187,9 @@ function recordsInsideCatch(
       ts.isPropertyAccessExpression(node.expression) &&
       ts.isIdentifier(node.expression.expression) &&
       node.expression.expression.text === "Effect" &&
-      node.expression.name.text === "sync" &&
+      ["sync", "gen"].includes(node.expression.name.text) &&
       node.arguments[0] &&
-      ts.isArrowFunction(node.arguments[0])
+      (ts.isArrowFunction(node.arguments[0]) || ts.isFunctionExpression(node.arguments[0]))
     )
       return containsRecording(node.arguments[0].body);
     if (ts.isFunctionLike(node)) return false;

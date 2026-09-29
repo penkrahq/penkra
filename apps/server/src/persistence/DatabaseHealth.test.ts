@@ -1,5 +1,10 @@
 import { DatabaseSync } from "node:sqlite";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
+import { installDiagnosticsStore } from "../diagnostics/recorder.ts";
+import { DiagnosticsStore, openDiagnosticsReader } from "../diagnostics/store.ts";
 
 import { inspectPenkraDatabaseHealth } from "./DatabaseHealth.ts";
 
@@ -63,6 +68,31 @@ describe("Penkra database semantic health", () => {
       );
     } finally {
       database.close();
+    }
+  });
+
+  it("records the failed invariant without storing database content", () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-health-diagnostics-"));
+    const diagnostics = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
+    const uninstall = installDiagnosticsStore(diagnostics);
+    const database = makeHealthyDatabase();
+    try {
+      database.exec("DELETE FROM orchestration_events");
+      expect(() => inspectPenkraDatabaseHealth(query(database))).toThrow();
+      const reader = openDiagnosticsReader(stateDir)!;
+      expect(reader.prepare("SELECT code, where_name, context_json FROM incidents").all()).toEqual([
+        {
+          code: "INVARIANT_VIOLATED",
+          where_name: "server.database",
+          context_json: '{"dbHealthCheck":"projection-lineage"}',
+        },
+      ]);
+      reader.close();
+    } finally {
+      database.close();
+      uninstall();
+      diagnostics.close();
+      fs.rmSync(stateDir, { recursive: true, force: true });
     }
   });
 });

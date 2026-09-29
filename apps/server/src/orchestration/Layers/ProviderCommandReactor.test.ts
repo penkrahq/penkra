@@ -5764,6 +5764,61 @@ describe("ProviderCommandReactor", () => {
     );
   });
 
+  it("records failed title generation while preserving the fallback title", async () => {
+    const harness = await createHarness();
+    diagnosticsStore = new DiagnosticsStore({
+      stateDir: harness.stateDir,
+      appVersion: "0.14.3",
+      process: "server",
+    });
+    uninstallDiagnostics = installDiagnosticsStore(diagnosticsStore);
+    const now = new Date().toISOString();
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.update",
+        commandId: CommandId.makeUnsafe("cmd-title-failure-update"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        title: "New thread",
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        connectionId: TEST_CONNECTION_ID,
+        bindingRevision: 0,
+        commandId: CommandId.makeUnsafe("cmd-title-failure-send"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("message-title-failure"),
+          role: "user",
+          text: "Investigate provider title failure",
+          attachments: [],
+        },
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+    await waitFor(() => harness.generateThreadTitle.mock.calls.length === 1);
+    const db = openDiagnosticsReader(harness.stateDir)!;
+    await waitFor(
+      () =>
+        db
+          .prepare(
+            "SELECT context_json FROM incidents WHERE code = 'EXTERNAL_CALL_FAILED' AND where_name = 'provider.reactor'",
+          )
+          .all().length === 1,
+    );
+    expect(
+      db
+        .prepare(
+          "SELECT context_json FROM incidents WHERE code = 'EXTERNAL_CALL_FAILED' AND where_name = 'provider.reactor'",
+        )
+        .get(),
+    ).toMatchObject({ context_json: '{"reactorAction":"title-generation"}' });
+    db.close();
+    expect((await readHarnessThread(harness))?.title).toBe("New thread");
+  });
+
   it("does not route title generation through another provider", async () => {
     const harness = await createHarness({
       threadModelSelection: {
