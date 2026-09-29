@@ -93,7 +93,9 @@ function handle(message) {
   }
 }
 
-if (process.argv.includes("app-server")) {
+if (process.argv.includes("--version")) {
+  process.stdout.write("codex-cli 1.0.0-penkra-qa-fixture\n");
+} else if (process.argv.includes("app-server")) {
   const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
   lines.on("line", (line) => {
     try {
