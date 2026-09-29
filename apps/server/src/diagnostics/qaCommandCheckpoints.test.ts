@@ -1,7 +1,11 @@
 import type { OrchestrationCommand } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
-import { qaAcceptedCommandAction, qaCommandCheckpoint } from "./qaCommandCheckpoints";
+import {
+  qaAcceptedCommandAction,
+  qaCommandCheckpoint,
+  qaRuntimeActionForCommand,
+} from "./qaCommandCheckpoints";
 
 const command = (type: OrchestrationCommand["type"], reason?: "play") =>
   ({ type, reason }) as OrchestrationCommand;
@@ -45,5 +49,28 @@ describe("QA command checkpoints", () => {
     expect(qaAcceptedCommandAction(command("thread.archive"))).toBe("archive");
     expect(qaAcceptedCommandAction(command("thread.turn.interrupt"))).toBeNull();
     expect(qaAcceptedCommandAction(command("thread.turn.recover", "play"))).toBeNull();
+  });
+
+  it("arms runtime proofs for stop, play, and queued sends", () => {
+    expect(
+      qaRuntimeActionForCommand({
+        type: "thread.turn.interrupt",
+        threadId: "thread-a",
+      } as OrchestrationCommand),
+    ).toEqual({ flow: "stop", threadId: "thread-a" });
+    expect(
+      qaRuntimeActionForCommand({
+        type: "thread.turn.recover",
+        reason: "play",
+        threadId: "thread-a",
+      } as OrchestrationCommand),
+    ).toEqual({ flow: "play", threadId: "thread-a" });
+    expect(
+      qaRuntimeActionForCommand({
+        type: "thread.turn.start",
+        dispatchMode: "queue",
+        threadId: "thread-a",
+      } as OrchestrationCommand),
+    ).toEqual({ flow: "queue", threadId: "thread-a" });
   });
 });
