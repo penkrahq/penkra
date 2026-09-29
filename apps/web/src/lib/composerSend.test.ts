@@ -244,6 +244,7 @@ describe("composerSend attachment builders", () => {
     await expect(
       stageUploadComposerAttachments({
         threadId: "thread-1",
+        trace: { traceId: "01".repeat(16), spanId: "02".repeat(8) },
         images: [
           {
             type: "image",
@@ -272,6 +273,10 @@ describe("composerSend attachment builders", () => {
     expect(recordDiagnosticIncident.mock.calls.map(([incident]) => incident.code)).toEqual([
       "SEND_PREFLIGHT_REJECTED",
       "EXTERNAL_CALL_FAILED",
+    ]);
+    expect(recordDiagnosticIncident.mock.calls.map(([incident]) => incident.traceId)).toEqual([
+      "01".repeat(16),
+      "01".repeat(16),
     ]);
     expect(JSON.stringify(recordDiagnosticIncident.mock.calls)).not.toContain(
       "Original upload failure",
