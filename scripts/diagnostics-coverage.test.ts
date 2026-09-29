@@ -44,7 +44,8 @@ describe("diagnostics failure inventory", () => {
 
   it("requires an exact marker or a reviewed site exception", () => {
     const file = "apps/server/src/example.ts";
-    const source = `// diagnostics-covered: COMMAND_REJECTED server.command
+    const source = `recordDiagnosticIncident({ code: "COMMAND_REJECTED", where: "server.command" });
+// diagnostics-covered: COMMAND_REJECTED server.command
 throw new Error("one");
 // diagnostics-propagates: APP_OPERATION_FAILED server.command
 throw new Error("two");
@@ -116,5 +117,31 @@ throw new Error("three");`;
       "throw new Error('one'); throw new Error('two'); // diagnostics-covered: COMMAND_REJECTED";
     const sites = scanFailureSites("apps/web/src/example.ts", source);
     expect(uncoveredFailureSites(sites, () => source, [])).toHaveLength(2);
+  });
+
+  it("rejects a local marker when the recording call is unrelated or follows the failure", () => {
+    const file = "apps/server/src/example.ts";
+    const boundary = new Map([["COMMAND_REJECTED:server.command", file]]);
+    const unrelated = `function other() {
+  recordDiagnosticIncident({ code: "COMMAND_REJECTED", where: "server.command" });
+}
+function fail() {
+  // diagnostics-covered: COMMAND_REJECTED server.command
+  throw new Error("failed");
+}`;
+    const later = `function fail() {
+  // diagnostics-covered: COMMAND_REJECTED server.command
+  throw new Error("failed");
+  recordDiagnosticIncident({ code: "COMMAND_REJECTED", where: "server.command" });
+}`;
+    const neverCalled = `function fail() {
+  () => recordDiagnosticIncident({ code: "COMMAND_REJECTED", where: "server.command" });
+  // diagnostics-covered: COMMAND_REJECTED server.command
+  throw new Error("failed");
+}`;
+    for (const source of [unrelated, later, neverCalled]) {
+      const sites = scanFailureSites(file, source);
+      expect(uncoveredFailureSites(sites, () => source, [], boundary)).toEqual(sites);
+    }
   });
 });
