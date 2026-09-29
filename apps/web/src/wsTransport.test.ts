@@ -33,6 +33,7 @@ import {
   MAX_STREAM_DUPLICATE_RETRY_ATTEMPTS,
   MAX_THREAD_SNAPSHOT_BOOTSTRAP_RETRY_ATTEMPTS,
   resolveStreamAdmissionRetry,
+  recordWsTransportFailure,
   shouldReconnectAfterRequestFailure,
   shouldReconnectAfterStreamFailure,
   threadStreamInputsEqual,
@@ -167,6 +168,24 @@ afterEach(() => {
 });
 
 describe("WsTransport", () => {
+  it("records consumed transport failures with a fixed privacy-safe payload", () => {
+    const recordDiagnosticIncident = vi.fn().mockResolvedValue(undefined);
+    window.desktopBridge = { recordDiagnosticIncident } as never;
+    recordWsTransportFailure("browser.socket_stream", {
+      traceId: "ab".repeat(16),
+      spanId: "cd".repeat(8),
+    });
+    expect(recordDiagnosticIncident).toHaveBeenCalledWith({
+      traceId: "ab".repeat(16),
+      spanId: "cd".repeat(8),
+      kind: "external.failed",
+      code: "EXTERNAL_CALL_FAILED",
+      where: "browser.socket_stream",
+      severity: "error",
+      expected: { accepted: true },
+      actual: { accepted: false },
+    });
+  });
   it("does not reconnect the socket for typed stream-admission failures", () => {
     expect(
       shouldReconnectAfterStreamFailure(
