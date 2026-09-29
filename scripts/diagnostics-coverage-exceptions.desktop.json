@@ -945,8 +945,8 @@
     "line": 2709,
     "column": 5,
     "kind": "catch",
-    "disposition": "cannot-fail",
-    "reason": "This optional lookup or retired receiver explicitly returns a fallback; no active operation is abandoned.",
+    "disposition": "expected-recovery",
+    "reason": "This optional lookup or retired receiver returns a fallback while the owning operation remains active.",
     "reviewer": "desktop-gateway-0143"
   },
   {
@@ -1047,8 +1047,8 @@
     "line": 3642,
     "column": 5,
     "kind": "catch",
-    "disposition": "cannot-fail",
-    "reason": "This optional lookup or retired receiver explicitly returns a fallback; no active operation is abandoned.",
+    "disposition": "expected-recovery",
+    "reason": "This optional lookup or retired receiver returns a fallback while the owning operation remains active.",
     "reviewer": "desktop-gateway-0143"
   },
   {
@@ -1069,8 +1069,8 @@
     "line": 3703,
     "column": 5,
     "kind": "catch",
-    "disposition": "cannot-fail",
-    "reason": "This optional lookup or retired receiver explicitly returns a fallback; no active operation is abandoned.",
+    "disposition": "expected-recovery",
+    "reason": "This optional lookup or retired receiver returns a fallback while the owning operation remains active.",
     "reviewer": "desktop-gateway-0143"
   },
   {
@@ -1078,8 +1078,8 @@
     "line": 3732,
     "column": 5,
     "kind": "catch",
-    "disposition": "cannot-fail",
-    "reason": "This optional lookup or retired receiver explicitly returns a fallback; no active operation is abandoned.",
+    "disposition": "expected-recovery",
+    "reason": "This optional lookup or retired receiver returns a fallback while the owning operation remains active.",
     "reviewer": "desktop-gateway-0143"
   },
   {
@@ -1800,8 +1800,8 @@
     "line": 5990,
     "column": 13,
     "kind": "catch",
-    "disposition": "cannot-fail",
-    "reason": "This optional lookup or retired receiver explicitly returns a fallback; no active operation is abandoned.",
+    "disposition": "expected-recovery",
+    "reason": "This optional lookup or retired receiver returns a fallback while the owning operation remains active.",
     "reviewer": "desktop-gateway-0143"
   },
   {
@@ -3198,8 +3198,8 @@
     "line": 8720,
     "column": 7,
     "kind": "catch",
-    "disposition": "cannot-fail",
-    "reason": "This optional lookup or retired receiver explicitly returns a fallback; no active operation is abandoned.",
+    "disposition": "expected-recovery",
+    "reason": "This optional lookup or retired receiver returns a fallback while the owning operation remains active.",
     "reviewer": "desktop-gateway-0143"
   },
   {
