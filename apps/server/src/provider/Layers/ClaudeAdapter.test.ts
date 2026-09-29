@@ -556,6 +556,9 @@ describe("ClaudeAdapterLive", () => {
       createWarmQuery: (input) => {
         warmInput = input;
         return {
+          query: async function* () {
+            yield { type: "system", subtype: "init", session_id: resume } as never;
+          },
           close: () => undefined,
           [Symbol.asyncDispose]: async () => {
             disposed = true;
@@ -614,6 +617,39 @@ describe("ClaudeAdapterLive", () => {
             }),
       });
       assert.equal(disposed, true);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("rejects a Claude resume when the SDK reports another session", () => {
+    const requested = "44c0b890-8775-4f30-b47f-0709d29cc9e1";
+    const layer = makeClaudeAdapterLive({
+      createWarmQuery: () => ({
+        query: async function* () {
+          yield { type: "system", subtype: "init", session_id: "different-session" } as never;
+        },
+        close: () => undefined,
+        [Symbol.asyncDispose]: async () => undefined,
+      }),
+    }).pipe(
+      Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-adapter-test", "/tmp")),
+      Layer.provideMerge(NodeServices.layer),
+    );
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const result = yield* Effect.exit(
+        adapter.verifyNativeResume!({
+          sourceResumeCursor: { resume: requested },
+          managedLaunch: {
+            binaryPath: "/managed/claude",
+            isolationKey: "verify-other-session",
+            profileRoot: "/isolated/profile",
+            nativeStateRoot: "/isolated/native",
+            childEnvironment: () => ({}),
+          },
+          runtimeMode: "full-access",
+        }),
+      );
+      assert.strictEqual(result._tag, "Failure");
     }).pipe(Effect.provide(layer));
   });
 

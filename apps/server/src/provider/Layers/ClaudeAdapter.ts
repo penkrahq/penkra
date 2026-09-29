@@ -440,9 +440,12 @@ interface ClaudeQueryRuntime extends AsyncIterable<ClaudeRuntimeMessage> {
 }
 
 interface ClaudeWarmQueryRuntime {
+  readonly query: (prompt: AsyncIterable<SDKUserMessage>) => AsyncIterable<ClaudeRuntimeMessage>;
   readonly close: () => void;
   readonly [Symbol.asyncDispose]: () => Promise<void>;
 }
+
+async function* emptyClaudeVerificationPrompt(): AsyncIterable<SDKUserMessage> {}
 
 export type ClaudeOwnedProcess = ClaudeSpawnedProcess & ProcessExitHandle;
 
@@ -5205,10 +5208,42 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 cause,
               }),
           }),
-          () =>
-            Effect.succeed({
-              providerSessionId: resume,
-              resumeCursor: input.sourceResumeCursor,
+          (warmQuery) =>
+            Effect.tryPromise({
+              try: async () => {
+                const stream = warmQuery.query(emptyClaudeVerificationPrompt());
+                let timeout: ReturnType<typeof setTimeout> | undefined;
+                const reportedSessionId = await Promise.race([
+                  (async () => {
+                    for await (const message of stream) {
+                      if (message.type === "system" && message.subtype === "init") {
+                        return message.session_id;
+                      }
+                    }
+                    throw new Error("Claude did not report a native session id during resume.");
+                  })(),
+                  new Promise<never>((_resolve, reject) => {
+                    timeout = setTimeout(
+                      () => reject(new Error("Claude did not report a native session id in time.")),
+                      CLAUDE_NATIVE_RESUME_VERIFICATION_TIMEOUT_MS,
+                    );
+                  }),
+                ]).finally(() => clearTimeout(timeout));
+                if (reportedSessionId !== resume) {
+                  throw new Error("Claude opened a different native session during resume.");
+                }
+                return {
+                  providerSessionId: reportedSessionId,
+                  resumeCursor: input.sourceResumeCursor,
+                };
+              },
+              catch: (cause) =>
+                new ProviderAdapterRequestError({
+                  provider: PROVIDER,
+                  method: "startup.resume",
+                  detail: toMessage(cause, "Claude did not prove exact native continuation."),
+                  cause,
+                }),
             }),
           (warmQuery) =>
             Effect.tryPromise({
