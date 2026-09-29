@@ -1,0 +1,592 @@
+[
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 68,
+    "column": 19,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "Diagnostic IPC rejection is isolated from the WebSocket transport.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 69,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "A synchronous diagnostic IPC error is isolated from transport behavior.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 110,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "Invalid RPC timeout input is rejected before any transport request.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 164,
+    "column": 38,
+    "kind": "rejection",
+    "disposition": "validation",
+    "reason": "An already aborted caller signal intentionally rejects the waiting operation.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 525,
+    "column": 24,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "A disposed transport refuses new requests by its public lifecycle contract.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 590,
+    "column": 20,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "An unknown RPC method is rejected before dispatch to the connection.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 614,
+    "column": 11,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "A retryable request failure records the socket RPC failure before reconnect.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 625,
+    "column": 13,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "A final request failure reaches the caller after the transport or server boundary records it.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 649,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "A timed out RPC request is recorded before its typed timeout is thrown.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 652,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The typed timeout follows the recorded RPC timeout in the same catch.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 663,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "Caller-requested abort becomes a typed cancellation response, not a transport fault.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 670,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The original request error propagates to its caller after transport or server handling.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 755,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "A consumer listener exception is recorded while the stream remains active.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_listener"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 773,
+    "column": 29,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The initial connection promise was already observed by the handshake incident boundary.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_connect"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 774,
+    "column": 33,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The reconnect promise was already observed by the handshake incident boundary.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_connect"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 779,
+    "column": 8,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "A runtime scope close failure is recorded during transport disposal.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_cleanup"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 780,
+    "column": 29,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "A runtime disposal failure is recorded during transport disposal.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_cleanup"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 807,
+    "column": 12,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Bootstrap scope cleanup failure is recorded during connection setup.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_cleanup"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 808,
+    "column": 33,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Bootstrap runtime cleanup failure is recorded during connection setup.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_cleanup"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 811,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "A superseded WebSocket session is rejected by the session generation guard.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 835,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The failed session reaches the handshake wrapper that records the failed attempt.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_connect"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 846,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The connection failure is handed to the handshake wrapper after state changes.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_connect"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 873,
+    "column": 21,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "A diagnostic checkpoint rejection is isolated from WebSocket admission.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 899,
+    "column": 21,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "A diagnostic incident rejection is isolated from WebSocket admission.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 906,
+    "column": 24,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The connection promise is marked handled after its handshake failure was recorded.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_connect"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 927,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Every failed handshake attempt records a fixed external-call or deadline incident.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_connect"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 965,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The handshake error is rethrown only after its failed attempt was recorded.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_connect"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 980,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "A failed initial connection is recovered through the recorded reconnect boundary.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_connect"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 981,
+    "column": 26,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "A disposed transport refuses to open a replacement client.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 982,
+    "column": 50,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "A terminal compatibility failure already reached the handshake failure boundary.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_connect"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 993,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "A missing client runtime is recorded before the invariant error reaches the caller.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 1018,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Closing an obsolete runtime records a failed scope cleanup.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_cleanup"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 1019,
+    "column": 34,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Disposing an obsolete runtime records a failed cleanup.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_cleanup"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 1035,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The diagnostics QA action refuses execution when no eligible transport exists.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 1053,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "A failed disconnect checkpoint cannot interrupt the socket state update.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 1064,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "A failed reconnect checkpoint cannot interrupt the socket state update.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 1071,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "A state listener exception is recorded while state publication continues.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_listener"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 1108,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "A compatibility listener exception is recorded while publication continues.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_listener"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 1147,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "A failed reconnect attempt is already recorded at the handshake boundary.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_connect"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 1148,
+    "column": 52,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "Terminal compatibility failure follows the recorded handshake attempt.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_connect"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 1156,
+    "column": 12,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Failed reconnect scope cleanup is recorded independently of the attempt.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_cleanup"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 1159,
+    "column": 12,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Failed reconnect runtime disposal is recorded independently of the attempt.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_cleanup"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 1162,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The reconnect loop ends with the expected disposed lifecycle error.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 1178,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "A push listener exception is recorded while other subscribers continue.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_listener"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 1287,
+    "column": 8,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Channel startup failure is recorded before its scheduled retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_stream"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 1325,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Lifecycle stream restart failure is recorded before warning.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_stream"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 1350,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Shell stream restart failure is recorded before warning.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_stream"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 1396,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Thread stream restart failure is recorded before warning.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_stream"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 1469,
+    "column": 35,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "A failed stream reconnect is recorded while the owner remains active.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_stream"
+    }
+  },
+  {
+    "file": "apps/web/src/wsTransport.ts",
+    "line": 1511,
+    "column": 35,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "A failed stream reconnect is recorded while the owner remains active.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_stream"
+    }
+  }
+]

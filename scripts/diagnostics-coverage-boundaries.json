@@ -23,5 +23,30 @@
     "code": "EXTERNAL_CALL_FAILED",
     "where": "browser.composer_attachment_hydrate",
     "file": "apps/web/src/lib/composerSend.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "browser.socket_rpc",
+    "file": "apps/web/src/wsTransport.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "browser.socket_stream",
+    "file": "apps/web/src/wsTransport.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "browser.socket_listener",
+    "file": "apps/web/src/wsTransport.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "browser.socket_cleanup",
+    "file": "apps/web/src/wsTransport.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "browser.socket_connect",
+    "file": "apps/web/src/wsTransport.ts"
   }
 ]
