@@ -33,7 +33,10 @@ function successfulResponseId(frame: unknown): string | null {
 
 /** Requires a single-use main ticket, a prior close, and a completed RPC. */
 export class QaSocketReconnectTracker {
-  private readonly clients = new Map<string, { closed: boolean; at: number }>();
+  private readonly clients = new Map<
+    string,
+    { closed: boolean; at: number; onClosed?: () => void }
+  >();
   private readonly usedTickets = new Map<string, number>();
 
   constructor(
@@ -73,16 +76,28 @@ export class QaSocketReconnectTracker {
     if (this.usedTickets.size > MAX_CLIENTS * 4)
       this.usedTickets.delete(this.usedTickets.keys().next().value!);
     const previous = this.clients.get(clientId);
-    const isReconnect = previous?.closed && traceId && ID.test(traceId);
-    const current = { closed: false, at: now };
+    const isReconnect = Boolean(previous && traceId && ID.test(traceId));
+    const current: { closed: boolean; at: number; onClosed?: () => void } = {
+      closed: false,
+      at: now,
+    };
     this.clients.delete(clientId);
     this.clients.set(clientId, current);
     if (this.clients.size > MAX_CLIENTS) this.clients.delete(this.clients.keys().next().value!);
     let proved = false;
+    let completedRpc = false;
     const requests = new Set<string>();
+    const maybeProve = () => {
+      if (!isReconnect || proved || !completedRpc || !previous?.closed || !traceId) return;
+      if (this.clients.get(clientId) !== current || current.closed) return;
+      proved = true;
+      this.onReconnect(traceId);
+    };
+    if (isReconnect && previous && !previous.closed) previous.onClosed = maybeProve;
     return {
       closed: () => {
-        if (this.clients.get(clientId) === current) current.closed = true;
+        current.closed = true;
+        current.onClosed?.();
       },
       receivedFrame: (raw) => {
         if (!isReconnect || proved) return;
@@ -98,8 +113,8 @@ export class QaSocketReconnectTracker {
         for (const frame of frames(raw)) {
           const id = successfulResponseId(frame);
           if (!id || !requests.has(id)) continue;
-          proved = true;
-          this.onReconnect(traceId);
+          completedRpc = true;
+          maybeProve();
           return;
         }
       },

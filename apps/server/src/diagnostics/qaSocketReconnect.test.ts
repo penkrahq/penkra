@@ -99,4 +99,19 @@ describe("QaSocketReconnectTracker", () => {
     recovered.sentFrame(`[${success}]`);
     expect(proofs).toEqual([traceId]);
   });
+
+  it("waits for the replaced socket to close when its close event arrives after recovery", () => {
+    const proofs: string[] = [];
+    const tracker = new QaSocketReconnectTracker(
+      (id) => proofs.push(id),
+      (_id, _ticket, signature) => signature === "signed",
+    );
+    const first = tracker.opened(signed(null));
+    const recovered = tracker.opened(signed(traceId));
+    recovered.receivedFrame(request);
+    recovered.sentFrame(success);
+    expect(proofs).toEqual([]);
+    first.closed();
+    expect(proofs).toEqual([traceId]);
+  });
 });
