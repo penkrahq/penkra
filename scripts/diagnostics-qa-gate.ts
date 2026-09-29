@@ -24,6 +24,12 @@ export const REQUIRED_QA_FLOWS = [
 ] as const;
 export type QaFlow = (typeof REQUIRED_QA_FLOWS)[number];
 
+export function qaProviderCoverageLabel(source: string | undefined): string {
+  return source === "scripted-fixture"
+    ? "scripted-fixture; real provider not covered"
+    : "unverified; real provider not covered";
+}
+
 /** Assertions each Playwright flow must report after checking the live app. */
 export const REQUIRED_QA_CHECKS: Record<QaFlow, readonly string[]> = {
   send: ["send.dispatched", "send.accepted"],
@@ -390,6 +396,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.met
     scripts.set(flow, path.resolve(raw!.slice(equal + 1)));
   }
   const result = runDiagnosticsQaGate(path.resolve(args[stateIndex + 1]!), scripts);
-  process.stdout.write(`${JSON.stringify(result)}\n`);
+  const providerCoverage = qaProviderCoverageLabel(
+    process.env.PENKRA_DIAGNOSTICS_QA_PROVIDER_SOURCE,
+  );
+  process.stdout.write(`${JSON.stringify({ ...result, providerCoverage })}\n`);
   if (!result.passed) process.exitCode = 1;
 }
