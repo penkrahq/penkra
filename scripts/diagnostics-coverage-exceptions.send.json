@@ -37,7 +37,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 525,
+    "line": 526,
     "column": 24,
     "kind": "throw",
     "disposition": "validation",
@@ -46,7 +46,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 590,
+    "line": 591,
     "column": 20,
     "kind": "throw",
     "disposition": "validation",
@@ -55,7 +55,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 614,
+    "line": 615,
     "column": 11,
     "kind": "catch",
     "disposition": "recorded",
@@ -68,11 +68,11 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 625,
+    "line": 634,
     "column": 13,
     "kind": "throw",
     "disposition": "rethrow",
-    "reason": "A final request failure reaches the caller after the transport or server boundary records it.",
+    "reason": "A final request failure reaches the caller after unexpected failures are recorded in this catch; typed server rejections are handled at the server boundary.",
     "reviewer": "diagnostics-0143",
     "boundary": {
       "code": "EXTERNAL_CALL_FAILED",
@@ -81,7 +81,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 649,
+    "line": 658,
     "column": 7,
     "kind": "catch",
     "disposition": "recorded",
@@ -94,7 +94,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 652,
+    "line": 661,
     "column": 9,
     "kind": "throw",
     "disposition": "rethrow",
@@ -107,7 +107,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 663,
+    "line": 672,
     "column": 9,
     "kind": "throw",
     "disposition": "validation",
@@ -116,7 +116,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 670,
+    "line": 679,
     "column": 7,
     "kind": "throw",
     "disposition": "rethrow",
@@ -129,7 +129,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 755,
+    "line": 764,
     "column": 9,
     "kind": "catch",
     "disposition": "recorded",
@@ -142,7 +142,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 773,
+    "line": 782,
     "column": 29,
     "kind": "catch",
     "disposition": "propagates",
@@ -155,7 +155,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 774,
+    "line": 783,
     "column": 33,
     "kind": "catch",
     "disposition": "propagates",
@@ -168,7 +168,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 779,
+    "line": 788,
     "column": 8,
     "kind": "catch",
     "disposition": "recorded",
@@ -181,7 +181,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 780,
+    "line": 789,
     "column": 29,
     "kind": "catch",
     "disposition": "recorded",
@@ -194,7 +194,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 807,
+    "line": 816,
     "column": 12,
     "kind": "catch",
     "disposition": "recorded",
@@ -207,7 +207,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 808,
+    "line": 817,
     "column": 33,
     "kind": "catch",
     "disposition": "recorded",
@@ -220,7 +220,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 811,
+    "line": 820,
     "column": 9,
     "kind": "throw",
     "disposition": "validation",
@@ -229,7 +229,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 835,
+    "line": 844,
     "column": 10,
     "kind": "catch",
     "disposition": "propagates",
@@ -242,7 +242,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 846,
+    "line": 855,
     "column": 7,
     "kind": "throw",
     "disposition": "rethrow",
@@ -255,7 +255,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 873,
+    "line": 882,
     "column": 21,
     "kind": "catch",
     "disposition": "diagnostics-isolated",
@@ -264,7 +264,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 899,
+    "line": 908,
     "column": 21,
     "kind": "catch",
     "disposition": "diagnostics-isolated",
@@ -273,7 +273,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 906,
+    "line": 915,
     "column": 24,
     "kind": "catch",
     "disposition": "propagates",
@@ -286,7 +286,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 927,
+    "line": 936,
     "column": 7,
     "kind": "catch",
     "disposition": "recorded",
@@ -299,7 +299,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 965,
+    "line": 974,
     "column": 7,
     "kind": "throw",
     "disposition": "rethrow",
@@ -312,7 +312,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 980,
+    "line": 989,
     "column": 7,
     "kind": "catch",
     "disposition": "propagates",
@@ -325,7 +325,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 981,
+    "line": 990,
     "column": 26,
     "kind": "throw",
     "disposition": "validation",
@@ -334,7 +334,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 982,
+    "line": 991,
     "column": 50,
     "kind": "throw",
     "disposition": "rethrow",
@@ -347,7 +347,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 993,
+    "line": 1002,
     "column": 7,
     "kind": "throw",
     "disposition": "propagates",
@@ -360,7 +360,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 1018,
+    "line": 1027,
     "column": 10,
     "kind": "catch",
     "disposition": "recorded",
@@ -373,7 +373,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 1019,
+    "line": 1028,
     "column": 34,
     "kind": "catch",
     "disposition": "recorded",
@@ -386,7 +386,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 1035,
+    "line": 1044,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -395,7 +395,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 1053,
+    "line": 1062,
     "column": 10,
     "kind": "catch",
     "disposition": "diagnostics-isolated",
@@ -404,7 +404,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 1064,
+    "line": 1073,
     "column": 10,
     "kind": "catch",
     "disposition": "diagnostics-isolated",
@@ -413,7 +413,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 1071,
+    "line": 1080,
     "column": 9,
     "kind": "catch",
     "disposition": "recorded",
@@ -426,7 +426,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 1108,
+    "line": 1117,
     "column": 9,
     "kind": "catch",
     "disposition": "recorded",
@@ -439,7 +439,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 1147,
+    "line": 1156,
     "column": 9,
     "kind": "catch",
     "disposition": "propagates",
@@ -452,7 +452,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 1148,
+    "line": 1157,
     "column": 52,
     "kind": "throw",
     "disposition": "rethrow",
@@ -465,7 +465,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 1156,
+    "line": 1165,
     "column": 12,
     "kind": "catch",
     "disposition": "recorded",
@@ -478,7 +478,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 1159,
+    "line": 1168,
     "column": 12,
     "kind": "catch",
     "disposition": "recorded",
@@ -491,7 +491,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 1162,
+    "line": 1171,
     "column": 5,
     "kind": "throw",
     "disposition": "validation",
@@ -500,7 +500,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 1178,
+    "line": 1188,
     "column": 9,
     "kind": "catch",
     "disposition": "recorded",
@@ -513,7 +513,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 1287,
+    "line": 1300,
     "column": 8,
     "kind": "catch",
     "disposition": "recorded",
@@ -526,7 +526,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 1325,
+    "line": 1338,
     "column": 10,
     "kind": "catch",
     "disposition": "recorded",
@@ -539,7 +539,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 1350,
+    "line": 1363,
     "column": 10,
     "kind": "catch",
     "disposition": "recorded",
@@ -552,7 +552,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 1396,
+    "line": 1409,
     "column": 10,
     "kind": "catch",
     "disposition": "recorded",
@@ -565,7 +565,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 1469,
+    "line": 1482,
     "column": 35,
     "kind": "catch",
     "disposition": "recorded",
@@ -578,7 +578,7 @@
   },
   {
     "file": "apps/web/src/wsTransport.ts",
-    "line": 1511,
+    "line": 1524,
     "column": 35,
     "kind": "catch",
     "disposition": "recorded",
