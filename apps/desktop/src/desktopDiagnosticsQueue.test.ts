@@ -96,6 +96,64 @@ describe("desktop diagnostics queue", () => {
     ).toHaveLength(1);
   });
 
+  it("retries a live worker write failure and waits for the durable overflow ack on drain", async () => {
+    vi.useFakeTimers();
+    try {
+      const worker = new FakeWorker();
+      const queue = new DesktopDiagnosticsQueue(
+        () => worker as unknown as Worker,
+        vi.fn(),
+        undefined,
+        true,
+      );
+      queue.enqueue("checkpoint", { sequence: 1 });
+      worker.emit("message", { kind: "credits", bootId: fakeBootId, start: 1, count: 1 });
+      queue.enqueue("checkpoint", { sequence: 2 });
+      worker.emit("message", { kind: "ack" });
+      const firstReport = worker.messages.find(
+        (message) => (message as { kind?: string }).kind === "overflow",
+      ) as { id: string; count: number };
+      worker.emit("message", { kind: "overflow_retry", id: firstReport.id });
+      await vi.advanceTimersByTimeAsync(100);
+      expect(
+        worker.messages.filter((message) => (message as { kind?: string }).kind === "overflow"),
+      ).toEqual([expect.objectContaining(firstReport), expect.objectContaining(firstReport)]);
+      const draining = queue.drain();
+      expect(worker.messages).not.toContainEqual({ kind: "shutdown" });
+      worker.emit("message", { kind: "overflow_ack", id: firstReport.id });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(worker.messages).toContainEqual({ kind: "shutdown" });
+      worker.emit("message", { kind: "drained" });
+      await draining;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not cleanly close a worker with an unresolved overflow report", async () => {
+    vi.useFakeTimers();
+    try {
+      const worker = new FakeWorker();
+      const queue = new DesktopDiagnosticsQueue(
+        () => worker as unknown as Worker,
+        vi.fn(),
+        undefined,
+        true,
+      );
+      queue.enqueue("checkpoint", { sequence: 1 });
+      worker.emit("message", { kind: "credits", bootId: fakeBootId, start: 1, count: 1 });
+      queue.enqueue("checkpoint", { sequence: 2 });
+      worker.emit("message", { kind: "ack" });
+      const draining = queue.drain();
+      await vi.advanceTimersByTimeAsync(DIAGNOSTIC_LIMITS.desktopWorkerDrainMs);
+      await draining;
+      expect(worker.messages).not.toContainEqual({ kind: "shutdown" });
+      expect(worker.terminate).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("reconciles worker death while the desktop process remains alive", () => {
     const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-worker-exit-"));
     try {

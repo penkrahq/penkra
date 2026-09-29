@@ -17,6 +17,7 @@ export class DesktopDiagnosticsQueue {
   private overflowCount = 0;
   private overflowInFlight: { id: string; count: number } | null = null;
   private overflowSent = false;
+  private resolveOverflow: (() => void) | null = null;
   private readonly startupBacklog: Array<{ kind: WriteKind; input: unknown }> = [];
   private receivedCredits = false;
   private firstCreditTimer: ReturnType<typeof setTimeout> | null = null;
@@ -168,6 +169,14 @@ export class DesktopDiagnosticsQueue {
           this.overflowInFlight = null;
           this.overflowSent = false;
           this.flushOverflow(worker);
+          if (!this.overflowInFlight && this.overflowCount === 0) this.resolveOverflow?.();
+        }
+        if (message?.kind === "overflow_retry" && message.id === this.overflowInFlight?.id) {
+          this.overflowSent = false;
+          const retry = setTimeout(() => {
+            if (this.worker === worker) this.flushOverflow(worker);
+          }, 100);
+          retry.unref();
         }
         if (message?.kind === "drained") {
           if (this.pending > 0 && !this.reserve && !this.useCredits)
@@ -216,6 +225,7 @@ export class DesktopDiagnosticsQueue {
     if (this.pending > 0 && !this.reserve && !this.useCredits)
       this.recordDrop("spool", this.pending);
     this.pending = 0;
+    this.resolveOverflow?.();
     this.resolveDrain?.();
   }
 
@@ -238,6 +248,26 @@ export class DesktopDiagnosticsQueue {
     if (!worker) return;
     this.flushOverflow(worker);
     const deadline = Date.now() + DIAGNOSTIC_LIMITS.desktopWorkerDrainMs;
+    if (this.overflowCount > 0 || this.overflowInFlight) {
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, DIAGNOSTIC_LIMITS.desktopWorkerDrainMs);
+        this.resolveOverflow = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+      });
+      this.resolveOverflow = null;
+      if (this.overflowCount > 0 || this.overflowInFlight) {
+        // An unacknowledged report must leave the worker credit ledger unclean.
+        // Recovery then records unknown loss instead of silently closing it.
+        if (this.worker === worker) this.onWorkerLost(worker);
+        await Promise.race([
+          worker.terminate().catch(() => 0),
+          new Promise((resolve) => setTimeout(resolve, Math.max(0, deadline - Date.now()))),
+        ]);
+        return;
+      }
+    }
     const drained = await new Promise<boolean>((resolve) => {
       const timer = setTimeout(() => resolve(false), DIAGNOSTIC_LIMITS.desktopWorkerDrainMs);
       this.resolveDrain = () => {

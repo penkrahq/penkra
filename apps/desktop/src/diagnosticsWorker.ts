@@ -106,7 +106,9 @@ parentPort?.on("message", (message: DiagnosticsMessage) => {
         break;
     }
   } catch (cause) {
-    if (cause instanceof TypeError) {
+    if (message.kind === "overflow")
+      parentPort?.postMessage({ kind: "overflow_retry", id: message.id });
+    if (cause instanceof TypeError && message.kind !== "overflow") {
       try {
         writer.recordDrop("spool");
         settled = true;
@@ -128,4 +130,5 @@ parentPort?.on("message", (message: DiagnosticsMessage) => {
     }
   }
 });
-process.once("exit", close);
+// An unexpected worker exit must leave its active credit marker for recovery.
+// Only the explicit shutdown message may mark the spool cleanly closed.
