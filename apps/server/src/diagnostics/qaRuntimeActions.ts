@@ -1,18 +1,18 @@
 import { qaEvidenceConfigFromEnv, recordQaAction } from "@penkra/shared/diagnostics/qaEvidence";
+import { recordDiagnosticCheckpoint } from "./recorder";
 
 type RuntimeFlow = "stop" | "play" | "queue";
-const pending = new Map<
-  string,
-  {
-    flow: RuntimeFlow;
-    threadId: string;
-    turnId: string;
-    traceId: string;
-    at: number;
-    admitted: boolean;
-    observed: boolean;
-  }
->();
+type PendingAction = {
+  flow: RuntimeFlow;
+  threadId: string;
+  turnId: string;
+  traceId: string;
+  spanId: string;
+  at: number;
+  admitted: boolean;
+  observed: boolean;
+};
+const pending = new Map<string, PendingAction>();
 const MAX_PENDING = 128;
 const TTL_MS = 120_000;
 
@@ -24,9 +24,23 @@ function enabled(): boolean {
   }
 }
 
-function sign(flow: RuntimeFlow, traceId: string): void {
+function complete(candidate: PendingAction): void {
+  const step =
+    candidate.flow === "stop"
+      ? "turn.terminal"
+      : candidate.flow === "play"
+        ? "turn.started"
+        : "queue.started";
+  recordDiagnosticCheckpoint({
+    traceId: candidate.traceId,
+    spanId: candidate.spanId,
+    threadId: candidate.threadId,
+    flow: candidate.flow,
+    step,
+    outcome: "ok",
+  });
   try {
-    recordQaAction(flow, traceId);
+    recordQaAction(candidate.flow, candidate.traceId);
   } catch {
     process.stderr.write("[diagnostics] QA runtime action proof failed\n");
   }
@@ -38,6 +52,7 @@ export function prepareQaRuntimeAction(
   threadId: string,
   turnId: string,
   traceId: string,
+  spanId = traceId.slice(0, 16),
 ): void {
   if (!enabled()) return;
   const now = Date.now();
@@ -48,6 +63,7 @@ export function prepareQaRuntimeAction(
     threadId,
     turnId,
     traceId,
+    spanId,
     at: now,
     admitted: false,
     observed: false,
@@ -67,7 +83,7 @@ export function admitQaRuntimeAction(
   candidate.admitted = true;
   if (!candidate.observed) return;
   pending.delete(key);
-  sign(flow, traceId);
+  complete(candidate);
 }
 
 export function clearQaRuntimeAction(
@@ -114,6 +130,6 @@ export function settleQaRuntimeAction(input: {
       continue;
     }
     pending.delete(key);
-    sign(flow, candidate.traceId);
+    complete(candidate);
   }
 }

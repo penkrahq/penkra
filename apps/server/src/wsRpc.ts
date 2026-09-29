@@ -903,6 +903,7 @@ const makeWsRpcHandlersLayer = () =>
                   runtimeAction.threadId,
                   runtimeAction.turnId,
                   trace.traceId,
+                  trace.spanId,
                 );
               if (
                 normalizedCommand.type === "thread.turn.start" ||

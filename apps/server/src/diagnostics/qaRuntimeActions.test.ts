@@ -15,6 +15,8 @@ import {
   prepareQaRuntimeAction,
   settleQaRuntimeAction,
 } from "./qaRuntimeActions";
+import { installDiagnosticsStore } from "./recorder";
+import type { DiagnosticsStore } from "./store";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -175,5 +177,48 @@ describe("QA runtime action proofs", () => {
       expect.objectContaining({ flow: "play", traceId: playTrace }),
       expect.objectContaining({ flow: "queue", traceId: queueTrace }),
     ]);
+  });
+
+  it("records the applied lifecycle checkpoint on the admitted command trace", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-qa-runtime-"));
+    roots.push(dir);
+    const config = {
+      dir,
+      runId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      secret: "ab".repeat(32),
+    };
+    process.env.PENKRA_DIAGNOSTICS_QA_PROOF_DIR = dir;
+    process.env.PENKRA_DIAGNOSTICS_QA_RUN_ID = config.runId;
+    process.env.PENKRA_DIAGNOSTICS_QA_SECRET = config.secret;
+    writeQaChallenge(config, "stop", "01".repeat(32));
+    const checkpoints: unknown[] = [];
+    const uninstall = installDiagnosticsStore({
+      startHealthSampling: () => () => {},
+      startProcessWatchdog: () => () => {},
+      checkpoint: (input: unknown) => checkpoints.push(input),
+    } as unknown as DiagnosticsStore);
+    try {
+      prepareQaRuntimeAction("stop", "thread-a", "turn-a", "1".repeat(32), "2".repeat(16));
+      settleQaRuntimeAction({
+        threadId: "thread-a",
+        logicalTurnId: "turn-a",
+        eventType: "turn.completed",
+        state: "interrupted",
+      });
+      expect(checkpoints).toEqual([]);
+      admitQaRuntimeAction("stop", "thread-a", "turn-a", "1".repeat(32));
+      expect(checkpoints).toEqual([
+        expect.objectContaining({
+          traceId: "1".repeat(32),
+          spanId: "2".repeat(16),
+          threadId: "thread-a",
+          flow: "stop",
+          step: "turn.terminal",
+          outcome: "ok",
+        }),
+      ]);
+    } finally {
+      uninstall();
+    }
   });
 });
