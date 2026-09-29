@@ -124,6 +124,7 @@ layer("removed provider data migration", (it) => {
         [169, "ProjectionMessageSenderThread"],
         [170, "ProviderIntentOutbox"],
         [171, "ProviderIntentDiagnosticTrace"],
+        [172, "ProviderSwitchFailureCleanup"],
       ]);
 
       const threads = yield* sql<{ readonly threadId: string }>`
@@ -988,6 +989,7 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [169, "ProjectionMessageSenderThread"],
         [170, "ProviderIntentOutbox"],
         [171, "ProviderIntentDiagnosticTrace"],
+        [172, "ProviderSwitchFailureCleanup"],
       ]);
 
       const tracker = yield* trackerRows(sql);

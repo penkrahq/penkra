@@ -23,13 +23,12 @@ layer("172_ProviderSwitchFailureCleanup", (it) => {
           '2026-08-10T00:00:00.000Z', '2026-08-10T00:00:00.000Z'
         )
       `;
-      // This branch intentionally has no migration 171. The diagnostics
-      // lineage supplies it when both branches are integrated.
+      // Apply the diagnostics migration before the switch cleanup migration.
       yield* runMigrations({ toMigrationInclusive: 171 });
-      const skipped = yield* sql<{ readonly id: number }>`
+      const diagnosticsMigration = yield* sql<{ readonly id: number }>`
         SELECT migration_id AS id FROM effect_sql_migrations WHERE migration_id > 170
       `;
-      assert.deepStrictEqual(skipped, []);
+      assert.deepStrictEqual(diagnosticsMigration, [{ id: 171 }]);
       yield* runMigrations({ toMigrationInclusive: 172 });
       yield* sql`
         UPDATE provider_thread_switch_operations
