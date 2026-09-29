@@ -20,6 +20,7 @@ import {
   ATTACHMENT_UPLOAD_ROUTE_PATH,
 } from "@penkra/shared/binaryTransfer";
 import { applyClaudePromptEffortPrefix, getModelCapabilities } from "@penkra/shared/model";
+import { startDiagnosticTrace } from "@penkra/shared/traceContext";
 
 import {
   cloneComposerImageAttachment,
@@ -34,6 +35,29 @@ import { resolveWsHttpUrl } from "./wsHttpUrl";
 
 const ATTACHMENT_CANCEL_CONCURRENCY = 2;
 const ATTACHMENT_CANCEL_BODY_MAX_BYTES = 512;
+
+function recordComposerAttachmentFailure(
+  code: "EXTERNAL_CALL_FAILED" | "SEND_PREFLIGHT_REJECTED" | "COMMAND_REJECTED",
+  where: string,
+): void {
+  try {
+    const bridge = typeof window === "undefined" ? undefined : window.desktopBridge;
+    const record = bridge?.recordDiagnosticIncident;
+    if (!record) return;
+    const pending = record({
+      ...startDiagnosticTrace(),
+      kind: "external.failed",
+      code,
+      where,
+      severity: "error",
+      expected: { accepted: true },
+      actual: { accepted: false },
+    });
+    void pending.catch(() => undefined);
+  } catch {
+    // Diagnostics cannot delay attachment cleanup or sending.
+  }
+}
 
 export { cloneComposerImageAttachment };
 
@@ -256,13 +280,22 @@ async function cancelManagedAttachments(attachmentIds: readonly string[]): Promi
       const body = JSON.stringify({ attachmentId });
       if (new TextEncoder().encode(body).byteLength > ATTACHMENT_CANCEL_BODY_MAX_BYTES) continue;
       try {
-        await fetch(resolveWsHttpUrl(ATTACHMENT_CANCEL_ROUTE_PATH), {
+        const response = await fetch(resolveWsHttpUrl(ATTACHMENT_CANCEL_ROUTE_PATH), {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
           body,
         });
+        if (!response.ok)
+          recordComposerAttachmentFailure(
+            "EXTERNAL_CALL_FAILED",
+            "browser.composer_attachment_cancel",
+          );
       } catch {
+        recordComposerAttachmentFailure(
+          "EXTERNAL_CALL_FAILED",
+          "browser.composer_attachment_cancel",
+        );
         // Staged attachments also have a server-owned expiry. Compensation is
         // deliberately best-effort and must never replace the dispatch/upload error.
       }
@@ -332,6 +365,10 @@ export async function stageUploadComposerAttachments(input: {
       attachments.push(payload);
     }
   } catch (error) {
+    recordComposerAttachmentFailure(
+      "SEND_PREFLIGHT_REJECTED",
+      "browser.composer_attachment_upload",
+    );
     await cancelManagedAttachments(managedAttachmentIds);
     throw error;
   }
@@ -353,6 +390,7 @@ export async function stageUploadComposerAttachments(input: {
       commit();
       return result;
     } catch (error) {
+      recordComposerAttachmentFailure("COMMAND_REJECTED", "browser.composer_attachment_dispatch");
       await cleanup();
       throw error;
     }
@@ -441,7 +479,13 @@ export async function hydratePendingBlobComposerAttachments(
           name: attachment.name,
           mimeType: attachment.mimeType,
         });
-        if (!file) return null;
+        if (!file) {
+          recordComposerAttachmentFailure(
+            "EXTERNAL_CALL_FAILED",
+            "browser.composer_attachment_hydrate",
+          );
+          return null;
+        }
         return {
           type: "image",
           id: attachment.id,
@@ -452,6 +496,10 @@ export async function hydratePendingBlobComposerAttachments(
           file,
         };
       } catch (error) {
+        recordComposerAttachmentFailure(
+          "EXTERNAL_CALL_FAILED",
+          "browser.composer_attachment_hydrate",
+        );
         console.warn("[composer-images] Could not hydrate a pending attachment", error);
         return null;
       }

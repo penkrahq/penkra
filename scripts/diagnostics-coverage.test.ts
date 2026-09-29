@@ -1,7 +1,11 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
   COVERAGE_ROOTS,
+  loadCoverageExceptions,
   scanFailureSites,
   uncoveredFailureSites,
   validateCoverageBoundaries,
@@ -9,6 +13,33 @@ import {
 } from "./diagnostics-coverage";
 
 describe("diagnostics failure inventory", () => {
+  it("merges subsystem exception files in order and rejects duplicate site IDs", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-coverage-exceptions-"));
+    try {
+      const row: CoverageException = {
+        file: "apps/web/src/example.ts",
+        line: 1,
+        column: 1,
+        kind: "throw",
+        disposition: "validation",
+        reason: "The value is rejected by the API validation contract.",
+        reviewer: "diagnostics-0143",
+      };
+      fs.writeFileSync(path.join(dir, "diagnostics-coverage-exceptions.json"), "[]");
+      fs.writeFileSync(
+        path.join(dir, "diagnostics-coverage-exceptions.web.json"),
+        JSON.stringify([row]),
+      );
+      expect(loadCoverageExceptions(dir)).toEqual([row]);
+      fs.writeFileSync(
+        path.join(dir, "diagnostics-coverage-exceptions.desktop.json"),
+        JSON.stringify([row]),
+      );
+      expect(() => loadCoverageExceptions(dir)).toThrow("Duplicate");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
   it("visits all four production roots", () => {
     expect(COVERAGE_ROOTS).toEqual([
       "apps/server/src",
@@ -78,11 +109,24 @@ throw new Error("three");`;
     expect(() =>
       uncoveredFailureSites(sites, () => source, [{ ...exception, line: 99 }], boundaries),
     ).toThrow("stale");
+    const propagation: CoverageException = {
+      ...sites[1]!,
+      disposition: "propagates",
+      reason: "This failure reaches the registered command boundary without being consumed.",
+      reviewer: "diagnostics-0143",
+      boundary: { code: "APP_OPERATION_FAILED", where: "server.command" },
+    };
+    expect(uncoveredFailureSites(sites, () => source, [propagation], boundaries)).toEqual([
+      sites[2],
+    ]);
+    expect(() => uncoveredFailureSites(sites, () => source, [propagation], new Map())).toThrow(
+      "Invalid",
+    );
     expect(() =>
       uncoveredFailureSites(
         sites,
         () => source,
-        [{ ...exception, disposition: "validation" } as unknown as CoverageException],
+        [{ ...exception, disposition: "scheduled" }],
         boundaries,
       ),
     ).toThrow("Invalid");
@@ -152,5 +196,32 @@ function fail() {
       const sites = scanFailureSites(file, source);
       expect(uncoveredFailureSites(sites, () => source, [], boundary)).toEqual(sites);
     }
+  });
+
+  it("accepts a reviewed recorded catch only when that catch calls its registered recorder", () => {
+    const file = "apps/web/src/lib/composerSend.ts";
+    const source = `
+      try { upload() } catch {
+        recordComposerAttachmentFailure("SEND_PREFLIGHT_REJECTED", "browser.composer_attachment_upload");
+      }
+      try { upload() } catch { recover(); }
+    `;
+    const sites = scanFailureSites(file, source);
+    const boundary = {
+      code: "SEND_PREFLIGHT_REJECTED",
+      where: "browser.composer_attachment_upload",
+    };
+    const boundaries = validateCoverageBoundaries([{ ...boundary, file }], () => source);
+    const reviewed: CoverageException = {
+      ...sites[0]!,
+      disposition: "recorded",
+      reason: "The catch emits its fixed preflight incident before recovery.",
+      reviewer: "diagnostics-0143",
+      boundary,
+    };
+    expect(uncoveredFailureSites(sites, () => source, [reviewed], boundaries)).toEqual([sites[1]]);
+    expect(() =>
+      uncoveredFailureSites(sites, () => source, [{ ...reviewed, ...sites[1]! }], boundaries),
+    ).toThrow("Invalid");
   });
 });
