@@ -35,7 +35,7 @@ const writer = new DiagnosticsSpoolWriter(workerData as DiagnosticsOptions);
 const stopHealthSampling = writer.startHealthSampling();
 const reserveCredits = () => {
   const block = writer.reserveWorkerCredits(DIAGNOSTIC_LIMITS.desktopWorkerCreditBlock);
-  parentPort?.postMessage({ kind: "credits", ...block });
+  parentPort?.postMessage({ kind: "credits", bootId: writer.bootId, ...block });
 };
 reserveCredits();
 let closed = false;

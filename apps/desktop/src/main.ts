@@ -76,6 +76,7 @@ import { applyShellEnvironmentHydrationMarker } from "@penkra/shared/shell";
 import { RotatingFileSink } from "@penkra/shared/logging";
 import {
   DiagnosticsSpoolWriter,
+  markDiagnosticWorkerExited,
   type CheckpointInput,
   type IncidentInput,
   type DiagnosticsOptions,
@@ -471,6 +472,13 @@ function enqueueDesktopDiagnosticWrite(
       },
       undefined,
       true,
+      (bootId) => {
+        try {
+          markDiagnosticWorkerExited(STATE_DIR, bootId);
+        } catch {
+          process.stderr.write("[diagnostics] worker exit marker failed\n");
+        }
+      },
     );
     desktopDiagnosticsQueue.enqueue(kind, input);
   } catch {
