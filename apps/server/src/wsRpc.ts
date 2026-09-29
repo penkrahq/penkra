@@ -107,7 +107,7 @@ import {
   prepareQaRuntimeAction,
 } from "./diagnostics/qaRuntimeActions";
 import { armQaProviderSwitch, clearQaProviderSwitch } from "./diagnostics/qaProviderSwitch";
-import { recordQaAction } from "@penkra/shared/diagnostics/qaEvidence";
+import { recordServerQaAction } from "./diagnostics/qaProofBuild";
 import { WorkspaceWatcher } from "./workspaceWatcher";
 import { makeWsRequestAdmission } from "./wsRequestAdmission";
 import {
@@ -936,7 +936,7 @@ const makeWsRpcHandlersLayer = () =>
                     const acceptedAction = qaAcceptedCommandAction(normalizedCommand);
                     if (acceptedAction) {
                       try {
-                        recordQaAction(acceptedAction, trace.traceId);
+                        recordServerQaAction(acceptedAction, trace.traceId);
                       } catch {
                         process.stderr.write("[diagnostics] QA action proof failed\n");
                       }
