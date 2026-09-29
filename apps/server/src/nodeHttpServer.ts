@@ -15,6 +15,16 @@ import { QaSocketReconnectTracker } from "./diagnostics/qaSocketReconnect";
 
 export const MAX_WEBSOCKET_MESSAGE_BYTES = 2 * 1024 * 1024;
 
+/** Effect's upgrade handler calls handleUpgrade but does not emit ws's connection event. */
+export function emitConnectionAfterUpgrade(server: WebSocketServer): void {
+  const handleUpgrade = server.handleUpgrade.bind(server);
+  server.handleUpgrade = (request, socket, head, callback) =>
+    handleUpgrade(request, socket, head, (ws, upgradedRequest) => {
+      server.emit("connection", ws, upgradedRequest);
+      callback(ws, upgradedRequest);
+    });
+}
+
 /**
  * Owns the Node HTTP/WebSocket transport so Penkra, rather than the platform
  * adapter's 100 MiB default, controls admission before a message is decoded.
@@ -51,14 +61,15 @@ export const makeBoundedNodeHttpServer = Effect.fnUntraced(function* (
 
   const address = server.address()!;
   const webSocketServer = yield* Effect.acquireRelease(
-    Effect.sync(
-      () =>
-        new WebSocketServer({
-          noServer: true,
-          maxPayload: MAX_WEBSOCKET_MESSAGE_BYTES,
-          perMessageDeflate: false,
-        }),
-    ),
+    Effect.sync(() => {
+      const webSocketServer = new WebSocketServer({
+        noServer: true,
+        maxPayload: MAX_WEBSOCKET_MESSAGE_BYTES,
+        perMessageDeflate: false,
+      });
+      emitConnectionAfterUpgrade(webSocketServer);
+      return webSocketServer;
+    }),
     (server) =>
       Effect.callback<void>((resume) => {
         for (const client of server.clients) client.terminate();
