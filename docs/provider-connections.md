@@ -107,9 +107,11 @@ turn admission.
 For a Claude subscription switch to a different account, the recorded Thread
 account cannot be changed by an ordinary resume or by signing a bound Connection
 into another account. An explicit Connection change with the current binding
-revision stages the new account. The target profile gains access only after the
-new binding commits. Claude starts a fresh native session with Penkra's retained
-transcript as context for an account change.
+revision stages a separate copy of the native project for the new account. The
+target profile uses that copy for exact resume verification before commit. After
+the binding commits, Penkra removes old profile links before delivering the new
+turn. If exact resume fails, Penkra starts a fresh session with its retained
+transcript as context.
 
 ## Product surface
 

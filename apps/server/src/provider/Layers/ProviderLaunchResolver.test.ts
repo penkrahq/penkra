@@ -23,6 +23,7 @@ import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
 import {
   claudeThreadProjectName,
   claudeThreadTranscriptPath,
+  readClaudeThreadAccount,
   stageClaudeThreadAccountTransition,
 } from "../claudeThreadNativeState.ts";
 import { ProviderLaunchResolverLive } from "./ProviderLaunchResolver.ts";
@@ -462,15 +463,19 @@ it.effect("links a different Claude account only after the staged binding commit
           },
         }),
       );
-      const beforeCommit = yield* Effect.exit(
-        resolver.resolve({
-          threadId,
-          connectionId: claudeOtherConnectionId,
-          installationId,
-          internalProviderId: null,
-        }),
+      // Pre-commit access is limited to the isolated target copy for exact
+      // native-resume verification; Thread ownership still belongs to source.
+      yield* resolver.resolve({
+        threadId,
+        connectionId: claudeOtherConnectionId,
+        installationId,
+        internalProviderId: null,
+      });
+      assert.strictEqual(
+        (yield* Effect.promise(() => readClaudeThreadAccount(config.stateDir, threadId)))
+          ?.providerIdentityId,
+        "person@example.com",
       );
-      assert.strictEqual(beforeCommit._tag, "Failure");
       claudeBoundConnectionId = claudeOtherConnectionId;
       claudeBindingRevision = 8;
       yield* resolver.resolve({

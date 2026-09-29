@@ -53,6 +53,7 @@ import {
 } from "../../provider/claudeThreadNativeState.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { OrchestrationCommandInvariantError } from "../Errors.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { ProviderThreadSwitchCoordinator } from "../Services/ProviderThreadSwitchCoordinator.ts";
 import { ProviderThreadSwitchCoordinatorLive } from "./ProviderThreadSwitchCoordinator.ts";
@@ -122,6 +123,9 @@ let hasBinding = true;
 let modelOnlySelection = false;
 let runtimeUpgradeSelection = false;
 let claudeAccountSwitchSelection = false;
+let claudeTransitionAfterSettle = false;
+let selectionResolveCount = 0;
+let dispatchFailsBeforeCommit = false;
 let verificationFails = false;
 let repositoryActiveInstallationId = installationId;
 let acceptedProviderSwitchContext: unknown;
@@ -350,8 +354,9 @@ const dependencies = Layer.mergeAll(
         },
       }),
     resolveExisting: () =>
-      Effect.succeed(
-        unchangedSelection
+      Effect.sync(() => {
+        selectionResolveCount += 1;
+        return unchangedSelection
           ? {
               ...selection,
               stateRevision: resolvedStateRevision,
@@ -380,7 +385,8 @@ const dependencies = Layer.mergeAll(
                   modelLabel: "GLM-5.1",
                   requiresNativeStateMaterialization: false,
                 }
-              : claudeAccountSwitchSelection
+              : claudeAccountSwitchSelection ||
+                  (claudeTransitionAfterSettle && selectionResolveCount > 1)
                 ? {
                     ...selection,
                     harness: "claudeAgent" as const,
@@ -396,8 +402,8 @@ const dependencies = Layer.mergeAll(
                       },
                     },
                   }
-                : { ...selection, stateRevision: resolvedStateRevision },
-      ),
+                : { ...selection, stateRevision: resolvedStateRevision };
+      }),
   }),
   Layer.succeed(ProviderThreadSwitchOperationRepository, {
     begin: (input: ProviderThreadSwitchOperationRecord) =>
@@ -532,6 +538,14 @@ const dependencies = Layer.mergeAll(
         order.push("dispatch");
         initialContext = context?.acceptedInitialProviderBinding;
         acceptedProviderSwitchContext = context?.acceptedProviderSwitch;
+        if (dispatchFailsBeforeCommit)
+          return yield* Effect.fail(
+            new OrchestrationCommandInvariantError({
+              commandType: "thread.turn.start",
+              detail: "dispatch rejected before commit",
+              code: "invalid_switch",
+            }),
+          );
         if (context?.acceptedInitialProviderForkOperationId && nativeForkOperation) {
           order.push("committed");
           nativeForkOperation = {
@@ -1109,11 +1123,12 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
             },
             attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
           });
-          assert.deepStrictEqual(order.slice(0, 6), [
+          assert.deepStrictEqual(order.slice(0, 7), [
             "journal",
             "interrupt",
             "interrupted",
             "stop-session",
+            "verify",
             "verified",
             "dispatch",
           ]);
@@ -1181,15 +1196,65 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
         yield* TestClock.adjust("1 second");
         yield* Fiber.join(fiber);
         assert.notInclude(order, "interrupt");
-        assert.deepStrictEqual(order.slice(0, 5), [
+        assert.deepStrictEqual(order.slice(0, 6), [
           "journal",
           "interrupted",
           "stop-session",
+          "verify",
           "verified",
           "dispatch",
         ]);
       } finally {
         claudeAccountSwitchSelection = false;
+      }
+    }),
+  );
+
+  it.effect("discards the settled account transition when dispatch fails", () =>
+    Effect.gen(function* () {
+      hasBinding = true;
+      operation = undefined;
+      activeTurn = true;
+      order.length = 0;
+      selectionResolveCount = 0;
+      claudeTransitionAfterSettle = true;
+      dispatchFailsBeforeCommit = true;
+      rmSync(claudeThreadStateRoot(runtimeStateDir, threadId), { recursive: true, force: true });
+      yield* Effect.promise(() =>
+        prepareClaudeThreadProject({
+          stateDir: runtimeStateDir,
+          threadId,
+          configDir: path.join(runtimeStateDir, "settled-source-profile"),
+          account: {
+            authenticationMethodId: "claude-account",
+            providerIdentityId: "alice@example.com",
+          },
+        }),
+      );
+      try {
+        const coordinator = yield* ProviderThreadSwitchCoordinator;
+        const result = yield* Effect.exit(
+          coordinator.dispatchTurnStart({
+            command: {
+              ...command,
+              commandId: CommandId.makeUnsafe("claude-settled-transition-failure"),
+              dispatchMode: "steer",
+            },
+            attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+          }),
+        );
+        assert.strictEqual(result._tag, "Failure");
+        assert.strictEqual(currentOperation()?.state, "failed");
+        assert.ok(JSON.parse(currentOperation()!.selectionJson).claudeAccountTransition);
+        assert.strictEqual(
+          existsSync(
+            path.join(claudeThreadStateRoot(runtimeStateDir, threadId), "account-transition.json"),
+          ),
+          false,
+        );
+      } finally {
+        claudeTransitionAfterSettle = false;
+        dispatchFailsBeforeCommit = false;
       }
     }),
   );

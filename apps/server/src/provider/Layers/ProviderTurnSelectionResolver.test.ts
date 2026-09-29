@@ -8,7 +8,11 @@ import { assert, it } from "@effect/vitest";
 import { Cause, Effect, Layer, Option } from "effect";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ServerConfig } from "../../config.ts";
-import { rememberClaudeThreadAccount } from "../claudeThreadNativeState.ts";
+import {
+  rememberClaudeThreadAccount,
+  stageClaudeThreadAccountTransition,
+  discardClaudeThreadAccountTransition,
+} from "../claudeThreadNativeState.ts";
 
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
@@ -62,6 +66,8 @@ let installationLifecycle: "active" | "retired" = "active";
 let threadHarness: "opencode" | "claudeAgent" = "opencode";
 let resolvedNativeStateIdentities: string[] = [];
 let currentClaudeIdentity = "alice@example.com";
+let claudeBoundConnectionId = claudeConnectionId;
+let claudeBoundRevision = 7;
 
 const dependencies = Layer.mergeAll(
   ServerConfig.layerTest(process.cwd(), { prefix: "penkra-turn-selection-test-" }).pipe(
@@ -140,13 +146,14 @@ const dependencies = Layer.mergeAll(
         hasRuntimeBinding
           ? Option.some({
               threadId,
-              connectionId: threadHarness === "claudeAgent" ? claudeConnectionId : connectionId,
+              connectionId:
+                threadHarness === "claudeAgent" ? claudeBoundConnectionId : connectionId,
               installationId:
                 threadHarness === "claudeAgent" ? claudeInstallationId : installationId,
               internalProviderId: threadHarness === "claudeAgent" ? null : "opencode-go",
               modelId:
                 threadHarness === "claudeAgent" ? "claude-sonnet-5" : "opencode-go/kimi-k2.5",
-              revision: 7,
+              revision: threadHarness === "claudeAgent" ? claudeBoundRevision : 7,
               createdAt: timestamp,
               updatedAt: timestamp,
             })
@@ -646,5 +653,66 @@ layer("ProviderTurnSelectionResolver", (it) => {
           threadHarness = "opencode";
         }
       }),
+  );
+
+  it.effect("allows only the committed pending account switch to reach ownership recovery", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig;
+      const resolver = yield* ProviderTurnSelectionResolver;
+      const accountThreadId = ThreadId.makeUnsafe("selection-committed-claude-switch");
+      threadHarness = "claudeAgent";
+      yield* Effect.promise(() =>
+        rememberClaudeThreadAccount({
+          stateDir: config.stateDir,
+          threadId: accountThreadId,
+          account: {
+            authenticationMethodId: "claude-account",
+            providerIdentityId: "alice@example.com",
+          },
+        }),
+      );
+      try {
+        yield* Effect.promise(() =>
+          stageClaudeThreadAccountTransition({
+            stateDir: config.stateDir,
+            threadId: accountThreadId,
+            transition: {
+              commandId: "committed-switch",
+              connectionId: otherClaudeConnectionId,
+              bindingRevision: 8,
+              source: {
+                authenticationMethodId: "claude-account",
+                providerIdentityId: "alice@example.com",
+              },
+              target: {
+                authenticationMethodId: "claude-account",
+                providerIdentityId: "bob@example.com",
+              },
+            },
+          }),
+        );
+        claudeBoundConnectionId = otherClaudeConnectionId;
+        claudeBoundRevision = 8;
+        const selected = yield* resolver.resolveExisting({ threadId: accountThreadId });
+        assert.strictEqual(selected.changed, false);
+        yield* Effect.promise(() =>
+          discardClaudeThreadAccountTransition({
+            stateDir: config.stateDir,
+            threadId: accountThreadId,
+            commandId: "committed-switch",
+          }),
+        );
+        const ordinaryResume = yield* Effect.exit(
+          resolver.resolveExisting({ threadId: accountThreadId }),
+        );
+        assert.strictEqual(ordinaryResume._tag, "Failure");
+        if (ordinaryResume._tag === "Failure")
+          assert.strictEqual(failedWithCode(ordinaryResume), "connection_unauthorized");
+      } finally {
+        claudeBoundConnectionId = claudeConnectionId;
+        claudeBoundRevision = 7;
+        threadHarness = "opencode";
+      }
+    }),
   );
 });

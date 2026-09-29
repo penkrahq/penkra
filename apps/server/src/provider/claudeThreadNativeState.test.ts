@@ -1,5 +1,14 @@
 import { strict as assert } from "node:assert";
-import { access, mkdtemp, mkdir, readlink, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdtemp,
+  mkdir,
+  readFile,
+  readlink,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as Path from "node:path";
 import { afterEach, it } from "vitest";
@@ -44,8 +53,8 @@ it("refuses to expose a Thread's Claude project to a different subscription acco
   roots.push(root);
   const stateDir = Path.join(root, "state");
   const threadId = "owned-thread";
-  const configA = Path.join(root, "profile-a", "claude-config");
-  const configB = Path.join(root, "profile-b", "claude-config");
+  const configA = Path.join(stateDir, "provider-connections", "profile-a", "claude-config");
+  const configB = Path.join(stateDir, "provider-connections", "profile-b", "claude-config");
   await prepareClaudeThreadProject({
     stateDir,
     threadId,
@@ -83,9 +92,13 @@ it("transfers Claude ownership only after the exact explicit switch binding comm
     authenticationMethodId: "claude-account",
     providerIdentityId: "bob@example.com",
   };
-  const configA = Path.join(root, "profile-a", "claude-config");
-  const configB = Path.join(root, "profile-b", "claude-config");
+  const configA = Path.join(stateDir, "provider-connections", "profile-a", "claude-config");
+  const configB = Path.join(stateDir, "provider-connections", "profile-b", "claude-config");
   await prepareClaudeThreadProject({ stateDir, threadId, configDir: configA, account: source });
+  await writeFile(
+    claudeThreadTranscriptPath(stateDir, threadId, "exact-session"),
+    "exact native history",
+  );
   await stageClaudeThreadAccountTransition({
     stateDir,
     threadId,
@@ -107,11 +120,25 @@ it("transfers Claude ownership only after the exact explicit switch binding comm
       bindingConnectionId,
       bindingRevision,
     });
-  await assert.rejects(launchTarget("connection-a", 7));
+  await launchTarget("connection-a", 7);
   await assert.rejects(launchTarget("connection-b", 7));
   assert.deepEqual(await readClaudeThreadAccount(stateDir, threadId), source);
+  assert.notStrictEqual(
+    await readlink(Path.join(configA, "projects", claudeThreadProjectName(threadId))),
+    await readlink(Path.join(configB, "projects", claudeThreadProjectName(threadId))),
+  );
+  const targetProject = await readlink(
+    Path.join(configB, "projects", claudeThreadProjectName(threadId)),
+  );
+  assert.strictEqual(
+    await readFile(Path.join(targetProject, "exact-session.jsonl"), "utf8"),
+    "exact native history",
+  );
   await launchTarget("connection-b", 8);
   assert.deepEqual(await readClaudeThreadAccount(stateDir, threadId), target);
+  await assert.rejects(access(Path.join(configA, "projects", claudeThreadProjectName(threadId))));
+  await writeFile(Path.join(targetProject, "new-session.jsonl"), "new account output");
+  await assert.rejects(access(claudeThreadTranscriptPath(stateDir, threadId, "new-session")));
   await assert.rejects(
     prepareClaudeThreadProject({ stateDir, threadId, configDir: configA, account: source }),
   );
@@ -131,6 +158,7 @@ it("discards a failed account switch without changing the owner", async () => {
     authenticationMethodId: "claude-account",
     providerIdentityId: "bob@example.com",
   };
+  const targetConfig = Path.join(stateDir, "provider-connections", "profile-b", "claude-config");
   await prepareClaudeThreadProject({
     stateDir,
     threadId,
@@ -148,7 +176,19 @@ it("discards a failed account switch without changing the owner", async () => {
       target,
     },
   });
+  await prepareClaudeThreadProject({
+    stateDir,
+    threadId,
+    configDir: targetConfig,
+    account: target,
+    connectionId: "connection-b",
+    bindingConnectionId: "connection-a",
+    bindingRevision: 7,
+  });
   await discardClaudeThreadAccountTransition({ stateDir, threadId, commandId: "failed-command" });
+  await assert.rejects(
+    access(Path.join(targetConfig, "projects", claudeThreadProjectName(threadId))),
+  );
   await assert.rejects(
     prepareClaudeThreadProject({
       stateDir,
@@ -161,6 +201,55 @@ it("discards a failed account switch without changing the owner", async () => {
     }),
   );
   assert.deepEqual(await readClaudeThreadAccount(stateDir, threadId), source);
+});
+
+it("finishes a committed switch after an interrupted owner-marker update", async () => {
+  const root = await mkdtemp(Path.join(tmpdir(), "penkra-claude-account-recovery-"));
+  roots.push(root);
+  const stateDir = Path.join(root, "state");
+  const threadId = "recovery-thread";
+  const source = {
+    authenticationMethodId: "claude-account",
+    providerIdentityId: "alice@example.com",
+  };
+  const target = {
+    authenticationMethodId: "claude-account",
+    providerIdentityId: "bob@example.com",
+  };
+  const configA = Path.join(stateDir, "provider-connections", "profile-a", "claude-config");
+  const configB = Path.join(stateDir, "provider-connections", "profile-b", "claude-config");
+  await prepareClaudeThreadProject({ stateDir, threadId, configDir: configA, account: source });
+  await stageClaudeThreadAccountTransition({
+    stateDir,
+    threadId,
+    transition: {
+      commandId: "recover-command",
+      connectionId: "connection-b",
+      bindingRevision: 8,
+      source,
+      target,
+    },
+  });
+  // Recover a committed binding with the new owner already written and a
+  // stale source link still present.
+  await writeFile(
+    Path.join(claudeThreadStateRoot(stateDir, threadId), "account.json"),
+    JSON.stringify(target),
+  );
+  await prepareClaudeThreadProject({
+    stateDir,
+    threadId,
+    configDir: configB,
+    account: target,
+    connectionId: "connection-b",
+    bindingConnectionId: "connection-b",
+    bindingRevision: 8,
+  });
+  assert.deepEqual(await readClaudeThreadAccount(stateDir, threadId), target);
+  await assert.rejects(access(Path.join(configA, "projects", claudeThreadProjectName(threadId))));
+  await assert.rejects(
+    access(Path.join(claudeThreadStateRoot(stateDir, threadId), "account-transition.json")),
+  );
 });
 
 it("does not replace another pending Claude account transition", async () => {
