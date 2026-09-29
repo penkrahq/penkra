@@ -1,7 +1,7 @@
 [
   {
     "file": "apps/server/src/agentGateway/commandSurface.ts",
-    "line": 111,
+    "line": 112,
     "column": 5,
     "kind": "throw",
     "disposition": "validation",
@@ -10,7 +10,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/commandSurface.ts",
-    "line": 124,
+    "line": 125,
     "column": 5,
     "kind": "throw",
     "disposition": "validation",
@@ -19,7 +19,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/commandSurface.ts",
-    "line": 128,
+    "line": 129,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -28,8 +28,8 @@
   },
   {
     "file": "apps/server/src/agentGateway/commandSurface.ts",
-    "line": 173,
-    "column": 33,
+    "line": 175,
+    "column": 12,
     "kind": "catch",
     "disposition": "propagates",
     "reason": "The caught failure is converted to a gateway response or handled locally, with a content-free incident at that boundary.",
@@ -245,7 +245,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/creationCoordinator.ts",
-    "line": 499,
+    "line": 501,
     "column": 24,
     "kind": "catch",
     "disposition": "diagnostics-isolated",
@@ -316,7 +316,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/Layers/AgentGateway.ts",
-    "line": 213,
+    "line": 218,
     "column": 32,
     "kind": "rejection",
     "disposition": "validation",
@@ -325,7 +325,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/Layers/AgentGateway.ts",
-    "line": 241,
+    "line": 246,
     "column": 30,
     "kind": "rejection",
     "disposition": "propagates",
@@ -338,7 +338,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/Layers/AgentGateway.ts",
-    "line": 264,
+    "line": 269,
     "column": 30,
     "kind": "rejection",
     "disposition": "validation",
@@ -347,7 +347,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/Layers/AgentGateway.ts",
-    "line": 430,
+    "line": 435,
     "column": 11,
     "kind": "throw",
     "disposition": "validation",
@@ -356,7 +356,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/Layers/AgentGateway.ts",
-    "line": 539,
+    "line": 544,
     "column": 22,
     "kind": "catch",
     "disposition": "propagates",
@@ -369,7 +369,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/Layers/AgentGateway.ts",
-    "line": 585,
+    "line": 590,
     "column": 26,
     "kind": "rejection",
     "disposition": "validation",
@@ -378,7 +378,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/Layers/AgentGateway.ts",
-    "line": 596,
+    "line": 601,
     "column": 15,
     "kind": "throw",
     "disposition": "validation",
@@ -387,7 +387,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/Layers/AgentGateway.ts",
-    "line": 666,
+    "line": 671,
     "column": 22,
     "kind": "catch",
     "disposition": "propagates",
@@ -400,7 +400,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/Layers/AgentGateway.ts",
-    "line": 718,
+    "line": 723,
     "column": 16,
     "kind": "catch",
     "disposition": "propagates",
@@ -413,7 +413,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/Layers/AgentGateway.ts",
-    "line": 766,
+    "line": 771,
     "column": 34,
     "kind": "rejection",
     "disposition": "validation",
@@ -422,7 +422,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/Layers/AgentGateway.ts",
-    "line": 792,
+    "line": 797,
     "column": 24,
     "kind": "catch",
     "disposition": "propagates",
@@ -435,7 +435,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/Layers/AgentGateway.ts",
-    "line": 797,
+    "line": 802,
     "column": 16,
     "kind": "throw",
     "disposition": "propagates",
@@ -448,7 +448,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/Layers/AgentGateway.ts",
-    "line": 899,
+    "line": 904,
     "column": 32,
     "kind": "rejection",
     "disposition": "validation",
@@ -457,7 +457,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/Layers/AgentGateway.ts",
-    "line": 914,
+    "line": 919,
     "column": 32,
     "kind": "rejection",
     "disposition": "validation",
@@ -466,7 +466,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/Layers/AgentGateway.ts",
-    "line": 953,
+    "line": 958,
     "column": 22,
     "kind": "catch",
     "disposition": "propagates",
@@ -492,7 +492,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/mcpTransport.ts",
-    "line": 278,
+    "line": 281,
     "column": 18,
     "kind": "catch",
     "disposition": "propagates",
@@ -505,7 +505,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/mcpTransport.ts",
-    "line": 315,
+    "line": 318,
     "column": 16,
     "kind": "catch",
     "disposition": "propagates",
@@ -518,7 +518,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/mcpTransport.ts",
-    "line": 394,
+    "line": 397,
     "column": 39,
     "kind": "rejection",
     "disposition": "propagates",
@@ -531,7 +531,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/mcpTransport.ts",
-    "line": 404,
+    "line": 407,
     "column": 34,
     "kind": "rejection",
     "disposition": "validation",
@@ -540,7 +540,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/mcpTransport.ts",
-    "line": 425,
+    "line": 428,
     "column": 34,
     "kind": "rejection",
     "disposition": "validation",
@@ -549,7 +549,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/mcpTransport.ts",
-    "line": 435,
+    "line": 438,
     "column": 34,
     "kind": "rejection",
     "disposition": "validation",
@@ -558,7 +558,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/mcpTransport.ts",
-    "line": 458,
+    "line": 461,
     "column": 34,
     "kind": "rejection",
     "disposition": "validation",
@@ -567,7 +567,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/mcpTransport.ts",
-    "line": 469,
+    "line": 472,
     "column": 22,
     "kind": "catch",
     "disposition": "propagates",
@@ -580,7 +580,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/mcpTransport.ts",
-    "line": 481,
+    "line": 484,
     "column": 20,
     "kind": "catch",
     "disposition": "propagates",
@@ -593,7 +593,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/mcpTransport.ts",
-    "line": 580,
+    "line": 583,
     "column": 24,
     "kind": "catch",
     "disposition": "propagates",
@@ -642,7 +642,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/targetResolver.ts",
-    "line": 251,
+    "line": 252,
     "column": 14,
     "kind": "catch",
     "disposition": "propagates",
@@ -655,7 +655,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/targetResolver.ts",
-    "line": 415,
+    "line": 417,
     "column": 3,
     "kind": "throw",
     "disposition": "validation",
@@ -664,7 +664,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/targetResolver.ts",
-    "line": 596,
+    "line": 598,
     "column": 28,
     "kind": "rejection",
     "disposition": "validation",
@@ -673,7 +673,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/targetResolver.ts",
-    "line": 611,
+    "line": 613,
     "column": 28,
     "kind": "rejection",
     "disposition": "validation",
@@ -682,7 +682,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/targetResolver.ts",
-    "line": 626,
+    "line": 628,
     "column": 30,
     "kind": "rejection",
     "disposition": "validation",
@@ -691,7 +691,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/targetResolver.ts",
-    "line": 635,
+    "line": 637,
     "column": 30,
     "kind": "rejection",
     "disposition": "validation",
@@ -700,7 +700,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/targetResolver.ts",
-    "line": 648,
+    "line": 650,
     "column": 9,
     "kind": "catch",
     "disposition": "propagates",
@@ -713,7 +713,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/targetResolver.ts",
-    "line": 649,
+    "line": 651,
     "column": 76,
     "kind": "rejection",
     "disposition": "validation",
@@ -722,7 +722,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/targetResolver.ts",
-    "line": 650,
+    "line": 652,
     "column": 9,
     "kind": "throw",
     "disposition": "rethrow",
@@ -735,7 +735,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/targetResolver.ts",
-    "line": 657,
+    "line": 659,
     "column": 7,
     "kind": "catch",
     "disposition": "propagates",
@@ -748,7 +748,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/targetResolver.ts",
-    "line": 658,
+    "line": 660,
     "column": 74,
     "kind": "rejection",
     "disposition": "validation",
@@ -757,7 +757,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/targetResolver.ts",
-    "line": 659,
+    "line": 661,
     "column": 7,
     "kind": "throw",
     "disposition": "rethrow",
@@ -770,7 +770,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/threadDiagnosticTools.ts",
-    "line": 155,
+    "line": 150,
     "column": 22,
     "kind": "catch",
     "disposition": "propagates",
@@ -783,7 +783,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/threadDiagnosticTools.ts",
-    "line": 211,
+    "line": 206,
     "column": 11,
     "kind": "throw",
     "disposition": "validation",
@@ -792,7 +792,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/threadDiagnosticTools.ts",
-    "line": 275,
+    "line": 270,
     "column": 22,
     "kind": "catch",
     "disposition": "propagates",
@@ -805,7 +805,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/threadDiagnosticTools.ts",
-    "line": 377,
+    "line": 372,
     "column": 22,
     "kind": "catch",
     "disposition": "propagates",
@@ -818,7 +818,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/threadDiagnosticTools.ts",
-    "line": 409,
+    "line": 404,
     "column": 26,
     "kind": "rejection",
     "disposition": "validation",
@@ -827,7 +827,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/threadDiagnosticTools.ts",
-    "line": 583,
+    "line": 578,
     "column": 22,
     "kind": "catch",
     "disposition": "propagates",
@@ -840,7 +840,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/threadDiagnosticTools.ts",
-    "line": 622,
+    "line": 617,
     "column": 22,
     "kind": "catch",
     "disposition": "propagates",

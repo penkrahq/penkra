@@ -2,7 +2,6 @@ import { startDiagnosticTrace } from "@penkra/shared/traceContext";
 
 import { recordDiagnosticIncident } from "../diagnostics/recorder.ts";
 import { mcpToolResultError } from "./protocol.ts";
-import { AgentGatewayTargetError } from "./targetResolver.ts";
 import { errorText, ToolInputError } from "./toolInput.ts";
 import { GatewayToolError } from "./toolRuntime.ts";
 
@@ -11,7 +10,7 @@ export function recordGatewayConsumedFailure(error: unknown): void {
   const rejected =
     error instanceof ToolInputError ||
     error instanceof GatewayToolError ||
-    error instanceof AgentGatewayTargetError;
+    (error instanceof Error && error.name === "AgentGatewayTargetError");
   if (rejected) {
     recordDiagnosticIncident({
       ...startDiagnosticTrace(),
