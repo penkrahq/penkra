@@ -44,8 +44,10 @@ function percentiles(samples) {
   if (samples.length === 0) return null;
   samples.sort((a, b) => a - b);
   return {
+    sampleCount: samples.length,
     p50Ms: Number(samples[Math.floor(samples.length * 0.5)].toFixed(3)),
-    p95Ms: Number(samples[Math.floor(samples.length * 0.95)].toFixed(3)),
+    p95Ms:
+      samples.length >= 20 ? Number(samples[Math.floor(samples.length * 0.95)].toFixed(3)) : null,
     maxMs: Number(samples.at(-1).toFixed(3)),
   };
 }

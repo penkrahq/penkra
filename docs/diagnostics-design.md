@@ -528,9 +528,10 @@ The runnable benchmark is `bun scripts/benchmark-desktop-diagnostics-queue.mjs`
 after building the desktop diagnostics worker. Its `inMemoryMicrobenchmark`
 compares synchronous reservation with worker-credit enqueue using an immediate
 fake worker; those figures isolate enqueue overhead only. On the development
-host, 2,000 writes through a real Node worker measured main-thread enqueue
-p50 0.001 ms and p95 0.005 ms, durable acknowledgement p50 53.891 ms and
-p95 111.623 ms, and a refill fsync round trip of 107.212 ms (one refill).
+host, one 2,000-write run through a real Node worker measured main-thread
+enqueue p50 0.001 ms and p95 0.003 ms, and durable acknowledgement p50
+38.976 ms and p95 75.586 ms. Two refill fsync round trips were observed;
+the slower one took 85.177 ms. Two samples do not support a refill p95.
 The run produced 2,000 acknowledgements across three credit blocks. These
 measurements include `postMessage`, worker persistence, and acknowledgement,
 but do not measure Electron rendering or represent a latency guarantee.
