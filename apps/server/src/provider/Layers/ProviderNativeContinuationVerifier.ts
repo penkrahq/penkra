@@ -6,6 +6,7 @@ import { Effect, Layer, Option } from "effect";
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { ThreadDiagnosticsQuery } from "../../diagnostics/Services/ThreadDiagnosticsQuery.ts";
 import { providerNativeResumeIdentity } from "../nativeResumeIdentity.ts";
+import { selectNativeResumeProbeModel } from "../nativeResumeProbeModel.ts";
 import { readClaudeSessionMarker } from "../claudeThreadNativeState.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
 import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
@@ -227,6 +228,48 @@ export const makeProviderNativeContinuationVerifier = Effect.gen(function* () {
         if (adapter.verifyNativeResume === undefined) {
           return yield* fail("The target provider adapter cannot verify native continuation.");
         }
+        const requiresCompletedProbe = input.selection.claudeAccountTransition !== undefined;
+        let verificationModelId = input.selection.modelId;
+        if (requiresCompletedProbe) {
+          if (adapter.listModels === undefined) {
+            return yield* fail("The target provider cannot list models for the resume probe.");
+          }
+          stage = "select-target-probe-model";
+          const catalog = yield* adapter
+            .listModels({
+              provider: input.selection.harness,
+              connectionId: input.selection.connectionId,
+              internalProviderId: input.selection.internalProviderId,
+              managedLaunch: {
+                binaryPath: launch.binaryPath,
+                isolationKey: launch.isolationKey,
+                profileRoot: launch.profileRoot,
+                nativeStateRoot: launch.nativeStateRoot,
+                childEnvironment: (baseEnv) => launch.childEnvironment(baseEnv),
+              },
+              ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
+            })
+            .pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProviderNativeContinuationVerificationError({
+                    detail: "Could not list the target account's resume probe models.",
+                    cause,
+                  }),
+              ),
+            );
+          const probeModelId = selectNativeResumeProbeModel({
+            provider: input.selection.harness,
+            connectionId: input.selection.connectionId,
+            models: catalog.models,
+          });
+          if (probeModelId === null) {
+            return yield* fail(
+              "The target Claude account has no available Haiku or Sonnet model for resume verification.",
+            );
+          }
+          verificationModelId = probeModelId;
+        }
         stage = "initialize-target-resume";
         const verified = yield* adapter
           .verifyNativeResume({
@@ -241,10 +284,10 @@ export const makeProviderNativeContinuationVerifier = Effect.gen(function* () {
             ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
             modelSelection: {
               provider: input.selection.harness,
-              model: input.selection.modelId,
+              model: verificationModelId,
             },
             runtimeMode: input.runtimeMode,
-            requireCompletedProbe: input.selection.claudeAccountTransition !== undefined,
+            requireCompletedProbe: requiresCompletedProbe,
           })
           .pipe(
             Effect.catch((cause) =>

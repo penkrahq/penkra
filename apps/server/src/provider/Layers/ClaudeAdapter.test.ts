@@ -684,6 +684,7 @@ describe("ClaudeAdapterLive", () => {
           },
           runtimeMode: "full-access",
           requireCompletedProbe: true,
+          modelSelection: { provider: "claudeAgent", model: "claude-haiku-4-5" },
         }),
       );
       assert.strictEqual(result._tag, "Failure");
@@ -693,23 +694,27 @@ describe("ClaudeAdapterLive", () => {
 
   it.effect("accepts a probed resume only after the SDK completes the same session", () => {
     const resume = "44c0b890-8775-4f30-b47f-0709d29cc9e1";
+    let probeModel: string | undefined;
     const layer = makeClaudeAdapterLive({
-      createWarmQuery: () => ({
-        query: async function* (prompt) {
-          yield { type: "system", subtype: "init", session_id: resume } as never;
-          for await (const _message of prompt) {
-            yield {
-              type: "result",
-              subtype: "success",
-              is_error: false,
-              session_id: resume,
-              result: "OK",
-            } as never;
-          }
-        },
-        close: () => undefined,
-        [Symbol.asyncDispose]: async () => undefined,
-      }),
+      createWarmQuery: (input) => {
+        probeModel = input.options.model;
+        return {
+          query: async function* (prompt) {
+            yield { type: "system", subtype: "init", session_id: resume } as never;
+            for await (const _message of prompt) {
+              yield {
+                type: "result",
+                subtype: "success",
+                is_error: false,
+                session_id: resume,
+                result: "OK",
+              } as never;
+            }
+          },
+          close: () => undefined,
+          [Symbol.asyncDispose]: async () => undefined,
+        };
+      },
     }).pipe(
       Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-adapter-test", "/tmp")),
       Layer.provideMerge(NodeServices.layer),
@@ -727,8 +732,10 @@ describe("ClaudeAdapterLive", () => {
         },
         runtimeMode: "full-access",
         requireCompletedProbe: true,
+        modelSelection: { provider: "claudeAgent", model: "claude-haiku-4-5" },
       });
       assert.equal(result.providerSessionId, resume);
+      assert.equal(probeModel, "claude-haiku-4-5");
     }).pipe(Effect.provide(layer));
   });
 
