@@ -1854,6 +1854,34 @@ const make = Effect.gen(function* () {
         ),
       );
       startedTurn = sentTurn;
+      if (reconstructedInput !== null) {
+        yield* orchestrationEngine
+          .dispatch({
+            type: "thread.activity.append",
+            commandId: CommandId.makeUnsafe(`continuation-reconstructed:${input.messageId}`),
+            threadId: input.threadId,
+            createdAt: new Date().toISOString(),
+            activity: {
+              id: EventId.makeUnsafe(crypto.randomUUID()),
+              tone: "info",
+              kind: "continuation-reconstructed",
+              summary:
+                "Context was rebuilt from thread history; native tool state was not carried over.",
+              payload: {},
+              turnId: sentTurn.turnId,
+              createdAt: new Date().toISOString(),
+            },
+          })
+          .pipe(
+            Effect.catch((cause) =>
+              Effect.logWarning("could not record reconstructed continuation notice", {
+                threadId: input.threadId,
+                messageId: input.messageId,
+                cause,
+              }),
+            ),
+          );
+      }
       if (
         yield* hasTurnStartCancellationRequest({
           threadId: input.threadId,

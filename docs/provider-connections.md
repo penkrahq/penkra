@@ -104,6 +104,17 @@ interrupts it. Penkra then materializes or opens target native state, verifies
 its native identity, and atomically commits the new binding, activity entry, and
 turn admission.
 
+For a Claude subscription switch to a different account, the recorded Thread
+account cannot be changed by an ordinary resume or by signing a bound Connection
+into another account. An explicit Connection change with the current binding
+revision stages a separate copy of the native project for the new account. The
+target profile uses that copy for exact resume verification before commit. Penkra
+checks the session id reported by Claude, not just the requested resume id.
+After the binding commits, Penkra removes old profile links before delivering
+the new turn. A missing native conversation can be rebuilt from retained thread
+history, with a notice that native tool state was not carried over. Launch and
+authentication failures leave the old binding in place.
+
 ## Product surface
 
 - Settings > Agents owns installation readiness and Connections.

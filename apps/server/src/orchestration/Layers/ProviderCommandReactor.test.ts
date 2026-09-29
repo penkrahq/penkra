@@ -1164,8 +1164,62 @@ describe("ProviderCommandReactor", () => {
       expect(sent?.input).toContain("Continue with the current request");
       expect(sent?.input).toContain("penkra threads read --thread-id thread-1");
       expect(sent?.input).not.toContain("secret history before the retained boundary");
+      await waitFor(
+        async () =>
+          (await readHarnessThread(harness))?.activities.some(
+            (activity) => activity.kind === "continuation-reconstructed",
+          ) ?? false,
+      );
+      const notice = (await readHarnessThread(harness))?.activities.find(
+        (activity) => activity.kind === "continuation-reconstructed",
+      );
+      expect(notice?.summary).toContain("native tool state was not carried over");
     },
   );
+
+  it("does not announce reconstruction when the rebuilt turn is rejected", async () => {
+    const harness = await createHarness({
+      nativeStateLocatorJson: JSON.stringify({ penkraReconstruction: true }),
+      threadModelSelection: { provider: "claudeAgent", model: "claude-sonnet-5" },
+      sendTurn: () =>
+        Effect.fail(
+          new ProviderAdapterRequestError({
+            provider: "claudeAgent",
+            method: "sendTurn",
+            detail: "Target rejected the rebuilt turn.",
+          }),
+        ),
+    });
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        connectionId: TEST_CONNECTION_ID,
+        bindingRevision: 0,
+        commandId: CommandId.makeUnsafe("cmd-reconstruction-rejected"),
+        threadId,
+        message: {
+          messageId: asMessageId("message-reconstruction-rejected"),
+          role: "user",
+          text: "Continue",
+          attachments: [],
+        },
+        runtimeMode: "approval-required",
+        createdAt: new Date().toISOString(),
+      }),
+    );
+    await waitFor(
+      async () =>
+        (await readHarnessThread(harness))?.activities.some(
+          (activity) => activity.kind === "provider.turn.start.failed",
+        ) ?? false,
+    );
+    expect(
+      (await readHarnessThread(harness))?.activities.some(
+        (activity) => activity.kind === "continuation-reconstructed",
+      ),
+    ).toBe(false);
+  });
 
   it("rebuilds an old-layout Claude Thread from Penkra on its next turn", async () => {
     const sessionId = "550e8400-e29b-41d4-a716-446655440000";
@@ -3036,7 +3090,9 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    await waitFor(() => rollbackCompletionCommandIds.length === 2);
+    await waitFor(
+      () => rollbackCompletionCommandIds.length === 2 && replacementStartCommandIds.length === 2,
+    );
     expect(rollbackCompletionCommandIds[1]).toBe(rollbackCompletionCommandIds[0]);
     expect(replacementStartCommandIds).toHaveLength(2);
     expect(replacementStartCommandIds[1]).toBe(replacementStartCommandIds[0]);
