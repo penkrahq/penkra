@@ -55,7 +55,10 @@ throw new Error("three");`;
       ["COMMAND_REJECTED:server.command", file],
       ["APP_OPERATION_FAILED:server.command", "apps/server/src/commandBoundary.ts"],
     ]);
-    expect(uncoveredFailureSites(sites, () => source, [], boundaries)).toEqual([sites[2]]);
+    expect(uncoveredFailureSites(sites, () => source, [], boundaries)).toEqual([
+      sites[1],
+      sites[2],
+    ]);
     expect(
       uncoveredFailureSites(
         sites,
@@ -71,7 +74,7 @@ throw new Error("three");`;
       reviewer: "reviewer@example.com",
       issue: "https://example.com/issue/1",
     };
-    expect(uncoveredFailureSites(sites, () => source, [exception], boundaries)).toEqual([]);
+    expect(uncoveredFailureSites(sites, () => source, [exception], boundaries)).toEqual([sites[1]]);
     expect(() =>
       uncoveredFailureSites(sites, () => source, [{ ...exception, line: 99 }], boundaries),
     ).toThrow("stale");
@@ -109,7 +112,7 @@ throw new Error("three");`;
       [{ code: "COMMAND_REJECTED", where: "server.command", file }],
       () => recordingSource,
     );
-    expect(uncoveredFailureSites(sites, () => source, [], boundaries)).toEqual([]);
+    expect(uncoveredFailureSites(sites, () => source, [], boundaries)).toEqual(sites);
   });
 
   it("does not let one marker cover two decisions on the same line", () => {
