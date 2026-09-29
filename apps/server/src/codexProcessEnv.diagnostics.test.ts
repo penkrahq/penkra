@@ -6,7 +6,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("./diagnostics/recorder", () => ({ recordDiagnosticIncident: vi.fn() }));
 
 import { recordDiagnosticIncident } from "./diagnostics/recorder";
-import { prepareManagedCodexProfileConfig } from "./codexProcessEnv";
+import {
+  buildCodexProcessEnv,
+  prepareManagedCodexProfileConfig,
+  prepareOptionalCodexOverlayEntries,
+} from "./codexProcessEnv";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -15,6 +19,43 @@ afterEach(async () => {
 });
 
 describe("Codex profile filesystem diagnostics", () => {
+  it("records and skips one failed optional overlay entry while preparing later entries", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "penkra-codex-overlay-diagnostic-"));
+    roots.push(root);
+    const sourceHomePath = path.join(root, "source");
+    const overlayRoot = path.join(root, "runtime");
+    await fs.mkdir(path.join(sourceHomePath, "sessions"), { recursive: true });
+    await fs.mkdir(path.join(sourceHomePath, "z-state"));
+    await fs.writeFile(path.join(sourceHomePath, "config.toml"), "");
+    const overlayHomePath = path.join(overlayRoot, "codex-home-overlay");
+    await fs.mkdir(overlayHomePath, { recursive: true });
+    await prepareOptionalCodexOverlayEntries({
+      sourceHomePath,
+      overlayHomePath,
+      entries: ["sessions", "z-state"],
+      readEntryStat: (sourcePath) => {
+        if (sourcePath === path.join(sourceHomePath, "sessions")) {
+          return Promise.reject(
+            Object.assign(new Error("private filesystem detail"), { code: "EACCES" }),
+          );
+        }
+        return fs.lstat(sourcePath);
+      },
+    });
+    expect(await fs.readlink(path.join(overlayHomePath, "z-state"))).toBe(
+      path.join(sourceHomePath, "z-state"),
+    );
+    expect(recordDiagnosticIncident).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "EXTERNAL_CALL_FAILED", where: "server.codex_config" }),
+    );
+    const env = await buildCodexProcessEnv({
+      env: { PENKRA_HOME: overlayRoot },
+      homePath: sourceHomePath,
+      platform: "win32",
+    });
+    expect(env.CODEX_HOME).toBe(overlayHomePath);
+  });
+
   it("records a non-ENOENT stat failure and continues the optional profile setup", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "penkra-codex-config-diagnostic-"));
     roots.push(root);
