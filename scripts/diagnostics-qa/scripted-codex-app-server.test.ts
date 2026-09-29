@@ -133,6 +133,11 @@ describe("scripted provider QA fixture", () => {
     expect(/function diagnosticsQaShellEnabled\(\)\s*\{\s*return false;\s*\}/u.test(bundled)).toBe(
       true,
     );
+    const preload = fs.readFileSync(
+      path.join(repoRoot, "apps/desktop/dist-electron/preload.js"),
+      "utf8",
+    );
+    expect(preload).not.toContain("qaOpenWindow");
   });
 
   it("compiles fixture launch permission off in the staged server bundle", () => {

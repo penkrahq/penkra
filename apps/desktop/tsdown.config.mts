@@ -17,6 +17,9 @@ const shared = {
   format: "cjs" as const,
   outDir: "dist-electron",
   sourcemap: buildSourcemap,
+  define: {
+    __PENKRA_DIAGNOSTICS_QA_ACCOUNT_BUILD__: JSON.stringify(diagnosticsQaAccountBuild),
+  },
   outExtensions: () => ({ js: ".js" }),
 };
 

@@ -734,6 +734,8 @@ export interface DesktopComposerDraftsBridge {
 
 export interface DesktopBridge {
   getWsUrl: () => string | null;
+  /** Disposable Dev QA only: invoke the same main command as File > New Window. */
+  qaOpenWindow?: () => void;
   recordDiagnosticCheckpoint?: (input: {
     traceId: string;
     spanId: string;

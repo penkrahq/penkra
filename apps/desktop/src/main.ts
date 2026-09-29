@@ -7953,7 +7953,7 @@ if (hasSingleInstanceLock) {
   if (diagnosticsQaShellEnabled()) {
     ipcMain.removeHandler(IPC.accountAuth.getState);
     ipcMain.handle(IPC.accountAuth.getState, (event) =>
-      event.sender === resolveShellWindow()?.webContents
+      shellWindowRegistry.hasWebContents(event.sender)
         ? {
             status: "authenticated",
             user: {
