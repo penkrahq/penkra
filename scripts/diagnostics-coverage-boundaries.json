@@ -36,6 +36,11 @@
   },
   {
     "code": "EXTERNAL_CALL_FAILED",
+    "where": "server.codex_config",
+    "file": "apps/server/src/diagnostics/codexConfigFailure.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
     "where": "browser.socket_stream",
     "file": "apps/web/src/wsTransport.ts"
   },
