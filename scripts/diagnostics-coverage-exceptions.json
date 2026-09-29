@@ -1,7 +1,7 @@
 [
   {
     "file": "apps/web/src/lib/composerSend.ts",
-    "line": 56,
+    "line": 58,
     "column": 18,
     "kind": "catch",
     "disposition": "diagnostics-isolated",
@@ -10,7 +10,7 @@
   },
   {
     "file": "apps/web/src/lib/composerSend.ts",
-    "line": 57,
+    "line": 59,
     "column": 5,
     "kind": "catch",
     "disposition": "diagnostics-isolated",
@@ -19,7 +19,7 @@
   },
   {
     "file": "apps/web/src/lib/composerSend.ts",
-    "line": 294,
+    "line": 300,
     "column": 9,
     "kind": "catch",
     "disposition": "recorded",
@@ -32,7 +32,7 @@
   },
   {
     "file": "apps/web/src/lib/composerSend.ts",
-    "line": 337,
+    "line": 345,
     "column": 24,
     "kind": "throw",
     "disposition": "propagates",
@@ -45,7 +45,7 @@
   },
   {
     "file": "apps/web/src/lib/composerSend.ts",
-    "line": 352,
+    "line": 360,
     "column": 46,
     "kind": "catch",
     "disposition": "propagates",
@@ -58,7 +58,7 @@
   },
   {
     "file": "apps/web/src/lib/composerSend.ts",
-    "line": 362,
+    "line": 370,
     "column": 9,
     "kind": "throw",
     "disposition": "propagates",
@@ -71,7 +71,7 @@
   },
   {
     "file": "apps/web/src/lib/composerSend.ts",
-    "line": 367,
+    "line": 375,
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
@@ -84,7 +84,7 @@
   },
   {
     "file": "apps/web/src/lib/composerSend.ts",
-    "line": 373,
+    "line": 382,
     "column": 5,
     "kind": "throw",
     "disposition": "rethrow",
@@ -97,7 +97,7 @@
   },
   {
     "file": "apps/web/src/lib/composerSend.ts",
-    "line": 392,
+    "line": 401,
     "column": 7,
     "kind": "catch",
     "disposition": "recorded",
@@ -110,7 +110,7 @@
   },
   {
     "file": "apps/web/src/lib/composerSend.ts",
-    "line": 395,
+    "line": 408,
     "column": 7,
     "kind": "throw",
     "disposition": "rethrow",
@@ -123,7 +123,7 @@
   },
   {
     "file": "apps/web/src/lib/composerSend.ts",
-    "line": 498,
+    "line": 511,
     "column": 9,
     "kind": "catch",
     "disposition": "recorded",

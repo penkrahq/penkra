@@ -7192,6 +7192,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     );
     const turnAttachmentsPromise = stageUploadComposerAttachments({
       threadId: threadIdForSend,
+      trace: sendTrace,
       images: composerImagesSnapshot,
       files: composerFilesSnapshot,
       assistantSelections: composerAssistantSelectionsSnapshot,
