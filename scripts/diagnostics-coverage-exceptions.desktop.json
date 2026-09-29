@@ -327,8 +327,8 @@
     "line": 1201,
     "column": 6,
     "kind": "catch",
-    "disposition": "recorded",
-    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "disposition": "propagates",
+    "reason": "The Promise rejection callback records a content-free incident at the listed boundary before returning.",
     "boundary": {
       "code": "APP_OPERATION_FAILED",
       "where": "desktop.app_cleanup"
@@ -379,8 +379,8 @@
     "line": 1261,
     "column": 52,
     "kind": "catch",
-    "disposition": "recorded",
-    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "disposition": "propagates",
+    "reason": "The Promise rejection callback records a content-free incident at the listed boundary before returning.",
     "boundary": {
       "code": "APP_OPERATION_FAILED",
       "where": "desktop.app_cleanup"
@@ -431,8 +431,8 @@
     "line": 1322,
     "column": 52,
     "kind": "catch",
-    "disposition": "recorded",
-    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "disposition": "propagates",
+    "reason": "The Promise rejection callback records a content-free incident at the listed boundary before returning.",
     "boundary": {
       "code": "APP_OPERATION_FAILED",
       "where": "desktop.app_cleanup"
@@ -444,8 +444,8 @@
     "line": 1332,
     "column": 63,
     "kind": "catch",
-    "disposition": "recorded",
-    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "disposition": "propagates",
+    "reason": "The Promise rejection callback records a content-free incident at the listed boundary before returning.",
     "boundary": {
       "code": "APP_OPERATION_FAILED",
       "where": "desktop.app_cleanup"
@@ -466,8 +466,8 @@
     "line": 1371,
     "column": 45,
     "kind": "catch",
-    "disposition": "recorded",
-    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "disposition": "propagates",
+    "reason": "The Promise rejection callback records a content-free incident at the listed boundary before returning.",
     "boundary": {
       "code": "APP_OPERATION_FAILED",
       "where": "desktop.app_bootstrap"
@@ -641,8 +641,8 @@
     "line": 1779,
     "column": 6,
     "kind": "catch",
-    "disposition": "recorded",
-    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "disposition": "propagates",
+    "reason": "The Promise rejection callback records a content-free incident at the listed boundary before returning.",
     "boundary": {
       "code": "EXTERNAL_CALL_FAILED",
       "where": "desktop.app_tab"
@@ -1087,8 +1087,8 @@
     "line": 3755,
     "column": 6,
     "kind": "catch",
-    "disposition": "recorded",
-    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "disposition": "propagates",
+    "reason": "The Promise rejection callback records a content-free incident at the listed boundary before returning.",
     "boundary": {
       "code": "EXTERNAL_CALL_FAILED",
       "where": "desktop.bundle_prompt"
@@ -1100,8 +1100,8 @@
     "line": 3827,
     "column": 8,
     "kind": "catch",
-    "disposition": "recorded",
-    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "disposition": "propagates",
+    "reason": "The Promise rejection callback records a content-free incident at the listed boundary before returning.",
     "boundary": {
       "code": "EXTERNAL_CALL_FAILED",
       "where": "desktop.bundle_prompt"
@@ -1252,8 +1252,8 @@
     "line": 4418,
     "column": 6,
     "kind": "catch",
-    "disposition": "recorded",
-    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "disposition": "propagates",
+    "reason": "The Promise rejection callback records a content-free incident at the listed boundary before returning.",
     "boundary": {
       "code": "UPDATE_DOWNLOAD_FAILED",
       "where": "desktop.update_download"
@@ -1571,8 +1571,8 @@
     "line": 5543,
     "column": 82,
     "kind": "catch",
-    "disposition": "recorded",
-    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "disposition": "propagates",
+    "reason": "The Promise rejection callback records a content-free incident at the listed boundary before returning.",
     "boundary": {
       "code": "UNCLEAN_SHUTDOWN",
       "where": "desktop.shutdown"
@@ -2186,8 +2186,8 @@
     "line": 6541,
     "column": 69,
     "kind": "catch",
-    "disposition": "recorded",
-    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "disposition": "propagates",
+    "reason": "The Promise rejection callback records a content-free incident at the listed boundary before returning.",
     "boundary": {
       "code": "APP_OPERATION_FAILED",
       "where": "desktop.app_cleanup"
@@ -3012,8 +3012,8 @@
     "line": 7957,
     "column": 45,
     "kind": "catch",
-    "disposition": "recorded",
-    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "disposition": "propagates",
+    "reason": "The Promise rejection callback records a content-free incident at the listed boundary before returning.",
     "boundary": {
       "code": "APP_OPERATION_FAILED",
       "where": "desktop.app_tab"
@@ -3207,8 +3207,8 @@
     "line": 8736,
     "column": 54,
     "kind": "catch",
-    "disposition": "recorded",
-    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "disposition": "propagates",
+    "reason": "The Promise rejection callback records a content-free incident at the listed boundary before returning.",
     "boundary": {
       "code": "APP_OPERATION_FAILED",
       "where": "desktop.app_bootstrap"
@@ -3321,8 +3321,8 @@
     "line": 8903,
     "column": 8,
     "kind": "catch",
-    "disposition": "recorded",
-    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "disposition": "propagates",
+    "reason": "The Promise rejection callback records a content-free incident at the listed boundary before returning.",
     "boundary": {
       "code": "PROCESS_UNRESPONSIVE",
       "where": "desktop.backend_readiness"
@@ -3382,8 +3382,8 @@
     "line": 9015,
     "column": 24,
     "kind": "catch",
-    "disposition": "recorded",
-    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "disposition": "propagates",
+    "reason": "The Promise rejection callback records a content-free incident at the listed boundary before returning.",
     "boundary": {
       "code": "INVARIANT_VIOLATED",
       "where": "desktop.bootstrap"
@@ -3395,8 +3395,8 @@
     "line": 9045,
     "column": 14,
     "kind": "catch",
-    "disposition": "recorded",
-    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "disposition": "propagates",
+    "reason": "The Promise rejection callback records a content-free incident at the listed boundary before returning.",
     "boundary": {
       "code": "PROCESS_UNRESPONSIVE",
       "where": "desktop.backend_readiness"
@@ -3408,8 +3408,8 @@
     "line": 9071,
     "column": 6,
     "kind": "catch",
-    "disposition": "recorded",
-    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "disposition": "propagates",
+    "reason": "The Promise rejection callback records a content-free incident at the listed boundary before returning.",
     "boundary": {
       "code": "INVARIANT_VIOLATED",
       "where": "desktop.bootstrap"
