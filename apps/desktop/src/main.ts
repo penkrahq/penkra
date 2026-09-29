@@ -442,7 +442,9 @@ function desktopDiagnosticsOptions(): DiagnosticsOptions {
 
 function getDesktopDiagnosticsStore(): DiagnosticsSpoolWriter {
   if (!desktopDiagnostics) {
-    desktopDiagnostics = new DiagnosticsSpoolWriter(desktopDiagnosticsOptions());
+    const writer = new DiagnosticsSpoolWriter(desktopDiagnosticsOptions());
+    writer.markQueueStartupActive();
+    desktopDiagnostics = writer;
     try {
       recordDesktopOsLookupFailure(desktopOsMajor, desktopDiagnostics);
     } catch {
