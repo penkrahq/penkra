@@ -25,15 +25,19 @@ export function selectNativeResumeProbeModel(input: {
   readonly provider: ProviderKind;
   readonly connectionId: ProviderConnectionId | null;
   readonly models: ReadonlyArray<ProviderModelDescriptor>;
+  readonly selectedModelId?: string;
 }): string | null {
+  const available = (model: ProviderModelDescriptor) =>
+    model.availableConnectionIds === undefined ||
+    model.availableConnectionIds.includes(input.connectionId);
   for (const preference of NATIVE_RESUME_PROBE_MODEL_PREFERENCES[input.provider]) {
     const candidate = input.models.find(
-      (model) =>
-        matchesPreference(input.provider, model.slug, preference) &&
-        (model.availableConnectionIds === undefined ||
-          model.availableConnectionIds.includes(input.connectionId)),
+      (model) => matchesPreference(input.provider, model.slug, preference) && available(model),
     );
     if (candidate) return candidate.slug;
   }
-  return null;
+  return (
+    input.models.find((model) => model.slug === input.selectedModelId && available(model))?.slug ??
+    null
+  );
 }
