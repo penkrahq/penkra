@@ -268,6 +268,70 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
             }),
         });
 
+  const finishFailedCleanup = (operation: {
+    readonly id: string;
+    readonly threadId: ThreadId;
+    readonly commandId: string;
+    readonly targetNativeStateGenerationId: typeof ProviderNativeStateGenerationId.Type | null;
+    readonly failureReason: string | null;
+  }) =>
+    Effect.gen(function* () {
+      // The journal remains recoverable until both resources are removed. A
+      // crash after the pending write must never leave a terminal failed row
+      // with a still-linked target profile.
+      yield* Effect.tryPromise({
+        try: () =>
+          discardClaudeThreadAccountTransition({
+            stateDir: config.stateDir,
+            threadId: operation.threadId,
+            commandId: operation.commandId,
+          }),
+        catch: (cause) =>
+          new ProviderThreadSwitchCoordinatorError({
+            detail: "Could not discard the failed Claude account transition.",
+            cause,
+          }),
+      });
+      if (operation.targetNativeStateGenerationId !== null) {
+        yield* materializer
+          .discard(operation.targetNativeStateGenerationId)
+          .pipe(mapOperationError("Could not discard the failed native state generation."));
+      }
+      yield* operations
+        .transition({
+          id: operation.id,
+          state: "failed",
+          failureReason: operation.failureReason ?? "The provider switch failed.",
+          updatedAt: new Date().toISOString(),
+        })
+        .pipe(mapOperationError("Could not finish failed provider-switch cleanup."));
+    });
+
+  const preflightSteeringTarget = (selection: ResolvedProviderTurnSelection) =>
+    selection.harness !== "claudeAgent" || !selection.changed
+      ? Effect.void
+      : launches
+          .resolveProfile({
+            harness: selection.harness,
+            connectionId: selection.connectionId,
+            installationId: selection.installationId,
+            internalProviderId: selection.internalProviderId,
+            nativeStateIdentity: `provider-switch-preflight:${selection.threadId}`,
+            // No thread id: preflight must not link an uncommitted target to
+            // the source conversation before the interruption.
+          })
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProviderThreadSwitchCoordinatorError({
+                  code: "switch_operation_failed",
+                  detail: `The selected Claude Connection is unavailable before steering: ${cause.message}`,
+                  cause,
+                }),
+            ),
+            Effect.asVoid,
+          );
+
   const runOperation = Effect.fnUntraced(function* (input: {
     readonly command: TurnAdmissionCommand;
     readonly attachmentPrincipal: ManagedAttachmentPrincipal;
@@ -283,6 +347,38 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
     let verificationJson = input.verificationJson;
     if (state === "pending") {
       if (input.command.dispatchMode === "steer") {
+        if (selection.harness === "claudeAgent" && selection.changed) {
+          const current = yield* resolver
+            .resolveExisting({
+              threadId: input.command.threadId,
+              ...(input.command.modelSelection === undefined
+                ? {}
+                : { modelSelection: input.command.modelSelection }),
+              ...(input.command.connectionId === undefined
+                ? {}
+                : { connectionId: input.command.connectionId }),
+              bindingRevision: selection.bindingRevision,
+            })
+            .pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProviderThreadSwitchCoordinatorError({
+                    code: cause.code,
+                    detail: cause.message,
+                    cause,
+                  }),
+              ),
+            );
+          if (
+            current.stateRevision !== selection.stateRevision ||
+            current.bindingRevision !== selection.bindingRevision ||
+            current.connectionId !== selection.connectionId ||
+            current.modelId !== selection.modelId
+          ) {
+            return yield* fail("The Claude Thread binding changed before steering.");
+          }
+        }
+        yield* preflightSteeringTarget(selection);
         yield* interruptIfRunning(input.command.threadId);
       } else {
         yield* waitForQueuedTurnSlot(input.command.threadId);
@@ -417,6 +513,11 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
                 }),
             ),
           );
+        if (selection.claudeAccountTransition !== undefined) {
+          // The completed verification prompt ran only against the disposable
+          // target copy. Restore the exact settled source before binding it.
+          yield* stageClaudeTransition(selection, input.command.commandId);
+        }
         verificationJson = JSON.stringify(verified);
       }
       yield* operations
@@ -452,12 +553,6 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
             previousModelId: selection.previousModelId,
             modelId: selection.modelId,
             modelLabel: selection.modelLabel,
-            ...(verified?.kind === "reconstructed"
-              ? {
-                  reconstructionNotice:
-                    "Context was rebuilt from thread history; native tool state was not carried over.",
-                }
-              : {}),
           },
           commit:
             verified === null
@@ -535,6 +630,9 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
                 if (current.state === "failed") {
                   return Effect.fail(cause);
                 }
+                if (current.state === "failed-cleanup-pending") {
+                  return finishFailedCleanup(current).pipe(Effect.andThen(Effect.fail(cause)));
+                }
                 if (isRetryableOperationFailure(cause)) {
                   return Effect.tryPromise({
                     try: () =>
@@ -549,41 +647,16 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
                 return operations
                   .transition({
                     id: input.operationId,
-                    state: "failed",
+                    state: "failed-cleanup-pending",
                     failureReason: cause.message,
                     updatedAt: new Date().toISOString(),
                   })
                   .pipe(
-                    Effect.ignore,
-                    Effect.andThen(
-                      input.selection.requiresNativeStateMaterialization &&
-                        input.targetGenerationId !== null
-                        ? materializer.discard(input.targetGenerationId)
-                        : Effect.void,
+                    Effect.flatMap((pending) =>
+                      Option.isSome(pending)
+                        ? finishFailedCleanup(pending.value)
+                        : fail("The failed provider-switch journal was not found."),
                     ),
-                    Effect.ignore,
-                    Effect.andThen(
-                      decodeSelection(current.selectionJson).pipe(
-                        Effect.flatMap((settled) =>
-                          settled.claudeAccountTransition === undefined
-                            ? Effect.void
-                            : Effect.tryPromise({
-                                try: () =>
-                                  discardClaudeThreadAccountTransition({
-                                    stateDir: config.stateDir,
-                                    threadId: input.command.threadId,
-                                    commandId: input.command.commandId,
-                                  }),
-                                catch: () =>
-                                  new ProviderThreadSwitchCoordinatorError({
-                                    detail:
-                                      "Could not discard the failed Claude account transition.",
-                                  }),
-                              }),
-                        ),
-                      ),
-                    ),
-                    Effect.ignore,
                     Effect.andThen(Effect.fail(cause)),
                   );
               },
@@ -901,6 +974,10 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
             }),
           );
         }
+        if (existing.state === "failed-cleanup-pending") {
+          yield* finishFailedCleanup(existing);
+          return yield* fail(existing.failureReason ?? "The provider switch previously failed.");
+        }
         return yield* runClientOperation({
           command: persistedCommand,
           attachmentPrincipal: input.attachmentPrincipal,
@@ -1170,6 +1247,10 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
         (operation) =>
           Effect.gen(function* () {
             if (operation.state === "failed" || operation.state === "committed") return;
+            if (operation.state === "failed-cleanup-pending") {
+              yield* finishFailedCleanup(operation);
+              return;
+            }
             const decoded = yield* Effect.all([
               decodeCommand(operation.commandJson),
               decodeSelection(operation.selectionJson),

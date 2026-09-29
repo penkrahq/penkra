@@ -244,16 +244,35 @@ export const makeProviderNativeContinuationVerifier = Effect.gen(function* () {
               model: input.selection.modelId,
             },
             runtimeMode: input.runtimeMode,
+            requireCompletedProbe: input.selection.claudeAccountTransition !== undefined,
           })
           .pipe(
-            Effect.mapError(
-              (cause) =>
-                new ProviderNativeContinuationVerificationError({
-                  detail: "The target provider rejected native continuation.",
-                  cause,
-                }),
+            Effect.catch((cause) =>
+              input.selection.harness === "claudeAgent" &&
+              /no conversation found with session id/i.test(describeCauseChain(cause))
+                ? Effect.succeed(null)
+                : Effect.fail(
+                    new ProviderNativeContinuationVerificationError({
+                      detail: "The target provider rejected native continuation.",
+                      cause,
+                    }),
+                  ),
             ),
           );
+        if (verified === null) {
+          return {
+            kind: "reconstructed" as const,
+            generationId: input.targetGenerationId,
+            adapterSchemaVersion: "penkra-reconstructed-continuation-v1",
+            stateManifestJson: JSON.stringify({
+              format: "penkra-reconstructed-continuation-v1",
+              reason: "The target Claude account could not resume the exact conversation.",
+            }),
+            providerSessionId: null,
+            nativeStateLocatorJson: '{"penkraReconstruction":true}',
+            verifiedAt: new Date().toISOString(),
+          };
+        }
         stage = "validate-resumed-identity";
         const verifiedIdentity = providerNativeResumeIdentity(
           input.selection.harness,
