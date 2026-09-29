@@ -100,6 +100,7 @@ interface WsTransportInternals {
   syncAppliedSequence: number | undefined;
   syncDeliveryId: string | undefined;
   readonly listeners: Map<string, Set<(message: unknown) => void>>;
+  readonly failedPushListeners: WeakSet<(message: unknown) => void>;
   readonly latestPushByChannel: Map<string, unknown>;
   readonly streamCleanups: Map<string, () => void>;
   readonly streamSettled: Map<string, Promise<void>>;
@@ -120,6 +121,7 @@ interface WsTransportInternals {
   startStream(...args: unknown[]): void;
   startChannelStream(channel: string): void;
   emitThreadStreamFailure(failure: WsThreadStreamFailure): void;
+  emit(channel: string, data: unknown): void;
 }
 
 function makeBareTransport(): {
@@ -139,6 +141,7 @@ function makeBareTransport(): {
     threadSubscriptions: new Map(),
     threadStreamFailureListeners: new Set(),
     listeners: new Map(),
+    failedPushListeners: new WeakSet(),
     latestPushByChannel: new Map(),
   });
   return { transport, internals };
@@ -168,6 +171,55 @@ afterEach(() => {
 });
 
 describe("WsTransport", () => {
+  it("records one incident per pushed listener failure episode", () => {
+    const recordDiagnosticIncident = vi.fn().mockResolvedValue(undefined);
+    window.desktopBridge = { recordDiagnosticIncident } as never;
+    const { internals } = makeBareTransport();
+    let shouldThrow = true;
+    internals.listeners.set(
+      WS_CHANNELS.serverWelcome,
+      new Set([
+        () => {
+          if (shouldThrow) throw new Error("listener failed");
+        },
+      ]),
+    );
+    internals.emit(WS_CHANNELS.serverWelcome, {});
+    internals.emit(WS_CHANNELS.serverWelcome, {});
+    expect(recordDiagnosticIncident).toHaveBeenCalledTimes(1);
+    shouldThrow = false;
+    internals.emit(WS_CHANNELS.serverWelcome, {});
+    shouldThrow = true;
+    internals.emit(WS_CHANNELS.serverWelcome, {});
+    expect(recordDiagnosticIncident).toHaveBeenCalledTimes(2);
+  });
+
+  it("records an unexpected final RPC failure without reconnecting", async () => {
+    const recordDiagnosticIncident = vi.fn().mockResolvedValue(undefined);
+    window.desktopBridge = { recordDiagnosticIncident } as never;
+    const transport = new WsTransport("ws://localhost:3020/ws");
+    const method = ORCHESTRATION_WS_METHODS.dispatchCommand;
+    const client = { [method]: vi.fn(() => ({})) };
+    const failure = new Error("unexpected transport failure");
+    const runtime = { runPromise: vi.fn().mockRejectedValue(failure) };
+    const internals = transport as unknown as {
+      getClient: () => Promise<typeof client>;
+      getClientRuntime: () => typeof runtime;
+      reconnect: () => Promise<typeof client>;
+    };
+    internals.getClient = vi.fn().mockResolvedValue(client);
+    internals.getClientRuntime = vi.fn(() => runtime);
+    internals.reconnect = vi.fn();
+    await expect(transport.request(method, { command: {} }, { timeoutMs: null })).rejects.toBe(
+      failure,
+    );
+    expect(recordDiagnosticIncident).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "EXTERNAL_CALL_FAILED", where: "browser.socket_rpc" }),
+    );
+    expect(internals.reconnect).not.toHaveBeenCalled();
+    await transport.dispose();
+  });
+
   it("records consumed transport failures with a fixed privacy-safe payload", () => {
     const recordDiagnosticIncident = vi.fn().mockResolvedValue(undefined);
     window.desktopBridge = { recordDiagnosticIncident } as never;
