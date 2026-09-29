@@ -28,7 +28,7 @@ import {
   OrchestrationThreadActivity,
   RuntimeMode,
 } from "@penkra/contracts";
-import { matchesRequestedTurnOutcome } from "./qaTurnOutcomes";
+import { matchesPromotedQueuedMessage, matchesRequestedTurnOutcome } from "./qaTurnOutcomes";
 import { getModelCapabilities, normalizeModelSlug } from "@penkra/shared/model";
 import { startDiagnosticTrace } from "@penkra/shared/traceContext";
 import { createSendDiagnosticLifecycle } from "./sendDiagnosticLifecycle";
@@ -3923,7 +3923,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
   const pendingQaQueueRef = useRef<{
     threadId: string;
     messageId: string;
-    priorTurnId: string | null;
+    startCommandId: string;
     trace: ReturnType<typeof startDiagnosticTrace>;
     seenQueued: boolean;
   } | null>(null);
@@ -3990,10 +3990,14 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
           })
           .catch(() => undefined);
       } else if (
-        queue.seenQueued &&
-        !isQueued &&
-        phase === "running" &&
-        activeLatestTurn?.turnId !== queue.priorTurnId
+        matchesPromotedQueuedMessage({
+          startCommandId: queue.startCommandId,
+          messageId: queue.messageId,
+          queuedMessageIds: activeThread?.queuedMessageIds ?? [],
+          seenQueued: queue.seenQueued,
+          latestTurnId: activeLatestTurn?.turnId ?? null,
+          latestTurnState: activeLatestTurn?.state ?? null,
+        })
       ) {
         pendingQaQueueRef.current = null;
         void window.desktopBridge
@@ -7258,13 +7262,14 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       // unstarted thread and the authoritative managed-binding revision for a
       // continuation.
       const bindingRevisionForSend = await resolveThreadBindingRevisionAtAdmission();
+      const startCommandId = newCommandId();
       const startReceipt = await stagedTurnAttachments.runWithDispatch((turnAttachments) => {
         return sendDiagnostics.dispatch(threadIdForSend, () => {
           startCommandDispatched = true;
           return api.orchestration.dispatchCommand(
             {
               type: "thread.turn.start",
-              commandId: newCommandId(),
+              commandId: startCommandId,
               threadId: threadIdForSend,
               message: {
                 messageId: messageIdForSend,
@@ -7300,7 +7305,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         pendingQaQueueRef.current = {
           threadId: threadIdForSend,
           messageId: messageIdForSend,
-          priorTurnId: activeLatestTurn?.turnId ?? null,
+          startCommandId,
           trace: sendTrace,
           seenQueued: false,
         };
