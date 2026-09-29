@@ -1,0 +1,3428 @@
+[
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 390,
+    "column": 3,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 442,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 466,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "The diagnostics spool or worker failed; stderr reports the loss without recursively failing the source operation.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 489,
+    "column": 11,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "The diagnostics spool or worker failed; stderr reports the loss without recursively failing the source operation.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 491,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "diagnostics-isolated",
+    "reason": "The diagnostic queue reports writer loss to stderr and preserves the original writer exception.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 499,
+    "column": 11,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "The diagnostics spool or worker failed; stderr reports the loss without recursively failing the source operation.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 505,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "The diagnostics spool or worker failed; stderr reports the loss without recursively failing the source operation.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 728,
+    "column": 16,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 825,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 828,
+    "column": 37,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 835,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 848,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 862,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The service-state helper records the invariant failure before returning this error.",
+    "boundary": {
+      "code": "INVARIANT_VIOLATED",
+      "where": "desktop.service_unavailable"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 875,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 906,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 909,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 912,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 922,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 940,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 944,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 947,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 959,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 965,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 969,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The service-state helper records the invariant failure before returning this error.",
+    "boundary": {
+      "code": "INVARIANT_VIOLATED",
+      "where": "desktop.service_unavailable"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 995,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1020,
+    "column": 17,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1026,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1029,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1032,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1046,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1103,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "This permission-use diagnostic write is best effort and cannot change the App operation result.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1112,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1120,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1124,
+    "column": 3,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1137,
+    "column": 55,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "A diagnostic write failure is isolated so it cannot recursively fail the primary operation.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1201,
+    "column": 6,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_cleanup"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1213,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_cleanup"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1239,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_cleanup"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1251,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_cleanup"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1261,
+    "column": 52,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_cleanup"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1288,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_cleanup"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1300,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_cleanup"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1312,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_cleanup"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1322,
+    "column": 52,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_cleanup"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1332,
+    "column": 63,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_cleanup"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1369,
+    "column": 29,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "This timer schedules delayed work or a cancellable wait; firing alone does not mean an operation failed.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1371,
+    "column": 45,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_bootstrap"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1453,
+    "column": 13,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "A diagnostic write failure is isolated so it cannot recursively fail the primary operation.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1465,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_bootstrap"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1474,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The enclosing handler records this failure before preserving the original error for its caller.",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_bootstrap"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1479,
+    "column": 40,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The original promise remains rejected to callers; only the serial bootstrap queue tail is recovered.",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_bootstrap"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1498,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The enclosing handler records this failure before preserving the original error for its caller.",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_bootstrap"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1510,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The service-state helper records the invariant failure before returning this error.",
+    "boundary": {
+      "code": "INVARIANT_VIOLATED",
+      "where": "desktop.service_unavailable"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1524,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_bootstrap"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1533,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The enclosing handler records this failure before preserving the original error for its caller.",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_bootstrap"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1547,
+    "column": 17,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The service-state helper records the invariant failure before returning this error.",
+    "boundary": {
+      "code": "INVARIANT_VIOLATED",
+      "where": "desktop.service_unavailable"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1551,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1608,
+    "column": 18,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1623,
+    "column": 17,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The service-state helper records the invariant failure before returning this error.",
+    "boundary": {
+      "code": "INVARIANT_VIOLATED",
+      "where": "desktop.service_unavailable"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1656,
+    "column": 31,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1678,
+    "column": 16,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1779,
+    "column": 6,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "desktop.app_tab"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1847,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_transfer"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1962,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1967,
+    "column": 47,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1972,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1976,
+    "column": 47,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1984,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1987,
+    "column": 48,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1990,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1993,
+    "column": 43,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 1996,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 2012,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 2016,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 2018,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 2025,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 2028,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The service-state helper records the invariant failure before returning this error.",
+    "boundary": {
+      "code": "INVARIANT_VIOLATED",
+      "where": "desktop.service_unavailable"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 2035,
+    "column": 14,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The service-state helper records the invariant failure before returning this error.",
+    "boundary": {
+      "code": "INVARIANT_VIOLATED",
+      "where": "desktop.service_unavailable"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 2044,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The service-state helper records the invariant failure before returning this error.",
+    "boundary": {
+      "code": "INVARIANT_VIOLATED",
+      "where": "desktop.service_unavailable"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 2052,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 2172,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "Broken-pipe logging is expected; other console failures are recorded before their original error is rethrown.",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "desktop.log_setup"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 2181,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The enclosing handler records this failure before preserving the original error for its caller.",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "desktop.log_setup"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 2210,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "COMMAND_REJECTED",
+      "where": "desktop.external_url"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 2336,
+    "column": 13,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "PROCESS_UNRESPONSIVE",
+      "where": "desktop.backend_readiness"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 2444,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "desktop.log_setup"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 2476,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_icon"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 2588,
+    "column": 19,
+    "kind": "timeout",
+    "disposition": "propagates",
+    "reason": "This timer reaches a recorded timeout or watchdog outcome only when its guarded deadline wins.",
+    "boundary": {
+      "code": "EXTERNAL_CALL_SLOW",
+      "where": "desktop.update_diagnostics"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 2603,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "A diagnostic write failure is isolated so it cannot recursively fail the primary operation.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 2621,
+    "column": 32,
+    "kind": "timeout",
+    "disposition": "propagates",
+    "reason": "This timer reaches a recorded timeout or watchdog outcome only when its guarded deadline wins.",
+    "boundary": {
+      "code": "UPDATE_INSTALL_FAILED",
+      "where": "desktop.update_install"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 2698,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "cannot-fail",
+    "reason": "This optional lookup or retired receiver explicitly returns a fallback; no active operation is abandoned.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 2724,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "A diagnostic write failure is isolated so it cannot recursively fail the primary operation.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 2779,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.migration_recovery"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 2977,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 2995,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.bundle_snapshot"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 3005,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 3025,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.bundle_snapshot"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 3037,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 3089,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 3098,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 3631,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "cannot-fail",
+    "reason": "This optional lookup or retired receiver explicitly returns a fallback; no active operation is abandoned.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 3645,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.launch_record"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 3692,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "cannot-fail",
+    "reason": "This optional lookup or retired receiver explicitly returns a fallback; no active operation is abandoned.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 3721,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "cannot-fail",
+    "reason": "This optional lookup or retired receiver explicitly returns a fallback; no active operation is abandoned.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 3755,
+    "column": 6,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "desktop.bundle_prompt"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 3827,
+    "column": 8,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "desktop.bundle_prompt"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 3916,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "UPDATE_INSTALL_FAILED",
+      "where": "desktop.update_cleanup"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 3934,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "UPDATE_INSTALL_FAILED",
+      "where": "desktop.update_cleanup"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 3968,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "UPDATE_INSTALL_FAILED",
+      "where": "desktop.update_cleanup"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 3999,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "UPDATE_INSTALL_FAILED",
+      "where": "desktop.update_cleanup"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 4039,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "UPDATE_INSTALL_FAILED",
+      "where": "desktop.update_cleanup"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 4078,
+    "column": 29,
+    "kind": "timeout",
+    "disposition": "propagates",
+    "reason": "This timer reaches a recorded timeout or watchdog outcome only when its guarded deadline wins.",
+    "boundary": {
+      "code": "UPDATE_CHECK_FAILED",
+      "where": "desktop.update_check"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 4148,
+    "column": 30,
+    "kind": "timeout",
+    "disposition": "propagates",
+    "reason": "This timer reaches a recorded timeout or watchdog outcome only when its guarded deadline wins.",
+    "boundary": {
+      "code": "UPDATE_DOWNLOAD_FAILED",
+      "where": "desktop.update_download"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 4185,
+    "column": 31,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "This timer schedules delayed work or a cancellable wait; firing alone does not mean an operation failed.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 4273,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "UPDATE_CHECK_FAILED",
+      "where": "desktop.update_check"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 4359,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "UPDATE_DOWNLOAD_FAILED",
+      "where": "desktop.update_download"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 4380,
+    "column": 11,
+    "kind": "timeout",
+    "disposition": "propagates",
+    "reason": "This timer reaches a recorded timeout or watchdog outcome only when its guarded deadline wins.",
+    "boundary": {
+      "code": "PROCESS_UNRESPONSIVE",
+      "where": "desktop.update_download_settle"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 4418,
+    "column": 6,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "UPDATE_DOWNLOAD_FAILED",
+      "where": "desktop.update_download"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 4515,
+    "column": 5,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "This timer schedules delayed work or a cancellable wait; firing alone does not mean an operation failed.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 4587,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 4595,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The enclosing update-install catch records the failed handoff before recovery.",
+    "boundary": {
+      "code": "UPDATE_INSTALL_FAILED",
+      "where": "desktop.update_install"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 4603,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "UPDATE_INSTALL_FAILED",
+      "where": "desktop.update_install"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 4682,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "UPDATE_DOWNLOAD_FAILED",
+      "where": "desktop.update_download"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 4868,
+    "column": 24,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "This timer schedules delayed work or a cancellable wait; firing alone does not mean an operation failed.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 4891,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 4965,
+    "column": 22,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "This timer schedules delayed work or a cancellable wait; firing alone does not mean an operation failed.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 4999,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5001,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "desktop.log_setup"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5164,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "PROCESS_CRASHED",
+      "where": "desktop.backend_restart"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5324,
+    "column": 5,
+    "kind": "timeout",
+    "disposition": "propagates",
+    "reason": "This timer reaches a recorded timeout or watchdog outcome only when its guarded deadline wins.",
+    "boundary": {
+      "code": "PROCESS_UNRESPONSIVE",
+      "where": "desktop.backend_shutdown"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5361,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "This handler restores local state and rethrows to an enclosing recorded operation boundary.",
+    "boundary": {
+      "code": "UNCLEAN_SHUTDOWN",
+      "where": "desktop.shutdown"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5363,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The original error reaches an enclosing recorded operation boundary.",
+    "boundary": {
+      "code": "UNCLEAN_SHUTDOWN",
+      "where": "desktop.shutdown"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5377,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "A diagnostic write failure is isolated so it cannot recursively fail the primary operation.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5379,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The original error reaches an enclosing recorded operation boundary.",
+    "boundary": {
+      "code": "UNCLEAN_SHUTDOWN",
+      "where": "desktop.shutdown"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5389,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "UNCLEAN_SHUTDOWN",
+      "where": "desktop.shutdown"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5410,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "UNCLEAN_SHUTDOWN",
+      "where": "desktop.shutdown"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5425,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "UNCLEAN_SHUTDOWN",
+      "where": "desktop.shutdown"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5441,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "UNCLEAN_SHUTDOWN",
+      "where": "desktop.shutdown"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5459,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "UNCLEAN_SHUTDOWN",
+      "where": "desktop.shutdown"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5472,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "UNCLEAN_SHUTDOWN",
+      "where": "desktop.shutdown"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5483,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "Each collected shutdown failure is recorded by its local catch before the aggregate is raised.",
+    "boundary": {
+      "code": "UNCLEAN_SHUTDOWN",
+      "where": "desktop.shutdown"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5515,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "A diagnostic write failure is isolated so it cannot recursively fail the primary operation.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5528,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "This handler restores local state and rethrows to an enclosing recorded operation boundary.",
+    "boundary": {
+      "code": "UNCLEAN_SHUTDOWN",
+      "where": "desktop.shutdown"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5532,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The original error reaches an enclosing recorded operation boundary.",
+    "boundary": {
+      "code": "UNCLEAN_SHUTDOWN",
+      "where": "desktop.shutdown"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5543,
+    "column": 82,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "UNCLEAN_SHUTDOWN",
+      "where": "desktop.shutdown"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5593,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5687,
+    "column": 36,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5696,
+    "column": 46,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5704,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5716,
+    "column": 33,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5721,
+    "column": 33,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5726,
+    "column": 46,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5736,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5742,
+    "column": 46,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5745,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5755,
+    "column": 33,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5764,
+    "column": 33,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5769,
+    "column": 33,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5786,
+    "column": 32,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5794,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5797,
+    "column": 37,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5802,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5818,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5832,
+    "column": 13,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5869,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5923,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5947,
+    "column": 45,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5951,
+    "column": 50,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5953,
+    "column": 13,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5979,
+    "column": 13,
+    "kind": "catch",
+    "disposition": "cannot-fail",
+    "reason": "This optional lookup or retired receiver explicitly returns a fallback; no active operation is abandoned.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5996,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6032,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6061,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6082,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6115,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6119,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6136,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6139,
+    "column": 46,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6147,
+    "column": 40,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6150,
+    "column": 40,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6154,
+    "column": 40,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6158,
+    "column": 40,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6164,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6167,
+    "column": 39,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6175,
+    "column": 20,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6187,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6192,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6211,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The service-state helper records the invariant failure before returning this error.",
+    "boundary": {
+      "code": "INVARIANT_VIOLATED",
+      "where": "desktop.service_unavailable"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6214,
+    "column": 13,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6228,
+    "column": 13,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6237,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6264,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6269,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6278,
+    "column": 26,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6284,
+    "column": 26,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6290,
+    "column": 26,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6309,
+    "column": 29,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6326,
+    "column": 28,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6328,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6380,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6399,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6405,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6424,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "This permission-use diagnostic write is best effort and cannot change the App operation result.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6436,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6449,
+    "column": 38,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6498,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6510,
+    "column": 26,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6513,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The service-state helper records the invariant failure before returning this error.",
+    "boundary": {
+      "code": "INVARIANT_VIOLATED",
+      "where": "desktop.service_unavailable"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6520,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6526,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6529,
+    "column": 37,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6541,
+    "column": 69,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_cleanup"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6604,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "This permission-use diagnostic write is best effort and cannot change the App operation result.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6610,
+    "column": 34,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6617,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6619,
+    "column": 34,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6625,
+    "column": 34,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6631,
+    "column": 35,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6638,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6641,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6647,
+    "column": 35,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6653,
+    "column": 26,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6660,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6666,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6669,
+    "column": 37,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6670,
+    "column": 26,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6675,
+    "column": 48,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6691,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6694,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6713,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6717,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6727,
+    "column": 40,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6732,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6735,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6743,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6762,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6765,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6767,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6787,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6798,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6810,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6816,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6829,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "This permission-use diagnostic write is best effort and cannot change the App operation result.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6836,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6839,
+    "column": 44,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6846,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6863,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6870,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The service-state helper records the invariant failure before returning this error.",
+    "boundary": {
+      "code": "INVARIANT_VIOLATED",
+      "where": "desktop.service_unavailable"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6875,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6969,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6972,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The service-state helper records the invariant failure before returning this error.",
+    "boundary": {
+      "code": "INVARIANT_VIOLATED",
+      "where": "desktop.service_unavailable"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6979,
+    "column": 19,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The service-state helper records the invariant failure before returning this error.",
+    "boundary": {
+      "code": "INVARIANT_VIOLATED",
+      "where": "desktop.service_unavailable"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6982,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7001,
+    "column": 19,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The service-state helper records the invariant failure before returning this error.",
+    "boundary": {
+      "code": "INVARIANT_VIOLATED",
+      "where": "desktop.service_unavailable"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7004,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7023,
+    "column": 19,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The service-state helper records the invariant failure before returning this error.",
+    "boundary": {
+      "code": "INVARIANT_VIOLATED",
+      "where": "desktop.service_unavailable"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7026,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7063,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7066,
+    "column": 16,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The service-state helper records the invariant failure before returning this error.",
+    "boundary": {
+      "code": "INVARIANT_VIOLATED",
+      "where": "desktop.service_unavailable"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7112,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7164,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7229,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7235,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7238,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The service-state helper records the invariant failure before returning this error.",
+    "boundary": {
+      "code": "INVARIANT_VIOLATED",
+      "where": "desktop.service_unavailable"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7253,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7256,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7259,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7273,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7276,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The service-state helper records the invariant failure before returning this error.",
+    "boundary": {
+      "code": "INVARIANT_VIOLATED",
+      "where": "desktop.service_unavailable"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7281,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7286,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7289,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7291,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7296,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7323,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "A diagnostic write failure is isolated so it cannot recursively fail the primary operation.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7374,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7386,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7433,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7436,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The service-state helper records the invariant failure before returning this error.",
+    "boundary": {
+      "code": "INVARIANT_VIOLATED",
+      "where": "desktop.service_unavailable"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7444,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7447,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The service-state helper records the invariant failure before returning this error.",
+    "boundary": {
+      "code": "INVARIANT_VIOLATED",
+      "where": "desktop.service_unavailable"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7493,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "desktop.external_open"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7511,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7514,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7522,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7527,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7545,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7548,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7556,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7560,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7569,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7574,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7616,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7623,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "COMMAND_REJECTED",
+      "where": "desktop.show_in_folder"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7631,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7637,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7781,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7957,
+    "column": 45,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_tab"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8107,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.window_state"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8199,
+    "column": 23,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "This timer schedules delayed work or a cancellable wait; firing alone does not mean an operation failed.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8496,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The service-state helper records the invariant failure before returning this error.",
+    "boundary": {
+      "code": "INVARIANT_VIOLATED",
+      "where": "desktop.service_unavailable"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8505,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8510,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8526,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8549,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8564,
+    "column": 13,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The service-state helper records the invariant failure before returning this error.",
+    "boundary": {
+      "code": "INVARIANT_VIOLATED",
+      "where": "desktop.service_unavailable"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8567,
+    "column": 13,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8579,
+    "column": 13,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The service-state helper records the invariant failure before returning this error.",
+    "boundary": {
+      "code": "INVARIANT_VIOLATED",
+      "where": "desktop.service_unavailable"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8582,
+    "column": 13,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8595,
+    "column": 13,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8602,
+    "column": 13,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8609,
+    "column": 13,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8614,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8646,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The service-state helper records the invariant failure before returning this error.",
+    "boundary": {
+      "code": "INVARIANT_VIOLATED",
+      "where": "desktop.service_unavailable"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8666,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8708,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "cannot-fail",
+    "reason": "This optional lookup or retired receiver explicitly returns a fallback; no active operation is abandoned.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8736,
+    "column": 54,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_bootstrap"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8752,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The service-state helper records the invariant failure before returning this error.",
+    "boundary": {
+      "code": "INVARIANT_VIOLATED",
+      "where": "desktop.service_unavailable"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8780,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "A failure while writing an App diagnostic is logged without recursively failing the rebuild operation.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8787,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_bootstrap"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8809,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8819,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_tab"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8827,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8837,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The service-state helper records the invariant failure before returning this error.",
+    "boundary": {
+      "code": "INVARIANT_VIOLATED",
+      "where": "desktop.service_unavailable"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8875,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The service-state helper records the invariant failure before returning this error.",
+    "boundary": {
+      "code": "INVARIANT_VIOLATED",
+      "where": "desktop.service_unavailable"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8879,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8903,
+    "column": 8,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "PROCESS_UNRESPONSIVE",
+      "where": "desktop.backend_readiness"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8945,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The enclosing update-install catch records the failed handoff before recovery.",
+    "boundary": {
+      "code": "UPDATE_INSTALL_FAILED",
+      "where": "desktop.update_install"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8947,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "UPDATE_INSTALL_FAILED",
+      "where": "desktop.update_install"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 9007,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "Expected bundle replacement restarts; other protocol errors reach the recorded whenReady failure handler.",
+    "boundary": {
+      "code": "INVARIANT_VIOLATED",
+      "where": "desktop.bootstrap"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 9012,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "diagnostics-isolated",
+    "reason": "The fatal exception monitor records this error before its handler preserves the original exception.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 9015,
+    "column": 24,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "INVARIANT_VIOLATED",
+      "where": "desktop.bootstrap"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 9045,
+    "column": 14,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "PROCESS_UNRESPONSIVE",
+      "where": "desktop.backend_readiness"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 9071,
+    "column": 6,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "This local failure handler records a fixed content-free incident before its recovery decision.",
+    "boundary": {
+      "code": "INVARIANT_VIOLATED",
+      "where": "desktop.bootstrap"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 9113,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "diagnostics-isolated",
+    "reason": "The fatal exception monitor records this error before its handler preserves the original exception.",
+    "reviewer": "desktop-gateway-0143"
+  }
+]
