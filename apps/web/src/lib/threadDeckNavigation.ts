@@ -37,9 +37,21 @@ export async function removeDeckThreadPreservingNavigation(input: {
   readonly activate: (threadId: ThreadId | null) => Promise<void>;
   readonly remove: (threadId: ThreadId) => Promise<void>;
 }): Promise<void> {
-  if (input.removedThreadId === input.activeThreadId) {
+  const removingActiveThread = input.removedThreadId === input.activeThreadId;
+  if (removingActiveThread) {
     const nearestThreadId = findNearestVisibleDeckThread(input);
     await input.activate(nearestThreadId);
   }
-  await input.remove(input.removedThreadId);
+  try {
+    await input.remove(input.removedThreadId);
+  } catch (error) {
+    if (removingActiveThread) {
+      try {
+        await input.activate(input.removedThreadId);
+      } catch {
+        // Preserve the archive error. A later route reconciliation can recover navigation.
+      }
+    }
+    throw error;
+  }
 }
