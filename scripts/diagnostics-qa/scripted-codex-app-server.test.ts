@@ -69,7 +69,8 @@ describe("scripted provider QA fixture", () => {
     expect(serverPackage.files).toEqual(["dist"]);
     expect(fs.existsSync(path.join(repoRoot, "apps/server/dist/index.mjs"))).toBe(true);
     expect(fixture.startsWith(path.join(repoRoot, "apps/server/dist"))).toBe(false);
-    for (const output of ["apps/server/dist", "apps/desktop/dist", "apps/web/dist"]) {
+    // build-desktop-artifact stages dist-electron into the packaged app.
+    for (const output of ["apps/server/dist", "apps/desktop/dist-electron", "apps/web/dist"]) {
       const root = path.join(repoRoot, output);
       if (!fs.existsSync(root)) continue;
       const visit = (dir: string) => {
@@ -86,12 +87,12 @@ describe("scripted provider QA fixture", () => {
   }, 30_000);
 
   it("excludes the QA account override from the default desktop bundle", () => {
-    const mainBundle = fs.readFileSync(
-      path.join(repoRoot, "apps/desktop/dist-electron/main.js"),
-      "utf8",
-    );
-    expect(mainBundle).not.toContain("diagnostics-qa-local-account");
-    expect(mainBundle).not.toContain("qa-fixture@example.invalid");
+    const stagedDesktopSource = path.join(repoRoot, "apps/desktop/dist-electron");
+    for (const name of fs.readdirSync(stagedDesktopSource).filter((name) => name.endsWith(".js"))) {
+      const bundled = fs.readFileSync(path.join(stagedDesktopSource, name), "utf8");
+      expect(bundled, name).not.toContain("diagnostics-qa-local-account");
+      expect(bundled, name).not.toContain("qa-fixture@example.invalid");
+    }
   });
 
   it("labels fixture coverage without claiming real-provider coverage", () => {
