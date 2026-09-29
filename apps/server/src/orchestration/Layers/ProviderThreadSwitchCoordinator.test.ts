@@ -1460,6 +1460,50 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
     }),
   );
 
+  it.effect("runs the paid resume probe once per interrupted-switch recovery attempt", () =>
+    Effect.gen(function* () {
+      hasBinding = true;
+      activeTurn = false;
+      order.length = 0;
+      verificationFails = true;
+      const recoveryCommand = {
+        ...command,
+        commandId: CommandId.makeUnsafe("command-recover-probe-once"),
+      };
+      operation = {
+        id: "provider-switch:command-recover-probe-once",
+        threadId,
+        commandId: recoveryCommand.commandId,
+        kind: "native-state",
+        state: "interrupted",
+        sourceStateRevision: 2,
+        sourceBindingRevision: 4,
+        targetNativeStateGenerationId: ProviderNativeStateGenerationId.makeUnsafe(
+          "provider-switch-generation:command-recover-probe-once",
+        ),
+        selectionJson: JSON.stringify(selection),
+        commandJson: JSON.stringify(recoveryCommand),
+        cwd: null,
+        verificationJson: null,
+        failureReason: null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      try {
+        const coordinator = yield* ProviderThreadSwitchCoordinator;
+        yield* coordinator.recoverOpen;
+        assert.deepStrictEqual(
+          order.filter((step) => step === "verify"),
+          ["verify"],
+        );
+        assert.strictEqual(currentOperation()?.state, "failed");
+      } finally {
+        verificationFails = false;
+        operation = undefined;
+      }
+    }),
+  );
+
   it.effect("removes a staged account copy when crash recovery fails before commit", () =>
     Effect.gen(function* () {
       const commandId = CommandId.makeUnsafe("claude-crash-recovery-fails");
