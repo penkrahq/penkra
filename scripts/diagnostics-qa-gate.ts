@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -7,7 +7,9 @@ import { openDiagnosticsReader, readLossLedger } from "@penkra/shared/diagnostic
 import {
   qaEvidenceConfigFromEnv,
   qaEvidencePath,
+  qaChallengePath,
   verifyQaAction,
+  writeQaChallenge,
   type QaEvidenceConfig,
 } from "@penkra/shared/diagnostics/qaEvidence";
 
@@ -246,6 +248,7 @@ function hasFreshAppAction(
   flow: QaFlow,
   traceId: string | null,
   offset: number,
+  challenge: string,
 ): boolean {
   if (!config || !traceId) return false;
   const file = qaEvidencePath(config);
@@ -256,7 +259,8 @@ function hasFreshAppAction(
     if (!line) continue;
     try {
       const row: unknown = JSON.parse(line);
-      if (verifyQaAction(config, row) && row.flow === flow && row.traceId === traceId) return true;
+      if (verifyQaAction(config, row, challenge) && row.flow === flow && row.traceId === traceId)
+        return true;
     } catch {
       // A torn or forged proof cannot satisfy a flow.
     }
@@ -338,17 +342,23 @@ export function runDiagnosticsQaGate(
   }
   const before = diagnosticsState(stateDir);
   const results = REQUIRED_QA_FLOWS.map((flow) => {
+    const challenge = randomBytes(32).toString("hex");
+    if (evidenceConfig) writeQaChallenge(evidenceConfig, flow, challenge);
     const beforeDetailId = lastDetailId(stateDir);
     const beforeProofOffset = proofOffset(evidenceConfig);
-    const report = runner(scripts.get(flow)!, stateDir, flow);
-    const observed = observedQaChecks(stateDir, flow, beforeDetailId);
-    return {
-      flow: report.flow,
-      passed:
-        report.passed &&
-        hasFreshAppAction(evidenceConfig, flow, observed.traceId, beforeProofOffset),
-      checks: observed.checks,
-    };
+    try {
+      const report = runner(scripts.get(flow)!, stateDir, flow);
+      const observed = observedQaChecks(stateDir, flow, beforeDetailId);
+      return {
+        flow: report.flow,
+        passed:
+          report.passed &&
+          hasFreshAppAction(evidenceConfig, flow, observed.traceId, beforeProofOffset, challenge),
+        checks: observed.checks,
+      };
+    } finally {
+      if (evidenceConfig) fs.rmSync(qaChallengePath(evidenceConfig, flow), { force: true });
+    }
   });
   const after = diagnosticsState(stateDir);
   const newLosses =

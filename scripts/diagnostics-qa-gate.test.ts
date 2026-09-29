@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { DiagnosticsStore } from "@penkra/shared/diagnostics/store";
 import {
   qaEvidencePath,
+  qaChallengePath,
   signQaAction,
   type QaEvidenceConfig,
 } from "@penkra/shared/diagnostics/qaEvidence";
@@ -56,9 +57,12 @@ function withObservedChecks(
       });
     const config = qaConfig(stateDir);
     fs.mkdirSync(config.dir, { recursive: true });
+    const challenge = fs.existsSync(qaChallengePath(config, flow))
+      ? fs.readFileSync(qaChallengePath(config, flow), "utf8")
+      : "00".repeat(32);
     fs.appendFileSync(
       qaEvidencePath(config),
-      `${JSON.stringify(signQaAction(config, flow, traceId))}\n`,
+      `${JSON.stringify(signQaAction(config, flow, traceId, challenge))}\n`,
     );
     return report(script, stateDir, flow);
   };
@@ -358,6 +362,43 @@ describe("diagnostics clean QA gate", () => {
         return passing(script, stateDir, flow);
       });
       expect(result.failedFlows).toEqual([...REQUIRED_QA_FLOWS]);
+      store.close();
+    } finally {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a replayed proof from an earlier challenge in the same run", () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-qa-replay-"));
+    try {
+      const store = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
+      const scripts = new Map(
+        REQUIRED_QA_FLOWS.map((flow) => {
+          const script = path.join(stateDir, `${flow}.mjs`);
+          fs.writeFileSync(script, "// replay fixture\n");
+          return [flow, script] as const;
+        }),
+      );
+      const config = qaConfig(stateDir);
+      fs.mkdirSync(config.dir, { recursive: true });
+      const traceId = "a".repeat(32);
+      const oldProof = `${JSON.stringify(signQaAction(config, "send", traceId, "00".repeat(32)))}\n`;
+      fs.appendFileSync(qaEvidencePath(config), oldProof);
+      const validOtherFlow = withObservedChecks(store);
+      const result = runGate(stateDir, scripts, (script, dir, flow) => {
+        if (flow !== "send") return validOtherFlow(script, dir, flow);
+        for (const step of REQUIRED_QA_CHECKS.send)
+          store.checkpoint({
+            traceId,
+            spanId: "0123456789abcdef",
+            flow: DIAGNOSTIC_FLOW.send,
+            step,
+            outcome: "ok",
+          });
+        fs.appendFileSync(qaEvidencePath(config), oldProof);
+        return passing(script, dir, flow);
+      });
+      expect(result.failedFlows).toEqual(["send"]);
       store.close();
     } finally {
       fs.rmSync(stateDir, { recursive: true, force: true });
