@@ -11,13 +11,15 @@ export function diagnosticsQaAccountEnabled(input: {
   readonly secret: string | undefined;
 }): boolean {
   const root = path.resolve(input.root);
+  const temporary = path.dirname(root);
   return (
     !input.isPackaged &&
     input.isDevelopment &&
-    /^\/tmp\/penkra-diagnostics-qa-0143\.[A-Za-z0-9]+$/u.test(root) &&
+    path.basename(root) === "root" &&
+    /^\/tmp\/penkra-diagnostics-qa-0143\.[A-Za-z0-9]+$/u.test(temporary) &&
     !!input.smokeProfile &&
-    path.resolve(input.smokeProfile) === path.join(root, "electron-profile") &&
-    input.proofDir === path.join(root, "proofs") &&
+    path.resolve(input.smokeProfile) === path.join(temporary, "electron-profile") &&
+    input.proofDir === path.join(temporary, "proofs") &&
     /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/u.test(input.runId ?? "") &&
     /^[0-9a-f]{64}$/u.test(input.secret ?? "")
   );
