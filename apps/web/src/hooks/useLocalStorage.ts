@@ -1,6 +1,7 @@
 import * as Schema from "effect/Schema";
 import * as Record from "effect/Record";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { recordWebConsumedFailure } from "../webFailureCoverage";
 
 const isomorphicLocalStorage: Storage =
   typeof window !== "undefined"
@@ -70,6 +71,7 @@ function readLocalStorageItemOrFallback<T, E>(
     const item = getLocalStorageItem(key, schema);
     return item ?? fallback;
   } catch (error) {
+    recordWebConsumedFailure("state");
     console.error("[LOCALSTORAGE] Error:", error);
     return fallback;
   }
@@ -92,6 +94,7 @@ function persistLocalStorageValue<T, E>(
     // Dispatch event after state update completes to avoid nested state updates
     queueMicrotask(() => dispatchLocalStorageChange(key));
   } catch (error) {
+    recordWebConsumedFailure("state");
     console.error("[LOCALSTORAGE] Error:", error);
   }
   return valueToStore;

@@ -7,6 +7,7 @@
 
 import type { ProviderKind } from "@penkra/contracts";
 import { isPlainObject } from "./persistedRecord";
+import { recordWebConsumedFailure } from "./webFailureCoverage";
 
 const STORAGE_KEY = "penkra:confirmed-custom-binary-paths:v1";
 
@@ -30,6 +31,7 @@ export function loadConfirmedCustomBinaryPaths(): Partial<Record<ProviderKind, s
   try {
     raw = window.localStorage.getItem(STORAGE_KEY);
   } catch {
+    recordWebConsumedFailure("state");
     return {};
   }
   if (!raw) {
@@ -66,6 +68,7 @@ export function saveConfirmedCustomBinaryPaths(paths: Partial<Record<ProviderKin
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(paths));
   } catch {
+    recordWebConsumedFailure("state");
     // Best-effort persistence; ignore quota/availability errors.
   }
 }
