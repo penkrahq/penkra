@@ -18,6 +18,7 @@ import {
   REQUIRED_QA_CHECKS,
   REQUIRED_QA_FLOWS,
   runDiagnosticsQaGate,
+  waitForDiagnosticsDrain,
   type QaFlow,
   type QaFlowResult,
 } from "./diagnostics-qa-gate";
@@ -38,7 +39,7 @@ const runGate = (
   stateDir: string,
   scripts: ReadonlyMap<QaFlow, string>,
   runner?: (script: string, stateDir: string, flow: QaFlow) => QaFlowResult,
-) => runDiagnosticsQaGate(stateDir, scripts, runner, qaConfig(stateDir));
+) => runDiagnosticsQaGate(stateDir, scripts, runner, qaConfig(stateDir), 0);
 
 let nextTrace = 0;
 function withObservedChecks(
@@ -69,6 +70,30 @@ function withObservedChecks(
 }
 
 describe("diagnostics clean QA gate", () => {
+  it("waits for final spool import while keeping a persistent backlog visible", () => {
+    const states = [
+      { spools: 1, expectations: 0 },
+      { spools: 0, expectations: 0 },
+    ];
+    expect(
+      waitForDiagnosticsDrain(
+        () => states.shift()!,
+        1_000,
+        () => {},
+      ),
+    ).toEqual({
+      spools: 0,
+      expectations: 0,
+    });
+    expect(
+      waitForDiagnosticsDrain(
+        () => ({ spools: 1, expectations: 0 }),
+        0,
+        () => {},
+      ),
+    ).toEqual({ spools: 1, expectations: 0 });
+  });
+
   it("fails on a repeated aggregate occurrence or a failed required script", () => {
     const results = REQUIRED_QA_FLOWS.map((flow) => ({
       flow,

@@ -201,6 +201,22 @@ function diagnosticsState(stateDir: string): {
   }
 }
 
+/** Let the live server import the final worker spool before the zero-spool check. */
+export function waitForDiagnosticsDrain<T extends { spools: number; expectations: number }>(
+  read: () => T,
+  timeoutMs = 10_000,
+  pause: (milliseconds: number) => void = (milliseconds) =>
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds),
+): T {
+  const deadline = Date.now() + timeoutMs;
+  let state = read();
+  while ((state.spools > 0 || state.expectations > 0) && Date.now() < deadline) {
+    pause(100);
+    state = read();
+  }
+  return state;
+}
+
 function observedQaChecks(
   stateDir: string,
   flow: QaFlow,
@@ -330,6 +346,7 @@ export function runDiagnosticsQaGate(
     }
   },
   evidenceConfig: QaEvidenceConfig | null = qaEvidenceConfigFromEnv(),
+  drainTimeoutMs = 10_000,
 ): ReturnType<typeof evaluateDiagnosticsQaGate> {
   if (
     scripts.size !== REQUIRED_QA_FLOWS.length ||
@@ -360,7 +377,7 @@ export function runDiagnosticsQaGate(
       if (evidenceConfig) fs.rmSync(qaChallengePath(evidenceConfig, flow), { force: true });
     }
   });
-  const after = diagnosticsState(stateDir);
+  const after = waitForDiagnosticsDrain(() => diagnosticsState(stateDir), drainTimeoutMs);
   const newLosses =
     countGrowth(after.losses, before.losses) +
     countGrowth(
