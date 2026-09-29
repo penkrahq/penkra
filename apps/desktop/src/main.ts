@@ -6911,9 +6911,14 @@ function registerIpcHandlers(): void {
       const clientId =
         qaSocketClientIds.get(event.sender.id) ?? Crypto.randomBytes(16).toString("hex");
       qaSocketClientIds.set(event.sender.id, clientId);
+      const ticketId = Crypto.randomBytes(16).toString("hex");
       const signedUrl = new URL(wsUrl);
       signedUrl.searchParams.set("qaClientId", clientId);
-      signedUrl.searchParams.set("qaClientSignature", signQaSocketClient(config, clientId));
+      signedUrl.searchParams.set("qaTicketId", ticketId);
+      signedUrl.searchParams.set(
+        "qaClientSignature",
+        signQaSocketClient(config, clientId, ticketId),
+      );
       event.returnValue = signedUrl.toString();
     } catch {
       // Diagnostics cannot prevent the shell from connecting.

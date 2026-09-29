@@ -80,10 +80,10 @@ export const makeBoundedNodeHttpServer = Effect.fnUntraced(function* (
         process.stderr.write("[diagnostics] QA reconnect action proof failed\n"),
       );
     },
-    (clientId, signature) => {
+    (clientId, ticketId, signature) => {
       try {
         const config = qaEvidenceConfigFromEnv();
-        return config !== null && verifyQaSocketClient(config, clientId, signature);
+        return config !== null && verifyQaSocketClient(config, clientId, ticketId, signature);
       } catch {
         return false;
       }
@@ -109,12 +109,17 @@ export const makeBoundedNodeHttpServer = Effect.fnUntraced(function* (
         return "unknown";
       }
     })();
-    let qaConnection = { closed: () => {}, receivedFrame: (_raw: string) => {} };
+    let qaConnection = {
+      closed: () => {},
+      receivedFrame: (_raw: string) => {},
+      sentFrame: (_raw: string) => {},
+    };
     if (requestPath === "/ws") {
       try {
         const url = new URL(request.url ?? "/", "http://127.0.0.1");
         qaConnection = qaReconnects.opened({
           clientId: url.searchParams.get("qaClientId"),
+          ticketId: url.searchParams.get("qaTicketId"),
           signature: url.searchParams.get("qaClientSignature"),
           traceId: url.searchParams.get("qaReconnectTraceId"),
         });
@@ -122,6 +127,15 @@ export const makeBoundedNodeHttpServer = Effect.fnUntraced(function* (
         // Invalid optional QA parameters cannot affect the WebSocket.
       }
     }
+    const originalSend = socket.send;
+    Object.defineProperty(socket, "send", {
+      value: (...args: unknown[]) => {
+        const data = args[0];
+        if (typeof data === "string") qaConnection.sentFrame(data);
+        else if (Buffer.isBuffer(data)) qaConnection.sentFrame(data.toString("utf8"));
+        return Reflect.apply(originalSend, socket, args);
+      },
+    });
     socket.on("message", (data) => qaConnection.receivedFrame(data.toString("utf8")));
     socket.on("close", (code, reason) => {
       qaConnection.closed();
