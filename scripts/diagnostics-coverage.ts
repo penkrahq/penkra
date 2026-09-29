@@ -67,6 +67,24 @@ function isRecordingCall(node: ts.Node, code: string, where: string): boolean {
   if (
     ts.isCallExpression(node) &&
     ts.isIdentifier(node.expression) &&
+    node.expression.text === "incident" &&
+    where === "browser.socket_connect" &&
+    node.arguments[0] !== undefined &&
+    ts.isStringLiteralLike(node.arguments[0])
+  )
+    return node.arguments[0].text === code;
+  if (
+    ts.isCallExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === "recordWsTransportFailure" &&
+    code === "EXTERNAL_CALL_FAILED" &&
+    node.arguments[0] !== undefined &&
+    ts.isStringLiteralLike(node.arguments[0])
+  )
+    return node.arguments[0].text === where;
+  if (
+    ts.isCallExpression(node) &&
+    ts.isIdentifier(node.expression) &&
     node.expression.text === "recordComposerAttachmentFailure" &&
     node.arguments[0] !== undefined &&
     node.arguments[1] !== undefined &&
@@ -102,16 +120,28 @@ function recordsInsideCatch(
 ): boolean {
   const parsed = ts.createSourceFile(site.file, source, ts.ScriptTarget.Latest, true);
   let found = false;
+  function containsRecording(node: ts.Node): boolean {
+    if (isRecordingCall(node, code, where)) return true;
+    if (ts.isFunctionLike(node)) return false;
+    return ts.forEachChild(node, containsRecording) === true;
+  }
   function visit(node: ts.Node): void {
     if (found) return;
     if (ts.isCatchClause(node)) {
       const position = failureSitePosition(node, parsed);
       if (position.line + 1 === site.line && position.character + 1 === site.column) {
-        found = node.block.statements.some(
-          (statement) =>
-            ts.isExpressionStatement(statement) &&
-            isRecordingCall(statement.expression, code, where),
-        );
+        found = containsRecording(node.block);
+        return;
+      }
+    }
+    if (ts.isCallExpression(node) && callKind(node) === "catch") {
+      const position = failureSitePosition(node, parsed);
+      if (position.line + 1 === site.line && position.character + 1 === site.column) {
+        const callback = node.arguments[0];
+        if (callback && (ts.isArrowFunction(callback) || ts.isFunctionExpression(callback))) {
+          const body = callback.body;
+          found = containsRecording(body);
+        }
         return;
       }
     }
