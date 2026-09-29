@@ -96,6 +96,7 @@ import {
   recordDiagnosticIncident,
   resolveDiagnosticExpectationsForTrace,
 } from "./diagnostics/recorder";
+import { qaCommandCheckpoint } from "./diagnostics/qaCommandCheckpoints";
 import { WorkspaceWatcher } from "./workspaceWatcher";
 import { makeWsRequestAdmission } from "./wsRequestAdmission";
 import {
@@ -858,6 +859,15 @@ const makeWsRpcHandlersLayer = () =>
                 }),
               );
               const { command: normalizedCommand } = yield* normalizeDispatchCommand({ command });
+              const dispatchedQa = qaCommandCheckpoint(normalizedCommand, "dispatch");
+              if (dispatchedQa)
+                yield* Effect.sync(() =>
+                  recordDiagnosticCheckpoint({
+                    ...diagnosticContext,
+                    ...dispatchedQa,
+                    outcome: "ok",
+                  }),
+                );
               const lifecycleLogContext = {
                 commandId: normalizedCommand.commandId,
                 commandType: normalizedCommand.type,
@@ -877,15 +887,22 @@ const makeWsRpcHandlersLayer = () =>
               };
               const result = yield* dispatchOrchestrationCommand(normalizedCommand).pipe(
                 Effect.tap((receipt) =>
-                  Effect.sync(() =>
+                  Effect.sync(() => {
+                    const acceptedQa = qaCommandCheckpoint(normalizedCommand, "accepted");
+                    if (acceptedQa)
+                      recordDiagnosticCheckpoint({
+                        ...diagnosticContext,
+                        ...acceptedQa,
+                        outcome: "ok",
+                      });
                     recordDiagnosticCheckpoint({
                       ...diagnosticContext,
                       flow: diagnosticFlow,
                       step: "command.accepted",
                       outcome: "ok",
                       fields: { sequence: receipt.sequence },
-                    }),
-                  ).pipe(
+                    });
+                  }).pipe(
                     Effect.tap(() =>
                       Effect.sync(() => {
                         if (normalizedCommand.type === "thread.turn.start") {
