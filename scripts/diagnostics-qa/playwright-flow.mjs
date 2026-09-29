@@ -28,22 +28,26 @@ function threadId(page) {
   return id;
 }
 
-async function waitForDetail(stateDir, flow, step, thread, timeoutMs = 12_000) {
+async function waitForDetail(stateDir, flow, step, thread, timeoutMs = 12_000, match = {}) {
   const database = path.join(stateDir, "diagnostics", "diagnostics.sqlite");
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const db = new DatabaseSync(database, { readOnly: true });
     try {
-      const row = thread
-        ? db
-            .prepare(
-              "SELECT id FROM detail WHERE flow = ? AND step = ? AND thread_id = ? ORDER BY id DESC LIMIT 1",
-            )
-            .get(flow, step, thread)
-        : db
-            .prepare("SELECT id FROM detail WHERE flow = ? AND step = ? ORDER BY id DESC LIMIT 1")
-            .get(flow, step);
-      if (row) return;
+      const row = db
+        .prepare(
+          "SELECT id, trace_id FROM detail WHERE flow = ? AND step = ? AND (? IS NULL OR thread_id = ?) AND (? IS NULL OR trace_id = ?) AND id > ? ORDER BY id DESC LIMIT 1",
+        )
+        .get(
+          flow,
+          step,
+          thread,
+          thread,
+          match.traceId ?? null,
+          match.traceId ?? null,
+          match.afterId ?? 0,
+        );
+      if (row) return row;
     } finally {
       db.close();
     }
@@ -127,6 +131,22 @@ async function stop(page, stateDir, id) {
   await page.getByRole("button", { name: "Continue" }).waitFor();
 }
 
+async function waitForCompletedTurn(page, id) {
+  await page.waitForFunction(async (targetId) => {
+    const { readNativeApi } = await import("/src/nativeApi.ts");
+    const thread = (
+      await readNativeApi()?.orchestration.getThreadDetailSnapshot({ threadId: targetId })
+    )?.thread;
+    return (
+      thread?.latestTurn?.state === "completed" &&
+      thread.session?.status === "ready" &&
+      !thread.session.activeTurnId &&
+      thread.workStatus !== "running"
+    );
+  }, id);
+  await page.waitForTimeout(700);
+}
+
 async function run(flow, page, stateDir) {
   switch (flow) {
     case "thread-create": {
@@ -156,7 +176,7 @@ async function run(flow, page, stateDir) {
     }
     case "queue": {
       const id = await newThread(page, stateDir);
-      await send(page, stateDir, id, "qa:hold");
+      await send(page, stateDir, id, "qa:queue-first");
       await page.waitForFunction(async (targetId) => {
         const { readNativeApi } = await import("/src/nativeApi.ts");
         const snapshot = await readNativeApi()?.orchestration.getThreadDetailSnapshot({
@@ -170,10 +190,12 @@ async function run(flow, page, stateDir) {
       const editor = page.getByRole("textbox");
       await editor.fill(queued);
       await editor.press("Enter");
-      await waitForDetail(stateDir, "queue", "queue.enqueued", id, 20_000);
+      const enqueued = await waitForDetail(stateDir, "queue", "queue.enqueued", id, 20_000);
       await page.getByText(queued, { exact: true }).first().waitFor();
-      await page.getByRole("button", { name: "Stop generation" }).click();
-      await waitForDetail(stateDir, "queue", "queue.started", id, 20_000);
+      await waitForDetail(stateDir, "queue", "queue.started", id, 25_000, {
+        traceId: enqueued.trace_id,
+        afterId: enqueued.id,
+      });
       return;
     }
     case "archive": {
@@ -184,16 +206,7 @@ async function run(flow, page, stateDir) {
         const { useComposerDraftStore } = await import("/src/composerDraftStore.ts");
         return !useComposerDraftStore.getState().draftThreadsByThreadId[targetId];
       }, id);
-      await page.waitForFunction(async (targetId) => {
-        const { readNativeApi } = await import("/src/nativeApi.ts");
-        const snapshot = await readNativeApi()?.orchestration.getThreadDetailSnapshot({
-          threadId: targetId,
-        });
-        return (
-          snapshot?.thread?.latestTurn?.state === "completed" &&
-          !snapshot.thread.session?.activeTurnId
-        );
-      }, id);
+      await waitForCompletedTurn(page, id);
       await page.evaluate(
         () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
       );
@@ -261,13 +274,7 @@ async function run(flow, page, stateDir) {
     case "provider-switch": {
       const id = await newThread(page, stateDir);
       await send(page, stateDir, id, `qa:provider-before-${Date.now()}`);
-      await page.waitForFunction(async (targetId) => {
-        const { readNativeApi } = await import("/src/nativeApi.ts");
-        const snapshot = await readNativeApi()?.orchestration.getThreadDetailSnapshot({
-          threadId: targetId,
-        });
-        return snapshot?.thread?.latestTurn?.state === "completed";
-      }, id);
+      await waitForCompletedTurn(page, id);
       const api = await page.evaluate(async (targetId) => {
         const { readNativeApi } = await import("/src/nativeApi.ts");
         return readNativeApi()?.provider.getThreadBinding({ threadId: targetId });
@@ -283,6 +290,20 @@ async function run(flow, page, stateDir) {
       await page.getByRole("button", { name: "Change connection" }).click();
       await page.getByRole("menuitem").first().click();
       await page.getByRole("menuitem", { name: new RegExp(targetLabel, "u") }).click();
+      await page.waitForFunction(
+        async ({ threadId: targetThreadId, connectionId }) => {
+          const { readNativeApi } = await import("/src/nativeApi.ts");
+          const snapshot = await readNativeApi()?.orchestration.getThreadDetailSnapshot({
+            threadId: targetThreadId,
+          });
+          return snapshot?.thread?.connectionId === connectionId;
+        },
+        { threadId: id, connectionId: targetId },
+      );
+      await page.evaluate(
+        () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+      );
+      await page.waitForTimeout(700);
       await page.getByRole("textbox").fill(`qa:provider-after-${Date.now()}`);
       await page.getByRole("button", { name: "Send message" }).click();
       await waitForDetail(stateDir, "app", "provider.switched", id, 30_000);
