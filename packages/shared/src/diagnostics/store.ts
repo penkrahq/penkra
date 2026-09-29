@@ -223,6 +223,7 @@ interface SpoolEnvelope {
   readonly process: DiagnosticsOptions["process"];
   readonly osMajor?: number | "unknown";
   readonly receiptId?: string;
+  readonly queueSlot?: number;
   readonly data:
     | CheckpointInput
     | IncidentInput
@@ -627,6 +628,7 @@ function prepareEnvelope(
   type: SpoolEnvelope["type"],
   data: SpoolEnvelope["data"],
   receiptId?: string,
+  queueSlot?: number,
 ): SpoolEnvelope {
   if (type !== "health" && type !== "provenance_set") validateContext(data as DiagnosticContext);
   validateDiagnosticId(bootId);
@@ -642,6 +644,15 @@ function prepareEnvelope(
       !["checkpoint", "incident", "expectation_arm"].includes(type)
     )
       throw new TypeError("Invalid diagnostic worker receipt");
+  }
+  if (queueSlot !== undefined) {
+    if (
+      processName !== "desktop-main" ||
+      !["checkpoint", "incident", "expectation_arm"].includes(type) ||
+      !Number.isSafeInteger(queueSlot) ||
+      queueSlot < 1
+    )
+      throw new TypeError("Invalid diagnostic worker queue slot");
   }
   let safeData: SpoolEnvelope["data"];
   if (type === "health") {
@@ -791,6 +802,7 @@ function prepareEnvelope(
     monoMs: performance.now(),
     process: processName,
     ...(receiptId ? { receiptId } : {}),
+    ...(queueSlot ? { queueSlot } : {}),
     data: safeData,
   };
 }
@@ -893,6 +905,10 @@ function insertEnvelope(
         .prepare("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)")
         .run(`expectation-resolved:${event.receiptId}`, event.at);
   }
+  if (event.queueSlot)
+    database
+      .prepare("INSERT OR IGNORE INTO meta(key, value) VALUES (?, '1')")
+      .run(`queue-slot:${event.bootId}:${event.queueSlot}`);
   if (event.type === "provenance_set") {
     const provenance = event.data as ProvenanceInput;
     database
@@ -1196,6 +1212,11 @@ function insertEnvelope(
         database
           .prepare("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)")
           .run(lossKey, String(data.context.count));
+      if (data.where === "diagnostics.worker_queue")
+        database
+          .prepare(`INSERT INTO meta(key, value) VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + ?`)
+          .run(`worker-overflow:${event.bootId}`, String(data.context.count), data.context.count);
     }
     // A late resolution is one spool record and one SQLite transaction. Closing
     // the expectation here prevents a crash from replaying a second miss.
@@ -1269,6 +1290,7 @@ export class DiagnosticsStore {
             `active-${bootId}.json`,
             `closed-${bootId}.json`,
             `loss-${bootId}.bin`,
+            `queue-credit-${bootId}.json`,
           ])
             keep.add(related);
         }
@@ -1478,6 +1500,7 @@ export class DiagnosticsStore {
               event.type,
               event.data,
               event.receiptId,
+              event.queueSlot,
             );
             event = {
               ...safe,
@@ -1518,7 +1541,8 @@ export class DiagnosticsStore {
         fs.rmSync(spoolPath, { force: true });
         fs.rmSync(activePath, { force: true });
         if (!fs.existsSync(closedPath)) crashedProcesses++;
-        fs.rmSync(closedPath, { force: true });
+        if (!fs.existsSync(path.join(this.dir, `queue-credit-${bootId}.json`)))
+          fs.rmSync(closedPath, { force: true });
         fs.rmSync(path.join(this.dir, `spool-identity-${bootId}.json`), { force: true });
       }
       this.pruneLocked(new Date(), this.maxTotalBytes);
@@ -1537,6 +1561,63 @@ export class DiagnosticsStore {
         fs.rmSync(activePath, { force: true });
         crashedProcesses++;
       }
+    }
+    for (const entry of fs.readdirSync(this.dir)) {
+      if (!/^queue-credit-[a-f0-9]{32}\.json$/u.test(entry)) continue;
+      const bootId = entry.slice("queue-credit-".length, -".json".length);
+      const activePath = path.join(this.dir, `active-${bootId}.json`);
+      if (fs.existsSync(activePath)) continue;
+      const creditPath = path.join(this.dir, entry);
+      const block = JSON.parse(fs.readFileSync(creditPath, "utf8")) as {
+        version: number;
+        bootId: string;
+        reserved: number;
+      };
+      if (
+        block.version !== 1 ||
+        block.bootId !== bootId ||
+        !Number.isSafeInteger(block.reserved) ||
+        block.reserved < 1
+      )
+        throw new Error("Invalid diagnostic worker credit ledger");
+      const closedPath = path.join(this.dir, `closed-${bootId}.json`);
+      const closed = fs.existsSync(closedPath);
+      const reconciledKey = `credit-reconciled:${bootId}`;
+      const alreadyReconciled = this.database
+        .prepare("SELECT value FROM meta WHERE key = ?")
+        .get(reconciledKey);
+      sqlitePhysicalBudget(this.database, this.dir, this.dbPath, this.maxTotalBytes);
+      this.database.exec("BEGIN IMMEDIATE");
+      try {
+        if (!alreadyReconciled) {
+          const seen = (
+            this.database
+              .prepare("SELECT COUNT(*) AS count FROM meta WHERE key LIKE ?")
+              .get(`queue-slot:${bootId}:%`) as { count: number }
+          ).count;
+          if (!closed) {
+            this.database
+              .prepare("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)")
+              .run(`possibly-lost:${bootId}`, String(Math.max(0, block.reserved - seen)));
+            this.database
+              .prepare("INSERT OR REPLACE INTO meta(key, value) VALUES (?, '1')")
+              .run(`lost-count-unknown:${bootId}`);
+          }
+          this.database
+            .prepare("INSERT INTO meta(key, value) VALUES (?, ?)")
+            .run(reconciledKey, String(block.reserved));
+          this.database.prepare("DELETE FROM meta WHERE key LIKE ?").run(`queue-slot:${bootId}:%`);
+        }
+        if (totalBytes(this.dir) > this.maxTotalBytes)
+          throw new Error("Diagnostics capacity reached during worker credit reconciliation");
+        this.database.exec("COMMIT");
+      } catch (cause) {
+        if (this.database.isTransaction) this.database.exec("ROLLBACK");
+        this.database.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+        throw cause;
+      }
+      fs.rmSync(creditPath, { force: true });
+      fs.rmSync(closedPath, { force: true });
     }
     return crashedProcesses;
   }
@@ -1734,6 +1815,7 @@ export class DiagnosticsStore {
           pending.type,
           pending.data,
           pending.receiptId,
+          pending.queueSlot,
         );
         insertEnvelope(
           this.database,
@@ -2236,8 +2318,10 @@ export class DiagnosticsSpoolWriter {
   private readonly dir: string;
   private readonly spoolPath: string;
   private readonly activePath: string;
+  private readonly creditPath: string;
   private readonly reportedProcessFailures = new Set<string>();
   private sequence = 0;
+  private reservedCredits = 0;
   private lastCpuUsage = process.cpuUsage();
   private lastHealthAt = performance.now();
 
@@ -2262,6 +2346,7 @@ export class DiagnosticsSpoolWriter {
     this.identity = storeIdentity(options);
     this.spoolPath = path.join(this.dir, `spool-${this.bootId}.jsonl`);
     this.activePath = path.join(this.dir, `active-${this.bootId}.json`);
+    this.creditPath = path.join(this.dir, `queue-credit-${this.bootId}.json`);
     fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
     if (process.platform !== "win32") fs.chmodSync(this.dir, 0o700);
     withLifecycleLock(this.dir, () => {
@@ -2301,8 +2386,11 @@ export class DiagnosticsSpoolWriter {
     type: SpoolEnvelope["type"],
     data: SpoolEnvelope["data"],
     receiptId?: string,
+    queueSlot?: number,
   ): void {
     withLifecycleLock(this.dir, () => {
+      if (queueSlot !== undefined && queueSlot > this.reservedCredits)
+        throw new TypeError("Unreserved diagnostic worker queue slot");
       if (!runningBundleIsInstalled(this.options)) this.stale = true;
       const marker = path.join(this.dir, `spool-identity-${this.bootId}.json`);
       const stalePath = path.join(this.dir, `stale-${this.bootId}.json`);
@@ -2328,6 +2416,7 @@ export class DiagnosticsSpoolWriter {
           type,
           data,
           receiptId,
+          queueSlot,
         ),
         ...(this.options.osMajor === undefined ? {} : { osMajor: this.options.osMajor }),
       };
@@ -2363,11 +2452,17 @@ export class DiagnosticsSpoolWriter {
   checkpointWithReceipt(data: CheckpointInput, receiptId: string): void {
     this.append("checkpoint", data, receiptId);
   }
+  checkpointWithSlot(data: CheckpointInput, queueSlot: number): void {
+    this.append("checkpoint", data, undefined, queueSlot);
+  }
   incident(data: IncidentInput): void {
     this.append("incident", data);
   }
   incidentWithReceipt(data: IncidentInput, receiptId: string): void {
     this.append("incident", data, receiptId);
+  }
+  incidentWithSlot(data: IncidentInput, queueSlot: number): void {
+    this.append("incident", data, undefined, queueSlot);
   }
 
   armExpectation(input: ExpectationInput): string {
@@ -2379,6 +2474,51 @@ export class DiagnosticsSpoolWriter {
     const id = randomUUID();
     this.append("expectation_arm", { ...input, id }, receiptId);
     return id;
+  }
+  armExpectationWithSlot(input: ExpectationInput, queueSlot: number): string {
+    const id = randomUUID();
+    this.append("expectation_arm", { ...input, id }, undefined, queueSlot);
+    return id;
+  }
+
+  reserveWorkerCredits(count: number): { start: number; count: number } {
+    if (
+      this.options.process !== "desktop-main" ||
+      !Number.isSafeInteger(count) ||
+      count < 1 ||
+      count > 4096
+    )
+      throw new TypeError("Invalid diagnostic worker credit block");
+    return withLifecycleLock(this.dir, () => {
+      const start = this.reservedCredits + 1;
+      const reserved = this.reservedCredits + count;
+      const content = JSON.stringify({ version: 1, bootId: this.bootId, reserved });
+      const temporary = `${this.creditPath}.tmp`;
+      const maxTotalBytes = this.options.maxTotalBytes ?? DIAGNOSTIC_LIMITS.totalBytes;
+      if (
+        totalBytes(this.dir) + Buffer.byteLength(content) >
+        maxTotalBytes - resetReserveBytes(maxTotalBytes)
+      ) {
+        recordLoss(this.dir, this.bootId, "capacity", 1, maxTotalBytes);
+        throw new Error("Diagnostics capacity reached before worker credit reservation");
+      }
+      const handle = fs.openSync(temporary, "w", 0o600);
+      try {
+        fs.writeFileSync(handle, content);
+        fs.fsyncSync(handle);
+      } finally {
+        fs.closeSync(handle);
+      }
+      fs.renameSync(temporary, this.creditPath);
+      const directory = fs.openSync(this.dir, "r");
+      try {
+        fs.fsyncSync(directory);
+      } finally {
+        fs.closeSync(directory);
+      }
+      this.reservedCredits = reserved;
+      return { start, count };
+    });
   }
 
   resolveExpectation(id: string, trace: Pick<DiagnosticContext, "traceId" | "spanId">): void {

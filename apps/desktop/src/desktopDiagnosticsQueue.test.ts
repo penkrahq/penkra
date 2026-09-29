@@ -22,6 +22,70 @@ class FakeWorker extends EventEmitter {
 }
 
 describe("desktop diagnostics queue", () => {
+  it("uses worker credits without a main-thread reservation and reports exact overflow after recovery", async () => {
+    const worker = new FakeWorker();
+    const reserve = vi.fn(() => "unexpected");
+    const queue = new DesktopDiagnosticsQueue(
+      () => worker as unknown as Worker,
+      vi.fn(),
+      reserve,
+      true,
+    );
+    queue.enqueue("checkpoint", { sequence: 0 });
+    worker.emit("message", { kind: "credits", start: 1, count: 2 });
+    queue.enqueue("checkpoint", { sequence: 1 });
+    queue.enqueue("checkpoint", { sequence: 2 });
+    queue.enqueue("checkpoint", { sequence: 3 });
+    expect(reserve).not.toHaveBeenCalled();
+    expect(worker.messages).toContainEqual({
+      kind: "checkpoint",
+      input: { sequence: 1 },
+      queueSlot: 1,
+    });
+    expect(worker.messages).toContainEqual({
+      kind: "checkpoint",
+      input: { sequence: 2 },
+      queueSlot: 2,
+    });
+    worker.emit("message", { kind: "credits", start: 3, count: 2 });
+    expect(
+      worker.messages.filter((message) => (message as { kind?: string }).kind === "overflow"),
+    ).toEqual([
+      { kind: "overflow", count: 1 },
+      { kind: "overflow", count: 1 },
+    ]);
+    const draining = queue.drain();
+    worker.emit("message", { kind: "drained" });
+    await draining;
+  });
+
+  it("reconciles an unclean credit block after a hard crash before worker ack", () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-credit-crash-"));
+    try {
+      const child = spawnSync(
+        "bun",
+        [path.resolve(import.meta.dirname, "../scripts/crash-diagnostics-credits.mjs"), stateDir],
+        { cwd: path.resolve(import.meta.dirname, ".."), timeout: 10_000 },
+      );
+      expect(child.signal).toBe("SIGKILL");
+      const store = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
+      store.importPeerSpools();
+      const db = openDiagnosticsReader(stateDir)!;
+      const meta = db
+        .prepare(
+          "SELECT key, value FROM meta WHERE key LIKE 'possibly-lost:%' OR key LIKE 'lost-count-unknown:%' ORDER BY key",
+        )
+        .all() as Array<{ key: string; value: string }>;
+      expect(meta.map(({ value }) => value)).toEqual(["1", "4"]);
+      expect(meta[0]?.key).toMatch(/^lost-count-unknown:/u);
+      expect(meta[1]?.key).toMatch(/^possibly-lost:/u);
+      db.close();
+      store.close();
+    } finally {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
+
   it("reports an unacknowledged enqueue after a hard process crash", () => {
     const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-queue-crash-"));
     try {

@@ -1107,6 +1107,85 @@ describe("diagnostics store", () => {
     store.close();
   });
 
+  it("reconciles an unclean worker credit block separately from confirmed loss", () => {
+    const { stateDir, store } = fixture();
+    const worker = new DiagnosticsSpoolWriter({
+      stateDir,
+      appVersion: "0.14.3",
+      process: "desktop-main",
+    });
+    expect(worker.reserveWorkerCredits(4)).toEqual({ start: 1, count: 4 });
+    worker.checkpointWithSlot({ traceId, spanId, flow: "send", step: "composer.preflight" }, 1);
+    store.importPeerSpools();
+    const creditPath = path.join(stateDir, "diagnostics", `queue-credit-${worker.bootId}.json`);
+    const creditManifest = fs.readFileSync(creditPath, "utf8");
+    const activePath = path.join(stateDir, "diagnostics", `active-${worker.bootId}.json`);
+    fs.writeFileSync(activePath, JSON.stringify({ pid: 99_999_999, process: "desktop-main" }));
+    store.importPeerSpools();
+    fs.writeFileSync(creditPath, creditManifest);
+    store.importPeerSpools();
+    const db = openDiagnosticsReader(stateDir)!;
+    const meta = db
+      .prepare("SELECT key, value FROM meta WHERE key IN (?, ?) ORDER BY key")
+      .all(`lost-count-unknown:${worker.bootId}`, `possibly-lost:${worker.bootId}`) as Array<{
+      key: string;
+      value: string;
+    }>;
+    expect(meta).toEqual([
+      { key: `lost-count-unknown:${worker.bootId}`, value: "1" },
+      { key: `possibly-lost:${worker.bootId}`, value: "3" },
+    ]);
+    expect(
+      db
+        .prepare("SELECT COUNT(*) AS count FROM meta WHERE key LIKE ?")
+        .get(`queue-slot:${worker.bootId}:%`),
+    ).toMatchObject({ count: 0 });
+    expect(
+      db
+        .prepare(
+          "SELECT COUNT(*) AS count FROM incident_occurrences WHERE incident_id IN (SELECT id FROM incidents WHERE code = 'DIAGNOSTICS_DROPPED')",
+        )
+        .get(),
+    ).toMatchObject({ count: 0 });
+    db.close();
+    worker.close();
+    store.close();
+  });
+
+  it("persists the exact overflow count and degradation incident after worker recovery", () => {
+    const { stateDir, store } = fixture();
+    const worker = new DiagnosticsSpoolWriter({
+      stateDir,
+      appVersion: "0.14.3",
+      process: "desktop-main",
+    });
+    worker.reserveWorkerCredits(4);
+    worker.incident({
+      traceId,
+      spanId,
+      kind: "diagnostics.degraded",
+      code: "DIAGNOSTICS_DROPPED",
+      where: "diagnostics.worker_queue",
+      severity: "error",
+      expected: { count: 0 },
+      actual: { count: 3 },
+      context: { count: 3, reason: "capacity", bootId: worker.bootId },
+    });
+    store.importPeerSpools();
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(
+      db.prepare("SELECT value FROM meta WHERE key = ?").get(`worker-overflow:${worker.bootId}`),
+    ).toMatchObject({ value: "3" });
+    expect(
+      db
+        .prepare("SELECT code, actual_json FROM incidents WHERE code = 'DIAGNOSTICS_DROPPED'")
+        .get(),
+    ).toMatchObject({ code: "DIAGNOSTICS_DROPPED", actual_json: '{"count":3}' });
+    db.close();
+    worker.close();
+    store.close();
+  });
+
   it("rejects content in expectation correlation before persisting it", () => {
     const { stateDir, store } = fixture();
     expect(() =>

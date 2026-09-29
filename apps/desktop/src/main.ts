@@ -74,7 +74,6 @@ import { NetService } from "@penkra/shared/Net";
 import { POSSIBLE_MODEL_CATALOG } from "@penkra/shared/possibleModels";
 import { applyShellEnvironmentHydrationMarker } from "@penkra/shared/shell";
 import { RotatingFileSink } from "@penkra/shared/logging";
-import { DIAGNOSTIC_LIMITS } from "@penkra/shared/diagnostics/limits";
 import {
   DiagnosticsSpoolWriter,
   type CheckpointInput,
@@ -470,15 +469,8 @@ function enqueueDesktopDiagnosticWrite(
           process.stderr.write("[diagnostics] desktop queue loss count failed\n");
         }
       },
-      (_kind, input) => {
-        const { traceId, spanId } = input as { traceId: string; spanId: string };
-        return getDesktopDiagnosticsStore().armExpectation({
-          traceId,
-          spanId,
-          kind: "desktop.worker_ack",
-          deadlineMs: DIAGNOSTIC_LIMITS.desktopWorkerAckMs,
-        });
-      },
+      undefined,
+      true,
     );
     desktopDiagnosticsQueue.enqueue(kind, input);
   } catch {

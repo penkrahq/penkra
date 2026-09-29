@@ -502,6 +502,21 @@ preserves only records whose spool sync completed; a torn final record, a failed
 spool sync, or storage hardware failure can lose evidence. The recovery record
 includes the last durable sequence and a bounded loss/gap count when known.
 
+Desktop main never synchronously writes or fsyncs diagnostics during a send. The
+diagnostics worker reserves and syncs blocks of 1,024 queue slots, then grants
+them to main over IPC. Main assigns slots in memory. The worker refills when half
+of the granted slots remain. A record is accepted only after the worker has
+synced its spool entry and acknowledged it. On an unclean exit, reconciliation
+counts reserved slots without imported entries as `possibly_lost`, a conservative
+upper bound that includes unused credits. It also records
+`lost_count_unknown` for every unclean exit with an active credit block. This
+condition does not assert that exhaustion occurred: exact crash-time exhaustion
+would require a durable main-thread write or blocking worker acknowledgement.
+If credits run out while the process survives, main keeps an exact in-memory
+overflow count. Once the worker responds, it writes that count durably and
+records `DIAGNOSTICS_DROPPED`. The QA gate fails on growth in confirmed loss,
+`possibly_lost`, or `lost_count_unknown`, as well as exact overflow.
+
 **Cost limits.**
 
 - Writes are batched, at most every 250 ms. Incidents are flushed immediately.
