@@ -1,7 +1,7 @@
 [
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 395,
+    "line": 396,
     "column": 3,
     "kind": "throw",
     "disposition": "validation",
@@ -10,7 +10,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 447,
+    "line": 448,
     "column": 5,
     "kind": "throw",
     "disposition": "validation",
@@ -19,7 +19,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 471,
+    "line": 472,
     "column": 7,
     "kind": "catch",
     "disposition": "diagnostics-isolated",
@@ -28,7 +28,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 494,
+    "line": 495,
     "column": 11,
     "kind": "catch",
     "disposition": "diagnostics-isolated",
@@ -37,7 +37,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 496,
+    "line": 497,
     "column": 11,
     "kind": "throw",
     "disposition": "diagnostics-isolated",
@@ -46,7 +46,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 504,
+    "line": 505,
     "column": 11,
     "kind": "catch",
     "disposition": "diagnostics-isolated",
@@ -55,7 +55,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 510,
+    "line": 511,
     "column": 5,
     "kind": "catch",
     "disposition": "diagnostics-isolated",
@@ -64,7 +64,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 739,
+    "line": 740,
     "column": 16,
     "kind": "throw",
     "disposition": "validation",
@@ -73,7 +73,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 836,
+    "line": 837,
     "column": 5,
     "kind": "throw",
     "disposition": "validation",
@@ -82,7 +82,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 839,
+    "line": 840,
     "column": 37,
     "kind": "throw",
     "disposition": "validation",
@@ -91,7 +91,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 846,
+    "line": 847,
     "column": 5,
     "kind": "throw",
     "disposition": "validation",
@@ -100,7 +100,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 859,
+    "line": 860,
     "column": 5,
     "kind": "throw",
     "disposition": "validation",
@@ -109,7 +109,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 873,
+    "line": 874,
     "column": 5,
     "kind": "throw",
     "disposition": "propagates",
@@ -122,7 +122,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 886,
+    "line": 887,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -131,7 +131,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 917,
+    "line": 918,
     "column": 5,
     "kind": "throw",
     "disposition": "validation",
@@ -140,7 +140,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 920,
+    "line": 921,
     "column": 5,
     "kind": "throw",
     "disposition": "validation",
@@ -149,7 +149,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 923,
+    "line": 924,
     "column": 5,
     "kind": "throw",
     "disposition": "validation",
@@ -158,7 +158,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 933,
+    "line": 934,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -167,7 +167,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 951,
+    "line": 952,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -176,7 +176,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 955,
+    "line": 956,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -185,7 +185,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 958,
+    "line": 959,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -194,7 +194,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 970,
+    "line": 971,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -203,7 +203,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 976,
+    "line": 977,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -212,7 +212,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 980,
+    "line": 981,
     "column": 7,
     "kind": "throw",
     "disposition": "propagates",
@@ -225,7 +225,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1006,
+    "line": 1007,
     "column": 9,
     "kind": "throw",
     "disposition": "validation",
@@ -234,7 +234,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1031,
+    "line": 1032,
     "column": 17,
     "kind": "throw",
     "disposition": "validation",
@@ -243,7 +243,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1037,
+    "line": 1038,
     "column": 9,
     "kind": "throw",
     "disposition": "validation",
@@ -252,7 +252,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1040,
+    "line": 1041,
     "column": 9,
     "kind": "throw",
     "disposition": "validation",
@@ -261,7 +261,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1043,
+    "line": 1044,
     "column": 9,
     "kind": "throw",
     "disposition": "validation",
@@ -270,7 +270,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1057,
+    "line": 1058,
     "column": 9,
     "kind": "throw",
     "disposition": "validation",
@@ -279,7 +279,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1114,
+    "line": 1115,
     "column": 10,
     "kind": "catch",
     "disposition": "diagnostics-isolated",
@@ -288,7 +288,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1123,
+    "line": 1124,
     "column": 5,
     "kind": "throw",
     "disposition": "validation",
@@ -297,7 +297,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1131,
+    "line": 1132,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -306,7 +306,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1135,
+    "line": 1136,
     "column": 3,
     "kind": "throw",
     "disposition": "validation",
@@ -315,7 +315,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1148,
+    "line": 1149,
     "column": 55,
     "kind": "catch",
     "disposition": "diagnostics-isolated",
@@ -324,7 +324,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1212,
+    "line": 1213,
     "column": 6,
     "kind": "catch",
     "disposition": "propagates",
@@ -337,7 +337,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1224,
+    "line": 1225,
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
@@ -350,7 +350,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1250,
+    "line": 1251,
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
@@ -363,7 +363,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1262,
+    "line": 1263,
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
@@ -376,7 +376,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1272,
+    "line": 1273,
     "column": 52,
     "kind": "catch",
     "disposition": "propagates",
@@ -389,7 +389,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1299,
+    "line": 1300,
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
@@ -402,7 +402,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1311,
+    "line": 1312,
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
@@ -415,7 +415,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1323,
+    "line": 1324,
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
@@ -428,7 +428,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1333,
+    "line": 1334,
     "column": 52,
     "kind": "catch",
     "disposition": "propagates",
@@ -441,7 +441,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1343,
+    "line": 1344,
     "column": 63,
     "kind": "catch",
     "disposition": "propagates",
@@ -454,7 +454,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1380,
+    "line": 1381,
     "column": 29,
     "kind": "timeout",
     "disposition": "scheduled",
@@ -463,7 +463,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1382,
+    "line": 1383,
     "column": 45,
     "kind": "catch",
     "disposition": "propagates",
@@ -476,7 +476,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1464,
+    "line": 1465,
     "column": 13,
     "kind": "catch",
     "disposition": "diagnostics-isolated",
@@ -485,7 +485,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1476,
+    "line": 1477,
     "column": 9,
     "kind": "catch",
     "disposition": "recorded",
@@ -498,7 +498,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1485,
+    "line": 1486,
     "column": 9,
     "kind": "throw",
     "disposition": "rethrow",
@@ -511,7 +511,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1490,
+    "line": 1491,
     "column": 40,
     "kind": "catch",
     "disposition": "propagates",
@@ -524,7 +524,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1509,
+    "line": 1510,
     "column": 5,
     "kind": "throw",
     "disposition": "rethrow",
@@ -537,7 +537,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1521,
+    "line": 1522,
     "column": 11,
     "kind": "throw",
     "disposition": "propagates",
@@ -550,7 +550,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1535,
+    "line": 1536,
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
@@ -563,7 +563,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1544,
+    "line": 1545,
     "column": 5,
     "kind": "throw",
     "disposition": "rethrow",
@@ -576,7 +576,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1558,
+    "line": 1559,
     "column": 17,
     "kind": "throw",
     "disposition": "propagates",
@@ -589,7 +589,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1562,
+    "line": 1563,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -598,7 +598,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1619,
+    "line": 1620,
     "column": 18,
     "kind": "throw",
     "disposition": "validation",
@@ -607,7 +607,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1634,
+    "line": 1635,
     "column": 17,
     "kind": "throw",
     "disposition": "propagates",
@@ -620,7 +620,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1667,
+    "line": 1668,
     "column": 31,
     "kind": "throw",
     "disposition": "validation",
@@ -629,7 +629,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1689,
+    "line": 1690,
     "column": 16,
     "kind": "throw",
     "disposition": "validation",
@@ -638,7 +638,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1790,
+    "line": 1791,
     "column": 6,
     "kind": "catch",
     "disposition": "propagates",
@@ -651,7 +651,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1858,
+    "line": 1859,
     "column": 7,
     "kind": "catch",
     "disposition": "recorded",
@@ -664,7 +664,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1973,
+    "line": 1974,
     "column": 5,
     "kind": "throw",
     "disposition": "validation",
@@ -673,7 +673,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1978,
+    "line": 1979,
     "column": 47,
     "kind": "throw",
     "disposition": "validation",
@@ -682,7 +682,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1983,
+    "line": 1984,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -691,7 +691,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1987,
+    "line": 1988,
     "column": 47,
     "kind": "throw",
     "disposition": "validation",
@@ -700,7 +700,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1995,
+    "line": 1996,
     "column": 5,
     "kind": "throw",
     "disposition": "validation",
@@ -709,7 +709,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 1998,
+    "line": 1999,
     "column": 48,
     "kind": "throw",
     "disposition": "validation",
@@ -718,7 +718,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 2001,
+    "line": 2002,
     "column": 5,
     "kind": "throw",
     "disposition": "validation",
@@ -727,7 +727,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 2004,
+    "line": 2005,
     "column": 43,
     "kind": "throw",
     "disposition": "validation",
@@ -736,7 +736,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 2007,
+    "line": 2008,
     "column": 5,
     "kind": "throw",
     "disposition": "validation",
@@ -745,7 +745,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 2023,
+    "line": 2024,
     "column": 5,
     "kind": "throw",
     "disposition": "validation",
@@ -754,7 +754,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 2027,
+    "line": 2028,
     "column": 5,
     "kind": "throw",
     "disposition": "validation",
@@ -763,7 +763,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 2029,
+    "line": 2030,
     "column": 5,
     "kind": "throw",
     "disposition": "validation",
@@ -772,7 +772,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 2036,
+    "line": 2037,
     "column": 5,
     "kind": "throw",
     "disposition": "validation",
@@ -781,7 +781,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 2039,
+    "line": 2040,
     "column": 5,
     "kind": "throw",
     "disposition": "propagates",
@@ -794,7 +794,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 2046,
+    "line": 2047,
     "column": 14,
     "kind": "throw",
     "disposition": "propagates",
@@ -807,7 +807,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 2055,
+    "line": 2056,
     "column": 5,
     "kind": "throw",
     "disposition": "propagates",
@@ -820,7 +820,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 2063,
+    "line": 2064,
     "column": 5,
     "kind": "throw",
     "disposition": "validation",
@@ -829,7 +829,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 2183,
+    "line": 2184,
     "column": 5,
     "kind": "catch",
     "disposition": "propagates",
@@ -842,7 +842,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 2192,
+    "line": 2193,
     "column": 7,
     "kind": "throw",
     "disposition": "rethrow",
@@ -855,7 +855,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 2221,
+    "line": 2222,
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
@@ -868,7 +868,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 2347,
+    "line": 2348,
     "column": 13,
     "kind": "catch",
     "disposition": "recorded",
@@ -881,7 +881,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 2455,
+    "line": 2456,
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
@@ -894,7 +894,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 2487,
+    "line": 2488,
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
@@ -907,7 +907,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 2599,
+    "line": 2600,
     "column": 19,
     "kind": "timeout",
     "disposition": "propagates",
@@ -920,7 +920,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 2614,
+    "line": 2615,
     "column": 5,
     "kind": "catch",
     "disposition": "diagnostics-isolated",
@@ -929,7 +929,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 2632,
+    "line": 2633,
     "column": 32,
     "kind": "timeout",
     "disposition": "propagates",
@@ -942,7 +942,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 2709,
+    "line": 2710,
     "column": 5,
     "kind": "catch",
     "disposition": "expected-recovery",
@@ -951,7 +951,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 2735,
+    "line": 2736,
     "column": 5,
     "kind": "catch",
     "disposition": "diagnostics-isolated",
@@ -960,7 +960,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 2790,
+    "line": 2791,
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
@@ -973,7 +973,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 2988,
+    "line": 2989,
     "column": 5,
     "kind": "throw",
     "disposition": "validation",
@@ -982,7 +982,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 3006,
+    "line": 3007,
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
@@ -995,7 +995,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 3016,
+    "line": 3017,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -1004,7 +1004,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 3036,
+    "line": 3037,
     "column": 9,
     "kind": "catch",
     "disposition": "recorded",
@@ -1017,7 +1017,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 3048,
+    "line": 3049,
     "column": 5,
     "kind": "throw",
     "disposition": "validation",
@@ -1026,7 +1026,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 3100,
+    "line": 3101,
     "column": 5,
     "kind": "throw",
     "disposition": "validation",
@@ -1035,7 +1035,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 3109,
+    "line": 3110,
     "column": 5,
     "kind": "throw",
     "disposition": "validation",
@@ -1044,7 +1044,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 3642,
+    "line": 3643,
     "column": 5,
     "kind": "catch",
     "disposition": "expected-recovery",
@@ -1053,7 +1053,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 3656,
+    "line": 3657,
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
@@ -1066,7 +1066,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 3703,
+    "line": 3704,
     "column": 5,
     "kind": "catch",
     "disposition": "expected-recovery",
@@ -1075,7 +1075,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 3732,
+    "line": 3733,
     "column": 5,
     "kind": "catch",
     "disposition": "expected-recovery",
@@ -1084,7 +1084,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 3766,
+    "line": 3767,
     "column": 6,
     "kind": "catch",
     "disposition": "propagates",
@@ -1097,7 +1097,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 3838,
+    "line": 3839,
     "column": 8,
     "kind": "catch",
     "disposition": "propagates",
@@ -1110,7 +1110,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 3927,
+    "line": 3928,
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
@@ -1123,7 +1123,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 3945,
+    "line": 3946,
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
@@ -1136,7 +1136,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 3979,
+    "line": 3980,
     "column": 7,
     "kind": "catch",
     "disposition": "recorded",
@@ -1149,7 +1149,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 4010,
+    "line": 4011,
     "column": 7,
     "kind": "catch",
     "disposition": "recorded",
@@ -1162,7 +1162,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 4050,
+    "line": 4051,
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
@@ -1175,7 +1175,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 4089,
+    "line": 4090,
     "column": 29,
     "kind": "timeout",
     "disposition": "propagates",
@@ -1188,7 +1188,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 4159,
+    "line": 4160,
     "column": 30,
     "kind": "timeout",
     "disposition": "propagates",
@@ -1201,7 +1201,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 4196,
+    "line": 4197,
     "column": 31,
     "kind": "timeout",
     "disposition": "scheduled",
@@ -1210,7 +1210,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 4284,
+    "line": 4285,
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
@@ -1223,7 +1223,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 4370,
+    "line": 4371,
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
@@ -1236,7 +1236,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 4391,
+    "line": 4392,
     "column": 11,
     "kind": "timeout",
     "disposition": "propagates",
@@ -1249,7 +1249,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 4429,
+    "line": 4430,
     "column": 6,
     "kind": "catch",
     "disposition": "propagates",
@@ -1262,7 +1262,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 4526,
+    "line": 4527,
     "column": 5,
     "kind": "timeout",
     "disposition": "scheduled",
@@ -1271,7 +1271,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 4598,
+    "line": 4599,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -1280,7 +1280,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 4606,
+    "line": 4607,
     "column": 7,
     "kind": "throw",
     "disposition": "propagates",
@@ -1293,7 +1293,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 4614,
+    "line": 4615,
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
@@ -1306,7 +1306,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 4693,
+    "line": 4694,
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
@@ -1319,7 +1319,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 4879,
+    "line": 4880,
     "column": 24,
     "kind": "timeout",
     "disposition": "scheduled",
@@ -1328,7 +1328,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 4902,
+    "line": 4903,
     "column": 5,
     "kind": "throw",
     "disposition": "validation",
@@ -1337,7 +1337,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 4976,
+    "line": 4977,
     "column": 22,
     "kind": "timeout",
     "disposition": "scheduled",
@@ -1346,7 +1346,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5010,
+    "line": 5011,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -1355,7 +1355,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5012,
+    "line": 5013,
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
@@ -1368,7 +1368,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5175,
+    "line": 5176,
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
@@ -1381,7 +1381,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5335,
+    "line": 5339,
     "column": 5,
     "kind": "timeout",
     "disposition": "propagates",
@@ -1394,7 +1394,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5372,
+    "line": 5376,
     "column": 7,
     "kind": "catch",
     "disposition": "propagates",
@@ -1407,7 +1407,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5374,
+    "line": 5378,
     "column": 7,
     "kind": "throw",
     "disposition": "propagates",
@@ -1420,7 +1420,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5388,
+    "line": 5392,
     "column": 5,
     "kind": "catch",
     "disposition": "diagnostics-isolated",
@@ -1429,7 +1429,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5390,
+    "line": 5394,
     "column": 5,
     "kind": "throw",
     "disposition": "propagates",
@@ -1442,7 +1442,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5400,
+    "line": 5404,
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
@@ -1455,7 +1455,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5421,
+    "line": 5425,
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
@@ -1468,7 +1468,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5436,
+    "line": 5440,
     "column": 7,
     "kind": "catch",
     "disposition": "recorded",
@@ -1481,7 +1481,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5452,
+    "line": 5456,
     "column": 7,
     "kind": "catch",
     "disposition": "recorded",
@@ -1494,7 +1494,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5470,
+    "line": 5474,
     "column": 7,
     "kind": "catch",
     "disposition": "recorded",
@@ -1507,7 +1507,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5483,
+    "line": 5487,
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
@@ -1520,7 +1520,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5494,
+    "line": 5498,
     "column": 5,
     "kind": "throw",
     "disposition": "propagates",
@@ -1533,7 +1533,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5526,
+    "line": 5530,
     "column": 9,
     "kind": "catch",
     "disposition": "diagnostics-isolated",
@@ -1542,7 +1542,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5539,
+    "line": 5543,
     "column": 5,
     "kind": "catch",
     "disposition": "propagates",
@@ -1555,7 +1555,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5543,
+    "line": 5547,
     "column": 5,
     "kind": "throw",
     "disposition": "propagates",
@@ -1568,7 +1568,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5554,
+    "line": 5558,
     "column": 82,
     "kind": "catch",
     "disposition": "propagates",
@@ -1581,7 +1581,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5604,
+    "line": 5608,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -1590,7 +1590,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5698,
+    "line": 5702,
     "column": 36,
     "kind": "throw",
     "disposition": "validation",
@@ -1599,7 +1599,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5707,
+    "line": 5711,
     "column": 46,
     "kind": "throw",
     "disposition": "validation",
@@ -1608,7 +1608,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5715,
+    "line": 5719,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -1617,7 +1617,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5727,
+    "line": 5731,
     "column": 33,
     "kind": "throw",
     "disposition": "validation",
@@ -1626,7 +1626,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5732,
+    "line": 5736,
     "column": 33,
     "kind": "throw",
     "disposition": "validation",
@@ -1635,7 +1635,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5737,
+    "line": 5741,
     "column": 46,
     "kind": "throw",
     "disposition": "validation",
@@ -1644,7 +1644,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5747,
+    "line": 5751,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -1653,7 +1653,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5753,
+    "line": 5757,
     "column": 46,
     "kind": "throw",
     "disposition": "validation",
@@ -1662,7 +1662,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5756,
+    "line": 5760,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -1671,7 +1671,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5766,
+    "line": 5770,
     "column": 33,
     "kind": "throw",
     "disposition": "validation",
@@ -1680,7 +1680,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5775,
+    "line": 5779,
     "column": 33,
     "kind": "throw",
     "disposition": "validation",
@@ -1689,7 +1689,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5780,
+    "line": 5784,
     "column": 33,
     "kind": "throw",
     "disposition": "validation",
@@ -1698,7 +1698,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5797,
+    "line": 5801,
     "column": 32,
     "kind": "throw",
     "disposition": "validation",
@@ -1707,7 +1707,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5805,
+    "line": 5809,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -1716,7 +1716,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5808,
+    "line": 5812,
     "column": 37,
     "kind": "throw",
     "disposition": "validation",
@@ -1725,7 +1725,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5813,
+    "line": 5817,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -1734,7 +1734,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5829,
+    "line": 5833,
     "column": 11,
     "kind": "throw",
     "disposition": "validation",
@@ -1743,7 +1743,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5843,
+    "line": 5847,
     "column": 13,
     "kind": "throw",
     "disposition": "validation",
@@ -1752,7 +1752,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5880,
+    "line": 5884,
     "column": 11,
     "kind": "throw",
     "disposition": "validation",
@@ -1761,17 +1761,8 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5934,
+    "line": 5938,
     "column": 11,
-    "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
-    "reviewer": "desktop-gateway-0143"
-  },
-  {
-    "file": "apps/desktop/src/main.ts",
-    "line": 5958,
-    "column": 45,
     "kind": "throw",
     "disposition": "validation",
     "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
@@ -1780,6 +1771,15 @@
   {
     "file": "apps/desktop/src/main.ts",
     "line": 5962,
+    "column": 45,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 5966,
     "column": 50,
     "kind": "throw",
     "disposition": "validation",
@@ -1788,7 +1788,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5964,
+    "line": 5968,
     "column": 13,
     "kind": "throw",
     "disposition": "validation",
@@ -1797,7 +1797,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 5990,
+    "line": 5994,
     "column": 13,
     "kind": "catch",
     "disposition": "expected-recovery",
@@ -1806,7 +1806,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6007,
+    "line": 6011,
     "column": 11,
     "kind": "throw",
     "disposition": "validation",
@@ -1815,7 +1815,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6043,
+    "line": 6047,
     "column": 11,
     "kind": "throw",
     "disposition": "validation",
@@ -1824,7 +1824,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6072,
+    "line": 6076,
     "column": 11,
     "kind": "throw",
     "disposition": "validation",
@@ -1833,16 +1833,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6093,
-    "column": 11,
-    "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
-    "reviewer": "desktop-gateway-0143"
-  },
-  {
-    "file": "apps/desktop/src/main.ts",
-    "line": 6126,
+    "line": 6097,
     "column": 11,
     "kind": "throw",
     "disposition": "validation",
@@ -1860,7 +1851,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6147,
+    "line": 6134,
     "column": 11,
     "kind": "throw",
     "disposition": "validation",
@@ -1869,7 +1860,16 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6150,
+    "line": 6151,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6154,
     "column": 46,
     "kind": "throw",
     "disposition": "validation",
@@ -1878,16 +1878,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6158,
-    "column": 40,
-    "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
-    "reviewer": "desktop-gateway-0143"
-  },
-  {
-    "file": "apps/desktop/src/main.ts",
-    "line": 6161,
+    "line": 6162,
     "column": 40,
     "kind": "throw",
     "disposition": "validation",
@@ -1914,7 +1905,16 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6175,
+    "line": 6173,
+    "column": 40,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6179,
     "column": 11,
     "kind": "throw",
     "disposition": "validation",
@@ -1923,7 +1923,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6178,
+    "line": 6182,
     "column": 39,
     "kind": "throw",
     "disposition": "validation",
@@ -1932,7 +1932,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6186,
+    "line": 6190,
     "column": 20,
     "kind": "throw",
     "disposition": "validation",
@@ -1941,7 +1941,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6198,
+    "line": 6202,
     "column": 11,
     "kind": "throw",
     "disposition": "validation",
@@ -1950,7 +1950,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6203,
+    "line": 6207,
     "column": 11,
     "kind": "throw",
     "disposition": "validation",
@@ -1959,7 +1959,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6222,
+    "line": 6226,
     "column": 11,
     "kind": "throw",
     "disposition": "propagates",
@@ -1972,7 +1972,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6225,
+    "line": 6229,
     "column": 13,
     "kind": "throw",
     "disposition": "validation",
@@ -1981,7 +1981,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6239,
+    "line": 6243,
     "column": 13,
     "kind": "throw",
     "disposition": "validation",
@@ -1990,7 +1990,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6248,
+    "line": 6252,
     "column": 11,
     "kind": "throw",
     "disposition": "validation",
@@ -1999,7 +1999,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6275,
+    "line": 6279,
     "column": 9,
     "kind": "throw",
     "disposition": "validation",
@@ -2008,7 +2008,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6280,
+    "line": 6284,
     "column": 9,
     "kind": "throw",
     "disposition": "validation",
@@ -2017,7 +2017,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6289,
+    "line": 6293,
     "column": 26,
     "kind": "throw",
     "disposition": "validation",
@@ -2026,7 +2026,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6295,
+    "line": 6299,
     "column": 26,
     "kind": "throw",
     "disposition": "validation",
@@ -2035,7 +2035,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6301,
+    "line": 6305,
     "column": 26,
     "kind": "throw",
     "disposition": "validation",
@@ -2044,7 +2044,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6320,
+    "line": 6324,
     "column": 29,
     "kind": "throw",
     "disposition": "validation",
@@ -2053,7 +2053,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6337,
+    "line": 6341,
     "column": 28,
     "kind": "throw",
     "disposition": "validation",
@@ -2062,7 +2062,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6339,
+    "line": 6343,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2071,7 +2071,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6391,
+    "line": 6395,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2080,7 +2080,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6410,
+    "line": 6414,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2089,7 +2089,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6416,
+    "line": 6420,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2098,7 +2098,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6435,
+    "line": 6439,
     "column": 10,
     "kind": "catch",
     "disposition": "diagnostics-isolated",
@@ -2107,7 +2107,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6447,
+    "line": 6451,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2116,7 +2116,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6460,
+    "line": 6464,
     "column": 38,
     "kind": "throw",
     "disposition": "validation",
@@ -2125,7 +2125,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6509,
+    "line": 6513,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2134,7 +2134,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6521,
+    "line": 6525,
     "column": 26,
     "kind": "throw",
     "disposition": "validation",
@@ -2143,7 +2143,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6524,
+    "line": 6528,
     "column": 7,
     "kind": "throw",
     "disposition": "propagates",
@@ -2156,7 +2156,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6531,
+    "line": 6535,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2165,7 +2165,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6537,
+    "line": 6541,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2174,7 +2174,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6540,
+    "line": 6544,
     "column": 37,
     "kind": "throw",
     "disposition": "validation",
@@ -2183,7 +2183,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6552,
+    "line": 6556,
     "column": 69,
     "kind": "catch",
     "disposition": "propagates",
@@ -2196,7 +2196,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6615,
+    "line": 6619,
     "column": 10,
     "kind": "catch",
     "disposition": "diagnostics-isolated",
@@ -2205,7 +2205,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6621,
+    "line": 6625,
     "column": 34,
     "kind": "throw",
     "disposition": "validation",
@@ -2214,7 +2214,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6628,
+    "line": 6632,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2223,7 +2223,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6630,
+    "line": 6634,
     "column": 34,
     "kind": "throw",
     "disposition": "validation",
@@ -2232,7 +2232,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6636,
+    "line": 6640,
     "column": 34,
     "kind": "throw",
     "disposition": "validation",
@@ -2241,7 +2241,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6642,
+    "line": 6646,
     "column": 35,
     "kind": "throw",
     "disposition": "validation",
@@ -2250,7 +2250,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6649,
+    "line": 6653,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2259,7 +2259,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6652,
+    "line": 6656,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2268,7 +2268,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6658,
+    "line": 6662,
     "column": 35,
     "kind": "throw",
     "disposition": "validation",
@@ -2277,7 +2277,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6664,
+    "line": 6668,
     "column": 26,
     "kind": "throw",
     "disposition": "validation",
@@ -2286,26 +2286,8 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6671,
+    "line": 6675,
     "column": 7,
-    "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
-    "reviewer": "desktop-gateway-0143"
-  },
-  {
-    "file": "apps/desktop/src/main.ts",
-    "line": 6677,
-    "column": 7,
-    "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
-    "reviewer": "desktop-gateway-0143"
-  },
-  {
-    "file": "apps/desktop/src/main.ts",
-    "line": 6680,
-    "column": 37,
     "kind": "throw",
     "disposition": "validation",
     "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
@@ -2314,6 +2296,24 @@
   {
     "file": "apps/desktop/src/main.ts",
     "line": 6681,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6684,
+    "column": 37,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6685,
     "column": 26,
     "kind": "throw",
     "disposition": "validation",
@@ -2322,7 +2322,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6686,
+    "line": 6690,
     "column": 48,
     "kind": "throw",
     "disposition": "validation",
@@ -2331,7 +2331,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6702,
+    "line": 6706,
     "column": 11,
     "kind": "throw",
     "disposition": "validation",
@@ -2340,16 +2340,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6705,
-    "column": 11,
-    "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
-    "reviewer": "desktop-gateway-0143"
-  },
-  {
-    "file": "apps/desktop/src/main.ts",
-    "line": 6724,
+    "line": 6709,
     "column": 11,
     "kind": "throw",
     "disposition": "validation",
@@ -2367,7 +2358,16 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6738,
+    "line": 6732,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 6742,
     "column": 40,
     "kind": "throw",
     "disposition": "validation",
@@ -2376,7 +2376,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6743,
+    "line": 6747,
     "column": 11,
     "kind": "throw",
     "disposition": "validation",
@@ -2385,7 +2385,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6746,
+    "line": 6750,
     "column": 11,
     "kind": "throw",
     "disposition": "validation",
@@ -2394,7 +2394,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6754,
+    "line": 6758,
     "column": 11,
     "kind": "throw",
     "disposition": "validation",
@@ -2403,7 +2403,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6773,
+    "line": 6777,
     "column": 11,
     "kind": "throw",
     "disposition": "validation",
@@ -2412,7 +2412,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6776,
+    "line": 6780,
     "column": 11,
     "kind": "throw",
     "disposition": "validation",
@@ -2421,7 +2421,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6778,
+    "line": 6782,
     "column": 11,
     "kind": "throw",
     "disposition": "validation",
@@ -2430,7 +2430,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6798,
+    "line": 6802,
     "column": 11,
     "kind": "throw",
     "disposition": "propagates",
@@ -2443,7 +2443,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6809,
+    "line": 6813,
     "column": 9,
     "kind": "throw",
     "disposition": "validation",
@@ -2452,7 +2452,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6821,
+    "line": 6825,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2461,7 +2461,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6827,
+    "line": 6831,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2470,7 +2470,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6840,
+    "line": 6844,
     "column": 10,
     "kind": "catch",
     "disposition": "diagnostics-isolated",
@@ -2479,7 +2479,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6847,
+    "line": 6851,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2488,7 +2488,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6850,
+    "line": 6854,
     "column": 44,
     "kind": "throw",
     "disposition": "validation",
@@ -2497,7 +2497,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6857,
+    "line": 6861,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2506,7 +2506,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6874,
+    "line": 6878,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2515,7 +2515,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6881,
+    "line": 6885,
     "column": 7,
     "kind": "throw",
     "disposition": "propagates",
@@ -2528,7 +2528,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6886,
+    "line": 6890,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2537,7 +2537,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6980,
+    "line": 6984,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2546,7 +2546,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6983,
+    "line": 6987,
     "column": 7,
     "kind": "throw",
     "disposition": "propagates",
@@ -2559,7 +2559,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6990,
+    "line": 6994,
     "column": 19,
     "kind": "throw",
     "disposition": "propagates",
@@ -2572,7 +2572,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 6993,
+    "line": 6997,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2581,7 +2581,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7012,
+    "line": 7016,
     "column": 19,
     "kind": "throw",
     "disposition": "propagates",
@@ -2594,7 +2594,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7015,
+    "line": 7019,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2603,7 +2603,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7034,
+    "line": 7038,
     "column": 19,
     "kind": "throw",
     "disposition": "propagates",
@@ -2616,7 +2616,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7037,
+    "line": 7041,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2625,7 +2625,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7074,
+    "line": 7078,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2634,7 +2634,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7077,
+    "line": 7081,
     "column": 16,
     "kind": "throw",
     "disposition": "propagates",
@@ -2647,7 +2647,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7123,
+    "line": 7127,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2656,7 +2656,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7175,
+    "line": 7179,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2665,7 +2665,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7240,
+    "line": 7244,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2674,7 +2674,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7246,
+    "line": 7250,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2683,7 +2683,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7249,
+    "line": 7253,
     "column": 7,
     "kind": "throw",
     "disposition": "propagates",
@@ -2696,7 +2696,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7264,
+    "line": 7268,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2705,7 +2705,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7267,
+    "line": 7271,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2714,7 +2714,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7270,
+    "line": 7274,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2723,7 +2723,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7284,
+    "line": 7288,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2732,7 +2732,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7287,
+    "line": 7291,
     "column": 7,
     "kind": "throw",
     "disposition": "propagates",
@@ -2745,7 +2745,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7292,
+    "line": 7296,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2754,7 +2754,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7297,
+    "line": 7301,
     "column": 9,
     "kind": "throw",
     "disposition": "validation",
@@ -2763,7 +2763,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7300,
+    "line": 7304,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2772,7 +2772,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7302,
+    "line": 7306,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2781,7 +2781,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7307,
+    "line": 7311,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2790,7 +2790,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7334,
+    "line": 7338,
     "column": 9,
     "kind": "catch",
     "disposition": "diagnostics-isolated",
@@ -2799,7 +2799,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7385,
+    "line": 7389,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2808,7 +2808,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7397,
+    "line": 7401,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2817,7 +2817,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7444,
+    "line": 7448,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2826,7 +2826,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7447,
+    "line": 7451,
     "column": 7,
     "kind": "throw",
     "disposition": "propagates",
@@ -2839,7 +2839,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7455,
+    "line": 7459,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2848,7 +2848,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7458,
+    "line": 7462,
     "column": 7,
     "kind": "throw",
     "disposition": "propagates",
@@ -2861,7 +2861,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7504,
+    "line": 7508,
     "column": 7,
     "kind": "catch",
     "disposition": "recorded",
@@ -2874,7 +2874,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7522,
+    "line": 7526,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2883,7 +2883,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7525,
+    "line": 7529,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2892,7 +2892,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7533,
+    "line": 7537,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2901,7 +2901,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7538,
+    "line": 7542,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2910,7 +2910,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7556,
+    "line": 7560,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2919,16 +2919,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7559,
-    "column": 7,
-    "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
-    "reviewer": "desktop-gateway-0143"
-  },
-  {
-    "file": "apps/desktop/src/main.ts",
-    "line": 7567,
+    "line": 7563,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2946,7 +2937,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7580,
+    "line": 7575,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2955,7 +2946,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7585,
+    "line": 7584,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2964,7 +2955,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7627,
+    "line": 7589,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2973,7 +2964,16 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7634,
+    "line": 7631,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 7638,
     "column": 7,
     "kind": "catch",
     "disposition": "recorded",
@@ -2986,7 +2986,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7642,
+    "line": 7646,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -2995,7 +2995,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7648,
+    "line": 7652,
     "column": 9,
     "kind": "throw",
     "disposition": "validation",
@@ -3004,7 +3004,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7792,
+    "line": 7796,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -3013,7 +3013,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 7968,
+    "line": 7972,
     "column": 45,
     "kind": "catch",
     "disposition": "propagates",
@@ -3026,7 +3026,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 8118,
+    "line": 8122,
     "column": 7,
     "kind": "catch",
     "disposition": "recorded",
@@ -3039,7 +3039,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 8210,
+    "line": 8214,
     "column": 23,
     "kind": "timeout",
     "disposition": "scheduled",
@@ -3048,7 +3048,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 8507,
+    "line": 8511,
     "column": 9,
     "kind": "throw",
     "disposition": "propagates",
@@ -3061,7 +3061,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 8516,
+    "line": 8520,
     "column": 11,
     "kind": "throw",
     "disposition": "validation",
@@ -3070,7 +3070,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 8521,
+    "line": 8525,
     "column": 11,
     "kind": "throw",
     "disposition": "validation",
@@ -3079,7 +3079,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 8537,
+    "line": 8541,
     "column": 11,
     "kind": "throw",
     "disposition": "validation",
@@ -3088,7 +3088,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 8560,
+    "line": 8564,
     "column": 9,
     "kind": "throw",
     "disposition": "validation",
@@ -3097,7 +3097,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 8575,
+    "line": 8579,
     "column": 13,
     "kind": "throw",
     "disposition": "propagates",
@@ -3110,7 +3110,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 8578,
+    "line": 8582,
     "column": 13,
     "kind": "throw",
     "disposition": "validation",
@@ -3119,7 +3119,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 8590,
+    "line": 8594,
     "column": 13,
     "kind": "throw",
     "disposition": "propagates",
@@ -3132,7 +3132,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 8593,
+    "line": 8597,
     "column": 13,
     "kind": "throw",
     "disposition": "validation",
@@ -3141,7 +3141,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 8606,
+    "line": 8610,
     "column": 13,
     "kind": "throw",
     "disposition": "validation",
@@ -3150,7 +3150,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 8613,
+    "line": 8617,
     "column": 13,
     "kind": "throw",
     "disposition": "validation",
@@ -3159,7 +3159,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 8620,
+    "line": 8624,
     "column": 13,
     "kind": "throw",
     "disposition": "validation",
@@ -3168,7 +3168,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 8625,
+    "line": 8629,
     "column": 11,
     "kind": "throw",
     "disposition": "validation",
@@ -3177,7 +3177,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 8658,
+    "line": 8662,
     "column": 9,
     "kind": "throw",
     "disposition": "propagates",
@@ -3190,7 +3190,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 8678,
+    "line": 8682,
     "column": 5,
     "kind": "throw",
     "disposition": "validation",
@@ -3199,7 +3199,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 8720,
+    "line": 8724,
     "column": 7,
     "kind": "catch",
     "disposition": "expected-recovery",
@@ -3208,7 +3208,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 8748,
+    "line": 8752,
     "column": 54,
     "kind": "catch",
     "disposition": "propagates",
@@ -3221,7 +3221,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 8764,
+    "line": 8768,
     "column": 9,
     "kind": "throw",
     "disposition": "propagates",
@@ -3234,7 +3234,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 8792,
+    "line": 8796,
     "column": 10,
     "kind": "catch",
     "disposition": "diagnostics-isolated",
@@ -3243,7 +3243,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 8799,
+    "line": 8803,
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
@@ -3256,7 +3256,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 8821,
+    "line": 8825,
     "column": 9,
     "kind": "throw",
     "disposition": "validation",
@@ -3265,7 +3265,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 8831,
+    "line": 8835,
     "column": 9,
     "kind": "catch",
     "disposition": "recorded",
@@ -3278,7 +3278,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 8839,
+    "line": 8843,
     "column": 9,
     "kind": "throw",
     "disposition": "propagates",
@@ -3291,20 +3291,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 8849,
-    "column": 9,
-    "kind": "throw",
-    "disposition": "propagates",
-    "reason": "The service-state helper records the invariant failure before returning this error.",
-    "boundary": {
-      "code": "INVARIANT_VIOLATED",
-      "where": "desktop.service_unavailable"
-    },
-    "reviewer": "desktop-gateway-0143"
-  },
-  {
-    "file": "apps/desktop/src/main.ts",
-    "line": 8887,
+    "line": 8853,
     "column": 9,
     "kind": "throw",
     "disposition": "propagates",
@@ -3320,13 +3307,26 @@
     "line": 8891,
     "column": 9,
     "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The service-state helper records the invariant failure before returning this error.",
+    "boundary": {
+      "code": "INVARIANT_VIOLATED",
+      "where": "desktop.service_unavailable"
+    },
+    "reviewer": "desktop-gateway-0143"
+  },
+  {
+    "file": "apps/desktop/src/main.ts",
+    "line": 8895,
+    "column": 9,
+    "kind": "throw",
     "disposition": "validation",
     "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
     "reviewer": "desktop-gateway-0143"
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 8915,
+    "line": 8919,
     "column": 8,
     "kind": "catch",
     "disposition": "propagates",
@@ -3339,7 +3339,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 8957,
+    "line": 8961,
     "column": 9,
     "kind": "throw",
     "disposition": "propagates",
@@ -3352,7 +3352,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 8959,
+    "line": 8963,
     "column": 7,
     "kind": "catch",
     "disposition": "recorded",
@@ -3365,7 +3365,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 9019,
+    "line": 9023,
     "column": 9,
     "kind": "catch",
     "disposition": "propagates",
@@ -3378,7 +3378,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 9024,
+    "line": 9028,
     "column": 9,
     "kind": "throw",
     "disposition": "diagnostics-isolated",
@@ -3387,7 +3387,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 9027,
+    "line": 9031,
     "column": 24,
     "kind": "catch",
     "disposition": "propagates",
@@ -3400,7 +3400,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 9057,
+    "line": 9061,
     "column": 14,
     "kind": "catch",
     "disposition": "propagates",
@@ -3413,7 +3413,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 9083,
+    "line": 9087,
     "column": 6,
     "kind": "catch",
     "disposition": "propagates",
@@ -3426,7 +3426,7 @@
   },
   {
     "file": "apps/desktop/src/main.ts",
-    "line": 9125,
+    "line": 9129,
     "column": 7,
     "kind": "throw",
     "disposition": "diagnostics-isolated",

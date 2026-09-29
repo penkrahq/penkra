@@ -177,6 +177,7 @@ import {
 } from "./resumableUpdateDownload";
 import { hardenElectronUpdater } from "./electronUpdaterSecurity";
 import { ServerListeningDetector } from "./serverListeningDetector";
+import { createBackendStartupIncidentRecorder } from "./backendStartupIncident";
 import { BackendStartupBlockDetector, type BackendStartupBlock } from "./backendStartupBlock";
 import {
   BACKEND_MAX_CONSECUTIVE_START_FAILURES,
@@ -5231,6 +5232,7 @@ function startBackend(trigger: BackendStartTrigger = "lifecycle"): void {
     stdio: ["ignore", "pipe", "pipe"],
   });
   const listeningDetector = new ServerListeningDetector();
+  const startupIncident = createBackendStartupIncidentRecorder(recordDiagnosticIncident);
   const startupBlockDetector = new BackendStartupBlockDetector();
   const outputTailDetector = new BackendOutputTailDetector();
   backendListeningDetector = listeningDetector;
@@ -5265,6 +5267,7 @@ function startBackend(trigger: BackendStartTrigger = "lifecycle"): void {
   void listeningDetector.promise.then(
     () => {
       if (backendListeningDetector === listeningDetector) {
+        startupIncident.markReady();
         backendSupervision.recordReadiness();
       }
     },
@@ -5285,6 +5288,7 @@ function startBackend(trigger: BackendStartTrigger = "lifecycle"): void {
   });
 
   child.on("exit", (code, signal) => {
+    if (!isQuitting && backendProcess === child) startupIncident.recordExit(code);
     if (backendListeningDetector === listeningDetector) {
       listeningDetector.fail(
         new Error(
