@@ -14,6 +14,47 @@ import {
   traceForDiagnosticCommand,
 } from "../../diagnostics/recorder.ts";
 
+type ProviderReactorAction =
+  | "title-generation"
+  | "workspace-lookup"
+  | "retry-stop"
+  | "turn-start"
+  | "skill-inline"
+  | "connection-probe"
+  | "task-stop"
+  | "task-background"
+  | "interaction-response"
+  | "quarantine-surface"
+  | "timeout-surface"
+  | "queue-recovery"
+  | "event-processing"
+  | "queue-drain"
+  | "blocker-heal"
+  | "outbox-recovery";
+
+function reportProviderReactorFailure(
+  reactorAction: ProviderReactorAction,
+  threadId?: string,
+  commandId?: string,
+): Effect.Effect<void> {
+  return Effect.sync(() =>
+    recordDiagnosticIncident({
+      ...(commandId
+        ? (traceForDiagnosticCommand(commandId) ?? startDiagnosticTrace())
+        : startDiagnosticTrace()),
+      ...(threadId ? { threadId } : {}),
+      ...(commandId ? { commandId } : {}),
+      kind: "external.failed",
+      code: "EXTERNAL_CALL_FAILED",
+      where: "provider.reactor",
+      severity: "error",
+      expected: { accepted: true },
+      actual: { accepted: false },
+      context: { reactorAction },
+    }),
+  );
+}
+
 import {
   type ChatAttachment,
   CommandId,
@@ -567,7 +608,11 @@ const make = Effect.gen(function* () {
     return Option.getOrUndefined(
       yield* projectionSnapshotQuery
         .getFolderShellById(thread.folderId)
-        .pipe(Effect.catch(() => Effect.succeed(Option.none()))),
+        .pipe(
+          Effect.catch(() =>
+            reportProviderReactorFailure("workspace-lookup").pipe(Effect.as(Option.none())),
+          ),
+        ),
     );
   });
 
@@ -1570,10 +1615,15 @@ const make = Effect.gen(function* () {
               }),
             ).pipe(
               Effect.catch((error) =>
-                Effect.logWarning("failed to inline portable skill instructions", {
-                  threadId: input.threadId,
-                  error,
-                }).pipe(Effect.as("")),
+                reportProviderReactorFailure("skill-inline", input.threadId).pipe(
+                  Effect.andThen(
+                    Effect.logWarning("failed to inline portable skill instructions", {
+                      threadId: input.threadId,
+                      error,
+                    }),
+                  ),
+                  Effect.as(""),
+                ),
               ),
             )
           : "";
@@ -1678,10 +1728,15 @@ const make = Effect.gen(function* () {
             }),
           ).pipe(
             Effect.catch((error) =>
-              Effect.logWarning("failed to inline portable skill instructions", {
-                threadId: input.threadId,
-                error,
-              }).pipe(Effect.as("")),
+              reportProviderReactorFailure("skill-inline", input.threadId).pipe(
+                Effect.andThen(
+                  Effect.logWarning("failed to inline portable skill instructions", {
+                    threadId: input.threadId,
+                    error,
+                  }),
+                ),
+                Effect.as(""),
+              ),
             ),
           )
         : "";
@@ -1840,7 +1895,7 @@ const make = Effect.gen(function* () {
             }
             yield* providerService
               .stopRuntimeSession({ threadId: input.threadId })
-              .pipe(Effect.catch(() => Effect.void));
+              .pipe(Effect.catch(() => reportProviderReactorFailure("retry-stop", input.threadId)));
             yield* ensureSessionForStaleRetry;
             yield* Effect.logWarning(
               "provider command reactor retrying claude turn with native resume",
@@ -1952,10 +2007,15 @@ const make = Effect.gen(function* () {
     const nextTitle = yield* textGeneration.generateThreadTitle(titleGenerationInput).pipe(
       Effect.map((generated) => generated.title),
       Effect.catch((error) =>
-        Effect.logWarning("provider command reactor failed to generate thread title", {
-          ...textGenerationLogContext,
-          reason: error.message,
-        }).pipe(Effect.as(currentTitle)),
+        reportProviderReactorFailure("title-generation", input.threadId).pipe(
+          Effect.andThen(
+            Effect.logWarning("provider command reactor failed to generate thread title", {
+              ...textGenerationLogContext,
+              reason: error.message,
+            }),
+          ),
+          Effect.as(currentTitle),
+        ),
       ),
     );
 
@@ -2293,6 +2353,11 @@ const make = Effect.gen(function* () {
           Cause.hasInterruptsOnly(cause)
             ? Effect.failCause(cause)
             : Effect.gen(function* () {
+                yield* reportProviderReactorFailure(
+                  "turn-start",
+                  event.payload.threadId,
+                  event.commandId ?? undefined,
+                );
                 const detail = Cause.pretty(cause);
                 const failure = Option.getOrUndefined(Cause.findErrorOption(cause));
                 const failedBeforeProviderDispatch =
@@ -3122,7 +3187,11 @@ const make = Effect.gen(function* () {
       const probeSucceeded = !profileChanged
         ? yield* providerDiscovery
             .probeConnection({ provider: circuit.harness, connectionId: circuit.connectionId })
-            .pipe(Effect.catch(() => Effect.succeed(false)))
+            .pipe(
+              Effect.catch(() =>
+                reportProviderReactorFailure("connection-probe").pipe(Effect.as(false)),
+              ),
+            )
         : false;
       if (profileChanged || probeSucceeded) {
         yield* authCircuits.close(circuit.connectionId);
@@ -3203,9 +3272,13 @@ const make = Effect.gen(function* () {
       if (Cause.hasInterruptsOnly(cause)) {
         return Effect.failCause(cause);
       }
-      return Effect.logWarning("provider command reactor failed to recover queued turns", {
-        cause: Cause.pretty(cause),
-      });
+      return reportProviderReactorFailure("queue-recovery").pipe(
+        Effect.andThen(
+          Effect.logWarning("provider command reactor failed to recover queued turns", {
+            cause: Cause.pretty(cause),
+          }),
+        ),
+      );
     }),
   );
 
@@ -3333,14 +3406,18 @@ const make = Effect.gen(function* () {
       })
       .pipe(
         Effect.catchCause((cause) =>
-          appendProviderFailureActivity({
-            threadId: event.payload.threadId,
-            kind: "provider.task.stop.failed",
-            summary: "Provider task stop failed",
-            detail: Cause.pretty(cause),
-            turnId: null,
-            createdAt: event.payload.createdAt,
-          }),
+          reportProviderReactorFailure("task-stop", event.payload.threadId).pipe(
+            Effect.andThen(
+              appendProviderFailureActivity({
+                threadId: event.payload.threadId,
+                kind: "provider.task.stop.failed",
+                summary: "Provider task stop failed",
+                detail: Cause.pretty(cause),
+                turnId: null,
+                createdAt: event.payload.createdAt,
+              }),
+            ),
+          ),
         ),
       );
   });
@@ -3368,14 +3445,18 @@ const make = Effect.gen(function* () {
       })
       .pipe(
         Effect.catchCause((cause) =>
-          appendProviderFailureActivity({
-            threadId: event.payload.threadId,
-            kind: "provider.task.background.failed",
-            summary: "Provider task background failed",
-            detail: Cause.pretty(cause),
-            turnId: null,
-            createdAt: event.payload.createdAt,
-          }),
+          reportProviderReactorFailure("task-background", event.payload.threadId).pipe(
+            Effect.andThen(
+              appendProviderFailureActivity({
+                threadId: event.payload.threadId,
+                kind: "provider.task.background.failed",
+                summary: "Provider task background failed",
+                detail: Cause.pretty(cause),
+                turnId: null,
+                createdAt: event.payload.createdAt,
+              }),
+            ),
+          ),
         ),
       );
   });
@@ -3479,16 +3560,20 @@ const make = Effect.gen(function* () {
         Effect.asVoid,
         Effect.catchCause((cause) => {
           const unknownPendingRequest = isUnknownPendingInteractionError(cause);
-          return appendInteractionResponseFailure(event, {
-            interactionKind: "approval",
-            detail: unknownPendingRequest
-              ? buildStalePendingRequestFailureDetail("approval", event.payload.requestId)
-              : Cause.pretty(cause),
-            settlementStatus: interactionFailureSettlementStatus(cause, unknownPendingRequest),
-            ...(unknownPendingRequest
-              ? { failureCode: PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE }
-              : {}),
-          });
+          return reportProviderReactorFailure("interaction-response", event.payload.threadId).pipe(
+            Effect.andThen(
+              appendInteractionResponseFailure(event, {
+                interactionKind: "approval",
+                detail: unknownPendingRequest
+                  ? buildStalePendingRequestFailureDetail("approval", event.payload.requestId)
+                  : Cause.pretty(cause),
+                settlementStatus: interactionFailureSettlementStatus(cause, unknownPendingRequest),
+                ...(unknownPendingRequest
+                  ? { failureCode: PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE }
+                  : {}),
+              }),
+            ),
+          );
         }),
       );
   });
@@ -3516,16 +3601,20 @@ const make = Effect.gen(function* () {
         Effect.asVoid,
         Effect.catchCause((cause) => {
           const unknownPendingRequest = isUnknownPendingInteractionError(cause);
-          return appendInteractionResponseFailure(event, {
-            interactionKind: "userInput",
-            detail: unknownPendingRequest
-              ? buildStalePendingRequestFailureDetail("user-input", event.payload.requestId)
-              : Cause.pretty(cause),
-            settlementStatus: interactionFailureSettlementStatus(cause, unknownPendingRequest),
-            ...(unknownPendingRequest
-              ? { failureCode: PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE }
-              : {}),
-          });
+          return reportProviderReactorFailure("interaction-response", event.payload.threadId).pipe(
+            Effect.andThen(
+              appendInteractionResponseFailure(event, {
+                interactionKind: "userInput",
+                detail: unknownPendingRequest
+                  ? buildStalePendingRequestFailureDetail("user-input", event.payload.requestId)
+                  : Cause.pretty(cause),
+                settlementStatus: interactionFailureSettlementStatus(cause, unknownPendingRequest),
+                ...(unknownPendingRequest
+                  ? { failureCode: PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE }
+                  : {}),
+              }),
+            ),
+          );
         }),
       );
   });
@@ -4201,10 +4290,18 @@ const make = Effect.gen(function* () {
         if (Cause.hasInterruptsOnly(cause)) {
           return Effect.failCause(cause);
         }
-        return Effect.logWarning("provider command reactor failed to process event", {
-          eventType: event.type,
-          cause: Cause.pretty(cause),
-        });
+        return reportProviderReactorFailure(
+          "event-processing",
+          event.payload.threadId,
+          event.commandId ?? undefined,
+        ).pipe(
+          Effect.andThen(
+            Effect.logWarning("provider command reactor failed to process event", {
+              eventType: event.type,
+              cause: Cause.pretty(cause),
+            }),
+          ),
+        );
       }),
     );
 
@@ -4214,11 +4311,15 @@ const make = Effect.gen(function* () {
         if (Cause.hasInterruptsOnly(cause)) {
           return Effect.failCause(cause);
         }
-        return Effect.logWarning("provider command reactor failed to drain queued turn", {
-          eventType: event.type,
-          threadId: event.threadId,
-          cause: Cause.pretty(cause),
-        });
+        return reportProviderReactorFailure("queue-drain", event.threadId).pipe(
+          Effect.andThen(
+            Effect.logWarning("provider command reactor failed to drain queued turn", {
+              eventType: event.type,
+              threadId: event.threadId,
+              cause: Cause.pretty(cause),
+            }),
+          ),
+        );
       }),
     );
 
@@ -4479,10 +4580,14 @@ const make = Effect.gen(function* () {
           });
         }).pipe(
           Effect.catchCause((cause) =>
-            Effect.logWarning("failed to surface quarantined-thread skip", {
-              threadId: event.payload.threadId,
-              cause: Cause.pretty(cause),
-            }),
+            reportProviderReactorFailure("quarantine-surface", event.payload.threadId).pipe(
+              Effect.andThen(
+                Effect.logWarning("failed to surface quarantined-thread skip", {
+                  threadId: event.payload.threadId,
+                  cause: Cause.pretty(cause),
+                }),
+              ),
+            ),
           ),
         );
       }
@@ -4624,11 +4729,15 @@ const make = Effect.gen(function* () {
           if (event.type === "thread.turn-start-requested") {
             yield* surfaceTimedOutTurnStart(event, workerResult.detail).pipe(
               Effect.catchCause((cause) =>
-                Effect.logError("failed to surface timed-out provider turn start", {
-                  eventSequence: event.sequence,
-                  threadId: event.payload.threadId,
-                  cause: Cause.pretty(cause),
-                }),
+                reportProviderReactorFailure("timeout-surface", event.payload.threadId).pipe(
+                  Effect.andThen(
+                    Effect.logError("failed to surface timed-out provider turn start", {
+                      eventSequence: event.sequence,
+                      threadId: event.payload.threadId,
+                      cause: Cause.pretty(cause),
+                    }),
+                  ),
+                ),
               ),
             );
           }
@@ -4930,9 +5039,13 @@ const make = Effect.gen(function* () {
       }
     }).pipe(
       Effect.catchCause((cause) =>
-        Effect.logWarning("provider delivery blocker auto-heal failed", {
-          cause: Cause.pretty(cause),
-        }),
+        reportProviderReactorFailure("blocker-heal").pipe(
+          Effect.andThen(
+            Effect.logWarning("provider delivery blocker auto-heal failed", {
+              cause: Cause.pretty(cause),
+            }),
+          ),
+        ),
       ),
     );
 
@@ -5164,9 +5277,14 @@ const make = Effect.gen(function* () {
         Effect.catchCause((cause) =>
           Cause.hasInterruptsOnly(cause)
             ? Effect.failCause(cause)
-            : Effect.logError("provider outbox recovery sweep failed", {
-                cause: Cause.pretty(cause),
-              }).pipe(Effect.andThen(Effect.sleep(Duration.seconds(1)))),
+            : reportProviderReactorFailure("outbox-recovery").pipe(
+                Effect.andThen(
+                  Effect.logError("provider outbox recovery sweep failed", {
+                    cause: Cause.pretty(cause),
+                  }),
+                ),
+                Effect.andThen(Effect.sleep(Duration.seconds(1))),
+              ),
         ),
       ),
     );
