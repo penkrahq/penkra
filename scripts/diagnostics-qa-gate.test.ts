@@ -126,6 +126,17 @@ describe("diagnostics clean QA gate", () => {
       });
       expect(anomaly.passed).toBe(false);
       expect(anomaly.newLosses).toBe(1);
+      runs = 0;
+      const evicted = runDiagnosticsQaGate(stateDir, scripts, () => {
+        if (++runs === 1) {
+          const db = new DatabaseSync(databasePath);
+          db.prepare("INSERT INTO meta(key, value) VALUES (?, ?)").run("incident_evictions", "1");
+          db.close();
+        }
+        return true;
+      });
+      expect(evicted.passed).toBe(false);
+      expect(evicted.newLosses).toBe(1);
       const identityPath = path.join(stateDir, "diagnostics", "identity");
       const identity = fs.readFileSync(identityPath, "utf8");
       runs = 0;

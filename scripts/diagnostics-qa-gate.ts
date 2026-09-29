@@ -98,7 +98,7 @@ function diagnosticsState(stateDir: string): {
     ).count;
     const anomalyRows = db
       .prepare(
-        "SELECT key, value FROM meta WHERE key LIKE 'spool-invalid:%' OR key LIKE 'sequence-gap:%'",
+        "SELECT key, value FROM meta WHERE key LIKE 'spool-invalid:%' OR key LIKE 'sequence-gap:%' OR key = 'incident_evictions'",
       )
       .all() as Array<{ key: string; value: string }>;
     const spoolAnomalies = new Map<string, number>();
