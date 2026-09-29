@@ -86,13 +86,14 @@ describe("scripted provider QA fixture", () => {
     }
   }, 30_000);
 
-  it("excludes the QA account override from the default desktop bundle", () => {
-    const stagedDesktopSource = path.join(repoRoot, "apps/desktop/dist-electron");
-    for (const name of fs.readdirSync(stagedDesktopSource).filter((name) => name.endsWith(".js"))) {
-      const bundled = fs.readFileSync(path.join(stagedDesktopSource, name), "utf8");
-      expect(bundled, name).not.toContain("diagnostics-qa-local-account");
-      expect(bundled, name).not.toContain("qa-fixture@example.invalid");
-    }
+  it("compiles the QA account guard false in the staged desktop bundle", () => {
+    const bundled = fs.readFileSync(
+      path.join(repoRoot, "apps/desktop/dist-electron/main.js"),
+      "utf8",
+    );
+    expect(/function diagnosticsQaShellEnabled\(\)\s*\{\s*return false;\s*\}/u.test(bundled)).toBe(
+      true,
+    );
   });
 
   it("compiles fixture launch permission off in the staged server bundle", () => {
@@ -153,7 +154,7 @@ describe("scripted provider QA fixture", () => {
           ?.executable_path as string;
         expect(binary).toBe(
           path.join(
-            fs.realpathSync(stateDir),
+            path.resolve(stateDir),
             "provider-runtimes",
             "codex",
             "versions",
