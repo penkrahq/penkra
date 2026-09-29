@@ -150,6 +150,37 @@ describe("diagnostics store", () => {
     expect(bytes()).toBeLessThanOrEqual(cap);
   }, 30_000);
 
+  it("reserves 128 MiB for reset at the production 1 GiB limit", () => {
+    const cap = DIAGNOSTIC_LIMITS.totalBytes;
+    const reserve = 128 * 1024 * 1024;
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-diagnostics-reserve-"));
+    roots.push(stateDir);
+    const desktop = new DiagnosticsSpoolWriter({
+      stateDir,
+      appVersion: "0.14.3",
+      buildId: "aaaaaaa",
+      process: "desktop-main",
+      maxTotalBytes: cap,
+      maxSpoolBytes: cap,
+    });
+    const dir = path.join(stateDir, "diagnostics");
+    const bytes = () =>
+      fs.readdirSync(dir).reduce((sum, name) => {
+        const file = path.join(dir, name);
+        return sum + (fs.statSync(file).isFile() ? fs.statSync(file).size : 0);
+      }, 0);
+    const padding = path.join(dir, "sparse-padding");
+    // Sparse allocation tests the logical cap without using 896 MiB of disk space.
+    fs.closeSync(fs.openSync(padding, "w"));
+    fs.truncateSync(padding, cap - reserve - bytes());
+    expect(bytes()).toBe(cap - reserve);
+    expect(() =>
+      desktop.checkpoint({ traceId, spanId, flow: "send", step: "composer.preflight" }),
+    ).toThrow("Diagnostics capacity reached");
+    desktop.close();
+    expect(bytes()).toBeLessThanOrEqual(cap - reserve);
+  });
+
   it("recovers when update reset stops after removing old SQLite files", () => {
     const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-diagnostics-reset-crash-"));
     roots.push(stateDir);
