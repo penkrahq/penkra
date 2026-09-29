@@ -19,12 +19,21 @@ import { createInterface } from "node:readline";
 
 const RETENTION_DAYS = 36_500;
 const CLAUDE_THREAD_ACCOUNT_FILE = "account.json";
+const CLAUDE_THREAD_ACCOUNT_TRANSITION_FILE = "account-transition.json";
 export const CLAUDE_SESSION_MARKER_FILE = "claude-session.json";
 const CLAUDE_SESSION_SIDECARS = ["session-env", "tasks", "file-history"] as const;
 
 export type ClaudeThreadAccount = {
   readonly authenticationMethodId: string;
   readonly providerIdentityId: string | null;
+};
+
+type ClaudeThreadAccountTransition = {
+  readonly commandId: string;
+  readonly connectionId: string;
+  readonly bindingRevision: number;
+  readonly source: ClaudeThreadAccount;
+  readonly target: ClaudeThreadAccount;
 };
 
 export function claudeAccountsMatch(
@@ -178,6 +187,101 @@ export async function rememberClaudeThreadAccount(input: {
   }
 }
 
+/** A switch may authorize one new account only after its exact binding commits. */
+export async function stageClaudeThreadAccountTransition(input: {
+  readonly stateDir: string;
+  readonly threadId: string;
+  readonly transition: ClaudeThreadAccountTransition;
+}): Promise<void> {
+  const owner = await readClaudeThreadAccount(input.stateDir, input.threadId);
+  if (owner === null || !claudeAccountsMatch(owner, input.transition.source)) {
+    throw new Error("The Claude Thread account changed before the provider switch.");
+  }
+  const root = claudeThreadStateRoot(input.stateDir, input.threadId);
+  const path = Path.join(root, CLAUDE_THREAD_ACCOUNT_TRANSITION_FILE);
+  const staging = `${path}.penkra-${randomUUID()}`;
+  await writeFile(staging, `${JSON.stringify(input.transition)}\n`, { mode: 0o600 });
+  try {
+    await link(staging, path).catch(async (cause: NodeJS.ErrnoException) => {
+      if (cause.code !== "EEXIST") throw cause;
+      const pending: unknown = JSON.parse(await readFile(path, "utf8"));
+      if (JSON.stringify(pending) !== JSON.stringify(input.transition)) {
+        throw new Error("A different Claude account transition is already pending.");
+      }
+    });
+  } finally {
+    await rm(staging, { force: true });
+  }
+}
+
+export async function discardClaudeThreadAccountTransition(input: {
+  readonly stateDir: string;
+  readonly threadId: string;
+  readonly commandId: string;
+}): Promise<void> {
+  const path = Path.join(
+    claudeThreadStateRoot(input.stateDir, input.threadId),
+    CLAUDE_THREAD_ACCOUNT_TRANSITION_FILE,
+  );
+  const raw = await readFile(path, "utf8").catch((cause: NodeJS.ErrnoException) => {
+    if (cause.code === "ENOENT") return null;
+    throw cause;
+  });
+  if (raw === null) return;
+  const transition: unknown = JSON.parse(raw);
+  if (
+    typeof transition === "object" &&
+    transition !== null &&
+    "commandId" in transition &&
+    transition.commandId === input.commandId
+  ) {
+    await rm(path, { force: true });
+  }
+}
+
+async function completeClaudeThreadAccountTransition(input: {
+  readonly stateDir: string;
+  readonly threadId: string;
+  readonly connectionId: string;
+  readonly bindingConnectionId: string | null;
+  readonly bindingRevision: number;
+  readonly account: ClaudeThreadAccount;
+}): Promise<void> {
+  const root = claudeThreadStateRoot(input.stateDir, input.threadId);
+  const path = Path.join(root, CLAUDE_THREAD_ACCOUNT_TRANSITION_FILE);
+  const raw = await readFile(path, "utf8").catch((cause: NodeJS.ErrnoException) => {
+    if (cause.code === "ENOENT") return null;
+    throw cause;
+  });
+  const transition: unknown = raw === null ? null : JSON.parse(raw);
+  const record = transition as Partial<ClaudeThreadAccountTransition> | null;
+  const owner = await readClaudeThreadAccount(input.stateDir, input.threadId);
+  if (
+    record === null ||
+    record.connectionId !== input.connectionId ||
+    record.connectionId !== input.bindingConnectionId ||
+    record.bindingRevision !== input.bindingRevision ||
+    !record.source ||
+    !record.target ||
+    owner === null ||
+    !claudeAccountsMatch(owner, record.source) ||
+    !claudeAccountsMatch(input.account, record.target)
+  ) {
+    throw new Error(
+      "This thread's Claude conversation belongs to a different Claude account. Use a Connection signed in to that account, or start a new thread.",
+    );
+  }
+  const ownerPath = Path.join(root, CLAUDE_THREAD_ACCOUNT_FILE);
+  const staging = `${ownerPath}.penkra-${randomUUID()}`;
+  await writeFile(staging, `${JSON.stringify(record.target)}\n`, { mode: 0o600 });
+  try {
+    await rename(staging, ownerPath);
+  } finally {
+    await rm(staging, { force: true });
+  }
+  await rm(path, { force: true });
+}
+
 /** Replace only a link Penkra owns. Never discard a real provider directory. */
 async function ensureLink(path: string, target: string): Promise<void> {
   await mkdir(target, { recursive: true, mode: 0o700 });
@@ -256,9 +360,32 @@ export async function prepareClaudeThreadProject(input: {
   readonly threadId: string;
   readonly configDir: string;
   readonly account?: ClaudeThreadAccount;
+  readonly connectionId?: string;
+  readonly bindingConnectionId?: string | null;
+  readonly bindingRevision?: number;
 }): Promise<string> {
   const projectName = claudeThreadProjectName(input.threadId);
   if (input.account !== undefined) {
+    const owner = await readClaudeThreadAccount(input.stateDir, input.threadId);
+    if (owner !== null && !claudeAccountsMatch(owner, input.account)) {
+      if (
+        input.connectionId === undefined ||
+        input.bindingConnectionId === undefined ||
+        input.bindingRevision === undefined
+      ) {
+        throw new Error(
+          "This thread's Claude conversation belongs to a different Claude account. Use a Connection signed in to that account, or start a new thread.",
+        );
+      }
+      await completeClaudeThreadAccountTransition({
+        stateDir: input.stateDir,
+        threadId: input.threadId,
+        connectionId: input.connectionId,
+        bindingConnectionId: input.bindingConnectionId,
+        bindingRevision: input.bindingRevision,
+        account: input.account,
+      });
+    }
     await rememberClaudeThreadAccount({
       stateDir: input.stateDir,
       threadId: input.threadId,

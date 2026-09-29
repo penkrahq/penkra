@@ -9,6 +9,7 @@ import {
 } from "@penkra/contracts";
 import { Effect, Layer, Option, Result, Schema } from "effect";
 
+import { ServerConfig } from "../../config.ts";
 import {
   LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
   type ManagedAttachmentPrincipal,
@@ -20,6 +21,10 @@ import {
   type ProviderNativeForkOperationState,
 } from "../../persistence/Services/ProviderNativeForkOperations.ts";
 import { providerNativeResumeIdentity } from "../../provider/nativeResumeIdentity.ts";
+import {
+  discardClaudeThreadAccountTransition,
+  stageClaudeThreadAccountTransition,
+} from "../../provider/claudeThreadNativeState.ts";
 import type { ProviderManagedLaunchContext } from "../../provider/Services/ProviderAdapter.ts";
 import { ProviderLaunchResolver } from "../../provider/Services/ProviderLaunchResolver.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
@@ -86,6 +91,7 @@ const isRetryableOperationFailure = (failure: ProviderThreadSwitchCoordinatorErr
 };
 
 export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
+  const config = yield* ServerConfig;
   const engine = yield* OrchestrationEngineService;
   const operations = yield* ProviderThreadSwitchOperationRepository;
   const forkOperations = yield* ProviderNativeForkOperationRepository;
@@ -368,41 +374,46 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           targetConnectionId: selection.connectionId,
           targetGenerationId: input.targetGenerationId,
         });
-        const verified = yield* verifier
-          .verifySwitch({
-            selection,
-            sourceStorage: "connection-profile",
-            targetGenerationId: input.targetGenerationId,
-            ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
-            runtimeMode: (input.command.runtimeMode ?? "full-access") as RuntimeMode,
-          })
-          .pipe(
-            Effect.catch((cause) => {
-              const preparedAt = new Date().toISOString();
-              return Effect.logWarning(
-                "provider switch falling back to deterministic transcript reconstruction",
-                {
-                  threadId: input.command.threadId,
-                  harness: selection.harness,
-                  targetConnectionId: selection.connectionId,
-                  cause: cause.message,
-                },
-              ).pipe(
-                Effect.as({
-                  kind: "reconstructed" as const,
-                  generationId: input.targetGenerationId!,
-                  adapterSchemaVersion: "penkra-reconstructed-continuation-v1",
-                  stateManifestJson: JSON.stringify({
-                    format: "penkra-reconstructed-continuation-v1",
-                    reason: cause.message,
-                  }),
-                  providerSessionId: null,
-                  nativeStateLocatorJson: '{"penkraReconstruction":true}',
-                  verifiedAt: preparedAt,
-                }),
-              );
-            }),
-          );
+        const reconstructed = (reason: string) => ({
+          kind: "reconstructed" as const,
+          generationId: input.targetGenerationId!,
+          adapterSchemaVersion: "penkra-reconstructed-continuation-v1",
+          stateManifestJson: JSON.stringify({
+            format: "penkra-reconstructed-continuation-v1",
+            reason,
+          }),
+          providerSessionId: null,
+          nativeStateLocatorJson: '{"penkraReconstruction":true}',
+          verifiedAt: new Date().toISOString(),
+        });
+        // Claude's native session belongs to the source account. An explicit
+        // account switch starts a fresh session from Penkra's retained transcript
+        // after the old turn settles, without linking the source account's
+        // project into the target profile before the binding commits.
+        const verified =
+          selection.claudeAccountTransition !== undefined
+            ? reconstructed("Explicit Claude account switch.")
+            : yield* verifier
+                .verifySwitch({
+                  selection,
+                  sourceStorage: "connection-profile",
+                  targetGenerationId: input.targetGenerationId,
+                  ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
+                  runtimeMode: (input.command.runtimeMode ?? "full-access") as RuntimeMode,
+                })
+                .pipe(
+                  Effect.catch((cause) =>
+                    Effect.logWarning(
+                      "provider switch falling back to deterministic transcript reconstruction",
+                      {
+                        threadId: input.command.threadId,
+                        harness: selection.harness,
+                        targetConnectionId: selection.connectionId,
+                        cause: cause.message,
+                      },
+                    ).pipe(Effect.as(reconstructed(cause.message))),
+                  ),
+                );
         verificationJson = JSON.stringify(verified);
       }
       yield* operations
@@ -425,6 +436,27 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
         : null;
     if (selection.requiresNativeStateMaterialization && verified === null) {
       return yield* fail("The provider-switch verification evidence is missing.");
+    }
+    if (selection.claudeAccountTransition !== undefined && selection.connectionId !== null) {
+      yield* Effect.tryPromise({
+        try: () =>
+          stageClaudeThreadAccountTransition({
+            stateDir: config.stateDir,
+            threadId: input.command.threadId,
+            transition: {
+              commandId: input.command.commandId,
+              connectionId: selection.connectionId!,
+              bindingRevision: selection.bindingRevision + 1,
+              source: selection.claudeAccountTransition!.source,
+              target: selection.claudeAccountTransition!.target,
+            },
+          }),
+        catch: (cause) =>
+          new ProviderThreadSwitchCoordinatorError({
+            detail: "Could not stage the Claude account transition.",
+            cause,
+          }),
+      });
     }
     const result = yield* engine
       .dispatch(internalCommand, {
@@ -530,6 +562,23 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
                         input.targetGenerationId !== null
                         ? materializer.discard(input.targetGenerationId)
                         : Effect.void,
+                    ),
+                    Effect.ignore,
+                    Effect.andThen(
+                      input.selection.claudeAccountTransition === undefined
+                        ? Effect.void
+                        : Effect.tryPromise({
+                            try: () =>
+                              discardClaudeThreadAccountTransition({
+                                stateDir: config.stateDir,
+                                threadId: input.command.threadId,
+                                commandId: input.command.commandId,
+                              }),
+                            catch: () =>
+                              new ProviderThreadSwitchCoordinatorError({
+                                detail: "Could not discard the failed Claude account transition.",
+                              }),
+                          }),
                     ),
                     Effect.ignore,
                     Effect.andThen(Effect.fail(cause)),
