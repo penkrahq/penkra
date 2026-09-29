@@ -6,7 +6,7 @@ import { IconPackage } from "@tabler/icons-react";
 import type { DesktopAppTabPresentation } from "@penkra/contracts";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
-import { appDockBoundsForElement, forgetNativeAppBounds, sendNativeAppBounds } from "../ui/sidebar";
+import { appDockBoundsForWidth } from "../ui/sidebar";
 import { PanelStateMessage } from "./PanelStateMessage";
 
 export function AppDockPane(props: {
@@ -41,51 +41,46 @@ export function AppDockPane(props: {
     },
     [props.deckId, props.tabId, props.threadId],
   );
-  const present = useCallback(
-    (force = false) => {
-      const bridge = window.desktopBridge?.appTabs;
-      const surface = rootRef.current;
-      if (!bridge || !surface) {
-        trace("renderer-present-skipped", {
-          reason: bridge ? "missing-app-surface" : "missing-desktop-bridge",
-        });
-        return;
-      }
-      const bounds = appDockBoundsForElement(surface);
-      if (!bounds) {
-        trace("renderer-present-skipped", { reason: "empty-app-surface" });
-        return;
-      }
-      trace("renderer-present-requested", {
-        bounds,
-        animate: props.animateEntrance,
-        status: props.status,
-        paneVisible: props.visible,
+  const present = useCallback(() => {
+    const bridge = window.desktopBridge?.appTabs;
+    const wrapper = rootRef.current?.closest<HTMLElement>("[data-slot='sidebar-wrapper']");
+    if (!bridge || !wrapper) {
+      trace("renderer-present-skipped", {
+        reason: bridge ? "missing-sidebar-wrapper" : "missing-desktop-bridge",
       });
-      sendNativeAppBounds({
-        surface,
-        tabId: props.tabId,
-        deckId: props.deckId,
-        threadId: props.threadId,
-        bounds,
-        animate: props.animateEntrance,
-        ...(props.animationStartedAtEpochMs === null
-          ? {}
-          : { animationStartedAtEpochMs: props.animationStartedAtEpochMs }),
-        force,
-      });
-    },
-    [
-      props.animateEntrance,
-      props.animationStartedAtEpochMs,
-      props.deckId,
-      props.tabId,
-      props.threadId,
-      props.status,
-      props.visible,
-      trace,
-    ],
-  );
+      return;
+    }
+    const width = wrapper.getBoundingClientRect().width;
+    if (!Number.isFinite(width) || width <= 0) {
+      trace("renderer-present-skipped", { reason: "invalid-rendered-width", width });
+      return;
+    }
+    trace("renderer-present-requested", {
+      width,
+      animate: props.animateEntrance,
+      status: props.status,
+      paneVisible: props.visible,
+    });
+    void bridge.present({
+      tabId: props.tabId,
+      deckId: props.deckId,
+      threadId: props.threadId,
+      animate: props.animateEntrance,
+      ...(props.animationStartedAtEpochMs === null
+        ? {}
+        : { animationStartedAtEpochMs: props.animationStartedAtEpochMs }),
+      bounds: appDockBoundsForWidth(width),
+    });
+  }, [
+    props.animateEntrance,
+    props.animationStartedAtEpochMs,
+    props.deckId,
+    props.tabId,
+    props.threadId,
+    props.status,
+    props.visible,
+    trace,
+  ]);
 
   useLayoutEffect(() => {
     trace("renderer-pane-mounted", { status: props.status, paneVisible: props.visible });
@@ -116,7 +111,6 @@ export function AppDockPane(props: {
     if (!bridge) return;
     return bridge.onPresentation((next) => {
       if (next.tabId === props.tabId) {
-        if (next.mode === "hidden" && rootRef.current) forgetNativeAppBounds(rootRef.current);
         trace("renderer-presentation-received", {
           mode: next.mode,
           ownerWindowId: next.ownerWindowId,
@@ -130,7 +124,6 @@ export function AppDockPane(props: {
     const bridge = window.desktopBridge?.appTabs;
     if (!bridge) return;
     if (!props.visible || props.status === "crashed") {
-      if (rootRef.current) forgetNativeAppBounds(rootRef.current);
       trace("renderer-hide-requested", {
         reason: !props.visible ? "pane-not-visible" : "app-crashed",
         status: props.status,
@@ -160,7 +153,6 @@ export function AppDockPane(props: {
 
   useLayoutEffect(
     () => () => {
-      if (rootRef.current) forgetNativeAppBounds(rootRef.current);
       trace("renderer-cleanup-hide-requested");
       void window.desktopBridge?.appTabs?.hide({ tabId: props.tabId }).catch(() => undefined);
     },
@@ -180,7 +172,7 @@ export function AppDockPane(props: {
           aria-label={`Activate ${props.appName ?? "App"} in this window`}
           className="absolute inset-0 z-10 block h-full w-full cursor-pointer overflow-hidden border-0 bg-background p-0 text-left"
           data-app-tab-replica={props.tabId}
-          onClick={() => present(true)}
+          onClick={present}
           type="button"
         >
           {presentation.appFrameDataUrl ? (
