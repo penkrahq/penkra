@@ -109,6 +109,7 @@ import {
 import { armQaProviderSwitch, clearQaProviderSwitch } from "./diagnostics/qaProviderSwitch";
 import { recordServerQaAction } from "./diagnostics/qaProofBuild";
 import { recordWsRpcFailure } from "./diagnostics/wsRpcFailure";
+import { recoverMissingFile } from "./diagnostics/missingFileRecovery";
 import { WorkspaceWatcher } from "./workspaceWatcher";
 import { makeWsRequestAdmission } from "./wsRequestAdmission";
 import {
@@ -446,9 +447,15 @@ const makeWsRpcHandlersLayer = () =>
               ? path.join(config.homeDir, rawWorkspaceRoot.slice(2))
               : rawWorkspaceRoot;
         const normalizedWorkspaceRoot = path.resolve(expandedWorkspaceRoot);
-        let workspaceStat = yield* fileSystem
-          .stat(normalizedWorkspaceRoot)
-          .pipe(Effect.catch(() => Effect.succeed(null)));
+        const statWorkspace = () =>
+          recoverMissingFile(fileSystem.stat(normalizedWorkspaceRoot), () =>
+            recordWsRpcFailure(),
+          ).pipe(
+            Effect.mapError(
+              (cause) => new WsRpcError({ message: "Failed to inspect project directory", cause }),
+            ),
+          );
+        let workspaceStat = yield* statWorkspace();
         if (!workspaceStat) {
           if (!options.createIfMissing) {
             return yield* new WsRpcError({
@@ -464,9 +471,7 @@ const makeWsRpcHandlersLayer = () =>
                 }),
             ),
           );
-          workspaceStat = yield* fileSystem
-            .stat(normalizedWorkspaceRoot)
-            .pipe(Effect.catch(() => Effect.succeed(null)));
+          workspaceStat = yield* statWorkspace();
           if (!workspaceStat) {
             return yield* new WsRpcError({
               message: `Failed to create project directory: ${normalizedWorkspaceRoot}`,
