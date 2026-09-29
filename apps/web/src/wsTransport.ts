@@ -810,7 +810,8 @@ export class WsTransport {
 
   private featureSocketUrl(compatibility: WsBootstrapNegotiateResult): string {
     const url = new URL(makeFeatureSocketUrl(this.explicitUrl, compatibility));
-    url.searchParams.set("qaClientId", this.qaSocketClientId);
+    if (!url.searchParams.has("qaClientSignature"))
+      url.searchParams.set("qaClientId", this.qaSocketClientId);
     if (this.reconnectQaTrace)
       url.searchParams.set("qaReconnectTraceId", this.reconnectQaTrace.traceId);
     return url.toString();
