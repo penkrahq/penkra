@@ -100,6 +100,11 @@ describe("scripted provider QA fixture", () => {
     const desktopStateDir = path.join(root, "root", ".penkra", "userdata");
     fs.mkdirSync(desktopStateDir, { recursive: true });
     expect(assertIsolatedQaStateDir(desktopStateDir)).toBe(fs.realpathSync(desktopStateDir));
+    const developmentStateDir = path.join(root, "root", ".penkra", "dev");
+    fs.mkdirSync(developmentStateDir);
+    expect(assertIsolatedQaStateDir(developmentStateDir)).toBe(
+      fs.realpathSync(developmentStateDir),
+    );
     const db = new DatabaseSync(path.join(stateDir, "state.sqlite"));
     try {
       db.exec(`

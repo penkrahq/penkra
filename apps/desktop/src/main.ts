@@ -111,6 +111,7 @@ import { ActiveWorkPowerBlocker } from "./activeWorkPowerBlocker";
 import { recordDesktopOsLookupFailure, resolveDesktopOsMajor } from "./desktopDiagnosticOs";
 import { startDesktopDiagnosticsMonitors } from "./desktopDiagnosticsMonitors";
 import { DesktopDiagnosticsQueue } from "./desktopDiagnosticsQueue";
+import { desktopDiagnosticStateDir } from "./desktopDiagnosticStateDir";
 import { DiagnosticsQaWindowTracker } from "./diagnosticsQaWindow";
 import {
   retainLiveBackendAfterShutdownFailure,
@@ -420,6 +421,7 @@ const BASE_DIR =
   process.env.PENKRA_HOME?.trim() ||
   Path.join(OS.homedir(), desktopIdentity.defaultHomeDirectoryName);
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
+const DIAGNOSTIC_STATE_DIR = desktopDiagnosticStateDir(BASE_DIR, isDevelopment);
 let desktopDiagnostics: DiagnosticsSpoolWriter | null = null;
 let desktopDiagnosticsQueue: DesktopDiagnosticsQueue | null = null;
 let stopDesktopDiagnosticsMonitors: (() => void) | null = null;
@@ -429,7 +431,7 @@ function desktopDiagnosticsOptions(): DiagnosticsOptions {
   if (app.isPackaged && !startupBundleIdentity?.signature)
     throw new Error("Installed app bundle identity is unavailable");
   return {
-    stateDir: STATE_DIR,
+    stateDir: DIAGNOSTIC_STATE_DIR,
     appVersion: app.getVersion(),
     osMajor: desktopOsMajor,
     ...(resolveAboutCommitHash() ? { buildId: resolveAboutCommitHash()! } : {}),
@@ -483,7 +485,7 @@ function enqueueDesktopDiagnosticWrite(
       true,
       (bootId) => {
         try {
-          markDiagnosticWorkerExited(STATE_DIR, bootId);
+          markDiagnosticWorkerExited(DIAGNOSTIC_STATE_DIR, bootId);
         } catch {
           process.stderr.write("[diagnostics] worker exit marker failed\n");
         }

@@ -21,7 +21,7 @@ export function assertIsolatedQaStateDir(stateDir) {
       (relative.length === 4 &&
         relative[1] === "root" &&
         relative[2] === ".penkra" &&
-        relative[3] === "userdata")
+        ["userdata", "dev"].includes(relative[3]))
     )
   )
     throw new Error(
