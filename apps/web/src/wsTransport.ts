@@ -469,6 +469,7 @@ export class WsTransport {
   private clientPromise: Promise<RpcClientInstance>;
   private reconnectPromise: Promise<RpcClientInstance> | null = null;
   private reconnectFailures = 0;
+  private reconnectQaTrace: ReturnType<typeof startDiagnosticTrace> | null = null;
   private readonly streamCleanups = new Map<string, () => void>();
   private readonly streamSettled = new Map<string, Promise<void>>();
   private readonly streamCapacityRetries = new Map<string, number>();
@@ -976,7 +977,33 @@ export class WsTransport {
 
   private setState(state: WsTransportState): void {
     if (this.state === state) return;
+    const previous = this.state;
     this.state = state;
+    if (previous === "open" && state === "connecting") {
+      const trace = startDiagnosticTrace();
+      this.reconnectQaTrace = trace;
+      void window.desktopBridge
+        ?.recordDiagnosticCheckpoint?.({
+          ...trace,
+          flow: "socket_connect",
+          step: "socket.disconnected",
+          outcome: "ok",
+        })
+        .catch(() => undefined);
+    } else if (state === "open" && this.reconnectQaTrace) {
+      const trace = this.reconnectQaTrace;
+      this.reconnectQaTrace = null;
+      void window.desktopBridge
+        ?.recordDiagnosticCheckpoint?.({
+          ...trace,
+          flow: "socket_connect",
+          step: "socket.reconnected",
+          outcome: "ok",
+        })
+        .catch(() => undefined);
+    } else if (state === "disposed") {
+      this.reconnectQaTrace = null;
+    }
     for (const listener of this.stateListeners) {
       try {
         listener(state);
