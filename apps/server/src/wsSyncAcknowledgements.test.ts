@@ -76,6 +76,35 @@ describe("makeSyncAcknowledgements", () => {
     await Effect.runPromise(lease.close);
   });
 
+  it("accepts a late acknowledgement from a known superseded delivery without an incident", async () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-sync-ack-reconnect-"));
+    const store = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
+    const uninstall = installDiagnosticsStore(store);
+    try {
+      const acknowledgements = makeSyncAcknowledgements();
+      const earlier = await Effect.runPromise(acknowledgements.open(1));
+      await Effect.runPromise(earlier.recordDelivery(8));
+      const replacement = await Effect.runPromise(acknowledgements.open(2));
+      await Effect.runPromise(replacement.recordDelivery(9));
+      await expect(
+        Effect.runPromise(
+          acknowledgements.acknowledge(2, { deliveryId: earlier.deliveryId, appliedSequence: 8 }),
+        ),
+      ).resolves.toBeUndefined();
+      const db = openDiagnosticsReader(stateDir)!;
+      expect(db.prepare("SELECT COUNT(*) AS count FROM incident_occurrences").get()).toEqual({
+        count: 0,
+      });
+      db.close();
+      await Effect.runPromise(earlier.close);
+      await Effect.runPromise(replacement.close);
+    } finally {
+      uninstall();
+      store.close();
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
+
   it("records a refused acknowledgement ahead of delivery", async () => {
     const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-sync-ack-"));
     const store = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });

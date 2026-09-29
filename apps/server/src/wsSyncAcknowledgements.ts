@@ -25,6 +25,7 @@ export interface SyncAcknowledgementLease {
  */
 export function makeSyncAcknowledgements() {
   const active = new Map<number, ActiveSyncLease>();
+  const knownDeliveries = new Set<string>();
 
   const open = (clientId: number): Effect.Effect<SyncAcknowledgementLease> =>
     Effect.gen(function* () {
@@ -46,6 +47,9 @@ export function makeSyncAcknowledgements() {
         deliveredSequence: null,
         acknowledgedSequence: null,
       };
+      knownDeliveries.add(lease.deliveryId);
+      if (knownDeliveries.size > 256)
+        knownDeliveries.delete(knownDeliveries.values().next().value!);
       active.set(clientId, lease);
       yield* Effect.logDebug("orchestration synchronization acknowledgement lease opened").pipe(
         Effect.annotateLogs({ clientId, generation, deliveryId: lease.deliveryId }),
@@ -82,6 +86,10 @@ export function makeSyncAcknowledgements() {
     Effect.gen(function* () {
       const lease = active.get(clientId);
       if (!lease || lease.deliveryId !== input.deliveryId || lease.deliveredSequence === null) {
+        // A close/reconnect can leave an applied acknowledgement in flight.
+        // Its earlier delivery is known and already superseded; accepting it as
+        // a no-op preserves the new lease and avoids a false incident.
+        if (knownDeliveries.has(input.deliveryId) && lease?.deliveryId !== input.deliveryId) return;
         recordDiagnosticIncident({
           ...startDiagnosticTrace(),
           kind: "command.rejected",
