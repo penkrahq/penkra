@@ -142,6 +142,27 @@ describe("scripted provider QA fixture", () => {
       try {
         expect(read.prepare("SELECT COUNT(*) AS n FROM provider_installations").get()?.n).toBe(1);
         expect(read.prepare("SELECT COUNT(*) AS n FROM provider_connections").get()?.n).toBe(1);
+        const binary = read.prepare("SELECT executable_path FROM provider_installations").get()
+          ?.executable_path as string;
+        expect(binary).toBe(
+          path.join(
+            fs.realpathSync(stateDir),
+            "provider-runtimes",
+            "codex",
+            "versions",
+            "1.0.0",
+            "bin",
+            "codex.mjs",
+          ),
+        );
+        expect(fs.readFileSync(binary, "utf8")).toContain(marker);
+        const activation = JSON.parse(
+          fs.readFileSync(
+            path.join(stateDir, "provider-runtimes", "codex", "activation.json"),
+            "utf8",
+          ),
+        ) as { active: { installationId: string } };
+        expect(activation.active.installationId).toBe("qa-scripted-codex-installation");
       } finally {
         read.close();
       }
