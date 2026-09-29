@@ -14,6 +14,8 @@ export class DesktopDiagnosticsQueue {
   private availableCredits = 0;
   private refillRequested = false;
   private overflowCount = 0;
+  private readonly startupBacklog: Array<{ kind: WriteKind; input: unknown }> = [];
+  private receivedCredits = false;
 
   constructor(
     private readonly createWorker: () => Worker,
@@ -32,7 +34,7 @@ export class DesktopDiagnosticsQueue {
     }
     if (
       bytes > DIAGNOSTIC_LIMITS.desktopWorkerMessageBytes ||
-      this.pending >= DIAGNOSTIC_LIMITS.desktopWorkerQueueDepth
+      this.pending + this.startupBacklog.length >= DIAGNOSTIC_LIMITS.desktopWorkerQueueDepth
     )
       return this.drop("capacity");
     if (this.useCredits) {
@@ -42,29 +44,11 @@ export class DesktopDiagnosticsQueue {
       } catch {
         return this.drop("spool");
       }
-      const range = this.credits[0];
-      if (!range) return this.drop("capacity");
-      const queueSlot = range.next++;
-      if (range.next > range.last) this.credits.shift();
-      this.availableCredits--;
-      this.pending++;
-      try {
-        worker.postMessage({ kind, input, queueSlot });
-      } catch {
-        this.pending--;
-        this.drop("spool");
+      if (!this.receivedCredits) {
+        this.startupBacklog.push({ kind, input });
+        return;
       }
-      if (
-        this.availableCredits <= DIAGNOSTIC_LIMITS.desktopWorkerCreditBlock / 2 &&
-        !this.refillRequested
-      ) {
-        this.refillRequested = true;
-        try {
-          worker.postMessage({ kind: "refill" });
-        } catch {
-          this.onWorkerLost(worker);
-        }
-      }
+      this.sendWithCredit(worker, kind, input);
       return;
     }
     let reserved = false;
@@ -79,6 +63,32 @@ export class DesktopDiagnosticsQueue {
     } catch {
       if (counted) this.pending--;
       if (!reserved) this.recordDrop("spool", 1);
+    }
+  }
+
+  private sendWithCredit(worker: Worker, kind: WriteKind, input: unknown): void {
+    const range = this.credits[0];
+    if (!range) return this.drop("capacity");
+    const queueSlot = range.next++;
+    if (range.next > range.last) this.credits.shift();
+    this.availableCredits--;
+    this.pending++;
+    try {
+      worker.postMessage({ kind, input, queueSlot });
+    } catch {
+      this.pending--;
+      this.drop("spool");
+    }
+    if (
+      this.availableCredits <= DIAGNOSTIC_LIMITS.desktopWorkerCreditBlock / 2 &&
+      !this.refillRequested
+    ) {
+      this.refillRequested = true;
+      try {
+        worker.postMessage({ kind: "refill" });
+      } catch {
+        this.onWorkerLost(worker);
+      }
     }
   }
 
@@ -120,7 +130,12 @@ export class DesktopDiagnosticsQueue {
         }
         this.credits.push({ next: message.start!, last: message.start! + message.count! - 1 });
         this.availableCredits += message.count!;
+        this.receivedCredits = true;
         this.refillRequested = false;
+        while (this.startupBacklog.length > 0) {
+          const item = this.startupBacklog.shift()!;
+          this.sendWithCredit(worker, item.kind, item.input);
+        }
         this.flushOverflow(worker);
       }
       if (message?.kind === "ack") this.pending = Math.max(0, this.pending - 1);
@@ -143,6 +158,7 @@ export class DesktopDiagnosticsQueue {
     this.credits.length = 0;
     this.availableCredits = 0;
     this.refillRequested = false;
+    this.receivedCredits = false;
     if (this.pending > 0 && !this.reserve && !this.useCredits)
       this.recordDrop("spool", this.pending);
     this.pending = 0;
