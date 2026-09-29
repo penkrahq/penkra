@@ -6,6 +6,7 @@ import * as FS from "node:fs";
 import * as Path from "node:path";
 
 import { resolveDesktopPlatformAdapter } from "./desktopPlatform";
+import { recordDesktopConsumedFailure } from "./desktopFailureCoverage";
 
 import {
   createEmptyAppInstallationState,
@@ -49,6 +50,7 @@ export async function readAppInstallationState(
     if (isNodeError(error) && error.code === "ENOENT") {
       return { status: "missing", state: createEmptyAppInstallationState() };
     }
+    recordDesktopConsumedFailure("storage");
     return { status: "corrupt", error: toError(error) };
   } finally {
     await handle?.close().catch(() => undefined);
