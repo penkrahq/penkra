@@ -2178,6 +2178,10 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
   const [selectedConnectionByThread, setSelectedConnectionByThread] = useState<
     Partial<Record<ThreadId, PendingConnectionSelection>>
   >({});
+  const pendingConnectionUpdateRef = useRef<{
+    threadId: ThreadId;
+    promise: Promise<unknown>;
+  } | null>(null);
   const selectedConnectionByProvider = (() => {
     const pendingConnectionByProvider = selectedConnectionByThread[threadId] ?? {};
     const defaults = { ...stickyConnectionByProvider };
@@ -2188,14 +2192,22 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       }
     }
     if (serverThread?.connectionId !== undefined) {
-      return { ...defaults, [serverThread.modelSelection.provider]: serverThread.connectionId };
+      return {
+        ...defaults,
+        [serverThread.modelSelection.provider]: serverThread.connectionId,
+        ...pendingConnectionByProvider,
+      };
     }
     if (hasThreadStarted) {
       const provider = serverThread?.modelSelection.provider;
       const bindingConnectionId = threadProviderBindingQuery.data?.binding?.connectionId;
       return provider
-        ? { ...defaults, [provider]: bindingConnectionId ?? defaults[provider] ?? null }
-        : defaults;
+        ? {
+            ...defaults,
+            [provider]: bindingConnectionId ?? defaults[provider] ?? null,
+            ...pendingConnectionByProvider,
+          }
+        : { ...defaults, ...pendingConnectionByProvider };
     }
     return { ...defaults, ...pendingConnectionByProvider };
   })();
@@ -2208,6 +2220,23 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     },
     [threadId],
   );
+  useEffect(() => {
+    if (!serverThread || serverThread.connectionId === undefined) return;
+    const provider = serverThread.modelSelection.provider;
+    setSelectedConnectionByThread((current) => {
+      const pending = current[serverThread.id];
+      if (
+        !pending ||
+        !Object.prototype.hasOwnProperty.call(pending, provider) ||
+        pending[provider] !== serverThread.connectionId
+      ) {
+        return current;
+      }
+      const nextPending = { ...pending };
+      delete nextPending[provider];
+      return { ...current, [serverThread.id]: nextPending };
+    });
+  }, [serverThread?.connectionId, serverThread?.id, serverThread?.modelSelection.provider]);
   const configuredProviderKinds = useMemo(() => {
     const activeInstallations = new Set(
       providerConnectionsQuery.data?.installations
@@ -2491,6 +2520,10 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     );
   }, [providerConnectionsQuery.data, selectedProvider]);
   const handleConnectionChange = (connectionId: ProviderConnectionId | null) => {
+    setSelectedConnectionByProvider((current) => ({
+      ...current,
+      [selectedProvider]: connectionId,
+    }));
     void saveDefaultConnection(selectedProvider, connectionId)
       .then((settings) => queryClient.setQueryData(serverQueryKeys.settings(), settings))
       .catch((error) =>
@@ -2509,25 +2542,32 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     if (serverThread) {
       const api = readNativeApi();
       if (api) {
-        void api.orchestration
-          .dispatchCommand({
-            type: "thread.update",
-            commandId: newCommandId(),
-            threadId: serverThread.id,
-            connectionId,
-          })
-          .catch((error: unknown) =>
+        const update = api.orchestration.dispatchCommand({
+          type: "thread.update",
+          commandId: newCommandId(),
+          threadId: serverThread.id,
+          connectionId,
+        });
+        pendingConnectionUpdateRef.current = { threadId: serverThread.id, promise: update };
+        void update
+          .catch((error: unknown) => {
+            setSelectedConnectionByProvider((current) => {
+              if (current[selectedProvider] !== connectionId) return current;
+              const next = { ...current };
+              delete next[selectedProvider];
+              return next;
+            });
             setStoreThreadError(
               serverThread.id,
               error instanceof Error ? error.message : "Couldn't change this thread's Connection.",
-            ),
-          );
+            );
+          })
+          .finally(() => {
+            if (pendingConnectionUpdateRef.current?.promise === update) {
+              pendingConnectionUpdateRef.current = null;
+            }
+          });
       }
-    } else {
-      setSelectedConnectionByProvider((current) => ({
-        ...current,
-        [selectedProvider]: connectionId,
-      }));
     }
   };
   const handleManageConnections = useCallback(() => {
@@ -6349,6 +6389,18 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     const lateSendHandlers = lateComposerSendHandlersRef.current;
     if (!api || !lateSendHandlers || !activeThread || isVoiceTranscribing) {
       return false;
+    }
+    const pendingConnectionUpdate = pendingConnectionUpdateRef.current;
+    if (queuedTurn === undefined && pendingConnectionUpdate?.threadId === activeThread.id) {
+      try {
+        await pendingConnectionUpdate.promise;
+      } catch (error) {
+        setThreadError(
+          activeThread.id,
+          error instanceof Error ? error.message : "Couldn't change this thread's Connection.",
+        );
+        return false;
+      }
     }
     const existingPreparation = getActiveComposerSendPreparation(activeThread.id);
     if (existingPreparation) {
