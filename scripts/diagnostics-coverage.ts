@@ -85,6 +85,12 @@ function isRecordingCall(node: ts.Node, code: string, where: string): boolean {
     )
       return true;
     if (
+      node.expression.text === "recordCodexConfigFailure" &&
+      code === "EXTERNAL_CALL_FAILED" &&
+      where === "server.codex_config"
+    )
+      return true;
+    if (
       node.expression.text === "makeSqlError" &&
       code === "APP_OPERATION_FAILED" &&
       where === "server.database"

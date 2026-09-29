@@ -18,6 +18,7 @@ import {
 import { resolveBaseCodexHomePath, resolvePenkraCodexHomeOverlayPath } from "./codexHomePaths.ts";
 import { writeFileStringAtomically } from "./atomicWrite.ts";
 import { buildProviderChildEnvironment } from "./providerChildEnvironment.ts";
+import { recordCodexConfigFailure } from "./diagnostics/codexConfigFailure";
 
 const CODEX_PROCESS_SHELL_ENV_NAMES = ["PATH", "SSH_AUTH_SOCK"] as const;
 const CODEX_OVERLAY_SHARED_STATE_FILES = new Set(["auth.json"]);
@@ -224,6 +225,7 @@ export async function linkOrCopyCodexOverlayEntry(
   try {
     await linker.symlink(input.sourcePath, input.targetPath, input.type);
   } catch (error: unknown) {
+    recordCodexConfigFailure();
     if (input.type === "file" && CODEX_OVERLAY_SHARED_STATE_FILES.has(input.entryName)) {
       await linker.copyFile(input.sourcePath, input.targetPath);
       return;
@@ -256,7 +258,10 @@ async function ensureCodexOverlaySymlink(input: {
   let targetStat: Awaited<ReturnType<typeof fs.lstat>> | undefined;
   try {
     targetStat = await fs.lstat(input.targetPath);
-  } catch {
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw cause;
+    }
     targetStat = undefined;
   }
 
@@ -627,6 +632,9 @@ async function serializeCodexOverlayPreparation<A>(
   codexOverlayPreparationQueues.set(overlayHomePath, queued);
   try {
     return await current;
+  } catch (cause) {
+    recordCodexConfigFailure();
+    throw cause;
   } finally {
     if (codexOverlayPreparationQueues.get(overlayHomePath) === queued) {
       codexOverlayPreparationQueues.delete(overlayHomePath);
@@ -664,7 +672,10 @@ async function preparePenkraCodexHomeOverlayUnlocked(input: {
         type: stat.isDirectory() ? "dir" : "file",
       });
     }
-  } catch {
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw cause;
+    }
     // If the source home is partially missing, Codex can still start with the
     // overlay config and create any required state lazily.
   }
@@ -742,7 +753,10 @@ export async function prepareManagedCodexProfileConfig(input: {
     const sourceHomePath = input.sourceHomePath ?? resolveBaseCodexHomePath(process.env);
     if (path.resolve(sourceHomePath) !== path.resolve(codexHome)) {
       const sourceComputerUsePath = path.join(sourceHomePath, "computer-use");
-      const sourceComputerUseStat = await fs.stat(sourceComputerUsePath).catch(() => undefined);
+      const sourceComputerUseStat = await fs.stat(sourceComputerUsePath).catch((cause: unknown) => {
+        if ((cause as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+        throw cause;
+      });
       if (sourceComputerUseStat?.isDirectory()) {
         await ensureCodexOverlaySymlink({
           entryName: "computer-use",
@@ -824,6 +838,7 @@ export async function buildCodexProcessEnv(
         }
       }
     } catch {
+      recordCodexConfigFailure();
       // Keep inherited environment if shell lookup fails.
     }
   }
