@@ -258,6 +258,42 @@ async function run(flow, page, stateDir) {
       await waitForDetail(stateDir, "socket_connect", "socket.reconnected", null, 20_000);
       return;
     }
+    case "provider-switch": {
+      const id = await newThread(page, stateDir);
+      await send(page, stateDir, id, `qa:provider-before-${Date.now()}`);
+      await page.waitForFunction(async (targetId) => {
+        const { readNativeApi } = await import("/src/nativeApi.ts");
+        const snapshot = await readNativeApi()?.orchestration.getThreadDetailSnapshot({
+          threadId: targetId,
+        });
+        return snapshot?.thread?.latestTurn?.state === "completed";
+      }, id);
+      const api = await page.evaluate(async (targetId) => {
+        const { readNativeApi } = await import("/src/nativeApi.ts");
+        return readNativeApi()?.provider.getThreadBinding({ threadId: targetId });
+      }, id);
+      const targetId =
+        api?.binding?.connectionId === "qa-scripted-codex-alternate"
+          ? "qa-scripted-codex-connection"
+          : "qa-scripted-codex-alternate";
+      const targetLabel =
+        targetId === "qa-scripted-codex-alternate"
+          ? "qa-fixture-alternate@example.invalid"
+          : "qa-fixture@example.invalid";
+      await page.getByRole("button", { name: "Change connection" }).click();
+      await page.getByRole("menuitem").first().click();
+      await page.getByRole("menuitem", { name: new RegExp(targetLabel, "u") }).click();
+      await page.getByRole("textbox").fill(`qa:provider-after-${Date.now()}`);
+      await page.getByRole("button", { name: "Send message" }).click();
+      await waitForDetail(stateDir, "app", "provider.switched", id, 30_000);
+      const changed = await page.evaluate(async (targetThreadId) => {
+        const { readNativeApi } = await import("/src/nativeApi.ts");
+        return readNativeApi()?.provider.getThreadBinding({ threadId: targetThreadId });
+      }, id);
+      if (changed?.binding?.connectionId !== targetId)
+        throw new Error("The provider binding did not switch to the selected fixture connection");
+      return;
+    }
     default:
       throw new Error(`Playwright QA flow is not implemented: ${flow}`);
   }

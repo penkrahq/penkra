@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 const fixture = fileURLToPath(new URL("./scripted-codex-app-server.mjs", import.meta.url));
 const installId = "qa-scripted-codex-installation";
 const connectionId = "qa-scripted-codex-connection";
+const alternateConnectionId = "qa-scripted-codex-alternate";
 const fixtureVersion = "1.0.0";
 
 export function assertIsolatedQaStateDir(stateDir) {
@@ -118,16 +119,30 @@ export function seedScriptedProvider(stateDir) {
       now,
       now,
     );
-    db.prepare(`
+    const insertConnection = db.prepare(`
       INSERT INTO provider_connections (
         connection_id, harness_kind, authentication_target_id, authentication_method_id,
         label, profile_ref, health_status, lifecycle, created_at, updated_at
       ) VALUES (?, 'codex', 'openai-first-party', 'chatgpt',
-                'Scripted QA fixture', 'provider-profile:qa-scripted-provider',
+                ?, ?,
                 'ready', 'active', ?, ?)
-    `).run(connectionId, now, now);
+    `);
+    insertConnection.run(
+      connectionId,
+      "Scripted QA fixture",
+      "provider-profile:qa-scripted-provider",
+      now,
+      now,
+    );
+    insertConnection.run(
+      alternateConnectionId,
+      "Scripted QA alternate",
+      "provider-profile:qa-scripted-alternate",
+      now,
+      now,
+    );
     db.exec("COMMIT");
-    return { installId, connectionId, fixture };
+    return { installId, connectionId, alternateConnectionId, fixture };
   } catch (cause) {
     try {
       db.exec("ROLLBACK");
