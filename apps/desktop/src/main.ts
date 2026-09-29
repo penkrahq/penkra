@@ -1119,7 +1119,6 @@ function acceptThreadApiState(event: Electron.IpcMainEvent, input: unknown): voi
   ) {
     return;
   }
-  qaWindowTracker.synced(event.sender.id);
   const tabs = desktopAppRuntime?.appTabs;
   if (!tabs) return;
   for (const tab of tabs.listFor(state.spaceId, state.deckId)) {
@@ -5222,12 +5221,13 @@ function registerIpcHandlers(): void {
     }
     if (!validViews.some((view) => view.threadId === activeThreadId)) return;
     const window = shellWindowForSender(event.sender);
-    threadHomeWindow.replaceViews(
+    const appliedSync = threadHomeWindow.replaceViews(
       window!.id,
       validViews,
       activeThreadId,
       window?.isFocused() ?? false,
     );
+    qaWindowTracker.synced(window!.id, appliedSync);
     for (const view of validViews) {
       const selectedThreadId = threadHomeWindow.consumeThreadSelection(view.deckId);
       if (selectedThreadId && selectedThreadId !== activeThreadId) {
@@ -7459,11 +7459,11 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
   mainWindow ??= window;
   const rendererOwnerId = window.webContents.id;
   if (cloneFrom)
-    qaWindowTracker.opened(rendererOwnerId, {
+    qaWindowTracker.opened(window.id, {
       traceId: Crypto.randomBytes(16).toString("hex"),
       spanId: Crypto.randomBytes(8).toString("hex"),
     });
-  window.on("closed", () => qaWindowTracker.closed(rendererOwnerId));
+  window.on("closed", () => qaWindowTracker.closed(window.id));
   // `ready-to-show` is not guaranteed by every development compositor path.
   // A completed main-frame load is an equally valid event-driven fallback.
   const showInitialWindow = createInitialWindowPresenter({
@@ -7544,7 +7544,7 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
     window.setTitle(APP_DISPLAY_NAME);
   });
   window.webContents.on("did-finish-load", () => {
-    qaWindowTracker.loaded(rendererOwnerId);
+    qaWindowTracker.loaded(window.id);
     window.setTitle(APP_DISPLAY_NAME);
     emitUpdateState();
     flushPendingAppTabs(window);

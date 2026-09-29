@@ -25,9 +25,12 @@ export class DiagnosticsQaWindowTracker {
     if (state) state.loaded = true;
   }
 
-  synced(windowId: number): void {
+  synced(
+    windowId: number,
+    applied: { readonly windowId: number; readonly revision: number },
+  ): void {
     const state = this.pending.get(windowId);
-    if (!state?.loaded) return;
+    if (!state?.loaded || applied.windowId !== windowId || applied.revision < 1) return;
     this.pending.delete(windowId);
     this.checkpoint(state.trace, "window.synced", windowId);
     this.proof(state.trace.traceId);
