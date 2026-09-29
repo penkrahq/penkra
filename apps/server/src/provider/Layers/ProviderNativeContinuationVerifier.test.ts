@@ -28,6 +28,8 @@ const connectionId = ProviderConnectionId.makeUnsafe("verify-connection");
 const installationId = ProviderInstallationId.makeUnsafe("verify-installation");
 
 let returnedIdentity = "native-session";
+let currentHarness: "opencode" | "claudeAgent" = "opencode";
+let verificationFailure: string | null = null;
 let discarded = false;
 const recordedDiagnostics: OperationalDiagnostic[] = [];
 
@@ -68,13 +70,14 @@ const dependencies = Layer.mergeAll(
       Effect.succeed(
         Option.some({
           threadId,
-          harness: "opencode",
+          harness: currentHarness,
           nativeStateGenerationId: sourceGenerationId,
           providerSessionId: "native-session",
-          nativeStateLocatorJson: JSON.stringify({
-            openCodeSessionId: "native-session",
-            cwd: "/workspace",
-          }),
+          nativeStateLocatorJson: JSON.stringify(
+            currentHarness === "claudeAgent"
+              ? { resume: "native-session" }
+              : { openCodeSessionId: "native-session", cwd: "/workspace" },
+          ),
           lastVerifiedResumeAt: timestamp,
           revision: 3,
           createdAt: timestamp,
@@ -104,15 +107,17 @@ const dependencies = Layer.mergeAll(
   Layer.succeed(ProviderAdapterRegistry, {
     getByProvider: () =>
       Effect.succeed({
-        provider: "opencode",
+        provider: currentHarness,
         verifyNativeResume: () =>
-          Effect.succeed({
-            providerSessionId: returnedIdentity,
-            resumeCursor: {
-              openCodeSessionId: returnedIdentity,
-              cwd: "/workspace",
-            },
-          }),
+          verificationFailure !== null
+            ? Effect.fail(new Error(verificationFailure))
+            : Effect.succeed({
+                providerSessionId: returnedIdentity,
+                resumeCursor:
+                  currentHarness === "claudeAgent"
+                    ? { resume: returnedIdentity }
+                    : { openCodeSessionId: returnedIdentity, cwd: "/workspace" },
+              }),
       } as never),
     listProviders: () => Effect.succeed(["opencode"]),
   }),
@@ -160,6 +165,46 @@ layer("ProviderNativeContinuationVerifier", (it) => {
         ["NATIVE_CONTINUATION_VERIFICATION_STARTED", "NATIVE_CONTINUATION_VERIFICATION_FAILED"],
       );
       assert.strictEqual(recordedDiagnostics[1]?.detail.stage, "validate-resumed-identity");
+    }),
+  );
+
+  it.effect("reconstructs only a confirmed missing Claude conversation", () =>
+    Effect.gen(function* () {
+      currentHarness = "claudeAgent";
+      const claudeSelection: ResolvedProviderTurnSelection = {
+        ...selection,
+        harness: "claudeAgent",
+        modelId: "claude-sonnet-4-5",
+        modelLabel: "Claude Sonnet",
+        claudeAccountTransition: {
+          source: { authenticationMethodId: "claude-account", providerIdentityId: "alice" },
+          target: { authenticationMethodId: "claude-account", providerIdentityId: "bob" },
+        },
+      };
+      try {
+        const verifier = yield* ProviderNativeContinuationVerifier;
+        verificationFailure = "No conversation found with session ID: native-session";
+        const reconstructed = yield* verifier.verifySwitch({
+          selection: claudeSelection,
+          sourceStorage: "connection-profile",
+          targetGenerationId,
+          runtimeMode: "full-access",
+        });
+        assert.strictEqual(reconstructed.kind, "reconstructed");
+        verificationFailure = "Claude authentication failed";
+        const authFailure = yield* Effect.exit(
+          verifier.verifySwitch({
+            selection: claudeSelection,
+            sourceStorage: "connection-profile",
+            targetGenerationId,
+            runtimeMode: "full-access",
+          }),
+        );
+        assert.strictEqual(authFailure._tag, "Failure");
+      } finally {
+        currentHarness = "opencode";
+        verificationFailure = null;
+      }
     }),
   );
 });

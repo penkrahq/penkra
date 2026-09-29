@@ -59,7 +59,6 @@ export interface AcceptedConnectionChange {
   readonly previousModelId: string | null;
   readonly modelId: string;
   readonly modelLabel: string;
-  readonly reconstructionNotice?: string;
 }
 const defaultMetadata: Omit<OrchestrationEvent, "sequence" | "type" | "payload"> = {
   eventId: crypto.randomUUID() as OrchestrationEvent["eventId"],
@@ -1676,40 +1675,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
                 },
               },
             };
-      const precedingSelectionEvent =
-        modelChangedEvent ?? connectionChangedEvent ?? modelSelectionChangedEvent;
-      const reconstructionNoticeEvent: Omit<OrchestrationEvent, "sequence"> | null =
-        acceptedConnectionChange?.reconstructionNotice === undefined
-          ? null
-          : {
-              ...withEventBase({
-                aggregateKind: "thread",
-                aggregateId: command.threadId,
-                occurredAt: command.createdAt,
-                commandId: command.commandId,
-              }),
-              ...(precedingSelectionEvent === null
-                ? {}
-                : { causationEventId: precedingSelectionEvent.eventId }),
-              type: "thread.activity-appended",
-              payload: {
-                threadId: command.threadId,
-                activity: {
-                  id: EventId.makeUnsafe(crypto.randomUUID()),
-                  tone: "info",
-                  kind: "continuation-reconstructed",
-                  summary: acceptedConnectionChange.reconstructionNotice,
-                  payload: {},
-                  turnId: null,
-                  createdAt: command.createdAt,
-                },
-              },
-            };
       const selectionChangedEvents = [
         modelSelectionChangedEvent,
         connectionChangedEvent,
         modelChangedEvent,
-        reconstructionNoticeEvent,
       ].filter((event): event is Omit<OrchestrationEvent, "sequence"> => event !== null);
       const activeProvider =
         targetThread.session?.providerName ?? targetThread.modelSelection.provider;

@@ -5191,6 +5191,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 options: {
                   ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
                   resume,
+                  ...(input.requireCompletedProbe ? { tools: [], maxTurns: 1 } : {}),
                   env: claudeSdkEnv,
                   pathToClaudeCodeExecutable: input.managedLaunch.binaryPath,
                   settingSources: [],
@@ -5211,16 +5212,55 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           (warmQuery) =>
             Effect.tryPromise({
               try: async () => {
-                const stream = warmQuery.query(emptyClaudeVerificationPrompt());
+                const stream = warmQuery.query(
+                  input.requireCompletedProbe
+                    ? (async function* (): AsyncIterable<SDKUserMessage> {
+                        yield {
+                          type: "user",
+                          message: {
+                            role: "user",
+                            content: "Penkra continuation check. Reply OK without using tools.",
+                          },
+                          parent_tool_use_id: null,
+                          isSynthetic: true,
+                        };
+                      })()
+                    : emptyClaudeVerificationPrompt(),
+                );
                 let timeout: ReturnType<typeof setTimeout> | undefined;
                 const reportedSessionId = await Promise.race([
                   (async () => {
+                    let initializedSessionId: string | undefined;
                     for await (const message of stream) {
                       if (message.type === "system" && message.subtype === "init") {
+                        initializedSessionId = message.session_id;
+                        if (!input.requireCompletedProbe) return initializedSessionId;
+                      }
+                      if (input.requireCompletedProbe && message.type === "result") {
+                        if (message.subtype !== "success" || message.is_error) {
+                          throw new Error(
+                            "Claude rejected the resumed verification turn: " +
+                              ("errors" in message ? message.errors.join(" ") : message.result),
+                          );
+                        }
+                        if (initializedSessionId === undefined) {
+                          throw new Error(
+                            "Claude completed a turn without reporting its native session id.",
+                          );
+                        }
+                        if (message.session_id !== initializedSessionId) {
+                          throw new Error(
+                            "Claude changed native sessions during resume verification.",
+                          );
+                        }
                         return message.session_id;
                       }
                     }
-                    throw new Error("Claude did not report a native session id during resume.");
+                    throw new Error(
+                      input.requireCompletedProbe
+                        ? "Claude did not complete the resumed verification turn."
+                        : "Claude did not report a native session id during resume.",
+                    );
                   })(),
                   new Promise<never>((_resolve, reject) => {
                     timeout = setTimeout(

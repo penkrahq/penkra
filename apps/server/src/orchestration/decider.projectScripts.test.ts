@@ -551,8 +551,6 @@ describe("decider project scripts", () => {
           modelId: "gpt-5-codex",
           modelLabel: "GPT-5 Codex",
           previousConnectionId: "connection-work",
-          reconstructionNotice:
-            "Context was rebuilt from thread history; native tool state was not carried over.",
         },
       }),
     );
@@ -562,10 +560,7 @@ describe("decider project scripts", () => {
         event.type === "thread.activity-appended" &&
         event.payload.activity.kind === "continuation-reconstructed",
     );
-    expect(notice?.type).toBe("thread.activity-appended");
-    if (notice?.type === "thread.activity-appended") {
-      expect(notice.payload.activity.summary).toContain("native tool state was not carried over");
-    }
+    expect(notice).toBeUndefined();
 
     const anonymousResult = await Effect.runPromise(
       decideOrchestrationCommand({

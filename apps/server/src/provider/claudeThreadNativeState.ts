@@ -290,6 +290,18 @@ export async function stageClaudeThreadAccountTransition(input: {
   );
   if (sourceRoot === targetRoot)
     throw new Error("The Claude account switch has no distinct storage.");
+  if (existing !== null) {
+    // Verification may have written a disposable probe into this revision.
+    // Unlink the target profile first, then rebuild the whole copy from the
+    // settled source so no probe transcript or sidecar survives the commit.
+    await revokeClaudeThreadAccountTransitionLinks({
+      stateDir: input.stateDir,
+      threadId: input.threadId,
+      commandId: input.transition.commandId,
+    });
+    await rm(targetRoot, { recursive: true, force: true });
+    await syncDirectory(Path.dirname(targetRoot));
+  }
   await mkdir(targetRoot, { recursive: true, mode: 0o700 });
   for (const name of ["project", ...CLAUDE_SESSION_SIDECARS]) {
     const source = Path.join(sourceRoot, name);

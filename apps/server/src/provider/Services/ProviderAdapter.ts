@@ -143,6 +143,8 @@ export interface ProviderNativeResumeVerificationInput {
   readonly cwd?: string;
   readonly modelSelection?: ProviderSessionStartInput["modelSelection"];
   readonly runtimeMode: ProviderSessionStartInput["runtimeMode"];
+  /** A disposable account-switch copy must prove resume through a completed prompt. */
+  readonly requireCompletedProbe?: boolean;
 }
 
 export interface ProviderNativeResumeVerificationResult {

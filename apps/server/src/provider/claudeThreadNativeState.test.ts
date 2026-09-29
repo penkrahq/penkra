@@ -160,6 +160,50 @@ it("transfers Claude ownership only after the exact explicit switch binding comm
   await discardClaudeThreadAccountTransition({ stateDir, threadId, commandId: "switch-command" });
 });
 
+it("restores a probed target copy from source before the switch commits", async () => {
+  const root = await mkdtemp(Path.join(tmpdir(), "penkra-claude-probe-reset-"));
+  roots.push(root);
+  const stateDir = Path.join(root, "state");
+  const threadId = "probe-reset-thread";
+  const source = {
+    authenticationMethodId: "claude-account",
+    providerIdentityId: "alice@example.com",
+  };
+  const target = {
+    authenticationMethodId: "claude-account",
+    providerIdentityId: "bob@example.com",
+  };
+  const configA = Path.join(stateDir, "provider-connections", "profile-a", "claude-config");
+  const configB = Path.join(stateDir, "provider-connections", "profile-b", "claude-config");
+  await prepareClaudeThreadProject({ stateDir, threadId, configDir: configA, account: source });
+  await writeFile(claudeThreadTranscriptPath(stateDir, threadId, "session"), "source history");
+  const transition = {
+    commandId: "probe-reset-command",
+    connectionId: "connection-b",
+    bindingRevision: 2,
+    source,
+    target,
+  };
+  await stageClaudeThreadAccountTransition({ stateDir, threadId, transition });
+  await prepareClaudeThreadProject({
+    stateDir,
+    threadId,
+    configDir: configB,
+    account: target,
+    connectionId: "connection-b",
+    bindingConnectionId: "connection-a",
+    bindingRevision: 1,
+  });
+  const link = Path.join(configB, "projects", claudeThreadProjectName(threadId));
+  const targetProject = await readlink(link);
+  await writeFile(Path.join(targetProject, "session.jsonl"), "source history\nprobe turn");
+  await writeFile(Path.join(targetProject, "probe-only.jsonl"), "probe artifact");
+  await stageClaudeThreadAccountTransition({ stateDir, threadId, transition });
+  await assert.rejects(access(link));
+  assert.equal(await readFile(Path.join(targetProject, "session.jsonl"), "utf8"), "source history");
+  await assert.rejects(access(Path.join(targetProject, "probe-only.jsonl")));
+});
+
 it("discards a failed account switch without changing the owner", async () => {
   const root = await mkdtemp(Path.join(tmpdir(), "penkra-claude-account-switch-failed-"));
   roots.push(root);
