@@ -111,10 +111,11 @@ export function armQaRuntimeAction(
 export function settleQaRuntimeAction(input: {
   readonly threadId: string;
   readonly logicalTurnId: string | null;
+  readonly nativeTurnId?: string | null;
   readonly eventType: "turn.started" | "turn.completed" | "turn.aborted";
   readonly state: "running" | "interrupted" | "ready" | "error";
 }): void {
-  if (!enabled() || !input.logicalTurnId) return;
+  if (!enabled() || (!input.logicalTurnId && !input.nativeTurnId)) return;
   const flows: RuntimeFlow[] =
     input.eventType === "turn.started" && input.state === "running"
       ? ["play", "queue"]
@@ -122,7 +123,11 @@ export function settleQaRuntimeAction(input: {
         ? ["stop"]
         : [];
   for (const flow of flows) {
-    const key = `${flow}:${input.threadId}:${input.logicalTurnId}`;
+    const key = [input.logicalTurnId, input.nativeTurnId]
+      .filter((turnId): turnId is string => !!turnId)
+      .map((turnId) => `${flow}:${input.threadId}:${turnId}`)
+      .find((candidateKey) => pending.has(candidateKey));
+    if (!key) continue;
     const candidate = pending.get(key);
     if (!candidate || Date.now() - candidate.at > TTL_MS) continue;
     if (!candidate.admitted) {
