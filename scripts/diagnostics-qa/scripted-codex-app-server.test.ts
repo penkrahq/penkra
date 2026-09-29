@@ -75,6 +75,32 @@ describe("scripted provider QA fixture", () => {
     }
   });
 
+  it("resumes a fixture thread after its app-server process restarts", async () => {
+    const fixtureHome = fs.mkdtempSync("/tmp/penkra-diagnostics-qa-codex-home.");
+    const threadId = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    const sessions = path.join(fixtureHome, "sessions", "2026", "09", "29");
+    fs.mkdirSync(sessions, { recursive: true });
+    fs.writeFileSync(path.join(sessions, `rollout-2026-09-29T00-00-00-${threadId}.jsonl`), "{}\n");
+    const child = spawn(process.execPath, [fixture, "app-server"], {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env, CODEX_HOME: fixtureHome },
+    });
+    const lines = createInterface({ input: child.stdout! });
+    try {
+      const result = new Promise<Record<string, unknown>>((resolve) => {
+        lines.on("line", (line) => resolve(JSON.parse(line) as Record<string, unknown>));
+      });
+      child.stdin!.write(
+        `${JSON.stringify({ id: 1, method: "thread/resume", params: { threadId } })}\n`,
+      );
+      expect(await result).toMatchObject({ id: 1, result: { thread: { id: threadId } } });
+    } finally {
+      child.kill();
+      lines.close();
+      fs.rmSync(fixtureHome, { recursive: true, force: true });
+    }
+  });
+
   it("is outside packaged files and absent from the built app bundles", () => {
     const serverPackage = JSON.parse(
       fs.readFileSync(path.join(repoRoot, "apps/server/package.json"), "utf8"),

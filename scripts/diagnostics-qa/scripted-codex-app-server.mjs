@@ -28,6 +28,15 @@ function writeRollout(threadId) {
   });
 }
 
+function hasRollout(threadId) {
+  if (!/^[0-9a-f-]{36}$/u.test(threadId)) return false;
+  const sessions = path.join(process.env.CODEX_HOME ?? "", "sessions");
+  if (!process.env.CODEX_HOME || !fs.existsSync(sessions)) return false;
+  return fs
+    .readdirSync(sessions, { recursive: true })
+    .some((entry) => String(entry).endsWith(`-${threadId}.jsonl`));
+}
+
 function finish(turnId, status = "completed") {
   const active = turns.get(turnId);
   if (!active || active.status !== "inProgress") return;
@@ -80,10 +89,11 @@ function handle(message) {
     case "thread/resume":
     case "thread/read": {
       const threadId = params.threadId;
-      if (typeof threadId !== "string" || !threads.has(threadId)) {
+      if (typeof threadId !== "string" || (!threads.has(threadId) && !hasRollout(threadId))) {
         emit({ id, error: { code: -32001, message: "Unknown QA fixture thread" } });
         return;
       }
+      threads.set(threadId, { id: threadId });
       respond(id, {
         thread: {
           id: threadId,
