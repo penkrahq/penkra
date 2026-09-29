@@ -28,6 +28,7 @@ import {
   OrchestrationThreadActivity,
   RuntimeMode,
 } from "@penkra/contracts";
+import { matchesRequestedTurnOutcome } from "./qaTurnOutcomes";
 import { getModelCapabilities, normalizeModelSlug } from "@penkra/shared/model";
 import { startDiagnosticTrace } from "@penkra/shared/traceContext";
 import { createSendDiagnosticLifecycle } from "./sendDiagnosticLifecycle";
@@ -3911,10 +3912,12 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
   const pendingContinueCommandIdRef = useRef<string | null>(null);
   const pendingQaStopRef = useRef<{
     threadId: string;
+    turnId: string;
     trace: ReturnType<typeof startDiagnosticTrace>;
   } | null>(null);
   const pendingQaPlayRef = useRef<{
     threadId: string;
+    turnId: string;
     trace: ReturnType<typeof startDiagnosticTrace>;
   } | null>(null);
   const pendingQaQueueRef = useRef<{
@@ -3926,7 +3929,17 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
   } | null>(null);
   useEffect(() => {
     const stop = pendingQaStopRef.current;
-    if (stop && activeThreadId === stop.threadId && activeLatestTurn?.state === "interrupted") {
+    if (
+      stop &&
+      matchesRequestedTurnOutcome({
+        requestedThreadId: stop.threadId,
+        requestedTurnId: stop.turnId,
+        activeThreadId,
+        activeTurnId: activeLatestTurn?.turnId ?? null,
+        actualState: activeLatestTurn?.state ?? null,
+        expectedState: "interrupted",
+      })
+    ) {
       pendingQaStopRef.current = null;
       void window.desktopBridge
         ?.recordDiagnosticCheckpoint?.({
@@ -3939,7 +3952,17 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         .catch(() => undefined);
     }
     const play = pendingQaPlayRef.current;
-    if (play && activeThreadId === play.threadId && phase === "running") {
+    if (
+      play &&
+      matchesRequestedTurnOutcome({
+        requestedThreadId: play.threadId,
+        requestedTurnId: play.turnId,
+        activeThreadId,
+        activeTurnId: activeLatestTurn?.turnId ?? null,
+        actualState: phase,
+        expectedState: "running",
+      })
+    ) {
       pendingQaPlayRef.current = null;
       void window.desktopBridge
         ?.recordDiagnosticCheckpoint?.({
@@ -4106,7 +4129,11 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     const commandId = newCommandId();
     pendingContinueCommandIdRef.current = commandId;
     const playTrace = startDiagnosticTrace();
-    pendingQaPlayRef.current = { threadId: target.threadId, trace: playTrace };
+    pendingQaPlayRef.current = {
+      threadId: target.threadId,
+      turnId: target.turnId,
+      trace: playTrace,
+    };
     try {
       await api.orchestration.dispatchCommand(
         {
@@ -5579,14 +5606,15 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         });
       }
     }
+    const diagnosticActiveTurnId = activeThread.session?.activeTurnId ?? null;
     const interruptCommand = {
       type: "thread.turn.interrupt" as const,
       commandId: newCommandId(),
       threadId: activeThread.id,
+      ...(diagnosticActiveTurnId ? { turnId: diagnosticActiveTurnId } : {}),
       ...(pendingMessageId ? { pendingMessageId } : {}),
       createdAt: new Date().toISOString(),
     };
-    const diagnosticActiveTurnId = activeThread.session?.activeTurnId ?? null;
     const diagnosticActiveTurnStartedAt = activeLatestTurn?.startedAt ?? null;
     const diagnosticPendingMessageId = pendingMessageId ?? null;
     recordChatLifecycleUiDiagnostic({
@@ -5599,7 +5627,12 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       pendingMessageId: diagnosticPendingMessageId,
     });
     const stopTrace = startDiagnosticTrace();
-    pendingQaStopRef.current = { threadId: activeThread.id, trace: stopTrace };
+    if (diagnosticActiveTurnId)
+      pendingQaStopRef.current = {
+        threadId: activeThread.id,
+        turnId: diagnosticActiveTurnId,
+        trace: stopTrace,
+      };
     try {
       // Receipt records interrupt intent only. Shared projection decides whether
       // the pending message was cancelled before acceptance or reached history.
