@@ -2433,9 +2433,13 @@
     "line": 6798,
     "column": 11,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The rejected App renderer operation reaches the desktop IPC handler, which records its failed dispatch.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
+    }
   },
   {
     "file": "apps/desktop/src/main.ts",
@@ -3277,9 +3281,13 @@
     "line": 8839,
     "column": 9,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, authority, or lifecycle state before the operation proceeds.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The rejected App renderer operation reaches the desktop IPC handler, which records its failed dispatch.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
+    }
   },
   {
     "file": "apps/desktop/src/main.ts",
@@ -3501,9 +3509,13 @@
     "line": 110,
     "column": 7,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "The explicit error reports a rejected request, unavailable capability, or invalid runtime state to the caller.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.simulator_runtime"
+    }
   },
   {
     "file": "apps/desktop/src/androidEmulatorController.ts",
@@ -3591,9 +3603,13 @@
     "line": 134,
     "column": 9,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.simulator_runtime"
+    }
   },
   {
     "file": "apps/desktop/src/androidEmulatorLauncher.ts",
@@ -3653,9 +3669,13 @@
     "line": 365,
     "column": 48,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.simulator_runtime"
+    }
   },
   {
     "file": "apps/desktop/src/androidEmulatorLauncher.ts",
@@ -3720,9 +3740,13 @@
     "line": 110,
     "column": 7,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.simulator_runtime"
+    }
   },
   {
     "file": "apps/desktop/src/androidEmulatorSessionHost.ts",
@@ -3738,9 +3762,13 @@
     "line": 163,
     "column": 7,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.simulator_runtime"
+    }
   },
   {
     "file": "apps/desktop/src/androidEmulatorSessionHost.ts",
@@ -3846,9 +3874,13 @@
     "line": 251,
     "column": 16,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.simulator_runtime"
+    }
   },
   {
     "file": "apps/desktop/src/appAccountData.ts",
@@ -4016,9 +4048,13 @@
     "line": 22,
     "column": 5,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_runtime"
+    }
   },
   {
     "file": "apps/desktop/src/appAccountProfile.ts",
@@ -4286,9 +4322,13 @@
     "line": 1028,
     "column": 5,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_runtime"
+    }
   },
   {
     "file": "apps/desktop/src/appCommandPipeServer.ts",
@@ -4730,9 +4770,13 @@
     "line": 45,
     "column": 5,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_runtime"
+    }
   },
   {
     "file": "apps/desktop/src/appIdentityToken.ts",
@@ -5516,9 +5560,13 @@
     "line": 108,
     "column": 7,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_storage"
+    }
   },
   {
     "file": "apps/desktop/src/appInstallationStore.ts",
@@ -5596,9 +5644,13 @@
     "line": 108,
     "column": 7,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.simulator_runtime"
+    }
   },
   {
     "file": "apps/desktop/src/appleAppiumAutomation.ts",
@@ -5623,9 +5675,13 @@
     "line": 208,
     "column": 28,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.simulator_runtime"
+    }
   },
   {
     "file": "apps/desktop/src/appleAppiumAutomation.ts",
@@ -5659,9 +5715,13 @@
     "line": 331,
     "column": 5,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.simulator_runtime"
+    }
   },
   {
     "file": "apps/desktop/src/appleAppiumServer.ts",
@@ -5690,9 +5750,13 @@
     "line": 91,
     "column": 7,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.simulator_runtime"
+    }
   },
   {
     "file": "apps/desktop/src/appleAppiumServer.ts",
@@ -5788,9 +5852,13 @@
     "line": 156,
     "column": 9,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.simulator_runtime"
+    }
   },
   {
     "file": "apps/desktop/src/appleSimulatorAdapter.ts",
@@ -6743,9 +6811,13 @@
     "line": 347,
     "column": 5,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_runtime"
+    }
   },
   {
     "file": "apps/desktop/src/appPackageIngestor.ts",
@@ -6761,9 +6833,13 @@
     "line": 367,
     "column": 5,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_runtime"
+    }
   },
   {
     "file": "apps/desktop/src/appPackageIngestor.ts",
@@ -8120,9 +8196,13 @@
     "line": 127,
     "column": 9,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.registry_client"
+    }
   },
   {
     "file": "apps/desktop/src/appRegistryPackageDownload.ts",
@@ -8147,9 +8227,13 @@
     "line": 168,
     "column": 35,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.registry_client"
+    }
   },
   {
     "file": "apps/desktop/src/appRegistryPackageDownload.ts",
@@ -8938,9 +9022,13 @@
     "line": 136,
     "column": 7,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_runtime"
+    }
   },
   {
     "file": "apps/desktop/src/appRuntimeLifecycle.ts",
@@ -8965,9 +9053,13 @@
     "line": 179,
     "column": 9,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_runtime"
+    }
   },
   {
     "file": "apps/desktop/src/appRuntimeLifecycle.ts",
@@ -9404,9 +9496,13 @@
     "line": 132,
     "column": 31,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_storage"
+    }
   },
   {
     "file": "apps/desktop/src/appScopedFileWriteStore.ts",
@@ -9444,9 +9540,13 @@
     "line": 204,
     "column": 30,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_storage"
+    }
   },
   {
     "file": "apps/desktop/src/appScopedFileWriteStore.ts",
@@ -9866,9 +9966,13 @@
     "line": 670,
     "column": 7,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.tab_observer"
+    }
   },
   {
     "file": "apps/desktop/src/appTabObserver.ts",
@@ -9893,9 +9997,13 @@
     "line": 799,
     "column": 9,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.tab_observer"
+    }
   },
   {
     "file": "apps/desktop/src/appTabObserver.ts",
@@ -10207,9 +10315,13 @@
     "line": 62,
     "column": 30,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.tab_observer"
+    }
   },
   {
     "file": "apps/desktop/src/appTabResourceStores.ts",
@@ -10225,9 +10337,13 @@
     "line": 146,
     "column": 7,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.tab_observer"
+    }
   },
   {
     "file": "apps/desktop/src/appTabViewHost.ts",
@@ -10306,9 +10422,13 @@
     "line": 1377,
     "column": 7,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.tab_observer"
+    }
   },
   {
     "file": "apps/desktop/src/appTabViewHost.ts",
@@ -10459,7 +10579,7 @@
     "column": 5,
     "kind": "throw",
     "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
+    "reason": "This explicit guard rejects an invalid timeout configuration before scheduling work.",
     "reviewer": "desktop-gateway-0143"
   },
   {
@@ -10620,9 +10740,13 @@
     "line": 332,
     "column": 7,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_runtime"
+    }
   },
   {
     "file": "apps/desktop/src/appTransfer.ts",
@@ -10682,9 +10806,13 @@
     "line": 525,
     "column": 11,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_runtime"
+    }
   },
   {
     "file": "apps/desktop/src/appTransfer.ts",
@@ -10860,9 +10988,13 @@
     "line": 108,
     "column": 7,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.backend_runtime"
+    }
   },
   {
     "file": "apps/desktop/src/backendShutdown.ts",
@@ -10982,7 +11114,7 @@
     "column": 5,
     "kind": "throw",
     "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
+    "reason": "This explicit guard rejects an invalid timeout configuration before scheduling work.",
     "reviewer": "desktop-gateway-0143"
   },
   {
@@ -11456,18 +11588,26 @@
     "line": 25,
     "column": 3,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_runtime"
+    }
   },
   {
     "file": "apps/desktop/src/desktopUserDataProfile.ts",
     "line": 232,
     "column": 13,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_storage"
+    }
   },
   {
     "file": "apps/desktop/src/desktopUserDataProfile.ts",
@@ -11555,9 +11695,13 @@
     "line": 176,
     "column": 11,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.app_runtime"
+    }
   },
   {
     "file": "apps/desktop/src/electronUpdaterSecurity.ts",
@@ -11886,9 +12030,13 @@
     "line": 153,
     "column": 11,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.registry_client"
+    }
   },
   {
     "file": "apps/desktop/src/requiredRegistryAppBootstrap.ts",
@@ -11958,9 +12106,13 @@
     "line": 595,
     "column": 9,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.update_runtime"
+    }
   },
   {
     "file": "apps/desktop/src/resumableUpdateDownload.ts",
@@ -12012,18 +12164,26 @@
     "line": 181,
     "column": 30,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.simulator_runtime"
+    }
   },
   {
     "file": "apps/desktop/src/simulatorAdapterBundle.ts",
     "line": 269,
     "column": 28,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.simulator_runtime"
+    }
   },
   {
     "file": "apps/desktop/src/simulatorAdapterBundle.ts",
@@ -12057,9 +12217,13 @@
     "line": 350,
     "column": 5,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.simulator_runtime"
+    }
   },
   {
     "file": "apps/desktop/src/simulatorDeviceStore.ts",
@@ -12142,9 +12306,13 @@
     "line": 45,
     "column": 30,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.simulator_runtime"
+    }
   },
   {
     "file": "apps/desktop/src/simulatorIpc.ts",
@@ -12232,9 +12400,13 @@
     "line": 15,
     "column": 5,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.simulator_runtime"
+    }
   },
   {
     "file": "apps/desktop/src/simulatorManager.ts",
@@ -12308,9 +12480,13 @@
     "line": 248,
     "column": 9,
     "kind": "throw",
-    "disposition": "validation",
-    "reason": "This explicit guard rejects invalid input, unavailable state, or an invalid external response before proceeding.",
-    "reviewer": "desktop-gateway-0143"
+    "disposition": "propagates",
+    "reason": "The operation returns this failure to its owning desktop workflow, which records the terminal failure at the subsystem boundary.",
+    "reviewer": "desktop-gateway-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.simulator_runtime"
+    }
   },
   {
     "file": "apps/desktop/src/simulatorManager.ts",
