@@ -304,6 +304,10 @@ function totalBytes(dir: string): number {
   }, 0);
 }
 
+function resetReserveBytes(maxTotalBytes: number): number {
+  return Math.min(128 * 1024 * 1024, Math.floor(maxTotalBytes / 8));
+}
+
 const SQLITE_OPEN_RESERVE_BYTES = 65_536;
 
 function sqlitePhysicalBudget(
@@ -1222,6 +1226,19 @@ export class DiagnosticsStore {
             const count = readLossLedger(path.join(this.dir, name))?.count ?? 0;
             manifest.ledgers[bootId] = Math.max(manifest.ledgers[bootId] ?? 0, count);
           }
+        }
+        // Old SQLite, identity, and process markers contain no unreported
+        // spool loss. Reclaim them before writing the durable reset manifest,
+        // so a completely full old installation can still reset. A crash here
+        // leaves all counted spools and ledgers for the next attempt.
+        for (const name of fs.readdirSync(this.dir)) {
+          if (
+            keep.has(name) ||
+            /^spool-[a-f0-9]{32}\.jsonl$/u.test(name) ||
+            /^loss-[a-f0-9]{32}\.bin$/u.test(name)
+          )
+            continue;
+          fs.rmSync(path.join(this.dir, name), { recursive: true, force: true });
         }
         if (Object.keys(manifest.spools).length + Object.keys(manifest.ledgers).length > 0)
           writeResetLossManifest(this.dir, manifest, this.maxTotalBytes);
@@ -2163,7 +2180,8 @@ export class DiagnosticsSpoolWriter {
         Buffer.byteLength(active) +
         (this.stale ? 2 : 0) +
         LOSS_LEDGER_FILE_BYTES;
-      if (totalBytes(this.dir) + needed > (options.maxTotalBytes ?? DIAGNOSTIC_LIMITS.totalBytes))
+      const maxTotalBytes = options.maxTotalBytes ?? DIAGNOSTIC_LIMITS.totalBytes;
+      if (totalBytes(this.dir) + needed > maxTotalBytes - resetReserveBytes(maxTotalBytes))
         throw new Error("Diagnostics capacity reached before spool startup");
       fs.writeFileSync(marker, this.identity, {
         mode: 0o600,
@@ -2187,10 +2205,9 @@ export class DiagnosticsSpoolWriter {
       const stalePath = path.join(this.dir, `stale-${this.bootId}.json`);
       const markerBytes = fs.existsSync(marker) ? 0 : Buffer.byteLength(this.identity);
       const staleBytes = this.stale && !fs.existsSync(stalePath) ? 2 : 0;
-      if (
-        totalBytes(this.dir) + markerBytes + staleBytes >
-        (this.options.maxTotalBytes ?? DIAGNOSTIC_LIMITS.totalBytes)
-      ) {
+      const maxTotalBytes = this.options.maxTotalBytes ?? DIAGNOSTIC_LIMITS.totalBytes;
+      const writableLimit = maxTotalBytes - resetReserveBytes(maxTotalBytes);
+      if (totalBytes(this.dir) + markerBytes + staleBytes > writableLimit) {
         recordLoss(this.dir, this.bootId, "capacity", 1, this.options.maxTotalBytes);
         throw new Error("Diagnostics capacity reached before spool marker");
       }
@@ -2207,7 +2224,7 @@ export class DiagnosticsSpoolWriter {
       if (
         spoolBytes + bytes >
           (this.options.maxSpoolBytes ?? DIAGNOSTIC_LIMITS.spoolBytesPerProcess) ||
-        totalBytes(this.dir) + bytes > (this.options.maxTotalBytes ?? DIAGNOSTIC_LIMITS.totalBytes)
+        totalBytes(this.dir) + bytes > writableLimit
       ) {
         recordLoss(this.dir, this.bootId, "capacity", 1, this.options.maxTotalBytes);
         throw new Error("Diagnostics capacity reached");
