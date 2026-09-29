@@ -20,10 +20,18 @@ export interface FailureSite {
 }
 
 export interface CoverageException extends FailureSite {
-  readonly disposition: "cannot-fail";
+  readonly disposition:
+    | "cannot-fail"
+    | "validation"
+    | "rethrow"
+    | "propagates"
+    | "scheduled"
+    | "recorded"
+    | "diagnostics-isolated";
   readonly reason: string;
   readonly reviewer: string;
-  readonly issue: string;
+  readonly issue?: string;
+  readonly boundary?: { readonly code: string; readonly where: string };
 }
 
 export interface CoverageBoundary {
@@ -57,6 +65,16 @@ function recordsAtBoundary(source: string, boundary: CoverageBoundary): boolean 
 
 function isRecordingCall(node: ts.Node, code: string, where: string): boolean {
   if (
+    ts.isCallExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === "recordComposerAttachmentFailure" &&
+    node.arguments[0] !== undefined &&
+    node.arguments[1] !== undefined &&
+    ts.isStringLiteralLike(node.arguments[0]) &&
+    ts.isStringLiteralLike(node.arguments[1])
+  )
+    return node.arguments[0].text === code && node.arguments[1].text === where;
+  if (
     !ts.isCallExpression(node) ||
     !ts.isIdentifier(node.expression) ||
     node.expression.text !== "recordDiagnosticIncident" ||
@@ -74,6 +92,33 @@ function isRecordingCall(node: ts.Node, code: string, where: string): boolean {
       .map((property) => [property.name.getText(), property.initializer.getText().slice(1, -1)]),
   );
   return fields.get("code") === code && fields.get("where") === where;
+}
+
+function recordsInsideCatch(
+  source: string,
+  site: FailureSite,
+  code: string,
+  where: string,
+): boolean {
+  const parsed = ts.createSourceFile(site.file, source, ts.ScriptTarget.Latest, true);
+  let found = false;
+  function visit(node: ts.Node): void {
+    if (found) return;
+    if (ts.isCatchClause(node)) {
+      const position = failureSitePosition(node, parsed);
+      if (position.line + 1 === site.line && position.character + 1 === site.column) {
+        found = node.block.statements.some(
+          (statement) =>
+            ts.isExpressionStatement(statement) &&
+            isRecordingCall(statement.expression, code, where),
+        );
+        return;
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(parsed);
+  return found;
 }
 
 /** A local marker must be preceded by a recording statement in its own block. */
@@ -159,6 +204,29 @@ function siteKey(site: FailureSite): string {
   return `${site.file}:${site.line}:${site.column}:${site.kind}`;
 }
 
+/** Subsystems own separate exception files so parallel reviews do not edit one list. */
+export function loadCoverageExceptions(scriptsDir: string): CoverageException[] {
+  const filenames = fs
+    .readdirSync(scriptsDir)
+    .filter((name) => /^diagnostics-coverage-exceptions(?:\.[a-z0-9_-]+)?\.json$/u.test(name))
+    .toSorted();
+  const seen = new Set<string>();
+  const all: CoverageException[] = [];
+  for (const filename of filenames) {
+    const entries = JSON.parse(fs.readFileSync(path.join(scriptsDir, filename), "utf8")) as
+      | CoverageException[]
+      | unknown;
+    if (!Array.isArray(entries)) throw new Error(`Invalid coverage exception file: ${filename}`);
+    for (const entry of entries as CoverageException[]) {
+      const key = siteKey(entry);
+      if (seen.has(key)) throw new Error(`Duplicate diagnostics coverage exception: ${key}`);
+      seen.add(key);
+      all.push(entry);
+    }
+  }
+  return all;
+}
+
 function hasCoverageMarker(
   source: string,
   site: FailureSite,
@@ -202,13 +270,37 @@ export function uncoveredFailureSites(
   }
   for (const entry of exceptions) {
     const key = siteKey(entry);
+    const needsBoundary = ["rethrow", "propagates", "recorded"].includes(entry.disposition);
+    const boundaryKey = entry.boundary ? `${entry.boundary.code}:${entry.boundary.where}` : null;
     if (
       !known.has(key) ||
       reviewed.has(key) ||
-      entry.disposition !== "cannot-fail" ||
+      ![
+        "cannot-fail",
+        "validation",
+        "rethrow",
+        "propagates",
+        "scheduled",
+        "recorded",
+        "diagnostics-isolated",
+      ].includes(entry.disposition) ||
+      (entry.disposition === "validation" && !["throw", "rejection"].includes(entry.kind)) ||
+      (entry.disposition === "rethrow" && entry.kind !== "throw") ||
+      (entry.disposition === "scheduled" && entry.kind !== "timeout") ||
+      (entry.disposition === "recorded" &&
+        (entry.kind !== "catch" ||
+          !entry.boundary ||
+          !recordsInsideCatch(
+            sourceFor(entry.file),
+            entry,
+            entry.boundary.code,
+            entry.boundary.where,
+          ))) ||
+      (needsBoundary && (!boundaryKey || !boundaries.has(boundaryKey))) ||
+      (!needsBoundary && entry.boundary !== undefined) ||
       entry.reason.trim().length < 20 ||
       entry.reviewer.trim().length < 2 ||
-      !entry.issue.startsWith("https://")
+      (entry.issue !== undefined && !entry.issue.startsWith("https://"))
     )
       throw new Error(`Invalid or stale diagnostics coverage exception: ${key}`);
     reviewed.add(key);
@@ -317,8 +409,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.met
   );
   if (process.argv.includes("--json")) process.stdout.write(`${JSON.stringify(sites)}\n`);
   if (process.argv.includes("--check")) {
-    const exceptionPath = path.join(repoRoot, "scripts/diagnostics-coverage-exceptions.json");
-    const exceptions = JSON.parse(fs.readFileSync(exceptionPath, "utf8")) as CoverageException[];
+    const exceptions = loadCoverageExceptions(path.join(repoRoot, "scripts"));
     const boundaryPath = path.join(repoRoot, "scripts/diagnostics-coverage-boundaries.json");
     const boundaryList = JSON.parse(fs.readFileSync(boundaryPath, "utf8")) as CoverageBoundary[];
     const sourceFor = (file: string) => fs.readFileSync(path.join(repoRoot, file), "utf8");

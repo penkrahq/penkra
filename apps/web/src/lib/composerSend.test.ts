@@ -216,6 +216,11 @@ describe("composerSend attachment builders", () => {
   });
 
   it("preserves the upload failure when best-effort cancellation also fails", async () => {
+    const recordDiagnosticIncident = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("window", {
+      location: { origin: "http://127.0.0.1" },
+      desktopBridge: { recordDiagnosticIncident },
+    });
     const firstFile = new File(["one"], "one.png", { type: "image/png" });
     const secondFile = new File(["two"], "two.png", { type: "image/png" });
     const fetchMock = vi
@@ -264,6 +269,16 @@ describe("composerSend attachment builders", () => {
       }),
     ).rejects.toThrow("Original upload failure.");
     expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(recordDiagnosticIncident.mock.calls.map(([incident]) => incident.code)).toEqual([
+      "SEND_PREFLIGHT_REJECTED",
+      "EXTERNAL_CALL_FAILED",
+    ]);
+    expect(JSON.stringify(recordDiagnosticIncident.mock.calls)).not.toContain(
+      "Original upload failure",
+    );
+    expect(JSON.stringify(recordDiagnosticIncident.mock.calls)).not.toContain(
+      "Cancellation transport failed",
+    );
   });
 
   it("cancels every staged managed attachment when dispatch rejects", async () => {
