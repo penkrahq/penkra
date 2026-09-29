@@ -1,0 +1,102 @@
+[
+  {
+    "file": "apps/server/src/persistence/NodeSqliteClient.ts",
+    "line": 83,
+    "column": 19,
+    "kind": "rejection",
+    "disposition": "validation",
+    "reason": "Unsupported Node SQLite APIs are rejected before any database work.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/persistence/NodeSqliteClient.ts",
+    "line": 173,
+    "column": 18,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "Statement preparation failures reach the SQL error recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "server.database"
+    }
+  },
+  {
+    "file": "apps/server/src/persistence/NodeSqliteClient.ts",
+    "line": 186,
+    "column": 53,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "A poisoned connection repeats the previously recorded fatal SQL error.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "server.database"
+    }
+  },
+  {
+    "file": "apps/server/src/persistence/NodeSqliteClient.ts",
+    "line": 195,
+    "column": 13,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "A failed statement records a privacy-safe SQL operation incident.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "server.database"
+    }
+  },
+  {
+    "file": "apps/server/src/persistence/NodeSqliteClient.ts",
+    "line": 196,
+    "column": 27,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "The failed statement returns the error already recorded by makeSqlError.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "server.database"
+    }
+  },
+  {
+    "file": "apps/server/src/persistence/NodeSqliteClient.ts",
+    "line": 209,
+    "column": 20,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "Value-query failures reach the SQL error recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "server.database"
+    }
+  },
+  {
+    "file": "apps/server/src/persistence/NodeSqliteClient.ts",
+    "line": 211,
+    "column": 45,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "A poisoned connection repeats the previously recorded fatal SQL error.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "server.database"
+    }
+  },
+  {
+    "file": "apps/server/src/persistence/NodeSqliteClient.ts",
+    "line": 249,
+    "column": 20,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "Unprepared statement failures reach the SQL error recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "server.database"
+    }
+  }
+]
