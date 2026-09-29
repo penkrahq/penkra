@@ -42,3 +42,14 @@ export function qaAcceptedCommandAction(command: OrchestrationCommand): QaAction
   if (command.type === "thread.archive") return "archive";
   return null;
 }
+
+export function qaRuntimeActionForCommand(
+  command: OrchestrationCommand,
+): { flow: "stop" | "play" | "queue"; threadId: string } | null {
+  if (command.type === "thread.turn.interrupt") return { flow: "stop", threadId: command.threadId };
+  if (command.type === "thread.turn.recover" && command.reason === "play")
+    return { flow: "play", threadId: command.threadId };
+  if (command.type === "thread.turn.start" && command.dispatchMode === "queue")
+    return { flow: "queue", threadId: command.threadId };
+  return null;
+}

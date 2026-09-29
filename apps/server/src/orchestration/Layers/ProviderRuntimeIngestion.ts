@@ -17,6 +17,7 @@ import {
 import { createHash } from "node:crypto";
 import { startDiagnosticTrace } from "@penkra/shared/traceContext";
 import { recordDiagnosticIncident } from "../../diagnostics/recorder.ts";
+import { settleQaRuntimeAction } from "../../diagnostics/qaRuntimeActions.ts";
 import {
   Cache,
   Cause,
@@ -1986,6 +1987,26 @@ const make = Effect.gen(function* () {
             }
             threadLifecycleDisposition = result.disposition;
           }
+          if (
+            threadLifecycleDisposition === "applied" &&
+            (event.type === "turn.started" ||
+              event.type === "turn.completed" ||
+              event.type === "turn.aborted")
+          )
+            yield* Effect.sync(() =>
+              settleQaRuntimeAction({
+                threadId: thread.id,
+                eventType: event.type,
+                state:
+                  status === "running"
+                    ? "running"
+                    : status === "interrupted"
+                      ? "interrupted"
+                      : status === "error"
+                        ? "error"
+                        : "ready",
+              }),
+            );
 
           // ProviderService permits overlapping sends on one thread. An
           // accepted start binds exactly one queued delivery policy; perform

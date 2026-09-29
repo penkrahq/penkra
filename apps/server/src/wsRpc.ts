@@ -96,7 +96,12 @@ import {
   recordDiagnosticIncident,
   resolveDiagnosticExpectationsForTrace,
 } from "./diagnostics/recorder";
-import { qaAcceptedCommandAction, qaCommandCheckpoint } from "./diagnostics/qaCommandCheckpoints";
+import {
+  qaAcceptedCommandAction,
+  qaCommandCheckpoint,
+  qaRuntimeActionForCommand,
+} from "./diagnostics/qaCommandCheckpoints";
+import { armQaRuntimeAction, cancelQaRuntimeAction } from "./diagnostics/qaRuntimeActions";
 import { recordQaAction } from "@penkra/shared/diagnostics/qaEvidence";
 import { WorkspaceWatcher } from "./workspaceWatcher";
 import { makeWsRequestAdmission } from "./wsRequestAdmission";
@@ -886,6 +891,11 @@ const makeWsRpcHandlersLayer = () =>
                     }
                   : {}),
               };
+              const runtimeAction = qaRuntimeActionForCommand(normalizedCommand);
+              if (runtimeAction)
+                yield* Effect.sync(() =>
+                  armQaRuntimeAction(runtimeAction.flow, runtimeAction.threadId, trace.traceId),
+                );
               const result = yield* dispatchOrchestrationCommand(normalizedCommand).pipe(
                 Effect.tap((receipt) =>
                   Effect.sync(() => {
@@ -931,6 +941,12 @@ const makeWsRpcHandlersLayer = () =>
                 ),
                 Effect.tapError((cause) =>
                   Effect.gen(function* () {
+                    if (runtimeAction)
+                      cancelQaRuntimeAction(
+                        runtimeAction.flow,
+                        runtimeAction.threadId,
+                        trace.traceId,
+                      );
                     yield* Effect.sync(() => {
                       recordDiagnosticCheckpoint({
                         ...diagnosticContext,
