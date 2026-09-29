@@ -2519,6 +2519,7 @@ function resolveEmbeddedCommitHash(): string | null {
 }
 
 declare const __PENKRA_REGISTRY_TRUSTED_KEYS__: string;
+declare const __PENKRA_DIAGNOSTICS_QA_ACCOUNT_BUILD__: boolean;
 
 function resolveAboutCommitHash(): string | null {
   if (aboutCommitHashCache !== undefined) {
@@ -7898,6 +7899,7 @@ if (hasSingleInstanceLock) {
     websiteOrigin: penkraAccountServices.websiteOrigin,
   });
   if (
+    __PENKRA_DIAGNOSTICS_QA_ACCOUNT_BUILD__ &&
     diagnosticsQaAccountEnabled({
       isPackaged: app.isPackaged,
       isDevelopment,
