@@ -4,6 +4,12 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { openDiagnosticsReader, readLossLedger } from "@penkra/shared/diagnostics/store";
+import {
+  qaEvidenceConfigFromEnv,
+  qaEvidencePath,
+  verifyQaAction,
+  type QaEvidenceConfig,
+} from "@penkra/shared/diagnostics/qaEvidence";
 
 export const REQUIRED_QA_FLOWS = [
   "send",
@@ -187,9 +193,13 @@ function diagnosticsState(stateDir: string): {
   }
 }
 
-function observedQaChecks(stateDir: string, flow: QaFlow, afterId: number): readonly string[] {
+function observedQaChecks(
+  stateDir: string,
+  flow: QaFlow,
+  afterId: number,
+): { checks: readonly string[]; traceId: string | null } {
   const db = openDiagnosticsReader(stateDir);
-  if (!db) return [];
+  if (!db) return { checks: [], traceId: null };
   try {
     const rows = db
       .prepare(
@@ -208,14 +218,44 @@ function observedQaChecks(stateDir: string, flow: QaFlow, afterId: number): read
       checks.add(row.step);
       byTrace.set(row.trace_id, checks);
     }
-    return [...byTrace.values()].find((checks) =>
+    const matched = [...byTrace].find(([, checks]) =>
       REQUIRED_QA_CHECKS[flow].every((step) => checks.has(step)),
-    )
-      ? REQUIRED_QA_CHECKS[flow]
-      : [];
+    );
+    return matched
+      ? { checks: REQUIRED_QA_CHECKS[flow], traceId: matched[0] }
+      : { checks: [], traceId: null };
   } finally {
     db.close();
   }
+}
+
+function proofOffset(config: QaEvidenceConfig | null): number {
+  if (!config) return 0;
+  const file = qaEvidencePath(config);
+  return fs.existsSync(file) ? fs.statSync(file).size : 0;
+}
+
+function hasFreshAppAction(
+  config: QaEvidenceConfig | null,
+  flow: QaFlow,
+  traceId: string | null,
+  offset: number,
+): boolean {
+  if (!config || !traceId) return false;
+  const file = qaEvidencePath(config);
+  if (!fs.existsSync(file)) return false;
+  const content = fs.readFileSync(file, "utf8");
+  if (Buffer.byteLength(content) < offset) return false;
+  for (const line of Buffer.from(content).subarray(offset).toString("utf8").split("\n")) {
+    if (!line) continue;
+    try {
+      const row: unknown = JSON.parse(line);
+      if (verifyQaAction(config, row) && row.flow === flow && row.traceId === traceId) return true;
+    } catch {
+      // A torn or forged proof cannot satisfy a flow.
+    }
+  }
+  return false;
 }
 
 function lastDetailId(stateDir: string): number {
@@ -249,11 +289,13 @@ export function runDiagnosticsQaGate(
   ) => {
     const reportPath = path.join(dir, `.diagnostics-qa-${randomUUID()}.json`);
     try {
+      const scriptEnv = { ...process.env };
+      delete scriptEnv.PENKRA_DIAGNOSTICS_QA_SECRET;
       const result = spawnSync(process.execPath, [script], {
         stdio: "inherit",
         timeout: 120_000,
         env: {
-          ...process.env,
+          ...scriptEnv,
           PENKRA_DIAGNOSTICS_QA_STATE_DIR: dir,
           PENKRA_DIAGNOSTICS_QA_FLOW: flow,
           PENKRA_DIAGNOSTICS_QA_REPORT_PATH: reportPath,
@@ -277,6 +319,7 @@ export function runDiagnosticsQaGate(
       fs.rmSync(reportPath, { force: true });
     }
   },
+  evidenceConfig: QaEvidenceConfig | null = qaEvidenceConfigFromEnv(),
 ): ReturnType<typeof evaluateDiagnosticsQaGate> {
   if (
     scripts.size !== REQUIRED_QA_FLOWS.length ||
@@ -290,11 +333,15 @@ export function runDiagnosticsQaGate(
   const before = diagnosticsState(stateDir);
   const results = REQUIRED_QA_FLOWS.map((flow) => {
     const beforeDetailId = lastDetailId(stateDir);
+    const beforeProofOffset = proofOffset(evidenceConfig);
     const report = runner(scripts.get(flow)!, stateDir, flow);
+    const observed = observedQaChecks(stateDir, flow, beforeDetailId);
     return {
       flow: report.flow,
-      passed: report.passed,
-      checks: observedQaChecks(stateDir, flow, beforeDetailId),
+      passed:
+        report.passed &&
+        hasFreshAppAction(evidenceConfig, flow, observed.traceId, beforeProofOffset),
+      checks: observed.checks,
     };
   });
   const after = diagnosticsState(stateDir);

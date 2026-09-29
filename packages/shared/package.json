@@ -20,6 +20,10 @@
       "types": "./src/diagnostics/store.ts",
       "import": "./src/diagnostics/store.ts"
     },
+    "./diagnostics/qaEvidence": {
+      "types": "./src/diagnostics/qaEvidence.ts",
+      "import": "./src/diagnostics/qaEvidence.ts"
+    },
     "./traceContext": {
       "types": "./src/traceContext.ts",
       "import": "./src/traceContext.ts"

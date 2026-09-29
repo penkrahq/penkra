@@ -1,7 +1,7 @@
 import type { OrchestrationCommand } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
-import { qaCommandCheckpoint } from "./qaCommandCheckpoints";
+import { qaAcceptedCommandAction, qaCommandCheckpoint } from "./qaCommandCheckpoints";
 
 const command = (type: OrchestrationCommand["type"], reason?: "play") =>
   ({ type, reason }) as OrchestrationCommand;
@@ -37,5 +37,13 @@ describe("QA command checkpoints", () => {
       step: "play.requested",
     });
     expect(qaCommandCheckpoint(command("thread.turn.recover", "play"), "accepted")).toBeNull();
+  });
+
+  it("signs only persisted command actions with an independent result", () => {
+    expect(qaAcceptedCommandAction(command("thread.turn.start"))).toBe("send");
+    expect(qaAcceptedCommandAction(command("thread.create"))).toBe("thread-create");
+    expect(qaAcceptedCommandAction(command("thread.archive"))).toBe("archive");
+    expect(qaAcceptedCommandAction(command("thread.turn.interrupt"))).toBeNull();
+    expect(qaAcceptedCommandAction(command("thread.turn.recover", "play"))).toBeNull();
   });
 });

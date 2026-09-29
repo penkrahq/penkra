@@ -1,4 +1,5 @@
 import type { OrchestrationCommand } from "@penkra/contracts";
+import type { QaActionFlow } from "@penkra/shared/diagnostics/qaEvidence";
 
 export interface QaCommandCheckpoint {
   readonly flow: string;
@@ -32,4 +33,12 @@ export function qaCommandCheckpoint(
     default:
       return null;
   }
+}
+
+/** A persisted command receipt is an independent result for these three flows. */
+export function qaAcceptedCommandAction(command: OrchestrationCommand): QaActionFlow | null {
+  if (command.type === "thread.turn.start") return "send";
+  if (command.type === "thread.create") return "thread-create";
+  if (command.type === "thread.archive") return "archive";
+  return null;
 }

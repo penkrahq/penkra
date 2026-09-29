@@ -96,7 +96,8 @@ import {
   recordDiagnosticIncident,
   resolveDiagnosticExpectationsForTrace,
 } from "./diagnostics/recorder";
-import { qaCommandCheckpoint } from "./diagnostics/qaCommandCheckpoints";
+import { qaAcceptedCommandAction, qaCommandCheckpoint } from "./diagnostics/qaCommandCheckpoints";
+import { recordQaAction } from "@penkra/shared/diagnostics/qaEvidence";
 import { WorkspaceWatcher } from "./workspaceWatcher";
 import { makeWsRequestAdmission } from "./wsRequestAdmission";
 import {
@@ -895,6 +896,14 @@ const makeWsRpcHandlersLayer = () =>
                         ...acceptedQa,
                         outcome: "ok",
                       });
+                    const acceptedAction = qaAcceptedCommandAction(normalizedCommand);
+                    if (acceptedAction) {
+                      try {
+                        recordQaAction(acceptedAction, trace.traceId);
+                      } catch {
+                        process.stderr.write("[diagnostics] QA action proof failed\n");
+                      }
+                    }
                     recordDiagnosticCheckpoint({
                       ...diagnosticContext,
                       flow: diagnosticFlow,
