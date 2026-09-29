@@ -31,6 +31,7 @@ const CLAUDE_SESSION_SIDECARS = ["session-env", "tasks", "file-history"] as cons
 export type ClaudeThreadAccount = {
   readonly authenticationMethodId: string;
   readonly providerIdentityId: string | null;
+  readonly projectRevision?: number;
 };
 
 type ClaudeThreadAccountTransition = {
@@ -71,21 +72,26 @@ export function claudeThreadStateRoot(stateDir: string, threadId: string): strin
   return Path.join(stateDir, "provider-thread-native-state", claudeThreadProjectName(threadId));
 }
 
-function scopedClaudeProjectRoot(stateDir: string, threadId: string, account: ClaudeThreadAccount) {
+function scopedClaudeProjectRoot(
+  stateDir: string,
+  threadId: string,
+  account: ClaudeThreadAccount,
+  revision: number,
+) {
   return Path.join(
     claudeThreadStateRoot(stateDir, threadId),
     "accounts",
     providerOpaquePathKey(
       `${account.authenticationMethodId}:${account.providerIdentityId?.trim().toLowerCase() ?? ""}`,
     ),
+    `revision-${revision}`,
   );
 }
 
 async function activeClaudeProjectRoot(stateDir: string, threadId: string) {
   const owner = await readClaudeThreadAccount(stateDir, threadId);
-  if (owner !== null) {
-    const scoped = scopedClaudeProjectRoot(stateDir, threadId, owner);
-    if ((await statOrNull(scoped))?.isDirectory()) return scoped;
+  if (owner?.projectRevision !== undefined) {
+    return scopedClaudeProjectRoot(stateDir, threadId, owner, owner.projectRevision);
   }
   return claudeThreadStateRoot(stateDir, threadId);
 }
@@ -205,10 +211,15 @@ function isClaudeThreadAccount(value: unknown): value is ClaudeThreadAccount {
   const record = value as {
     readonly authenticationMethodId?: unknown;
     readonly providerIdentityId?: unknown;
+    readonly projectRevision?: unknown;
   };
   return (
     typeof record.authenticationMethodId === "string" &&
-    (typeof record.providerIdentityId === "string" || record.providerIdentityId === null)
+    (typeof record.providerIdentityId === "string" || record.providerIdentityId === null) &&
+    (record.projectRevision === undefined ||
+      (typeof record.projectRevision === "number" &&
+        Number.isSafeInteger(record.projectRevision) &&
+        record.projectRevision >= 0))
   );
 }
 
@@ -275,6 +286,7 @@ export async function stageClaudeThreadAccountTransition(input: {
     input.stateDir,
     input.threadId,
     input.transition.target,
+    input.transition.bindingRevision,
   );
   if (sourceRoot === targetRoot)
     throw new Error("The Claude account switch has no distinct storage.");
@@ -305,40 +317,48 @@ export async function stageClaudeThreadAccountTransition(input: {
   }
 }
 
+export async function revokeClaudeThreadAccountTransitionLinks(input: {
+  readonly stateDir: string;
+  readonly threadId: string;
+  readonly commandId: string;
+}): Promise<void> {
+  const pending = await readClaudeAccountTransition(input.stateDir, input.threadId);
+  if (pending?.commandId !== input.commandId) return;
+  const targetRoot = scopedClaudeProjectRoot(
+    input.stateDir,
+    input.threadId,
+    pending.target,
+    pending.bindingRevision,
+  );
+  await removeClaudeProfileLinks(
+    input.stateDir,
+    input.threadId,
+    (_path, target) => target === Path.join(targetRoot, "project"),
+  );
+}
+
 export async function discardClaudeThreadAccountTransition(input: {
   readonly stateDir: string;
   readonly threadId: string;
   readonly commandId: string;
 }): Promise<void> {
+  const pending = await readClaudeAccountTransition(input.stateDir, input.threadId);
+  if (pending?.commandId !== input.commandId) return;
+  await revokeClaudeThreadAccountTransitionLinks(input);
+  const targetRoot = scopedClaudeProjectRoot(
+    input.stateDir,
+    input.threadId,
+    pending.target,
+    pending.bindingRevision,
+  );
+  await rm(targetRoot, { recursive: true, force: true });
+  await syncDirectory(Path.dirname(targetRoot));
   const path = Path.join(
     claudeThreadStateRoot(input.stateDir, input.threadId),
     CLAUDE_THREAD_ACCOUNT_TRANSITION_FILE,
   );
-  const raw = await readFile(path, "utf8").catch((cause: NodeJS.ErrnoException) => {
-    if (cause.code === "ENOENT") return null;
-    throw cause;
-  });
-  if (raw === null) return;
-  const transition: unknown = JSON.parse(raw);
-  if (
-    typeof transition === "object" &&
-    transition !== null &&
-    "commandId" in transition &&
-    transition.commandId === input.commandId
-  ) {
-    const pending = transition as ClaudeThreadAccountTransition;
-    const targetProject = Path.join(
-      scopedClaudeProjectRoot(input.stateDir, input.threadId, pending.target),
-      "project",
-    );
-    await removeClaudeProfileLinks(
-      input.stateDir,
-      input.threadId,
-      (_path, target) => target === targetProject,
-    );
-    await rm(path, { force: true });
-    await syncDirectory(Path.dirname(path));
-  }
+  await rm(path, { force: true });
+  await syncDirectory(Path.dirname(path));
 }
 
 async function removeClaudeProfileLinks(
@@ -403,9 +423,15 @@ async function completeClaudeThreadAccountTransition(input: {
     (path) => Path.resolve(path) !== keep,
   );
   const ownerPath = Path.join(root, CLAUDE_THREAD_ACCOUNT_FILE);
-  if (!claudeAccountsMatch(owner, record.target)) {
+  if (
+    !claudeAccountsMatch(owner, record.target) ||
+    owner.projectRevision !== record.bindingRevision
+  ) {
     const staging = `${ownerPath}.penkra-${randomUUID()}`;
-    await writeSyncedFile(staging, `${JSON.stringify(record.target)}\n`);
+    await writeSyncedFile(
+      staging,
+      `${JSON.stringify({ ...record.target, projectRevision: record.bindingRevision })}\n`,
+    );
     try {
       await rename(staging, ownerPath);
       await syncDirectory(root);
@@ -565,7 +591,12 @@ export async function prepareClaudeThreadProject(input: {
       );
     }
     if (verifyingBeforeCommit) {
-      projectRoot = scopedClaudeProjectRoot(input.stateDir, input.threadId, input.account);
+      projectRoot = scopedClaudeProjectRoot(
+        input.stateDir,
+        input.threadId,
+        input.account,
+        pending!.bindingRevision,
+      );
     } else {
       // A pre-upgrade Thread's first account still uses its original project.
       projectRoot = await activeClaudeProjectRoot(input.stateDir, input.threadId);

@@ -135,10 +135,25 @@ it("transfers Claude ownership only after the exact explicit switch binding comm
     "exact native history",
   );
   await launchTarget("connection-b", 8);
-  assert.deepEqual(await readClaudeThreadAccount(stateDir, threadId), target);
+  assert.deepEqual(await readClaudeThreadAccount(stateDir, threadId), {
+    ...target,
+    projectRevision: 8,
+  });
   await assert.rejects(access(Path.join(configA, "projects", claudeThreadProjectName(threadId))));
   await writeFile(Path.join(targetProject, "new-session.jsonl"), "new account output");
   await assert.rejects(access(claudeThreadTranscriptPath(stateDir, threadId, "new-session")));
+  await rm(Path.dirname(targetProject), { recursive: true, force: true });
+  await prepareClaudeThreadProject({
+    stateDir,
+    threadId,
+    configDir: configB,
+    account: target,
+  });
+  assert.strictEqual(
+    await readlink(Path.join(configB, "projects", claudeThreadProjectName(threadId))),
+    targetProject,
+  );
+  await assert.rejects(access(Path.join(targetProject, "exact-session.jsonl")));
   await assert.rejects(
     prepareClaudeThreadProject({ stateDir, threadId, configDir: configA, account: source }),
   );
@@ -245,7 +260,10 @@ it("finishes a committed switch after an interrupted owner-marker update", async
     bindingConnectionId: "connection-b",
     bindingRevision: 8,
   });
-  assert.deepEqual(await readClaudeThreadAccount(stateDir, threadId), target);
+  assert.deepEqual(await readClaudeThreadAccount(stateDir, threadId), {
+    ...target,
+    projectRevision: 8,
+  });
   await assert.rejects(access(Path.join(configA, "projects", claudeThreadProjectName(threadId))));
   await assert.rejects(
     access(Path.join(claudeThreadStateRoot(stateDir, threadId), "account-transition.json")),
@@ -302,7 +320,10 @@ it("does not replace another pending Claude account transition", async () => {
     bindingConnectionId: "connection-b",
     bindingRevision: 8,
   });
-  assert.deepEqual(await readClaudeThreadAccount(stateDir, threadId), target);
+  assert.deepEqual(await readClaudeThreadAccount(stateDir, threadId), {
+    ...target,
+    projectRevision: 8,
+  });
 });
 
 it("keeps one Thread's transcript through a Connection replacement and repairs stale links", async () => {
