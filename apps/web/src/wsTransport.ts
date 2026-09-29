@@ -985,6 +985,13 @@ export class WsTransport {
     return trackedReconnect;
   }
 
+  /** Exercise the production replacement path from a disposable Dev QA shell. */
+  async reconnectForQa(): Promise<void> {
+    if (!import.meta.env.DEV || !window.desktopBridge?.qaOpenWindow)
+      throw new Error("Diagnostics QA transport action is unavailable");
+    await this.reconnect();
+  }
+
   private setState(state: WsTransportState): void {
     if (this.state === state) return;
     const previous = this.state;

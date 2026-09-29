@@ -240,6 +240,24 @@ async function run(flow, page, stateDir) {
       await clone.getByRole("textbox").waitFor();
       return;
     }
+    case "reconnect": {
+      const id = await newThread(page, stateDir);
+      await send(page, stateDir, id, `qa:reconnect-${Date.now()}`);
+      const recovered = await page.evaluate(async (targetId) => {
+        const { readNativeApi, reconnectNativeApiTransportForQa } =
+          await import("/src/nativeApi.ts");
+        const native = readNativeApi();
+        await native?.orchestration.getThreadDetailSnapshot({ threadId: targetId });
+        await reconnectNativeApiTransportForQa();
+        const detail = await native?.orchestration.getThreadDetailSnapshot({
+          threadId: targetId,
+        });
+        return detail?.thread?.id === targetId;
+      }, id);
+      if (!recovered) throw new Error("Thread RPC failed after transport recovery");
+      await waitForDetail(stateDir, "socket_connect", "socket.reconnected", null, 20_000);
+      return;
+    }
     default:
       throw new Error(`Playwright QA flow is not implemented: ${flow}`);
   }
