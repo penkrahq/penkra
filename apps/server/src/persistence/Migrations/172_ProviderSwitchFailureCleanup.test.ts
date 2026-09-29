@@ -33,6 +33,25 @@ layer("172_ProviderSwitchFailureCleanup", (it) => {
       yield* runMigrations({ toMigrationInclusive: 172 });
       yield* sql`
         UPDATE provider_thread_switch_operations
+        SET operation_state = 'interrupted', updated_at = '2026-08-10T00:00:00.500Z'
+        WHERE operation_id = 'switch-cleanup'
+      `;
+      yield* sql`
+        UPDATE provider_thread_switch_operations
+        SET verification_json = '{"kind":"resume-probe-attempted"}',
+            updated_at = '2026-08-10T00:00:00.750Z'
+        WHERE operation_id = 'switch-cleanup'
+      `;
+      assert.strictEqual(
+        (yield* Effect.exit(sql`
+          UPDATE provider_thread_switch_operations
+          SET updated_at = '2026-08-10T00:00:00.800Z'
+          WHERE operation_id = 'switch-cleanup'
+        `))._tag,
+        "Failure",
+      );
+      yield* sql`
+        UPDATE provider_thread_switch_operations
         SET operation_state = 'failed-cleanup-pending', failure_reason = 'Verification failed.',
             updated_at = '2026-08-10T00:00:01.000Z'
         WHERE operation_id = 'switch-cleanup'

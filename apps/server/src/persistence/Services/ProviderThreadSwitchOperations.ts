@@ -52,6 +52,9 @@ export type ProviderThreadSwitchOperationRepositoryError =
   | PersistenceSqlError
   | PersistenceDecodeError;
 
+/** A durable intent marker; recovery must not repeat an unjournalled probe outcome. */
+export const RESUME_PROBE_ATTEMPTED_JSON = '{"kind":"resume-probe-attempted"}';
+
 export interface ProviderThreadSwitchOperationRepositoryShape {
   readonly begin: (
     input: ProviderThreadSwitchOperationRecord,
@@ -79,6 +82,10 @@ export interface ProviderThreadSwitchOperationRepositoryShape {
     Option.Option<ProviderThreadSwitchOperationRecord>,
     ProviderThreadSwitchOperationRepositoryError
   >;
+  readonly markResumeProbeAttempted: (input: {
+    readonly id: string;
+    readonly updatedAt: string;
+  }) => Effect.Effect<boolean, ProviderThreadSwitchOperationRepositoryError>;
   /**
    * Atomically records the exact source observed after the blocking turn has
    * settled. The requested command remains immutable; only a pending journal
