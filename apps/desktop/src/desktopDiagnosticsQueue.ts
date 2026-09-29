@@ -195,11 +195,11 @@ export class DesktopDiagnosticsQueue {
       this.firstCreditTimer = setTimeout(() => {
         if (this.worker !== worker || this.receivedCredits) return;
         const dropped = this.startupBacklog.length + this.overflowCount;
-        this.startupBacklog.length = 0;
-        this.overflowCount = 0;
         if (dropped > 0) {
           try {
             this.recordDrop("spool", dropped);
+            this.startupBacklog.length = 0;
+            this.overflowCount = 0;
           } catch {
             process.stderr.write("[diagnostics] first-credit timeout loss count failed\n");
           }

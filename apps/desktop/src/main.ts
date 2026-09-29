@@ -190,6 +190,7 @@ import {
 } from "./updateState";
 import { registerDesktopVoiceTranscriptionHandler } from "./voiceTranscription";
 import { ShellWindowRegistry } from "./shellWindowRegistry";
+import { prepareDesktopDiagnosticsWriter } from "./desktopDiagnosticsStartup";
 import { panelFocusState } from "./panelFocus";
 import { ThreadHomeWindow } from "./threadHomeWindow";
 import { executeDesktopThreadCommand } from "./desktopThreadClient";
@@ -442,8 +443,9 @@ function desktopDiagnosticsOptions(): DiagnosticsOptions {
 
 function getDesktopDiagnosticsStore(): DiagnosticsSpoolWriter {
   if (!desktopDiagnostics) {
-    const writer = new DiagnosticsSpoolWriter(desktopDiagnosticsOptions());
-    writer.markQueueStartupActive();
+    const writer = prepareDesktopDiagnosticsWriter(
+      () => new DiagnosticsSpoolWriter(desktopDiagnosticsOptions()),
+    );
     desktopDiagnostics = writer;
     try {
       recordDesktopOsLookupFailure(desktopOsMajor, desktopDiagnostics);
@@ -460,6 +462,8 @@ function enqueueDesktopDiagnosticWrite(
   input: unknown,
 ): void {
   try {
+    // No write may enter the in-memory queue before recovery has a durable marker.
+    getDesktopDiagnosticsStore();
     desktopDiagnosticsQueue ??= new DesktopDiagnosticsQueue(
       () =>
         new Worker(Path.join(__dirname, "diagnosticsWorker.js"), {
@@ -468,8 +472,9 @@ function enqueueDesktopDiagnosticWrite(
       (reason, count) => {
         try {
           getDesktopDiagnosticsStore().recordDrop(reason, count);
-        } catch {
+        } catch (cause) {
           process.stderr.write("[diagnostics] desktop queue loss count failed\n");
+          throw cause;
         }
       },
       undefined,
@@ -7910,11 +7915,7 @@ if (desktopPlatform.deepLinks.inspectInitialArgv) {
 
 async function bootstrap(): Promise<void> {
   writeDesktopLogHeader("bootstrap start");
-  try {
-    getDesktopDiagnosticsStore();
-  } catch {
-    process.stderr.write("[diagnostics] desktop startup failed\n");
-  }
+  getDesktopDiagnosticsStore();
   // Ahead of the recovery gate on purpose. A startup that blocks below returns
   // early, and every path that could ship the fix for whatever blocked it lives
   // after that return: an install wedged on a bad migration would be unable to

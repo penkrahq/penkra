@@ -214,6 +214,41 @@ describe("desktop diagnostics queue", () => {
     }
   });
 
+  it("retains the pre-credit buffer when its durable loss count fails", async () => {
+    vi.useFakeTimers();
+    try {
+      const first = new FakeWorker();
+      const second = new FakeWorker();
+      const workers = [first, second];
+      const drop = vi.fn(() => {
+        throw new Error("disk unavailable");
+      });
+      const queue = new DesktopDiagnosticsQueue(
+        () => workers.shift()! as unknown as Worker,
+        drop,
+        undefined,
+        true,
+      );
+      queue.enqueue("checkpoint", { sequence: 1 });
+      await vi.advanceTimersByTimeAsync(DIAGNOSTIC_LIMITS.desktopWorkerFirstCreditMs);
+      expect(drop).toHaveBeenCalledWith("spool", 1);
+      queue.enqueue("checkpoint", { sequence: 2 });
+      second.emit("message", { kind: "credits", bootId: fakeBootId, start: 1, count: 2 });
+      expect(second.messages).toContainEqual({
+        kind: "checkpoint",
+        input: { sequence: 1 },
+        queueSlot: 1,
+      });
+      expect(second.messages).toContainEqual({
+        kind: "checkpoint",
+        input: { sequence: 2 },
+        queueSlot: 2,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("counts buffered startup writes on a clean drain without credits", async () => {
     const fake = new FakeWorker();
     const drop = vi.fn();
