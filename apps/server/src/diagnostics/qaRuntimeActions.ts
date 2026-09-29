@@ -1,4 +1,4 @@
-import { qaEvidenceConfigFromEnv, recordQaAction } from "@penkra/shared/diagnostics/qaEvidence";
+import { recordServerQaAction, serverQaProofConfig } from "./qaProofBuild";
 import { recordDiagnosticCheckpoint } from "./recorder";
 
 type RuntimeFlow = "stop" | "play" | "queue";
@@ -35,7 +35,7 @@ const TTL_MS = 120_000;
 
 function enabled(): boolean {
   try {
-    return qaEvidenceConfigFromEnv() !== null;
+    return serverQaProofConfig() !== null;
   } catch {
     return false;
   }
@@ -57,7 +57,7 @@ function complete(candidate: PendingAction): void {
     outcome: "ok",
   });
   try {
-    recordQaAction(candidate.flow, candidate.traceId);
+    recordServerQaAction(candidate.flow, candidate.traceId);
   } catch {
     process.stderr.write("[diagnostics] QA runtime action proof failed\n");
   }
