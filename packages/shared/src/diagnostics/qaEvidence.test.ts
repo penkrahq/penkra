@@ -8,6 +8,7 @@ import {
   qaEvidencePath,
   qaChallengePath,
   recordQaAction,
+  recordQaActionAsync,
   signQaAction,
   verifyQaAction,
   writeQaChallenge,
@@ -27,7 +28,7 @@ afterEach(() => {
   delete process.env.PENKRA_DIAGNOSTICS_QA_RUN_ID;
   delete process.env.PENKRA_DIAGNOSTICS_QA_SECRET;
   fs.rmSync(qaEvidencePath(config), { force: true });
-  for (const flow of ["send", "archive"] as const)
+  for (const flow of ["send", "archive", "multi-window"] as const)
     fs.rmSync(qaChallengePath(config, flow), { force: true });
 });
 afterAll(() => fs.rmSync(stateDir, { recursive: true, force: true }));
@@ -63,5 +64,15 @@ describe("QA app action evidence", () => {
       "traceId",
       "version",
     ]);
+  });
+
+  it("records the cloned-window proof without a main-thread fsync", async () => {
+    process.env.PENKRA_DIAGNOSTICS_QA_PROOF_DIR = config.dir;
+    process.env.PENKRA_DIAGNOSTICS_QA_RUN_ID = config.runId;
+    process.env.PENKRA_DIAGNOSTICS_QA_SECRET = config.secret;
+    writeQaChallenge(config, "multi-window", challenge);
+    await recordQaActionAsync("multi-window", traceId);
+    const row: unknown = JSON.parse(fs.readFileSync(qaEvidencePath(config), "utf8").trim());
+    expect(verifyQaAction(config, row, challenge)).toBe(true);
   });
 });
