@@ -8,6 +8,10 @@ import {
   type RuntimeMode,
 } from "@penkra/contracts";
 import { Effect, Layer, Option, Result, Schema } from "effect";
+import {
+  committedQaProviderSwitch,
+  requestedQaProviderSwitch,
+} from "../../diagnostics/qaProviderSwitch.ts";
 
 import {
   LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
@@ -824,6 +828,14 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
   }) =>
     Effect.gen(function* () {
       const operationId = operationIdFor(input.command.commandId);
+      const finishQaSwitch = () =>
+        Effect.gen(function* () {
+          const latest = yield* operations
+            .get(operationId)
+            .pipe(Effect.catch(() => Effect.succeed(Option.none())));
+          if (Option.getOrUndefined(latest)?.state === "committed")
+            committedQaProviderSwitch(input.command.commandId, input.command.threadId);
+        });
       const existing = Option.getOrUndefined(
         yield* operations
           .get(operationId)
@@ -849,7 +861,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
             }),
           );
         }
-        return yield* runClientOperation({
+        const result = yield* runClientOperation({
           command: persistedCommand,
           attachmentPrincipal: input.attachmentPrincipal,
           ...(existing.cwd === null ? {} : { cwd: existing.cwd }),
@@ -859,6 +871,8 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           startingState: existing.state,
           verificationJson: existing.verificationJson,
         });
+        yield* finishQaSwitch();
+        return result;
       }
 
       const existingFork = Option.getOrUndefined(
@@ -1098,8 +1112,9 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           updatedAt: new Date().toISOString(),
         })
         .pipe(mapOperationError("Could not create the provider-switch journal."));
+      requestedQaProviderSwitch(input.command.commandId, input.command.threadId);
 
-      return yield* runClientOperation({
+      const result = yield* runClientOperation({
         command: input.command,
         attachmentPrincipal: input.attachmentPrincipal,
         ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
@@ -1109,6 +1124,8 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
         startingState: "pending",
         verificationJson: operation.verificationJson,
       });
+      yield* finishQaSwitch();
+      return result;
     });
 
   const recoverSwitches = operations.listOpen().pipe(
