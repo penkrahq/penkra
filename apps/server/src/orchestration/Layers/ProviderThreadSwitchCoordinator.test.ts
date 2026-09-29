@@ -46,6 +46,11 @@ import {
   type ResolvedProviderTurnSelection,
 } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
 import { ProviderTurnSelectionResolverLive } from "../../provider/Layers/ProviderTurnSelectionResolver.ts";
+import {
+  prepareClaudeThreadProject,
+  readClaudeThreadAccount,
+  claudeThreadStateRoot,
+} from "../../provider/claudeThreadNativeState.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
@@ -116,6 +121,7 @@ let failAfterCommit = false;
 let hasBinding = true;
 let modelOnlySelection = false;
 let runtimeUpgradeSelection = false;
+let claudeAccountSwitchSelection = false;
 let verificationFails = false;
 let repositoryActiveInstallationId = installationId;
 let acceptedProviderSwitchContext: unknown;
@@ -374,7 +380,23 @@ const dependencies = Layer.mergeAll(
                   modelLabel: "GLM-5.1",
                   requiresNativeStateMaterialization: false,
                 }
-              : { ...selection, stateRevision: resolvedStateRevision },
+              : claudeAccountSwitchSelection
+                ? {
+                    ...selection,
+                    harness: "claudeAgent" as const,
+                    stateRevision: resolvedStateRevision,
+                    claudeAccountTransition: {
+                      source: {
+                        authenticationMethodId: "claude-account",
+                        providerIdentityId: "alice@example.com",
+                      },
+                      target: {
+                        authenticationMethodId: "claude-account",
+                        providerIdentityId: "bob@example.com",
+                      },
+                    },
+                  }
+                : { ...selection, stateRevision: resolvedStateRevision },
       ),
   }),
   Layer.succeed(ProviderThreadSwitchOperationRepository, {
@@ -1045,6 +1067,129 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
         assert.strictEqual(sent.dispatchMode, "steer");
         assert.strictEqual(sent.connectionId, targetConnectionId);
         assert.strictEqual(sent.bindingRevision, 5);
+      }
+    }),
+  );
+
+  it.effect(
+    "interrupts and stages a revision-bound Claude account transition before dispatch",
+    () =>
+      Effect.gen(function* () {
+        hasBinding = true;
+        operation = undefined;
+        activeTurn = true;
+        order.length = 0;
+        claudeAccountSwitchSelection = true;
+        const source = {
+          authenticationMethodId: "claude-account",
+          providerIdentityId: "alice@example.com",
+        };
+        const target = {
+          authenticationMethodId: "claude-account",
+          providerIdentityId: "bob@example.com",
+        };
+        const sourceConfig = path.join(runtimeStateDir, "claude-source-profile");
+        const targetConfig = path.join(runtimeStateDir, "claude-target-profile");
+        rmSync(claudeThreadStateRoot(runtimeStateDir, threadId), { recursive: true, force: true });
+        yield* Effect.promise(() =>
+          prepareClaudeThreadProject({
+            stateDir: runtimeStateDir,
+            threadId,
+            configDir: sourceConfig,
+            account: source,
+          }),
+        );
+        try {
+          const coordinator = yield* ProviderThreadSwitchCoordinator;
+          yield* coordinator.dispatchTurnStart({
+            command: {
+              ...command,
+              commandId: CommandId.makeUnsafe("claude-account-steer"),
+              dispatchMode: "steer",
+            },
+            attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+          });
+          assert.deepStrictEqual(order.slice(0, 6), [
+            "journal",
+            "interrupt",
+            "interrupted",
+            "stop-session",
+            "verified",
+            "dispatch",
+          ]);
+          assert.deepStrictEqual(
+            yield* Effect.promise(() => readClaudeThreadAccount(runtimeStateDir, threadId)),
+            source,
+          );
+          yield* Effect.promise(() =>
+            prepareClaudeThreadProject({
+              stateDir: runtimeStateDir,
+              threadId,
+              configDir: targetConfig,
+              account: target,
+              connectionId: targetConnectionId,
+              bindingConnectionId: targetConnectionId,
+              bindingRevision: 5,
+            }),
+          );
+          assert.deepStrictEqual(
+            yield* Effect.promise(() => readClaudeThreadAccount(runtimeStateDir, threadId)),
+            target,
+          );
+        } finally {
+          claudeAccountSwitchSelection = false;
+        }
+      }),
+  );
+
+  it.effect("waits for a running Claude turn before a queued account switch", () =>
+    Effect.gen(function* () {
+      hasBinding = true;
+      operation = undefined;
+      activeTurn = true;
+      order.length = 0;
+      claudeAccountSwitchSelection = true;
+      rmSync(claudeThreadStateRoot(runtimeStateDir, threadId), { recursive: true, force: true });
+      yield* Effect.promise(() =>
+        prepareClaudeThreadProject({
+          stateDir: runtimeStateDir,
+          threadId,
+          configDir: path.join(runtimeStateDir, "claude-queued-source-profile"),
+          account: {
+            authenticationMethodId: "claude-account",
+            providerIdentityId: "alice@example.com",
+          },
+        }),
+      );
+      try {
+        const coordinator = yield* ProviderThreadSwitchCoordinator;
+        const fiber = yield* coordinator
+          .dispatchTurnStart({
+            command: {
+              ...command,
+              commandId: CommandId.makeUnsafe("claude-account-queue"),
+              dispatchMode: "queue",
+            },
+            attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+          })
+          .pipe(Effect.forkChild);
+        yield* Effect.yieldNow;
+        yield* TestClock.adjust("50 millis");
+        assert.deepStrictEqual(order, ["journal"]);
+        activeTurn = false;
+        yield* Effect.yieldNow;
+        yield* TestClock.adjust("1 second");
+        yield* Fiber.join(fiber);
+        assert.notInclude(order, "interrupt");
+        assert.deepStrictEqual(order.slice(0, 5), [
+          "journal",
+          "interrupted",
+          "stop-session",
+          "verified",
+          "dispatch",
+        ]);
+      } finally {
+        claudeAccountSwitchSelection = false;
       }
     }),
   );

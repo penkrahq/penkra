@@ -35,6 +35,18 @@ export const ResolvedProviderTurnSelection = Schema.Struct({
   bindingRevision: NonNegativeIntSchema,
   changed: Schema.Boolean,
   requiresNativeStateMaterialization: Schema.Boolean,
+  claudeAccountTransition: Schema.optional(
+    Schema.Struct({
+      source: Schema.Struct({
+        authenticationMethodId: TrimmedNonEmptyStringSchema,
+        providerIdentityId: Schema.NullOr(TrimmedNonEmptyStringSchema),
+      }),
+      target: Schema.Struct({
+        authenticationMethodId: TrimmedNonEmptyStringSchema,
+        providerIdentityId: Schema.NullOr(TrimmedNonEmptyStringSchema),
+      }),
+    }),
+  ),
 });
 export type ResolvedProviderTurnSelection = typeof ResolvedProviderTurnSelection.Type;
 
