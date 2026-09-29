@@ -474,6 +474,7 @@ export function shouldKeepServerLifecycleStream(activeChannels: ReadonlySet<stri
 export class WsTransport {
   private readonly explicitUrl: string | null;
   private readonly listeners = new Map<string, Set<(message: WsPush) => void>>();
+  private readonly failedPushListeners = new WeakSet<(message: WsPush) => void>();
   private readonly stateListeners = new Set<(state: WsTransportState) => void>();
   private readonly compatibilityListeners = new Set<(issue: WsCompatibilityError | null) => void>();
   private readonly threadStreamFailureListeners = new Set<
@@ -622,6 +623,14 @@ export class WsTransport {
             isTerminalCompatibilityFailure(error) ||
             !shouldReconnectAfterRequestFailure(error)
           ) {
+            if (
+              !abortScope.didTimeout() &&
+              !requestOptions.signal?.aborted &&
+              !isTerminalCompatibilityFailure(error) &&
+              !Schema.is(WsRpcError)(error)
+            ) {
+              recordWsTransportFailure("browser.socket_rpc");
+            }
             throw error;
           }
           console.warn("WebSocket RPC request failed before reconnect", {
@@ -1175,8 +1184,12 @@ export class WsTransport {
     for (const listener of listeners) {
       try {
         listener(message);
+        this.failedPushListeners.delete(listener);
       } catch {
-        recordWsTransportFailure("browser.socket_listener");
+        if (!this.failedPushListeners.has(listener)) {
+          this.failedPushListeners.add(listener);
+          recordWsTransportFailure("browser.socket_listener");
+        }
         // Listener errors must not break transport streams.
       }
     }
