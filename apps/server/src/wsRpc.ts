@@ -102,6 +102,7 @@ import {
   qaRuntimeActionForCommand,
 } from "./diagnostics/qaCommandCheckpoints";
 import { armQaRuntimeAction } from "./diagnostics/qaRuntimeActions";
+import { armQaProviderSwitch, clearQaProviderSwitch } from "./diagnostics/qaProviderSwitch";
 import { recordQaAction } from "@penkra/shared/diagnostics/qaEvidence";
 import { WorkspaceWatcher } from "./workspaceWatcher";
 import { makeWsRequestAdmission } from "./wsRequestAdmission";
@@ -892,9 +893,20 @@ const makeWsRpcHandlersLayer = () =>
                   : {}),
               };
               const runtimeAction = qaRuntimeActionForCommand(normalizedCommand);
+              if (
+                normalizedCommand.type === "thread.turn.start" ||
+                normalizedCommand.type === "thread.turn.dispatch-queued"
+              )
+                armQaProviderSwitch(
+                  normalizedCommand.commandId,
+                  normalizedCommand.threadId,
+                  trace.traceId,
+                  trace.spanId,
+                );
               const result = yield* dispatchOrchestrationCommand(normalizedCommand).pipe(
                 Effect.tap((receipt) =>
                   Effect.sync(() => {
+                    clearQaProviderSwitch(normalizedCommand.commandId);
                     if (runtimeAction)
                       armQaRuntimeAction(
                         runtimeAction.flow,
@@ -945,6 +957,7 @@ const makeWsRpcHandlersLayer = () =>
                 Effect.tapError((cause) =>
                   Effect.gen(function* () {
                     yield* Effect.sync(() => {
+                      clearQaProviderSwitch(normalizedCommand.commandId);
                       recordDiagnosticCheckpoint({
                         ...diagnosticContext,
                         flow: diagnosticFlow,
