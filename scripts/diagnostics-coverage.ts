@@ -135,7 +135,7 @@ function recordsBeforeSite(
   return false;
 }
 
-/** A propagated site is covered only when its named recording boundary is registered. */
+/** A recording boundary registry does not establish reachability from a source site. */
 export function validateCoverageBoundaries(
   boundaries: ReadonlyArray<CoverageBoundary>,
   sourceFor: (file: string) => string,
@@ -177,9 +177,9 @@ function hasCoverageMarker(
     validateDiagnosticToken(marker[3] ?? "", "where");
     const recordingFile = boundaries.get(`${marker[2]}:${marker[3]}`);
     return Boolean(
-      recordingFile &&
-      (marker[1] === "propagates" ||
-        (recordingFile === site.file && recordsBeforeSite(source, site, marker[2]!, marker[3]!))),
+      marker[1] === "covered" &&
+      recordingFile === site.file &&
+      recordsBeforeSite(source, site, marker[2]!, marker[3]!),
     );
   } catch {
     return false;

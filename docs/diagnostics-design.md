@@ -587,10 +587,7 @@ Coverage is enforced the same way test coverage is.
 
 The coverage check tracks each catch, throw, explicit rejection and timeout site by file,
 line, column and syntax kind. A `diagnostics-covered: CODE where` marker means that the same
-block records that failure before the marked site. A `diagnostics-propagates: CODE where` marker means the
-failure reaches a registered recording boundary. Each boundary is
-registered with its stable incident code, location and source file, and the checker
-verifies that one recording call contains both values. Validation failures and
+block records that failure before the marked site. A `diagnostics-propagates: CODE where` marker requires a verified path from that failure to a registered recording boundary; a matching call somewhere in the boundary file does not establish that path and the marker remains uncovered until route validation is implemented. Each boundary is registered with its stable incident code, location and source file, and the checker verifies that one recording call contains both values. Validation failures and
 rethrows also require a recording boundary. An exact-site exception is allowed
 only for a path proven unreachable; it records the proof, reviewer and tracking
 issue. A stale exception fails the check. The check must cover all production roots
