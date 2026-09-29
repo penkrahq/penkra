@@ -12,13 +12,17 @@ describe("DiagnosticsQaWindowTracker", () => {
       (traceId) => proofs.push(traceId),
     );
     tracker.opened(7, trace);
-    tracker.synced(7);
+    tracker.synced(7, { windowId: 7, revision: 1 });
     tracker.loaded(8);
-    tracker.synced(8);
+    tracker.synced(8, { windowId: 8, revision: 1 });
     expect(proofs).toEqual([]);
     tracker.loaded(7);
-    tracker.synced(7);
-    tracker.synced(7);
+    tracker.synced(7, { windowId: 8, revision: 1 });
+    expect(proofs).toEqual([]);
+    tracker.synced(7, { windowId: 7, revision: 0 });
+    expect(proofs).toEqual([]);
+    tracker.synced(7, { windowId: 7, revision: 1 });
+    tracker.synced(7, { windowId: 7, revision: 2 });
     expect(checkpoints).toEqual(["7:window.opened", "7:window.synced"]);
     expect(proofs).toEqual([trace.traceId]);
   });
@@ -32,7 +36,7 @@ describe("DiagnosticsQaWindowTracker", () => {
     tracker.opened(7, trace);
     tracker.loaded(7);
     tracker.closed(7);
-    tracker.synced(7);
+    tracker.synced(7, { windowId: 7, revision: 1 });
     expect(proofs).toEqual([]);
   });
 });
