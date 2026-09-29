@@ -30,6 +30,8 @@ const installationId = ProviderInstallationId.makeUnsafe("verify-installation");
 let returnedIdentity = "native-session";
 let currentHarness: "opencode" | "claudeAgent" = "opencode";
 let verificationFailure: string | null = null;
+let availableClaudeModels = ["claude-sonnet-5", "claude-haiku-4-5"];
+let verifiedWithModel: string | undefined;
 let discarded = false;
 const recordedDiagnostics: OperationalDiagnostic[] = [];
 
@@ -108,16 +110,26 @@ const dependencies = Layer.mergeAll(
     getByProvider: () =>
       Effect.succeed({
         provider: currentHarness,
-        verifyNativeResume: () =>
-          verificationFailure !== null
-            ? Effect.fail(new Error(verificationFailure))
-            : Effect.succeed({
-                providerSessionId: returnedIdentity,
-                resumeCursor:
-                  currentHarness === "claudeAgent"
-                    ? { resume: returnedIdentity }
-                    : { openCodeSessionId: returnedIdentity, cwd: "/workspace" },
-              }),
+        listModels: () =>
+          Effect.succeed({
+            models: availableClaudeModels.map((slug) => ({ slug, name: slug })),
+          }),
+        verifyNativeResume: (input: { readonly modelSelection?: { readonly model: string } }) =>
+          Effect.sync(() => {
+            verifiedWithModel = input.modelSelection?.model;
+          }).pipe(
+            Effect.andThen(
+              verificationFailure !== null
+                ? Effect.fail(new Error(verificationFailure))
+                : Effect.succeed({
+                    providerSessionId: returnedIdentity,
+                    resumeCursor:
+                      currentHarness === "claudeAgent"
+                        ? { resume: returnedIdentity }
+                        : { openCodeSessionId: returnedIdentity, cwd: "/workspace" },
+                  }),
+            ),
+          ),
       } as never),
     listProviders: () => Effect.succeed(["opencode"]),
   }),
@@ -171,6 +183,7 @@ layer("ProviderNativeContinuationVerifier", (it) => {
   it.effect("reconstructs only a confirmed missing Claude conversation", () =>
     Effect.gen(function* () {
       currentHarness = "claudeAgent";
+      returnedIdentity = "native-session";
       const claudeSelection: ResolvedProviderTurnSelection = {
         ...selection,
         harness: "claudeAgent",
@@ -183,6 +196,16 @@ layer("ProviderNativeContinuationVerifier", (it) => {
       };
       try {
         const verifier = yield* ProviderNativeContinuationVerifier;
+        verificationFailure = null;
+        const exactWithHaiku = yield* verifier.verifySwitch({
+          selection: claudeSelection,
+          sourceStorage: "connection-profile",
+          targetGenerationId,
+          runtimeMode: "full-access",
+        });
+        assert.strictEqual(exactWithHaiku.providerSessionId, "native-session");
+        assert.strictEqual(verifiedWithModel, "claude-haiku-4-5");
+        assert.strictEqual(claudeSelection.modelId, "claude-sonnet-4-5");
         verificationFailure = "No conversation found with session ID: native-session";
         const reconstructed = yield* verifier.verifySwitch({
           selection: claudeSelection,
@@ -191,6 +214,18 @@ layer("ProviderNativeContinuationVerifier", (it) => {
           runtimeMode: "full-access",
         });
         assert.strictEqual(reconstructed.kind, "reconstructed");
+        assert.strictEqual(verifiedWithModel, "claude-haiku-4-5");
+        availableClaudeModels = ["claude-sonnet-5"];
+        verificationFailure = null;
+        const exact = yield* verifier.verifySwitch({
+          selection: claudeSelection,
+          sourceStorage: "connection-profile",
+          targetGenerationId,
+          runtimeMode: "full-access",
+        });
+        assert.strictEqual(exact.providerSessionId, "native-session");
+        assert.strictEqual(verifiedWithModel, "claude-sonnet-5");
+        assert.strictEqual(claudeSelection.modelId, "claude-sonnet-4-5");
         verificationFailure = "Claude authentication failed";
         const authFailure = yield* Effect.exit(
           verifier.verifySwitch({
@@ -201,9 +236,22 @@ layer("ProviderNativeContinuationVerifier", (it) => {
           }),
         );
         assert.strictEqual(authFailure._tag, "Failure");
+        availableClaudeModels = ["claude-opus-5"];
+        verifiedWithModel = undefined;
+        const noCheapProbe = yield* Effect.exit(
+          verifier.verifySwitch({
+            selection: claudeSelection,
+            sourceStorage: "connection-profile",
+            targetGenerationId,
+            runtimeMode: "full-access",
+          }),
+        );
+        assert.strictEqual(noCheapProbe._tag, "Failure");
+        assert.strictEqual(verifiedWithModel, undefined);
       } finally {
         currentHarness = "opencode";
         verificationFailure = null;
+        availableClaudeModels = ["claude-sonnet-5", "claude-haiku-4-5"];
       }
     }),
   );

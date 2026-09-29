@@ -5180,6 +5180,16 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             issue: "The Claude resume cursor does not contain an exact native session id.",
           });
         }
+        if (
+          input.requireCompletedProbe &&
+          (input.modelSelection?.provider !== PROVIDER || !input.modelSelection.model)
+        ) {
+          return yield* new ProviderAdapterValidationError({
+            provider: PROVIDER,
+            operation: "verifyNativeResume",
+            issue: "A completed Claude resume probe requires an explicitly selected test model.",
+          });
+        }
 
         const processOwner: ClaudeProcessOwner = {};
         const claudeSdkEnv = input.managedLaunch.childEnvironment(process.env);
@@ -5191,7 +5201,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 options: {
                   ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
                   resume,
-                  ...(input.requireCompletedProbe ? { tools: [], maxTurns: 1 } : {}),
+                  ...(input.requireCompletedProbe
+                    ? { model: input.modelSelection!.model, tools: [], maxTurns: 1 }
+                    : {}),
                   env: claudeSdkEnv,
                   pathToClaudeCodeExecutable: input.managedLaunch.binaryPath,
                   settingSources: [],
