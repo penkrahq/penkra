@@ -108,5 +108,10 @@
     "code": "INVARIANT_VIOLATED",
     "where": "server.database",
     "file": "apps/server/src/persistence/DatabaseHealth.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "provider.adapter",
+    "file": "apps/server/src/provider/Layers/OpenCodeAdapter.ts"
   }
 ]

@@ -96,6 +96,14 @@ function isRecordingCall(node: ts.Node, code: string, where: string): boolean {
       where === "server.database"
     )
       return true;
+    if (
+      ["recordOpenCodeAdapterFailure", "noteOpenCodeAdapterFailure"].includes(
+        node.expression.text,
+      ) &&
+      code === "EXTERNAL_CALL_FAILED" &&
+      where === "provider.adapter"
+    )
+      return true;
   }
   if (
     ts.isCallExpression(node) &&
