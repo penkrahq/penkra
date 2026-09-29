@@ -27,10 +27,9 @@ import {
   readDiagnosticPageLimit,
   shapeDiagnosticEvents,
 } from "./threadDiagnosticSummary.ts";
-import { mcpToolResultError, mcpToolResultJson } from "./protocol.ts";
+import { mcpToolResultJson } from "./protocol.ts";
 import { summarizeThreadDetail } from "./threadSummary.ts";
 import {
-  errorText,
   readBooleanArg,
   readStringArg,
   readStringArrayArg,
@@ -41,6 +40,8 @@ import {
   WRITE_TOOL_ANNOTATIONS,
   type ToolEntry,
 } from "./toolRuntime.ts";
+
+import { gatewayMcpToolErrorResult } from "./gatewayFailureDiagnostics.ts";
 
 const DIAGNOSTIC_EVENT_SCAN_CHUNK_SIZE = 250;
 const DIAGNOSTIC_EVENT_MAX_COALESCING_SCAN = 10_000;
@@ -151,7 +152,7 @@ export function makeThreadDiagnosticTools(input: {
               }
             : {}),
         });
-      }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
+      }).pipe(Effect.catch((error) => Effect.succeed(gatewayMcpToolErrorResult(error)))),
   };
 
   const readEvents: ToolEntry = {
@@ -271,7 +272,7 @@ export function makeThreadDiagnosticTools(input: {
               }
             : {}),
         });
-      }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
+      }).pipe(Effect.catch((error) => Effect.succeed(gatewayMcpToolErrorResult(error)))),
   };
 
   const readRuntimeEvents: ToolEntry = {
@@ -373,7 +374,7 @@ export function makeThreadDiagnosticTools(input: {
               }
             : {}),
         });
-      }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
+      }).pipe(Effect.catch((error) => Effect.succeed(gatewayMcpToolErrorResult(error)))),
   };
 
   const diagnoseThread: ToolEntry = {
@@ -579,7 +580,7 @@ export function makeThreadDiagnosticTools(input: {
             },
           },
         });
-      }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
+      }).pipe(Effect.catch((error) => Effect.succeed(gatewayMcpToolErrorResult(error)))),
   };
 
   const retryThreadProjection: ToolEntry = {
@@ -618,7 +619,7 @@ export function makeThreadDiagnosticTools(input: {
             ? "The preserved runtime event was released for retry."
             : "The thread has no quarantined runtime projection event.",
         });
-      }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
+      }).pipe(Effect.catch((error) => Effect.succeed(gatewayMcpToolErrorResult(error)))),
   };
 
   return [readActivity, readEvents, readRuntimeEvents, diagnoseThread, retryThreadProjection];

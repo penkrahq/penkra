@@ -40,6 +40,7 @@ import {
 import { ToolInputError, errorText } from "./toolInput.ts";
 import { GatewayToolError, gatewayToolErrorResult } from "./toolRuntime.ts";
 import { recordGatewayCreateFailure } from "./createFailureDiagnostics.ts";
+import { recordGatewayConsumedFailure } from "./gatewayFailureDiagnostics.ts";
 
 const REQUEST_FINGERPRINT_VERSION = 1;
 const CREATION_PLAN_SCHEMA_VERSION = 1;
@@ -215,14 +216,18 @@ export const makeCreateThreadHandler = Effect.fn(function* (
           yield* Effect.suspend(() =>
             dependencies.onThreadCreated!(context.callerThreadId, result.threadId),
           ).pipe(
-            Effect.catchCause((cause) =>
-              Effect.logWarning("agent gateway could not inherit the child Thread's home window", {
-                operationId,
-                parentThreadId: context.callerThreadId,
-                childThreadId: result.threadId,
-                error: Cause.pretty(cause),
-              }),
-            ),
+            Effect.catchCause((cause) => {
+              recordGatewayConsumedFailure(cause);
+              return Effect.logWarning(
+                "agent gateway could not inherit the child Thread's home window",
+                {
+                  operationId,
+                  parentThreadId: context.callerThreadId,
+                  childThreadId: result.threadId,
+                  error: Cause.pretty(cause),
+                },
+              );
+            }),
             Effect.forkDetach({ startImmediately: true }),
             Effect.asVoid,
           );
@@ -272,13 +277,14 @@ export const makeCreateThreadHandler = Effect.fn(function* (
         }
         yield* context.assertAuthority();
         yield* orchestrationEngine.dispatch(recapCommand).pipe(
-          Effect.catch((error) =>
-            Effect.logWarning("agent gateway could not append thread creation recap", {
+          Effect.catch((error) => {
+            recordGatewayConsumedFailure(error);
+            return Effect.logWarning("agent gateway could not append thread creation recap", {
               operationId,
               callerThreadId: context.callerThreadId,
               error: errorText(error),
-            }),
-          ),
+            });
+          }),
         );
         return result;
       });
