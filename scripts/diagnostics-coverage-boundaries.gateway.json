@@ -1,0 +1,17 @@
+[
+  {
+    "code": "APP_OPERATION_FAILED",
+    "where": "agent.mcp_write",
+    "file": "apps/server/src/agentGateway/gatewayFailureDiagnostics.ts"
+  },
+  {
+    "code": "COMMAND_REJECTED",
+    "where": "agent.mcp_write",
+    "file": "apps/server/src/agentGateway/gatewayFailureDiagnostics.ts"
+  },
+  {
+    "code": "CALLER_TURN_INACTIVE",
+    "where": "agent.mcp_write",
+    "file": "apps/server/src/agentGateway/mcpWriteDiagnostics.ts"
+  }
+]
