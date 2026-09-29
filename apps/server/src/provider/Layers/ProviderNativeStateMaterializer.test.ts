@@ -2,6 +2,8 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderConnectionId, ProviderNativeStateGenerationId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import * as fs from "node:fs";
+import * as os from "node:os";
 import * as Path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Effect, Layer } from "effect";
@@ -12,6 +14,8 @@ import { providerNativeStateRoot } from "../providerNativeStatePaths.ts";
 import { claudeThreadTranscriptPath } from "../claudeThreadNativeState.ts";
 import { ProviderNativeStateMaterializer } from "../Services/ProviderNativeStateMaterializer.ts";
 import { ProviderNativeStateMaterializerLive } from "./ProviderNativeStateMaterializer.ts";
+import { installDiagnosticsStore } from "../../diagnostics/recorder.ts";
+import { DiagnosticsStore, openDiagnosticsReader } from "../../diagnostics/store.ts";
 
 const configLayer = ServerConfig.layerTest(process.cwd(), {
   prefix: "penkra-native-state-materializer-test-",
@@ -20,6 +24,44 @@ const materializerLayer = ProviderNativeStateMaterializerLive.pipe(Layer.provide
 const layer = it.layer(Layer.mergeAll(NodeServices.layer, configLayer, materializerLayer));
 
 layer("ProviderNativeStateMaterializer", (it) => {
+  it.effect("records a failed native-state clone without copying the failure detail", () =>
+    Effect.gen(function* () {
+      const stateDir = fs.mkdtempSync(Path.join(os.tmpdir(), "penkra-native-diagnostics-"));
+      const diagnostics = new DiagnosticsStore({
+        stateDir,
+        appVersion: "0.14.3",
+        process: "server",
+      });
+      const uninstall = installDiagnosticsStore(diagnostics);
+      try {
+        const materializer = yield* ProviderNativeStateMaterializer;
+        const generation = ProviderNativeStateGenerationId.makeUnsafe("same-generation");
+        const failed = yield* Effect.exit(
+          materializer.clone({
+            harness: "codex",
+            providerSessionId: "session-secret",
+            sourceStorage: "generation",
+            sourceConnectionId: null,
+            targetConnectionId: null,
+            sourceGenerationId: generation,
+            targetGenerationId: generation,
+          }),
+        );
+        assert.strictEqual(failed._tag, "Failure");
+        const db = openDiagnosticsReader(stateDir)!;
+        const rows = db.prepare("SELECT code, where_name, context_json FROM incidents").all();
+        assert.deepStrictEqual(rows, [
+          { code: "EXTERNAL_CALL_FAILED", where_name: "provider.native_state", context_json: "{}" },
+        ]);
+        db.close();
+      } finally {
+        uninstall();
+        diagnostics.close();
+        fs.rmSync(stateDir, { recursive: true, force: true });
+      }
+    }),
+  );
+
   it.effect("publishes one exact Codex clone and never reuses an existing target", () =>
     Effect.gen(function* () {
       const config = yield* ServerConfig;

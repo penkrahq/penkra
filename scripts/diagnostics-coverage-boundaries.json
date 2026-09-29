@@ -78,5 +78,20 @@
     "code": "EXTERNAL_CALL_FAILED",
     "where": "browser.send",
     "file": "apps/web/src/components/ChatView.tsx"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "provider.runtime_event_pump",
+    "file": "apps/server/src/provider/providerRuntimeEventPump.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "server.provider",
+    "file": "apps/server/src/provider/Layers/ProviderService.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "provider.native_state",
+    "file": "apps/server/src/provider/Layers/ProviderNativeStateMaterializer.ts"
   }
 ]
