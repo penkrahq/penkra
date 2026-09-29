@@ -470,6 +470,7 @@ export class WsTransport {
   private reconnectPromise: Promise<RpcClientInstance> | null = null;
   private reconnectFailures = 0;
   private reconnectQaTrace: ReturnType<typeof startDiagnosticTrace> | null = null;
+  private readonly qaSocketClientId = startDiagnosticTrace().traceId;
   private readonly streamCleanups = new Map<string, () => void>();
   private readonly streamSettled = new Map<string, Promise<void>>();
   private readonly streamCapacityRetries = new Map<string, number>();
@@ -771,7 +772,7 @@ export class WsTransport {
       }
 
       const featureRuntime = ManagedRuntime.make(
-        makeProtocolLayer(makeFeatureSocketUrl(this.explicitUrl, compatibility)),
+        makeProtocolLayer(this.featureSocketUrl(compatibility)),
       );
       const featureScope = featureRuntime.runSync(Scope.make());
       this.runtime = featureRuntime;
@@ -805,6 +806,14 @@ export class WsTransport {
       throw error;
     });
     return { runtime, clientScope, clientPromise };
+  }
+
+  private featureSocketUrl(compatibility: WsBootstrapNegotiateResult): string {
+    const url = new URL(makeFeatureSocketUrl(this.explicitUrl, compatibility));
+    url.searchParams.set("qaClientId", this.qaSocketClientId);
+    if (this.reconnectQaTrace)
+      url.searchParams.set("qaReconnectTraceId", this.reconnectQaTrace.traceId);
+    return url.toString();
   }
 
   private async withConnectionAttemptTimeout(
