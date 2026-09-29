@@ -912,7 +912,7 @@ describe("diagnostics store", () => {
     restarted.close();
   });
 
-  it("does not leave a late imported send expectation after server acceptance", () => {
+  it("does not leave a send arm recorded after server acceptance", async () => {
     const { stateDir, store } = fixture();
     const desktop = new DiagnosticsSpoolWriter({
       stateDir,
@@ -920,16 +920,21 @@ describe("diagnostics store", () => {
       process: "desktop-main",
     });
     store.checkpoint({ traceId, spanId, flow: "send", step: "command.accepted", outcome: "ok" });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const armedAt = new Date().toISOString();
     desktop.armExpectation({
       traceId,
       spanId,
       kind: "send.accepted",
       deadlineMs: 2_000,
-      armedAt: new Date(Date.now() - 500).toISOString(),
+      armedAt,
     });
     store.importPeerSpools();
     const db = openDiagnosticsReader(stateDir)!;
     expect(db.prepare("SELECT count(*) AS count FROM expectations").get()).toMatchObject({
+      count: 0,
+    });
+    expect(db.prepare("SELECT count(*) AS count FROM incident_occurrences").get()).toMatchObject({
       count: 0,
     });
     db.close();
@@ -937,7 +942,7 @@ describe("diagnostics store", () => {
     store.close();
   });
 
-  it("keeps an imported send expectation when acceptance missed its original deadline", () => {
+  it("keeps a send arm recorded before slow server acceptance", () => {
     const { stateDir, store } = fixture();
     const desktop = new DiagnosticsSpoolWriter({
       stateDir,
@@ -945,8 +950,8 @@ describe("diagnostics store", () => {
       process: "desktop-main",
     });
     const armedAt = new Date(Date.now() - 5_000).toISOString();
-    store.checkpoint({ traceId, spanId, flow: "send", step: "command.accepted", outcome: "ok" });
     desktop.armExpectation({ traceId, spanId, kind: "send.accepted", deadlineMs: 2_000, armedAt });
+    store.checkpoint({ traceId, spanId, flow: "send", step: "command.accepted", outcome: "ok" });
     store.importPeerSpools();
     expect(store.sweepExpectations()).toBe(1);
     const db = openDiagnosticsReader(stateDir)!;
