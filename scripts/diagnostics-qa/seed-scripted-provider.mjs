@@ -12,12 +12,17 @@ const connectionId = "qa-scripted-codex-connection";
 
 export function assertIsolatedQaStateDir(stateDir) {
   const resolved = fs.realpathSync(stateDir);
-  const parent = path.dirname(resolved);
   const tmpRoot = fs.realpathSync("/tmp");
+  const relative = path.relative(tmpRoot, resolved).split(path.sep);
   if (
-    path.basename(resolved) !== "dev" ||
-    path.dirname(parent) !== tmpRoot ||
-    !/^penkra-diagnostics-qa-0143\.[A-Za-z0-9]+$/u.test(path.basename(parent))
+    !/^penkra-diagnostics-qa-0143\.[A-Za-z0-9]+$/u.test(relative[0] ?? "") ||
+    !(
+      (relative.length === 2 && relative[1] === "dev") ||
+      (relative.length === 4 &&
+        relative[1] === "root" &&
+        relative[2] === ".penkra" &&
+        relative[3] === "userdata")
+    )
   )
     throw new Error(
       "Fixture seeding requires a disposable diagnostics QA Dev directory under /tmp",
@@ -33,10 +38,11 @@ export function seedScriptedProvider(stateDir) {
   const db = new DatabaseSync(databasePath, { timeout: 1000 });
   try {
     db.exec("BEGIN IMMEDIATE");
-    const installations = db.prepare("SELECT COUNT(*) AS n FROM provider_installations").get().n;
     const connections = db.prepare("SELECT COUNT(*) AS n FROM provider_connections").get().n;
-    if (installations !== 0 || connections !== 0)
-      throw new Error("Fixture seeding requires a fresh Dev provider catalog");
+    if (connections !== 0) throw new Error("Fixture seeding requires a fresh Dev provider catalog");
+    // The first Dev boot may auto-discover a local Codex binary. Replace that
+    // installation in this disposable catalog so only the fixture is selectable.
+    db.exec("DELETE FROM provider_installations");
     const now = new Date().toISOString();
     const digest = createHash("sha256").update(fs.readFileSync(fixture)).digest("hex");
     db.prepare(`
