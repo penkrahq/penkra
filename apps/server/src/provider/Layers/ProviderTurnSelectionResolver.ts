@@ -13,6 +13,7 @@ import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts"
 import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
 import {
   claudeAccountsMatch,
+  claudeAccountTransitionMatchesCommittedBinding,
   readClaudeThreadAccount,
   rememberClaudeThreadAccount,
 } from "../claudeThreadNativeState.ts";
@@ -532,18 +533,38 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
             binding.value.connectionId !== null;
           if (recorded !== null && !claudeConnectionsShareAccount(recorded, connection)) {
             if (!explicitConnectionSwitch) {
-              return yield* fail(
-                "This thread's Claude conversation belongs to a different Claude account. Use a Connection signed in to that account, or start a new thread.",
-                "connection_unauthorized",
-              );
+              const committedTransition = yield* Effect.tryPromise({
+                try: () =>
+                  claudeAccountTransitionMatchesCommittedBinding({
+                    stateDir: config.stateDir,
+                    threadId: input.threadId,
+                    connectionId,
+                    bindingRevision: binding.value.revision,
+                    account: {
+                      authenticationMethodId: connection.authenticationMethodId,
+                      providerIdentityId: connection.providerIdentityId,
+                    },
+                  }),
+                catch: (cause) =>
+                  new ProviderTurnSelectionResolutionError({
+                    detail: "Could not read the pending Claude account transition.",
+                    cause,
+                  }),
+              });
+              if (!committedTransition)
+                return yield* fail(
+                  "This thread's Claude conversation belongs to a different Claude account. Use a Connection signed in to that account, or start a new thread.",
+                  "connection_unauthorized",
+                );
+            } else {
+              claudeAccountTransition = {
+                source: recorded,
+                target: {
+                  authenticationMethodId: connection.authenticationMethodId,
+                  providerIdentityId: connection.providerIdentityId,
+                },
+              };
             }
-            claudeAccountTransition = {
-              source: recorded,
-              target: {
-                authenticationMethodId: connection.authenticationMethodId,
-                providerIdentityId: connection.providerIdentityId,
-              },
-            };
           }
           if (explicitConnectionSwitch && recorded === null) {
             const previous = yield* connections.getRecord(binding.value.connectionId).pipe(

@@ -244,6 +244,29 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
     // wait, so restart recovery resumes the same requested message and route.
     waitForTurnToSettle(threadId, null);
 
+  const stageClaudeTransition = (selection: ResolvedProviderTurnSelection, commandId: string) =>
+    selection.claudeAccountTransition === undefined || selection.connectionId === null
+      ? Effect.void
+      : Effect.tryPromise({
+          try: () =>
+            stageClaudeThreadAccountTransition({
+              stateDir: config.stateDir,
+              threadId: selection.threadId,
+              transition: {
+                commandId,
+                connectionId: selection.connectionId!,
+                bindingRevision: selection.bindingRevision + 1,
+                source: selection.claudeAccountTransition!.source,
+                target: selection.claudeAccountTransition!.target,
+              },
+            }),
+          catch: (cause) =>
+            new ProviderThreadSwitchCoordinatorError({
+              detail: "Could not stage the Claude account transition.",
+              cause,
+            }),
+        });
+
   const runOperation = Effect.fnUntraced(function* (input: {
     readonly command: TurnAdmissionCommand;
     readonly attachmentPrincipal: ManagedAttachmentPrincipal;
@@ -374,6 +397,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           targetConnectionId: selection.connectionId,
           targetGenerationId: input.targetGenerationId,
         });
+        yield* stageClaudeTransition(selection, input.command.commandId);
         const reconstructed = (reason: string) => ({
           kind: "reconstructed" as const,
           generationId: input.targetGenerationId!,
@@ -386,34 +410,27 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           nativeStateLocatorJson: '{"penkraReconstruction":true}',
           verifiedAt: new Date().toISOString(),
         });
-        // Claude's native session belongs to the source account. An explicit
-        // account switch starts a fresh session from Penkra's retained transcript
-        // after the old turn settles, without linking the source account's
-        // project into the target profile before the binding commits.
-        const verified =
-          selection.claudeAccountTransition !== undefined
-            ? reconstructed("Explicit Claude account switch.")
-            : yield* verifier
-                .verifySwitch({
-                  selection,
-                  sourceStorage: "connection-profile",
-                  targetGenerationId: input.targetGenerationId,
-                  ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
-                  runtimeMode: (input.command.runtimeMode ?? "full-access") as RuntimeMode,
-                })
-                .pipe(
-                  Effect.catch((cause) =>
-                    Effect.logWarning(
-                      "provider switch falling back to deterministic transcript reconstruction",
-                      {
-                        threadId: input.command.threadId,
-                        harness: selection.harness,
-                        targetConnectionId: selection.connectionId,
-                        cause: cause.message,
-                      },
-                    ).pipe(Effect.as(reconstructed(cause.message))),
-                  ),
-                );
+        const verified = yield* verifier
+          .verifySwitch({
+            selection,
+            sourceStorage: "connection-profile",
+            targetGenerationId: input.targetGenerationId,
+            ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
+            runtimeMode: (input.command.runtimeMode ?? "full-access") as RuntimeMode,
+          })
+          .pipe(
+            Effect.catch((cause) =>
+              Effect.logWarning(
+                "provider switch falling back to deterministic transcript reconstruction",
+                {
+                  threadId: input.command.threadId,
+                  harness: selection.harness,
+                  targetConnectionId: selection.connectionId,
+                  cause: cause.message,
+                },
+              ).pipe(Effect.as(reconstructed(cause.message))),
+            ),
+          );
         verificationJson = JSON.stringify(verified);
       }
       yield* operations
@@ -436,27 +453,6 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
         : null;
     if (selection.requiresNativeStateMaterialization && verified === null) {
       return yield* fail("The provider-switch verification evidence is missing.");
-    }
-    if (selection.claudeAccountTransition !== undefined && selection.connectionId !== null) {
-      yield* Effect.tryPromise({
-        try: () =>
-          stageClaudeThreadAccountTransition({
-            stateDir: config.stateDir,
-            threadId: input.command.threadId,
-            transition: {
-              commandId: input.command.commandId,
-              connectionId: selection.connectionId!,
-              bindingRevision: selection.bindingRevision + 1,
-              source: selection.claudeAccountTransition!.source,
-              target: selection.claudeAccountTransition!.target,
-            },
-          }),
-        catch: (cause) =>
-          new ProviderThreadSwitchCoordinatorError({
-            detail: "Could not stage the Claude account transition.",
-            cause,
-          }),
-      });
     }
     const result = yield* engine
       .dispatch(internalCommand, {
@@ -565,20 +561,25 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
                     ),
                     Effect.ignore,
                     Effect.andThen(
-                      input.selection.claudeAccountTransition === undefined
-                        ? Effect.void
-                        : Effect.tryPromise({
-                            try: () =>
-                              discardClaudeThreadAccountTransition({
-                                stateDir: config.stateDir,
-                                threadId: input.command.threadId,
-                                commandId: input.command.commandId,
+                      decodeSelection(current.selectionJson).pipe(
+                        Effect.flatMap((settled) =>
+                          settled.claudeAccountTransition === undefined
+                            ? Effect.void
+                            : Effect.tryPromise({
+                                try: () =>
+                                  discardClaudeThreadAccountTransition({
+                                    stateDir: config.stateDir,
+                                    threadId: input.command.threadId,
+                                    commandId: input.command.commandId,
+                                  }),
+                                catch: () =>
+                                  new ProviderThreadSwitchCoordinatorError({
+                                    detail:
+                                      "Could not discard the failed Claude account transition.",
+                                  }),
                               }),
-                            catch: () =>
-                              new ProviderThreadSwitchCoordinatorError({
-                                detail: "Could not discard the failed Claude account transition.",
-                              }),
-                          }),
+                        ),
+                      ),
                     ),
                     Effect.ignore,
                     Effect.andThen(Effect.fail(cause)),
