@@ -242,7 +242,10 @@ export function makeAgentGatewayMcpTransport(input: {
             }
           }
           const result = yield* Effect.suspend(() => tool.handler(args, invocationContext)).pipe(
-            Effect.catchDefect((defect) => Effect.succeed(mcpToolResultError(errorText(defect)))),
+            Effect.catchDefect((defect) => {
+              recordGatewayConsumedFailure(defect);
+              return Effect.succeed(mcpToolResultError(errorText(defect)));
+            }),
           );
           return jsonRpcResult(request.id, result);
         }

@@ -109,7 +109,10 @@ import { presentFile, resolvePresentFileWorkingDirectory } from "../presentFile.
 import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
 import type { AgentThreadSendResult } from "@penkra/sdk";
 
-import { gatewayMcpToolErrorResult } from "../gatewayFailureDiagnostics.ts";
+import {
+  gatewayMcpToolErrorResult,
+  recordGatewayConsumedFailure,
+} from "../gatewayFailureDiagnostics.ts";
 
 const TURN_INTERRUPT_CONFIRM_TIMEOUT_MS = 5_000;
 const TURN_INTERRUPT_CONFIRM_POLL_MS = 25;
@@ -147,9 +150,11 @@ function sendMessageErrorResult(error: unknown) {
   if (error instanceof GatewayToolError) return gatewayToolErrorResult(error);
   const threadGuard = findThreadGuardInvariant(error);
   if (threadGuard?.code === "thread_archived") {
+    recordGatewayConsumedFailure(new GatewayToolError(threadGuard.code, threadGuard.detail));
     return gatewayToolErrorResult(new GatewayToolError(threadGuard.code, threadGuard.detail));
   }
   if (error instanceof ProviderThreadSwitchCoordinatorError) {
+    recordGatewayConsumedFailure(error);
     return gatewayToolErrorResult(new GatewayToolError(error.code, error.message));
   }
   return gatewayMcpToolErrorResult(error);
