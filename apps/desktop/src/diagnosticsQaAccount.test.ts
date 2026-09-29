@@ -4,7 +4,7 @@ import { diagnosticsQaAccountEnabled } from "./diagnosticsQaAccount";
 const allowed = {
   isPackaged: false,
   isDevelopment: true,
-  root: "/tmp/penkra-diagnostics-qa-0143.Abc123",
+  root: "/tmp/penkra-diagnostics-qa-0143.Abc123/root",
   smokeProfile: "/tmp/penkra-diagnostics-qa-0143.Abc123/electron-profile",
   proofDir: "/tmp/penkra-diagnostics-qa-0143.Abc123/proofs",
   runId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
