@@ -20,7 +20,7 @@ import type { QueuedTurnPromotionRepositoryShape } from "../persistence/Services
 import type { ProviderDiscoveryServiceShape } from "../provider/Services/ProviderDiscoveryService.ts";
 import { resolveDefaultConnection } from "../provider/defaultConnection.ts";
 import { PENKRA_INSTRUCTION_SET_VERSION } from "./harnessPolicy.ts";
-import { mcpToolResultError, mcpToolResultJson } from "./protocol.ts";
+import { mcpToolResultJson } from "./protocol.ts";
 import {
   agentGatewayTargetOptionGuidance,
   loadAgentGatewayProviderCatalog,
@@ -49,6 +49,8 @@ import {
   ToolInputError,
 } from "./toolInput.ts";
 import { READ_ONLY_TOOL_ANNOTATIONS, type ToolEntry } from "./toolRuntime.ts";
+
+import { gatewayMcpToolErrorResult } from "./gatewayFailureDiagnostics.ts";
 
 const LIST_THREADS_DEFAULT_LIMIT = 50;
 const LIST_THREADS_MAX_PAGE_SIZE = 100;
@@ -331,7 +333,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
             diagnostics: context.callerCapabilities.has("diagnostics:read"),
           },
         });
-      }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
+      }).pipe(Effect.catch((error) => Effect.succeed(gatewayMcpToolErrorResult(error)))),
   };
 
   const connectionsTool: ToolEntry = {
@@ -380,7 +382,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
             isDefault: settings.providers[connection.harness].defaultConnectionId === connection.id,
           }));
         return mcpToolResultJson({ items, total: items.length });
-      }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
+      }).pipe(Effect.catch((error) => Effect.succeed(gatewayMcpToolErrorResult(error)))),
   };
 
   const modelsTool: ToolEntry = {
@@ -574,7 +576,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           );
         }
         return mcpToolResultJson(payload);
-      }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
+      }).pipe(Effect.catch((error) => Effect.succeed(gatewayMcpToolErrorResult(error)))),
   };
 
   const listFolders: ToolEntry = {
@@ -608,7 +610,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
             isPinned: folder.isPinned,
           })),
         });
-      }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
+      }).pipe(Effect.catch((error) => Effect.succeed(gatewayMcpToolErrorResult(error)))),
   };
 
   const listThreads: ToolEntry = {
@@ -773,7 +775,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
                 : null,
           },
         });
-      }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
+      }).pipe(Effect.catch((error) => Effect.succeed(gatewayMcpToolErrorResult(error)))),
   };
 
   const readThread: ToolEntry = {
@@ -1485,7 +1487,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
             : {}),
           pageInfo: { nextCursor },
         });
-      }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
+      }).pipe(Effect.catch((error) => Effect.succeed(gatewayMcpToolErrorResult(error)))),
   };
 
   return [contextTool, connectionsTool, modelsTool, listFolders, listThreads, readThread];
