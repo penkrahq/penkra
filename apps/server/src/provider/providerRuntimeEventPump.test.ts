@@ -29,6 +29,9 @@ function completedEvent(eventId: string): ProviderRuntimeEvent {
 
 describe("providerRuntimeEventPump", () => {
   it("retries the current event before consuming the next queue item", async () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-provider-retry-diagnostics-"));
+    const diagnostics = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
+    const uninstall = installDiagnosticsStore(diagnostics);
     await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
@@ -70,6 +73,17 @@ describe("providerRuntimeEventPump", () => {
         }),
       ),
     );
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(db.prepare("SELECT code, context_json FROM incidents").all()).toEqual([
+      expect.objectContaining({
+        code: "EXTERNAL_CALL_FAILED",
+        context_json: expect.stringContaining('"eventId":"event-retried"'),
+      }),
+    ]);
+    db.close();
+    uninstall();
+    diagnostics.close();
+    fs.rmSync(stateDir, { recursive: true, force: true });
   });
 
   it("restarts an Adapter stream that dies unexpectedly", async () => {

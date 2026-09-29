@@ -56,6 +56,8 @@ import {
   SqlitePersistenceMemory,
 } from "../../persistence/Layers/Sqlite.ts";
 import { AnalyticsService } from "../../telemetry/Services/AnalyticsService.ts";
+import { installDiagnosticsStore } from "../../diagnostics/recorder.ts";
+import { DiagnosticsStore, openDiagnosticsReader } from "../../diagnostics/store.ts";
 
 const asRequestId = (value: string): ApprovalRequestId => ApprovalRequestId.makeUnsafe(value);
 const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
@@ -2709,6 +2711,50 @@ managedRouting.layer("ProviderService managed launch enforcement", (it) => {
         ).managedLaunch,
         managedLaunch,
       );
+    }),
+  );
+});
+
+routing.layer("ProviderService fork failure diagnostics", (it) => {
+  it.effect("records a failed native fork even when the caller receives null", () =>
+    Effect.gen(function* () {
+      const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-fork-diagnostics-"));
+      const diagnostics = new DiagnosticsStore({
+        stateDir,
+        appVersion: "0.14.3",
+        process: "server",
+      });
+      const uninstall = installDiagnosticsStore(diagnostics);
+      try {
+        const provider = yield* ProviderService;
+        const sourceThreadId = asThreadId("fork-source-failure");
+        yield* provider.startSession(sourceThreadId, {
+          provider: "codex",
+          threadId: sourceThreadId,
+          runtimeMode: "full-access",
+        });
+        routing.codex.forkThread.mockImplementationOnce(
+          () =>
+            Effect.fail(new Error("fixture native fork failure")) as unknown as ReturnType<
+              typeof routing.codex.forkThread
+            >,
+        );
+        const result = yield* provider.forkThread!({
+          sourceThreadId,
+          threadId: asThreadId("fork-target-failure"),
+          runtimeMode: "full-access",
+        });
+        assert.strictEqual(result, null);
+        const db = openDiagnosticsReader(stateDir)!;
+        assert.deepStrictEqual(db.prepare("SELECT code, where_name FROM incidents").all(), [
+          { code: "EXTERNAL_CALL_FAILED", where_name: "server.provider" },
+        ]);
+        db.close();
+      } finally {
+        uninstall();
+        diagnostics.close();
+        fs.rmSync(stateDir, { recursive: true, force: true });
+      }
     }),
   );
 });
