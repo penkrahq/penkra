@@ -116,6 +116,7 @@ throw new Error("three");`;
     const source =
       "throw new Error('one'); throw new Error('two'); // diagnostics-covered: COMMAND_REJECTED";
     const sites = scanFailureSites("apps/web/src/example.ts", source);
+    expect(sites[0]?.column).not.toBe(sites[1]?.column);
     expect(uncoveredFailureSites(sites, () => source, [])).toHaveLength(2);
   });
 

@@ -586,7 +586,7 @@ Coverage is enforced the same way test coverage is.
 5. **The gap rule.** When a real incident cannot be explained from its record, the missing checkpoint or field is filed as a coverage defect and fixed before the behaviour fix.
 
 The coverage check tracks each catch, throw, explicit rejection and timeout site by file,
-line and syntax kind. A `diagnostics-covered: CODE where` marker means that the same
+line, column and syntax kind. A `diagnostics-covered: CODE where` marker means that the same
 block records that failure before the marked site. A `diagnostics-propagates: CODE where` marker means the
 failure reaches a registered recording boundary. Each boundary is
 registered with its stable incident code, location and source file, and the checker
@@ -603,7 +603,7 @@ before it is added to the default lint gate.
   `PENKRA_DIAGNOSTICS_QA_REPORT_PATH` naming its flow, a passing status and its
   required live-app assertions. A zero exit without that report, a mismatched
   flow or missing assertions fails the gate.
-- **Pass for the clean QA run:** every script meets its expectations, and `penkra diagnostics incidents --since <run start>` returns **zero new occurrences**, including repeats of an existing aggregate. No unexplained-incident exemption exists.
+- **Pass for the clean QA run:** every script meets its expectations, and `penkra diagnostics incidents --since <run start>` returns **zero new occurrences**, including repeats of an existing aggregate. No new incident is exempt from this count.
 - Expected-failure and fault-injection scripts run separately from the clean gate. Each intended failure (for example, sending to an archived thread) must produce its expected code and occurrence, or coverage fails. Their incident-producing interval is excluded only by running a separate clean gate with a fresh baseline, not by filtering incidents from that gate.
 - QA reports cite incident IDs and trace IDs instead of screenshots.
 

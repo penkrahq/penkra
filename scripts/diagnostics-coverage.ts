@@ -15,6 +15,7 @@ export type FailureSiteKind = "catch" | "throw" | "rejection" | "timeout";
 export interface FailureSite {
   readonly file: string;
   readonly line: number;
+  readonly column: number;
   readonly kind: FailureSiteKind;
 }
 
@@ -85,9 +86,11 @@ function recordsBeforeSite(
         : ts.isCallExpression(node)
           ? callKind(node)
           : null;
+    const position = parsed.getLineAndCharacterOfPosition(node.getStart(parsed));
     if (
       kind === site.kind &&
-      parsed.getLineAndCharacterOfPosition(node.getStart(parsed)).line + 1 === site.line
+      position.line + 1 === site.line &&
+      position.character + 1 === site.column
     ) {
       siteNode = node;
       return;
@@ -145,7 +148,7 @@ export function validateCoverageBoundaries(
 }
 
 function siteKey(site: FailureSite): string {
-  return `${site.file}:${site.line}:${site.kind}`;
+  return `${site.file}:${site.line}:${site.column}:${site.kind}`;
 }
 
 function hasCoverageMarker(
@@ -251,12 +254,15 @@ export function scanFailureSites(file: string, source: string): FailureSite[] {
         : ts.isCallExpression(node)
           ? callKind(node)
           : null;
-    if (kind)
+    if (kind) {
+      const position = parsed.getLineAndCharacterOfPosition(node.getStart(parsed));
       found.push({
         file,
-        line: parsed.getLineAndCharacterOfPosition(node.getStart(parsed)).line + 1,
+        line: position.line + 1,
+        column: position.character + 1,
         kind,
       });
+    }
     ts.forEachChild(node, visit);
   }
   visit(parsed);
@@ -284,6 +290,7 @@ export function inventoryFailureSites(repoRoot: string): FailureSite[] {
     (left, right) =>
       left.file.localeCompare(right.file) ||
       left.line - right.line ||
+      left.column - right.column ||
       left.kind.localeCompare(right.kind),
   );
 }
