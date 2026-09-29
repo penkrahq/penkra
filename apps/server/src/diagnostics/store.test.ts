@@ -1320,6 +1320,15 @@ describe("diagnostics store", () => {
         fields: { message: secret } as never,
       }),
     ).toThrow("not allowlisted");
+    expect(() =>
+      desktop.checkpoint({
+        traceId,
+        spanId,
+        flow: "send",
+        step: "composer.preflight",
+        fields: { message: null },
+      }),
+    ).toThrow("not allowlisted");
     expect(fs.existsSync(path.join(stateDir, "diagnostics", `spool-${desktop.bootId}.jsonl`))).toBe(
       false,
     );
