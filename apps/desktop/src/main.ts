@@ -114,7 +114,10 @@ import { ActiveWorkPowerBlocker } from "./activeWorkPowerBlocker";
 import { recordDesktopOsLookupFailure, resolveDesktopOsMajor } from "./desktopDiagnosticOs";
 import { startDesktopDiagnosticsMonitors } from "./desktopDiagnosticsMonitors";
 import { DesktopDiagnosticsQueue } from "./desktopDiagnosticsQueue";
-import { installDesktopFailureCoverageReporter } from "./desktopFailureCoverage";
+import {
+  installDesktopFailureCoverageReporter,
+  recordDesktopConsumedFailure,
+} from "./desktopFailureCoverage";
 import { wrapDesktopIpcHandler } from "./desktopIpcCoverage";
 import { recordDesktopMainIncident } from "./desktopMainIncident";
 import { desktopDiagnosticStateDir } from "./desktopDiagnosticStateDir";
@@ -8643,6 +8646,7 @@ async function bootstrap(): Promise<void> {
       retireTab: retireAppTabAuthority,
     },
     onInvalidRendererMessage: (error, senderId) => {
+      recordDesktopConsumedFailure("app");
       console.warn(
         `[penkra-app] Rejected invalid renderer message sender=${senderId}: ${formatErrorMessage(error)}`,
       );
