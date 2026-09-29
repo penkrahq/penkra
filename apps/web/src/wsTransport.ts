@@ -499,6 +499,7 @@ export class WsTransport {
     options?: WsRequestOptions,
   ): Promise<T> {
     if (this.disposed) throw new Error("Transport disposed");
+    const requestSessionVersion = this.sessionVersion;
     const requestOptions: WsRequestOptions =
       options?.timeoutMs === undefined ? { ...options, timeoutMs: REQUEST_TIMEOUT_MS } : options;
     const abortScope = makeRequestAbortScope(requestOptions);
@@ -519,6 +520,14 @@ export class WsTransport {
       }
 
       let client = await awaitWithAbort(this.getClient(), abortScope.signal);
+
+      if (method === ORCHESTRATION_WS_METHODS.acknowledgeSync) {
+        const deliveryId = (params as { deliveryId: string }).deliveryId;
+        if (requestSessionVersion !== this.sessionVersion || this.syncDeliveryId !== deliveryId) {
+          // The old stream's acknowledgement has no meaning on the new lease.
+          return undefined as T;
+        }
+      }
 
       if (method === ORCHESTRATION_WS_METHODS.subscribeShell) {
         this.shellSubscribed = true;
@@ -957,6 +966,7 @@ export class WsTransport {
   private reconnect(): Promise<RpcClientInstance> {
     if (this.reconnectPromise) return this.reconnectPromise;
 
+    this.syncDeliveryId = undefined;
     const oldRuntime = this.runtime;
     const oldClientScope = this.clientScope;
 

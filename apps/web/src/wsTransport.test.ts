@@ -765,6 +765,7 @@ describe("WsTransport", () => {
     };
     internals.getClient = vi.fn().mockResolvedValue(client);
     internals.getClientRuntime = vi.fn(() => runtime);
+    internals.syncDeliveryId = "delivery-1";
     runtime.runPromise.mockRejectedValueOnce(new Error("ack failed"));
 
     await expect(
@@ -809,6 +810,28 @@ describe("WsTransport", () => {
 
     expect(internals.syncDeliveryId).toBe("new-lease");
     expect(internals.syncAppliedSequence).toBeUndefined();
+    await transport.dispose();
+  });
+
+  it("drops an old acknowledgement when the transport changes leases before dispatch", async () => {
+    const transport = new WsTransport();
+    const method = ORCHESTRATION_WS_METHODS.acknowledgeSync;
+    const client = { [method]: vi.fn(() => ({})) };
+    let releaseClient!: (value: typeof client) => void;
+    const clientReady = new Promise<typeof client>((resolve) => {
+      releaseClient = resolve;
+    });
+    const internals = transport as unknown as WsTransportInternals & {
+      getClient: () => Promise<typeof client>;
+    };
+    internals.getClient = vi.fn(() => clientReady);
+    internals.syncDeliveryId = "old-lease";
+
+    const pending = transport.request(method, { deliveryId: "old-lease", appliedSequence: 8 });
+    internals.syncDeliveryId = undefined;
+    releaseClient(client);
+    await expect(pending).resolves.toBeUndefined();
+    expect(client[method]).not.toHaveBeenCalled();
     await transport.dispose();
   });
 
