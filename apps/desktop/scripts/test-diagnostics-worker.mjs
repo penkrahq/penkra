@@ -4,7 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import { Worker } from "node:worker_threads";
 import { fileURLToPath } from "node:url";
-import { DiagnosticsStore, openDiagnosticsReader } from "@penkra/shared/diagnostics/store";
+import {
+  DiagnosticsStore,
+  openDiagnosticsReader,
+  readLossLedger,
+} from "@penkra/shared/diagnostics/store";
 
 const desktopDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-diagnostics-worker-"));
@@ -60,7 +64,9 @@ try {
   assert.equal(acknowledgements, 3);
 
   const diagnosticDir = path.join(stateDir, "diagnostics");
-  const spool = fs.readdirSync(diagnosticDir).find((name) => name.startsWith("spool-"));
+  const spool = fs
+    .readdirSync(diagnosticDir)
+    .find((name) => /^spool-[a-f0-9]{32}\.jsonl$/u.test(name));
   assert.ok(spool, "worker must create a durable spool");
   const records = fs
     .readFileSync(path.join(diagnosticDir, spool), "utf8")
@@ -79,14 +85,14 @@ try {
   assert.equal(records[0].data.traceId, trace.traceId);
   assert.equal(records[1].data.kind, "send.accepted");
   assert.equal(records[1].data.armedAt, armedAt);
-  const loss = fs.readdirSync(diagnosticDir).find((name) => name.startsWith("loss-"));
-  assert.ok(loss);
   const lossSlots = fs
-    .readFileSync(path.join(diagnosticDir, loss), "utf8")
-    .match(/.{256}/g)
-    .map((slot) => JSON.parse(slot.trim()))
-    .sort((a, b) => b.generation - a.generation);
-  assert.equal(lossSlots[0].reasons.spool, 1);
+    .readdirSync(diagnosticDir)
+    .filter((name) => /^loss-[a-f0-9]{32}\.bin$/u.test(name))
+    .map((name) => readLossLedger(path.join(diagnosticDir, name)));
+  assert.equal(
+    lossSlots.some((slot) => slot?.reasons.spool === 1),
+    true,
+  );
   assert.equal(
     fs.readdirSync(diagnosticDir).filter((name) => name.startsWith("active-")).length,
     1,
