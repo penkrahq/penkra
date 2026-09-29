@@ -224,13 +224,21 @@ async function run(flow, page, stateDir) {
           return true;
         };
       });
-      await page.waitForFunction((label) => {
-        const button = [...document.querySelectorAll("button[aria-label]")].find(
-          (candidate) => candidate.getAttribute("aria-label") === label,
+      await page.waitForFunction(() => {
+        const selected = document.querySelector(
+          'header[data-thread-deck-id] button[aria-pressed="true"]',
         );
-        return button && !button.parentElement?.querySelector('[data-work-status="running"]');
-      }, `Archive ${message}`);
-      await page.getByRole("button", { name: `Archive ${message}` }).click();
+        const chip = selected?.parentElement;
+        return (
+          chip?.querySelector('button[aria-label^="Archive "]') &&
+          !chip.querySelector('[data-work-status="running"]')
+        );
+      });
+      await page
+        .locator('header[data-thread-deck-id] button[aria-pressed="true"]')
+        .locator("..")
+        .locator('button[aria-label^="Archive "]')
+        .click();
       if ((await page.evaluate(() => window.__qaArchiveConfirmCount)) !== 1)
         throw new Error("Archive did not request confirmation for the persisted thread");
       await waitForDetail(stateDir, "archive", "thread.archived", id);
