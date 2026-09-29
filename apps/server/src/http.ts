@@ -31,6 +31,7 @@ import {
 import { resolveAttachmentPathById } from "./attachmentStore.ts";
 import { authErrorResponse, makeEffectAuthRequest } from "./auth/effectHttp";
 import { recordHttpFailure } from "./diagnostics/httpFailure";
+import { recoverMissingFile } from "./diagnostics/missingFileRecovery";
 import { AuthError, ServerAuth } from "./auth/Services/ServerAuth";
 import { SessionCredentialService } from "./auth/Services/SessionCredentialService";
 import { deriveAuthClientMetadata } from "./auth/utils";
@@ -1199,9 +1200,7 @@ export const attachmentsEffectRouteLayer = HttpRouter.add(
     }
 
     const fileSystem = yield* FileSystem.FileSystem;
-    const fileInfo = yield* fileSystem
-      .stat(filePath)
-      .pipe(Effect.catch(() => Effect.succeed(null)));
+    const fileInfo = yield* recoverMissingFile(fileSystem.stat(filePath), recordHttpFailure);
     if (!fileInfo || fileInfo.type !== "File") {
       return HttpServerResponse.text("Not Found", { status: 404 });
     }
@@ -1287,14 +1286,13 @@ export const staticAndDevEffectRouteLayer = HttpRouter.add(
       }
     }
 
-    const fileInfo = yield* fileSystem
-      .stat(filePath)
-      .pipe(Effect.catch(() => Effect.succeed(null)));
+    const fileInfo = yield* recoverMissingFile(fileSystem.stat(filePath), recordHttpFailure);
     if (!fileInfo || fileInfo.type !== "File") {
       const indexPath = path.resolve(staticRoot, "index.html");
-      const indexData = yield* fileSystem
-        .readFile(indexPath)
-        .pipe(Effect.catch(() => Effect.succeed(null)));
+      const indexData = yield* recoverMissingFile(
+        fileSystem.readFile(indexPath),
+        recordHttpFailure,
+      );
       if (!indexData) return HttpServerResponse.text("Not Found", { status: 404 });
       return HttpServerResponse.uint8Array(indexData, {
         status: 200,
