@@ -591,7 +591,7 @@
   },
   {
     "file": "apps/server/src/wsRpc.ts",
-    "line": 253,
+    "line": 254,
     "column": 10,
     "kind": "rejection",
     "disposition": "expected-recovery",
@@ -600,7 +600,7 @@
   },
   {
     "file": "apps/server/src/wsRpc.ts",
-    "line": 352,
+    "line": 353,
     "column": 22,
     "kind": "catch",
     "disposition": "recorded",
@@ -613,7 +613,7 @@
   },
   {
     "file": "apps/server/src/wsRpc.ts",
-    "line": 376,
+    "line": 377,
     "column": 20,
     "kind": "catch",
     "disposition": "recorded",
@@ -626,7 +626,7 @@
   },
   {
     "file": "apps/server/src/wsRpc.ts",
-    "line": 419,
+    "line": 420,
     "column": 20,
     "kind": "catch",
     "disposition": "recorded",
@@ -639,25 +639,7 @@
   },
   {
     "file": "apps/server/src/wsRpc.ts",
-    "line": 451,
-    "column": 24,
-    "kind": "catch",
-    "disposition": "validation",
-    "reason": "Workspace stat failure becomes an explicit missing-directory response or create decision.",
-    "reviewer": "diagnostics-0143"
-  },
-  {
-    "file": "apps/server/src/wsRpc.ts",
-    "line": 469,
-    "column": 26,
-    "kind": "catch",
-    "disposition": "validation",
-    "reason": "Post-create stat failure becomes an explicit failed-directory response.",
-    "reviewer": "diagnostics-0143"
-  },
-  {
-    "file": "apps/server/src/wsRpc.ts",
-    "line": 604,
+    "line": 609,
     "column": 28,
     "kind": "catch",
     "disposition": "recorded",
@@ -670,7 +652,7 @@
   },
   {
     "file": "apps/server/src/wsRpc.ts",
-    "line": 944,
+    "line": 949,
     "column": 25,
     "kind": "catch",
     "disposition": "diagnostics-isolated",
@@ -679,7 +661,7 @@
   },
   {
     "file": "apps/server/src/wsRpc.ts",
-    "line": 1008,
+    "line": 1013,
     "column": 40,
     "kind": "catch",
     "disposition": "recorded",
@@ -692,7 +674,7 @@
   },
   {
     "file": "apps/server/src/wsRpc.ts",
-    "line": 1018,
+    "line": 1023,
     "column": 40,
     "kind": "catch",
     "disposition": "recorded",
@@ -705,7 +687,7 @@
   },
   {
     "file": "apps/server/src/wsRpc.ts",
-    "line": 1410,
+    "line": 1415,
     "column": 32,
     "kind": "catch",
     "disposition": "recorded",
@@ -718,7 +700,7 @@
   },
   {
     "file": "apps/server/src/wsRpc.ts",
-    "line": 1475,
+    "line": 1480,
     "column": 26,
     "kind": "rejection",
     "disposition": "validation",
@@ -727,7 +709,7 @@
   },
   {
     "file": "apps/server/src/wsRpc.ts",
-    "line": 1592,
+    "line": 1597,
     "column": 40,
     "kind": "rejection",
     "disposition": "validation",
@@ -736,7 +718,7 @@
   },
   {
     "file": "apps/server/src/wsRpc.ts",
-    "line": 1651,
+    "line": 1656,
     "column": 38,
     "kind": "rejection",
     "disposition": "validation",
@@ -745,7 +727,7 @@
   },
   {
     "file": "apps/server/src/wsRpc.ts",
-    "line": 1660,
+    "line": 1665,
     "column": 38,
     "kind": "rejection",
     "disposition": "validation",
@@ -754,7 +736,7 @@
   },
   {
     "file": "apps/server/src/wsRpc.ts",
-    "line": 1984,
+    "line": 1989,
     "column": 18,
     "kind": "catch",
     "disposition": "validation",
@@ -763,7 +745,7 @@
   },
   {
     "file": "apps/server/src/http.ts",
-    "line": 137,
+    "line": 138,
     "column": 18,
     "kind": "catch",
     "disposition": "validation",
@@ -772,7 +754,7 @@
   },
   {
     "file": "apps/server/src/http.ts",
-    "line": 295,
+    "line": 296,
     "column": 34,
     "kind": "rejection",
     "disposition": "validation",
@@ -781,7 +763,7 @@
   },
   {
     "file": "apps/server/src/http.ts",
-    "line": 307,
+    "line": 308,
     "column": 26,
     "kind": "rejection",
     "disposition": "validation",
@@ -790,7 +772,7 @@
   },
   {
     "file": "apps/server/src/http.ts",
-    "line": 390,
+    "line": 391,
     "column": 19,
     "kind": "rejection",
     "disposition": "validation",
@@ -799,7 +781,7 @@
   },
   {
     "file": "apps/server/src/http.ts",
-    "line": 416,
+    "line": 417,
     "column": 19,
     "kind": "rejection",
     "disposition": "validation",
@@ -808,7 +790,7 @@
   },
   {
     "file": "apps/server/src/http.ts",
-    "line": 529,
+    "line": 530,
     "column": 30,
     "kind": "rejection",
     "disposition": "validation",
@@ -817,7 +799,7 @@
   },
   {
     "file": "apps/server/src/http.ts",
-    "line": 540,
+    "line": 541,
     "column": 30,
     "kind": "rejection",
     "disposition": "validation",
@@ -826,7 +808,7 @@
   },
   {
     "file": "apps/server/src/http.ts",
-    "line": 589,
+    "line": 590,
     "column": 12,
     "kind": "catch",
     "disposition": "recorded",
@@ -839,7 +821,7 @@
   },
   {
     "file": "apps/server/src/http.ts",
-    "line": 617,
+    "line": 618,
     "column": 14,
     "kind": "catch",
     "disposition": "validation",
@@ -848,7 +830,7 @@
   },
   {
     "file": "apps/server/src/http.ts",
-    "line": 617,
+    "line": 618,
     "column": 54,
     "kind": "rejection",
     "disposition": "validation",
@@ -857,7 +839,7 @@
   },
   {
     "file": "apps/server/src/http.ts",
-    "line": 647,
+    "line": 648,
     "column": 14,
     "kind": "catch",
     "disposition": "recorded",
@@ -870,7 +852,7 @@
   },
   {
     "file": "apps/server/src/http.ts",
-    "line": 652,
+    "line": 653,
     "column": 18,
     "kind": "catch",
     "disposition": "validation",
@@ -879,7 +861,7 @@
   },
   {
     "file": "apps/server/src/http.ts",
-    "line": 700,
+    "line": 701,
     "column": 18,
     "kind": "catch",
     "disposition": "validation",
@@ -888,7 +870,7 @@
   },
   {
     "file": "apps/server/src/http.ts",
-    "line": 759,
+    "line": 760,
     "column": 18,
     "kind": "catch",
     "disposition": "validation",
@@ -897,7 +879,7 @@
   },
   {
     "file": "apps/server/src/http.ts",
-    "line": 782,
+    "line": 783,
     "column": 18,
     "kind": "catch",
     "disposition": "validation",
@@ -906,7 +888,7 @@
   },
   {
     "file": "apps/server/src/http.ts",
-    "line": 825,
+    "line": 826,
     "column": 10,
     "kind": "catch",
     "disposition": "validation",
@@ -915,7 +897,7 @@
   },
   {
     "file": "apps/server/src/http.ts",
-    "line": 855,
+    "line": 856,
     "column": 18,
     "kind": "catch",
     "disposition": "validation",
@@ -924,7 +906,7 @@
   },
   {
     "file": "apps/server/src/http.ts",
-    "line": 1112,
+    "line": 1113,
     "column": 10,
     "kind": "catch",
     "disposition": "recorded",
@@ -937,16 +919,7 @@
   },
   {
     "file": "apps/server/src/http.ts",
-    "line": 1204,
-    "column": 20,
-    "kind": "catch",
-    "disposition": "validation",
-    "reason": "An absent static file maps to an explicit not-found response.",
-    "reviewer": "diagnostics-0143"
-  },
-  {
-    "file": "apps/server/src/http.ts",
-    "line": 1238,
+    "line": 1237,
     "column": 18,
     "kind": "catch",
     "disposition": "validation",
@@ -955,25 +928,7 @@
   },
   {
     "file": "apps/server/src/http.ts",
-    "line": 1292,
-    "column": 20,
-    "kind": "catch",
-    "disposition": "expected-recovery",
-    "reason": "A missing static route file falls back to the application index document.",
-    "reviewer": "diagnostics-0143"
-  },
-  {
-    "file": "apps/server/src/http.ts",
-    "line": 1297,
-    "column": 22,
-    "kind": "catch",
-    "disposition": "validation",
-    "reason": "An absent application index document maps to an explicit not-found response.",
-    "reviewer": "diagnostics-0143"
-  },
-  {
-    "file": "apps/server/src/http.ts",
-    "line": 1306,
+    "line": 1304,
     "column": 14,
     "kind": "catch",
     "disposition": "recorded",
