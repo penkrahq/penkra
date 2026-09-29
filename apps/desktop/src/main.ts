@@ -115,6 +115,7 @@ import { recordDesktopOsLookupFailure, resolveDesktopOsMajor } from "./desktopDi
 import { startDesktopDiagnosticsMonitors } from "./desktopDiagnosticsMonitors";
 import { DesktopDiagnosticsQueue } from "./desktopDiagnosticsQueue";
 import { installDesktopFailureCoverageReporter } from "./desktopFailureCoverage";
+import { wrapDesktopIpcHandler } from "./desktopIpcCoverage";
 import { recordDesktopMainIncident } from "./desktopMainIncident";
 import { desktopDiagnosticStateDir } from "./desktopDiagnosticStateDir";
 import { DiagnosticsQaWindowTracker } from "./diagnosticsQaWindow";
@@ -513,6 +514,11 @@ function recordDiagnosticIncident(input: Omit<IncidentInput, "traceId" | "spanId
   recordDesktopMainIncident((kind, value) => enqueueDesktopDiagnosticWrite(kind, value), input);
 }
 installDesktopFailureCoverageReporter(recordDiagnosticIncident);
+
+function handleDesktopIpc(...args: Parameters<typeof ipcMain.handle>): void {
+  const [channel, listener] = args;
+  ipcMain.handle(channel, wrapDesktopIpcHandler(listener, recordDiagnosticIncident));
+}
 
 function recordDesktopServiceUnavailable(error: Error): Error {
   recordDiagnosticIncident({
@@ -5680,20 +5686,20 @@ function registerIpcHandlers(): void {
     console.info(`[thread-home] send window=${event.sender.id} thread=${threadId}`);
   });
   for (const channel of Object.values(IPC.composerDrafts)) ipcMain.removeHandler(channel);
-  ipcMain.handle(IPC.composerDrafts.readSnapshot, async (event) => {
+  handleDesktopIpc(IPC.composerDrafts.readSnapshot, async (event) => {
     requireMainRenderer(event);
     return composerDraftJournal.readSnapshot();
   });
-  ipcMain.handle(IPC.composerDrafts.writeSnapshot, async (event, value: unknown) => {
+  handleDesktopIpc(IPC.composerDrafts.writeSnapshot, async (event, value: unknown) => {
     requireMainRenderer(event);
     if (typeof value !== "string") throw new Error("Invalid composer draft snapshot.");
     await composerDraftJournal.writeSnapshot(value);
   });
-  ipcMain.handle(IPC.composerDrafts.removeSnapshot, async (event) => {
+  handleDesktopIpc(IPC.composerDrafts.removeSnapshot, async (event) => {
     requireMainRenderer(event);
     await composerDraftJournal.removeSnapshot();
   });
-  ipcMain.handle(IPC.composerDrafts.writeAsset, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.composerDrafts.writeAsset, async (event, input: unknown) => {
     requireMainRenderer(event);
     if (!input || typeof input !== "object") throw new Error("Invalid composer asset.");
     const candidate = input as Record<string, unknown>;
@@ -5713,17 +5719,17 @@ function registerIpcHandlers(): void {
       bytes: composerBytesFromIpc(candidate.bytes),
     });
   });
-  ipcMain.handle(IPC.composerDrafts.readAsset, async (event, id: unknown) => {
+  handleDesktopIpc(IPC.composerDrafts.readAsset, async (event, id: unknown) => {
     requireMainRenderer(event);
     if (typeof id !== "string") throw new Error("Invalid composer asset id.");
     return composerDraftJournal.readAsset(id);
   });
-  ipcMain.handle(IPC.composerDrafts.deleteAsset, async (event, id: unknown) => {
+  handleDesktopIpc(IPC.composerDrafts.deleteAsset, async (event, id: unknown) => {
     requireMainRenderer(event);
     if (typeof id !== "string") throw new Error("Invalid composer asset id.");
     await composerDraftJournal.deleteAsset(id);
   });
-  ipcMain.handle(IPC.composerDrafts.createVoice, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.composerDrafts.createVoice, async (event, input: unknown) => {
     requireMainRenderer(event);
     if (!input || typeof input !== "object") throw new Error("Invalid voice draft.");
     const job = input as Parameters<typeof composerDraftJournal.createVoice>[0];
@@ -5739,7 +5745,7 @@ function registerIpcHandlers(): void {
     }
     await composerDraftJournal.createVoice(job);
   });
-  ipcMain.handle(IPC.composerDrafts.appendVoice, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.composerDrafts.appendVoice, async (event, input: unknown) => {
     requireMainRenderer(event);
     if (!input || typeof input !== "object") throw new Error("Invalid voice draft batch.");
     const candidate = input as Record<string, unknown>;
@@ -5752,21 +5758,21 @@ function registerIpcHandlers(): void {
       bytes: composerBytesFromIpc(candidate.bytes),
     });
   });
-  ipcMain.handle(IPC.composerDrafts.completeVoice, async (event, id: unknown) => {
+  handleDesktopIpc(IPC.composerDrafts.completeVoice, async (event, id: unknown) => {
     requireMainRenderer(event);
     if (typeof id !== "string") throw new Error("Invalid voice draft id.");
     return composerDraftJournal.completeVoice(id);
   });
-  ipcMain.handle(IPC.composerDrafts.listVoices, async (event) => {
+  handleDesktopIpc(IPC.composerDrafts.listVoices, async (event) => {
     requireMainRenderer(event);
     return composerDraftJournal.listVoices();
   });
-  ipcMain.handle(IPC.composerDrafts.readVoice, async (event, id: unknown) => {
+  handleDesktopIpc(IPC.composerDrafts.readVoice, async (event, id: unknown) => {
     requireMainRenderer(event);
     if (typeof id !== "string") throw new Error("Invalid voice draft id.");
     return composerDraftJournal.readVoice(id);
   });
-  ipcMain.handle(IPC.composerDrafts.deleteVoice, async (event, id: unknown) => {
+  handleDesktopIpc(IPC.composerDrafts.deleteVoice, async (event, id: unknown) => {
     requireMainRenderer(event);
     if (typeof id !== "string") throw new Error("Invalid voice draft id.");
     await composerDraftJournal.deleteVoice(id);
@@ -5778,7 +5784,7 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(IPC.storageMigration.acknowledge);
-  ipcMain.handle(IPC.storageMigration.acknowledge, async () => {
+  handleDesktopIpc(IPC.storageMigration.acknowledge, async () => {
     await acknowledgePenkraStorageSnapshot(storageSnapshotPath);
   });
 
@@ -5790,7 +5796,7 @@ function registerIpcHandlers(): void {
   };
 
   ipcMain.removeHandler(IPC.appRuntime.call);
-  ipcMain.handle(IPC.appRuntime.call, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appRuntime.call, async (event, input: unknown) => {
     const { runtime, identity: rendererIdentity } = requireAppRenderer(event.sender.id);
     if (!input || typeof input !== "object" || Array.isArray(input)) {
       throw new Error("Invalid App runtime call.");
@@ -6275,25 +6281,25 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(IPC.appRuntime.tabSetRoute);
-  ipcMain.handle(IPC.appRuntime.tabSetRoute, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appRuntime.tabSetRoute, async (event, input: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
     if (!identity.tabId) throw new Error("This App renderer is not attached to a tab.");
     runtime.appTabs.setRoute(identity.tabId, parseAppTabRouteRequest(input));
   });
   ipcMain.removeHandler(IPC.appRuntime.tabSetPresentation);
-  ipcMain.handle(IPC.appRuntime.tabSetPresentation, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appRuntime.tabSetPresentation, async (event, input: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
     if (!identity.tabId) throw new Error("This App renderer is not attached to a tab.");
     runtime.appTabs.setPresentation(identity.tabId, parseAppTabPresentationRequest(input));
   });
   ipcMain.removeHandler(IPC.appRuntime.tabResetPresentation);
-  ipcMain.handle(IPC.appRuntime.tabResetPresentation, async (event) => {
+  handleDesktopIpc(IPC.appRuntime.tabResetPresentation, async (event) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
     if (!identity.tabId) throw new Error("This App renderer is not attached to a tab.");
     runtime.appTabs.resetPresentation(identity.tabId);
   });
   ipcMain.removeHandler(IPC.appRuntime.tabOpenSibling);
-  ipcMain.handle(IPC.appRuntime.tabOpenSibling, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appRuntime.tabOpenSibling, async (event, input: unknown) => {
     const { runtime } = requireAppRenderer(event.sender.id);
     const navigation = input === undefined ? { route: "/" } : parseAppTabRouteRequest(input);
     const threadId = runtime.appTabs
@@ -6306,7 +6312,7 @@ function registerIpcHandlers(): void {
     );
   });
   ipcMain.removeHandler(IPC.appRuntime.tabGetContext);
-  ipcMain.handle(IPC.appRuntime.tabGetContext, async (event) => {
+  handleDesktopIpc(IPC.appRuntime.tabGetContext, async (event) => {
     const { identity } = requireAppRenderer(event.sender.id);
     if (!identity.threadId) throw new Error("This App renderer is not attached to a thread.");
     return {
@@ -6317,12 +6323,12 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(IPC.appRuntime.permissionQuery);
-  ipcMain.handle(IPC.appRuntime.permissionQuery, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appRuntime.permissionQuery, async (event, input: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
     return queryAppPermission(runtime.installations.snapshot(), identity, input);
   });
   ipcMain.removeHandler(IPC.appRuntime.permissionRequest);
-  ipcMain.handle(IPC.appRuntime.permissionRequest, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appRuntime.permissionRequest, async (event, input: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
     const current = queryAppPermission(runtime.installations.snapshot(), identity, input);
     if (!current.declared) throw new Error(`${String(input)} is not declared by this App.`);
@@ -6354,12 +6360,12 @@ function registerIpcHandlers(): void {
     return queryAppPermission(runtime.installations.snapshot(), identity, current.name);
   });
   ipcMain.removeHandler(IPC.appRuntime.identityGet);
-  ipcMain.handle(IPC.appRuntime.identityGet, async (event) => {
+  handleDesktopIpc(IPC.appRuntime.identityGet, async (event) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
     return runtime.identities.resolve(identity.appId, identity.spaceId);
   });
   ipcMain.removeHandler(IPC.appRuntime.identityGetToken);
-  ipcMain.handle(IPC.appRuntime.identityGetToken, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appRuntime.identityGetToken, async (event, input: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
     const audience = requireGrantedIdentityAudience(runtime, identity, input);
     return requestAppIdentityToken({
@@ -6371,7 +6377,7 @@ function registerIpcHandlers(): void {
     });
   });
   ipcMain.removeHandler(IPC.appRuntime.accountProfileGet);
-  ipcMain.handle(IPC.appRuntime.accountProfileGet, async (event) => {
+  handleDesktopIpc(IPC.appRuntime.accountProfileGet, async (event) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
     const permission = queryAppPermission(
       runtime.installations.snapshot(),
@@ -6390,7 +6396,7 @@ function registerIpcHandlers(): void {
     });
   });
   ipcMain.removeHandler(IPC.appRuntime.accountDataRequest);
-  ipcMain.handle(IPC.appRuntime.accountDataRequest, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appRuntime.accountDataRequest, async (event, input: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
     const permission = queryAppPermission(
       runtime.installations.snapshot(),
@@ -6427,7 +6433,7 @@ function registerIpcHandlers(): void {
     }
   });
   ipcMain.removeHandler(IPC.appRuntime.accountDataSubscribeStart);
-  ipcMain.handle(IPC.appRuntime.accountDataSubscribeStart, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appRuntime.accountDataSubscribeStart, async (event, input: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
     const permission = queryAppPermission(
       runtime.installations.snapshot(),
@@ -6491,7 +6497,7 @@ function registerIpcHandlers(): void {
     return subscriptionId;
   });
   ipcMain.removeHandler(IPC.appRuntime.accountDataSubscribeStop);
-  ipcMain.handle(IPC.appRuntime.accountDataSubscribeStop, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appRuntime.accountDataSubscribeStop, async (event, input: unknown) => {
     const subscriptionId =
       input && typeof input === "object" && !Array.isArray(input)
         ? (input as { subscriptionId?: unknown }).subscriptionId
@@ -6507,7 +6513,7 @@ function registerIpcHandlers(): void {
     active.stop();
   });
   ipcMain.removeHandler(IPC.appRuntime.simulatorCall);
-  ipcMain.handle(IPC.appRuntime.simulatorCall, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appRuntime.simulatorCall, async (event, input: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
     if (!identity.tabId) throw new Error("Only an interactive App tab can host a simulator.");
     const simulatorRuntime = desktopSimulatorRuntime;
@@ -6607,13 +6613,13 @@ function registerIpcHandlers(): void {
     }
   });
   ipcMain.removeHandler(IPC.appRuntime.settingGet);
-  ipcMain.handle(IPC.appRuntime.settingGet, async (event, key: unknown) => {
+  handleDesktopIpc(IPC.appRuntime.settingGet, async (event, key: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
     if (typeof key !== "string") throw new Error("Setting key must be a string.");
     return runtime.installations.getSetting({ ...identity, key });
   });
   ipcMain.removeHandler(IPC.appRuntime.settingSet);
-  ipcMain.handle(IPC.appRuntime.settingSet, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appRuntime.settingSet, async (event, input: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
     if (!input || typeof input !== "object" || Array.isArray(input))
       throw new Error("Setting input must be an object.");
@@ -6622,19 +6628,19 @@ function registerIpcHandlers(): void {
     await runtime.installations.setSetting({ ...identity, key, value });
   });
   ipcMain.removeHandler(IPC.appRuntime.settingReset);
-  ipcMain.handle(IPC.appRuntime.settingReset, async (event, key: unknown) => {
+  handleDesktopIpc(IPC.appRuntime.settingReset, async (event, key: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
     if (typeof key !== "string") throw new Error("Setting key must be a string.");
     await runtime.installations.resetSetting({ ...identity, key });
   });
   ipcMain.removeHandler(IPC.appRuntime.secretGet);
-  ipcMain.handle(IPC.appRuntime.secretGet, async (event, name: unknown) => {
+  handleDesktopIpc(IPC.appRuntime.secretGet, async (event, name: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
     if (typeof name !== "string") throw new Error("Secret name must be a string.");
     return runtime.vault.getSecret(identity.appId, identity.spaceId, name);
   });
   ipcMain.removeHandler(IPC.appRuntime.secretSet);
-  ipcMain.handle(IPC.appRuntime.secretSet, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appRuntime.secretSet, async (event, input: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
     if (!input || typeof input !== "object" || Array.isArray(input))
       throw new Error("Secret input must be an object.");
@@ -6644,13 +6650,13 @@ function registerIpcHandlers(): void {
     await runtime.vault.setSecret(identity.appId, identity.spaceId, name, value);
   });
   ipcMain.removeHandler(IPC.appRuntime.secretDelete);
-  ipcMain.handle(IPC.appRuntime.secretDelete, async (event, name: unknown) => {
+  handleDesktopIpc(IPC.appRuntime.secretDelete, async (event, name: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
     if (typeof name !== "string") throw new Error("Secret name must be a string.");
     await runtime.vault.deleteSecret(identity.appId, identity.spaceId, name);
   });
   ipcMain.removeHandler(IPC.appRuntime.browserCall);
-  ipcMain.handle(IPC.appRuntime.browserCall, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appRuntime.browserCall, async (event, input: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
     if (!identity.tabId) throw new Error("Only an interactive App tab can host browser pages.");
     const permission = queryAppPermission(
@@ -6801,7 +6807,7 @@ function registerIpcHandlers(): void {
     }
   });
   ipcMain.removeHandler(IPC.appRuntime.networkFetch);
-  ipcMain.handle(IPC.appRuntime.networkFetch, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appRuntime.networkFetch, async (event, input: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
     const permission = queryAppPermission(
       runtime.installations.snapshot(),
@@ -6832,7 +6838,7 @@ function registerIpcHandlers(): void {
     }
   });
   ipcMain.removeHandler(IPC.appRuntime.storageCall);
-  ipcMain.handle(IPC.appRuntime.storageCall, async (event, request: unknown) => {
+  handleDesktopIpc(IPC.appRuntime.storageCall, async (event, request: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
     if (!request || typeof request !== "object" || Array.isArray(request)) {
       throw new Error("Storage call must be an object.");
@@ -6842,7 +6848,7 @@ function registerIpcHandlers(): void {
     return invokeAppStorageCall(identity, record.method, record.input);
   });
   ipcMain.removeHandler(IPC.appRuntime.threadCall);
-  ipcMain.handle(IPC.appRuntime.threadCall, async (event, request: unknown) => {
+  handleDesktopIpc(IPC.appRuntime.threadCall, async (event, request: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
     if (!request || typeof request !== "object" || Array.isArray(request)) {
       throw new Error("Thread operation request must be an object.");
@@ -6886,7 +6892,7 @@ function registerIpcHandlers(): void {
   for (const channel of Object.values(IPC.appInstallations)) {
     if (channel !== IPC.appInstallations.state) ipcMain.removeHandler(channel);
   }
-  ipcMain.handle(IPC.appInstallations.getState, async (event) => {
+  handleDesktopIpc(IPC.appInstallations.getState, async (event) => {
     const { service, currentSpaceId } = requireAppInstallations(event.sender.id);
     return toDesktopAppInstallationSnapshot(
       service.snapshot(),
@@ -6894,7 +6900,7 @@ function registerIpcHandlers(): void {
       permissionReviewUpdatesForSpace(currentSpaceId),
     );
   });
-  ipcMain.handle(IPC.appInstallations.setEnabled, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appInstallations.setEnabled, async (event, input: unknown) => {
     const { service, currentSpaceId } = requireAppInstallations(event.sender.id);
     const request = parseSetAppEnabledRequest(input);
     const state = await service.setEnabled(request);
@@ -6905,7 +6911,7 @@ function registerIpcHandlers(): void {
       permissionReviewUpdatesForSpace(currentSpaceId),
     );
   });
-  ipcMain.handle(IPC.appInstallations.setPermission, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appInstallations.setPermission, async (event, input: unknown) => {
     const { service, currentSpaceId } = requireAppInstallations(event.sender.id);
     const request = parseSetAppPermissionRequest(input);
     return toDesktopAppInstallationSnapshot(
@@ -6919,23 +6925,23 @@ function registerIpcHandlers(): void {
       permissionReviewUpdatesForSpace(currentSpaceId),
     );
   });
-  ipcMain.handle(IPC.appInstallations.getSettings, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appInstallations.getSettings, async (event, input: unknown) => {
     const { service } = requireAppInstallations(event.sender.id);
     return toDesktopAppSettings(service.listSettings(parseAppSettingTarget(input)));
   });
-  ipcMain.handle(IPC.appInstallations.setSetting, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appInstallations.setSetting, async (event, input: unknown) => {
     const { service } = requireAppInstallations(event.sender.id);
     const request = parseAppSettingValue(input);
     await service.setSetting(request);
     return toDesktopAppSettings(service.listSettings(request));
   });
-  ipcMain.handle(IPC.appInstallations.resetSetting, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appInstallations.resetSetting, async (event, input: unknown) => {
     const { service } = requireAppInstallations(event.sender.id);
     const request = parseAppSettingKey(input);
     await service.resetSetting(request);
     return toDesktopAppSettings(service.listSettings(request));
   });
-  ipcMain.handle(IPC.appInstallations.setSkillEnabled, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appInstallations.setSkillEnabled, async (event, input: unknown) => {
     const { service, currentSpaceId } = requireAppInstallations(event.sender.id);
     return toDesktopAppInstallationSnapshot(
       await service.setSkillEnabled(parseSetAppSkillEnabledRequest(input)),
@@ -6943,7 +6949,7 @@ function registerIpcHandlers(): void {
       permissionReviewUpdatesForSpace(currentSpaceId),
     );
   });
-  ipcMain.handle(IPC.appInstallations.uninstall, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appInstallations.uninstall, async (event, input: unknown) => {
     const { service, currentSpaceId } = requireAppInstallations(event.sender.id);
     const request = parseUninstallAppRequest(input);
     const state = await service.uninstall(request);
@@ -6954,7 +6960,7 @@ function registerIpcHandlers(): void {
       permissionReviewUpdatesForSpace(currentSpaceId),
     );
   });
-  ipcMain.handle(IPC.appInstallations.removeData, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appInstallations.removeData, async (event, input: unknown) => {
     const { service, currentSpaceId } = requireAppInstallations(event.sender.id);
     const request = parseRemoveAppDataRequest(input);
     const state = await service.removeData(request);
@@ -6974,7 +6980,7 @@ function registerIpcHandlers(): void {
       throw recordDesktopServiceUnavailable(new Error("The App registry is not ready."));
     return appRegistryClient;
   };
-  ipcMain.handle(IPC.appInstallations.installRegistry, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appInstallations.installRegistry, async (event, input: unknown) => {
     const request = parseInstallRegistryAppRequest(input);
     const registry = requireAppsRegistry(event.sender.id);
     const runtime = desktopAppRuntime;
@@ -6996,7 +7002,7 @@ function registerIpcHandlers(): void {
       permissionReviewUpdatesForSpace(currentSpaceId),
     );
   });
-  ipcMain.handle(IPC.appInstallations.updateRegistry, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appInstallations.updateRegistry, async (event, input: unknown) => {
     const request = parseUpdateRegistryAppRequest(input);
     const registry = requireAppsRegistry(event.sender.id);
     const runtime = desktopAppRuntime;
@@ -7018,7 +7024,7 @@ function registerIpcHandlers(): void {
       permissionReviewUpdatesForSpace(currentSpaceId),
     );
   });
-  ipcMain.handle(IPC.appInstallations.rollbackRegistry, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appInstallations.rollbackRegistry, async (event, input: unknown) => {
     const request = parseRollbackRegistryAppRequest(input);
     const registry = requireAppsRegistry(event.sender.id);
     const runtime = desktopAppRuntime;
@@ -7041,22 +7047,22 @@ function registerIpcHandlers(): void {
     );
   });
   for (const channel of Object.values(IPC.appRegistry)) ipcMain.removeHandler(channel);
-  ipcMain.handle(IPC.appRegistry.list, async (event, input: unknown) =>
+  handleDesktopIpc(IPC.appRegistry.list, async (event, input: unknown) =>
     requireAppsRegistry(event.sender.id).list(parseRegistryListRequest(input)),
   );
-  ipcMain.handle(IPC.appRegistry.get, async (event, input: unknown) =>
+  handleDesktopIpc(IPC.appRegistry.get, async (event, input: unknown) =>
     requireAppsRegistry(event.sender.id).get(parseRegistryGetRequest(input)),
   );
-  ipcMain.handle(IPC.appRegistry.getArtifact, async (event, input: unknown) =>
+  handleDesktopIpc(IPC.appRegistry.getArtifact, async (event, input: unknown) =>
     requireAppsRegistry(event.sender.id).getArtifact(parseRegistryArtifactRequest(input)),
   );
-  ipcMain.handle(IPC.appRegistry.getFeedback, async (event, input: unknown) =>
+  handleDesktopIpc(IPC.appRegistry.getFeedback, async (event, input: unknown) =>
     requireAppsRegistry(event.sender.id).getFeedback(parseRegistryFeedbackRequest(input)),
   );
-  ipcMain.handle(IPC.appRegistry.setRating, async (event, input: unknown) =>
+  handleDesktopIpc(IPC.appRegistry.setRating, async (event, input: unknown) =>
     requireAppsRegistry(event.sender.id).setRating(parseRegistryRatingRequest(input)),
   );
-  ipcMain.handle(IPC.appRegistry.setReview, async (event, input: unknown) =>
+  handleDesktopIpc(IPC.appRegistry.setReview, async (event, input: unknown) =>
     requireAppsRegistry(event.sender.id).setReview(parseRegistryReviewRequest(input)),
   );
 
@@ -7096,20 +7102,20 @@ function registerIpcHandlers(): void {
       ...(typeof tabId === "string" ? { tabId } : {}),
     });
   });
-  ipcMain.handle(IPC.appTabs.consumeListingRequest, async (event) => {
+  handleDesktopIpc(IPC.appTabs.consumeListingRequest, async (event) => {
     requireShellAppTabs(event.sender.id);
     const request = pendingAppListingRequest;
     pendingAppListingRequest = null;
     return request;
   });
-  ipcMain.handle(IPC.appTabs.open, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appTabs.open, async (event, input: unknown) => {
     const request = parseOpenAppTabRequest(input);
     if (isRequiredApp(request.appId)) {
       await reconcileConfiguredRequiredApps([request.spaceId]);
     }
     return requireShellAppTabs(event.sender.id).openInstalled(request);
   });
-  ipcMain.handle(IPC.appTabs.openFromApps, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appTabs.openFromApps, async (event, input: unknown) => {
     if (!desktopAppRuntime?.canManageInstallations(event.sender.id)) {
       throw new Error("Only Apps can open an installed App.");
     }
@@ -7126,7 +7132,7 @@ function registerIpcHandlers(): void {
         : "user",
     );
   });
-  ipcMain.handle(IPC.appTabs.list, async (event, scope: unknown) => {
+  handleDesktopIpc(IPC.appTabs.list, async (event, scope: unknown) => {
     const tabs = requireShellAppTabs(event.sender.id).list();
     const deckId = scope && typeof scope === "object" && "deckId" in scope ? scope.deckId : null;
     const selected =
@@ -7142,14 +7148,14 @@ function registerIpcHandlers(): void {
       initiator: "user" as const,
     }));
   });
-  ipcMain.handle(IPC.appTabs.setContext, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appTabs.setContext, async (event, input: unknown) => {
     const { tabId, deckId, threadId } = parseSetAppTabContextRequest(input);
     requireShellAppTabs(event.sender.id).setContext(tabId, {
       deckId,
       threadId,
     });
   });
-  ipcMain.handle(IPC.appTabs.present, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appTabs.present, async (event, input: unknown) => {
     if (!input || typeof input !== "object" || Array.isArray(input)) return;
     const { tabId, deckId, threadId, animate, animationStartedAtEpochMs, bounds } = input as Record<
       string,
@@ -7188,7 +7194,7 @@ function registerIpcHandlers(): void {
         : {}),
     });
   });
-  ipcMain.handle(IPC.appTabs.hide, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appTabs.hide, async (event, input: unknown) => {
     if (!input || typeof input !== "object" || Array.isArray(input)) return;
     const { tabId, animate } = input as Record<string, unknown>;
     if (typeof tabId !== "string") return;
@@ -7214,14 +7220,14 @@ function registerIpcHandlers(): void {
     tabs.setOverlayActive(event.sender.id, active);
     event.returnValue = null;
   });
-  ipcMain.handle(IPC.appTabs.navigate, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appTabs.navigate, async (event, input: unknown) => {
     const { tabId, route, state } = parseNavigateAppTabRequest(input);
     await requireShellAppTabs(event.sender.id).navigate(tabId, {
       route,
       ...(state === undefined ? {} : { state }),
     });
   });
-  ipcMain.handle(IPC.appTabs.close, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appTabs.close, async (event, input: unknown) => {
     const { tabId } = parseAppTabIdRequest(input);
     requireShellAppTabs(event.sender.id).close(tabId);
   });
@@ -7241,11 +7247,11 @@ function registerIpcHandlers(): void {
     return desktopAppRuntime.openWith;
   };
   ipcMain.removeHandler(IPC.appOpenWith.get);
-  ipcMain.handle(IPC.appOpenWith.get, async (event) => {
+  handleDesktopIpc(IPC.appOpenWith.get, async (event) => {
     return requireOpenWithStore(event.sender.id).snapshot();
   });
   ipcMain.removeHandler(IPC.appOpenWith.set);
-  ipcMain.handle(IPC.appOpenWith.set, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appOpenWith.set, async (event, input: unknown) => {
     const record = parseOpenWithInput(input);
     if (
       record.intent !== "open-url" &&
@@ -7270,7 +7276,7 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(IPC.appDiagnostics.list);
-  ipcMain.handle(IPC.appDiagnostics.list, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.appDiagnostics.list, async (event, input: unknown) => {
     if (!isShellRendererId(event.sender.id)) {
       throw new Error("Only the Penkra shell can read App diagnostics.");
     }
@@ -7336,7 +7342,7 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(IPC.pickFolder);
-  ipcMain.handle(IPC.pickFolder, async (event) => {
+  handleDesktopIpc(IPC.pickFolder, async (event) => {
     const owner = shellWindowForSender(event.sender) ?? resolveShellWindow();
     const result = owner
       ? await dialog.showOpenDialog(owner, {
@@ -7350,7 +7356,7 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(IPC.pickImage);
-  ipcMain.handle(IPC.pickImage, async (event) => {
+  handleDesktopIpc(IPC.pickImage, async (event) => {
     const owner = shellWindowForSender(event.sender) ?? resolveShellWindow();
     const options = {
       properties: ["openFile"] as Array<"openFile">,
@@ -7383,7 +7389,7 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(IPC.saveFile);
-  ipcMain.handle(IPC.saveFile, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.saveFile, async (event, input: unknown) => {
     if (!isSaveFileInput(input)) {
       throw new Error("Invalid save file input.");
     }
@@ -7406,7 +7412,7 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(IPC.confirm);
-  ipcMain.handle(IPC.confirm, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.confirm, async (event, input: unknown) => {
     if (
       typeof input !== "string" &&
       (!input ||
@@ -7421,7 +7427,7 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(IPC.setTheme);
-  ipcMain.handle(IPC.setTheme, async (_event, rawTheme: unknown) => {
+  handleDesktopIpc(IPC.setTheme, async (_event, rawTheme: unknown) => {
     const theme = getSafeTheme(rawTheme);
     if (!theme) {
       return;
@@ -7430,7 +7436,7 @@ function registerIpcHandlers(): void {
     nativeTheme.themeSource = theme;
   });
   ipcMain.removeHandler(IPC.setAppTheme);
-  ipcMain.handle(IPC.setAppTheme, async (event, rawTheme: unknown) => {
+  handleDesktopIpc(IPC.setAppTheme, async (event, rawTheme: unknown) => {
     if (!isShellRendererId(event.sender.id)) {
       throw new Error("Only the Penkra shell can set the App Theme contract.");
     }
@@ -7441,7 +7447,7 @@ function registerIpcHandlers(): void {
     );
   });
   ipcMain.removeHandler(IPC.setAppTypography);
-  ipcMain.handle(IPC.setAppTypography, async (event, rawTypography: unknown) => {
+  handleDesktopIpc(IPC.setAppTypography, async (event, rawTypography: unknown) => {
     if (!isShellRendererId(event.sender.id)) {
       throw new Error("Only the Penkra shell can set the App Typography contract.");
     }
@@ -7453,7 +7459,7 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(IPC.setSpacesMenu);
-  ipcMain.handle(IPC.setSpacesMenu, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.setSpacesMenu, async (event, input: unknown) => {
     requireShellWindowForSender(event.sender);
     const nextState = normalizeDesktopSpacesMenuInput(input);
     if (!nextState) return;
@@ -7473,14 +7479,14 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(IPC.contextMenu);
-  ipcMain.handle(
+  handleDesktopIpc(
     IPC.contextMenu,
     async (event, items: ContextMenuItem[], position?: { x: number; y: number }) =>
       showAppContextMenu(items, position, shellWindowForSender(event.sender)),
   );
 
   ipcMain.removeHandler(IPC.openExternal);
-  ipcMain.handle(IPC.openExternal, async (_event, rawUrl: unknown) => {
+  handleDesktopIpc(IPC.openExternal, async (_event, rawUrl: unknown) => {
     const externalUrl = getSafeExternalUrl(rawUrl);
     if (!externalUrl) {
       console.warn("[desktop] Refused invalid external URL request.");
@@ -7508,7 +7514,7 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(IPC.resourceOpen);
-  ipcMain.handle(IPC.resourceOpen, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.resourceOpen, async (event, input: unknown) => {
     if (!isShellRendererId(event.sender.id)) {
       throw new Error("Only the Penkra shell can open a host resource.");
     }
@@ -7542,7 +7548,7 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(IPC.resourceContextMenu);
-  ipcMain.handle(IPC.resourceContextMenu, async (event, input: unknown) => {
+  handleDesktopIpc(IPC.resourceContextMenu, async (event, input: unknown) => {
     if (!isShellRendererId(event.sender.id)) {
       throw new Error("Only the Penkra shell can show a host resource menu.");
     }
@@ -7586,7 +7592,7 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(IPC.clipboardWriteImage);
-  ipcMain.handle(IPC.clipboardWriteImage, async (_event, rawDataUrl: unknown) => {
+  handleDesktopIpc(IPC.clipboardWriteImage, async (_event, rawDataUrl: unknown) => {
     if (typeof rawDataUrl !== "string") {
       return false;
     }
@@ -7613,7 +7619,7 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(IPC.showInFolder);
-  ipcMain.handle(IPC.showInFolder, async (_event, rawPath: unknown) => {
+  handleDesktopIpc(IPC.showInFolder, async (_event, rawPath: unknown) => {
     if (typeof rawPath !== "string" || rawPath.trim().length === 0) {
       throw new Error("Missing folder path.");
     }
@@ -7645,13 +7651,13 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(IPC.windowMinimize);
-  ipcMain.handle(IPC.windowMinimize, async (event) => {
+  handleDesktopIpc(IPC.windowMinimize, async (event) => {
     const window = BrowserWindow.fromWebContents(event.sender) ?? resolveShellWindow();
     window?.minimize();
   });
 
   ipcMain.removeHandler(IPC.windowToggleMaximize);
-  ipcMain.handle(IPC.windowToggleMaximize, async (event) => {
+  handleDesktopIpc(IPC.windowToggleMaximize, async (event) => {
     const window = BrowserWindow.fromWebContents(event.sender) ?? resolveShellWindow();
     if (!window) {
       return { isMaximized: false, isFullscreen: false };
@@ -7667,28 +7673,28 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(IPC.windowClose);
-  ipcMain.handle(IPC.windowClose, async (event) => {
+  handleDesktopIpc(IPC.windowClose, async (event) => {
     const window = BrowserWindow.fromWebContents(event.sender) ?? resolveShellWindow();
     window?.close();
   });
 
   ipcMain.removeHandler(IPC.windowGetState);
-  ipcMain.handle(IPC.windowGetState, async (event) => {
+  handleDesktopIpc(IPC.windowGetState, async (event) => {
     const window = BrowserWindow.fromWebContents(event.sender) ?? resolveShellWindow();
     return window ? getDesktopWindowState(window) : { isMaximized: false, isFullscreen: false };
   });
 
   ipcMain.removeHandler(IPC.updateGetState);
-  ipcMain.handle(IPC.updateGetState, async () => updateState);
+  handleDesktopIpc(IPC.updateGetState, async () => updateState);
 
   ipcMain.removeHandler(IPC.updateCheck);
-  ipcMain.handle(IPC.updateCheck, async () => {
+  handleDesktopIpc(IPC.updateCheck, async () => {
     await checkForUpdates("renderer");
     return updateState;
   });
 
   ipcMain.removeHandler(IPC.updateDownload);
-  ipcMain.handle(IPC.updateDownload, async () => {
+  handleDesktopIpc(IPC.updateDownload, async () => {
     const result = await downloadAvailableUpdate();
     return {
       accepted: result.accepted,
@@ -7698,7 +7704,7 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(IPC.updateInstall);
-  ipcMain.handle(IPC.updateInstall, async () => {
+  handleDesktopIpc(IPC.updateInstall, async () => {
     if (isQuitting) {
       return {
         accepted: false,
@@ -7715,10 +7721,10 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(IPC.notificationsIsSupported);
-  ipcMain.handle(IPC.notificationsIsSupported, async () => Notification.isSupported());
+  handleDesktopIpc(IPC.notificationsIsSupported, async () => Notification.isSupported());
 
   ipcMain.removeHandler(IPC.notificationsShow);
-  ipcMain.handle(
+  handleDesktopIpc(
     IPC.notificationsShow,
     async (
       _event,
@@ -7741,7 +7747,7 @@ function registerIpcHandlers(): void {
   );
 
   ipcMain.removeHandler(IPC.mediaRequestMicrophoneAccess);
-  ipcMain.handle(IPC.mediaRequestMicrophoneAccess, async (event) => {
+  handleDesktopIpc(IPC.mediaRequestMicrophoneAccess, async (event) => {
     if (event.sender.isDestroyed() || !shellWindowRegistry.hasWebContents(event.sender)) {
       return false;
     }
@@ -7759,7 +7765,7 @@ function registerIpcHandlers(): void {
     return allowed;
   });
   ipcMain.removeHandler(IPC.powerSetActiveWork);
-  ipcMain.handle(IPC.powerSetActiveWork, (event, input: unknown) => {
+  handleDesktopIpc(IPC.powerSetActiveWork, (event, input: unknown) => {
     if (event.sender.isDestroyed() || !shellWindowRegistry.hasWebContents(event.sender)) {
       return;
     }
@@ -8387,7 +8393,7 @@ if (hasSingleInstanceLock) {
   });
   if (diagnosticsQaShellEnabled()) {
     ipcMain.removeHandler(IPC.accountAuth.getState);
-    ipcMain.handle(IPC.accountAuth.getState, (event) =>
+    handleDesktopIpc(IPC.accountAuth.getState, (event) =>
       shellWindowRegistry.hasWebContents(event.sender)
         ? {
             status: "authenticated",

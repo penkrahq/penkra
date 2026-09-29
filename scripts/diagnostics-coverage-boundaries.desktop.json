@@ -46,6 +46,11 @@
   },
   {
     "code": "APP_OPERATION_FAILED",
+    "where": "desktop.ipc_dispatch",
+    "file": "apps/desktop/src/desktopIpcCoverage.ts"
+  },
+  {
+    "code": "APP_OPERATION_FAILED",
     "where": "desktop.launch_record",
     "file": "apps/desktop/src/main.ts"
   },
