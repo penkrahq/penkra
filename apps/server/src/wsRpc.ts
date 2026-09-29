@@ -101,7 +101,11 @@ import {
   qaCommandCheckpoint,
   qaRuntimeActionForCommand,
 } from "./diagnostics/qaCommandCheckpoints";
-import { armQaRuntimeAction } from "./diagnostics/qaRuntimeActions";
+import {
+  admitQaRuntimeAction,
+  clearQaRuntimeAction,
+  prepareQaRuntimeAction,
+} from "./diagnostics/qaRuntimeActions";
 import { armQaProviderSwitch, clearQaProviderSwitch } from "./diagnostics/qaProviderSwitch";
 import { recordQaAction } from "@penkra/shared/diagnostics/qaEvidence";
 import { WorkspaceWatcher } from "./workspaceWatcher";
@@ -893,6 +897,13 @@ const makeWsRpcHandlersLayer = () =>
                   : {}),
               };
               const runtimeAction = qaRuntimeActionForCommand(normalizedCommand);
+              if (runtimeAction)
+                prepareQaRuntimeAction(
+                  runtimeAction.flow,
+                  runtimeAction.threadId,
+                  runtimeAction.turnId,
+                  trace.traceId,
+                );
               if (
                 normalizedCommand.type === "thread.turn.start" ||
                 normalizedCommand.type === "thread.turn.dispatch-queued"
@@ -908,7 +919,7 @@ const makeWsRpcHandlersLayer = () =>
                   Effect.sync(() => {
                     clearQaProviderSwitch(normalizedCommand.commandId);
                     if (runtimeAction)
-                      armQaRuntimeAction(
+                      admitQaRuntimeAction(
                         runtimeAction.flow,
                         runtimeAction.threadId,
                         runtimeAction.turnId,
@@ -958,6 +969,13 @@ const makeWsRpcHandlersLayer = () =>
                   Effect.gen(function* () {
                     yield* Effect.sync(() => {
                       clearQaProviderSwitch(normalizedCommand.commandId);
+                      if (runtimeAction)
+                        clearQaRuntimeAction(
+                          runtimeAction.flow,
+                          runtimeAction.threadId,
+                          runtimeAction.turnId,
+                          trace.traceId,
+                        );
                       recordDiagnosticCheckpoint({
                         ...diagnosticContext,
                         flow: diagnosticFlow,
