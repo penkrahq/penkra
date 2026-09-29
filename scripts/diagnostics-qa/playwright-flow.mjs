@@ -224,6 +224,12 @@ async function run(flow, page, stateDir) {
           return true;
         };
       });
+      await page.waitForFunction((label) => {
+        const button = [...document.querySelectorAll("button[aria-label]")].find(
+          (candidate) => candidate.getAttribute("aria-label") === label,
+        );
+        return button && !button.parentElement?.querySelector('[data-work-status="running"]');
+      }, `Archive ${message}`);
       await page.getByRole("button", { name: `Archive ${message}` }).click();
       if ((await page.evaluate(() => window.__qaArchiveConfirmCount)) !== 1)
         throw new Error("Archive did not request confirmation for the persisted thread");
