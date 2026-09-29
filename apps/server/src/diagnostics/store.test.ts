@@ -38,6 +38,31 @@ afterEach(() => {
 });
 
 describe("diagnostics store", () => {
+  it("keeps a nearly full store within the cap during restart", () => {
+    const cap = 512 * 1024;
+    const { stateDir, store } = fixture("0.14.3", cap);
+    store.close();
+    const dir = path.join(stateDir, "diagnostics");
+    const bytes = () =>
+      fs.readdirSync(dir).reduce((sum, name) => {
+        const file = path.join(dir, name);
+        return sum + (fs.statSync(file).isFile() ? fs.statSync(file).size : 0);
+      }, 0);
+    fs.writeFileSync(path.join(dir, "padding"), Buffer.alloc(cap - bytes() - 1_024));
+    try {
+      const restarted = new DiagnosticsStore({
+        stateDir,
+        appVersion: "0.14.3",
+        process: "server",
+        maxTotalBytes: cap,
+      });
+      restarted.close();
+    } catch (cause) {
+      expect((cause as Error).message).toContain("capacity");
+    }
+    expect(bytes()).toBeLessThanOrEqual(cap);
+  });
+
   it("bounds fresh schema creation before its first SQLite write", () => {
     const cap = 128 * 1024;
     const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-diagnostics-"));
