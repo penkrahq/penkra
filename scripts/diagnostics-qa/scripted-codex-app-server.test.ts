@@ -171,4 +171,19 @@ describe("scripted provider QA fixture", () => {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("rejects a symlinked state database before opening it", () => {
+    const root = fs.mkdtempSync("/tmp/penkra-diagnostics-qa-0143.");
+    const stateDir = path.join(root, "dev");
+    fs.mkdirSync(stateDir);
+    const target = path.join(root, "target.sqlite");
+    fs.writeFileSync(target, "outside database");
+    fs.symlinkSync(target, path.join(stateDir, "state.sqlite"));
+    try {
+      expect(() => seedScriptedProvider(stateDir)).toThrow(/non-symlinked/);
+      expect(fs.readFileSync(target, "utf8")).toBe("outside database");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

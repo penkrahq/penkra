@@ -36,6 +36,8 @@ export function seedScriptedProvider(stateDir) {
   const databasePath = path.join(dir, "state.sqlite");
   if (!fs.existsSync(databasePath))
     throw new Error("Start and stop the Dev server to migrate first");
+  if (fs.lstatSync(databasePath).isSymbolicLink() || fs.realpathSync(databasePath) !== databasePath)
+    throw new Error("Fixture seeding requires a non-symlinked Dev database");
   const db = new DatabaseSync(databasePath, { timeout: 1000 });
   try {
     db.exec("BEGIN IMMEDIATE");
