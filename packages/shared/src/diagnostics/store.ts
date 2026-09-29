@@ -129,7 +129,7 @@ export interface ProvenanceInput {
 }
 
 const EXPECTATION_CODES = {
-  "send.accepted": "SEND_PREFLIGHT_REJECTED",
+  "send.accepted": "SEND_ACCEPT_TIMEOUT",
   "turn.started": "TURN_START_TIMEOUT",
   "turn.first_output": "TURN_OUTPUT_SILENT",
   "turn.output_continues": "TURN_OUTPUT_SILENT",

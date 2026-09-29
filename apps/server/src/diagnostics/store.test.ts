@@ -999,7 +999,7 @@ describe("diagnostics store", () => {
     expect(store.sweepExpectations()).toBe(1);
     const db = openDiagnosticsReader(stateDir)!;
     expect(db.prepare("SELECT code FROM incidents").get()).toMatchObject({
-      code: "SEND_PREFLIGHT_REJECTED",
+      code: "SEND_ACCEPT_TIMEOUT",
     });
     db.close();
     desktop.close();

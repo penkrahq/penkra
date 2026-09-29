@@ -106,7 +106,7 @@ try {
     assert.equal(reader.prepare("SELECT COUNT(*) AS count FROM expectations").get().count, 0);
     assert.equal(
       reader
-        .prepare("SELECT COUNT(*) AS count FROM incidents WHERE code = 'SEND_PREFLIGHT_REJECTED'")
+        .prepare("SELECT COUNT(*) AS count FROM incidents WHERE code = 'SEND_ACCEPT_TIMEOUT'")
         .get().count,
       0,
     );

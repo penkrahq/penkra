@@ -46,7 +46,7 @@ describe("send diagnostic lifecycle", () => {
       });
       expect(store.sweepExpectations(new Date(Date.now() + 1_000))).toBe(1);
       expect(db.prepare("SELECT code FROM incidents").get()).toMatchObject({
-        code: "SEND_PREFLIGHT_REJECTED",
+        code: "SEND_ACCEPT_TIMEOUT",
       });
       db.close();
     } finally {
