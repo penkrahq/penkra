@@ -5,6 +5,7 @@
 
 import { normalizeWorkspaceRootForComparison } from "@penkra/shared/threadWorkspace";
 import type { LastThreadRoute } from "../chatRouteRestore";
+import { recordWebConsumedFailure } from "../webFailureCoverage";
 
 const SIDEBAR_UI_STATE_STORAGE_KEY = "penkra:sidebar-ui:v1";
 const RETIRED_SPLIT_VIEW_STORAGE_KEY = "penkra:split-threads:v1";
@@ -68,6 +69,7 @@ export function readSidebarUiState(): SidebarUiState {
   try {
     window.localStorage.removeItem(RETIRED_SPLIT_VIEW_STORAGE_KEY);
   } catch {
+    recordWebConsumedFailure("state");
     // Storage can be disabled; route restore still works from available state.
   }
 
@@ -136,6 +138,7 @@ export function readSidebarUiState(): SidebarUiState {
       lastThreadRoute,
     };
   } catch {
+    recordWebConsumedFailure("state");
     return DEFAULT_SIDEBAR_UI_STATE;
   }
 }
@@ -167,6 +170,7 @@ export function persistSidebarUiState(input: SidebarUiState): void {
       }),
     );
   } catch {
+    recordWebConsumedFailure("state");
     // Ignore storage errors so sidebar rendering keeps working when persistence is unavailable.
   }
 }

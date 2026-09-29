@@ -11,6 +11,7 @@ import {
   type FeedbackCategory,
   type FeedbackThreadContext,
 } from "../feedback";
+import { recordWebConsumedFailure } from "../webFailureCoverage";
 import { Button } from "./ui/button";
 import { Dialog, DialogHeader, DialogPopup, DialogTitle } from "./ui/dialog";
 import { Spinner } from "./ui/spinner";
@@ -38,6 +39,7 @@ export function FeedbackDialog({ open, context, onOpenChange }: FeedbackDialogPr
         description: "Thanks for helping make Penkra better.",
       });
     } catch (error) {
+      recordWebConsumedFailure("runtime");
       setIsSending(false);
       toastManager.add({
         type: "error",

@@ -161,6 +161,12 @@ export async function startDesktopAppRuntime(input: {
     decrypt: (value) => safeStorage.decryptString(value),
   });
   const recordDiagnostic = (entry: import("./appRuntimeDiagnostics").AppRuntimeDiagnosticInput) => {
+    if (
+      entry.kind === "operation-failed" ||
+      entry.kind === "app-update-failed" ||
+      entry.kind === "tab-navigation-restore-failed" ||
+      entry.kind === "tab-crashed"
+    ) recordDesktopConsumedFailure("app");
     void diagnostics.record(entry).catch((error) => {
       console.error("[penkra-app] Could not persist App runtime diagnostics.", error);
     });

@@ -1,5 +1,10 @@
 [
   {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "server.boot",
+    "file": "apps/server/src/main.ts"
+  },
+  {
     "code": "REJECTED_STREAMING_RPC_ADMISSION",
     "where": "server.stream_admission",
     "file": "apps/server/src/wsStreamAdmission.ts"
@@ -38,6 +43,11 @@
     "code": "EXTERNAL_CALL_FAILED",
     "where": "server.codex_config",
     "file": "apps/server/src/diagnostics/codexConfigFailure.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "server.codex_app",
+    "file": "apps/server/src/diagnostics/codexManagerFailure.ts"
   },
   {
     "code": "EXTERNAL_CALL_FAILED",

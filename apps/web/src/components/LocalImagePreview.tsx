@@ -13,6 +13,7 @@ import { downloadUrlAsBlob } from "~/lib/browserDownload";
 import { DownloadIcon, Loader2Icon, TriangleAlertIcon } from "~/lib/icons";
 import { buildLocalImageUrl, localImageFileName } from "~/lib/localImageUrls";
 import { cn } from "~/lib/utils";
+import { recordWebConsumedFailure } from "../webFailureCoverage";
 import { toastManager } from "./ui/toast";
 
 export type LocalImagePreviewStatus = "loading" | "ready" | "error";
@@ -104,6 +105,7 @@ export function useLocalImageDownloadClick(input: {
       url: input.downloadUrl,
       filename: input.downloadName,
     }).catch((error: unknown) => {
+      recordWebConsumedFailure("runtime");
       toastManager.add({
         type: "error",
         title: input.errorTitle ?? "Could not download image",
