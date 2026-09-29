@@ -63,7 +63,7 @@ describe("diagnostics store", () => {
     expect(bytes()).toBeLessThanOrEqual(cap);
   });
 
-  it("does not exceed the cap while recording losses for an update reset", () => {
+  it("resets a completely full old installation without manual cleanup", () => {
     const cap = 512 * 1024;
     const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-diagnostics-reset-cap-"));
     roots.push(stateDir);
@@ -80,19 +80,64 @@ describe("diagnostics store", () => {
         return sum + (fs.statSync(file).isFile() ? fs.statSync(file).size : 0);
       }, 0);
     const padding = path.join(dir, "padding");
-    fs.writeFileSync(padding, Buffer.alloc(cap - bytes() - 16));
+    fs.writeFileSync(padding, Buffer.alloc(cap - bytes()));
+    expect(bytes()).toBe(cap);
+    const current = new DiagnosticsStore({
+      stateDir,
+      appVersion: "0.14.3",
+      buildId: "bbbbbbb",
+      process: "server",
+      maxTotalBytes: cap,
+    });
+    const reader = openDiagnosticsReader(stateDir)!;
     expect(
-      () =>
-        new DiagnosticsStore({
-          stateDir,
-          appVersion: "0.14.3",
-          buildId: "bbbbbbb",
-          process: "server",
-          maxTotalBytes: cap,
-        }),
-    ).toThrow("capacity");
+      reader
+        .prepare("SELECT COUNT(*) AS count FROM incidents WHERE code = 'DIAGNOSTICS_DROPPED'")
+        .get(),
+    ).toMatchObject({ count: 1 });
+    reader.close();
+    current.close();
+    expect(fs.existsSync(padding)).toBe(false);
     expect(bytes()).toBeLessThanOrEqual(cap);
-    fs.rmSync(padding);
+  });
+
+  it("keeps reset headroom when desktop spools are the only old files", () => {
+    const cap = 512 * 1024;
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-diagnostics-desktop-cap-"));
+    roots.push(stateDir);
+    const desktop = new DiagnosticsSpoolWriter({
+      stateDir,
+      appVersion: "0.14.3",
+      buildId: "aaaaaaa",
+      process: "desktop-main",
+      maxTotalBytes: cap,
+      maxSpoolBytes: cap,
+    });
+    let rejected = false;
+    for (let sequence = 0; sequence < 4_000; sequence++) {
+      try {
+        desktop.checkpoint({
+          traceId,
+          spanId,
+          flow: "send",
+          step: "composer.preflight",
+          fields: { sequence },
+        });
+      } catch (cause) {
+        expect((cause as Error).message).toContain("capacity");
+        rejected = true;
+        break;
+      }
+    }
+    expect(rejected).toBe(true);
+    desktop.close();
+    const dir = path.join(stateDir, "diagnostics");
+    const bytes = () =>
+      fs.readdirSync(dir).reduce((sum, name) => {
+        const file = path.join(dir, name);
+        return sum + (fs.statSync(file).isFile() ? fs.statSync(file).size : 0);
+      }, 0);
+    expect(bytes()).toBeLessThanOrEqual(cap - cap / 8);
     const current = new DiagnosticsStore({
       stateDir,
       appVersion: "0.14.3",
@@ -102,7 +147,7 @@ describe("diagnostics store", () => {
     });
     current.close();
     expect(bytes()).toBeLessThanOrEqual(cap);
-  });
+  }, 30_000);
 
   it("bounds fresh schema creation before its first SQLite write", () => {
     const cap = 128 * 1024;
