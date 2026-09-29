@@ -4,11 +4,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { qaEvidencePath, verifyQaAction } from "@penkra/shared/diagnostics/qaEvidence";
-import {
-  armQaRuntimeAction,
-  cancelQaRuntimeAction,
-  settleQaRuntimeAction,
-} from "./qaRuntimeActions";
+import { armQaRuntimeAction, settleQaRuntimeAction } from "./qaRuntimeActions";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -31,16 +27,42 @@ describe("QA runtime action proofs", () => {
     process.env.PENKRA_DIAGNOSTICS_QA_RUN_ID = config.runId;
     process.env.PENKRA_DIAGNOSTICS_QA_SECRET = config.secret;
     const traceId = "0123456789abcdef0123456789abcdef";
-    armQaRuntimeAction("stop", "thread-a", traceId);
     settleQaRuntimeAction({
-      threadId: "thread-b",
+      threadId: "thread-a",
+      logicalTurnId: "turn-a",
       eventType: "turn.aborted",
       state: "interrupted",
     });
-    settleQaRuntimeAction({ threadId: "thread-a", eventType: "turn.started", state: "running" });
+    expect(fs.existsSync(qaEvidencePath(config))).toBe(false);
+    armQaRuntimeAction("stop", "thread-a", "turn-a", traceId);
+    settleQaRuntimeAction({
+      threadId: "thread-b",
+      logicalTurnId: "turn-a",
+      eventType: "turn.aborted",
+      state: "interrupted",
+    });
+    settleQaRuntimeAction({
+      threadId: "thread-a",
+      logicalTurnId: null,
+      eventType: "turn.aborted",
+      state: "interrupted",
+    });
+    settleQaRuntimeAction({
+      threadId: "thread-a",
+      logicalTurnId: "turn-b",
+      eventType: "turn.aborted",
+      state: "interrupted",
+    });
+    settleQaRuntimeAction({
+      threadId: "thread-a",
+      logicalTurnId: "turn-a",
+      eventType: "turn.started",
+      state: "running",
+    });
     expect(fs.existsSync(qaEvidencePath(config))).toBe(false);
     settleQaRuntimeAction({
       threadId: "thread-a",
+      logicalTurnId: "turn-a",
       eventType: "turn.aborted",
       state: "interrupted",
     });
@@ -51,7 +73,7 @@ describe("QA runtime action proofs", () => {
     expect(proof).toMatchObject({ flow: "stop", action: "turn_terminal", traceId });
   });
 
-  it("proves play and queue only after an applied running turn, and cancels rejected commands", () => {
+  it("proves play and queue only after the matching logical turn is running", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-qa-runtime-"));
     roots.push(dir);
     const config = {
@@ -64,19 +86,34 @@ describe("QA runtime action proofs", () => {
     process.env.PENKRA_DIAGNOSTICS_QA_SECRET = config.secret;
     const playTrace = "11111111111111111111111111111111";
     const queueTrace = "22222222222222222222222222222222";
-    const cancelledTrace = "33333333333333333333333333333333";
-    armQaRuntimeAction("play", "thread-play", playTrace);
-    armQaRuntimeAction("queue", "thread-queue", queueTrace);
-    armQaRuntimeAction("queue", "thread-cancelled", cancelledTrace);
-    cancelQaRuntimeAction("queue", "thread-cancelled", cancelledTrace);
+    armQaRuntimeAction("play", "thread-play", "turn-play", playTrace);
+    armQaRuntimeAction("queue", "thread-queue", "turn-queue", queueTrace);
     settleQaRuntimeAction({
       threadId: "thread-play",
+      logicalTurnId: "turn-play",
       eventType: "turn.completed",
       state: "ready",
     });
     expect(fs.existsSync(qaEvidencePath(config))).toBe(false);
-    for (const threadId of ["thread-play", "thread-queue", "thread-cancelled"])
-      settleQaRuntimeAction({ threadId, eventType: "turn.started", state: "running" });
+    settleQaRuntimeAction({
+      threadId: "thread-queue",
+      logicalTurnId: "turn-other",
+      eventType: "turn.started",
+      state: "running",
+    });
+    expect(fs.existsSync(qaEvidencePath(config))).toBe(false);
+    settleQaRuntimeAction({
+      threadId: "thread-play",
+      logicalTurnId: "turn-play",
+      eventType: "turn.started",
+      state: "running",
+    });
+    settleQaRuntimeAction({
+      threadId: "thread-queue",
+      logicalTurnId: "turn-queue",
+      eventType: "turn.started",
+      state: "running",
+    });
     const proofs = fs
       .readFileSync(qaEvidencePath(config), "utf8")
       .trim()

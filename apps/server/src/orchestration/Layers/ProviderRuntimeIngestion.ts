@@ -1987,27 +1987,6 @@ const make = Effect.gen(function* () {
             }
             threadLifecycleDisposition = result.disposition;
           }
-          if (
-            threadLifecycleDisposition === "applied" &&
-            (event.type === "turn.started" ||
-              event.type === "turn.completed" ||
-              event.type === "turn.aborted")
-          )
-            yield* Effect.sync(() =>
-              settleQaRuntimeAction({
-                threadId: thread.id,
-                eventType: event.type,
-                state:
-                  status === "running"
-                    ? "running"
-                    : status === "interrupted"
-                      ? "interrupted"
-                      : status === "error"
-                        ? "error"
-                        : "ready",
-              }),
-            );
-
           // ProviderService permits overlapping sends on one thread. An
           // accepted start binds exactly one queued delivery policy; perform
           // that cache mutation only after the ownership fence admits A.
@@ -2282,6 +2261,30 @@ const make = Effect.gen(function* () {
       const logicalTurnId = projectionTurnsForActivity.find(
         (candidate) => candidate.providerTurnId === nativeTurnId,
       )?.turnId;
+      if (
+        shouldApplyThreadLifecycle &&
+        threadLifecycleDisposition === "applied" &&
+        (event.type === "turn.started" ||
+          event.type === "turn.completed" ||
+          event.type === "turn.aborted")
+      )
+        yield* Effect.sync(() =>
+          settleQaRuntimeAction({
+            threadId: thread.id,
+            logicalTurnId: logicalTurnId ?? null,
+            eventType: event.type,
+            state:
+              event.type === "turn.started"
+                ? "running"
+                : event.type === "turn.aborted" ||
+                    (event.type === "turn.completed" &&
+                      ["interrupted", "cancelled"].includes(runtimeTurnState(event)))
+                  ? "interrupted"
+                  : event.type === "turn.completed" && runtimeTurnState(event) === "failed"
+                    ? "error"
+                    : "ready",
+          }),
+        );
       const activityTurnIdentity = { turnId: logicalTurnId ?? null } as const;
       const canonicalOperationMaterialized =
         canonicalOperationFromRuntimeEvent(canonicalActivityEvent) !== null;

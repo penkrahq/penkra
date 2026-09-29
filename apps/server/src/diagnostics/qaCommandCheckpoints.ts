@@ -45,11 +45,16 @@ export function qaAcceptedCommandAction(command: OrchestrationCommand): QaAction
 
 export function qaRuntimeActionForCommand(
   command: OrchestrationCommand,
-): { flow: "stop" | "play" | "queue"; threadId: string } | null {
-  if (command.type === "thread.turn.interrupt") return { flow: "stop", threadId: command.threadId };
-  if (command.type === "thread.turn.recover" && command.reason === "play")
-    return { flow: "play", threadId: command.threadId };
+): { flow: "stop" | "play" | "queue"; threadId: string; turnId: string } | null {
+  if (command.type === "thread.turn.interrupt" && command.turnId)
+    return { flow: "stop", threadId: command.threadId, turnId: command.turnId };
+  if (command.type === "thread.turn.recover" && command.reason === "play" && command.turnId)
+    return { flow: "play", threadId: command.threadId, turnId: command.turnId };
   if (command.type === "thread.turn.start" && command.dispatchMode === "queue")
-    return { flow: "queue", threadId: command.threadId };
+    return {
+      flow: "queue",
+      threadId: command.threadId,
+      turnId: command.turnId ?? `turn:${command.commandId}`,
+    };
   return null;
 }
