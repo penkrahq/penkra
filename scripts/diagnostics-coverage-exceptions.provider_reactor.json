@@ -167,7 +167,7 @@
   },
   {
     "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
-    "line": 2009,
+    "line": 2037,
     "column": 14,
     "kind": "catch",
     "disposition": "recorded",
@@ -180,7 +180,7 @@
   },
   {
     "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
-    "line": 2352,
+    "line": 2380,
     "column": 16,
     "kind": "catch",
     "disposition": "recorded",
@@ -193,7 +193,7 @@
   },
   {
     "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
-    "line": 2458,
+    "line": 2486,
     "column": 26,
     "kind": "catch",
     "disposition": "expected-recovery",
@@ -202,7 +202,7 @@
   },
   {
     "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
-    "line": 2631,
+    "line": 2659,
     "column": 32,
     "kind": "rejection",
     "disposition": "propagates",
@@ -215,7 +215,7 @@
   },
   {
     "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
-    "line": 2637,
+    "line": 2665,
     "column": 32,
     "kind": "rejection",
     "disposition": "propagates",
@@ -228,7 +228,7 @@
   },
   {
     "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
-    "line": 2645,
+    "line": 2673,
     "column": 32,
     "kind": "rejection",
     "disposition": "propagates",
@@ -241,7 +241,7 @@
   },
   {
     "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
-    "line": 2674,
+    "line": 2702,
     "column": 32,
     "kind": "rejection",
     "disposition": "propagates",
@@ -254,7 +254,7 @@
   },
   {
     "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
-    "line": 2907,
+    "line": 2935,
     "column": 32,
     "kind": "rejection",
     "disposition": "propagates",
@@ -267,7 +267,7 @@
   },
   {
     "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
-    "line": 2916,
+    "line": 2944,
     "column": 32,
     "kind": "rejection",
     "disposition": "propagates",
@@ -280,7 +280,7 @@
   },
   {
     "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
-    "line": 2999,
+    "line": 3027,
     "column": 58,
     "kind": "rejection",
     "disposition": "propagates",
@@ -293,7 +293,7 @@
   },
   {
     "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
-    "line": 3048,
+    "line": 3076,
     "column": 32,
     "kind": "rejection",
     "disposition": "propagates",
@@ -306,7 +306,7 @@
   },
   {
     "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
-    "line": 3191,
+    "line": 3219,
     "column": 22,
     "kind": "catch",
     "disposition": "recorded",
@@ -319,7 +319,7 @@
   },
   {
     "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
-    "line": 3271,
+    "line": 3299,
     "column": 12,
     "kind": "catch",
     "disposition": "recorded",
@@ -332,7 +332,7 @@
   },
   {
     "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
-    "line": 3408,
+    "line": 3436,
     "column": 16,
     "kind": "catch",
     "disposition": "recorded",
@@ -345,7 +345,7 @@
   },
   {
     "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
-    "line": 3447,
+    "line": 3475,
     "column": 16,
     "kind": "catch",
     "disposition": "recorded",
@@ -358,7 +358,7 @@
   },
   {
     "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
-    "line": 3561,
+    "line": 3589,
     "column": 16,
     "kind": "catch",
     "disposition": "recorded",
@@ -371,7 +371,7 @@
   },
   {
     "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
-    "line": 3602,
+    "line": 3630,
     "column": 16,
     "kind": "catch",
     "disposition": "recorded",
@@ -384,7 +384,7 @@
   },
   {
     "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
-    "line": 3633,
+    "line": 3661,
     "column": 28,
     "kind": "rejection",
     "disposition": "propagates",
@@ -397,7 +397,7 @@
   },
   {
     "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
-    "line": 3711,
+    "line": 3739,
     "column": 28,
     "kind": "rejection",
     "disposition": "propagates",
@@ -410,7 +410,7 @@
   },
   {
     "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
-    "line": 3740,
+    "line": 3768,
     "column": 28,
     "kind": "rejection",
     "disposition": "propagates",
@@ -423,7 +423,7 @@
   },
   {
     "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
-    "line": 4260,
+    "line": 4288,
     "column": 20,
     "kind": "catch",
     "disposition": "propagates",
@@ -436,7 +436,7 @@
   },
   {
     "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
-    "line": 4289,
+    "line": 4317,
     "column": 14,
     "kind": "catch",
     "disposition": "recorded",
@@ -449,7 +449,7 @@
   },
   {
     "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
-    "line": 4310,
+    "line": 4338,
     "column": 14,
     "kind": "catch",
     "disposition": "recorded",
@@ -462,7 +462,7 @@
   },
   {
     "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
-    "line": 4486,
+    "line": 4514,
     "column": 18,
     "kind": "catch",
     "disposition": "expected-recovery",
@@ -471,7 +471,7 @@
   },
   {
     "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
-    "line": 4582,
+    "line": 4610,
     "column": 18,
     "kind": "catch",
     "disposition": "recorded",
@@ -484,7 +484,7 @@
   },
   {
     "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
-    "line": 4731,
+    "line": 4759,
     "column": 22,
     "kind": "catch",
     "disposition": "recorded",
@@ -497,7 +497,7 @@
   },
   {
     "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
-    "line": 5041,
+    "line": 5069,
     "column": 14,
     "kind": "catch",
     "disposition": "recorded",
@@ -510,7 +510,7 @@
   },
   {
     "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
-    "line": 5277,
+    "line": 5305,
     "column": 16,
     "kind": "catch",
     "disposition": "recorded",
