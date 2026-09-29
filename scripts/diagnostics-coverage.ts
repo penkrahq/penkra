@@ -84,6 +84,18 @@ function isRecordingCall(node: ts.Node, code: string, where: string): boolean {
       where === "provider.reactor"
     )
       return true;
+    if (
+      node.expression.text === "makeSqlError" &&
+      code === "APP_OPERATION_FAILED" &&
+      where === "server.database"
+    )
+      return true;
+    if (
+      node.expression.text === "recordDatabaseHealthFailure" &&
+      code === "INVARIANT_VIOLATED" &&
+      where === "server.database"
+    )
+      return true;
   }
   if (
     ts.isCallExpression(node) &&
