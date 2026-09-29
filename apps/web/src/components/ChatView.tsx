@@ -5610,7 +5610,10 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         });
       }
     }
-    const diagnosticActiveTurnId = activeThread.session?.activeTurnId ?? null;
+    // A provider can start the projected turn before session.activeTurnId is
+    // published. The visible latest turn is still the exact stop target.
+    const diagnosticActiveTurnId =
+      activeThread.session?.activeTurnId ?? activeLatestTurn?.turnId ?? null;
     const interruptCommand = {
       type: "thread.turn.interrupt" as const,
       commandId: newCommandId(),

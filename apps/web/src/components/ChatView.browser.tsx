@@ -3208,6 +3208,51 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("sends the visible turn ID when the session active ID has not arrived", async () => {
+    const turnId = TurnId.makeUnsafe("turn-stop-session-lag");
+    const snapshot = createSnapshotForTargetUser({
+      targetMessageId: MessageId.makeUnsafe("msg-stop-session-lag"),
+      targetText: "Stop this turn",
+    });
+    const runningSnapshot = {
+      ...snapshot,
+      threads: snapshot.threads.map((thread) => ({
+        ...thread,
+        latestTurn: {
+          turnId,
+          state: "running" as const,
+          requestedAt: NOW_ISO,
+          startedAt: NOW_ISO,
+          completedAt: null,
+          assistantMessageId: null,
+        },
+        session: thread.session && {
+          ...thread.session,
+          status: "running" as const,
+          activeTurnId: null,
+        },
+      })),
+    };
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot: runningSnapshot });
+    const restoreNativeApi = installDeterministicSendNativeApi();
+    try {
+      const stop = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
+        "Stop did not appear for the visible running turn.",
+      );
+      stop.click();
+      await vi.waitFor(() => expect(hasDispatchedCommandType("thread.turn.interrupt")).toBe(true));
+      expect(
+        wsRequests
+          .map(readDispatchedCommand)
+          .find((command) => command?.type === "thread.turn.interrupt"),
+      ).toMatchObject({ turnId });
+    } finally {
+      restoreNativeApi();
+      await mounted.cleanup();
+    }
+  });
+
   it("shows Play after Stop when the final assistant message arrives before the interrupted session", async () => {
     const previousBridge = window.desktopBridge;
     const recordDiagnosticCheckpoint = vi.fn().mockResolvedValue(undefined);
@@ -3314,6 +3359,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const stopTrace = dispatchCommand.mock.calls.find(
         ([command]) => command.type === "thread.turn.interrupt",
       )?.[1];
+      expect(
+        dispatchCommand.mock.calls.find(
+          ([command]) => command.type === "thread.turn.interrupt",
+        )?.[0],
+      ).toMatchObject({ turnId });
       expect(stopTrace?.traceId).toBe(
         recordDiagnosticCheckpoint.mock.calls.find(
           ([checkpoint]) => checkpoint.flow === "stop" && checkpoint.step === "turn.terminal",
