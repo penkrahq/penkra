@@ -1,6 +1,7 @@
 /** Stable v1 incident codes from docs/diagnostics-design.md. */
 export const INCIDENT_CODES = [
   "SEND_PREFLIGHT_REJECTED",
+  "SEND_ACCEPT_TIMEOUT",
   "WS_NOT_CONNECTED",
   "COMMAND_REJECTED",
   "TURN_START_TIMEOUT",
@@ -64,6 +65,7 @@ export type IncidentCode = (typeof INCIDENT_CODES)[number];
 /** Reviewed, content-free sentences. No input data is interpolated. */
 export const INCIDENT_SUMMARIES: Record<IncidentCode, string> = {
   SEND_PREFLIGHT_REJECTED: "Send preflight was rejected.",
+  SEND_ACCEPT_TIMEOUT: "Send was not accepted before the deadline.",
   WS_NOT_CONNECTED: "Ws not connected was detected.",
   COMMAND_REJECTED: "Command was rejected.",
   TURN_START_TIMEOUT: "Turn start timed out.",
