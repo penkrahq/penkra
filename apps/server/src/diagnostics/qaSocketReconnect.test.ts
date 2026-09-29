@@ -86,4 +86,17 @@ describe("QaSocketReconnectTracker", () => {
     replay.sentFrame(success);
     expect(proofs).toEqual([]);
   });
+
+  it("recognizes a successful response in batched RPC frames", () => {
+    const proofs: string[] = [];
+    const tracker = new QaSocketReconnectTracker(
+      (id) => proofs.push(id),
+      (_id, _ticket, signature) => signature === "signed",
+    );
+    tracker.opened(signed(null)).closed();
+    const recovered = tracker.opened(signed(traceId));
+    recovered.receivedFrame(`[${request}]`);
+    recovered.sentFrame(`[${success}]`);
+    expect(proofs).toEqual([traceId]);
+  });
 });

@@ -2,30 +2,33 @@ const ID = /^[a-f0-9]{32}$/u;
 const TTL_MS = 120_000;
 const MAX_CLIENTS = 128;
 
-function requestId(raw: string): string | null {
+function frames(raw: string): unknown[] {
   try {
-    const frame = JSON.parse(raw) as { _tag?: unknown; id?: unknown };
-    return frame?._tag === "Request" && typeof frame.id === "string" ? frame.id : null;
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [parsed];
   } catch {
-    return null;
+    return [];
   }
 }
 
-function successfulResponseId(raw: string): string | null {
-  try {
-    const frame = JSON.parse(raw) as {
-      _tag?: unknown;
-      requestId?: unknown;
-      exit?: { _tag?: unknown };
-    };
-    return frame?._tag === "Exit" &&
-      frame.exit?._tag === "Success" &&
-      typeof frame.requestId === "string"
-      ? frame.requestId
-      : null;
-  } catch {
-    return null;
-  }
+function requestId(frame: unknown): string | null {
+  if (!frame || typeof frame !== "object") return null;
+  const candidate = frame as { _tag?: unknown; id?: unknown };
+  return candidate._tag === "Request" && typeof candidate.id === "string" ? candidate.id : null;
+}
+
+function successfulResponseId(frame: unknown): string | null {
+  if (!frame || typeof frame !== "object") return null;
+  const candidate = frame as {
+    _tag?: unknown;
+    requestId?: unknown;
+    exit?: { _tag?: unknown };
+  };
+  return candidate._tag === "Exit" &&
+    candidate.exit?._tag === "Success" &&
+    typeof candidate.requestId === "string"
+    ? candidate.requestId
+    : null;
 }
 
 /** Requires a single-use main ticket, a prior close, and a completed RPC. */
@@ -84,16 +87,21 @@ export class QaSocketReconnectTracker {
       receivedFrame: (raw) => {
         if (!isReconnect || proved) return;
         if (this.clients.get(clientId) !== current || current.closed) return;
-        const id = requestId(raw);
-        if (id) requests.add(id);
+        for (const frame of frames(raw)) {
+          const id = requestId(frame);
+          if (id) requests.add(id);
+        }
       },
       sentFrame: (raw) => {
         if (!isReconnect || proved) return;
         if (this.clients.get(clientId) !== current || current.closed) return;
-        const id = successfulResponseId(raw);
-        if (!id || !requests.has(id)) return;
-        proved = true;
-        this.onReconnect(traceId);
+        for (const frame of frames(raw)) {
+          const id = successfulResponseId(frame);
+          if (!id || !requests.has(id)) continue;
+          proved = true;
+          this.onReconnect(traceId);
+          return;
+        }
       },
     };
   }
