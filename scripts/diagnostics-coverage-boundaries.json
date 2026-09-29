@@ -1,5 +1,10 @@
 [
   {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "server.boot",
+    "file": "apps/server/src/main.ts"
+  },
+  {
     "code": "REJECTED_STREAMING_RPC_ADMISSION",
     "where": "server.stream_admission",
     "file": "apps/server/src/wsStreamAdmission.ts"

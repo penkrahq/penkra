@@ -48,7 +48,7 @@ import { ProviderNativeStateDeletionCoordinator } from "./provider/Services/Prov
 import { Server } from "./effectServer";
 import { ServerLoggerLive } from "./serverLogger";
 import { DiagnosticsStore, parseDiagnosticsBundleSignature } from "./diagnostics/store";
-import { installDiagnosticsStore } from "./diagnostics/recorder";
+import { installDiagnosticsStore, recordDiagnosticIncident } from "./diagnostics/recorder";
 import { noteDiagnosticsStoreReady, notePreStoreBootFailure } from "./diagnostics/preStoreStartup";
 import {
   measuredBootStage,
@@ -342,7 +342,19 @@ export const recordStartupHeartbeat = Effect.gen(function* () {
 
   const { threadCount, folderCount } = yield* projectionSnapshotQuery.getCounts().pipe(
     Effect.catch((cause) =>
-      Effect.logWarning("failed to gather startup projection counts for telemetry", { cause }).pipe(
+      Effect.sync(() =>
+        recordDiagnosticIncident({
+          traceId: randomBytes(16).toString("hex"),
+          spanId: randomBytes(8).toString("hex"),
+          kind: "external.failed",
+          code: "EXTERNAL_CALL_FAILED",
+          where: "server.boot",
+          severity: "warn",
+        }),
+      ).pipe(
+        Effect.andThen(
+          Effect.logWarning("failed to gather startup projection counts for telemetry", { cause }),
+        ),
         Effect.as({
           threadCount: 0,
           folderCount: 0,
@@ -603,9 +615,22 @@ const makeServerProgram = (input: CliInput) => {
       const target = startupPairingUrl ?? config.devUrl?.toString() ?? bindUrl;
       yield* openDeps.openBrowser(target).pipe(
         Effect.catch(() =>
-          Effect.logInfo("browser auto-open unavailable", {
-            hint: `Open ${target} in your browser.`,
-          }),
+          Effect.sync(() =>
+            recordDiagnosticIncident({
+              traceId: randomBytes(16).toString("hex"),
+              spanId: randomBytes(8).toString("hex"),
+              kind: "external.failed",
+              code: "EXTERNAL_CALL_FAILED",
+              where: "server.boot",
+              severity: "warn",
+            }),
+          ).pipe(
+            Effect.andThen(
+              Effect.logInfo("browser auto-open unavailable", {
+                hint: `Open ${target} in your browser.`,
+              }),
+            ),
+          ),
         ),
       );
     }
