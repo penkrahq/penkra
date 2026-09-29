@@ -20,7 +20,11 @@ export function emitConnectionAfterUpgrade(server: WebSocketServer): void {
   const handleUpgrade = server.handleUpgrade.bind(server);
   server.handleUpgrade = (request, socket, head, callback) =>
     handleUpgrade(request, socket, head, (ws, upgradedRequest) => {
-      server.emit("connection", ws, upgradedRequest);
+      try {
+        server.emit("connection", ws, upgradedRequest);
+      } catch {
+        // An observer must never prevent Effect from receiving the upgraded socket.
+      }
       callback(ws, upgradedRequest);
     });
 }
@@ -142,31 +146,54 @@ export const makeBoundedNodeHttpServer = Effect.fnUntraced(function* (
     Object.defineProperty(socket, "send", {
       value: (...args: unknown[]) => {
         const data = args[0];
-        if (typeof data === "string") qaConnection.sentFrame(data);
-        else if (Buffer.isBuffer(data)) qaConnection.sentFrame(data.toString("utf8"));
+        try {
+          if (typeof data === "string") qaConnection.sentFrame(data);
+          else if (Buffer.isBuffer(data)) qaConnection.sentFrame(data.toString("utf8"));
+        } catch {
+          // QA observation must not change the server's response delivery.
+        }
         return Reflect.apply(originalSend, socket, args);
       },
     });
-    socket.on("message", (data) => qaConnection.receivedFrame(data.toString("utf8")));
-    socket.on("close", (code, reason) => {
-      qaConnection.closed();
-      Effect.runFork(
-        Effect.logInfo("WebSocket connection closed").pipe(
-          Effect.annotateLogs({
-            requestPath,
-            code,
-            reason: reason.toString("utf8") || null,
-            durationMs: Math.max(0, Date.now() - openedAtMs),
-          }),
-        ),
-      );
+    socket.on("message", (data) => {
+      try {
+        qaConnection.receivedFrame(data.toString("utf8"));
+      } catch {
+        // QA observation must not change request handling.
+      }
     });
-    socket.on("error", (error) => {
-      Effect.runFork(
-        Effect.logWarning("WebSocket connection error").pipe(
-          Effect.annotateLogs({ requestPath, error: error.message }),
-        ),
-      );
+    let terminalLogged = false;
+    socket.once("close", (code, reason) => {
+      try {
+        qaConnection.closed();
+        if (terminalLogged) return;
+        terminalLogged = true;
+        Effect.runFork(
+          Effect.logInfo("WebSocket connection closed").pipe(
+            Effect.annotateLogs({
+              requestPath,
+              code,
+              reason: reason.toString("utf8") || null,
+              durationMs: Math.max(0, Date.now() - openedAtMs),
+            }),
+          ),
+        );
+      } catch {
+        // Observation cannot affect socket shutdown.
+      }
+    });
+    socket.once("error", (error) => {
+      if (terminalLogged) return;
+      terminalLogged = true;
+      try {
+        Effect.runFork(
+          Effect.logWarning("WebSocket connection error").pipe(
+            Effect.annotateLogs({ requestPath, error: error.message }),
+          ),
+        );
+      } catch {
+        // Observation cannot affect socket error handling.
+      }
     });
   });
 

@@ -31,8 +31,14 @@ describe("emitConnectionAfterUpgrade", () => {
     webSocketServer.on("connection", () => {
       observed += 1;
     });
+    webSocketServer.on("connection", () => {
+      throw new Error("observer failed");
+    });
+    let upgraded = false;
     server.on("upgrade", (request, socket, head) => {
-      webSocketServer.handleUpgrade(request, socket, head, () => {});
+      webSocketServer.handleUpgrade(request, socket, head, () => {
+        upgraded = true;
+      });
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address();
@@ -45,6 +51,7 @@ describe("emitConnectionAfterUpgrade", () => {
     });
 
     expect(observed).toBe(1);
+    expect(upgraded).toBe(true);
     webSocketServer.close();
   });
 });
