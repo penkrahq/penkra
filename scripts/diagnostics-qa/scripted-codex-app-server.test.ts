@@ -2,9 +2,11 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createInterface } from "node:readline";
+import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { qaProviderCoverageLabel } from "../diagnostics-qa-gate";
+import { assertIsolatedQaStateDir, seedScriptedProvider } from "./seed-scripted-provider.mjs";
 
 const fixture = fileURLToPath(new URL("./scripted-codex-app-server.mjs", import.meta.url));
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
@@ -83,5 +85,43 @@ describe("scripted provider QA fixture", () => {
       "scripted-fixture; real provider not covered",
     );
     expect(qaProviderCoverageLabel(undefined)).toBe("unverified; real provider not covered");
+  });
+
+  it("seeds only a fresh, disposable Dev provider catalog", () => {
+    expect(() => assertIsolatedQaStateDir(repoRoot)).toThrow(/disposable/);
+    const root = fs.mkdtempSync("/tmp/penkra-diagnostics-qa-0143.");
+    const stateDir = path.join(root, "dev");
+    fs.mkdirSync(stateDir);
+    const db = new DatabaseSync(path.join(stateDir, "state.sqlite"));
+    try {
+      db.exec(`
+        CREATE TABLE provider_installations (
+          installation_id TEXT, harness_kind TEXT, version TEXT, platform TEXT,
+          architecture TEXT, executable_path TEXT, artifact_source TEXT,
+          artifact_url TEXT, artifact_sha256 TEXT, adapter_version TEXT,
+          protocol_version TEXT, lifecycle TEXT, installed_at TEXT, activated_at TEXT
+        );
+        CREATE TABLE provider_connections (
+          connection_id TEXT, harness_kind TEXT, authentication_target_id TEXT,
+          authentication_method_id TEXT, label TEXT, profile_ref TEXT,
+          health_status TEXT, lifecycle TEXT, created_at TEXT, updated_at TEXT
+        );
+      `);
+    } finally {
+      db.close();
+    }
+    try {
+      expect(seedScriptedProvider(stateDir).fixture).toBe(fixture);
+      expect(() => seedScriptedProvider(stateDir)).toThrow(/fresh Dev provider catalog/);
+      const read = new DatabaseSync(path.join(stateDir, "state.sqlite"));
+      try {
+        expect(read.prepare("SELECT COUNT(*) AS n FROM provider_installations").get()?.n).toBe(1);
+        expect(read.prepare("SELECT COUNT(*) AS n FROM provider_connections").get()?.n).toBe(1);
+      } finally {
+        read.close();
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });
