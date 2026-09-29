@@ -7,7 +7,7 @@ import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
 
-layer("171_ProviderSwitchFailureCleanup", (it) => {
+layer("172_ProviderSwitchFailureCleanup", (it) => {
   it.effect("preserves old journals and requires cleanup before terminal failure", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
@@ -23,7 +23,14 @@ layer("171_ProviderSwitchFailureCleanup", (it) => {
           '2026-08-10T00:00:00.000Z', '2026-08-10T00:00:00.000Z'
         )
       `;
+      // This branch intentionally has no migration 171. The diagnostics
+      // lineage supplies it when both branches are integrated.
       yield* runMigrations({ toMigrationInclusive: 171 });
+      const skipped = yield* sql<{ readonly id: number }>`
+        SELECT migration_id AS id FROM effect_sql_migrations WHERE migration_id > 170
+      `;
+      assert.deepStrictEqual(skipped, []);
+      yield* runMigrations({ toMigrationInclusive: 172 });
       yield* sql`
         UPDATE provider_thread_switch_operations
         SET operation_state = 'failed-cleanup-pending', failure_reason = 'Verification failed.',

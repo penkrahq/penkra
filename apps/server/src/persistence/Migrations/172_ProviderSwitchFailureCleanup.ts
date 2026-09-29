@@ -1,4 +1,4 @@
-// FILE: 171_ProviderSwitchFailureCleanup.ts
+// FILE: 172_ProviderSwitchFailureCleanup.ts
 // Purpose: Keep failed Claude switches recoverable until their target copy is removed.
 
 import { Effect } from "effect";
