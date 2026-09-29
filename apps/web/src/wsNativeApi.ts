@@ -624,6 +624,11 @@ export async function resetWsNativeApiForTest(): Promise<void> {
   await transport?.dispose();
 }
 
+export async function reconnectWsNativeApiForQa(): Promise<void> {
+  if (!instance) throw new Error("The shell transport is not ready");
+  await instance.transport.reconnectForQa();
+}
+
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     void instance?.transport.dispose();
