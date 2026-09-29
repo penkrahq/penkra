@@ -478,6 +478,14 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
         if (input.targetGenerationId === null) {
           return yield* fail("The native provider switch has no target state generation.");
         }
+        if (selection.claudeAccountTransition !== undefined && verificationJson !== null) {
+          // A process may have died after sending the paid probe but before
+          // recording its result. Its outcome is unknown; keep the old binding
+          // and fail this message rather than charging the account again.
+          return yield* fail(
+            "The Claude resume probe was interrupted before its result was saved.",
+          );
+        }
         // A settled turn can still leave its provider session alive and owning
         // the exact native conversation. Release that writer before a second
         // installation/profile verifies the cloned continuation. The durable
@@ -495,6 +503,15 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           targetGenerationId: input.targetGenerationId,
         });
         yield* stageClaudeTransition(selection, input.command.commandId);
+        if (selection.claudeAccountTransition !== undefined) {
+          const marked = yield* operations
+            .markResumeProbeAttempted({
+              id: input.operationId,
+              updatedAt: new Date().toISOString(),
+            })
+            .pipe(mapOperationError("Could not journal the Claude resume probe attempt."));
+          if (!marked) return yield* fail("The Claude resume probe was already attempted.");
+        }
         const verified = yield* verifier
           .verifySwitch({
             selection,

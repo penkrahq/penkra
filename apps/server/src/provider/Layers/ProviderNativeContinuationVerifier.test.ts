@@ -226,6 +226,15 @@ layer("ProviderNativeContinuationVerifier", (it) => {
         assert.strictEqual(exact.providerSessionId, "native-session");
         assert.strictEqual(verifiedWithModel, "claude-sonnet-5");
         assert.strictEqual(claudeSelection.modelId, "claude-sonnet-4-5");
+        availableClaudeModels = ["claude-opus-5"];
+        const exactWithSelectedModel = yield* verifier.verifySwitch({
+          selection: { ...claudeSelection, modelId: "claude-opus-5" },
+          sourceStorage: "connection-profile",
+          targetGenerationId,
+          runtimeMode: "full-access",
+        });
+        assert.strictEqual(exactWithSelectedModel.providerSessionId, "native-session");
+        assert.strictEqual(verifiedWithModel, "claude-opus-5");
         verificationFailure = "Claude authentication failed";
         const authFailure = yield* Effect.exit(
           verifier.verifySwitch({

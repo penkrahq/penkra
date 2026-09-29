@@ -23,6 +23,7 @@ import {
 } from "../../persistence/Services/ProviderNativeForkOperations.ts";
 import {
   ProviderThreadSwitchOperationRepository,
+  RESUME_PROBE_ATTEMPTED_JSON,
   type ProviderThreadSwitchOperationRecord,
 } from "../../persistence/Services/ProviderThreadSwitchOperations.ts";
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
@@ -448,6 +449,19 @@ const dependencies = Layer.mergeAll(
           updatedAt: input.updatedAt,
         };
         return Option.some(operation);
+      }),
+    markResumeProbeAttempted: () =>
+      Effect.sync(() => {
+        if (
+          !operation ||
+          operation.state !== "interrupted" ||
+          operation.verificationJson !== null
+        ) {
+          return false;
+        }
+        order.push("probe-attempted");
+        operation = { ...operation, verificationJson: RESUME_PROBE_ATTEMPTED_JSON };
+        return true;
       }),
     transition: (input: {
       state: ProviderThreadSwitchOperationRecord["state"];
@@ -1144,11 +1158,12 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
             },
             attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
           });
-          assert.deepStrictEqual(order.slice(0, 7), [
+          assert.deepStrictEqual(order.slice(0, 8), [
             "journal",
             "interrupt",
             "interrupted",
             "stop-session",
+            "probe-attempted",
             "verify",
             "verified",
             "dispatch",
@@ -1279,10 +1294,11 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
         yield* TestClock.adjust("1 second");
         yield* Fiber.join(fiber);
         assert.notInclude(order, "interrupt");
-        assert.deepStrictEqual(order.slice(0, 6), [
+        assert.deepStrictEqual(order.slice(0, 7), [
           "journal",
           "interrupted",
           "stop-session",
+          "probe-attempted",
           "verify",
           "verified",
           "dispatch",
@@ -1499,6 +1515,52 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
         assert.strictEqual(currentOperation()?.state, "failed");
       } finally {
         verificationFails = false;
+        operation = undefined;
+      }
+    }),
+  );
+
+  it.effect("does not repeat a paid probe after a crash before its result was journalled", () =>
+    Effect.gen(function* () {
+      hasBinding = true;
+      activeTurn = false;
+      order.length = 0;
+      const recoveryCommand = {
+        ...command,
+        commandId: CommandId.makeUnsafe("command-recover-probe-crash"),
+      };
+      operation = {
+        id: "provider-switch:command-recover-probe-crash",
+        threadId,
+        commandId: recoveryCommand.commandId,
+        kind: "native-state",
+        state: "interrupted",
+        sourceStateRevision: 2,
+        sourceBindingRevision: 4,
+        targetNativeStateGenerationId: ProviderNativeStateGenerationId.makeUnsafe(
+          "provider-switch-generation:command-recover-probe-crash",
+        ),
+        selectionJson: JSON.stringify({
+          ...selection,
+          harness: "claudeAgent",
+          claudeAccountTransition: {
+            source: { authenticationMethodId: "claude-account", providerIdentityId: "alice" },
+            target: { authenticationMethodId: "claude-account", providerIdentityId: "bob" },
+          },
+        }),
+        commandJson: JSON.stringify(recoveryCommand),
+        cwd: null,
+        verificationJson: RESUME_PROBE_ATTEMPTED_JSON,
+        failureReason: null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      try {
+        const coordinator = yield* ProviderThreadSwitchCoordinator;
+        yield* coordinator.recoverOpen;
+        assert.notInclude(order, "verify");
+        assert.strictEqual(currentOperation()?.state, "failed");
+      } finally {
         operation = undefined;
       }
     }),

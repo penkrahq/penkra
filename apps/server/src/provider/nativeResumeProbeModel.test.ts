@@ -32,6 +32,22 @@ describe("selectNativeResumeProbeModel", () => {
         models: [model("claude-opus-5")],
       }),
     ).toBeNull();
+    expect(
+      selectNativeResumeProbeModel({
+        provider: "claudeAgent",
+        connectionId,
+        models: [model("claude-opus-5")],
+        selectedModelId: "claude-opus-5",
+      }),
+    ).toBe("claude-opus-5");
+    expect(
+      selectNativeResumeProbeModel({
+        provider: "claudeAgent",
+        connectionId,
+        models: [{ ...model("claude-opus-5"), availableConnectionIds: [] }],
+        selectedModelId: "claude-opus-5",
+      }),
+    ).toBeNull();
   });
 
   it("holds the requested preferences for Codex and OpenCode", () => {
