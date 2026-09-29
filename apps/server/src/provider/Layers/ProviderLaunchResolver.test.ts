@@ -27,6 +27,7 @@ const threadId = ThreadId.makeUnsafe("launch-thread");
 const connectionId = ProviderConnectionId.makeUnsafe("launch-connection");
 const installationId = ProviderInstallationId.makeUnsafe("launch-installation");
 const retiredInstallationId = ProviderInstallationId.makeUnsafe("launch-installation-retired");
+const qaFixtureInstallationId = ProviderInstallationId.makeUnsafe("launch-qa-fixture");
 const timestamp = "2026-08-08T00:00:00.000Z";
 const codexProfileRef = "provider-profile:credential-generation-two";
 
@@ -178,16 +179,16 @@ const codexDependencies = Layer.mergeAll(
       ),
   } as never),
   Layer.succeed(ProviderInstallationRepository, {
-    getRecord: () =>
+    getRecord: (id: typeof installationId) =>
       Effect.succeed(
         Option.some({
-          id: installationId,
+          id,
           harness: "codex",
           version: "1.0.0",
           platform: "darwin",
           architecture: "arm64",
           executablePath: "/managed/codex",
-          artifactSource: "github-release",
+          artifactSource: id === qaFixtureInstallationId ? "qa-fixture" : "github-release",
           artifactUrl: "https://example.invalid/codex",
           artifactSha256: "a".repeat(64),
           adapterVersion: "1",
@@ -257,6 +258,29 @@ it.effect("keeps the real OS home for a Connection-scoped Codex keyring", () =>
       Path.dirname(environment.CODEX_SQLITE_HOME ?? ""),
       providerCredentialProfileRoot((yield* ServerConfig).stateDir, codexProfileRef),
     );
+  }).pipe(
+    Effect.provide(ProviderLaunchResolverLive.pipe(Layer.provide(codexDependencies))),
+    Effect.provide(codexDependencies),
+    Effect.provide(NodeServices.layer),
+  ),
+);
+
+it.effect("rejects a QA fixture installation in an ordinary server profile", () =>
+  Effect.gen(function* () {
+    const resolver = yield* ProviderLaunchResolver;
+    const result = yield* Effect.exit(
+      resolver.resolveProfile({
+        harness: "codex",
+        connectionId,
+        installationId: qaFixtureInstallationId,
+        internalProviderId: null,
+        nativeStateIdentity: "qa-fixture-attempt",
+      }),
+    );
+    assert.strictEqual(result._tag, "Failure");
+    if (result._tag === "Failure") {
+      assert.match(String(result.cause), /QA fixture installation is unavailable/);
+    }
   }).pipe(
     Effect.provide(ProviderLaunchResolverLive.pipe(Layer.provide(codexDependencies))),
     Effect.provide(codexDependencies),
