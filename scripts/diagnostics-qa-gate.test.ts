@@ -4,6 +4,11 @@ import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import { DiagnosticsStore } from "@penkra/shared/diagnostics/store";
+import {
+  qaEvidencePath,
+  signQaAction,
+  type QaEvidenceConfig,
+} from "@penkra/shared/diagnostics/qaEvidence";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -22,6 +27,18 @@ const passing = (_script: string, _stateDir: string, flow: QaFlow) => ({
   checks: REQUIRED_QA_CHECKS[flow],
 });
 
+const qaConfig = (stateDir: string): QaEvidenceConfig => ({
+  dir: path.join(stateDir, "qa-proofs"),
+  runId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+  secret: "ab".repeat(32),
+});
+
+const runGate = (
+  stateDir: string,
+  scripts: ReadonlyMap<QaFlow, string>,
+  runner?: (script: string, stateDir: string, flow: QaFlow) => QaFlowResult,
+) => runDiagnosticsQaGate(stateDir, scripts, runner, qaConfig(stateDir));
+
 let nextTrace = 0;
 function withObservedChecks(
   store: DiagnosticsStore,
@@ -37,6 +54,12 @@ function withObservedChecks(
         step,
         outcome: "ok",
       });
+    const config = qaConfig(stateDir);
+    fs.mkdirSync(config.dir, { recursive: true });
+    fs.appendFileSync(
+      qaEvidencePath(config),
+      `${JSON.stringify(signQaAction(config, flow, traceId))}\n`,
+    );
     return report(script, stateDir, flow);
   };
 }
@@ -77,13 +100,13 @@ describe("diagnostics clean QA gate", () => {
       );
       const trusted = withObservedChecks(store);
       expect(() =>
-        runDiagnosticsQaGate(
+        runGate(
           stateDir,
           new Map(REQUIRED_QA_FLOWS.map((flow) => [flow, scripts.get("send")!])),
           trusted,
         ),
       ).toThrow("distinct script");
-      expect(runDiagnosticsQaGate(stateDir, scripts, trusted)).toEqual({
+      expect(runGate(stateDir, scripts, trusted)).toEqual({
         passed: true,
         failedFlows: [],
         newIncidentIds: [],
@@ -95,9 +118,9 @@ describe("diagnostics clean QA gate", () => {
         lostCountUnknown: 0,
         exactOverflow: 0,
       });
-      expect(runDiagnosticsQaGate(stateDir, scripts).failedFlows).toEqual([...REQUIRED_QA_FLOWS]);
+      expect(runGate(stateDir, scripts).failedFlows).toEqual([...REQUIRED_QA_FLOWS]);
       expect(
-        runDiagnosticsQaGate(
+        runGate(
           stateDir,
           scripts,
           withObservedChecks(store, (script, dir, flow) =>
@@ -106,7 +129,7 @@ describe("diagnostics clean QA gate", () => {
         ).failedFlows,
       ).toEqual(["send", "stop"]);
       expect(
-        runDiagnosticsQaGate(
+        runGate(
           stateDir,
           scripts,
           withObservedChecks(store, (script, dir, flow) =>
@@ -117,7 +140,7 @@ describe("diagnostics clean QA gate", () => {
         ).failedFlows,
       ).toEqual([]);
       let calls = 0;
-      const failure = runDiagnosticsQaGate(
+      const failure = runGate(
         stateDir,
         scripts,
         withObservedChecks(store, (script, dir, flow) => {
@@ -141,7 +164,7 @@ describe("diagnostics clean QA gate", () => {
         "spool-0123456789abcdef0123456789abcdef.jsonl",
       );
       fs.writeFileSync(spool, "pending\n");
-      const pending = runDiagnosticsQaGate(stateDir, scripts, trusted);
+      const pending = runGate(stateDir, scripts, trusted);
       expect(pending.passed).toBe(false);
       expect(pending.pendingSpools).toBe(1);
       fs.rmSync(spool);
@@ -151,7 +174,7 @@ describe("diagnostics clean QA gate", () => {
         kind: "turn.started",
         deadlineMs: 60_000,
       });
-      const awaiting = runDiagnosticsQaGate(stateDir, scripts, trusted);
+      const awaiting = runGate(stateDir, scripts, trusted);
       expect(awaiting.passed).toBe(false);
       expect(awaiting.pendingExpectations).toBe(1);
       store.resolveExpectation(expectationId, "cancelled");
@@ -161,7 +184,7 @@ describe("diagnostics clean QA gate", () => {
         "loss-0123456789abcdef0123456789abcdef.bin",
       );
       let runs = 0;
-      const lost = runDiagnosticsQaGate(
+      const lost = runGate(
         stateDir,
         scripts,
         withObservedChecks(store, (script, dir, flow) => {
@@ -182,7 +205,7 @@ describe("diagnostics clean QA gate", () => {
       fs.rmSync(ledger);
       const databasePath = path.join(stateDir, "diagnostics", "diagnostics.sqlite");
       runs = 0;
-      const anomaly = runDiagnosticsQaGate(
+      const anomaly = runGate(
         stateDir,
         scripts,
         withObservedChecks(store, (script, dir, flow) => {
@@ -200,7 +223,7 @@ describe("diagnostics clean QA gate", () => {
       expect(anomaly.passed).toBe(false);
       expect(anomaly.newLosses).toBe(1);
       runs = 0;
-      const evicted = runDiagnosticsQaGate(
+      const evicted = runGate(
         stateDir,
         scripts,
         withObservedChecks(store, (script, dir, flow) => {
@@ -215,7 +238,7 @@ describe("diagnostics clean QA gate", () => {
       expect(evicted.passed).toBe(false);
       expect(evicted.newLosses).toBe(1);
       runs = 0;
-      const creditLoss = runDiagnosticsQaGate(
+      const creditLoss = runGate(
         stateDir,
         scripts,
         withObservedChecks(store, (script, dir, flow) => {
@@ -242,7 +265,7 @@ describe("diagnostics clean QA gate", () => {
       const identityPath = path.join(stateDir, "diagnostics", "identity");
       const identity = fs.readFileSync(identityPath, "utf8");
       runs = 0;
-      const reset = runDiagnosticsQaGate(stateDir, scripts, (script, dir, flow) => {
+      const reset = runGate(stateDir, scripts, (script, dir, flow) => {
         if (++runs === 1) fs.writeFileSync(identityPath, "new-build-identity");
         return passing(script, dir, flow);
       });
@@ -268,7 +291,7 @@ describe("diagnostics clean QA gate", () => {
       );
       const dbPath = path.join(stateDir, "diagnostics", "diagnostics.sqlite");
       let changed = false;
-      const result = runDiagnosticsQaGate(stateDir, scripts, (script, dir, flow) => {
+      const result = runGate(stateDir, scripts, (script, dir, flow) => {
         if (!changed) {
           changed = true;
           const db = new DatabaseSync(dbPath);
@@ -304,7 +327,37 @@ describe("diagnostics clean QA gate", () => {
       );
       const seedOldObservations = withObservedChecks(store);
       for (const flow of REQUIRED_QA_FLOWS) seedOldObservations("", stateDir, flow);
-      expect(runDiagnosticsQaGate(stateDir, scripts).failedFlows).toEqual([...REQUIRED_QA_FLOWS]);
+      expect(runGate(stateDir, scripts).failedFlows).toEqual([...REQUIRED_QA_FLOWS]);
+      store.close();
+    } finally {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects forged fresh checkpoints without an app-signed action result", () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-qa-forged-"));
+    try {
+      const store = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
+      const scripts = new Map(
+        REQUIRED_QA_FLOWS.map((flow) => {
+          const script = path.join(stateDir, `${flow}.mjs`);
+          fs.writeFileSync(script, "// forged checkpoint fixture\n");
+          return [flow, script] as const;
+        }),
+      );
+      const result = runGate(stateDir, scripts, (script, _dir, flow) => {
+        const traceId = (++nextTrace).toString(16).padStart(32, "0");
+        for (const step of REQUIRED_QA_CHECKS[flow])
+          store.checkpoint({
+            traceId,
+            spanId: "0123456789abcdef",
+            flow: DIAGNOSTIC_FLOW[flow],
+            step,
+            outcome: "ok",
+          });
+        return passing(script, stateDir, flow);
+      });
+      expect(result.failedFlows).toEqual([...REQUIRED_QA_FLOWS]);
       store.close();
     } finally {
       fs.rmSync(stateDir, { recursive: true, force: true });
@@ -322,7 +375,7 @@ describe("diagnostics clean QA gate", () => {
           return [flow, script] as const;
         }),
       );
-      const result = runDiagnosticsQaGate(stateDir, scripts, (script, dir, flow) => {
+      const result = runGate(stateDir, scripts, (script, dir, flow) => {
         for (const step of REQUIRED_QA_CHECKS[flow])
           store.checkpoint({
             traceId: (++nextTrace).toString(16).padStart(32, "0"),

@@ -629,7 +629,10 @@ before it is added to the default lint gate.
   `PENKRA_DIAGNOSTICS_QA_REPORT_PATH` naming its flow, a passing status and its
   required live-app assertions. The gate independently reads fresh, successful
   app checkpoints for every required assertion on one trace after each script;
-  assertions listed only in the script report do not count. A zero exit without
+  assertions listed only in the script report do not count. The app process also
+  signs a flow-specific action result under a QA-only run secret, and the gate
+  requires a fresh valid result on that trace. The secret is removed from the
+  flow-script environment. A zero exit without
   that report, a mismatched flow or missing checkpoints fails the gate.
 - **Pass for the clean QA run:** every script meets its expectations, and `penkra diagnostics incidents --since <run start>` returns **zero new occurrences**, including repeats of an existing aggregate. No new incident is exempt from this count.
 - Expected-failure and fault-injection scripts run separately from the clean gate. Each intended failure (for example, sending to an archived thread) must produce its expected code and occurrence, or coverage fails. Their incident-producing interval is excluded only by running a separate clean gate with a fresh baseline, not by filtering incidents from that gate.
