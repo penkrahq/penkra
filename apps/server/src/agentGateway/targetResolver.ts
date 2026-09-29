@@ -12,6 +12,7 @@ import {
 import { Effect } from "effect";
 
 import type { ProviderDiscoveryServiceShape } from "../provider/Services/ProviderDiscoveryService.ts";
+import { recordGatewayConsumedFailure } from "./gatewayFailureDiagnostics.ts";
 
 export type AgentGatewayTargetErrorCode =
   | "provider_unavailable"
@@ -248,8 +249,9 @@ export function loadAgentGatewayProviderCatalog(input: {
           : {}),
         ...(result.source ? { source: result.source } : {}),
       })),
-      Effect.catch((error) =>
-        Effect.succeed({
+      Effect.catch((error) => {
+        recordGatewayConsumedFailure(error);
+        return Effect.succeed({
           provider: input.provider,
           defaultModel,
           models: [],
@@ -259,8 +261,8 @@ export function loadAgentGatewayProviderCatalog(input: {
             ? { authStatus: availability.authStatus }
             : {}),
           error: error instanceof Error ? error.message : String(error),
-        }),
-      ),
+        });
+      }),
     );
 }
 
