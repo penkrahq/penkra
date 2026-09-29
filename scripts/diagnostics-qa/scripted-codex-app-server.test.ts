@@ -97,6 +97,9 @@ describe("scripted provider QA fixture", () => {
     const root = fs.mkdtempSync("/tmp/penkra-diagnostics-qa-0143.");
     const stateDir = path.join(root, "dev");
     fs.mkdirSync(stateDir);
+    const desktopStateDir = path.join(root, "root", ".penkra", "userdata");
+    fs.mkdirSync(desktopStateDir, { recursive: true });
+    expect(assertIsolatedQaStateDir(desktopStateDir)).toBe(fs.realpathSync(desktopStateDir));
     const db = new DatabaseSync(path.join(stateDir, "state.sqlite"));
     try {
       db.exec(`
@@ -112,6 +115,9 @@ describe("scripted provider QA fixture", () => {
           health_status TEXT, lifecycle TEXT, created_at TEXT, updated_at TEXT
         );
       `);
+      db.prepare(
+        "INSERT INTO provider_installations (installation_id, harness_kind) VALUES (?, ?)",
+      ).run("auto-discovered-dev-installation", "codex");
     } finally {
       db.close();
     }
