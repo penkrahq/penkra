@@ -8,7 +8,13 @@ import {
   verifyQaAction,
   writeQaChallenge,
 } from "@penkra/shared/diagnostics/qaEvidence";
-import { armQaRuntimeAction, settleQaRuntimeAction } from "./qaRuntimeActions";
+import {
+  admitQaRuntimeAction,
+  armQaRuntimeAction,
+  clearQaRuntimeAction,
+  prepareQaRuntimeAction,
+  settleQaRuntimeAction,
+} from "./qaRuntimeActions";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -19,6 +25,43 @@ afterEach(() => {
 });
 
 describe("QA runtime action proofs", () => {
+  it("holds a fast lifecycle event until durable admission and discards rejected commands", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-qa-runtime-"));
+    roots.push(dir);
+    const config = {
+      dir,
+      runId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      secret: "ab".repeat(32),
+    };
+    process.env.PENKRA_DIAGNOSTICS_QA_PROOF_DIR = dir;
+    process.env.PENKRA_DIAGNOSTICS_QA_RUN_ID = config.runId;
+    process.env.PENKRA_DIAGNOSTICS_QA_SECRET = config.secret;
+    writeQaChallenge(config, "play", "04".repeat(32));
+    const traceId = "0123456789abcdef0123456789abcdef";
+    prepareQaRuntimeAction("play", "fast-thread", "fast-turn", traceId);
+    settleQaRuntimeAction({
+      threadId: "fast-thread",
+      logicalTurnId: "fast-turn",
+      eventType: "turn.started",
+      state: "running",
+    });
+    expect(fs.existsSync(qaEvidencePath(config))).toBe(false);
+    admitQaRuntimeAction("play", "fast-thread", "fast-turn", traceId);
+    expect(
+      verifyQaAction(config, JSON.parse(fs.readFileSync(qaEvidencePath(config), "utf8"))),
+    ).toBe(true);
+    prepareQaRuntimeAction("play", "rejected-thread", "rejected-turn", traceId);
+    settleQaRuntimeAction({
+      threadId: "rejected-thread",
+      logicalTurnId: "rejected-turn",
+      eventType: "turn.started",
+      state: "running",
+    });
+    clearQaRuntimeAction("play", "rejected-thread", "rejected-turn", traceId);
+    admitQaRuntimeAction("play", "rejected-thread", "rejected-turn", traceId);
+    expect(fs.readFileSync(qaEvidencePath(config), "utf8").trim().split("\n")).toHaveLength(1);
+  });
+
   it("waits for an applied provider lifecycle outcome on the same thread", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-qa-runtime-"));
     roots.push(dir);
