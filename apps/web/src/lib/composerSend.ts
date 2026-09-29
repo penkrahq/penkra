@@ -14,6 +14,7 @@ import {
   type ClaudeCodeEffort,
   type ProviderKind,
   type UploadChatAttachment,
+  type DiagnosticTraceContext,
 } from "@penkra/contracts";
 import {
   ATTACHMENT_CANCEL_ROUTE_PATH,
@@ -39,13 +40,14 @@ const ATTACHMENT_CANCEL_BODY_MAX_BYTES = 512;
 function recordComposerAttachmentFailure(
   code: "EXTERNAL_CALL_FAILED" | "SEND_PREFLIGHT_REJECTED" | "COMMAND_REJECTED",
   where: string,
+  trace?: DiagnosticTraceContext,
 ): void {
   try {
     const bridge = typeof window === "undefined" ? undefined : window.desktopBridge;
     const record = bridge?.recordDiagnosticIncident;
     if (!record) return;
     const pending = record({
-      ...startDiagnosticTrace(),
+      ...(trace ?? startDiagnosticTrace()),
       kind: "external.failed",
       code,
       where,
@@ -270,7 +272,10 @@ function isManagedAttachmentId(value: unknown): value is string {
   );
 }
 
-async function cancelManagedAttachments(attachmentIds: readonly string[]): Promise<void> {
+async function cancelManagedAttachments(
+  attachmentIds: readonly string[],
+  trace?: DiagnosticTraceContext,
+): Promise<void> {
   let nextIndex = 0;
   const worker = async () => {
     while (nextIndex < attachmentIds.length) {
@@ -290,11 +295,13 @@ async function cancelManagedAttachments(attachmentIds: readonly string[]): Promi
           recordComposerAttachmentFailure(
             "EXTERNAL_CALL_FAILED",
             "browser.composer_attachment_cancel",
+            trace,
           );
       } catch {
         recordComposerAttachmentFailure(
           "EXTERNAL_CALL_FAILED",
           "browser.composer_attachment_cancel",
+          trace,
         );
         // Staged attachments also have a server-owned expiry. Compensation is
         // deliberately best-effort and must never replace the dispatch/upload error.
@@ -311,6 +318,7 @@ async function cancelManagedAttachments(attachmentIds: readonly string[]): Promi
 
 export async function stageUploadComposerAttachments(input: {
   threadId: string;
+  trace?: DiagnosticTraceContext;
   images: ReadonlyArray<ComposerImageAttachment>;
   files?: ReadonlyArray<ComposerFileAttachment>;
   assistantSelections: ReadonlyArray<ComposerAssistantSelectionAttachment>;
@@ -368,8 +376,9 @@ export async function stageUploadComposerAttachments(input: {
     recordComposerAttachmentFailure(
       "SEND_PREFLIGHT_REJECTED",
       "browser.composer_attachment_upload",
+      input.trace,
     );
-    await cancelManagedAttachments(managedAttachmentIds);
+    await cancelManagedAttachments(managedAttachmentIds, input.trace);
     throw error;
   }
 
@@ -377,7 +386,7 @@ export async function stageUploadComposerAttachments(input: {
   const cleanup = async () => {
     if (disposition !== "pending") return;
     disposition = "cleaned";
-    await cancelManagedAttachments(managedAttachmentIds);
+    await cancelManagedAttachments(managedAttachmentIds, input.trace);
   };
   const commit = () => {
     if (disposition === "pending") disposition = "committed";
@@ -390,7 +399,11 @@ export async function stageUploadComposerAttachments(input: {
       commit();
       return result;
     } catch (error) {
-      recordComposerAttachmentFailure("COMMAND_REJECTED", "browser.composer_attachment_dispatch");
+      recordComposerAttachmentFailure(
+        "COMMAND_REJECTED",
+        "browser.composer_attachment_dispatch",
+        input.trace,
+      );
       await cleanup();
       throw error;
     }
