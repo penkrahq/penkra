@@ -1085,13 +1085,20 @@ describe("WsTransport", () => {
       window.setTimeout = globalThis.setTimeout.bind(globalThis);
       window.clearTimeout = globalThis.clearTimeout.bind(globalThis);
       const transport = new WsTransport();
+      const recordDiagnosticIncident = vi.fn().mockResolvedValue(undefined);
+      window.desktopBridge = { recordDiagnosticIncident } as never;
       const firstScope = Effect.runSync(Scope.make());
       const secondScope = Effect.runSync(Scope.make());
+      const thirdScope = Effect.runSync(Scope.make());
       const firstRuntime = {
         runPromise: vi.fn().mockResolvedValue(undefined),
         dispose: vi.fn().mockResolvedValue(undefined),
       };
       const secondRuntime = {
+        runPromise: vi.fn().mockResolvedValue(undefined),
+        dispose: vi.fn().mockResolvedValue(undefined),
+      };
+      const thirdRuntime = {
         runPromise: vi.fn().mockResolvedValue(undefined),
         dispose: vi.fn().mockResolvedValue(undefined),
       };
@@ -1103,9 +1110,16 @@ describe("WsTransport", () => {
           clientScope: firstScope,
           clientPromise: new Promise(() => undefined),
         })
-        .mockReturnValueOnce({
+        .mockImplementationOnce(() => ({
           runtime: secondRuntime,
           clientScope: secondScope,
+          clientPromise: Promise.reject(
+            Object.assign(new Error("offline"), { code: "ECONNRESET" }),
+          ),
+        }))
+        .mockReturnValueOnce({
+          runtime: thirdRuntime,
+          clientScope: thirdScope,
           clientPromise: Promise.resolve(recoveredClient),
         });
       const internals = transport as unknown as {
@@ -1123,14 +1137,27 @@ describe("WsTransport", () => {
       await vi.advanceTimersByTimeAsync(500);
       expect(createSession).toHaveBeenCalledTimes(1);
 
-      await vi.advanceTimersByTimeAsync(WS_RECONNECT_ATTEMPT_TIMEOUT_MS + 1_000);
+      await vi.advanceTimersByTimeAsync(WS_RECONNECT_ATTEMPT_TIMEOUT_MS + 1_000 + 2_000);
 
       await expect(reconnect).resolves.toBe(recoveredClient);
-      expect(createSession).toHaveBeenCalledTimes(2);
+      expect(createSession).toHaveBeenCalledTimes(3);
       expect(firstRuntime.dispose).toHaveBeenCalledTimes(1);
+      expect(secondRuntime.dispose).toHaveBeenCalledTimes(1);
+      expect(recordDiagnosticIncident).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: "WS_HANDSHAKE_SLOW",
+          actual: expect.objectContaining({ attempt: 1 }),
+        }),
+      );
+      expect(recordDiagnosticIncident).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: "EXTERNAL_CALL_FAILED",
+          actual: expect.objectContaining({ attempt: 2, errorCode: "ECONNRESET" }),
+        }),
+      );
       internals.disposed = true;
-      await secondRuntime.runPromise(Scope.close(secondScope, Exit.void));
-      await secondRuntime.dispose();
+      await thirdRuntime.runPromise(Scope.close(thirdScope, Exit.void));
+      await thirdRuntime.dispose();
     } finally {
       vi.useRealTimers();
     }
