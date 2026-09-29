@@ -149,6 +149,37 @@ describe("diagnostics store", () => {
     expect(bytes()).toBeLessThanOrEqual(cap);
   }, 30_000);
 
+  it("recovers when update reset stops after removing old SQLite files", () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-diagnostics-reset-crash-"));
+    roots.push(stateDir);
+    const oldOptions = { stateDir, appVersion: "0.14.3", buildId: "aaaaaaa" };
+    const old = new DiagnosticsStore({ ...oldOptions, process: "server" });
+    const desktop = new DiagnosticsSpoolWriter({ ...oldOptions, process: "desktop-main" });
+    desktop.checkpoint({ traceId, spanId, flow: "send", step: "composer.preflight" });
+    desktop.close();
+    old.close();
+    const dir = path.join(stateDir, "diagnostics");
+    for (const name of fs.readdirSync(dir)) {
+      if (name === "identity" || name === "version" || name.startsWith("diagnostics.sqlite"))
+        fs.rmSync(path.join(dir, name), { force: true });
+    }
+    expect(fs.readdirSync(dir).some((name) => name.startsWith("spool-"))).toBe(true);
+    const current = new DiagnosticsStore({
+      stateDir,
+      appVersion: "0.14.3",
+      buildId: "bbbbbbb",
+      process: "server",
+    });
+    const reader = openDiagnosticsReader(stateDir)!;
+    expect(
+      reader
+        .prepare("SELECT COUNT(*) AS count FROM incidents WHERE code = 'DIAGNOSTICS_DROPPED'")
+        .get(),
+    ).toMatchObject({ count: 1 });
+    reader.close();
+    current.close();
+  });
+
   it("bounds fresh schema creation before its first SQLite write", () => {
     const cap = 128 * 1024;
     const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-diagnostics-"));
