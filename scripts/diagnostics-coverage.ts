@@ -204,6 +204,29 @@ function siteKey(site: FailureSite): string {
   return `${site.file}:${site.line}:${site.column}:${site.kind}`;
 }
 
+/** Subsystems own separate exception files so parallel reviews do not edit one list. */
+export function loadCoverageExceptions(scriptsDir: string): CoverageException[] {
+  const filenames = fs
+    .readdirSync(scriptsDir)
+    .filter((name) => /^diagnostics-coverage-exceptions(?:\.[a-z0-9_-]+)?\.json$/u.test(name))
+    .toSorted();
+  const seen = new Set<string>();
+  const all: CoverageException[] = [];
+  for (const filename of filenames) {
+    const entries = JSON.parse(fs.readFileSync(path.join(scriptsDir, filename), "utf8")) as
+      | CoverageException[]
+      | unknown;
+    if (!Array.isArray(entries)) throw new Error(`Invalid coverage exception file: ${filename}`);
+    for (const entry of entries as CoverageException[]) {
+      const key = siteKey(entry);
+      if (seen.has(key)) throw new Error(`Duplicate diagnostics coverage exception: ${key}`);
+      seen.add(key);
+      all.push(entry);
+    }
+  }
+  return all;
+}
+
 function hasCoverageMarker(
   source: string,
   site: FailureSite,
@@ -386,8 +409,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.met
   );
   if (process.argv.includes("--json")) process.stdout.write(`${JSON.stringify(sites)}\n`);
   if (process.argv.includes("--check")) {
-    const exceptionPath = path.join(repoRoot, "scripts/diagnostics-coverage-exceptions.json");
-    const exceptions = JSON.parse(fs.readFileSync(exceptionPath, "utf8")) as CoverageException[];
+    const exceptions = loadCoverageExceptions(path.join(repoRoot, "scripts"));
     const boundaryPath = path.join(repoRoot, "scripts/diagnostics-coverage-boundaries.json");
     const boundaryList = JSON.parse(fs.readFileSync(boundaryPath, "utf8")) as CoverageBoundary[];
     const sourceFor = (file: string) => fs.readFileSync(path.join(repoRoot, file), "utf8");

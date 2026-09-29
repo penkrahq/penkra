@@ -1,7 +1,11 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
   COVERAGE_ROOTS,
+  loadCoverageExceptions,
   scanFailureSites,
   uncoveredFailureSites,
   validateCoverageBoundaries,
@@ -9,6 +13,33 @@ import {
 } from "./diagnostics-coverage";
 
 describe("diagnostics failure inventory", () => {
+  it("merges subsystem exception files in order and rejects duplicate site IDs", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-coverage-exceptions-"));
+    try {
+      const row: CoverageException = {
+        file: "apps/web/src/example.ts",
+        line: 1,
+        column: 1,
+        kind: "throw",
+        disposition: "validation",
+        reason: "The value is rejected by the API validation contract.",
+        reviewer: "diagnostics-0143",
+      };
+      fs.writeFileSync(path.join(dir, "diagnostics-coverage-exceptions.json"), "[]");
+      fs.writeFileSync(
+        path.join(dir, "diagnostics-coverage-exceptions.web.json"),
+        JSON.stringify([row]),
+      );
+      expect(loadCoverageExceptions(dir)).toEqual([row]);
+      fs.writeFileSync(
+        path.join(dir, "diagnostics-coverage-exceptions.desktop.json"),
+        JSON.stringify([row]),
+      );
+      expect(() => loadCoverageExceptions(dir)).toThrow("Duplicate");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
   it("visits all four production roots", () => {
     expect(COVERAGE_ROOTS).toEqual([
       "apps/server/src",
