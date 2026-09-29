@@ -56,6 +56,14 @@ spool. A spool record has a version, process boot ID, monotonically increasing
 sequence, event type, and the same allowlisted payload stored in SQLite. A unique
 `(boot_id, sequence)` key makes crash replay idempotent.
 
+Desktop spool writers leave one-eighth of the total cap free, up to 128 MiB,
+while the server store is absent. This space lets an update write its durable
+loss manifest even if desktop spools otherwise fill their writable budget.
+On reset, the current process may first remove old SQLite and other files that
+carry no unreported spool or ledger loss; it retains every counted spool and
+ledger until their loss counts are durable. A crash before that point leaves
+those counted files for the next startup to process.
+
 | Table                  | Required columns                                                                                                                                                                                                                                                                                     | Indexes and lifecycle                                                                                                                                                                                        |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `meta`                 | `key TEXT PRIMARY KEY`, `value TEXT NOT NULL`                                                                                                                                                                                                                                                        | `schema_version=1`, `app_version`, `build_id`, `reset_at`, per-process drop counts and last prune. The bundle identity is held by the lifecycle identity file; there is no installer generation counter.     |
