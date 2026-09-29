@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   COVERAGE_ROOTS,
+  loadCoverageBoundaries,
   loadCoverageExceptions,
   scanFailureSites,
   uncoveredFailureSites,
@@ -13,6 +14,37 @@ import {
 } from "./diagnostics-coverage";
 
 describe("diagnostics failure inventory", () => {
+  it("merges subsystem boundary files in order and rejects duplicate code/where owners", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-coverage-boundaries-"));
+    try {
+      const base = {
+        code: "APP_OPERATION_FAILED",
+        where: "server.http",
+        file: "apps/server/src/http.ts",
+      };
+      const desktop = {
+        code: "APP_OPERATION_FAILED",
+        where: "desktop.bootstrap",
+        file: "apps/desktop/src/main.ts",
+      };
+      fs.writeFileSync(
+        path.join(dir, "diagnostics-coverage-boundaries.json"),
+        JSON.stringify([base]),
+      );
+      fs.writeFileSync(
+        path.join(dir, "diagnostics-coverage-boundaries.desktop.json"),
+        JSON.stringify([desktop]),
+      );
+      expect(loadCoverageBoundaries(dir)).toEqual([desktop, base]);
+      fs.writeFileSync(
+        path.join(dir, "diagnostics-coverage-boundaries.web.json"),
+        JSON.stringify([base]),
+      );
+      expect(() => loadCoverageBoundaries(dir)).toThrow("Duplicate");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
   it("merges subsystem exception files in order and rejects duplicate site IDs", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-coverage-exceptions-"));
     try {
