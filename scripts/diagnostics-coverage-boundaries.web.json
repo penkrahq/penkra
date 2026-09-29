@@ -1,0 +1,12 @@
+[
+  {
+    "code": "APP_OPERATION_FAILED",
+    "where": "browser.client_runtime",
+    "file": "apps/web/src/webFailureCoverage.ts"
+  },
+  {
+    "code": "APP_OPERATION_FAILED",
+    "where": "browser.local_state",
+    "file": "apps/web/src/webFailureCoverage.ts"
+  }
+]
