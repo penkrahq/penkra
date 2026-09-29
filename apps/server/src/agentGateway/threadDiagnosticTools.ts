@@ -29,12 +29,7 @@ import {
 } from "./threadDiagnosticSummary.ts";
 import { mcpToolResultJson } from "./protocol.ts";
 import { summarizeThreadDetail } from "./threadSummary.ts";
-import {
-  readBooleanArg,
-  readStringArg,
-  readStringArrayArg,
-  ToolInputError,
-} from "./toolInput.ts";
+import { readBooleanArg, readStringArg, readStringArrayArg, ToolInputError } from "./toolInput.ts";
 import {
   READ_ONLY_TOOL_ANNOTATIONS,
   WRITE_TOOL_ANNOTATIONS,
