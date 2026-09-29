@@ -260,7 +260,7 @@ async function ensureCodexOverlaySymlink(input: {
     targetStat = await fs.lstat(input.targetPath);
   } catch (cause) {
     if ((cause as NodeJS.ErrnoException).code !== "ENOENT") {
-      throw cause;
+      recordCodexConfigFailure();
     }
     targetStat = undefined;
   }
@@ -674,7 +674,7 @@ async function preparePenkraCodexHomeOverlayUnlocked(input: {
     }
   } catch (cause) {
     if ((cause as NodeJS.ErrnoException).code !== "ENOENT") {
-      throw cause;
+      recordCodexConfigFailure();
     }
     // If the source home is partially missing, Codex can still start with the
     // overlay config and create any required state lazily.
@@ -755,7 +755,8 @@ export async function prepareManagedCodexProfileConfig(input: {
       const sourceComputerUsePath = path.join(sourceHomePath, "computer-use");
       const sourceComputerUseStat = await fs.stat(sourceComputerUsePath).catch((cause: unknown) => {
         if ((cause as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-        throw cause;
+        recordCodexConfigFailure();
+        return undefined;
       });
       if (sourceComputerUseStat?.isDirectory()) {
         await ensureCodexOverlaySymlink({

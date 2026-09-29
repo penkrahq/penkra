@@ -15,7 +15,7 @@ afterEach(async () => {
 });
 
 describe("Codex profile filesystem diagnostics", () => {
-  it("records a non-ENOENT stat failure once through the preparation boundary", async () => {
+  it("records a non-ENOENT stat failure and continues the optional profile setup", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "penkra-codex-config-diagnostic-"));
     roots.push(root);
     const sourceHomePath = path.join(root, "source");
@@ -28,7 +28,7 @@ describe("Codex profile filesystem diagnostics", () => {
         env: { CODEX_HOME: codexHome },
         sourceHomePath,
       }),
-    ).rejects.toMatchObject({ code: "ELOOP" });
+    ).resolves.toBeUndefined();
     expect(recordDiagnosticIncident).toHaveBeenCalledTimes(1);
     expect(recordDiagnosticIncident).toHaveBeenCalledWith(
       expect.objectContaining({ code: "EXTERNAL_CALL_FAILED", where: "server.codex_config" }),

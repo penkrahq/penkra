@@ -5,7 +5,7 @@
     "column": 44,
     "kind": "catch",
     "disposition": "propagates",
-    "reason": "ENOENT takes the missing-file path; every other error propagates to serialized preparation, which records it once.",
+    "reason": "Only ENOENT takes the missing-file fallback; other failures propagate to the recorded preparation boundary.",
     "reviewer": "diagnostics-0143",
     "boundary": {
       "code": "EXTERNAL_CALL_FAILED",
@@ -18,7 +18,7 @@
     "column": 7,
     "kind": "throw",
     "disposition": "rethrow",
-    "reason": "The original filesystem failure is rethrown to the serialized preparation boundary after ENOENT recovery is excluded.",
+    "reason": "This error reaches the serialized preparation boundary, which records it before returning failure.",
     "reviewer": "diagnostics-0143",
     "boundary": {
       "code": "EXTERNAL_CALL_FAILED",
@@ -31,7 +31,7 @@
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
-    "reason": "A recovered symlink or shell failure, or a final preparation failure, records a content-free incident in this catch.",
+    "reason": "The existing recovery or final failure outcome remains unchanged; unexpected failure records a fixed incident.",
     "reviewer": "diagnostics-0143",
     "boundary": {
       "code": "EXTERNAL_CALL_FAILED",
@@ -44,7 +44,7 @@
     "column": 5,
     "kind": "throw",
     "disposition": "rethrow",
-    "reason": "The original filesystem failure is rethrown to the serialized preparation boundary after ENOENT recovery is excluded.",
+    "reason": "This error reaches the serialized preparation boundary, which records it before returning failure.",
     "reviewer": "diagnostics-0143",
     "boundary": {
       "code": "EXTERNAL_CALL_FAILED",
@@ -56,21 +56,8 @@
     "line": 261,
     "column": 5,
     "kind": "catch",
-    "disposition": "propagates",
-    "reason": "ENOENT takes the missing-file path; every other error propagates to serialized preparation, which records it once.",
-    "reviewer": "diagnostics-0143",
-    "boundary": {
-      "code": "EXTERNAL_CALL_FAILED",
-      "where": "server.codex_config"
-    }
-  },
-  {
-    "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 263,
-    "column": 7,
-    "kind": "throw",
-    "disposition": "rethrow",
-    "reason": "The original filesystem failure is rethrown to the serialized preparation boundary after ENOENT recovery is excluded.",
+    "disposition": "recorded",
+    "reason": "The existing recovery or final failure outcome remains unchanged; unexpected failure records a fixed incident.",
     "reviewer": "diagnostics-0143",
     "boundary": {
       "code": "EXTERNAL_CALL_FAILED",
@@ -83,7 +70,7 @@
     "column": 28,
     "kind": "catch",
     "disposition": "expected-recovery",
-    "reason": "The prior preparation rejected its original caller and is recorded at the preparation boundary.",
+    "reason": "The previous preparation rejected its caller and was recorded at the preparation boundary.",
     "reviewer": "diagnostics-0143"
   },
   {
@@ -92,7 +79,7 @@
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
-    "reason": "A recovered symlink or shell failure, or a final preparation failure, records a content-free incident in this catch.",
+    "reason": "The existing recovery or final failure outcome remains unchanged; unexpected failure records a fixed incident.",
     "reviewer": "diagnostics-0143",
     "boundary": {
       "code": "EXTERNAL_CALL_FAILED",
@@ -105,7 +92,7 @@
     "column": 5,
     "kind": "throw",
     "disposition": "rethrow",
-    "reason": "The original filesystem failure is rethrown to the serialized preparation boundary after ENOENT recovery is excluded.",
+    "reason": "This error reaches the serialized preparation boundary, which records it before returning failure.",
     "reviewer": "diagnostics-0143",
     "boundary": {
       "code": "EXTERNAL_CALL_FAILED",
@@ -117,21 +104,8 @@
     "line": 675,
     "column": 5,
     "kind": "catch",
-    "disposition": "propagates",
-    "reason": "ENOENT takes the missing-file path; every other error propagates to serialized preparation, which records it once.",
-    "reviewer": "diagnostics-0143",
-    "boundary": {
-      "code": "EXTERNAL_CALL_FAILED",
-      "where": "server.codex_config"
-    }
-  },
-  {
-    "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 677,
-    "column": 7,
-    "kind": "throw",
-    "disposition": "rethrow",
-    "reason": "The original filesystem failure is rethrown to the serialized preparation boundary after ENOENT recovery is excluded.",
+    "disposition": "recorded",
+    "reason": "The existing recovery or final failure outcome remains unchanged; unexpected failure records a fixed incident.",
     "reviewer": "diagnostics-0143",
     "boundary": {
       "code": "EXTERNAL_CALL_FAILED",
@@ -144,7 +118,7 @@
     "column": 68,
     "kind": "catch",
     "disposition": "propagates",
-    "reason": "ENOENT takes the missing-file path; every other error propagates to serialized preparation, which records it once.",
+    "reason": "Only ENOENT takes the missing-file fallback; other failures propagate to the recorded preparation boundary.",
     "reviewer": "diagnostics-0143",
     "boundary": {
       "code": "EXTERNAL_CALL_FAILED",
@@ -157,7 +131,7 @@
     "column": 5,
     "kind": "throw",
     "disposition": "rethrow",
-    "reason": "The original filesystem failure is rethrown to the serialized preparation boundary after ENOENT recovery is excluded.",
+    "reason": "This error reaches the serialized preparation boundary, which records it before returning failure.",
     "reviewer": "diagnostics-0143",
     "boundary": {
       "code": "EXTERNAL_CALL_FAILED",
@@ -170,7 +144,7 @@
     "column": 8,
     "kind": "catch",
     "disposition": "propagates",
-    "reason": "ENOENT takes the missing-file path; every other error propagates to serialized preparation, which records it once.",
+    "reason": "Only ENOENT takes the missing-file fallback; other failures propagate to the recorded preparation boundary.",
     "reviewer": "diagnostics-0143",
     "boundary": {
       "code": "EXTERNAL_CALL_FAILED",
@@ -183,7 +157,7 @@
     "column": 9,
     "kind": "throw",
     "disposition": "rethrow",
-    "reason": "The original filesystem failure is rethrown to the serialized preparation boundary after ENOENT recovery is excluded.",
+    "reason": "This error reaches the serialized preparation boundary, which records it before returning failure.",
     "reviewer": "diagnostics-0143",
     "boundary": {
       "code": "EXTERNAL_CALL_FAILED",
@@ -205,7 +179,7 @@
     "column": 60,
     "kind": "catch",
     "disposition": "propagates",
-    "reason": "ENOENT takes the missing-file path; every other error propagates to serialized preparation, which records it once.",
+    "reason": "Only ENOENT takes the missing-file fallback; other failures propagate to the recorded preparation boundary.",
     "reviewer": "diagnostics-0143",
     "boundary": {
       "code": "EXTERNAL_CALL_FAILED",
@@ -218,7 +192,7 @@
     "column": 7,
     "kind": "throw",
     "disposition": "rethrow",
-    "reason": "The original filesystem failure is rethrown to the serialized preparation boundary after ENOENT recovery is excluded.",
+    "reason": "This error reaches the serialized preparation boundary, which records it before returning failure.",
     "reviewer": "diagnostics-0143",
     "boundary": {
       "code": "EXTERNAL_CALL_FAILED",
@@ -230,8 +204,8 @@
     "line": 756,
     "column": 74,
     "kind": "catch",
-    "disposition": "propagates",
-    "reason": "ENOENT takes the missing-file path; every other error propagates to serialized preparation, which records it once.",
+    "disposition": "recorded",
+    "reason": "The existing recovery or final failure outcome remains unchanged; unexpected failure records a fixed incident.",
     "reviewer": "diagnostics-0143",
     "boundary": {
       "code": "EXTERNAL_CALL_FAILED",
@@ -240,24 +214,11 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 758,
-    "column": 9,
-    "kind": "throw",
-    "disposition": "rethrow",
-    "reason": "The original filesystem failure is rethrown to the serialized preparation boundary after ENOENT recovery is excluded.",
-    "reviewer": "diagnostics-0143",
-    "boundary": {
-      "code": "EXTERNAL_CALL_FAILED",
-      "where": "server.codex_config"
-    }
-  },
-  {
-    "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 773,
+    "line": 774,
     "column": 55,
     "kind": "catch",
     "disposition": "propagates",
-    "reason": "ENOENT takes the missing-file path; every other error propagates to serialized preparation, which records it once.",
+    "reason": "Only ENOENT takes the missing-file fallback; other failures propagate to the recorded preparation boundary.",
     "reviewer": "diagnostics-0143",
     "boundary": {
       "code": "EXTERNAL_CALL_FAILED",
@@ -266,11 +227,11 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 775,
+    "line": 776,
     "column": 13,
     "kind": "throw",
     "disposition": "rethrow",
-    "reason": "The original filesystem failure is rethrown to the serialized preparation boundary after ENOENT recovery is excluded.",
+    "reason": "This error reaches the serialized preparation boundary, which records it before returning failure.",
     "reviewer": "diagnostics-0143",
     "boundary": {
       "code": "EXTERNAL_CALL_FAILED",
@@ -279,11 +240,11 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 840,
+    "line": 841,
     "column": 7,
     "kind": "catch",
     "disposition": "recorded",
-    "reason": "A recovered symlink or shell failure, or a final preparation failure, records a content-free incident in this catch.",
+    "reason": "The existing recovery or final failure outcome remains unchanged; unexpected failure records a fixed incident.",
     "reviewer": "diagnostics-0143",
     "boundary": {
       "code": "EXTERNAL_CALL_FAILED",
