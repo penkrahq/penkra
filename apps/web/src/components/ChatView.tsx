@@ -3909,6 +3909,42 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
 
   const continueInFlightRef = useRef(false);
   const pendingContinueCommandIdRef = useRef<string | null>(null);
+  const pendingQaStopRef = useRef<{
+    threadId: string;
+    trace: ReturnType<typeof startDiagnosticTrace>;
+  } | null>(null);
+  const pendingQaPlayRef = useRef<{
+    threadId: string;
+    trace: ReturnType<typeof startDiagnosticTrace>;
+  } | null>(null);
+  useEffect(() => {
+    const stop = pendingQaStopRef.current;
+    if (stop && activeThreadId === stop.threadId && activeLatestTurn?.state === "interrupted") {
+      pendingQaStopRef.current = null;
+      void window.desktopBridge
+        ?.recordDiagnosticCheckpoint?.({
+          ...stop.trace,
+          threadId: stop.threadId,
+          flow: "stop",
+          step: "turn.terminal",
+          outcome: "ok",
+        })
+        .catch(() => undefined);
+    }
+    const play = pendingQaPlayRef.current;
+    if (play && activeThreadId === play.threadId && phase === "running") {
+      pendingQaPlayRef.current = null;
+      void window.desktopBridge
+        ?.recordDiagnosticCheckpoint?.({
+          ...play.trace,
+          threadId: play.threadId,
+          flow: "play",
+          step: "turn.started",
+          outcome: "ok",
+        })
+        .catch(() => undefined);
+    }
+  }, [activeLatestTurn?.state, activeThreadId, phase]);
   const [hiddenContinueTurnId, setHiddenContinueTurnId] = useState<TurnId | null>(null);
   useEffect(() => {
     const commandId = pendingContinueCommandIdRef.current;
@@ -4023,20 +4059,26 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     setContinueInFlight(target);
     const commandId = newCommandId();
     pendingContinueCommandIdRef.current = commandId;
+    const playTrace = startDiagnosticTrace();
+    pendingQaPlayRef.current = { threadId: target.threadId, trace: playTrace };
     try {
-      await api.orchestration.dispatchCommand({
-        type: "thread.turn.recover",
-        reason: "play",
-        commandId,
-        threadId: target.threadId,
-        turnId: target.turnId,
-        interruptedTurnId: target.turnId,
-        recoveryMessageId: newMessageId(),
-        connectionId: bindingForContinue.connectionId,
-        bindingRevision: bindingForContinue.revision,
-        createdAt: new Date().toISOString(),
-      });
+      await api.orchestration.dispatchCommand(
+        {
+          type: "thread.turn.recover",
+          reason: "play",
+          commandId,
+          threadId: target.threadId,
+          turnId: target.turnId,
+          interruptedTurnId: target.turnId,
+          recoveryMessageId: newMessageId(),
+          connectionId: bindingForContinue.connectionId,
+          bindingRevision: bindingForContinue.revision,
+          createdAt: new Date().toISOString(),
+        },
+        playTrace,
+      );
     } catch (error) {
+      pendingQaPlayRef.current = null;
       pendingContinueCommandIdRef.current = null;
       continueInFlightRef.current = false;
       setContinueInFlight(null);
@@ -5510,10 +5552,12 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       commandId: interruptCommand.commandId,
       pendingMessageId: diagnosticPendingMessageId,
     });
+    const stopTrace = startDiagnosticTrace();
+    pendingQaStopRef.current = { threadId: activeThread.id, trace: stopTrace };
     try {
       // Receipt records interrupt intent only. Shared projection decides whether
       // the pending message was cancelled before acceptance or reached history.
-      const receipt = await api.orchestration.dispatchCommand(interruptCommand);
+      const receipt = await api.orchestration.dispatchCommand(interruptCommand, stopTrace);
       recordChatLifecycleUiDiagnostic({
         event: "interrupt-receipt",
         threadId: activeThread.id,
@@ -5533,6 +5577,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         void revalidatePendingStartOutcome(pendingMessageId, receipt.sequence);
       }
     } catch (error) {
+      pendingQaStopRef.current = null;
       recordChatLifecycleUiDiagnostic({
         event: "interrupt-dispatch-failed",
         threadId: activeThread.id,
