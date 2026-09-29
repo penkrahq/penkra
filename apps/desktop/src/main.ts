@@ -85,7 +85,6 @@ import {
   qaEvidenceConfigFromEnv,
   recordQaActionAsync,
 } from "@penkra/shared/diagnostics/qaEvidence";
-import { signQaSocketClient } from "@penkra/shared/diagnostics/qaSocketTicket";
 import { ensureStaticSnapshot, findAsarArchivePath } from "@penkra/shared/staticSnapshot";
 import { isBackendReadinessAborted, waitForHttpReady } from "./backendReadiness";
 import { queryAppPermission } from "./appPermissionQuery";
@@ -117,6 +116,7 @@ import { startDesktopDiagnosticsMonitors } from "./desktopDiagnosticsMonitors";
 import { DesktopDiagnosticsQueue } from "./desktopDiagnosticsQueue";
 import { desktopDiagnosticStateDir } from "./desktopDiagnosticStateDir";
 import { DiagnosticsQaWindowTracker } from "./diagnosticsQaWindow";
+import { desktopQaSocketUrl } from "./desktopQaSocketUrl";
 import { diagnosticsQaAccountEnabled } from "./diagnosticsQaAccount";
 import {
   retainLiveBackendAfterShutdownFailure,
@@ -6902,27 +6902,27 @@ function registerIpcHandlers(): void {
     // The backend port is reserved at runtime, so preload asks main for the
     // live URL instead of trusting build-time or inherited renderer env.
     const wsUrl = normalizeDesktopWsUrl(backendWsUrl) ?? resolveDesktopWsUrlFromEnv(process.env);
-    event.returnValue = wsUrl;
-    if (!wsUrl || !diagnosticsQaShellEnabled() || !shellWindowRegistry.hasWebContents(event.sender))
-      return;
-    try {
-      const config = qaEvidenceConfigFromEnv();
-      if (!config) return;
-      const clientId =
-        qaSocketClientIds.get(event.sender.id) ?? Crypto.randomBytes(16).toString("hex");
-      qaSocketClientIds.set(event.sender.id, clientId);
-      const ticketId = Crypto.randomBytes(16).toString("hex");
-      const signedUrl = new URL(wsUrl);
-      signedUrl.searchParams.set("qaClientId", clientId);
-      signedUrl.searchParams.set("qaTicketId", ticketId);
-      signedUrl.searchParams.set(
-        "qaClientSignature",
-        signQaSocketClient(config, clientId, ticketId),
-      );
-      event.returnValue = signedUrl.toString();
-    } catch {
-      // Diagnostics cannot prevent the shell from connecting.
+    let replyUrl = wsUrl;
+    if (wsUrl && diagnosticsQaShellEnabled() && shellWindowRegistry.hasWebContents(event.sender)) {
+      try {
+        const config = qaEvidenceConfigFromEnv();
+        if (config) {
+          const clientId =
+            qaSocketClientIds.get(event.sender.id) ?? Crypto.randomBytes(16).toString("hex");
+          qaSocketClientIds.set(event.sender.id, clientId);
+          replyUrl = desktopQaSocketUrl({
+            baseUrl: wsUrl,
+            config,
+            clientId,
+            ticketId: Crypto.randomBytes(16).toString("hex"),
+          });
+        }
+      } catch {
+        // Diagnostics cannot prevent the shell from connecting.
+      }
     }
+    // sendSync receives the first returnValue assignment immediately.
+    event.returnValue = replyUrl;
   });
 
   ipcMain.removeAllListeners(IPC.zoomFactor);
