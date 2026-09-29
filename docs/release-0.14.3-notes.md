@@ -6,3 +6,5 @@
 - Fixes related thread behavior found during integration: delayed or retired sync acknowledgements after reconnect, Stop targeting the visible running turn, pending connection selection on an immediate send, and archive rejection recovery.
 
 The desktop release does not publish registry Apps or deploy the hosted backend. The diagnostics QA fixture is limited to disposable Dev builds.
+
+The remaining diagnostics coverage audit classifications are planned for 0.14.4; the audit is outside the 0.14.3 release gate.
