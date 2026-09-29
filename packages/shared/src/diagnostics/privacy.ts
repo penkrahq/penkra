@@ -334,6 +334,8 @@ const enumValues = {
     "browser.socket_stream",
     "browser.socket_listener",
     "browser.socket_cleanup",
+    "browser.local_state",
+    "browser.client_runtime",
   ],
   eventType: ["checkpoint", "external_outcome", "expectation_resolved"],
   callerTurnSource: ["foreground", "background-task-notification", "agent", "reactor"],
