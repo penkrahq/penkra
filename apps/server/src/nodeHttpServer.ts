@@ -6,10 +6,7 @@ import { Effect, Scope } from "effect";
 import * as HttpServer from "effect/unstable/http/HttpServer";
 import { ServeError } from "effect/unstable/http/HttpServerError";
 import { WebSocketServer } from "ws";
-import {
-  qaEvidenceConfigFromEnv,
-  recordQaActionAsync,
-} from "@penkra/shared/diagnostics/qaEvidence";
+import { recordServerQaActionAsync, serverQaProofConfig } from "./diagnostics/qaProofBuild";
 import { verifyQaSocketClient } from "@penkra/shared/diagnostics/qaSocketTicket";
 import { QaSocketReconnectTracker } from "./diagnostics/qaSocketReconnect";
 
@@ -91,13 +88,13 @@ export const makeBoundedNodeHttpServer = Effect.fnUntraced(function* (
   >();
   const qaReconnects = new QaSocketReconnectTracker(
     (traceId) => {
-      void recordQaActionAsync("reconnect", traceId).catch(() =>
+      void recordServerQaActionAsync("reconnect", traceId).catch(() =>
         process.stderr.write("[diagnostics] QA reconnect action proof failed\n"),
       );
     },
     (clientId, ticketId, signature) => {
       try {
-        const config = qaEvidenceConfigFromEnv();
+        const config = serverQaProofConfig();
         return config !== null && verifyQaSocketClient(config, clientId, ticketId, signature);
       } catch {
         return false;

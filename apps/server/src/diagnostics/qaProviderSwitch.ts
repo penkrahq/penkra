@@ -1,7 +1,4 @@
-import {
-  qaEvidenceConfigFromEnv,
-  recordQaActionAsync,
-} from "@penkra/shared/diagnostics/qaEvidence";
+import { recordServerQaActionAsync, serverQaProofConfig } from "./qaProofBuild";
 import { recordDiagnosticCheckpoint } from "./recorder";
 
 type Pending = {
@@ -22,7 +19,7 @@ export function armQaProviderSwitch(
   spanId: string,
 ): void {
   try {
-    if (!qaEvidenceConfigFromEnv()) return;
+    if (!serverQaProofConfig()) return;
   } catch {
     return;
   }
@@ -66,7 +63,7 @@ export function committedQaProviderSwitch(commandId: string, threadId: string): 
     outcome: "ok",
     fields: { commandId },
   });
-  void recordQaActionAsync("provider-switch", state.traceId).catch(() =>
+  void recordServerQaActionAsync("provider-switch", state.traceId).catch(() =>
     process.stderr.write("[diagnostics] QA provider-switch action proof failed\n"),
   );
 }

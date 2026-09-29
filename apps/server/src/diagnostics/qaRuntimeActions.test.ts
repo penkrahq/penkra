@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   qaEvidencePath,
@@ -20,7 +20,9 @@ import { installDiagnosticsStore } from "./recorder";
 import type { DiagnosticsStore } from "./store";
 
 const roots: string[] = [];
+beforeEach(() => vi.stubGlobal("__PENKRA_DIAGNOSTICS_QA_PROOF_BUILD__", true));
 afterEach(() => {
+  vi.unstubAllGlobals();
   delete process.env.PENKRA_DIAGNOSTICS_QA_PROOF_DIR;
   delete process.env.PENKRA_DIAGNOSTICS_QA_RUN_ID;
   delete process.env.PENKRA_DIAGNOSTICS_QA_SECRET;

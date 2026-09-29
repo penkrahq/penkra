@@ -116,6 +116,7 @@ import { startDesktopDiagnosticsMonitors } from "./desktopDiagnosticsMonitors";
 import { DesktopDiagnosticsQueue } from "./desktopDiagnosticsQueue";
 import { desktopDiagnosticStateDir } from "./desktopDiagnosticStateDir";
 import { DiagnosticsQaWindowTracker } from "./diagnosticsQaWindow";
+import { stripPackagedDiagnosticsQaEnvironment } from "./diagnosticsQaEnvironment";
 import { desktopQaSocketUrl } from "./desktopQaSocketUrl";
 import { diagnosticsQaAccountEnabled } from "./diagnosticsQaAccount";
 import {
@@ -4606,7 +4607,10 @@ function backendEnv(): NodeJS.ProcessEnv {
   // until it returns, so an unmarked child serializes a second ~1s hydration behind ours.
   // Written explicitly in both directions: an inherited marker must never suppress a
   // probe when our own hydration failed and the child's PATH is the raw launch one.
-  return applyShellEnvironmentHydrationMarker(env, shellEnvironmentSync.pathHydrated);
+  return stripPackagedDiagnosticsQaEnvironment(
+    applyShellEnvironmentHydrationMarker(env, shellEnvironmentSync.pathHydrated),
+    app.isPackaged,
+  );
 }
 
 function scheduleBackendRestart(reason: string): void {
