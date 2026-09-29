@@ -56,21 +56,30 @@ describe("QA command checkpoints", () => {
       qaRuntimeActionForCommand({
         type: "thread.turn.interrupt",
         threadId: "thread-a",
+        turnId: "turn-a",
       } as OrchestrationCommand),
-    ).toEqual({ flow: "stop", threadId: "thread-a" });
+    ).toEqual({ flow: "stop", threadId: "thread-a", turnId: "turn-a" });
     expect(
       qaRuntimeActionForCommand({
         type: "thread.turn.recover",
         reason: "play",
         threadId: "thread-a",
+        turnId: "turn-a",
       } as OrchestrationCommand),
-    ).toEqual({ flow: "play", threadId: "thread-a" });
+    ).toEqual({ flow: "play", threadId: "thread-a", turnId: "turn-a" });
     expect(
       qaRuntimeActionForCommand({
         type: "thread.turn.start",
         dispatchMode: "queue",
         threadId: "thread-a",
+        commandId: "command-a",
       } as OrchestrationCommand),
-    ).toEqual({ flow: "queue", threadId: "thread-a" });
+    ).toEqual({ flow: "queue", threadId: "thread-a", turnId: "turn:command-a" });
+    expect(
+      qaRuntimeActionForCommand({
+        type: "thread.turn.interrupt",
+        threadId: "thread-a",
+      } as OrchestrationCommand),
+    ).toBeNull();
   });
 });
