@@ -168,8 +168,9 @@ export interface ProviderAdapterShape<TError> {
 
   /**
    * Open and prove one exact native continuation without admitting a Penkra
-   * session, emitting canonical runtime events, sending a user turn, or
-   * retaining a provider process after the effect settles.
+   * session, emitting canonical runtime events, or retaining a provider
+   * process after the effect settles. An account switch may use a disposable
+   * synthetic probe turn; its native state is restored before commit.
    */
   readonly verifyNativeResume?: (
     input: ProviderNativeResumeVerificationInput,
