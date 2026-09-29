@@ -53,6 +53,19 @@ export class ThreadHomeWindow {
     return { windowId, revision };
   }
 
+  snapshot(windowId: number): {
+    readonly activeThreadId: string;
+    readonly views: readonly { threadId: string; deckId: string }[];
+  } | null {
+    const activeThreadId = this.#activeThread.get(windowId);
+    const views = this.#view.get(windowId);
+    if (!activeThreadId || !views?.has(activeThreadId)) return null;
+    return {
+      activeThreadId,
+      views: [...views].map(([threadId, deckId]) => ({ threadId, deckId })),
+    };
+  }
+
   leave(windowId: number): void {
     this.#view.delete(windowId);
     this.#activeThread.delete(windowId);

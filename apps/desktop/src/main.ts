@@ -5247,7 +5247,7 @@ function registerIpcHandlers(): void {
       activeThreadId,
       window?.isFocused() ?? false,
     );
-    qaWindowTracker.synced(window!.id, appliedSync);
+    qaWindowTracker.synced(window!.id, { ...appliedSync, views: validViews, activeThreadId });
     for (const view of validViews) {
       const selectedThreadId = threadHomeWindow.consumeThreadSelection(view.deckId);
       if (selectedThreadId && selectedThreadId !== activeThreadId) {
@@ -7494,10 +7494,14 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
   mainWindow ??= window;
   const rendererOwnerId = window.webContents.id;
   if (cloneFrom)
-    qaWindowTracker.opened(window.id, {
-      traceId: Crypto.randomBytes(16).toString("hex"),
-      spanId: Crypto.randomBytes(8).toString("hex"),
-    });
+    qaWindowTracker.opened(
+      window.id,
+      {
+        traceId: Crypto.randomBytes(16).toString("hex"),
+        spanId: Crypto.randomBytes(8).toString("hex"),
+      },
+      threadHomeWindow.snapshot(cloneFrom.id),
+    );
   window.on("closed", () => qaWindowTracker.closed(window.id));
   // `ready-to-show` is not guaranteed by every development compositor path.
   // A completed main-frame load is an equally valid event-driven fallback.
