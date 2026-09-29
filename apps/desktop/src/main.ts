@@ -81,7 +81,11 @@ import {
   type IncidentInput,
   type DiagnosticsOptions,
 } from "@penkra/shared/diagnostics/store";
-import { recordQaActionAsync } from "@penkra/shared/diagnostics/qaEvidence";
+import {
+  qaEvidenceConfigFromEnv,
+  recordQaActionAsync,
+} from "@penkra/shared/diagnostics/qaEvidence";
+import { signQaSocketClient } from "@penkra/shared/diagnostics/qaSocketTicket";
 import { ensureStaticSnapshot, findAsarArchivePath } from "@penkra/shared/staticSnapshot";
 import { isBackendReadinessAborted, waitForHttpReady } from "./backendReadiness";
 import { queryAppPermission } from "./appPermissionQuery";
@@ -508,6 +512,22 @@ const ROOT_DIR = Path.resolve(__dirname, "../../..");
 const APP_DISPLAY_NAME = desktopIdentity.displayName;
 const APP_USER_MODEL_ID = desktopIdentity.bundleId;
 const desktopSmokeUserDataPath = process.env.PENKRA_DESKTOP_SMOKE_USER_DATA?.trim();
+const qaSocketClientIds = new Map<number, string>();
+
+function diagnosticsQaShellEnabled(): boolean {
+  return (
+    __PENKRA_DIAGNOSTICS_QA_ACCOUNT_BUILD__ &&
+    diagnosticsQaAccountEnabled({
+      isPackaged: app.isPackaged,
+      isDevelopment,
+      root: PENKRA_ROOT,
+      smokeProfile: desktopSmokeUserDataPath,
+      proofDir: process.env.PENKRA_DIAGNOSTICS_QA_PROOF_DIR,
+      runId: process.env.PENKRA_DIAGNOSTICS_QA_RUN_ID,
+      secret: process.env.PENKRA_DIAGNOSTICS_QA_SECRET,
+    })
+  );
+}
 const COMMIT_HASH_PATTERN = /^[0-9a-f]{7,40}$/i;
 const COMMIT_HASH_DISPLAY_LENGTH = 12;
 const LOG_DIR = Path.join(STATE_DIR, "logs");
@@ -6874,8 +6894,23 @@ function registerIpcHandlers(): void {
   ipcMain.on(IPC.wsUrl, (event: IpcMainEvent) => {
     // The backend port is reserved at runtime, so preload asks main for the
     // live URL instead of trusting build-time or inherited renderer env.
-    event.returnValue =
-      normalizeDesktopWsUrl(backendWsUrl) ?? resolveDesktopWsUrlFromEnv(process.env);
+    const wsUrl = normalizeDesktopWsUrl(backendWsUrl) ?? resolveDesktopWsUrlFromEnv(process.env);
+    event.returnValue = wsUrl;
+    if (!wsUrl || !diagnosticsQaShellEnabled() || !shellWindowRegistry.hasWebContents(event.sender))
+      return;
+    try {
+      const config = qaEvidenceConfigFromEnv();
+      if (!config) return;
+      const clientId =
+        qaSocketClientIds.get(event.sender.id) ?? Crypto.randomBytes(16).toString("hex");
+      qaSocketClientIds.set(event.sender.id, clientId);
+      const signedUrl = new URL(wsUrl);
+      signedUrl.searchParams.set("qaClientId", clientId);
+      signedUrl.searchParams.set("qaClientSignature", signQaSocketClient(config, clientId));
+      event.returnValue = signedUrl.toString();
+    } catch {
+      // Diagnostics cannot prevent the shell from connecting.
+    }
   });
 
   ipcMain.removeAllListeners(IPC.zoomFactor);
@@ -7661,6 +7696,7 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
   });
 
   window.on("closed", () => {
+    qaSocketClientIds.delete(rendererOwnerId);
     panelFocusState.delete(window.id);
     threadHomeWindow.close(window.id);
     void releaseAppTabWindow(rendererOwnerId);
@@ -7898,18 +7934,7 @@ if (hasSingleInstanceLock) {
     inspectInitialProtocolUrlFromArgv: desktopPlatform.deepLinks.inspectInitialArgv,
     websiteOrigin: penkraAccountServices.websiteOrigin,
   });
-  if (
-    __PENKRA_DIAGNOSTICS_QA_ACCOUNT_BUILD__ &&
-    diagnosticsQaAccountEnabled({
-      isPackaged: app.isPackaged,
-      isDevelopment,
-      root: PENKRA_ROOT,
-      smokeProfile: desktopSmokeUserDataPath,
-      proofDir: process.env.PENKRA_DIAGNOSTICS_QA_PROOF_DIR,
-      runId: process.env.PENKRA_DIAGNOSTICS_QA_RUN_ID,
-      secret: process.env.PENKRA_DIAGNOSTICS_QA_SECRET,
-    })
-  ) {
+  if (diagnosticsQaShellEnabled()) {
     ipcMain.removeHandler(IPC.accountAuth.getState);
     ipcMain.handle(IPC.accountAuth.getState, (event) =>
       event.sender === resolveShellWindow()?.webContents

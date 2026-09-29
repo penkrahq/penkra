@@ -6,7 +6,11 @@ import { Effect, Scope } from "effect";
 import * as HttpServer from "effect/unstable/http/HttpServer";
 import { ServeError } from "effect/unstable/http/HttpServerError";
 import { WebSocketServer } from "ws";
-import { recordQaActionAsync } from "@penkra/shared/diagnostics/qaEvidence";
+import {
+  qaEvidenceConfigFromEnv,
+  recordQaActionAsync,
+} from "@penkra/shared/diagnostics/qaEvidence";
+import { verifyQaSocketClient } from "@penkra/shared/diagnostics/qaSocketTicket";
 import { QaSocketReconnectTracker } from "./diagnostics/qaSocketReconnect";
 
 export const MAX_WEBSOCKET_MESSAGE_BYTES = 2 * 1024 * 1024;
@@ -70,11 +74,21 @@ export const makeBoundedNodeHttpServer = Effect.fnUntraced(function* (
       onSocketClose: () => void;
     }
   >();
-  const qaReconnects = new QaSocketReconnectTracker((traceId) => {
-    void recordQaActionAsync("reconnect", traceId).catch(() =>
-      process.stderr.write("[diagnostics] QA reconnect action proof failed\n"),
-    );
-  });
+  const qaReconnects = new QaSocketReconnectTracker(
+    (traceId) => {
+      void recordQaActionAsync("reconnect", traceId).catch(() =>
+        process.stderr.write("[diagnostics] QA reconnect action proof failed\n"),
+      );
+    },
+    (clientId, signature) => {
+      try {
+        const config = qaEvidenceConfigFromEnv();
+        return config !== null && verifyQaSocketClient(config, clientId, signature);
+      } catch {
+        return false;
+      }
+    },
+  );
 
   webSocketServer.on("connection", (socket, request) => {
     const bootstrapUpgrade = bootstrapUpgrades.get(request);
@@ -95,20 +109,22 @@ export const makeBoundedNodeHttpServer = Effect.fnUntraced(function* (
         return "unknown";
       }
     })();
-    let closeQaConnection = () => {};
+    let qaConnection = { closed: () => {}, receivedFrame: (_raw: string) => {} };
     if (requestPath === "/ws") {
       try {
         const url = new URL(request.url ?? "/", "http://127.0.0.1");
-        closeQaConnection = qaReconnects.opened(
-          url.searchParams.get("qaClientId"),
-          url.searchParams.get("qaReconnectTraceId"),
-        );
+        qaConnection = qaReconnects.opened({
+          clientId: url.searchParams.get("qaClientId"),
+          signature: url.searchParams.get("qaClientSignature"),
+          traceId: url.searchParams.get("qaReconnectTraceId"),
+        });
       } catch {
         // Invalid optional QA parameters cannot affect the WebSocket.
       }
     }
+    socket.on("message", (data) => qaConnection.receivedFrame(data.toString("utf8")));
     socket.on("close", (code, reason) => {
-      closeQaConnection();
+      qaConnection.closed();
       Effect.runFork(
         Effect.logInfo("WebSocket connection closed").pipe(
           Effect.annotateLogs({

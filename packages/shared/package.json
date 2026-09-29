@@ -24,6 +24,10 @@
       "types": "./src/diagnostics/qaEvidence.ts",
       "import": "./src/diagnostics/qaEvidence.ts"
     },
+    "./diagnostics/qaSocketTicket": {
+      "types": "./src/diagnostics/qaSocketTicket.ts",
+      "import": "./src/diagnostics/qaSocketTicket.ts"
+    },
     "./traceContext": {
       "types": "./src/traceContext.ts",
       "import": "./src/traceContext.ts"
