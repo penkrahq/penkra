@@ -16,6 +16,16 @@
   },
   {
     "code": "APP_OPERATION_FAILED",
+    "where": "desktop.app_runtime",
+    "file": "apps/desktop/src/desktopFailureCoverage.ts"
+  },
+  {
+    "code": "APP_OPERATION_FAILED",
+    "where": "desktop.app_storage",
+    "file": "apps/desktop/src/desktopFailureCoverage.ts"
+  },
+  {
+    "code": "APP_OPERATION_FAILED",
     "where": "desktop.app_tab",
     "file": "apps/desktop/src/main.ts"
   },
@@ -23,6 +33,11 @@
     "code": "APP_OPERATION_FAILED",
     "where": "desktop.app_transfer",
     "file": "apps/desktop/src/main.ts"
+  },
+  {
+    "code": "APP_OPERATION_FAILED",
+    "where": "desktop.backend_runtime",
+    "file": "apps/desktop/src/desktopFailureCoverage.ts"
   },
   {
     "code": "APP_OPERATION_FAILED",
@@ -38,6 +53,31 @@
     "code": "APP_OPERATION_FAILED",
     "where": "desktop.migration_recovery",
     "file": "apps/desktop/src/main.ts"
+  },
+  {
+    "code": "APP_OPERATION_FAILED",
+    "where": "desktop.platform_runtime",
+    "file": "apps/desktop/src/desktopFailureCoverage.ts"
+  },
+  {
+    "code": "APP_OPERATION_FAILED",
+    "where": "desktop.registry_client",
+    "file": "apps/desktop/src/desktopFailureCoverage.ts"
+  },
+  {
+    "code": "APP_OPERATION_FAILED",
+    "where": "desktop.simulator_runtime",
+    "file": "apps/desktop/src/desktopFailureCoverage.ts"
+  },
+  {
+    "code": "APP_OPERATION_FAILED",
+    "where": "desktop.tab_observer",
+    "file": "apps/desktop/src/desktopFailureCoverage.ts"
+  },
+  {
+    "code": "APP_OPERATION_FAILED",
+    "where": "desktop.update_runtime",
+    "file": "apps/desktop/src/desktopFailureCoverage.ts"
   },
   {
     "code": "APP_OPERATION_FAILED",

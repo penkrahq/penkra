@@ -44,6 +44,7 @@ import {
 import { isRequiredApp } from "./appDistributionPolicy";
 import { AppRuntimeFailureError, appRuntimeOperationFailure } from "./appRuntimeFailure";
 import { ProtectedPublisher } from "./protectedPublisher";
+import { recordDesktopConsumedFailure } from "./desktopFailureCoverage";
 
 export type AppInstallationStateListener = (state: AppInstallationState) => void | Promise<void>;
 
@@ -253,6 +254,7 @@ export class AppInstallationService {
         await this.#updates?.clear();
         committedState = state;
       } catch (cause) {
+        recordDesktopConsumedFailure("app");
         const rollbackFailures: Array<{ role: string; failure: unknown }> = [];
         if (wasEnabled && this.#lifecycle.isActive(appId, input.spaceId)) {
           await this.#lifecycle
@@ -522,6 +524,7 @@ export class AppInstallationService {
         this.#publish(next);
         return next;
       } catch (error) {
+        recordDesktopConsumedFailure("app");
         if (previous === null)
           await this.#settingSecrets.deleteSecret(input.appId, input.spaceId, secretName);
         else await this.#settingSecrets.setSecret(input.appId, input.spaceId, secretName, previous);
@@ -554,6 +557,7 @@ export class AppInstallationService {
         this.#publish(next);
         return next;
       } catch (error) {
+        recordDesktopConsumedFailure("app");
         if (isSensitiveAppSetting(declaration) && previous !== null) {
           await this.#settingSecrets.setSecret(input.appId, input.spaceId, secretName, previous);
         }
@@ -679,6 +683,7 @@ export class AppInstallationService {
   }
 
   #reportTerminalFailure(error: unknown): void {
+    recordDesktopConsumedFailure("app");
     try {
       Promise.resolve(this.#onNotificationError(error)).catch(() => undefined);
     } catch {
