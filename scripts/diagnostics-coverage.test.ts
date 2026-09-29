@@ -118,6 +118,11 @@ throw new Error("three");`;
     const sites = scanFailureSites("apps/web/src/example.ts", source);
     expect(sites[0]?.column).not.toBe(sites[1]?.column);
     expect(uncoveredFailureSites(sites, () => source, [])).toHaveLength(2);
+    const chained = scanFailureSites(
+      "apps/web/src/example.ts",
+      "Promise.reject('one').catch(handle).catch(handle);",
+    );
+    expect(chained.map((site) => site.column).toSorted((a, b) => a - b)).toEqual([9, 23, 37]);
   });
 
   it("rejects a local marker when the recording call is unrelated or follows the failure", () => {

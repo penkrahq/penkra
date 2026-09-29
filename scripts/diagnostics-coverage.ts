@@ -32,6 +32,14 @@ export interface CoverageBoundary {
   readonly file: string;
 }
 
+function failureSitePosition(node: ts.Node, parsed: ts.SourceFile): ts.LineAndCharacter {
+  const token =
+    ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+      ? node.expression.name
+      : node;
+  return parsed.getLineAndCharacterOfPosition(token.getStart(parsed));
+}
+
 function recordsAtBoundary(source: string, boundary: CoverageBoundary): boolean {
   const parsed = ts.createSourceFile(boundary.file, source, ts.ScriptTarget.Latest, true);
   let found = false;
@@ -86,7 +94,7 @@ function recordsBeforeSite(
         : ts.isCallExpression(node)
           ? callKind(node)
           : null;
-    const position = parsed.getLineAndCharacterOfPosition(node.getStart(parsed));
+    const position = failureSitePosition(node, parsed);
     if (
       kind === site.kind &&
       position.line + 1 === site.line &&
@@ -255,7 +263,7 @@ export function scanFailureSites(file: string, source: string): FailureSite[] {
           ? callKind(node)
           : null;
     if (kind) {
-      const position = parsed.getLineAndCharacterOfPosition(node.getStart(parsed));
+      const position = failureSitePosition(node, parsed);
       found.push({
         file,
         line: position.line + 1,
