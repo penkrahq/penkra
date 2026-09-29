@@ -304,6 +304,8 @@ function totalBytes(dir: string): number {
   }, 0);
 }
 
+const SQLITE_OPEN_RESERVE_BYTES = 65_536;
+
 function sqlitePhysicalBudget(
   database: DatabaseSync,
   dir: string,
@@ -329,7 +331,7 @@ function sqlitePhysicalBudget(
   // With cache spill disabled, one transaction contributes at most one WAL
   // frame per database page. Account for both full-size files, frame headers,
   // and the WAL-index's 32 KiB regions before allowing SQLite to write.
-  const fixedOverhead = 65_536;
+  const fixedOverhead = SQLITE_OPEN_RESERVE_BYTES;
   const bytesPerPage = pageSize * 2 + 32;
   const maxPages = Math.floor((maxTotalBytes - externalBytes - fixedOverhead) / bytesPerPage);
   if (maxPages < pageCount || maxPages < 1)
@@ -1198,6 +1200,10 @@ export class DiagnosticsStore {
         }
       }
       const createdDatabase = !fs.existsSync(this.dbPath);
+      // Opening a WAL database can create a 32 KiB shared-memory file before
+      // the first PRAGMA gives us a chance to set its page budget.
+      if (totalBytes(this.dir) + SQLITE_OPEN_RESERVE_BYTES > this.maxTotalBytes)
+        throw new Error("Diagnostics capacity reached before SQLite open");
       const db = new DatabaseSync(this.dbPath);
       db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
         PRAGMA cache_spill=OFF; PRAGMA wal_autocheckpoint=1;
@@ -1220,12 +1226,17 @@ export class DiagnosticsStore {
       this.database = db;
       flushResetLossManifest(this.dir);
       const crashedProcesses = this.importSpoolsLocked();
-      fs.writeFileSync(
-        this.activePath,
-        JSON.stringify({ pid: process.pid, process: options.process }),
-        { mode: 0o600 },
-      );
-      writeLossLedger(lossLedgerPath(this.dir, this.bootId), emptyLossCounts(), "capacity");
+      const active = JSON.stringify({ pid: process.pid, process: options.process });
+      const lossFile = lossLedgerPath(this.dir, this.bootId);
+      if (
+        totalBytes(this.dir) +
+          Buffer.byteLength(active) +
+          (fs.existsSync(lossFile) ? 0 : LOSS_LEDGER_FILE_BYTES) >
+        this.maxTotalBytes
+      )
+        throw new Error("Diagnostics capacity reached before store startup markers");
+      fs.writeFileSync(this.activePath, active, { mode: 0o600 });
+      writeLossLedger(lossFile, emptyLossCounts(), "capacity");
       return { crashedProcesses };
     });
     this.sweepExpectations(new Date(), true);
