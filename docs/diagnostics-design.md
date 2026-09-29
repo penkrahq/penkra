@@ -637,7 +637,10 @@ before it is added to the default lint gate.
   app checkpoints for every required assertion on one trace after each script;
   assertions listed only in the script report do not count. The app process also
   signs a flow-specific action result under a QA-only run secret, and the gate
-  requires a fresh valid result on that trace. The secret is removed from the
+  generates a fresh random challenge before each flow. The app signs the
+  challenge with the action result; the gate requires that exact challenge and
+  trace, preventing replay of an earlier valid result from the same run. The
+  secret is removed from the
   flow-script environment. A zero exit without
   that report, a mismatched flow or missing checkpoints fails the gate.
 - **Pass for the clean QA run:** every script meets its expectations, and `penkra diagnostics incidents --since <run start>` returns **zero new occurrences**, including repeats of an existing aggregate. No new incident is exempt from this count.

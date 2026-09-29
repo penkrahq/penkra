@@ -3,7 +3,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { qaEvidencePath, verifyQaAction } from "@penkra/shared/diagnostics/qaEvidence";
+import {
+  qaEvidencePath,
+  verifyQaAction,
+  writeQaChallenge,
+} from "@penkra/shared/diagnostics/qaEvidence";
 import { armQaRuntimeAction, settleQaRuntimeAction } from "./qaRuntimeActions";
 
 const roots: string[] = [];
@@ -26,6 +30,7 @@ describe("QA runtime action proofs", () => {
     process.env.PENKRA_DIAGNOSTICS_QA_PROOF_DIR = dir;
     process.env.PENKRA_DIAGNOSTICS_QA_RUN_ID = config.runId;
     process.env.PENKRA_DIAGNOSTICS_QA_SECRET = config.secret;
+    writeQaChallenge(config, "stop", "01".repeat(32));
     const traceId = "0123456789abcdef0123456789abcdef";
     settleQaRuntimeAction({
       threadId: "thread-a",
@@ -84,6 +89,8 @@ describe("QA runtime action proofs", () => {
     process.env.PENKRA_DIAGNOSTICS_QA_PROOF_DIR = dir;
     process.env.PENKRA_DIAGNOSTICS_QA_RUN_ID = config.runId;
     process.env.PENKRA_DIAGNOSTICS_QA_SECRET = config.secret;
+    writeQaChallenge(config, "play", "02".repeat(32));
+    writeQaChallenge(config, "queue", "03".repeat(32));
     const playTrace = "11111111111111111111111111111111";
     const queueTrace = "22222222222222222222222222222222";
     armQaRuntimeAction("play", "thread-play", "turn-play", playTrace);

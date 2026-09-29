@@ -21,6 +21,7 @@ export interface QaActionEvidence {
   readonly flow: QaActionFlow;
   readonly action: (typeof QA_ACTIONS)[QaActionFlow];
   readonly traceId: string;
+  readonly challenge: string;
   readonly at: string;
   readonly signature: string;
 }
@@ -32,6 +33,7 @@ export interface QaEvidenceConfig {
 }
 
 const ID = /^[a-f0-9]{32}$/u;
+const CHALLENGE = /^[a-f0-9]{64}$/u;
 const RUN_ID = /^[a-f0-9-]{36}$/u;
 
 export function qaEvidenceConfigFromEnv(env = process.env): QaEvidenceConfig | null {
@@ -48,6 +50,23 @@ export function qaEvidencePath(config: QaEvidenceConfig): string {
   return path.join(config.dir, `qa-actions-${config.runId}.jsonl`);
 }
 
+export function qaChallengePath(config: QaEvidenceConfig, flow: QaActionFlow): string {
+  return path.join(config.dir, `qa-challenge-${config.runId}-${flow}`);
+}
+
+export function writeQaChallenge(
+  config: QaEvidenceConfig,
+  flow: QaActionFlow,
+  challenge: string,
+): void {
+  if (!CHALLENGE.test(challenge)) throw new TypeError("Invalid diagnostics QA challenge");
+  fs.mkdirSync(config.dir, { recursive: true, mode: 0o700 });
+  const target = qaChallengePath(config, flow);
+  const temporary = `${target}.${process.pid}.tmp`;
+  fs.writeFileSync(temporary, challenge, { mode: 0o600 });
+  fs.renameSync(temporary, target);
+}
+
 function unsigned(evidence: Omit<QaActionEvidence, "signature">): string {
   return JSON.stringify([
     evidence.version,
@@ -55,6 +74,7 @@ function unsigned(evidence: Omit<QaActionEvidence, "signature">): string {
     evidence.flow,
     evidence.action,
     evidence.traceId,
+    evidence.challenge,
     evidence.at,
   ]);
 }
@@ -63,9 +83,15 @@ export function signQaAction(
   config: QaEvidenceConfig,
   flow: QaActionFlow,
   traceId: string,
+  challenge: string,
   at = new Date().toISOString(),
 ): QaActionEvidence {
-  if (!ID.test(traceId) || !RUN_ID.test(config.runId) || !/^[a-f0-9]{64}$/u.test(config.secret))
+  if (
+    !ID.test(traceId) ||
+    !CHALLENGE.test(challenge) ||
+    !RUN_ID.test(config.runId) ||
+    !CHALLENGE.test(config.secret)
+  )
     throw new TypeError("Invalid diagnostics QA action identity");
   const data = {
     version: 1,
@@ -73,6 +99,7 @@ export function signQaAction(
     flow,
     action: QA_ACTIONS[flow],
     traceId,
+    challenge,
     at,
   } as const;
   return {
@@ -86,6 +113,7 @@ export function signQaAction(
 export function verifyQaAction(
   config: QaEvidenceConfig,
   value: unknown,
+  expectedChallenge?: string,
 ): value is QaActionEvidence {
   if (!value || typeof value !== "object") return false;
   const row = value as Record<string, unknown>;
@@ -97,13 +125,22 @@ export function verifyQaAction(
     row.action !== QA_ACTIONS[row.flow as QaActionFlow] ||
     typeof row.traceId !== "string" ||
     !ID.test(row.traceId) ||
+    typeof row.challenge !== "string" ||
+    !CHALLENGE.test(row.challenge) ||
+    (expectedChallenge !== undefined && row.challenge !== expectedChallenge) ||
     typeof row.at !== "string" ||
     Number.isNaN(Date.parse(row.at)) ||
     typeof row.signature !== "string" ||
     !/^[a-f0-9]{64}$/u.test(row.signature)
   )
     return false;
-  const expected = signQaAction(config, row.flow as QaActionFlow, row.traceId, row.at).signature;
+  const expected = signQaAction(
+    config,
+    row.flow as QaActionFlow,
+    row.traceId,
+    row.challenge,
+    row.at,
+  ).signature;
   return timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(row.signature, "hex"));
 }
 
@@ -111,7 +148,8 @@ export function verifyQaAction(
 export function recordQaAction(flow: QaActionFlow, traceId: string): void {
   const config = qaEvidenceConfigFromEnv();
   if (!config) return;
-  const evidence = signQaAction(config, flow, traceId);
+  const challenge = fs.readFileSync(qaChallengePath(config, flow), "utf8").trim();
+  const evidence = signQaAction(config, flow, traceId, challenge);
   fs.mkdirSync(config.dir, { recursive: true, mode: 0o700 });
   const handle = fs.openSync(qaEvidencePath(config), "a", 0o600);
   try {
