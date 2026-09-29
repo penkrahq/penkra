@@ -40,20 +40,24 @@ parentPort?.on("message", (message: DiagnosticsMessage) => {
         parentPort?.close();
         break;
       case "checkpoint":
-        writer.checkpoint(message.input);
+        if (message.expectationId)
+          writer.checkpointWithReceipt(message.input, message.expectationId);
+        else writer.checkpoint(message.input);
         break;
       case "incident":
-        writer.incident(message.input);
+        if (message.expectationId) writer.incidentWithReceipt(message.input, message.expectationId);
+        else writer.incident(message.input);
         break;
       case "sendExpectation":
-        writer.armExpectation({
+        const input = {
           ...message.input,
           kind: "send.accepted",
           deadlineMs: DIAGNOSTIC_LIMITS.sendAcceptedMs,
-        });
+        } as const;
+        if (message.expectationId) writer.armExpectationWithReceipt(input, message.expectationId);
+        else writer.armExpectation(input);
         break;
     }
-    settled = message.kind !== "shutdown";
   } catch (cause) {
     if (cause instanceof TypeError) {
       try {

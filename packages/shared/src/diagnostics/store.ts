@@ -222,6 +222,7 @@ interface SpoolEnvelope {
   readonly monoMs: number;
   readonly process: DiagnosticsOptions["process"];
   readonly osMajor?: number | "unknown";
+  readonly receiptId?: string;
   readonly data:
     | CheckpointInput
     | IncidentInput
@@ -625,6 +626,7 @@ function prepareEnvelope(
   processName: DiagnosticsOptions["process"],
   type: SpoolEnvelope["type"],
   data: SpoolEnvelope["data"],
+  receiptId?: string,
 ): SpoolEnvelope {
   if (type !== "health" && type !== "provenance_set") validateContext(data as DiagnosticContext);
   validateDiagnosticId(bootId);
@@ -633,6 +635,14 @@ function prepareEnvelope(
   }
   if (!Number.isSafeInteger(sequence) || sequence < 1)
     throw new TypeError("Invalid spool sequence");
+  if (receiptId !== undefined) {
+    validateDiagnosticId(receiptId);
+    if (
+      processName !== "desktop-main" ||
+      !["checkpoint", "incident", "expectation_arm"].includes(type)
+    )
+      throw new TypeError("Invalid diagnostic worker receipt");
+  }
   let safeData: SpoolEnvelope["data"];
   if (type === "health") {
     const health = data as HealthRecord;
@@ -780,6 +790,7 @@ function prepareEnvelope(
     at: new Date().toISOString(),
     monoMs: performance.now(),
     process: processName,
+    ...(receiptId ? { receiptId } : {}),
     data: safeData,
   };
 }
@@ -874,6 +885,14 @@ function insertEnvelope(
       .prepare(`INSERT INTO meta(key, value) VALUES (?, ?)
         ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + ?`)
       .run(`sequence-gap:${event.bootId}`, String(gap), gap);
+  if (event.receiptId) {
+    if (
+      database.prepare("DELETE FROM expectations WHERE id = ?").run(event.receiptId).changes === 0
+    )
+      database
+        .prepare("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)")
+        .run(`expectation-resolved:${event.receiptId}`, event.at);
+  }
   if (event.type === "provenance_set") {
     const provenance = event.data as ProvenanceInput;
     database
@@ -1458,6 +1477,7 @@ export class DiagnosticsStore {
               event.process,
               event.type,
               event.data,
+              event.receiptId,
             );
             event = {
               ...safe,
@@ -1713,6 +1733,7 @@ export class DiagnosticsStore {
           pending.process,
           pending.type,
           pending.data,
+          pending.receiptId,
         );
         insertEnvelope(
           this.database,
@@ -2276,7 +2297,11 @@ export class DiagnosticsSpoolWriter {
     });
   }
 
-  private append(type: SpoolEnvelope["type"], data: SpoolEnvelope["data"]): void {
+  private append(
+    type: SpoolEnvelope["type"],
+    data: SpoolEnvelope["data"],
+    receiptId?: string,
+  ): void {
     withLifecycleLock(this.dir, () => {
       if (!runningBundleIsInstalled(this.options)) this.stale = true;
       const marker = path.join(this.dir, `spool-identity-${this.bootId}.json`);
@@ -2296,7 +2321,14 @@ export class DiagnosticsSpoolWriter {
         fs.writeFileSync(stalePath, "{}", { mode: 0o600 });
       }
       const event = {
-        ...prepareEnvelope(this.bootId, ++this.sequence, this.options.process, type, data),
+        ...prepareEnvelope(
+          this.bootId,
+          ++this.sequence,
+          this.options.process,
+          type,
+          data,
+          receiptId,
+        ),
         ...(this.options.osMajor === undefined ? {} : { osMajor: this.options.osMajor }),
       };
       const line = `${JSON.stringify(event)}\n`;
@@ -2328,13 +2360,24 @@ export class DiagnosticsSpoolWriter {
   checkpoint(data: CheckpointInput): void {
     this.append("checkpoint", data);
   }
+  checkpointWithReceipt(data: CheckpointInput, receiptId: string): void {
+    this.append("checkpoint", data, receiptId);
+  }
   incident(data: IncidentInput): void {
     this.append("incident", data);
+  }
+  incidentWithReceipt(data: IncidentInput, receiptId: string): void {
+    this.append("incident", data, receiptId);
   }
 
   armExpectation(input: ExpectationInput): string {
     const id = randomUUID();
     this.append("expectation_arm", { ...input, id });
+    return id;
+  }
+  armExpectationWithReceipt(input: ExpectationInput, receiptId: string): string {
+    const id = randomUUID();
+    this.append("expectation_arm", { ...input, id }, receiptId);
     return id;
   }
 

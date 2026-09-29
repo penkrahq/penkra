@@ -1070,6 +1070,43 @@ describe("diagnostics store", () => {
     store.close();
   });
 
+  it("imports a worker checkpoint and receipt together at the spool boundary", () => {
+    const { stateDir, store } = fixture();
+    const options = { stateDir, appVersion: "0.14.3", process: "desktop-main" } as const;
+    const desktop = new DiagnosticsSpoolWriter(options);
+    const worker = new DiagnosticsSpoolWriter({ ...options, maxSpoolBytes: 400 });
+    const id = desktop.armExpectation({
+      traceId,
+      spanId,
+      kind: "desktop.worker_ack",
+      deadlineMs: 30_000,
+    });
+    worker.checkpointWithReceipt({ traceId, spanId, flow: "send", step: "composer.preflight" }, id);
+    const spool = path.join(stateDir, "diagnostics", `spool-${worker.bootId}.jsonl`);
+    expect(fs.statSync(spool).size).toBeLessThanOrEqual(400);
+    const parentSpool = path.join(stateDir, "diagnostics", `spool-${desktop.bootId}.jsonl`);
+    const hidden = path.join(stateDir, "diagnostics", "hidden-parent-spool");
+    fs.renameSync(parentSpool, hidden);
+    store.importPeerSpools();
+    fs.renameSync(hidden, parentSpool);
+    store.importPeerSpools();
+    expect(store.sweepExpectations(new Date(Date.now() + 60_000))).toBe(0);
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(db.prepare("SELECT COUNT(*) AS count FROM expectations").get()).toMatchObject({
+      count: 0,
+    });
+    expect(
+      db.prepare("SELECT COUNT(*) AS count FROM detail WHERE step = 'composer.preflight'").get(),
+    ).toMatchObject({ count: 1 });
+    expect(db.prepare("SELECT COUNT(*) AS count FROM incident_occurrences").get()).toMatchObject({
+      count: 0,
+    });
+    db.close();
+    desktop.close();
+    worker.close();
+    store.close();
+  });
+
   it("rejects content in expectation correlation before persisting it", () => {
     const { stateDir, store } = fixture();
     expect(() =>
