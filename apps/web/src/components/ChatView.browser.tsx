@@ -129,6 +129,7 @@ const PROJECT_ID = "project-1" as FolderId;
 const OTHER_PROJECT_ID = "project-2" as FolderId;
 const TEST_SPACE_ID = SpaceId.makeUnsafe("space-browser-test");
 const TEST_CONNECTION_ID = ProviderConnectionId.makeUnsafe("connection-codex-browser");
+const ALTERNATE_CONNECTION_ID = ProviderConnectionId.makeUnsafe("connection-codex-alternate");
 const INBOX_FOLDER_ID = "folder-inbox" as FolderId;
 const NOW_ISO = "2026-03-04T12:00:00.000Z";
 const BASE_TIME_MS = Date.parse(NOW_ISO);
@@ -140,6 +141,7 @@ let emitDomainEvent: ((event: OrchestrationEvent) => void) | null = null;
 let emitSyncDomainEvent: ((event: OrchestrationEvent) => void) | null = null;
 let providerConnectionsResponseGate: Promise<void> | null = null;
 let providerConnectionsReleasedResponses = 0;
+let fixtureHasAlternateCodexConnection = false;
 const fixtureSocketClients = new Set<{ close: () => void }>();
 let fixtureSocketConnectionCount = 0;
 let fixtureActiveThreadPageId: ThreadId | null = null;
@@ -1388,6 +1390,26 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
           createdAt: NOW_ISO,
           updatedAt: NOW_ISO,
         },
+        ...(fixtureHasAlternateCodexConnection
+          ? [
+              {
+                id: ALTERNATE_CONNECTION_ID,
+                harness: "codex",
+                authenticationTargetId: "openai-first-party",
+                authenticationMethodId: "chatgpt",
+                label: "alternate@example.com",
+                providerIdentityId: "alternate@example.com",
+                health: "ready",
+                healthReason: null,
+                lastCheckedAt: NOW_ISO,
+                lifecycle: "active",
+                terminationReason: null,
+                terminatedAt: null,
+                createdAt: NOW_ISO,
+                updatedAt: NOW_ISO,
+              },
+            ]
+          : []),
       ],
       installations: [
         {
@@ -1483,7 +1505,10 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
         {
           slug: "gpt-5.5",
           name: "GPT-5.5",
-          availableConnectionIds: ["connection-codex-browser"],
+          availableConnectionIds: [
+            "connection-codex-browser",
+            ...(fixtureHasAlternateCodexConnection ? [ALTERNATE_CONNECTION_ID] : []),
+          ],
           supportedReasoningEfforts: [
             { value: "low", label: "Low" },
             { value: "medium", label: "Medium" },
@@ -1494,7 +1519,10 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
         {
           slug: "gpt-5.2",
           name: "GPT-5.2",
-          availableConnectionIds: ["connection-codex-browser"],
+          availableConnectionIds: [
+            "connection-codex-browser",
+            ...(fixtureHasAlternateCodexConnection ? [ALTERNATE_CONNECTION_ID] : []),
+          ],
           supportedReasoningEfforts: [
             { value: "low", label: "Low" },
             { value: "medium", label: "Medium" },
@@ -1552,6 +1580,7 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
 function installDeterministicSendNativeApi(options?: {
   dispatchError?: Error;
   dispatchGate?: Promise<void>;
+  threadUpdateGate?: Promise<void>;
   pendingStartOutcome?:
     | "accepted"
     | "cancelled"
@@ -1605,6 +1634,9 @@ function installDeterministicSendNativeApi(options?: {
             _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
             command,
           });
+          if (command.type === "thread.update") {
+            await options?.threadUpdateGate;
+          }
           if (command.type === "thread.turn.start" || command.type === "thread.turn.recover") {
             await options?.dispatchGate;
           }
@@ -2409,6 +2441,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     emitSyncDomainEvent = null;
     providerConnectionsResponseGate = null;
     providerConnectionsReleasedResponses = 0;
+    fixtureHasAlternateCodexConnection = false;
     fixtureSocketConnectionCount = 0;
     fixtureSocketClients.clear();
     fixtureActiveThreadPageId = null;
@@ -4940,6 +4973,73 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await expect.element(page.getByText("Connection", { exact: true })).not.toBeInTheDocument();
     } finally {
       await mounted.cleanup();
+    }
+  });
+
+  it("sends through a newly selected Connection before the thread update projects", async () => {
+    fixtureHasAlternateCodexConnection = true;
+    let releaseThreadUpdate!: () => void;
+    const threadUpdateGate = new Promise<void>((resolve) => {
+      releaseThreadUpdate = resolve;
+    });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-connection-switch-race" as MessageId,
+        targetText: "previous turn",
+      }),
+    });
+    const restoreNativeApi = installDeterministicSendNativeApi({ threadUpdateGate });
+
+    try {
+      await waitForServerConfigToApply();
+      await page.getByRole("button", { name: "Change connection" }).click();
+      await page.getByText("personal@example.com", { exact: true }).click();
+      await page.getByText("alternate@example.com", { exact: true }).click();
+      await vi.waitFor(() => {
+        expect(
+          wsRequests
+            .map(readDispatchedCommand)
+            .find((command) => command?.type === "thread.update"),
+        ).toMatchObject({ connectionId: ALTERNATE_CONNECTION_ID });
+      });
+      // The fixture intentionally keeps the old shell and binding projection.
+      // A real user can submit before the update appears in that projection.
+      useComposerDraftStore.getState().setPrompt(THREAD_ID, "send immediately after switching");
+      const composerForm = await waitForElement(
+        () => document.querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]'),
+        "Unable to find composer form.",
+      );
+      composerForm.requestSubmit();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(
+        wsRequests
+          .map(readDispatchedCommand)
+          .some((command) => command?.type === "thread.turn.start"),
+      ).toBe(false);
+      releaseThreadUpdate();
+
+      await vi.waitFor(
+        () => {
+          const command = wsRequests
+            .map(readDispatchedCommand)
+            .find(
+              (candidate) =>
+                candidate?.type === "thread.turn.start" &&
+                candidate.threadId === THREAD_ID &&
+                typeof candidate.message === "object" &&
+                candidate.message !== null &&
+                "text" in candidate.message &&
+                candidate.message.text === "send immediately after switching",
+            );
+          expect(command).toMatchObject({ connectionId: ALTERNATE_CONNECTION_ID });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      releaseThreadUpdate();
+      await mounted.cleanup();
+      restoreNativeApi();
     }
   });
 
