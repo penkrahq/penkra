@@ -456,10 +456,12 @@ export const makeCreateThreadHandler = Effect.fn(function* (
     }).pipe(
       Effect.catch((error) => {
         if (error instanceof GatewayToolError || error instanceof AgentGatewayTargetError) {
+          recordGatewayConsumedFailure(error);
           return Effect.succeed(gatewayToolErrorResult(error));
         }
         const threadGuard = findThreadGuardInvariant(error);
         if (threadGuard?.code === "thread_archived") {
+          recordGatewayConsumedFailure(new GatewayToolError(threadGuard.code, threadGuard.detail));
           return Effect.succeed(
             gatewayToolErrorResult(new GatewayToolError(threadGuard.code, threadGuard.detail)),
           );
