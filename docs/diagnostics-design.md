@@ -524,6 +524,13 @@ overflow count. Once the worker responds, it writes that count durably and
 records `DIAGNOSTICS_DROPPED`. The QA gate fails on growth in confirmed loss,
 `possibly_lost`, or `lost_count_unknown`, as well as exact overflow.
 
+The runnable main-thread enqueue benchmark is
+`bun scripts/benchmark-desktop-diagnostics-queue.mjs`. On the development host
+with 2,000 writes and an immediate fake worker, synchronous reservation measured
+p50 0.58 ms, p95 0.902 ms, max 8.273 ms; in-memory worker-credit enqueue
+measured p50 0 ms, p95 0.001 ms, max 0.043 ms. This isolates enqueue overhead;
+it does not measure end-to-end worker persistence or real Electron rendering.
+
 **Cost limits.**
 
 - Writes are batched, at most every 250 ms. Incidents are flushed immediately.
