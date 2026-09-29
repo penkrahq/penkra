@@ -1663,12 +1663,6 @@ function toRecordedWsRequestBody(request: {
   readonly tag: string;
   readonly payload: unknown;
 }): WsRequestEnvelope["body"] {
-  if (request.tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
-    return {
-      _tag: request.tag,
-      command: request.payload,
-    };
-  }
   return flattenEffectRpcRequestPayload(request.tag, request.payload);
 }
 
@@ -3555,11 +3549,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       releaseDispatch();
       useStore.getState().applyOrchestrationEvents([
         {
-          ...session(
-            "running",
-            TurnId.makeUnsafe("provider-resumed-after-play"),
-            "2026-09-26T22:18:24.000Z",
-          ),
+          ...session("running", turnId, "2026-09-26T22:18:24.000Z"),
           sequence: 559930,
         },
         makeDomainEvent(
@@ -3609,7 +3599,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     const previousBridge = window.desktopBridge;
     const recordDiagnosticCheckpoint = vi.fn().mockResolvedValue(undefined);
     const firstTurnId = TurnId.makeUnsafe("turn-qa-queue-first");
-    const nextTurnId = TurnId.makeUnsafe("turn-qa-queue-next");
     const base = createSnapshotForTargetUser({
       targetMessageId: MessageId.makeUnsafe("msg-qa-queue-first"),
       targetText: "First turn",
@@ -3654,6 +3643,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         expect(command).toBeTruthy();
         return command!;
       });
+      const nextTurnId = TurnId.makeUnsafe(`turn:${start.commandId}`);
       const messageId = (start.message as { messageId: MessageId }).messageId;
       snapshot = {
         ...snapshot,
