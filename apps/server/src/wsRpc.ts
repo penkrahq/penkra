@@ -108,6 +108,7 @@ import {
 } from "./diagnostics/qaRuntimeActions";
 import { armQaProviderSwitch, clearQaProviderSwitch } from "./diagnostics/qaProviderSwitch";
 import { recordServerQaAction } from "./diagnostics/qaProofBuild";
+import { recordWsRpcFailure } from "./diagnostics/wsRpcFailure";
 import { WorkspaceWatcher } from "./workspaceWatcher";
 import { makeWsRequestAdmission } from "./wsRequestAdmission";
 import {
@@ -348,11 +349,12 @@ const makeWsRpcHandlersLayer = () =>
               occurredAt: new Date().toISOString(),
             })
             .pipe(
-              Effect.catch((error) =>
-                Effect.logWarning("Failed to persist streaming RPC rejection diagnostic.", {
+              Effect.catch((error) => {
+                recordWsRpcFailure(undefined, "DIAGNOSTICS_WRITE_FAILED");
+                return Effect.logWarning("Failed to persist streaming RPC rejection diagnostic.", {
                   error: String(error),
-                }),
-              ),
+                });
+              }),
             ),
       });
       const recordThreadStreamDrop = (threadId: string, report: LiveUiStreamDropReport) =>
@@ -371,11 +373,12 @@ const makeWsRpcHandlersLayer = () =>
             occurredAt: new Date().toISOString(),
           })
           .pipe(
-            Effect.catch((error) =>
-              Effect.logWarning("Failed to persist thread stream drop diagnostic.", {
+            Effect.catch((error) => {
+              recordWsRpcFailure(undefined, "DIAGNOSTICS_WRITE_FAILED");
+              return Effect.logWarning("Failed to persist thread stream drop diagnostic.", {
                 error: String(error),
-              }),
-            ),
+              });
+            }),
             (diagnostic) => Effect.sync(() => Effect.runFork(diagnostic)),
             Effect.tap(() =>
               Effect.sync(() =>
@@ -413,11 +416,12 @@ const makeWsRpcHandlersLayer = () =>
             occurredAt: new Date().toISOString(),
           })
           .pipe(
-            Effect.catch((error) =>
-              Effect.logWarning("Failed to persist thread resnapshot diagnostic.", {
+            Effect.catch((error) => {
+              recordWsRpcFailure(undefined, "DIAGNOSTICS_WRITE_FAILED");
+              return Effect.logWarning("Failed to persist thread resnapshot diagnostic.", {
                 error: String(error),
-              }),
-            ),
+              });
+            }),
             Effect.tap(() =>
               Effect.sync(() =>
                 recordWsResnapshot({
@@ -597,7 +601,7 @@ const makeWsRpcHandlersLayer = () =>
           if (trackedServer) {
             yield* devServerManager
               .stop({ folderId: trackedServer.folderId })
-              .pipe(Effect.catch(() => Effect.void));
+              .pipe(Effect.catch(() => Effect.sync(() => recordWsRpcFailure())));
           }
         }
         return result;
@@ -1000,10 +1004,24 @@ const makeWsRpcHandlersLayer = () =>
                         ? yield* Effect.gen(function* () {
                             const thread = yield* projectionReadModelQuery
                               .getThreadDetailById(normalizedCommand.threadId)
-                              .pipe(Effect.catch(() => Effect.succeed(Option.none())));
+                              .pipe(
+                                Effect.catch(() =>
+                                  Effect.sync(() => {
+                                    recordWsRpcFailure(diagnosticContext);
+                                    return Option.none();
+                                  }),
+                                ),
+                              );
                             const binding = yield* threadProviderBindings
                               .getRuntimeBinding(normalizedCommand.threadId)
-                              .pipe(Effect.catch(() => Effect.succeed(Option.none())));
+                              .pipe(
+                                Effect.catch(() =>
+                                  Effect.sync(() => {
+                                    recordWsRpcFailure(diagnosticContext);
+                                    return Option.none();
+                                  }),
+                                ),
+                              );
                             return describeRejectedPlay(
                               normalizedCommand,
                               Option.getOrNull(thread),
@@ -1389,7 +1407,7 @@ const makeWsRpcHandlersLayer = () =>
                   threadId: input.threadId,
                   terminalId: input.terminalId ?? DEFAULT_TERMINAL_ID,
                   data: input.data,
-                }).pipe(Effect.catch(() => Effect.void)),
+                }).pipe(Effect.catch(() => Effect.sync(() => recordWsRpcFailure()))),
               ),
             ),
             "Failed to write terminal",

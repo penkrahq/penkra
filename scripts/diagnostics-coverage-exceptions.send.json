@@ -588,5 +588,878 @@
       "code": "EXTERNAL_CALL_FAILED",
       "where": "browser.socket_stream"
     }
+  },
+  {
+    "file": "apps/server/src/wsRpc.ts",
+    "line": 253,
+    "column": 10,
+    "kind": "rejection",
+    "disposition": "expected-recovery",
+    "reason": "An overrun live stream is deliberately failed so its owner reloads a fresh snapshot.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/wsRpc.ts",
+    "line": 352,
+    "column": 22,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "A failed legacy stream-admission diagnostic write is recorded as degraded diagnostics.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "DIAGNOSTICS_WRITE_FAILED",
+      "where": "server.ws_rpc"
+    }
+  },
+  {
+    "file": "apps/server/src/wsRpc.ts",
+    "line": 376,
+    "column": 20,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "A failed legacy thread-drop diagnostic write is recorded as degraded diagnostics.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "DIAGNOSTICS_WRITE_FAILED",
+      "where": "server.ws_rpc"
+    }
+  },
+  {
+    "file": "apps/server/src/wsRpc.ts",
+    "line": 419,
+    "column": 20,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "A failed legacy resnapshot diagnostic write is recorded as degraded diagnostics.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "DIAGNOSTICS_WRITE_FAILED",
+      "where": "server.ws_rpc"
+    }
+  },
+  {
+    "file": "apps/server/src/wsRpc.ts",
+    "line": 451,
+    "column": 24,
+    "kind": "catch",
+    "disposition": "validation",
+    "reason": "Workspace stat failure becomes an explicit missing-directory response or create decision.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/wsRpc.ts",
+    "line": 469,
+    "column": 26,
+    "kind": "catch",
+    "disposition": "validation",
+    "reason": "Post-create stat failure becomes an explicit failed-directory response.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/wsRpc.ts",
+    "line": 604,
+    "column": 28,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "A failed auxiliary dev-server stop is recorded before the successful primary stop returns.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.ws_rpc"
+    }
+  },
+  {
+    "file": "apps/server/src/wsRpc.ts",
+    "line": 944,
+    "column": 25,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "A failed test-only QA proof cannot change command acceptance or response.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/wsRpc.ts",
+    "line": 1008,
+    "column": 40,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Rejected play thread-read failure is recorded before using an empty fallback.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.ws_rpc"
+    }
+  },
+  {
+    "file": "apps/server/src/wsRpc.ts",
+    "line": 1018,
+    "column": 40,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Rejected play binding-read failure is recorded before using an empty fallback.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.ws_rpc"
+    }
+  },
+  {
+    "file": "apps/server/src/wsRpc.ts",
+    "line": 1410,
+    "column": 32,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "A failed terminal auto-rename is recorded while the terminal write result is preserved.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.ws_rpc"
+    }
+  },
+  {
+    "file": "apps/server/src/wsRpc.ts",
+    "line": 1475,
+    "column": 26,
+    "kind": "rejection",
+    "disposition": "validation",
+    "reason": "Active provider sessions reject provider update with a typed user-facing response.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/wsRpc.ts",
+    "line": 1592,
+    "column": 40,
+    "kind": "rejection",
+    "disposition": "validation",
+    "reason": "A missing connection rejects termination with an explicit user-facing error.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/wsRpc.ts",
+    "line": 1651,
+    "column": 38,
+    "kind": "rejection",
+    "disposition": "validation",
+    "reason": "An adapter without transcription rejects the unsupported request.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/wsRpc.ts",
+    "line": 1660,
+    "column": 38,
+    "kind": "rejection",
+    "disposition": "validation",
+    "reason": "A missing managed provider runtime rejects transcription before execution.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/wsRpc.ts",
+    "line": 1984,
+    "column": 18,
+    "kind": "catch",
+    "disposition": "validation",
+    "reason": "Authentication and session-capacity failures map to explicit HTTP responses.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/http.ts",
+    "line": 137,
+    "column": 18,
+    "kind": "catch",
+    "disposition": "validation",
+    "reason": "A missing optional editor icon maps to an explicit 404 response.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/http.ts",
+    "line": 295,
+    "column": 34,
+    "kind": "rejection",
+    "disposition": "validation",
+    "reason": "Malformed request URL is rejected with HTTP 400 before service use.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/http.ts",
+    "line": 307,
+    "column": 26,
+    "kind": "rejection",
+    "disposition": "validation",
+    "reason": "A request without trusted origin is rejected with HTTP 403.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/http.ts",
+    "line": 390,
+    "column": 19,
+    "kind": "rejection",
+    "disposition": "validation",
+    "reason": "An oversized declared auth body is rejected with HTTP 413.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/http.ts",
+    "line": 416,
+    "column": 19,
+    "kind": "rejection",
+    "disposition": "validation",
+    "reason": "An oversized declared request body is rejected with HTTP 413.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/http.ts",
+    "line": 529,
+    "column": 30,
+    "kind": "rejection",
+    "disposition": "validation",
+    "reason": "A non-owner session is rejected by the network-management access rule.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/http.ts",
+    "line": 540,
+    "column": 30,
+    "kind": "rejection",
+    "disposition": "validation",
+    "reason": "A non-owner session is rejected by the network-management access rule.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/http.ts",
+    "line": 589,
+    "column": 12,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Unexpected server response errors at status 500 or above record an incident.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.http"
+    }
+  },
+  {
+    "file": "apps/server/src/http.ts",
+    "line": 617,
+    "column": 14,
+    "kind": "catch",
+    "disposition": "validation",
+    "reason": "An authentication failure remains a typed authorization response.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/http.ts",
+    "line": 617,
+    "column": 54,
+    "kind": "rejection",
+    "disposition": "validation",
+    "reason": "The typed authorization failure is rethrown to the HTTP auth response mapper.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/http.ts",
+    "line": 647,
+    "column": 14,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Failed favicon file delivery records the internal server error before HTTP 500.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.http"
+    }
+  },
+  {
+    "file": "apps/server/src/http.ts",
+    "line": 652,
+    "column": 18,
+    "kind": "catch",
+    "disposition": "validation",
+    "reason": "Authentication errors map to explicit authorization responses.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/http.ts",
+    "line": 700,
+    "column": 18,
+    "kind": "catch",
+    "disposition": "validation",
+    "reason": "Authentication errors map to explicit authorization responses.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/http.ts",
+    "line": 759,
+    "column": 18,
+    "kind": "catch",
+    "disposition": "validation",
+    "reason": "Authentication errors map to explicit authorization responses.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/http.ts",
+    "line": 782,
+    "column": 18,
+    "kind": "catch",
+    "disposition": "validation",
+    "reason": "Authentication errors map to explicit authorization responses.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/http.ts",
+    "line": 825,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "validation",
+    "reason": "An inaccessible local preview maps to a not-found response without file disclosure.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/http.ts",
+    "line": 855,
+    "column": 18,
+    "kind": "catch",
+    "disposition": "validation",
+    "reason": "Authentication errors map to explicit authorization responses.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/http.ts",
+    "line": 1112,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Unexpected voice-upload failures at status 500 or above record an incident.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.http"
+    }
+  },
+  {
+    "file": "apps/server/src/http.ts",
+    "line": 1204,
+    "column": 20,
+    "kind": "catch",
+    "disposition": "validation",
+    "reason": "An absent static file maps to an explicit not-found response.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/http.ts",
+    "line": 1238,
+    "column": 18,
+    "kind": "catch",
+    "disposition": "validation",
+    "reason": "Authentication errors map to explicit authorization responses.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/http.ts",
+    "line": 1292,
+    "column": 20,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "A missing static route file falls back to the application index document.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/http.ts",
+    "line": 1297,
+    "column": 22,
+    "kind": "catch",
+    "disposition": "validation",
+    "reason": "An absent application index document maps to an explicit not-found response.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/http.ts",
+    "line": 1306,
+    "column": 14,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Failed static file delivery records an incident before HTTP 500.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.http"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 6294,
+    "column": 25,
+    "kind": "timeout",
+    "disposition": "recorded",
+    "reason": "A missing queued-cancel projection after ten seconds records an external failure.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 6327,
+    "column": 33,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "Failed queued-image fetch reaches the cancellation catch that records it.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 6337,
+    "column": 33,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "Failed queued-file fetch reaches the cancellation catch that records it.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 6363,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Queued-message cancellation failure records an external incident before UI error.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 6414,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Provider-connection update rejection records a send preflight incident.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "SEND_PREFLIGHT_REJECTED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 6541,
+    "column": 11,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Standalone slash-command rejection records a send preflight incident.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "SEND_PREFLIGHT_REJECTED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 6823,
+    "column": 11,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Pending image hydration rejection records a send preflight incident.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "SEND_PREFLIGHT_REJECTED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 6888,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Connection selection rejection records a send preflight incident.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "SEND_PREFLIGHT_REJECTED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 6944,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Late standalone command rejection records a send preflight incident.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "SEND_PREFLIGHT_REJECTED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 7133,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Durable pending-start preparation failure records a send preflight incident.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "SEND_PREFLIGHT_REJECTED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 7147,
+    "column": 11,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Failure to clean durable pending-start recovery records its own external incident.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 7194,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "An explicitly cancelled pending turn start uses a typed control-flow exception.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 7416,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "A dispatched send failure records a command incident unless it was user-cancelled.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "COMMAND_REJECTED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 7453,
+    "column": 12,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Failed pending-start recovery settlement records an external incident.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 7481,
+    "column": 12,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Failed draft-promotion rollback records an external incident.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 7548,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Failed approval response dispatch records a command incident.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "COMMAND_REJECTED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 7586,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Failed user-input response dispatch records a command incident.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "COMMAND_REJECTED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 7814,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "Missing binding revision reaches the edit-and-resend catch that records the rejection.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "COMMAND_REJECTED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 7837,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Edit-and-resend rejection records a command incident before returning false.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "COMMAND_REJECTED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 7913,
+    "column": 13,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "A turn awaiting human input rejects another send as a user-visible precondition.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 8010,
+    "column": 11,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Queued-message steering rejection records a command incident before UI error.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "COMMAND_REJECTED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/chatSendFailure.ts",
+    "line": 18,
+    "column": 19,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "Diagnostic IPC rejection is isolated so it cannot affect the send result.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/web/src/components/chatSendFailure.ts",
+    "line": 19,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "Synchronous diagnostic bridge errors are isolated from the send result.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 562,
+    "column": 65,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Final shell snapshot retry failure records an external incident before returning no project.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 633,
+    "column": 11,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Failed attachment data conversion records an incident only when no durable copy exists.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 644,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Failed attachment capture records an incident before falling back to durable rows.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 1101,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "Missing pending-start recovery reaches a caller that records durable recovery failure.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 1128,
+    "column": 13,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "Missing exact pending-start row reaches a caller that records durable recovery failure.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 1135,
+    "column": 15,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "Unprepared pending-start settlement reaches a caller that records durable recovery failure.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 1146,
+    "column": 13,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "Unretained pending-start settlement reaches a caller that records durable recovery failure.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 1149,
+    "column": 13,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "Missing durable settlement receipt reaches a caller that records durable recovery failure.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 1153,
+    "column": 13,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "Rejected durable clear write reaches a caller that records durable recovery failure.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 1158,
+    "column": 13,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The rejected durable clear write is rethrown to the recorded recovery caller.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 1175,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "Unsupported pending-start recovery reaches the recorded cancellation reconciliation caller.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 1221,
+    "column": 24,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "Unresolved pending-start restoration reaches the recorded cancellation reconciliation caller.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 1289,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Failed cancellation reconciliation records an external incident.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 1315,
+    "column": 38,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Failed accepted-message settlement records an external incident before UI error.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.send"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.tsx",
+    "line": 1350,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Failed recovery cleanup records an external incident before UI error.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.send"
+    }
   }
 ]
