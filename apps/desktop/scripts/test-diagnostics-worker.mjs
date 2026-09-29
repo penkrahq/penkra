@@ -4,9 +4,16 @@ import os from "node:os";
 import path from "node:path";
 import { Worker } from "node:worker_threads";
 import { fileURLToPath } from "node:url";
+import { DiagnosticsStore, openDiagnosticsReader } from "@penkra/shared/diagnostics/store";
 
 const desktopDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-diagnostics-worker-"));
+const server = new DiagnosticsStore({
+  stateDir,
+  appVersion: "0.14.3",
+  buildId: "abcdef123456",
+  process: "server",
+});
 const worker = new Worker(path.join(desktopDir, "dist-electron/diagnosticsWorker.js"), {
   workerData: {
     stateDir,
@@ -81,10 +88,27 @@ try {
     .sort((a, b) => b.generation - a.generation);
   assert.equal(lossSlots[0].reasons.spool, 1);
   assert.equal(
-    fs.readdirSync(diagnosticDir).some((name) => name.startsWith("active-")),
-    false,
+    fs.readdirSync(diagnosticDir).filter((name) => name.startsWith("active-")).length,
+    1,
   );
+
+  server.checkpoint({ ...trace, flow: "send", step: "command.accepted", outcome: "ok" });
+  server.importPeerSpools();
+  const reader = openDiagnosticsReader(stateDir);
+  assert.ok(reader);
+  try {
+    assert.equal(reader.prepare("SELECT COUNT(*) AS count FROM expectations").get().count, 0);
+    assert.equal(
+      reader
+        .prepare("SELECT COUNT(*) AS count FROM incidents WHERE code = 'SEND_PREFLIGHT_REJECTED'")
+        .get().count,
+      0,
+    );
+  } finally {
+    reader.close();
+  }
 } finally {
   await worker.terminate();
+  server.close();
   fs.rmSync(stateDir, { recursive: true, force: true });
 }
