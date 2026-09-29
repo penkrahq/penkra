@@ -118,11 +118,14 @@ function handle(message) {
       const hold = Array.isArray(params.input)
         ? params.input.some((item) => item?.type === "text" && item.text === "qa:hold")
         : false;
+      const queueFirst = Array.isArray(params.input)
+        ? params.input.some((item) => item?.type === "text" && item.text === "qa:queue-first")
+        : false;
       const turn = { id: turnId, threadId, status: "inProgress", timer: null };
       turns.set(turnId, turn);
       respond(id, { turn: { id: turnId, status: "inProgress", items: [] } });
       notify("turn/started", { threadId, turn: { id: turnId, status: "inProgress" } });
-      if (!hold) turn.timer = setTimeout(() => finish(turnId), 300);
+      if (!hold) turn.timer = setTimeout(() => finish(turnId), queueFirst ? 8_000 : 300);
       return;
     }
     case "turn/interrupt": {
