@@ -3082,7 +3082,9 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    await waitFor(() => rollbackCompletionCommandIds.length === 2);
+    await waitFor(
+      () => rollbackCompletionCommandIds.length === 2 && replacementStartCommandIds.length === 2,
+    );
     expect(rollbackCompletionCommandIds[1]).toBe(rollbackCompletionCommandIds[0]);
     expect(replacementStartCommandIds).toHaveLength(2);
     expect(replacementStartCommandIds[1]).toBe(replacementStartCommandIds[0]);
