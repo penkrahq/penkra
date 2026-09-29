@@ -413,7 +413,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/Layers/AgentGateway.ts",
-    "line": 771,
+    "line": 772,
     "column": 34,
     "kind": "rejection",
     "disposition": "validation",
@@ -422,7 +422,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/Layers/AgentGateway.ts",
-    "line": 797,
+    "line": 798,
     "column": 24,
     "kind": "catch",
     "disposition": "propagates",
@@ -435,7 +435,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/Layers/AgentGateway.ts",
-    "line": 802,
+    "line": 803,
     "column": 16,
     "kind": "throw",
     "disposition": "propagates",
@@ -448,7 +448,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/Layers/AgentGateway.ts",
-    "line": 904,
+    "line": 905,
     "column": 32,
     "kind": "rejection",
     "disposition": "validation",
@@ -457,7 +457,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/Layers/AgentGateway.ts",
-    "line": 919,
+    "line": 920,
     "column": 32,
     "kind": "rejection",
     "disposition": "validation",
@@ -466,7 +466,7 @@
   },
   {
     "file": "apps/server/src/agentGateway/Layers/AgentGateway.ts",
-    "line": 958,
+    "line": 959,
     "column": 22,
     "kind": "catch",
     "disposition": "propagates",
@@ -522,10 +522,10 @@
     "column": 39,
     "kind": "rejection",
     "disposition": "propagates",
-    "reason": "The failure propagates to the gateway response boundary, which records a content-free incident.",
+    "reason": "The failed caller authority check records a content-free inactive-turn incident before returning the rejection.",
     "reviewer": "desktop-gateway-0143",
     "boundary": {
-      "code": "APP_OPERATION_FAILED",
+      "code": "CALLER_TURN_INACTIVE",
       "where": "agent.mcp_write"
     }
   },
@@ -571,10 +571,10 @@
     "column": 22,
     "kind": "catch",
     "disposition": "propagates",
-    "reason": "The caught failure is converted to a gateway response or handled locally, with a content-free incident at that boundary.",
+    "reason": "The failed caller authority check records a content-free inactive-turn incident before returning the rejection.",
     "reviewer": "desktop-gateway-0143",
     "boundary": {
-      "code": "APP_OPERATION_FAILED",
+      "code": "CALLER_TURN_INACTIVE",
       "where": "agent.mcp_write"
     }
   },
@@ -584,10 +584,10 @@
     "column": 20,
     "kind": "catch",
     "disposition": "propagates",
-    "reason": "The caught failure is converted to a gateway response or handled locally, with a content-free incident at that boundary.",
+    "reason": "The failed caller authority check records a content-free inactive-turn incident before returning the rejection.",
     "reviewer": "desktop-gateway-0143",
     "boundary": {
-      "code": "APP_OPERATION_FAILED",
+      "code": "CALLER_TURN_INACTIVE",
       "where": "agent.mcp_write"
     }
   },
