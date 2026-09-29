@@ -6,6 +6,7 @@ import * as OS from "node:os";
 import * as Path from "node:path";
 
 import { resolveDesktopPlatformAdapter } from "./desktopPlatform";
+import { recordDesktopConsumedFailure } from "./desktopFailureCoverage";
 
 const BRIDGE_PROFILE_MANIFEST_FILE_NAME = "penkra-profile-seed.json";
 const CANONICAL_BROWSER_PARTITION_NAME = "penkra-browser";
@@ -249,6 +250,7 @@ export function repairBrowserProfileFromBridgeManifest(
       copiedEntries,
     };
   } catch (error) {
+    recordDesktopConsumedFailure("platform");
     return {
       status: "repair-failed",
       sourcePath,
