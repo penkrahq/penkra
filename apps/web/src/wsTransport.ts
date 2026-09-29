@@ -35,10 +35,12 @@ import {
   type WsPushChannel,
   type WsPushMessage,
   type WsBootstrapNegotiateResult,
+  type DiagnosticTraceContext,
 } from "@penkra/contracts";
 import { Cause, Data, Effect, Exit, Layer, ManagedRuntime, Schema, Scope, Stream } from "effect";
 import { RpcClient, RpcClientError, RpcSerialization } from "effect/unstable/rpc";
 import * as Socket from "effect/unstable/socket/Socket";
+import { retryDiagnosticAttempt, startDiagnosticTrace } from "@penkra/shared/traceContext";
 
 import { APP_VERSION } from "./branding";
 import type { WsTransportState } from "./wsTransportEvents";
@@ -467,6 +469,8 @@ export class WsTransport {
   private clientPromise: Promise<RpcClientInstance>;
   private reconnectPromise: Promise<RpcClientInstance> | null = null;
   private reconnectFailures = 0;
+  private reconnectQaTrace: ReturnType<typeof startDiagnosticTrace> | null = null;
+  private readonly qaSocketClientId = startDiagnosticTrace().traceId;
   private readonly streamCleanups = new Map<string, () => void>();
   private readonly streamSettled = new Map<string, Promise<void>>();
   private readonly streamCapacityRetries = new Map<string, number>();
@@ -495,6 +499,7 @@ export class WsTransport {
     options?: WsRequestOptions,
   ): Promise<T> {
     if (this.disposed) throw new Error("Transport disposed");
+    const requestSessionVersion = this.sessionVersion;
     const requestOptions: WsRequestOptions =
       options?.timeoutMs === undefined ? { ...options, timeoutMs: REQUEST_TIMEOUT_MS } : options;
     const abortScope = makeRequestAbortScope(requestOptions);
@@ -515,6 +520,14 @@ export class WsTransport {
       }
 
       let client = await awaitWithAbort(this.getClient(), abortScope.signal);
+
+      if (method === ORCHESTRATION_WS_METHODS.acknowledgeSync) {
+        const deliveryId = (params as { deliveryId: string }).deliveryId;
+        if (requestSessionVersion !== this.sessionVersion || this.syncDeliveryId !== deliveryId) {
+          // The old stream's acknowledgement has no meaning on the new lease.
+          return undefined as T;
+        }
+      }
 
       if (method === ORCHESTRATION_WS_METHODS.subscribeShell) {
         this.shellSubscribed = true;
@@ -538,9 +551,11 @@ export class WsTransport {
 
       const rpcInput =
         method === ORCHESTRATION_WS_METHODS.dispatchCommand
-          ? (params as { command: unknown }).command
+          ? params && typeof params === "object" && "diagnostics" in params
+            ? params
+            : (params as { command: unknown }).command
           : (params ?? {});
-      const normalizedRpcInput = omitNullUserInputAnswers(rpcInput);
+      let normalizedRpcInput = omitNullUserInputAnswers(rpcInput);
       while (true) {
         const call = (
           client as unknown as Record<
@@ -590,6 +605,20 @@ export class WsTransport {
             error,
           });
           client = await awaitWithAbort(this.reconnect(), abortScope.signal);
+          if (
+            method === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+            normalizedRpcInput &&
+            typeof normalizedRpcInput === "object" &&
+            "diagnostics" in normalizedRpcInput &&
+            normalizedRpcInput.diagnostics
+          ) {
+            normalizedRpcInput = {
+              ...normalizedRpcInput,
+              diagnostics: retryDiagnosticAttempt(
+                normalizedRpcInput.diagnostics as DiagnosticTraceContext,
+              ),
+            };
+          }
         }
       }
     } catch (error) {
@@ -752,7 +781,7 @@ export class WsTransport {
       }
 
       const featureRuntime = ManagedRuntime.make(
-        makeProtocolLayer(makeFeatureSocketUrl(this.explicitUrl, compatibility)),
+        makeProtocolLayer(this.featureSocketUrl(compatibility)),
       );
       const featureScope = featureRuntime.runSync(Scope.make());
       this.runtime = featureRuntime;
@@ -788,23 +817,121 @@ export class WsTransport {
     return { runtime, clientScope, clientPromise };
   }
 
+  private featureSocketUrl(compatibility: WsBootstrapNegotiateResult): string {
+    const url = new URL(makeFeatureSocketUrl(this.explicitUrl, compatibility));
+    if (!url.searchParams.has("qaClientSignature"))
+      url.searchParams.set("qaClientId", this.qaSocketClientId);
+    if (this.reconnectQaTrace)
+      url.searchParams.set("qaReconnectTraceId", this.reconnectQaTrace.traceId);
+    return url.toString();
+  }
+
   private async withConnectionAttemptTimeout(
     clientPromise: Promise<RpcClientInstance>,
+    attempt = 0,
   ): Promise<RpcClientInstance> {
+    const trace = startDiagnosticTrace();
+    const startedAt = performance.now();
+    const checkpoint = (step: string, outcome?: "ok" | "failed" | "timed_out") => {
+      const pending = window.desktopBridge?.recordDiagnosticCheckpoint?.({
+        ...trace,
+        flow: "socket_connect",
+        step,
+        ...(outcome ? { outcome, elapsedMs: Math.round(performance.now() - startedAt) } : {}),
+      });
+      void pending?.catch(() => undefined);
+    };
+    const incident = (
+      code: "WS_HANDSHAKE_SLOW" | "WS_RECONNECT_LOOP" | "EXTERNAL_CALL_FAILED",
+      expected: Record<string, number | boolean>,
+      actual: Record<string, number | boolean | string>,
+    ) => {
+      const pending = window.desktopBridge?.recordDiagnosticIncident?.({
+        ...trace,
+        kind:
+          code === "WS_HANDSHAKE_SLOW"
+            ? "timeout"
+            : code === "WS_RECONNECT_LOOP"
+              ? "limit.exceeded"
+              : "external.failed",
+        code,
+        where: "browser.socket_connect",
+        severity: "error",
+        expected,
+        actual: {
+          ...actual,
+          phase: "handshake",
+          reason: code === "WS_HANDSHAKE_SLOW" ? "deadline" : "disconnected",
+        },
+        lastCheckpoint: "socket.handshake_started",
+      });
+      void pending?.catch(() => undefined);
+    };
+    checkpoint("socket.handshake_started");
     let timeoutId: number | undefined;
+    let timedOut = false;
     // Closing a timed-out scope can settle the raw client promise later. The
     // bounded attempt owns that settlement so it never becomes unhandled.
     void clientPromise.catch(() => undefined);
     try {
-      return await Promise.race([
+      const client = await Promise.race([
         clientPromise,
         new Promise<never>((_, reject) => {
-          timeoutId = window.setTimeout(
-            () => reject(new Error("WebSocket connection attempt timed out.")),
-            WS_RECONNECT_ATTEMPT_TIMEOUT_MS,
-          );
+          timeoutId = window.setTimeout(() => {
+            timedOut = true;
+            reject(new Error("WebSocket connection attempt timed out."));
+          }, WS_RECONNECT_ATTEMPT_TIMEOUT_MS);
         }),
       ]);
+      checkpoint("socket.handshake_open", "ok");
+      const elapsedMs = Math.round(performance.now() - startedAt);
+      if (elapsedMs > WS_RECONNECT_ATTEMPT_TIMEOUT_MS) {
+        incident(
+          "WS_HANDSHAKE_SLOW",
+          { deadlineMs: WS_RECONNECT_ATTEMPT_TIMEOUT_MS },
+          { elapsedMs },
+        );
+      }
+      return client;
+    } catch (error) {
+      if (!this.disposed) {
+        checkpoint("socket.handshake_failed", timedOut ? "timed_out" : "failed");
+        if (timedOut) {
+          incident(
+            "WS_HANDSHAKE_SLOW",
+            { deadlineMs: WS_RECONNECT_ATTEMPT_TIMEOUT_MS },
+            { elapsedMs: Math.round(performance.now() - startedAt), attempt },
+          );
+        } else {
+          const rawCode =
+            error && typeof error === "object" && "code" in error ? error.code : undefined;
+          const errorCode =
+            typeof rawCode === "string" &&
+            [
+              "EACCES",
+              "ENOENT",
+              "ENOSPC",
+              "ETIMEDOUT",
+              "ECONNREFUSED",
+              "ECONNRESET",
+              "EPIPE",
+            ].includes(rawCode)
+              ? rawCode
+              : "OTHER";
+          incident(
+            "EXTERNAL_CALL_FAILED",
+            { connected: true },
+            { connected: false, attempt, errorCode },
+          );
+          if (attempt >= 3)
+            incident(
+              "WS_RECONNECT_LOOP",
+              { connected: true },
+              { connected: false, attempt, errorCode },
+            );
+        }
+      }
+      throw error;
     } finally {
       if (timeoutId !== undefined) window.clearTimeout(timeoutId);
     }
@@ -839,6 +966,7 @@ export class WsTransport {
   private reconnect(): Promise<RpcClientInstance> {
     if (this.reconnectPromise) return this.reconnectPromise;
 
+    this.syncDeliveryId = undefined;
     const oldRuntime = this.runtime;
     const oldClientScope = this.clientScope;
 
@@ -867,9 +995,42 @@ export class WsTransport {
     return trackedReconnect;
   }
 
+  /** Exercise the production replacement path from a disposable Dev QA shell. */
+  async reconnectForQa(): Promise<void> {
+    if (!import.meta.env.DEV || !window.desktopBridge?.qaOpenWindow)
+      throw new Error("Diagnostics QA transport action is unavailable");
+    await this.reconnect();
+  }
+
   private setState(state: WsTransportState): void {
     if (this.state === state) return;
+    const previous = this.state;
     this.state = state;
+    if (previous === "open" && state === "connecting") {
+      const trace = startDiagnosticTrace();
+      this.reconnectQaTrace = trace;
+      void window.desktopBridge
+        ?.recordDiagnosticCheckpoint?.({
+          ...trace,
+          flow: "socket_connect",
+          step: "socket.disconnected",
+          outcome: "ok",
+        })
+        .catch(() => undefined);
+    } else if (state === "open" && this.reconnectQaTrace) {
+      const trace = this.reconnectQaTrace;
+      this.reconnectQaTrace = null;
+      void window.desktopBridge
+        ?.recordDiagnosticCheckpoint?.({
+          ...trace,
+          flow: "socket_connect",
+          step: "socket.reconnected",
+          outcome: "ok",
+        })
+        .catch(() => undefined);
+    } else if (state === "disposed") {
+      this.reconnectQaTrace = null;
+    }
     for (const listener of this.stateListeners) {
       try {
         listener(state);
@@ -926,7 +1087,10 @@ export class WsTransport {
       const session = this.createSession();
       this.runtime = session.runtime;
       this.clientScope = session.clientScope;
-      this.clientPromise = this.withConnectionAttemptTimeout(session.clientPromise);
+      this.clientPromise = this.withConnectionAttemptTimeout(
+        session.clientPromise,
+        this.reconnectFailures,
+      );
 
       try {
         // A WebSocket open can remain pending across an embedded-backend restart.

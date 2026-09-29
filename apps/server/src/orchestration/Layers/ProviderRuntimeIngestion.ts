@@ -15,6 +15,12 @@ import {
   type RuntimeMode,
 } from "@penkra/contracts";
 import { createHash } from "node:crypto";
+import { startDiagnosticTrace } from "@penkra/shared/traceContext";
+import { recordDiagnosticIncident } from "../../diagnostics/recorder.ts";
+import {
+  settleQaRuntimeAction,
+  shouldObserveQaLifecycle,
+} from "../../diagnostics/qaRuntimeActions.ts";
 import {
   Cache,
   Cause,
@@ -1984,7 +1990,6 @@ const make = Effect.gen(function* () {
             }
             threadLifecycleDisposition = result.disposition;
           }
-
           // ProviderService permits overlapping sends on one thread. An
           // accepted start binds exactly one queued delivery policy; perform
           // that cache mutation only after the ownership fence admits A.
@@ -2256,9 +2261,10 @@ const make = Effect.gen(function* () {
         threadId: thread.id,
       });
       const nativeTurnId = toTurnId(canonicalActivityEvent.turnId);
-      const logicalTurnId = projectionTurnsForActivity.find(
+      const qaProjectedTurn = projectionTurnsForActivity.find(
         (candidate) => candidate.providerTurnId === nativeTurnId,
-      )?.turnId;
+      );
+      const logicalTurnId = qaProjectedTurn?.turnId;
       const activityTurnIdentity = { turnId: logicalTurnId ?? null } as const;
       const canonicalOperationMaterialized =
         canonicalOperationFromRuntimeEvent(canonicalActivityEvent) !== null;
@@ -2282,6 +2288,40 @@ const make = Effect.gen(function* () {
         });
       }
       yield* commitCanonical(canonicalActivityEvent);
+      if (
+        event.type === "turn.started" ||
+        event.type === "turn.completed" ||
+        event.type === "turn.aborted"
+      ) {
+        const qaState =
+          event.type === "turn.started"
+            ? "running"
+            : event.type === "turn.aborted" ||
+                (event.type === "turn.completed" &&
+                  ["interrupted", "cancelled"].includes(runtimeTurnState(event)))
+              ? "interrupted"
+              : event.type === "turn.completed" && runtimeTurnState(event) === "failed"
+                ? "error"
+                : "ready";
+        if (
+          shouldObserveQaLifecycle({
+            eventType: event.type,
+            state: qaState,
+            shouldApply: shouldApplyThreadLifecycle,
+            disposition: threadLifecycleDisposition,
+            projectedTurnState: qaProjectedTurn?.state ?? null,
+          })
+        )
+          yield* Effect.sync(() =>
+            settleQaRuntimeAction({
+              threadId: thread.id,
+              logicalTurnId: logicalTurnId ?? null,
+              nativeTurnId: nativeTurnId ?? null,
+              eventType: event.type,
+              state: qaState,
+            }),
+          );
+      }
       // Startup settles projected requests before consuming the runtime journal.
       // A request first projected by that replay must not outlive its owner.
       // Keep the original event in the journal and its question in the expiry activity.
@@ -2959,8 +2999,25 @@ const make = Effect.gen(function* () {
   const scheduleRuntimeJournalSafely = scheduleRuntimeJournalThrough().pipe(
     Effect.catchCause((cause) => {
       if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
+      const detail = Cause.pretty(cause);
+      const errorCode = /SQLITE_IOERR/u.test(detail)
+        ? "SQLITE_IOERR"
+        : /SQLITE_BUSY/u.test(detail)
+          ? "SQLITE_BUSY"
+          : /SQLITE_FULL/u.test(detail)
+            ? "SQLITE_FULL"
+            : "OTHER";
+      recordDiagnosticIncident({
+        ...startDiagnosticTrace(),
+        kind: "external.failed",
+        code: "PROVIDER_RUNTIME_JOURNAL_DRAIN_FAILED",
+        where: "provider.runtime_journal",
+        severity: "error",
+        expected: { accepted: true },
+        actual: { accepted: false, errorCode },
+      });
       return Effect.logWarning("provider runtime journal drain failed", {
-        cause: Cause.pretty(cause),
+        cause: detail,
       });
     }),
   );

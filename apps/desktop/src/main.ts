@@ -8,6 +8,7 @@ import * as Crypto from "node:crypto";
 import * as FS from "node:fs";
 import * as OS from "node:os";
 import * as Path from "node:path";
+import { Worker } from "node:worker_threads";
 // Electron-only builtin that sees app.asar as a real file instead of a virtual
 // directory — required to stat the archive itself for swap detection.
 import * as OriginalFS from "original-fs";
@@ -73,6 +74,17 @@ import { NetService } from "@penkra/shared/Net";
 import { POSSIBLE_MODEL_CATALOG } from "@penkra/shared/possibleModels";
 import { applyShellEnvironmentHydrationMarker } from "@penkra/shared/shell";
 import { RotatingFileSink } from "@penkra/shared/logging";
+import {
+  DiagnosticsSpoolWriter,
+  markDiagnosticWorkerExited,
+  type CheckpointInput,
+  type IncidentInput,
+  type DiagnosticsOptions,
+} from "@penkra/shared/diagnostics/store";
+import {
+  qaEvidenceConfigFromEnv,
+  recordQaActionAsync,
+} from "@penkra/shared/diagnostics/qaEvidence";
 import { ensureStaticSnapshot, findAsarArchivePath } from "@penkra/shared/staticSnapshot";
 import { isBackendReadinessAborted, waitForHttpReady } from "./backendReadiness";
 import { queryAppPermission } from "./appPermissionQuery";
@@ -99,6 +111,13 @@ import {
 } from "./appTabResourceStores";
 import { resolveBackendNodeArgs } from "./backendNodeOptions";
 import { ActiveWorkPowerBlocker } from "./activeWorkPowerBlocker";
+import { recordDesktopOsLookupFailure, resolveDesktopOsMajor } from "./desktopDiagnosticOs";
+import { startDesktopDiagnosticsMonitors } from "./desktopDiagnosticsMonitors";
+import { DesktopDiagnosticsQueue } from "./desktopDiagnosticsQueue";
+import { desktopDiagnosticStateDir } from "./desktopDiagnosticStateDir";
+import { DiagnosticsQaWindowTracker } from "./diagnosticsQaWindow";
+import { desktopQaSocketUrl } from "./desktopQaSocketUrl";
+import { diagnosticsQaAccountEnabled } from "./diagnosticsQaAccount";
 import {
   retainLiveBackendAfterShutdownFailure,
   requireWindowsBackendExit,
@@ -179,6 +198,7 @@ import {
 } from "./updateState";
 import { registerDesktopVoiceTranscriptionHandler } from "./voiceTranscription";
 import { ShellWindowRegistry } from "./shellWindowRegistry";
+import { prepareDesktopDiagnosticsWriter } from "./desktopDiagnosticsStartup";
 import { panelFocusState } from "./panelFocus";
 import { ThreadHomeWindow } from "./threadHomeWindow";
 import { executeDesktopThreadCommand } from "./desktopThreadClient";
@@ -406,12 +426,111 @@ const BASE_DIR =
   process.env.PENKRA_HOME?.trim() ||
   Path.join(OS.homedir(), desktopIdentity.defaultHomeDirectoryName);
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
+const DIAGNOSTIC_STATE_DIR = desktopDiagnosticStateDir(
+  BASE_DIR,
+  isDevelopment && process.env.VITE_DEV_SERVER_URL !== undefined,
+);
+let desktopDiagnostics: DiagnosticsSpoolWriter | null = null;
+let desktopDiagnosticsQueue: DesktopDiagnosticsQueue | null = null;
+let stopDesktopDiagnosticsMonitors: (() => void) | null = null;
+const desktopOsMajor = resolveDesktopOsMajor(() => process.getSystemVersion());
+
+function desktopDiagnosticsOptions(): DiagnosticsOptions {
+  if (app.isPackaged && !startupBundleIdentity?.signature)
+    throw new Error("Installed app bundle identity is unavailable");
+  return {
+    stateDir: DIAGNOSTIC_STATE_DIR,
+    appVersion: app.getVersion(),
+    osMajor: desktopOsMajor,
+    ...(resolveAboutCommitHash() ? { buildId: resolveAboutCommitHash()! } : {}),
+    ...(startupBundleIdentity?.signature
+      ? {
+          bundlePath: startupBundleIdentity.path,
+          bundleSignature: startupBundleIdentity.signature,
+        }
+      : {}),
+    process: "desktop-main",
+  };
+}
+
+function getDesktopDiagnosticsStore(): DiagnosticsSpoolWriter {
+  if (!desktopDiagnostics) {
+    const writer = prepareDesktopDiagnosticsWriter(
+      () => new DiagnosticsSpoolWriter(desktopDiagnosticsOptions()),
+    );
+    desktopDiagnostics = writer;
+    try {
+      recordDesktopOsLookupFailure(desktopOsMajor, desktopDiagnostics);
+    } catch {
+      process.stderr.write("[diagnostics] desktop OS lookup incident failed\n");
+    }
+    stopDesktopDiagnosticsMonitors = startDesktopDiagnosticsMonitors(desktopDiagnostics);
+  }
+  return desktopDiagnostics;
+}
+
+function enqueueDesktopDiagnosticWrite(
+  kind: "checkpoint" | "incident" | "sendExpectation",
+  input: unknown,
+): void {
+  try {
+    // No write may enter the in-memory queue before recovery has a durable marker.
+    getDesktopDiagnosticsStore();
+    desktopDiagnosticsQueue ??= new DesktopDiagnosticsQueue(
+      () =>
+        new Worker(Path.join(__dirname, "diagnosticsWorker.js"), {
+          workerData: desktopDiagnosticsOptions(),
+        }),
+      (reason, count) => {
+        try {
+          getDesktopDiagnosticsStore().recordDrop(reason, count);
+        } catch (cause) {
+          process.stderr.write("[diagnostics] desktop queue loss count failed\n");
+          throw cause;
+        }
+      },
+      undefined,
+      true,
+      (bootId) => {
+        try {
+          markDiagnosticWorkerExited(DIAGNOSTIC_STATE_DIR, bootId);
+        } catch {
+          process.stderr.write("[diagnostics] worker exit marker failed\n");
+        }
+      },
+    );
+    desktopDiagnosticsQueue.enqueue(kind, input);
+  } catch {
+    process.stderr.write("[diagnostics] desktop worker enqueue failed\n");
+  }
+}
+
+async function drainDesktopDiagnosticsWorker(): Promise<void> {
+  await desktopDiagnosticsQueue?.drain();
+  desktopDiagnosticsQueue = null;
+}
 const DESKTOP_WINDOW_STATE_PATH = Path.join(STATE_DIR, "desktop-window-state.json");
 const DESKTOP_SCHEME = desktopIdentity.scheme;
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
 const APP_DISPLAY_NAME = desktopIdentity.displayName;
 const APP_USER_MODEL_ID = desktopIdentity.bundleId;
 const desktopSmokeUserDataPath = process.env.PENKRA_DESKTOP_SMOKE_USER_DATA?.trim();
+const qaSocketClientIds = new Map<number, string>();
+
+function diagnosticsQaShellEnabled(): boolean {
+  return (
+    __PENKRA_DIAGNOSTICS_QA_ACCOUNT_BUILD__ &&
+    diagnosticsQaAccountEnabled({
+      isPackaged: app.isPackaged,
+      isDevelopment,
+      root: PENKRA_ROOT,
+      smokeProfile: desktopSmokeUserDataPath,
+      proofDir: process.env.PENKRA_DIAGNOSTICS_QA_PROOF_DIR,
+      runId: process.env.PENKRA_DIAGNOSTICS_QA_RUN_ID,
+      secret: process.env.PENKRA_DIAGNOSTICS_QA_SECRET,
+    })
+  );
+}
 const COMMIT_HASH_PATTERN = /^[0-9a-f]{7,40}$/i;
 const COMMIT_HASH_DISPLAY_LENGTH = 12;
 const LOG_DIR = Path.join(STATE_DIR, "logs");
@@ -984,6 +1103,22 @@ function parseAppThreadDeckPosition(
   }
   throw new Error("Thread Deck position type must be start, end, before, or after.");
 }
+
+const qaWindowTracker = new DiagnosticsQaWindowTracker(
+  (trace, step, windowId) =>
+    enqueueDesktopDiagnosticWrite("checkpoint", {
+      ...trace,
+      flow: "window",
+      step,
+      outcome: "ok",
+      fields: { windowId: String(windowId) },
+    }),
+  (traceId) => {
+    void recordQaActionAsync("multi-window", traceId).catch(() =>
+      process.stderr.write("[diagnostics] QA window action proof failed\n"),
+    );
+  },
+);
 
 function acceptThreadApiState(event: Electron.IpcMainEvent, input: unknown): void {
   if (
@@ -2406,6 +2541,7 @@ function resolveEmbeddedCommitHash(): string | null {
 }
 
 declare const __PENKRA_REGISTRY_TRUSTED_KEYS__: string;
+declare const __PENKRA_DIAGNOSTICS_QA_ACCOUNT_BUILD__: boolean;
 
 function resolveAboutCommitHash(): string | null {
   if (aboutCommitHashCache !== undefined) {
@@ -4436,6 +4572,8 @@ function backendNodeArgs(): string[] {
 }
 
 function backendEnv(): NodeJS.ProcessEnv {
+  if (app.isPackaged && !startupBundleIdentity?.signature)
+    throw new Error("Installed app bundle identity is unavailable");
   const servedStaticRoot = resolveServedStaticRoot();
   const env = bindDesktopParentPid(
     {
@@ -4445,6 +4583,14 @@ function backendEnv(): NodeJS.ProcessEnv {
       // penkra:// protocol serves, so both surfaces survive app.asar being replaced.
       ...(servedStaticRoot?.snapshotted ? { PENKRA_STATIC_DIR: servedStaticRoot.dir } : {}),
       PENKRA_MODE: "desktop",
+      PENKRA_APP_VERSION: app.getVersion(),
+      PENKRA_DIAGNOSTICS_BUILD_ID: resolveAboutCommitHash() ?? "unknown",
+      ...(startupBundleIdentity?.signature
+        ? {
+            PENKRA_DIAGNOSTICS_BUNDLE_PATH: startupBundleIdentity.path,
+            PENKRA_DIAGNOSTICS_BUNDLE_SIGNATURE: JSON.stringify(startupBundleIdentity.signature),
+          }
+        : {}),
       PENKRA_NO_BROWSER: "1",
       PENKRA_PORT: String(backendPort),
       PENKRA_HOME: BASE_DIR,
@@ -4980,6 +5126,15 @@ async function shutdownDesktopRuntime(
       cancelBackendReadinessWait();
       await disposeAppCommandPipeServerForShutdown(reason);
       restoreStdIoCapture?.();
+      await drainDesktopDiagnosticsWorker();
+      stopDesktopDiagnosticsMonitors?.();
+      stopDesktopDiagnosticsMonitors = null;
+      try {
+        desktopDiagnostics?.close();
+      } catch {
+        process.stderr.write("[diagnostics] desktop close failed\n");
+      }
+      desktopDiagnostics = null;
       desktopShutdownComplete = true;
       writeDesktopLogHeader(`${reason} shutdown complete`);
     },
@@ -5050,6 +5205,28 @@ function registerIpcHandlers(): void {
       throw new Error("Composer drafts are available only to the Penkra shell.");
     }
   };
+  ipcMain.handle(IPC.diagnosticsCheckpoint, (event, input: unknown) => {
+    requireMainRenderer(event);
+    if (!input || typeof input !== "object" || Array.isArray(input)) return;
+    enqueueDesktopDiagnosticWrite("checkpoint", input as CheckpointInput);
+  });
+  ipcMain.handle(IPC.diagnosticsIncident, (event, input: unknown) => {
+    requireMainRenderer(event);
+    if (!input || typeof input !== "object" || Array.isArray(input)) return;
+    enqueueDesktopDiagnosticWrite("incident", input as IncidentInput);
+  });
+  ipcMain.handle(IPC.diagnosticsSendExpectation, (event, input: unknown) => {
+    requireMainRenderer(event);
+    if (!input || typeof input !== "object" || Array.isArray(input)) return;
+    const { traceId, spanId, threadId, armedAt } = input as Record<string, unknown>;
+    if (typeof traceId !== "string" || typeof spanId !== "string") return;
+    enqueueDesktopDiagnosticWrite("sendExpectation", {
+      traceId,
+      spanId,
+      ...(typeof threadId === "string" ? { threadId } : {}),
+      ...(typeof armedAt === "string" ? { armedAt } : {}),
+    });
+  });
   ipcMain.removeListener(IPC.threadApiState, acceptThreadApiState);
   ipcMain.on(IPC.threadApiState, acceptThreadApiState);
   ipcMain.removeAllListeners(IPC.threadHomeView);
@@ -5067,12 +5244,17 @@ function registerIpcHandlers(): void {
     }
     if (!validViews.some((view) => view.threadId === activeThreadId)) return;
     const window = shellWindowForSender(event.sender);
-    threadHomeWindow.replaceViews(
+    const appliedSync = threadHomeWindow.replaceViews(
       window!.id,
       validViews,
       activeThreadId,
       window?.isFocused() ?? false,
     );
+    qaWindowTracker.synced(window!.id, {
+      ...appliedSync,
+      activeThreadId,
+      cloneUrl: window!.webContents.getURL(),
+    });
     for (const view of validViews) {
       const selectedThreadId = threadHomeWindow.consumeThreadSelection(view.deckId);
       if (selectedThreadId && selectedThreadId !== activeThreadId) {
@@ -6719,8 +6901,28 @@ function registerIpcHandlers(): void {
   ipcMain.on(IPC.wsUrl, (event: IpcMainEvent) => {
     // The backend port is reserved at runtime, so preload asks main for the
     // live URL instead of trusting build-time or inherited renderer env.
-    event.returnValue =
-      normalizeDesktopWsUrl(backendWsUrl) ?? resolveDesktopWsUrlFromEnv(process.env);
+    const wsUrl = normalizeDesktopWsUrl(backendWsUrl) ?? resolveDesktopWsUrlFromEnv(process.env);
+    let replyUrl = wsUrl;
+    if (wsUrl && diagnosticsQaShellEnabled() && shellWindowRegistry.hasWebContents(event.sender)) {
+      try {
+        const config = qaEvidenceConfigFromEnv();
+        if (config) {
+          const clientId =
+            qaSocketClientIds.get(event.sender.id) ?? Crypto.randomBytes(16).toString("hex");
+          qaSocketClientIds.set(event.sender.id, clientId);
+          replyUrl = desktopQaSocketUrl({
+            baseUrl: wsUrl,
+            config,
+            clientId,
+            ticketId: Crypto.randomBytes(16).toString("hex"),
+          });
+        }
+      } catch {
+        // Diagnostics cannot prevent the shell from connecting.
+      }
+    }
+    // sendSync receives the first returnValue assignment immediately.
+    event.returnValue = replyUrl;
   });
 
   ipcMain.removeAllListeners(IPC.zoomFactor);
@@ -7303,6 +7505,16 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
   shellWindowRegistry.add(window);
   mainWindow ??= window;
   const rendererOwnerId = window.webContents.id;
+  if (cloneFrom)
+    qaWindowTracker.opened(
+      window.id,
+      {
+        traceId: Crypto.randomBytes(16).toString("hex"),
+        spanId: Crypto.randomBytes(8).toString("hex"),
+      },
+      cloneFrom.webContents.getURL(),
+    );
+  window.on("closed", () => qaWindowTracker.closed(window.id));
   // `ready-to-show` is not guaranteed by every development compositor path.
   // A completed main-frame load is an equally valid event-driven fallback.
   const showInitialWindow = createInitialWindowPresenter({
@@ -7383,6 +7595,7 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
     window.setTitle(APP_DISPLAY_NAME);
   });
   window.webContents.on("did-finish-load", () => {
+    qaWindowTracker.loaded(window.id);
     window.setTitle(APP_DISPLAY_NAME);
     emitUpdateState();
     flushPendingAppTabs(window);
@@ -7499,6 +7712,7 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
   });
 
   window.on("closed", () => {
+    qaSocketClientIds.delete(rendererOwnerId);
     panelFocusState.delete(window.id);
     threadHomeWindow.close(window.id);
     void releaseAppTabWindow(rendererOwnerId);
@@ -7736,6 +7950,22 @@ if (hasSingleInstanceLock) {
     inspectInitialProtocolUrlFromArgv: desktopPlatform.deepLinks.inspectInitialArgv,
     websiteOrigin: penkraAccountServices.websiteOrigin,
   });
+  if (diagnosticsQaShellEnabled()) {
+    ipcMain.removeHandler(IPC.accountAuth.getState);
+    ipcMain.handle(IPC.accountAuth.getState, (event) =>
+      shellWindowRegistry.hasWebContents(event.sender)
+        ? {
+            status: "authenticated",
+            user: {
+              id: "diagnostics-qa-local-account",
+              email: "qa-fixture@example.invalid",
+              name: "Diagnostics QA",
+              image: null,
+            },
+          }
+        : { status: "error", message: "Authentication failed." },
+    );
+  }
   getPenkraAccountId = accountAuthRuntime.getAccountId;
   getPenkraAccountCookie = accountAuthRuntime.getCookie;
   appRegistryClient = new AppRegistryClient({
@@ -7783,6 +8013,7 @@ if (desktopPlatform.deepLinks.inspectInitialArgv) {
 
 async function bootstrap(): Promise<void> {
   writeDesktopLogHeader("bootstrap start");
+  getDesktopDiagnosticsStore();
   // Ahead of the recovery gate on purpose. A startup that blocks below returns
   // early, and every path that could ship the fix for whatever blocked it lives
   // after that return: an install wedged on a bad migration would be unable to

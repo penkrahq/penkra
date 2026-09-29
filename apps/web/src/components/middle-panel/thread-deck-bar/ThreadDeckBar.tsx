@@ -415,6 +415,14 @@ export function ThreadDeckBar(props: {
     if (!draftThread) {
       const thread = threadShellById[threadId];
       if (!thread) return;
+      if (tabs.find((tab) => tab.id === threadId)?.workStatus === "running") {
+        toastManager.add({
+          type: "error",
+          title: "Could not archive thread",
+          description: "This thread is still running. Stop it before archiving.",
+        });
+        return;
+      }
       const api = readNativeApi();
       if (!api) return;
       const confirmed = await api.dialogs.confirm(`Archive thread "${thread.title}"?`);
@@ -441,6 +449,12 @@ export function ThreadDeckBar(props: {
           createdAt: new Date().toISOString(),
         });
       },
+    }).catch((error: unknown) => {
+      toastManager.add({
+        type: "error",
+        title: "Could not archive thread",
+        description: error instanceof Error ? error.message : "Unable to archive the thread.",
+      });
     });
   };
 

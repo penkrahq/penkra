@@ -99,6 +99,30 @@ describe("ThreadHomeWindow", () => {
     expect(home.presentingWindow("thread", "deck", [77])).toBe(77);
   });
 
+  it("issues a main-owned sync revision only after replacing window views", () => {
+    const home = new ThreadHomeWindow();
+    expect(
+      home.replaceViews(77, [{ threadId: "thread", deckId: "deck" }], "thread", false),
+    ).toEqual({
+      windowId: 77,
+      revision: 1,
+    });
+    expect(home.presentingWindow("thread", "deck", [77])).toBe(77);
+    expect(
+      home.replaceViews(77, [{ threadId: "thread", deckId: "deck" }], "thread", false),
+    ).toEqual({
+      windowId: 77,
+      revision: 2,
+    });
+    home.close(77);
+    expect(
+      home.replaceViews(77, [{ threadId: "thread", deckId: "deck" }], "thread", false),
+    ).toEqual({
+      windowId: 77,
+      revision: 1,
+    });
+  });
+
   it("defers a headless Thread selection until its Deck is viewed", () => {
     const home = new ThreadHomeWindow();
     expect(home.select("parent", "child", "deck", [])).toBeNull();
