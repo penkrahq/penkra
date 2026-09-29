@@ -34,18 +34,22 @@ async function waitForDetail(stateDir, flow, step, thread, timeoutMs = 12_000) {
   while (Date.now() < deadline) {
     const db = new DatabaseSync(database, { readOnly: true });
     try {
-      const row = db
-        .prepare(
-          "SELECT id FROM detail WHERE flow = ? AND step = ? AND thread_id = ? ORDER BY id DESC LIMIT 1",
-        )
-        .get(flow, step, thread);
+      const row = thread
+        ? db
+            .prepare(
+              "SELECT id FROM detail WHERE flow = ? AND step = ? AND thread_id = ? ORDER BY id DESC LIMIT 1",
+            )
+            .get(flow, step, thread)
+        : db
+            .prepare("SELECT id FROM detail WHERE flow = ? AND step = ? ORDER BY id DESC LIMIT 1")
+            .get(flow, step);
       if (row) return;
     } finally {
       db.close();
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  throw new Error(`Timed out waiting for ${flow}:${step} on ${thread}`);
+  throw new Error(`Timed out waiting for ${flow}:${step}${thread ? ` on ${thread}` : ""}`);
 }
 
 async function newThread(page, stateDir) {
@@ -191,6 +195,27 @@ async function run(flow, page, stateDir) {
       await waitForDetail(stateDir, "archive", "thread.archived", id);
       if (new URL(page.url()).hash === `#/${id}`)
         throw new Error("Archived thread remained selected");
+      return;
+    }
+    case "multi-window": {
+      const id = await newThread(page, stateDir);
+      await send(page, stateDir, id, `qa:window-${Date.now()}`);
+      const context = page.context();
+      const before = context.pages().length;
+      const opened = context.waitForEvent("page", { timeout: 15_000 });
+      await page.evaluate(() => {
+        if (!window.desktopBridge?.qaOpenWindow)
+          throw new Error("Disposable Dev QA window action is unavailable");
+        window.desktopBridge.qaOpenWindow();
+      });
+      await opened;
+      await waitForDetail(stateDir, "window", "window.synced", null, 20_000);
+      const clone = context
+        .pages()
+        .find((candidate) => candidate !== page && candidate.url().includes(id));
+      if (!clone || context.pages().length <= before)
+        throw new Error("The cloned shell did not open on the source thread");
+      await clone.getByRole("textbox").waitFor();
       return;
     }
     default:
