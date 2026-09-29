@@ -14,6 +14,7 @@ import {
   clearQaRuntimeAction,
   prepareQaRuntimeAction,
   settleQaRuntimeAction,
+  shouldObserveQaLifecycle,
 } from "./qaRuntimeActions";
 import { installDiagnosticsStore } from "./recorder";
 import type { DiagnosticsStore } from "./store";
@@ -27,6 +28,36 @@ afterEach(() => {
 });
 
 describe("QA runtime action proofs", () => {
+  it("recognizes an exact terminal already projected by interrupt admission", () => {
+    expect(
+      shouldObserveQaLifecycle({
+        eventType: "turn.completed",
+        state: "interrupted",
+        shouldApply: false,
+        disposition: "skipped",
+        projectedTurnState: "interrupted",
+      }),
+    ).toBe(true);
+    expect(
+      shouldObserveQaLifecycle({
+        eventType: "turn.completed",
+        state: "interrupted",
+        shouldApply: false,
+        disposition: "skipped",
+        projectedTurnState: "running",
+      }),
+    ).toBe(false);
+    expect(
+      shouldObserveQaLifecycle({
+        eventType: "turn.started",
+        state: "running",
+        shouldApply: false,
+        disposition: "skipped",
+        projectedTurnState: "running",
+      }),
+    ).toBe(false);
+  });
+
   it("holds a fast lifecycle event until durable admission and discards rejected commands", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-qa-runtime-"));
     roots.push(dir);

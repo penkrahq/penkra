@@ -17,7 +17,10 @@ import {
 import { createHash } from "node:crypto";
 import { startDiagnosticTrace } from "@penkra/shared/traceContext";
 import { recordDiagnosticIncident } from "../../diagnostics/recorder.ts";
-import { settleQaRuntimeAction } from "../../diagnostics/qaRuntimeActions.ts";
+import {
+  settleQaRuntimeAction,
+  shouldObserveQaLifecycle,
+} from "../../diagnostics/qaRuntimeActions.ts";
 import {
   Cache,
   Cause,
@@ -2258,34 +2261,44 @@ const make = Effect.gen(function* () {
         threadId: thread.id,
       });
       const nativeTurnId = toTurnId(canonicalActivityEvent.turnId);
-      const logicalTurnId = projectionTurnsForActivity.find(
+      const qaProjectedTurn = projectionTurnsForActivity.find(
         (candidate) => candidate.providerTurnId === nativeTurnId,
-      )?.turnId;
+      );
+      const logicalTurnId = qaProjectedTurn?.turnId;
       if (
-        shouldApplyThreadLifecycle &&
-        threadLifecycleDisposition === "applied" &&
-        (event.type === "turn.started" ||
-          event.type === "turn.completed" ||
-          event.type === "turn.aborted")
-      )
-        yield* Effect.sync(() =>
-          settleQaRuntimeAction({
-            threadId: thread.id,
-            logicalTurnId: logicalTurnId ?? null,
-            nativeTurnId: nativeTurnId ?? null,
+        event.type === "turn.started" ||
+        event.type === "turn.completed" ||
+        event.type === "turn.aborted"
+      ) {
+        const qaState =
+          event.type === "turn.started"
+            ? "running"
+            : event.type === "turn.aborted" ||
+                (event.type === "turn.completed" &&
+                  ["interrupted", "cancelled"].includes(runtimeTurnState(event)))
+              ? "interrupted"
+              : event.type === "turn.completed" && runtimeTurnState(event) === "failed"
+                ? "error"
+                : "ready";
+        if (
+          shouldObserveQaLifecycle({
             eventType: event.type,
-            state:
-              event.type === "turn.started"
-                ? "running"
-                : event.type === "turn.aborted" ||
-                    (event.type === "turn.completed" &&
-                      ["interrupted", "cancelled"].includes(runtimeTurnState(event)))
-                  ? "interrupted"
-                  : event.type === "turn.completed" && runtimeTurnState(event) === "failed"
-                    ? "error"
-                    : "ready",
-          }),
-        );
+            state: qaState,
+            shouldApply: shouldApplyThreadLifecycle,
+            disposition: threadLifecycleDisposition,
+            projectedTurnState: qaProjectedTurn?.state ?? null,
+          })
+        )
+          yield* Effect.sync(() =>
+            settleQaRuntimeAction({
+              threadId: thread.id,
+              logicalTurnId: logicalTurnId ?? null,
+              nativeTurnId: nativeTurnId ?? null,
+              eventType: event.type,
+              state: qaState,
+            }),
+          );
+      }
       const activityTurnIdentity = { turnId: logicalTurnId ?? null } as const;
       const canonicalOperationMaterialized =
         canonicalOperationFromRuntimeEvent(canonicalActivityEvent) !== null;
