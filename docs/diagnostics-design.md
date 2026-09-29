@@ -625,6 +625,12 @@ before it is added to the default lint gate.
 ## QA with diagnostics
 
 - Scripted flows drive a numbered Dev instance through RPC and Playwright: send, stop, play, queue, archive, multi-window, thread create, reconnect and provider switch. No computer use.
+- Provider-dependent clean QA flows use the scripted Codex app-server fixture
+  under `scripts/diagnostics-qa/` in isolated Dev userdata. The fixture is a
+  test executable outside every packaged app bundle and is never imported by
+  production code. Its protocol is tested, and the bundle exclusion check must
+  pass after a build. The QA report labels provider coverage as
+  `scripted-fixture; real provider not covered`; it makes no real-provider claim.
 - Each flow script exits successfully and writes a result file at
   `PENKRA_DIAGNOSTICS_QA_REPORT_PATH` naming its flow, a passing status and its
   required live-app assertions. The gate independently reads fresh, successful
