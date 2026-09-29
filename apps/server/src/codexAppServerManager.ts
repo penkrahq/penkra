@@ -69,6 +69,7 @@ import {
   prepareManagedCodexResume,
 } from "./provider/codexManagedNativeState.ts";
 import { createLogger } from "./logger";
+import { recordCodexTransportFailure } from "./diagnostics/codexTransportFailure";
 import { transcribeVoiceWithChatGptSession } from "./voiceTranscription.ts";
 import {
   CodexAppServerTransportError,
@@ -3156,6 +3157,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   private handleTransportFailure(context: CodexSessionContext, cause: unknown): void {
     if (context.stopping || context.transportFailureHandled) return;
     context.transportFailureHandled = true;
+    recordCodexTransportFailure();
     if (context.stdoutEndTimer) {
       clearTimeout(context.stdoutEndTimer);
       delete context.stdoutEndTimer;
