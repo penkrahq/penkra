@@ -98,5 +98,15 @@
     "code": "EXTERNAL_CALL_FAILED",
     "where": "provider.reactor",
     "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts"
+  },
+  {
+    "code": "APP_OPERATION_FAILED",
+    "where": "server.database",
+    "file": "apps/server/src/persistence/NodeSqliteClient.ts"
+  },
+  {
+    "code": "INVARIANT_VIOLATED",
+    "where": "server.database",
+    "file": "apps/server/src/persistence/DatabaseHealth.ts"
   }
 ]

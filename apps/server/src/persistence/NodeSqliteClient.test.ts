@@ -9,6 +9,8 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { describe, expect } from "vitest";
 
 import * as SqliteClient from "./NodeSqliteClient.ts";
+import { installDiagnosticsStore } from "../diagnostics/recorder.ts";
+import { DiagnosticsStore, openDiagnosticsReader } from "../diagnostics/store.ts";
 
 const layer = it.layer(SqliteClient.layerMemory());
 
@@ -36,6 +38,41 @@ layer("NodeSqliteClient", (it) => {
 });
 
 describe("fatal SQLite result handling", () => {
+  it("records a failed statement without its SQL or parameters", async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-sqlite-diagnostics-"));
+    const diagnostics = new DiagnosticsStore({
+      stateDir: directory,
+      appVersion: "0.14.3",
+      process: "server",
+    });
+    const uninstall = installDiagnosticsStore(diagnostics);
+    try {
+      const result = await Effect.runPromise(
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          return yield* Effect.exit(sql.unsafe("SELECT secret_marker FROM missing_secret_table"));
+        }).pipe(Effect.scoped, Effect.provide(SqliteClient.layerMemory())),
+      );
+      expect(result._tag).toBe("Failure");
+      const db = openDiagnosticsReader(directory)!;
+      expect(db.prepare("SELECT code, where_name, context_json FROM incidents").all()).toEqual([
+        {
+          code: "APP_OPERATION_FAILED",
+          where_name: "server.database",
+          context_json: '{"dbOperation":"prepare"}',
+        },
+      ]);
+      db.close();
+      expect(
+        fs.readFileSync(path.join(directory, "diagnostics", "diagnostics.sqlite"), "utf8"),
+      ).not.toContain("secret_marker");
+    } finally {
+      uninstall();
+      diagnostics.close();
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("recognizes SQLite primary and extended I/O result codes through causes", () => {
     expect(SqliteClient.isSqliteIoError({ errcode: 10 })).toBe(true);
     expect(SqliteClient.isSqliteIoError({ cause: { errcode: 522 } })).toBe(true);
