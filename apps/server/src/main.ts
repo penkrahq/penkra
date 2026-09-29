@@ -49,6 +49,7 @@ import { Server } from "./effectServer";
 import { ServerLoggerLive } from "./serverLogger";
 import { DiagnosticsStore, parseDiagnosticsBundleSignature } from "./diagnostics/store";
 import { installDiagnosticsStore } from "./diagnostics/recorder";
+import { noteDiagnosticsStoreReady, notePreStoreBootFailure } from "./diagnostics/preStoreStartup";
 import {
   measuredBootStage,
   recordBootStageFailure,
@@ -412,9 +413,9 @@ const makeServerProgram = (input: CliInput) => {
     let activeBootStage: BootStage | undefined;
     let bootTimedOut = false;
     const diagnostics = yield* Effect.acquireRelease(
-      Effect.sync(
-        () =>
-          new DiagnosticsStore({
+      Effect.sync(() => {
+        try {
+          return new DiagnosticsStore({
             stateDir: config.stateDir,
             appVersion: process.env.PENKRA_APP_VERSION ?? serverPackageVersion,
             buildId: process.env.PENKRA_DIAGNOSTICS_BUILD_ID ?? "unknown",
@@ -427,14 +428,19 @@ const makeServerProgram = (input: CliInput) => {
                 }
               : {}),
             process: "server",
-          }),
-      ),
+          });
+        } catch (cause) {
+          notePreStoreBootFailure("diagnostics_store");
+          throw cause;
+        }
+      }),
       (store) => Effect.sync(() => store.close()),
     );
     yield* Effect.acquireRelease(
       Effect.sync(() => installDiagnosticsStore(diagnostics)),
       (uninstall) => Effect.sync(uninstall),
     );
+    noteDiagnosticsStoreReady();
     const bootTraceId = randomBytes(16).toString("hex");
     yield* Effect.sync(() =>
       diagnostics.checkpoint({
