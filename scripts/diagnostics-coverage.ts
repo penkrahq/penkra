@@ -96,6 +96,14 @@ function isRecordingCall(node: ts.Node, code: string, where: string): boolean {
       where === "server.database"
     )
       return true;
+    if (
+      ["recordOpenCodeAdapterFailure", "noteOpenCodeAdapterFailure"].includes(
+        node.expression.text,
+      ) &&
+      code === "EXTERNAL_CALL_FAILED" &&
+      where === "provider.adapter"
+    )
+      return true;
   }
   if (
     ts.isCallExpression(node) &&
@@ -336,6 +344,27 @@ export function loadCoverageExceptions(scriptsDir: string): CoverageException[] 
   return all;
 }
 
+/** Subsystem boundary registries are merged in filename order; each code/where has one owner. */
+export function loadCoverageBoundaries(scriptsDir: string): CoverageBoundary[] {
+  const filenames = fs
+    .readdirSync(scriptsDir)
+    .filter((name) => /^diagnostics-coverage-boundaries(?:\.[a-z0-9_-]+)?\.json$/u.test(name))
+    .toSorted();
+  const seen = new Set<string>();
+  const all: CoverageBoundary[] = [];
+  for (const filename of filenames) {
+    const entries = JSON.parse(fs.readFileSync(path.join(scriptsDir, filename), "utf8")) as unknown;
+    if (!Array.isArray(entries)) throw new Error(`Invalid coverage boundary file: ${filename}`);
+    for (const entry of entries as CoverageBoundary[]) {
+      const key = `${entry.code}:${entry.where}`;
+      if (seen.has(key)) throw new Error(`Duplicate diagnostics coverage boundary: ${key}`);
+      seen.add(key);
+      all.push(entry);
+    }
+  }
+  return all;
+}
+
 function hasCoverageMarker(
   source: string,
   site: FailureSite,
@@ -519,8 +548,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.met
   if (process.argv.includes("--json")) process.stdout.write(`${JSON.stringify(sites)}\n`);
   if (process.argv.includes("--check")) {
     const exceptions = loadCoverageExceptions(path.join(repoRoot, "scripts"));
-    const boundaryPath = path.join(repoRoot, "scripts/diagnostics-coverage-boundaries.json");
-    const boundaryList = JSON.parse(fs.readFileSync(boundaryPath, "utf8")) as CoverageBoundary[];
+    const boundaryList = loadCoverageBoundaries(path.join(repoRoot, "scripts"));
     const sourceFor = (file: string) => fs.readFileSync(path.join(repoRoot, file), "utf8");
     const boundaries = validateCoverageBoundaries(boundaryList, sourceFor);
     const uncovered = uncoveredFailureSites(sites, sourceFor, exceptions, boundaries);

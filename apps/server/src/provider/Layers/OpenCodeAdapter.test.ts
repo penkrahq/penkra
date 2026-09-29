@@ -1,4 +1,7 @@
 import { ProviderConnectionId, ThreadId } from "@penkra/contracts";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import type {
   Agent,
@@ -12,6 +15,8 @@ import { Deferred, Effect, Exit, Fiber, Layer, Scope, Stream } from "effect";
 import { describe, it, expect, vi } from "vitest";
 
 import { ServerConfig } from "../../config.ts";
+import { installDiagnosticsStore } from "../../diagnostics/recorder.ts";
+import { DiagnosticsStore, openDiagnosticsReader } from "../../diagnostics/store.ts";
 import { PENKRA_HOST_POLICY_MARKER } from "../../agentGateway/harnessPolicy.ts";
 import {
   AgentGatewayCredentials,
@@ -893,6 +898,48 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     expect(runtime.cliModelCalls[0]).toMatchObject({
       cwd: "/repo/server-startup-fails",
     });
+  });
+
+  it("records failed CLI discovery before using server inventory", async () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-opencode-diagnostics-"));
+    const diagnostics = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
+    const uninstall = installDiagnosticsStore(diagnostics);
+    try {
+      const runtime = createMockOpenCodeRuntime({
+        cliModelsError: new OpenCodeRuntimeError({
+          operation: "listOpenCodeCliModels",
+          detail: "secret fixture model list failure",
+        }),
+      });
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const adapter = yield* OpenCodeAdapter;
+          return yield* adapter.listModels!({ provider: "opencode", binaryPath: "opencode" });
+        }).pipe(
+          Effect.provide(
+            makeOpenCodeAdapterLive({ runtime: runtime.runtime }).pipe(
+              Layer.provideMerge(
+                ServerConfig.layerTest(process.cwd(), { prefix: "opencode-adapter-test-" }),
+              ),
+              Layer.provideMerge(NodeServices.layer),
+            ),
+          ),
+        ),
+      );
+      const reader = openDiagnosticsReader(stateDir)!;
+      expect(reader.prepare("SELECT code, where_name, context_json FROM incidents").all()).toEqual([
+        {
+          code: "EXTERNAL_CALL_FAILED",
+          where_name: "provider.adapter",
+          context_json: '{"provider":"opencode","adapterAction":"cli-model-discovery"}',
+        },
+      ]);
+      reader.close();
+    } finally {
+      uninstall();
+      diagnostics.close();
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
   });
 
   it("lists OpenCode agents from the active discovery cwd", async () => {
