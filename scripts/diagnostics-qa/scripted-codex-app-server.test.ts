@@ -14,8 +14,10 @@ const marker = "PENKRA_QA_SCRIPTED_PROVIDER_FIXTURE_V1";
 
 describe("scripted provider QA fixture", () => {
   it("serves a real JSONL app-server process and completes or interrupts turns", async () => {
+    const fixtureHome = fs.mkdtempSync("/tmp/penkra-diagnostics-qa-codex-home.");
     const child = spawn(process.execPath, [fixture, "app-server"], {
       stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env, CODEX_HOME: fixtureHome },
     });
     const lines = createInterface({ input: child.stdout! });
     const received: Array<Record<string, unknown>> = [];
@@ -32,17 +34,27 @@ describe("scripted provider QA fixture", () => {
     try {
       request(1, "initialize");
       request(5, "account/read");
+      request(6, "model/list");
       request(2, "thread/start");
       await until(() => received.some((row) => row.id === 5));
       expect(received.find((row) => row.id === 5)?.result).toEqual({
         account: { type: "chatgpt", email: "qa-fixture@example.invalid" },
       });
+      await until(() => received.some((row) => row.id === 6));
+      expect(received.find((row) => row.id === 6)?.result).toMatchObject({
+        data: [{ id: "qa-fixture-model", isDefault: true }],
+      });
       await until(() => received.some((row) => row.id === 2));
-      const thread = (received.find((row) => row.id === 2)?.result as { thread: { id: string } })
+      const thread = (received.find((row) => row.id === 2)!.result as { thread: { id: string } })
         .thread.id;
+      const rolloutRoot = path.join(fixtureHome, "sessions");
+      const rollouts = fs
+        .readdirSync(rolloutRoot, { recursive: true })
+        .filter((name) => String(name).endsWith(`-${thread}.jsonl`));
+      expect(rollouts).toHaveLength(1);
       request(3, "turn/start", { threadId: thread, input: [{ type: "text", text: "qa:hold" }] });
       await until(() => received.some((row) => row.id === 3));
-      const turn = (received.find((row) => row.id === 3)?.result as { turn: { id: string } }).turn
+      const turn = (received.find((row) => row.id === 3)!.result as { turn: { id: string } }).turn
         .id;
       expect(received).toContainEqual(
         expect.objectContaining({ method: "turn/started", params: expect.any(Object) }),
@@ -59,6 +71,7 @@ describe("scripted provider QA fixture", () => {
     } finally {
       child.kill();
       lines.close();
+      fs.rmSync(fixtureHome, { recursive: true, force: true });
     }
   });
 

@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // Test-only Codex app-server protocol fixture. Never import this from app code.
 import { randomUUID } from "node:crypto";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { createInterface } from "node:readline";
 
 export const FIXTURE_MARKER = "PENKRA_QA_SCRIPTED_PROVIDER_FIXTURE_V1";
@@ -9,6 +11,22 @@ const turns = new Map();
 const emit = (row) => process.stdout.write(`${JSON.stringify(row)}\n`);
 const respond = (id, result) => emit({ id, result });
 const notify = (method, params) => emit({ method, params });
+
+function writeRollout(threadId) {
+  const home = process.env.CODEX_HOME;
+  if (!home) throw new Error("QA fixture requires an isolated CODEX_HOME");
+  const now = new Date();
+  const year = String(now.getUTCFullYear());
+  const month = String(now.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(now.getUTCDate()).padStart(2, "0");
+  const directory = path.join(home, "sessions", year, month, day);
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const timestamp = now.toISOString().replaceAll(":", "-").replaceAll(".", "-");
+  fs.writeFileSync(path.join(directory, `rollout-${timestamp}-${threadId}.jsonl`), "{}\n", {
+    flag: "wx",
+    mode: 0o600,
+  });
+}
 
 function finish(turnId, status = "completed") {
   const active = turns.get(turnId);
@@ -36,13 +54,24 @@ function handle(message) {
       respond(id, { plugins: [] });
       return;
     case "model/list":
-      respond(id, { data: [] });
+      respond(id, {
+        data: [
+          {
+            id: "qa-fixture-model",
+            name: "QA Fixture Model",
+            isDefault: true,
+            supportedReasoningEfforts: ["low", "medium", "high"],
+            defaultReasoningEffort: "medium",
+          },
+        ],
+      });
       return;
     case "account/read":
       respond(id, { account: { type: "chatgpt", email: "qa-fixture@example.invalid" } });
       return;
     case "thread/start": {
       const threadId = randomUUID();
+      writeRollout(threadId);
       threads.set(threadId, { id: threadId });
       respond(id, { thread: { id: threadId, turns: [] } });
       notify("thread/started", { thread: { id: threadId } });
