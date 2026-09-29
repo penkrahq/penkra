@@ -720,13 +720,14 @@ export const makeAgentGateway = Effect.gen(function* () {
           );
         return mcpToolResultJson({ threadId: target.id, archived });
       }).pipe(
-        Effect.catch((error) =>
-          Effect.succeed(
+        Effect.catch((error) => {
+          if (error instanceof GatewayToolError) recordGatewayConsumedFailure(error);
+          return Effect.succeed(
             error instanceof GatewayToolError
               ? gatewayToolErrorResult(error)
               : gatewayMcpToolErrorResult(error),
-          ),
-        ),
+          );
+        }),
       ),
   });
   const archiveThread = makeSetThreadArchived(true);
