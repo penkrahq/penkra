@@ -426,7 +426,10 @@ const BASE_DIR =
   process.env.PENKRA_HOME?.trim() ||
   Path.join(OS.homedir(), desktopIdentity.defaultHomeDirectoryName);
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
-const DIAGNOSTIC_STATE_DIR = desktopDiagnosticStateDir(BASE_DIR, isDevelopment);
+const DIAGNOSTIC_STATE_DIR = desktopDiagnosticStateDir(
+  BASE_DIR,
+  isDevelopment && process.env.VITE_DEV_SERVER_URL !== undefined,
+);
 let desktopDiagnostics: DiagnosticsSpoolWriter | null = null;
 let desktopDiagnosticsQueue: DesktopDiagnosticsQueue | null = null;
 let stopDesktopDiagnosticsMonitors: (() => void) | null = null;
