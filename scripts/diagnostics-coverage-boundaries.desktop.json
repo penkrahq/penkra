@@ -1,0 +1,137 @@
+[
+  {
+    "code": "APP_OPERATION_FAILED",
+    "where": "desktop.app_bootstrap",
+    "file": "apps/desktop/src/main.ts"
+  },
+  {
+    "code": "APP_OPERATION_FAILED",
+    "where": "desktop.app_cleanup",
+    "file": "apps/desktop/src/main.ts"
+  },
+  {
+    "code": "APP_OPERATION_FAILED",
+    "where": "desktop.app_icon",
+    "file": "apps/desktop/src/main.ts"
+  },
+  {
+    "code": "APP_OPERATION_FAILED",
+    "where": "desktop.app_tab",
+    "file": "apps/desktop/src/main.ts"
+  },
+  {
+    "code": "APP_OPERATION_FAILED",
+    "where": "desktop.app_transfer",
+    "file": "apps/desktop/src/main.ts"
+  },
+  {
+    "code": "APP_OPERATION_FAILED",
+    "where": "desktop.bundle_snapshot",
+    "file": "apps/desktop/src/main.ts"
+  },
+  {
+    "code": "APP_OPERATION_FAILED",
+    "where": "desktop.launch_record",
+    "file": "apps/desktop/src/main.ts"
+  },
+  {
+    "code": "APP_OPERATION_FAILED",
+    "where": "desktop.migration_recovery",
+    "file": "apps/desktop/src/main.ts"
+  },
+  {
+    "code": "APP_OPERATION_FAILED",
+    "where": "desktop.window_state",
+    "file": "apps/desktop/src/main.ts"
+  },
+  {
+    "code": "COMMAND_REJECTED",
+    "where": "desktop.external_url",
+    "file": "apps/desktop/src/main.ts"
+  },
+  {
+    "code": "COMMAND_REJECTED",
+    "where": "desktop.show_in_folder",
+    "file": "apps/desktop/src/main.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "desktop.app_tab",
+    "file": "apps/desktop/src/main.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "desktop.bundle_prompt",
+    "file": "apps/desktop/src/main.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "desktop.external_open",
+    "file": "apps/desktop/src/main.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "desktop.log_setup",
+    "file": "apps/desktop/src/main.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_SLOW",
+    "where": "desktop.update_diagnostics",
+    "file": "apps/desktop/src/main.ts"
+  },
+  {
+    "code": "INVARIANT_VIOLATED",
+    "where": "desktop.bootstrap",
+    "file": "apps/desktop/src/main.ts"
+  },
+  {
+    "code": "INVARIANT_VIOLATED",
+    "where": "desktop.service_unavailable",
+    "file": "apps/desktop/src/main.ts"
+  },
+  {
+    "code": "PROCESS_CRASHED",
+    "where": "desktop.backend_restart",
+    "file": "apps/desktop/src/main.ts"
+  },
+  {
+    "code": "PROCESS_UNRESPONSIVE",
+    "where": "desktop.backend_readiness",
+    "file": "apps/desktop/src/main.ts"
+  },
+  {
+    "code": "PROCESS_UNRESPONSIVE",
+    "where": "desktop.backend_shutdown",
+    "file": "apps/desktop/src/main.ts"
+  },
+  {
+    "code": "PROCESS_UNRESPONSIVE",
+    "where": "desktop.update_download_settle",
+    "file": "apps/desktop/src/main.ts"
+  },
+  {
+    "code": "UNCLEAN_SHUTDOWN",
+    "where": "desktop.shutdown",
+    "file": "apps/desktop/src/main.ts"
+  },
+  {
+    "code": "UPDATE_CHECK_FAILED",
+    "where": "desktop.update_check",
+    "file": "apps/desktop/src/main.ts"
+  },
+  {
+    "code": "UPDATE_DOWNLOAD_FAILED",
+    "where": "desktop.update_download",
+    "file": "apps/desktop/src/main.ts"
+  },
+  {
+    "code": "UPDATE_INSTALL_FAILED",
+    "where": "desktop.update_cleanup",
+    "file": "apps/desktop/src/main.ts"
+  },
+  {
+    "code": "UPDATE_INSTALL_FAILED",
+    "where": "desktop.update_install",
+    "file": "apps/desktop/src/main.ts"
+  }
+]
