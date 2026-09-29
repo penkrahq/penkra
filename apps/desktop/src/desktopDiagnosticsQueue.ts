@@ -25,6 +25,7 @@ export class DesktopDiagnosticsQueue {
     private readonly recordDrop: (reason: DropReason, count: number) => void,
     private readonly reserve?: (kind: WriteKind, input: unknown) => string,
     private readonly useCredits = false,
+    private readonly onWorkerExit?: (bootId: string) => void,
   ) {}
 
   enqueue(kind: WriteKind, input: unknown): void {
@@ -124,12 +125,21 @@ export class DesktopDiagnosticsQueue {
     const worker = this.createWorker();
     this.worker = worker;
     worker.unref();
+    let workerBootId: string | null = null;
     worker.on(
       "message",
-      (message: { kind?: string; start?: number; count?: number; id?: string }) => {
+      (message: {
+        kind?: string;
+        start?: number;
+        count?: number;
+        id?: string;
+        bootId?: string;
+      }) => {
         if (this.worker !== worker) return;
         if (this.useCredits && message?.kind === "credits") {
           if (
+            !message.bootId ||
+            !/^[a-f0-9]{32}$/u.test(message.bootId) ||
             !Number.isSafeInteger(message.start) ||
             !Number.isSafeInteger(message.count) ||
             message.start! < 1 ||
@@ -138,6 +148,7 @@ export class DesktopDiagnosticsQueue {
             this.onWorkerLost(worker);
             return;
           }
+          workerBootId = message.bootId;
           this.credits.push({ next: message.start!, last: message.start! + message.count! - 1 });
           this.availableCredits += message.count!;
           this.receivedCredits = true;
@@ -164,7 +175,10 @@ export class DesktopDiagnosticsQueue {
       },
     );
     worker.on("error", () => this.onWorkerLost(worker));
-    worker.on("exit", () => this.onWorkerLost(worker));
+    worker.on("exit", () => {
+      if (workerBootId) this.onWorkerExit?.(workerBootId);
+      this.onWorkerLost(worker);
+    });
     return worker;
   }
 

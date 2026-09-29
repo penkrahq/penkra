@@ -7,6 +7,10 @@ import type { Worker } from "node:worker_threads";
 import { describe, expect, it, vi } from "vitest";
 import { DIAGNOSTIC_LIMITS } from "@penkra/shared/diagnostics/limits";
 import { DiagnosticsStore, openDiagnosticsReader } from "@penkra/shared/diagnostics/store";
+import {
+  DiagnosticsSpoolWriter,
+  markDiagnosticWorkerExited,
+} from "@penkra/shared/diagnostics/store";
 
 import { DesktopDiagnosticsQueue } from "./desktopDiagnosticsQueue";
 
@@ -21,6 +25,8 @@ class FakeWorker extends EventEmitter {
   }
 }
 
+const fakeBootId = "0123456789abcdef0123456789abcdef";
+
 describe("desktop diagnostics queue", () => {
   it("uses worker credits without a main-thread reservation and reports exact overflow after recovery", async () => {
     const worker = new FakeWorker();
@@ -33,7 +39,7 @@ describe("desktop diagnostics queue", () => {
     );
     queue.enqueue("checkpoint", { sequence: 0 });
     expect(worker.messages).toEqual([]);
-    worker.emit("message", { kind: "credits", start: 1, count: 2 });
+    worker.emit("message", { kind: "credits", bootId: fakeBootId, start: 1, count: 2 });
     queue.enqueue("checkpoint", { sequence: 1 });
     queue.enqueue("checkpoint", { sequence: 2 });
     queue.enqueue("checkpoint", { sequence: 3 });
@@ -48,7 +54,7 @@ describe("desktop diagnostics queue", () => {
       input: { sequence: 1 },
       queueSlot: 2,
     });
-    worker.emit("message", { kind: "credits", start: 3, count: 2 });
+    worker.emit("message", { kind: "credits", bootId: fakeBootId, start: 3, count: 2 });
     expect(
       worker.messages.filter((message) => (message as { kind?: string }).kind === "overflow"),
     ).toEqual([{ kind: "overflow", count: 2, id: expect.any(String) }]);
@@ -72,7 +78,7 @@ describe("desktop diagnostics queue", () => {
       true,
     );
     queue.enqueue("checkpoint", { sequence: 1 });
-    first.emit("message", { kind: "credits", start: 1, count: 1 });
+    first.emit("message", { kind: "credits", bootId: fakeBootId, start: 1, count: 1 });
     queue.enqueue("checkpoint", { sequence: 2 });
     first.emit("message", { kind: "ack" });
     const firstReport = first.messages.find(
@@ -81,13 +87,52 @@ describe("desktop diagnostics queue", () => {
     expect(firstReport).toMatchObject({ kind: "overflow", count: 1 });
     first.emit("exit", 1);
     queue.enqueue("checkpoint", { sequence: 3 });
-    second.emit("message", { kind: "credits", start: 1, count: 1 });
+    second.emit("message", { kind: "credits", bootId: fakeBootId, start: 1, count: 1 });
     expect(second.messages).toContainEqual(firstReport);
     second.emit("message", { kind: "overflow_ack", id: firstReport.id });
     second.emit("message", { kind: "ack" });
     expect(
       second.messages.filter((message) => (message as { kind?: string }).kind === "overflow"),
     ).toHaveLength(1);
+  });
+
+  it("reconciles worker death while the desktop process remains alive", () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-worker-exit-"));
+    try {
+      const store = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
+      const writer = new DiagnosticsSpoolWriter({
+        stateDir,
+        appVersion: "0.14.3",
+        process: "desktop-main",
+      });
+      writer.reserveWorkerCredits(2);
+      store.importPeerSpools();
+      const fake = new FakeWorker();
+      const queue = new DesktopDiagnosticsQueue(
+        () => fake as unknown as Worker,
+        vi.fn(),
+        undefined,
+        true,
+        (bootId) => markDiagnosticWorkerExited(stateDir, bootId),
+      );
+      queue.enqueue("checkpoint", { sequence: 1 });
+      fake.emit("message", { kind: "credits", bootId: writer.bootId, start: 1, count: 2 });
+      fake.emit("exit", 1);
+      store.importPeerSpools();
+      const db = openDiagnosticsReader(stateDir)!;
+      expect(
+        db
+          .prepare("SELECT value FROM meta WHERE key = ?")
+          .get(`lost-count-unknown:${writer.bootId}`),
+      ).toMatchObject({ value: "1" });
+      expect(
+        db.prepare("SELECT value FROM meta WHERE key = ?").get(`possibly-lost:${writer.bootId}`),
+      ).toMatchObject({ value: "2" });
+      db.close();
+      store.close();
+    } finally {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
   });
 
   it("reconciles an unclean credit block after a hard crash before worker ack", () => {

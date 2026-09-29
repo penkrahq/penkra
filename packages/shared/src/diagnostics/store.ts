@@ -2698,3 +2698,20 @@ export function openDiagnosticsReader(stateDir: string): DatabaseSync | null {
   if (!fs.existsSync(filename)) return null;
   return new DatabaseSync(filename, { readOnly: true });
 }
+
+/** Retire a worker marker after its thread exits while Electron remains alive. */
+export function markDiagnosticWorkerExited(stateDir: string, bootId: string): void {
+  if (!/^[a-f0-9]{32}$/u.test(bootId)) throw new TypeError("Invalid diagnostic worker boot ID");
+  const dir = diagnosticsDir(stateDir);
+  withLifecycleLock(dir, () => {
+    const activePath = path.join(dir, `active-${bootId}.json`);
+    if (!fs.existsSync(activePath)) return;
+    fs.rmSync(activePath);
+    const directory = fs.openSync(dir, "r");
+    try {
+      fs.fsyncSync(directory);
+    } finally {
+      fs.closeSync(directory);
+    }
+  });
+}
