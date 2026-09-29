@@ -114,6 +114,7 @@ import { ActiveWorkPowerBlocker } from "./activeWorkPowerBlocker";
 import { recordDesktopOsLookupFailure, resolveDesktopOsMajor } from "./desktopDiagnosticOs";
 import { startDesktopDiagnosticsMonitors } from "./desktopDiagnosticsMonitors";
 import { DesktopDiagnosticsQueue } from "./desktopDiagnosticsQueue";
+import { installDesktopFailureCoverageReporter } from "./desktopFailureCoverage";
 import { recordDesktopMainIncident } from "./desktopMainIncident";
 import { desktopDiagnosticStateDir } from "./desktopDiagnosticStateDir";
 import { DiagnosticsQaWindowTracker } from "./diagnosticsQaWindow";
@@ -511,6 +512,7 @@ function enqueueDesktopDiagnosticWrite(
 function recordDiagnosticIncident(input: Omit<IncidentInput, "traceId" | "spanId">): void {
   recordDesktopMainIncident((kind, value) => enqueueDesktopDiagnosticWrite(kind, value), input);
 }
+installDesktopFailureCoverageReporter(recordDiagnosticIncident);
 
 function recordDesktopServiceUnavailable(error: Error): Error {
   recordDiagnosticIncident({
