@@ -95,6 +95,12 @@ describe("scripted provider QA fixture", () => {
     }
   });
 
+  it("compiles fixture launch permission off in the staged server bundle", () => {
+    const serverBundle = fs.readFileSync(path.join(repoRoot, "apps/server/dist/index.mjs"), "utf8");
+    expect(serverBundle).toContain("buildEnabled: false");
+    expect(serverBundle).not.toContain("buildEnabled: true");
+  });
+
   it("labels fixture coverage without claiming real-provider coverage", () => {
     expect(qaProviderCoverageLabel("scripted-fixture")).toBe(
       "scripted-fixture; real provider not covered",
