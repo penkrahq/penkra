@@ -306,10 +306,11 @@ export const makeProviderNativeContinuationVerifier = Effect.gen(function* () {
             provider: input.selection.harness,
             connectionId: input.selection.connectionId,
             models: catalog.models,
+            selectedModelId: input.selection.modelId,
           });
           if (probeModelId === null) {
             return yield* fail(
-              "The target Claude account has no available Haiku or Sonnet model for resume verification.",
+              "The target account has no available model for resume verification.",
             );
           }
           verificationModelId = probeModelId;

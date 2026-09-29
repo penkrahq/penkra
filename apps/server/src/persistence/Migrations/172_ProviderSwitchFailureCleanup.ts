@@ -85,6 +85,8 @@ export default Effect.gen(function* () {
       THEN RAISE(ABORT, 'provider thread switch operation identity is immutable') END;
       SELECT CASE WHEN NOT (
         (OLD.operation_state = 'pending' AND NEW.operation_state IN ('interrupted', 'failed-cleanup-pending', 'failed')) OR
+        (OLD.operation_state = 'interrupted' AND NEW.operation_state = 'interrupted' AND
+          OLD.verification_json IS NULL AND NEW.verification_json = '{"kind":"resume-probe-attempted"}') OR
         (OLD.operation_state = 'interrupted' AND NEW.operation_state IN ('verified', 'failed-cleanup-pending', 'failed')) OR
         (OLD.operation_state = 'verified' AND NEW.operation_state IN ('committed', 'failed-cleanup-pending', 'failed')) OR
         (OLD.operation_state = 'failed-cleanup-pending' AND NEW.operation_state = 'failed')
