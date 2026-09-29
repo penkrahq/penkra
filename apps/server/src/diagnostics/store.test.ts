@@ -63,6 +63,47 @@ describe("diagnostics store", () => {
     expect(bytes()).toBeLessThanOrEqual(cap);
   });
 
+  it("does not exceed the cap while recording losses for an update reset", () => {
+    const cap = 512 * 1024;
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-diagnostics-reset-cap-"));
+    roots.push(stateDir);
+    const oldOptions = { stateDir, appVersion: "0.14.3", buildId: "aaaaaaa", maxTotalBytes: cap };
+    const old = new DiagnosticsStore({ ...oldOptions, process: "server" });
+    const peer = new DiagnosticsSpoolWriter({ ...oldOptions, process: "desktop-main" });
+    peer.checkpoint({ traceId, spanId, flow: "send", step: "composer.preflight" });
+    peer.close();
+    old.close();
+    const dir = path.join(stateDir, "diagnostics");
+    const bytes = () =>
+      fs.readdirSync(dir).reduce((sum, name) => {
+        const file = path.join(dir, name);
+        return sum + (fs.statSync(file).isFile() ? fs.statSync(file).size : 0);
+      }, 0);
+    const padding = path.join(dir, "padding");
+    fs.writeFileSync(padding, Buffer.alloc(cap - bytes() - 16));
+    expect(
+      () =>
+        new DiagnosticsStore({
+          stateDir,
+          appVersion: "0.14.3",
+          buildId: "bbbbbbb",
+          process: "server",
+          maxTotalBytes: cap,
+        }),
+    ).toThrow("capacity");
+    expect(bytes()).toBeLessThanOrEqual(cap);
+    fs.rmSync(padding);
+    const current = new DiagnosticsStore({
+      stateDir,
+      appVersion: "0.14.3",
+      buildId: "bbbbbbb",
+      process: "server",
+      maxTotalBytes: cap,
+    });
+    current.close();
+    expect(bytes()).toBeLessThanOrEqual(cap);
+  });
+
   it("bounds fresh schema creation before its first SQLite write", () => {
     const cap = 128 * 1024;
     const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-diagnostics-"));

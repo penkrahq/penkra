@@ -356,13 +356,24 @@ function lossLedgerPath(dir: string, bootId: string): string {
   return path.join(dir, `loss-${bootId}.bin`);
 }
 
-function writeLossLedger(file: string, reasons: LossCounts, reason: LossReason): void {
+function writeLossLedger(
+  file: string,
+  reasons: LossCounts,
+  reason: LossReason,
+  maxTotalBytes: number = DIAGNOSTIC_LIMITS.totalBytes,
+): void {
   const count = LOSS_REASONS.reduce((sum, key) => sum + reasons[key], 0);
   const generation = (fs.existsSync(file) ? readLossLedger(file)?.generation : null) ?? 0;
   const payload = { generation: generation + 1, count, reason, reasons };
   const checksum = createHash("sha256").update(JSON.stringify(payload)).digest("hex").slice(0, 16);
   const content = Buffer.from(JSON.stringify({ ...payload, checksum }));
   if (content.length > LOSS_LEDGER_BYTES) throw new Error("Diagnostics loss ledger overflow");
+  const existingBytes = fs.existsSync(file) ? fs.statSync(file).size : 0;
+  if (
+    totalBytes(path.dirname(file)) + Math.max(0, LOSS_LEDGER_FILE_BYTES - existingBytes) >
+    maxTotalBytes
+  )
+    throw new Error("Diagnostics capacity reached before loss ledger write");
   const handle = fs.openSync(file, fs.existsSync(file) ? "r+" : "w+", 0o600);
   try {
     if (fs.fstatSync(handle).size < LOSS_LEDGER_FILE_BYTES)
@@ -377,13 +388,19 @@ function writeLossLedger(file: string, reasons: LossCounts, reason: LossReason):
   }
 }
 
-function recordLoss(dir: string, bootId: string, reason: LossReason, count = 1): void {
+function recordLoss(
+  dir: string,
+  bootId: string,
+  reason: LossReason,
+  count = 1,
+  maxTotalBytes: number = DIAGNOSTIC_LIMITS.totalBytes,
+): void {
   const file = lossLedgerPath(dir, bootId);
   try {
     const reasons =
       (fs.existsSync(file) ? readLossLedger(file)?.reasons : null) ?? emptyLossCounts();
     reasons[reason] += count;
-    writeLossLedger(file, reasons, reason);
+    writeLossLedger(file, reasons, reason, maxTotalBytes);
   } catch {
     process.stderr.write("[diagnostics] durable loss count unavailable\n");
   }
@@ -495,12 +512,26 @@ function readResetLossManifest(dir: string): ResetLossManifest {
   return manifest;
 }
 
-function writeResetLossManifest(dir: string, manifest: ResetLossManifest): void {
+function writeResetLossManifest(
+  dir: string,
+  manifest: ResetLossManifest,
+  maxTotalBytes: number,
+): void {
   const file = resetLossPath(dir);
   const temporary = `${file}.tmp`;
+  const content = JSON.stringify(manifest);
+  if (
+    totalBytes(dir) +
+      Math.max(
+        0,
+        Buffer.byteLength(content) - (fs.existsSync(temporary) ? fs.statSync(temporary).size : 0),
+      ) >
+    maxTotalBytes
+  )
+    throw new Error("Diagnostics capacity reached before reset loss manifest");
   const handle = fs.openSync(temporary, "w", 0o600);
   try {
-    fs.writeFileSync(handle, JSON.stringify(manifest));
+    fs.writeFileSync(handle, content);
     fs.fsyncSync(handle);
   } finally {
     fs.closeSync(handle);
@@ -514,7 +545,7 @@ function writeResetLossManifest(dir: string, manifest: ResetLossManifest): void 
   }
 }
 
-function flushResetLossManifest(dir: string): void {
+function flushResetLossManifest(dir: string, maxTotalBytes: number): void {
   if (!fs.existsSync(resetLossPath(dir))) return;
   const manifest = readResetLossManifest(dir);
   const count = [...Object.values(manifest.spools), ...Object.values(manifest.ledgers)].reduce(
@@ -524,7 +555,7 @@ function flushResetLossManifest(dir: string): void {
   const file = lossLedgerPath(dir, manifest.bootId);
   const reasons = (fs.existsSync(file) ? readLossLedger(file)?.reasons : null) ?? emptyLossCounts();
   reasons.stale = Math.max(reasons.stale, count);
-  writeLossLedger(file, reasons, "stale");
+  writeLossLedger(file, reasons, "stale", maxTotalBytes);
   fs.rmSync(resetLossPath(dir), { force: true });
 }
 
@@ -1193,7 +1224,7 @@ export class DiagnosticsStore {
           }
         }
         if (Object.keys(manifest.spools).length + Object.keys(manifest.ledgers).length > 0)
-          writeResetLossManifest(this.dir, manifest);
+          writeResetLossManifest(this.dir, manifest, this.maxTotalBytes);
         for (const entry of fs.readdirSync(this.dir)) {
           if (!keep.has(entry))
             fs.rmSync(path.join(this.dir, entry), { recursive: true, force: true });
@@ -1220,11 +1251,18 @@ export class DiagnosticsStore {
         db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES ('reset_at', ?)").run(
           new Date().toISOString(),
         );
+        if (
+          totalBytes(this.dir) +
+            Buffer.byteLength(options.appVersion) +
+            Buffer.byteLength(this.identity) >
+          this.maxTotalBytes
+        )
+          throw new Error("Diagnostics capacity reached before identity write");
         fs.writeFileSync(versionPath, options.appVersion, { mode: 0o600 });
         fs.writeFileSync(identityPath, this.identity, { mode: 0o600 });
       }
       this.database = db;
-      flushResetLossManifest(this.dir);
+      flushResetLossManifest(this.dir, this.maxTotalBytes);
       const crashedProcesses = this.importSpoolsLocked();
       const active = JSON.stringify({ pid: process.pid, process: options.process });
       const lossFile = lossLedgerPath(this.dir, this.bootId);
@@ -1236,7 +1274,7 @@ export class DiagnosticsStore {
       )
         throw new Error("Diagnostics capacity reached before store startup markers");
       fs.writeFileSync(this.activePath, active, { mode: 0o600 });
-      writeLossLedger(lossFile, emptyLossCounts(), "capacity");
+      writeLossLedger(lossFile, emptyLossCounts(), "capacity", this.maxTotalBytes);
       return { crashedProcesses };
     });
     this.sweepExpectations(new Date(), true);
@@ -1285,7 +1323,7 @@ export class DiagnosticsStore {
       const stalePath = path.join(this.dir, `stale-${bootId}.json`);
       if (fs.existsSync(stalePath)) {
         const dropped = lines.filter(Boolean).length;
-        if (dropped > 0) recordLoss(this.dir, bootId, "stale", dropped);
+        if (dropped > 0) recordLoss(this.dir, bootId, "stale", dropped, this.maxTotalBytes);
         if (live) fs.truncateSync(spoolPath, 0);
         else {
           fs.rmSync(spoolPath, { force: true });
@@ -1532,13 +1570,13 @@ export class DiagnosticsStore {
       currentSpoolBytes + bytes > this.maxSpoolBytes ||
       totalBytes(this.dir) + bytes > this.maxTotalBytes
     ) {
-      if (reportFailure) recordLoss(this.dir, this.bootId, "capacity");
+      if (reportFailure) recordLoss(this.dir, this.bootId, "capacity", 1, this.maxTotalBytes);
       throw new Error("Diagnostics capacity reached");
     }
     try {
       sqlitePhysicalBudget(this.database, this.dir, this.dbPath, this.maxTotalBytes, bytes);
     } catch (cause) {
-      if (reportFailure) recordLoss(this.dir, this.bootId, "capacity");
+      if (reportFailure) recordLoss(this.dir, this.bootId, "capacity", 1, this.maxTotalBytes);
       throw cause;
     }
     try {
@@ -1550,7 +1588,7 @@ export class DiagnosticsStore {
         fs.closeSync(handle);
       }
     } catch (cause) {
-      if (reportFailure) recordLoss(this.dir, this.bootId, "spool");
+      if (reportFailure) recordLoss(this.dir, this.bootId, "spool", 1, this.maxTotalBytes);
       throw cause;
     }
     try {
@@ -1564,6 +1602,8 @@ export class DiagnosticsStore {
           atPageLimit || (cause as Error).message.includes("capacity reached")
             ? "capacity"
             : "sqlite",
+          1,
+          this.maxTotalBytes,
         );
       if (atPageLimit)
         throw new Error("Diagnostics capacity reached during SQLite write", { cause });
@@ -2088,7 +2128,15 @@ export class DiagnosticsSpoolWriter {
 
   recordDrop(reason: "capacity" | "spool", count = 1): void {
     if (!Number.isSafeInteger(count) || count < 1) throw new TypeError("Invalid loss count");
-    withLifecycleLock(this.dir, () => recordLoss(this.dir, this.bootId, reason, count));
+    withLifecycleLock(this.dir, () =>
+      recordLoss(
+        this.dir,
+        this.bootId,
+        reason,
+        count,
+        this.options.maxTotalBytes ?? DIAGNOSTIC_LIMITS.totalBytes,
+      ),
+    );
   }
 
   constructor(private readonly options: DiagnosticsOptions) {
@@ -2123,7 +2171,12 @@ export class DiagnosticsSpoolWriter {
       fs.writeFileSync(this.activePath, active, { mode: 0o600 });
       if (this.stale)
         fs.writeFileSync(path.join(this.dir, `stale-${this.bootId}.json`), "{}", { mode: 0o600 });
-      writeLossLedger(lossLedgerPath(this.dir, this.bootId), emptyLossCounts(), "capacity");
+      writeLossLedger(
+        lossLedgerPath(this.dir, this.bootId),
+        emptyLossCounts(),
+        "capacity",
+        options.maxTotalBytes ?? DIAGNOSTIC_LIMITS.totalBytes,
+      );
     });
   }
 
@@ -2138,7 +2191,7 @@ export class DiagnosticsSpoolWriter {
         totalBytes(this.dir) + markerBytes + staleBytes >
         (this.options.maxTotalBytes ?? DIAGNOSTIC_LIMITS.totalBytes)
       ) {
-        recordLoss(this.dir, this.bootId, "capacity");
+        recordLoss(this.dir, this.bootId, "capacity", 1, this.options.maxTotalBytes);
         throw new Error("Diagnostics capacity reached before spool marker");
       }
       if (!fs.existsSync(marker)) fs.writeFileSync(marker, this.identity, { mode: 0o600 });
@@ -2156,7 +2209,7 @@ export class DiagnosticsSpoolWriter {
           (this.options.maxSpoolBytes ?? DIAGNOSTIC_LIMITS.spoolBytesPerProcess) ||
         totalBytes(this.dir) + bytes > (this.options.maxTotalBytes ?? DIAGNOSTIC_LIMITS.totalBytes)
       ) {
-        recordLoss(this.dir, this.bootId, "capacity");
+        recordLoss(this.dir, this.bootId, "capacity", 1, this.options.maxTotalBytes);
         throw new Error("Diagnostics capacity reached");
       }
       try {
@@ -2168,7 +2221,7 @@ export class DiagnosticsSpoolWriter {
           fs.closeSync(handle);
         }
       } catch (cause) {
-        recordLoss(this.dir, this.bootId, "spool");
+        recordLoss(this.dir, this.bootId, "spool", 1, this.options.maxTotalBytes);
         throw cause;
       }
     });
