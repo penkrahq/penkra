@@ -135,6 +135,44 @@ describe("desktop diagnostics queue", () => {
     }
   });
 
+  it("counts startup writes when first credits never arrive", async () => {
+    vi.useFakeTimers();
+    try {
+      const fake = new FakeWorker();
+      const drop = vi.fn();
+      const queue = new DesktopDiagnosticsQueue(
+        () => fake as unknown as Worker,
+        drop,
+        undefined,
+        true,
+      );
+      queue.enqueue("checkpoint", { sequence: 1 });
+      queue.enqueue("checkpoint", { sequence: 2 });
+      await vi.advanceTimersByTimeAsync(DIAGNOSTIC_LIMITS.desktopWorkerFirstCreditMs);
+      expect(drop).toHaveBeenCalledWith("spool", 2);
+      expect(fake.terminate).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("counts buffered startup writes on a clean drain without credits", async () => {
+    const fake = new FakeWorker();
+    const drop = vi.fn();
+    const queue = new DesktopDiagnosticsQueue(
+      () => fake as unknown as Worker,
+      drop,
+      undefined,
+      true,
+    );
+    queue.enqueue("checkpoint", { sequence: 1 });
+    queue.enqueue("checkpoint", { sequence: 2 });
+    const draining = queue.drain();
+    fake.emit("message", { kind: "drained" });
+    await draining;
+    expect(drop).toHaveBeenCalledWith("spool", 2);
+  });
+
   it("reconciles an unclean credit block after a hard crash before worker ack", () => {
     const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-credit-crash-"));
     try {

@@ -509,7 +509,13 @@ of the granted slots remain. Main holds a bounded startup buffer until the first
 grant arrives, then sends those records with credits. A record is accepted only after the worker has
 synced its spool entry and acknowledged it. On an unclean exit, reconciliation
 counts reserved slots without imported entries as `possibly_lost`, a conservative
-upper bound that includes unused credits. It also records
+upper bound that includes unused credits. Desktop bootstrap also fsyncs one
+conservative queue-startup marker before accepting writes, covering a crash
+before the first credit grant or between worker instances. A clean close
+removes it. A crash with this marker records `lost_count_unknown`; it cannot
+determine how many buffered items existed. A five-second first-credit timeout
+drops and durably counts buffered items, and clean shutdown counts any buffer
+still waiting for credits. Reconciliation also records
 `lost_count_unknown` for every unclean exit with an active credit block. This
 condition does not assert that exhaustion occurred: exact crash-time exhaustion
 would require a durable main-thread write or blocking worker acknowledgement.

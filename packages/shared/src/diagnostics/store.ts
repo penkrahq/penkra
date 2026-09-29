@@ -1640,6 +1640,31 @@ export class DiagnosticsStore {
       fs.rmSync(creditPath, { force: true });
       fs.rmSync(closedPath, { force: true });
     }
+    for (const entry of fs.readdirSync(this.dir)) {
+      if (!/^queue-startup-[a-f0-9]{32}\.json$/u.test(entry)) continue;
+      const bootId = entry.slice("queue-startup-".length, -".json".length);
+      if (fs.existsSync(path.join(this.dir, `active-${bootId}.json`))) continue;
+      const closedPath = path.join(this.dir, `closed-${bootId}.json`);
+      if (!fs.existsSync(closedPath)) {
+        sqlitePhysicalBudget(this.database, this.dir, this.dbPath, this.maxTotalBytes);
+        this.database.exec("BEGIN IMMEDIATE");
+        try {
+          this.database
+            .prepare("INSERT OR IGNORE INTO meta(key, value) VALUES (?, '1')")
+            .run(`lost-count-unknown:startup:${bootId}`);
+          if (totalBytes(this.dir) > this.maxTotalBytes)
+            throw new Error("Diagnostics capacity reached during queue startup reconciliation");
+          this.database.exec("COMMIT");
+        } catch (cause) {
+          if (this.database.isTransaction) this.database.exec("ROLLBACK");
+          this.database.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+          throw cause;
+        }
+      }
+      fs.rmSync(path.join(this.dir, entry), { force: true });
+      if (!fs.existsSync(path.join(this.dir, `queue-credit-${bootId}.json`)))
+        fs.rmSync(closedPath, { force: true });
+    }
     return crashedProcesses;
   }
 
@@ -2340,6 +2365,7 @@ export class DiagnosticsSpoolWriter {
   private readonly spoolPath: string;
   private readonly activePath: string;
   private readonly creditPath: string;
+  private readonly queueStartupPath: string;
   private readonly reportedProcessFailures = new Set<string>();
   private sequence = 0;
   private reservedCredits = 0;
@@ -2368,6 +2394,7 @@ export class DiagnosticsSpoolWriter {
     this.spoolPath = path.join(this.dir, `spool-${this.bootId}.jsonl`);
     this.activePath = path.join(this.dir, `active-${this.bootId}.json`);
     this.creditPath = path.join(this.dir, `queue-credit-${this.bootId}.json`);
+    this.queueStartupPath = path.join(this.dir, `queue-startup-${this.bootId}.json`);
     fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
     if (process.platform !== "win32") fs.chmodSync(this.dir, 0o700);
     withLifecycleLock(this.dir, () => {
@@ -2685,10 +2712,39 @@ export class DiagnosticsSpoolWriter {
       // ledger still needs a durable clean-close marker for reconciliation.
       if (
         fs.existsSync(this.activePath) &&
-        (fs.existsSync(this.spoolPath) || fs.existsSync(creditPath))
+        (fs.existsSync(this.spoolPath) ||
+          fs.existsSync(creditPath) ||
+          fs.existsSync(this.queueStartupPath))
       )
         fs.renameSync(this.activePath, path.join(this.dir, `closed-${this.bootId}.json`));
       fs.rmSync(this.activePath, { force: true });
+      fs.rmSync(this.queueStartupPath, { force: true });
+    });
+  }
+
+  /** One startup fsync makes pre-credit desktop writes conservatively recoverable. */
+  markQueueStartupActive(): void {
+    withLifecycleLock(this.dir, () => {
+      const maxTotalBytes = this.options.maxTotalBytes ?? DIAGNOSTIC_LIMITS.totalBytes;
+      if (
+        !fs.existsSync(this.queueStartupPath) &&
+        totalBytes(this.dir) + Buffer.byteLength(this.bootId) >
+          maxTotalBytes - resetReserveBytes(maxTotalBytes)
+      )
+        throw new Error("Diagnostics capacity reached before queue startup marker");
+      const handle = fs.openSync(this.queueStartupPath, "w", 0o600);
+      try {
+        fs.writeFileSync(handle, this.bootId);
+        fs.fsyncSync(handle);
+      } finally {
+        fs.closeSync(handle);
+      }
+      const directory = fs.openSync(this.dir, "r");
+      try {
+        fs.fsyncSync(directory);
+      } finally {
+        fs.closeSync(directory);
+      }
     });
   }
 }

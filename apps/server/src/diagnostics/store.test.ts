@@ -10,6 +10,7 @@ import {
   DiagnosticsSpoolWriter,
   DiagnosticsStore,
   createDiagnosticOsResolver,
+  markDiagnosticWorkerExited,
   openDiagnosticsReader,
   readLossLedger,
 } from "./store";
@@ -1175,6 +1176,26 @@ describe("diagnostics store", () => {
         .prepare("SELECT COUNT(*) AS count FROM meta WHERE key IN (?, ?)")
         .get(`lost-count-unknown:${worker.bootId}`, `possibly-lost:${worker.bootId}`),
     ).toMatchObject({ count: 0 });
+    db.close();
+    store.close();
+  });
+
+  it("reconciles a crash before the desktop receives first worker credits", () => {
+    const { stateDir, store } = fixture();
+    const desktop = new DiagnosticsSpoolWriter({
+      stateDir,
+      appVersion: "0.14.3",
+      process: "desktop-main",
+    });
+    desktop.markQueueStartupActive();
+    markDiagnosticWorkerExited(stateDir, desktop.bootId);
+    store.importPeerSpools();
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(
+      db
+        .prepare("SELECT value FROM meta WHERE key = ?")
+        .get(`lost-count-unknown:startup:${desktop.bootId}`),
+    ).toMatchObject({ value: "1" });
     db.close();
     store.close();
   });

@@ -19,6 +19,7 @@ export class DesktopDiagnosticsQueue {
   private overflowSent = false;
   private readonly startupBacklog: Array<{ kind: WriteKind; input: unknown }> = [];
   private receivedCredits = false;
+  private firstCreditTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private readonly createWorker: () => Worker,
@@ -152,6 +153,8 @@ export class DesktopDiagnosticsQueue {
           this.credits.push({ next: message.start!, last: message.start! + message.count! - 1 });
           this.availableCredits += message.count!;
           this.receivedCredits = true;
+          if (this.firstCreditTimer) clearTimeout(this.firstCreditTimer);
+          this.firstCreditTimer = null;
           this.refillRequested = false;
           while (this.startupBacklog.length > 0) {
             const item = this.startupBacklog.shift()!;
@@ -179,6 +182,24 @@ export class DesktopDiagnosticsQueue {
       if (workerBootId) this.onWorkerExit?.(workerBootId);
       this.onWorkerLost(worker);
     });
+    if (this.useCredits) {
+      this.firstCreditTimer = setTimeout(() => {
+        if (this.worker !== worker || this.receivedCredits) return;
+        const dropped = this.startupBacklog.length + this.overflowCount;
+        this.startupBacklog.length = 0;
+        this.overflowCount = 0;
+        if (dropped > 0) {
+          try {
+            this.recordDrop("spool", dropped);
+          } catch {
+            process.stderr.write("[diagnostics] first-credit timeout loss count failed\n");
+          }
+        }
+        this.onWorkerLost(worker);
+        void worker.terminate();
+      }, DIAGNOSTIC_LIMITS.desktopWorkerFirstCreditMs);
+      this.firstCreditTimer.unref();
+    }
     return worker;
   }
 
@@ -189,6 +210,8 @@ export class DesktopDiagnosticsQueue {
     this.availableCredits = 0;
     this.refillRequested = false;
     this.receivedCredits = false;
+    if (this.firstCreditTimer) clearTimeout(this.firstCreditTimer);
+    this.firstCreditTimer = null;
     this.overflowSent = false;
     if (this.pending > 0 && !this.reserve && !this.useCredits)
       this.recordDrop("spool", this.pending);
@@ -198,6 +221,12 @@ export class DesktopDiagnosticsQueue {
 
   async drain(): Promise<void> {
     this.closing = true;
+    if (this.useCredits && !this.receivedCredits) {
+      const dropped = this.startupBacklog.length + this.overflowCount;
+      if (dropped > 0) this.recordDrop("spool", dropped);
+      this.startupBacklog.length = 0;
+      this.overflowCount = 0;
+    }
     if (this.useCredits && (this.overflowCount > 0 || this.overflowInFlight) && !this.worker) {
       try {
         this.ensureWorker();
