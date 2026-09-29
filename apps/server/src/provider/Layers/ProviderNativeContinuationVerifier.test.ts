@@ -30,6 +30,10 @@ const connectionId = ProviderConnectionId.makeUnsafe("verify-connection");
 const installationId = ProviderInstallationId.makeUnsafe("verify-installation");
 
 let returnedIdentity = "native-session";
+let currentHarness: "opencode" | "claudeAgent" = "opencode";
+let verificationFailure: string | null = null;
+let availableClaudeModels = ["claude-sonnet-5", "claude-haiku-4-5"];
+let verifiedWithModel: string | undefined;
 let discarded = false;
 const recordedDiagnostics: OperationalDiagnostic[] = [];
 
@@ -70,13 +74,14 @@ const dependencies = Layer.mergeAll(
       Effect.succeed(
         Option.some({
           threadId,
-          harness: "opencode",
+          harness: currentHarness,
           nativeStateGenerationId: sourceGenerationId,
           providerSessionId: "native-session",
-          nativeStateLocatorJson: JSON.stringify({
-            openCodeSessionId: "native-session",
-            cwd: "/workspace",
-          }),
+          nativeStateLocatorJson: JSON.stringify(
+            currentHarness === "claudeAgent"
+              ? { resume: "native-session" }
+              : { openCodeSessionId: "native-session", cwd: "/workspace" },
+          ),
           lastVerifiedResumeAt: timestamp,
           revision: 3,
           createdAt: timestamp,
@@ -106,15 +111,27 @@ const dependencies = Layer.mergeAll(
   Layer.succeed(ProviderAdapterRegistry, {
     getByProvider: () =>
       Effect.succeed({
-        provider: "opencode",
-        verifyNativeResume: () =>
+        provider: currentHarness,
+        listModels: () =>
           Effect.succeed({
-            providerSessionId: returnedIdentity,
-            resumeCursor: {
-              openCodeSessionId: returnedIdentity,
-              cwd: "/workspace",
-            },
+            models: availableClaudeModels.map((slug) => ({ slug, name: slug })),
           }),
+        verifyNativeResume: (input: { readonly modelSelection?: { readonly model: string } }) =>
+          Effect.sync(() => {
+            verifiedWithModel = input.modelSelection?.model;
+          }).pipe(
+            Effect.andThen(
+              verificationFailure !== null
+                ? Effect.fail(new Error(verificationFailure))
+                : Effect.succeed({
+                    providerSessionId: returnedIdentity,
+                    resumeCursor:
+                      currentHarness === "claudeAgent"
+                        ? { resume: returnedIdentity }
+                        : { openCodeSessionId: returnedIdentity, cwd: "/workspace" },
+                  }),
+            ),
+          ),
       } as never),
     listProviders: () => Effect.succeed(["opencode"]),
   }),
@@ -203,6 +220,82 @@ layer("ProviderNativeContinuationVerifier", (it) => {
       uninstall();
       store.close();
       fs.rmSync(stateDir, { recursive: true, force: true });
+    }),
+  );
+
+  it.effect("reconstructs only a confirmed missing Claude conversation", () =>
+    Effect.gen(function* () {
+      currentHarness = "claudeAgent";
+      returnedIdentity = "native-session";
+      const claudeSelection: ResolvedProviderTurnSelection = {
+        ...selection,
+        harness: "claudeAgent",
+        modelId: "claude-sonnet-4-5",
+        modelLabel: "Claude Sonnet",
+        claudeAccountTransition: {
+          source: { authenticationMethodId: "claude-account", providerIdentityId: "alice" },
+          target: { authenticationMethodId: "claude-account", providerIdentityId: "bob" },
+        },
+      };
+      try {
+        const verifier = yield* ProviderNativeContinuationVerifier;
+        verificationFailure = null;
+        const exactWithHaiku = yield* verifier.verifySwitch({
+          selection: claudeSelection,
+          sourceStorage: "connection-profile",
+          targetGenerationId,
+          runtimeMode: "full-access",
+        });
+        assert.strictEqual(exactWithHaiku.providerSessionId, "native-session");
+        assert.strictEqual(verifiedWithModel, "claude-haiku-4-5");
+        assert.strictEqual(claudeSelection.modelId, "claude-sonnet-4-5");
+        verificationFailure = "No conversation found with session ID: native-session";
+        const reconstructed = yield* verifier.verifySwitch({
+          selection: claudeSelection,
+          sourceStorage: "connection-profile",
+          targetGenerationId,
+          runtimeMode: "full-access",
+        });
+        assert.strictEqual(reconstructed.kind, "reconstructed");
+        assert.strictEqual(verifiedWithModel, "claude-haiku-4-5");
+        availableClaudeModels = ["claude-sonnet-5"];
+        verificationFailure = null;
+        const exact = yield* verifier.verifySwitch({
+          selection: claudeSelection,
+          sourceStorage: "connection-profile",
+          targetGenerationId,
+          runtimeMode: "full-access",
+        });
+        assert.strictEqual(exact.providerSessionId, "native-session");
+        assert.strictEqual(verifiedWithModel, "claude-sonnet-5");
+        assert.strictEqual(claudeSelection.modelId, "claude-sonnet-4-5");
+        verificationFailure = "Claude authentication failed";
+        const authFailure = yield* Effect.exit(
+          verifier.verifySwitch({
+            selection: claudeSelection,
+            sourceStorage: "connection-profile",
+            targetGenerationId,
+            runtimeMode: "full-access",
+          }),
+        );
+        assert.strictEqual(authFailure._tag, "Failure");
+        availableClaudeModels = ["claude-opus-5"];
+        verifiedWithModel = undefined;
+        const noCheapProbe = yield* Effect.exit(
+          verifier.verifySwitch({
+            selection: claudeSelection,
+            sourceStorage: "connection-profile",
+            targetGenerationId,
+            runtimeMode: "full-access",
+          }),
+        );
+        assert.strictEqual(noCheapProbe._tag, "Failure");
+        assert.strictEqual(verifiedWithModel, undefined);
+      } finally {
+        currentHarness = "opencode";
+        verificationFailure = null;
+        availableClaudeModels = ["claude-sonnet-5", "claude-haiku-4-5"];
+      }
     }),
   );
 });

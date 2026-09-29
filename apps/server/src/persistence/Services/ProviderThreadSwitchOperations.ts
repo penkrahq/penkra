@@ -17,6 +17,7 @@ export const ProviderThreadSwitchOperationState = Schema.Literals([
   "pending",
   "interrupted",
   "verified",
+  "failed-cleanup-pending",
   "committed",
   "failed",
 ]);

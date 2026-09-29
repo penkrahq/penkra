@@ -185,6 +185,18 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
           }),
       });
 
+      const claudeBinding =
+        input.harness === "claudeAgent" && input.claudeThreadId !== undefined
+          ? yield* threads.getRuntimeBinding(input.claudeThreadId).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProviderLaunchResolutionError({
+                    detail: "Could not read the Claude Thread binding before launch.",
+                    cause,
+                  }),
+              ),
+            )
+          : Option.none();
       const claudeProjectName =
         input.harness === "claudeAgent" && input.claudeThreadId !== undefined
           ? yield* Effect.tryPromise({
@@ -194,6 +206,13 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
                   threadId: input.claudeThreadId!,
                   configDir: `${profileRoot}/claude-config`,
                   ...(claudeAccount === undefined ? {} : { account: claudeAccount }),
+                  ...(input.connectionId === null ? {} : { connectionId: input.connectionId }),
+                  ...(Option.isNone(claudeBinding)
+                    ? {}
+                    : {
+                        bindingConnectionId: claudeBinding.value.connectionId,
+                        bindingRevision: claudeBinding.value.revision,
+                      }),
                 }),
               catch: (cause) =>
                 new ProviderLaunchResolutionError({

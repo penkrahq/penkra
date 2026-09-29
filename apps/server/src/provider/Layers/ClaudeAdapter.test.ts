@@ -556,6 +556,9 @@ describe("ClaudeAdapterLive", () => {
       createWarmQuery: (input) => {
         warmInput = input;
         return {
+          query: async function* () {
+            yield { type: "system", subtype: "init", session_id: resume } as never;
+          },
           close: () => undefined,
           [Symbol.asyncDispose]: async () => {
             disposed = true;
@@ -614,6 +617,125 @@ describe("ClaudeAdapterLive", () => {
             }),
       });
       assert.equal(disposed, true);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("rejects a Claude resume when the SDK reports another session", () => {
+    const requested = "44c0b890-8775-4f30-b47f-0709d29cc9e1";
+    const layer = makeClaudeAdapterLive({
+      createWarmQuery: () => ({
+        query: async function* () {
+          yield { type: "system", subtype: "init", session_id: "different-session" } as never;
+        },
+        close: () => undefined,
+        [Symbol.asyncDispose]: async () => undefined,
+      }),
+    }).pipe(
+      Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-adapter-test", "/tmp")),
+      Layer.provideMerge(NodeServices.layer),
+    );
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const result = yield* Effect.exit(
+        adapter.verifyNativeResume!({
+          sourceResumeCursor: { resume: requested },
+          managedLaunch: {
+            binaryPath: "/managed/claude",
+            isolationKey: "verify-other-session",
+            profileRoot: "/isolated/profile",
+            nativeStateRoot: "/isolated/native",
+            childEnvironment: () => ({}),
+          },
+          runtimeMode: "full-access",
+        }),
+      );
+      assert.strictEqual(result._tag, "Failure");
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("waits for a completed probe because missing resume can arrive after init", () => {
+    const resume = "44c0b890-8775-4f30-b47f-0709d29cc9e1";
+    let promptReceived = false;
+    const layer = makeClaudeAdapterLive({
+      createWarmQuery: () => ({
+        query: async function* (prompt) {
+          yield { type: "system", subtype: "init", session_id: resume } as never;
+          for await (const _message of prompt) promptReceived = true;
+          throw new Error(`No conversation found with session ID: ${resume}`);
+        },
+        close: () => undefined,
+        [Symbol.asyncDispose]: async () => undefined,
+      }),
+    }).pipe(
+      Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-adapter-test", "/tmp")),
+      Layer.provideMerge(NodeServices.layer),
+    );
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const result = yield* Effect.exit(
+        adapter.verifyNativeResume!({
+          sourceResumeCursor: { resume },
+          managedLaunch: {
+            binaryPath: "/managed/claude",
+            isolationKey: "verify-late-missing",
+            profileRoot: "/isolated/profile",
+            nativeStateRoot: "/isolated/native",
+            childEnvironment: () => ({}),
+          },
+          runtimeMode: "full-access",
+          requireCompletedProbe: true,
+          modelSelection: { provider: "claudeAgent", model: "claude-haiku-4-5" },
+        }),
+      );
+      assert.strictEqual(result._tag, "Failure");
+      assert.strictEqual(promptReceived, true);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("accepts a probed resume only after the SDK completes the same session", () => {
+    const resume = "44c0b890-8775-4f30-b47f-0709d29cc9e1";
+    let probeModel: string | undefined;
+    const layer = makeClaudeAdapterLive({
+      createWarmQuery: (input) => {
+        probeModel = input.options.model;
+        return {
+          query: async function* (prompt) {
+            yield { type: "system", subtype: "init", session_id: resume } as never;
+            for await (const _message of prompt) {
+              yield {
+                type: "result",
+                subtype: "success",
+                is_error: false,
+                session_id: resume,
+                result: "OK",
+              } as never;
+            }
+          },
+          close: () => undefined,
+          [Symbol.asyncDispose]: async () => undefined,
+        };
+      },
+    }).pipe(
+      Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-adapter-test", "/tmp")),
+      Layer.provideMerge(NodeServices.layer),
+    );
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const result = yield* adapter.verifyNativeResume!({
+        sourceResumeCursor: { resume },
+        managedLaunch: {
+          binaryPath: "/managed/claude",
+          isolationKey: "verify-probe-completed",
+          profileRoot: "/isolated/profile",
+          nativeStateRoot: "/isolated/native",
+          childEnvironment: () => ({}),
+        },
+        runtimeMode: "full-access",
+        requireCompletedProbe: true,
+        modelSelection: { provider: "claudeAgent", model: "claude-haiku-4-5" },
+      });
+      assert.equal(result.providerSessionId, resume);
+      assert.equal(probeModel, "claude-haiku-4-5");
     }).pipe(Effect.provide(layer));
   });
 

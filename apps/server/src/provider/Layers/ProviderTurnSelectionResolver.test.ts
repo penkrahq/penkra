@@ -8,6 +8,11 @@ import { assert, it } from "@effect/vitest";
 import { Cause, Effect, Layer, Option } from "effect";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ServerConfig } from "../../config.ts";
+import {
+  rememberClaudeThreadAccount,
+  stageClaudeThreadAccountTransition,
+  discardClaudeThreadAccountTransition,
+} from "../claudeThreadNativeState.ts";
 
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
@@ -26,6 +31,7 @@ const threadId = ThreadId.makeUnsafe("selection-thread");
 const connectionId = ProviderConnectionId.makeUnsafe("selection-go");
 const codexConnectionId = ProviderConnectionId.makeUnsafe("selection-codex-managed");
 const claudeConnectionId = ProviderConnectionId.makeUnsafe("selection-claude-managed");
+const otherClaudeConnectionId = ProviderConnectionId.makeUnsafe("selection-claude-other");
 const installationId = ProviderInstallationId.makeUnsafe("selection-installation");
 const activeInstallationId = ProviderInstallationId.makeUnsafe("selection-active-installation");
 const claudeInstallationId = ProviderInstallationId.makeUnsafe("selection-claude-installation");
@@ -59,6 +65,9 @@ let hasRuntimeBinding = true;
 let installationLifecycle: "active" | "retired" = "active";
 let threadHarness: "opencode" | "claudeAgent" = "opencode";
 let resolvedNativeStateIdentities: string[] = [];
+let currentClaudeIdentity = "alice@example.com";
+let claudeBoundConnectionId = claudeConnectionId;
+let claudeBoundRevision = 7;
 
 const dependencies = Layer.mergeAll(
   ServerConfig.layerTest(process.cwd(), { prefix: "penkra-turn-selection-test-" }).pipe(
@@ -137,13 +146,14 @@ const dependencies = Layer.mergeAll(
         hasRuntimeBinding
           ? Option.some({
               threadId,
-              connectionId: threadHarness === "claudeAgent" ? claudeConnectionId : connectionId,
+              connectionId:
+                threadHarness === "claudeAgent" ? claudeBoundConnectionId : connectionId,
               installationId:
                 threadHarness === "claudeAgent" ? claudeInstallationId : installationId,
               internalProviderId: threadHarness === "claudeAgent" ? null : "opencode-go",
               modelId:
                 threadHarness === "claudeAgent" ? "claude-sonnet-5" : "opencode-go/kimi-k2.5",
-              revision: 7,
+              revision: threadHarness === "claudeAgent" ? claudeBoundRevision : 7,
               createdAt: timestamp,
               updatedAt: timestamp,
             })
@@ -251,29 +261,40 @@ const dependencies = Layer.mergeAll(
         Option.some({
           id,
           harness:
-            id === claudeConnectionId
+            id === claudeConnectionId || id === otherClaudeConnectionId
               ? "claudeAgent"
               : id === codexConnectionId
                 ? "codex"
                 : "opencode",
           authenticationTargetId:
-            id === claudeConnectionId
+            id === claudeConnectionId || id === otherClaudeConnectionId
               ? "anthropic-first-party"
               : id === codexConnectionId
                 ? "openai-first-party"
                 : "opencode-go",
           authenticationMethodId:
-            id === claudeConnectionId
+            id === claudeConnectionId || id === otherClaudeConnectionId
               ? "claude-account"
               : id === codexConnectionId
                 ? "chatgpt"
                 : "api-key",
           label:
-            id === claudeConnectionId ? "Claude" : id === codexConnectionId ? "Personal" : "Go",
+            id === claudeConnectionId || id === otherClaudeConnectionId
+              ? "Claude"
+              : id === codexConnectionId
+                ? "Personal"
+                : "Go",
           credentialRef: id === connectionId ? "provider-secret:selection" : null,
           profileRef:
-            id === claudeConnectionId || id === codexConnectionId ? `provider-profile:${id}` : null,
-          providerIdentityId: id === claudeConnectionId ? "alice@example.com" : null,
+            id === claudeConnectionId || id === otherClaudeConnectionId || id === codexConnectionId
+              ? `provider-profile:${id}`
+              : null,
+          providerIdentityId:
+            id === claudeConnectionId
+              ? currentClaudeIdentity
+              : id === otherClaudeConnectionId
+                ? "bob@example.com"
+                : null,
           health: connectionLifecycle === "active" ? "ready" : "unavailable",
           healthReason: null,
           lastCheckedAt: timestamp,
@@ -574,6 +595,124 @@ layer("ProviderTurnSelectionResolver", (it) => {
       assert.strictEqual(selection.modelId, "claude-opus-4-7");
       assert.strictEqual(selection.modelLabel, "Opus 4.7");
       threadHarness = "opencode";
+    }),
+  );
+
+  it.effect(
+    "admits an explicit revision-checked Claude account switch but rejects a changed login on the bound Connection",
+    () =>
+      Effect.gen(function* () {
+        const config = yield* ServerConfig;
+        const resolver = yield* ProviderTurnSelectionResolver;
+        const accountThreadId = ThreadId.makeUnsafe("selection-claude-account-switch");
+        threadHarness = "claudeAgent";
+        yield* Effect.promise(() =>
+          rememberClaudeThreadAccount({
+            stateDir: config.stateDir,
+            threadId: accountThreadId,
+            account: {
+              authenticationMethodId: "claude-account",
+              providerIdentityId: "alice@example.com",
+            },
+          }),
+        );
+        try {
+          const stale = yield* Effect.exit(
+            resolver.resolveExisting({
+              threadId: accountThreadId,
+              connectionId: otherClaudeConnectionId,
+              bindingRevision: 6,
+            }),
+          );
+          assert.strictEqual(stale._tag, "Failure");
+          if (stale._tag === "Failure") {
+            assert.strictEqual(failedWithCode(stale), "binding_revision_stale");
+          }
+          const selected = yield* resolver.resolveExisting({
+            threadId: accountThreadId,
+            connectionId: otherClaudeConnectionId,
+            bindingRevision: 7,
+          });
+          assert.strictEqual(selected.changed, true);
+          assert.strictEqual(selected.connectionId, otherClaudeConnectionId);
+          assert.strictEqual(
+            selected.claudeAccountTransition?.target.providerIdentityId,
+            "bob@example.com",
+          );
+
+          currentClaudeIdentity = "bob@example.com";
+          const ordinaryResume = yield* Effect.exit(
+            resolver.resolveExisting({ threadId: accountThreadId }),
+          );
+          assert.strictEqual(ordinaryResume._tag, "Failure");
+          if (ordinaryResume._tag === "Failure") {
+            assert.strictEqual(failedWithCode(ordinaryResume), "connection_unauthorized");
+          }
+        } finally {
+          currentClaudeIdentity = "alice@example.com";
+          threadHarness = "opencode";
+        }
+      }),
+  );
+
+  it.effect("allows only the committed pending account switch to reach ownership recovery", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig;
+      const resolver = yield* ProviderTurnSelectionResolver;
+      const accountThreadId = ThreadId.makeUnsafe("selection-committed-claude-switch");
+      threadHarness = "claudeAgent";
+      yield* Effect.promise(() =>
+        rememberClaudeThreadAccount({
+          stateDir: config.stateDir,
+          threadId: accountThreadId,
+          account: {
+            authenticationMethodId: "claude-account",
+            providerIdentityId: "alice@example.com",
+          },
+        }),
+      );
+      try {
+        yield* Effect.promise(() =>
+          stageClaudeThreadAccountTransition({
+            stateDir: config.stateDir,
+            threadId: accountThreadId,
+            transition: {
+              commandId: "committed-switch",
+              connectionId: otherClaudeConnectionId,
+              bindingRevision: 8,
+              source: {
+                authenticationMethodId: "claude-account",
+                providerIdentityId: "alice@example.com",
+              },
+              target: {
+                authenticationMethodId: "claude-account",
+                providerIdentityId: "bob@example.com",
+              },
+            },
+          }),
+        );
+        claudeBoundConnectionId = otherClaudeConnectionId;
+        claudeBoundRevision = 8;
+        const selected = yield* resolver.resolveExisting({ threadId: accountThreadId });
+        assert.strictEqual(selected.changed, false);
+        yield* Effect.promise(() =>
+          discardClaudeThreadAccountTransition({
+            stateDir: config.stateDir,
+            threadId: accountThreadId,
+            commandId: "committed-switch",
+          }),
+        );
+        const ordinaryResume = yield* Effect.exit(
+          resolver.resolveExisting({ threadId: accountThreadId }),
+        );
+        assert.strictEqual(ordinaryResume._tag, "Failure");
+        if (ordinaryResume._tag === "Failure")
+          assert.strictEqual(failedWithCode(ordinaryResume), "connection_unauthorized");
+      } finally {
+        claudeBoundConnectionId = claudeConnectionId;
+        claudeBoundRevision = 7;
+        threadHarness = "opencode";
+      }
     }),
   );
 });
