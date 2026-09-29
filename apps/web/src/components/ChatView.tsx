@@ -3917,6 +3917,13 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     threadId: string;
     trace: ReturnType<typeof startDiagnosticTrace>;
   } | null>(null);
+  const pendingQaQueueRef = useRef<{
+    threadId: string;
+    messageId: string;
+    priorTurnId: string | null;
+    trace: ReturnType<typeof startDiagnosticTrace>;
+    seenQueued: boolean;
+  } | null>(null);
   useEffect(() => {
     const stop = pendingQaStopRef.current;
     if (stop && activeThreadId === stop.threadId && activeLatestTurn?.state === "interrupted") {
@@ -3944,7 +3951,46 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         })
         .catch(() => undefined);
     }
-  }, [activeLatestTurn?.state, activeThreadId, phase]);
+    const queue = pendingQaQueueRef.current;
+    if (queue && activeThreadId === queue.threadId) {
+      const isQueued =
+        activeThread?.queuedMessageIds?.some((id) => id === queue.messageId) ?? false;
+      if (isQueued && !queue.seenQueued) {
+        queue.seenQueued = true;
+        void window.desktopBridge
+          ?.recordDiagnosticCheckpoint?.({
+            ...queue.trace,
+            threadId: queue.threadId,
+            flow: "queue",
+            step: "queue.enqueued",
+            outcome: "ok",
+          })
+          .catch(() => undefined);
+      } else if (
+        queue.seenQueued &&
+        !isQueued &&
+        phase === "running" &&
+        activeLatestTurn?.turnId !== queue.priorTurnId
+      ) {
+        pendingQaQueueRef.current = null;
+        void window.desktopBridge
+          ?.recordDiagnosticCheckpoint?.({
+            ...queue.trace,
+            threadId: queue.threadId,
+            flow: "queue",
+            step: "queue.started",
+            outcome: "ok",
+          })
+          .catch(() => undefined);
+      }
+    }
+  }, [
+    activeLatestTurn?.state,
+    activeLatestTurn?.turnId,
+    activeThread?.queuedMessageIds,
+    activeThreadId,
+    phase,
+  ]);
   const [hiddenContinueTurnId, setHiddenContinueTurnId] = useState<TurnId | null>(null);
   useEffect(() => {
     const commandId = pendingContinueCommandIdRef.current;
@@ -7217,6 +7263,14 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         });
       });
       turnStartSucceeded = true;
+      if (hasLiveTurn && dispatchMode === "queue")
+        pendingQaQueueRef.current = {
+          threadId: threadIdForSend,
+          messageId: messageIdForSend,
+          priorTurnId: activeLatestTurn?.turnId ?? null,
+          trace: sendTrace,
+          seenQueued: false,
+        };
       markComposerSendPreflightAdmission(sendPreflightOwner, startReceipt.sequence);
       pendingStartRecoveryRegistryRef.current.setFrontier(
         threadIdForSend,

@@ -3522,6 +3522,108 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("records a queued follow-up only after queue and promotion are observed", async () => {
+    const previousBridge = window.desktopBridge;
+    const recordDiagnosticCheckpoint = vi.fn().mockResolvedValue(undefined);
+    const firstTurnId = TurnId.makeUnsafe("turn-qa-queue-first");
+    const nextTurnId = TurnId.makeUnsafe("turn-qa-queue-next");
+    const base = createSnapshotForTargetUser({
+      targetMessageId: MessageId.makeUnsafe("msg-qa-queue-first"),
+      targetText: "First turn",
+      sessionStatus: "running",
+    });
+    let snapshot = {
+      ...base,
+      threads: base.threads.map((thread) => ({
+        ...thread,
+        latestTurn: {
+          turnId: firstTurnId,
+          state: "running" as const,
+          requestedAt: NOW_ISO,
+          startedAt: NOW_ISO,
+          completedAt: null,
+          assistantMessageId: null,
+        },
+        session: thread.session && {
+          ...thread.session,
+          status: "running" as const,
+          activeTurnId: firstTurnId,
+        },
+      })),
+    };
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const restoreNativeApi = installDeterministicSendNativeApi();
+    window.desktopBridge = {
+      ...previousBridge,
+      getWsUrl: () => null,
+      setTheme: async () => undefined,
+      setAppTheme: async () => undefined,
+      recordDiagnosticCheckpoint,
+    } as never;
+    try {
+      await page.getByTestId("composer-editor").fill("Queue the second turn");
+      await page.getByTestId("composer-editor").click();
+      await userEvent.keyboard("{Enter}");
+      const start = await vi.waitFor(() => {
+        const command = wsRequests
+          .map(readDispatchedCommand)
+          .find((candidate) => candidate?.type === "thread.turn.start");
+        expect(command).toBeTruthy();
+        return command!;
+      });
+      const messageId = (start.message as { messageId: MessageId }).messageId;
+      snapshot = {
+        ...snapshot,
+        snapshotSequence: snapshot.snapshotSequence + 1,
+        threads: snapshot.threads.map((thread) => ({
+          ...thread,
+          queuedMessageIds: [messageId],
+        })),
+      };
+      useStore.getState().syncServerReadModel(snapshot);
+      await vi.waitFor(() =>
+        expect(recordDiagnosticCheckpoint).toHaveBeenCalledWith(
+          expect.objectContaining({ flow: "queue", step: "queue.enqueued", outcome: "ok" }),
+        ),
+      );
+      snapshot = {
+        ...snapshot,
+        snapshotSequence: snapshot.snapshotSequence + 1,
+        threads: snapshot.threads.map((thread) => ({
+          ...thread,
+          queuedMessageIds: [],
+          latestTurn: {
+            turnId: nextTurnId,
+            state: "running" as const,
+            requestedAt: NOW_ISO,
+            startedAt: NOW_ISO,
+            completedAt: null,
+            assistantMessageId: null,
+          },
+        })),
+      };
+      useStore.getState().syncServerReadModel(snapshot);
+      await vi.waitFor(() =>
+        expect(recordDiagnosticCheckpoint).toHaveBeenCalledWith(
+          expect.objectContaining({ flow: "queue", step: "queue.started", outcome: "ok" }),
+        ),
+      );
+      const queueCalls = recordDiagnosticCheckpoint.mock.calls
+        .map(([checkpoint]) => checkpoint)
+        .filter((checkpoint) => checkpoint.flow === "queue");
+      expect(queueCalls.map((checkpoint) => checkpoint.step)).toEqual([
+        "queue.enqueued",
+        "queue.started",
+      ]);
+      expect(queueCalls[0]?.traceId).toBe(queueCalls[1]?.traceId);
+    } finally {
+      if (previousBridge) window.desktopBridge = previousBridge;
+      else Reflect.deleteProperty(window, "desktopBridge");
+      await mounted.cleanup();
+      restoreNativeApi();
+    }
+  });
+
   it("shows a thread error and records a stale continue rejection", async () => {
     const restoreNativeApi = installDeterministicSendNativeApi({
       dispatchError: Object.assign(new Error("stale continue"), { code: "THREAD_CONTINUE_STALE" }),
