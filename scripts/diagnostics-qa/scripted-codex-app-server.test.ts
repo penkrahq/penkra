@@ -14,6 +14,29 @@ const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 const marker = "PENKRA_QA_SCRIPTED_PROVIDER_FIXTURE_V1";
 
 describe("scripted provider QA fixture", () => {
+  it("accepts a title prompt through codex exec without closing stdin early", async () => {
+    const root = fs.mkdtempSync("/tmp/penkra-diagnostics-qa-title.");
+    const output = path.join(root, "title.json");
+    try {
+      const child = spawn(process.execPath, [fixture, "exec", "--output-last-message", output, "-"], {
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      let stderr = "";
+      child.stderr!.on("data", (chunk: Buffer) => {
+        stderr += chunk.toString("utf8");
+      });
+      child.stdin!.end("Generate a title for the diagnostics QA flow.");
+      const exitCode = await new Promise<number | null>((resolve, reject) => {
+        child.once("error", reject);
+        child.once("exit", resolve);
+      });
+      expect(exitCode, stderr).toBe(0);
+      expect(JSON.parse(fs.readFileSync(output, "utf8"))).toEqual({ title: "QA Diagnostics Flow" });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("gives the alternate profile a distinct account identity", async () => {
     const root = fs.mkdtempSync("/tmp/penkra-diagnostics-qa-account.");
     const profileKey = createHash("sha256").update("qa-scripted-alternate").digest("hex");

@@ -150,4 +150,14 @@ if (process.argv.includes("--version")) {
       // Malformed fixture input must not send a success response.
     }
   });
+} else if (process.argv.includes("exec")) {
+  const outputIndex = process.argv.indexOf("--output-last-message");
+  const outputPath = process.argv[outputIndex + 1];
+  if (outputIndex < 0 || !outputPath) {
+    throw new Error("QA fixture exec requires --output-last-message");
+  }
+  process.stdin.resume();
+  process.stdin.on("end", () => {
+    fs.writeFileSync(outputPath, JSON.stringify({ title: "QA Diagnostics Flow" }));
+  });
 }
