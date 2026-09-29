@@ -298,6 +298,7 @@ const enumValues = {
     "server.http",
     "server.codex_app_transport",
     "server.codex_config",
+    "server.codex_app",
     "server.sync_ack",
     "server.stream_admission",
     "provider.runtime_event_pump",
