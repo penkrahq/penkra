@@ -1,5 +1,9 @@
 import { EventId, ThreadId, type DiagnosticTraceContext } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
+import { DiagnosticsStore, openDiagnosticsReader } from "@penkra/shared/diagnostics/store";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { Deferred, Effect, Layer } from "effect";
 import { TestClock } from "effect/testing";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -19,6 +23,94 @@ const layer = it.layer(
 );
 
 layer("ProviderIntentOutbox", (it) => {
+  it.effect("keeps the persisted parent trace across pruned detail and a worker retry", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const events = yield* OrchestrationEventStore;
+      const outbox = yield* ProviderIntentOutbox;
+      const now = "2026-09-28T00:00:00.000Z";
+      const parent = {
+        traceId: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        spanId: "bbbbbbbbbbbbbbbb",
+      };
+      yield* sql`DELETE FROM provider_intent_outbox`;
+      const event = yield* events.append({
+        type: "thread.archived",
+        eventId: EventId.makeUnsafe("event-pruned-retry"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.makeUnsafe("thread-pruned-retry"),
+        occurredAt: now,
+        commandId: null,
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        payload: {
+          threadId: ThreadId.makeUnsafe("thread-pruned-retry"),
+          archivedAt: now,
+          updatedAt: now,
+        },
+      });
+      if (!isProviderIntentEvent(event)) return yield* Effect.die("Expected provider intent");
+      yield* outbox.enqueueInCurrentTransaction(event, parent);
+
+      const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-outbox-trace-"));
+      try {
+        const diagnostics = new DiagnosticsStore({
+          stateDir,
+          appVersion: "0.14.3",
+          process: "server",
+        });
+        try {
+          diagnostics.checkpoint({
+            ...parent,
+            flow: "provider_delivery",
+            step: "provider.intent_claimed",
+          });
+          diagnostics.prune(new Date(Date.now() + 61_000), 0);
+          const reader = openDiagnosticsReader(stateDir)!;
+          try {
+            assert.equal(reader.prepare("SELECT COUNT(*) AS count FROM detail").get()?.count, 0);
+          } finally {
+            reader.close();
+          }
+        } finally {
+          diagnostics.close();
+        }
+      } finally {
+        fs.rmSync(stateDir, { recursive: true, force: true });
+      }
+
+      const attempts: DiagnosticTraceContext[] = [];
+      for (const state of ["retry", "succeeded"] as const) {
+        const settled = yield* Deferred.make<void>();
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            yield* startProviderIntentOutboxWorker({
+              outbox,
+              process: (_job, trace) =>
+                Effect.sync(() => {
+                  attempts.push(trace);
+                  return state === "retry"
+                    ? ({ state, detail: "safe retry" } as const)
+                    : ({ state } as const);
+                }),
+              onSettled: () => Deferred.succeed(settled, undefined),
+              options: { pollIntervalMs: 10 },
+            }).pipe(Effect.forkScoped);
+            yield* Deferred.await(settled);
+          }),
+        );
+      }
+      assert.equal(attempts.length, 2);
+      for (const attempt of attempts) {
+        assert.equal(attempt.traceId, parent.traceId);
+        assert.equal(attempt.parentSpanId, parent.spanId);
+        assert.ok(attempt.attemptId);
+      }
+      assert.notEqual(attempts[0]?.attemptId, attempts[1]?.attemptId);
+    }),
+  );
+
   it.effect("runs B while A is blocked and keeps A's next job ordered", () =>
     Effect.scoped(
       Effect.gen(function* () {
