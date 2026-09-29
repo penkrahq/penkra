@@ -39,7 +39,7 @@ function handle(message) {
       respond(id, { data: [] });
       return;
     case "account/read":
-      respond(id, { account: { type: "chatgpt" } });
+      respond(id, { account: { type: "chatgpt", email: "qa-fixture@example.invalid" } });
       return;
     case "thread/start": {
       const threadId = randomUUID();

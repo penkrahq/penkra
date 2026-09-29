@@ -31,7 +31,12 @@ describe("scripted provider QA fixture", () => {
     };
     try {
       request(1, "initialize");
+      request(5, "account/read");
       request(2, "thread/start");
+      await until(() => received.some((row) => row.id === 5));
+      expect(received.find((row) => row.id === 5)?.result).toEqual({
+        account: { type: "chatgpt", email: "qa-fixture@example.invalid" },
+      });
       await until(() => received.some((row) => row.id === 2));
       const thread = (received.find((row) => row.id === 2)?.result as { thread: { id: string } })
         .thread.id;
