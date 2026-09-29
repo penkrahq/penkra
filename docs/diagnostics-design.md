@@ -55,6 +55,10 @@ fields are JSON objects validated against the privacy allowlist before entering 
 spool. A spool record has a version, process boot ID, monotonically increasing
 sequence, event type, and the same allowlisted payload stored in SQLite. A unique
 `(boot_id, sequence)` key makes crash replay idempotent.
+Desktop spools also carry Electron's validated `osMajor` so incident environments
+retain the product version when the server imports them. The server probes its
+own product version once per process, with a bounded timeout; a failed probe
+records `unknown`.
 
 Desktop spool writers leave one-eighth of the total cap free, up to 128 MiB,
 while the server store is absent. This space lets an update write its durable
@@ -106,6 +110,7 @@ values used by code and the incident's `limit` field:
 | Prune start                                                                     |                           80% of the total cap |
 | Per-process spool                                                               |                                         16 MiB |
 | Desktop diagnostics worker queue / message / shutdown drain                     |                       256 / 64 KiB / 2 seconds |
+| OS product version probe                                                        |                                         250 ms |
 | Batch interval                                                                  |    at most 250 ms; incidents flush immediately |
 | Incident age                                                                    |                 90 days within one app version |
 | Incident detail pin                                                             | 10 min before through 2 min after the incident |

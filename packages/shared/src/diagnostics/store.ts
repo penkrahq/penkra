@@ -218,6 +218,7 @@ interface SpoolEnvelope {
   readonly at: string;
   readonly monoMs: number;
   readonly process: DiagnosticsOptions["process"];
+  readonly osMajor?: number | "unknown";
   readonly data:
     | CheckpointInput
     | IncidentInput
@@ -780,43 +781,69 @@ function prepareEnvelope(
   };
 }
 
-let macOsMajor: number | "unknown" | undefined;
-
-function diagnosticOs(options: DiagnosticsOptions): {
+type DiagnosticOs = {
   osFamily: "darwin" | "linux" | "windows";
   osMajor: number | "unknown";
-} {
-  if (
-    options.osMajor !== undefined &&
-    options.osMajor !== "unknown" &&
-    (!Number.isSafeInteger(options.osMajor) || options.osMajor < 0)
-  )
+};
+
+function validateOsMajor(value: number | "unknown" | undefined): void {
+  if (value !== undefined && value !== "unknown" && (!Number.isSafeInteger(value) || value < 0))
     throw new TypeError("Invalid diagnostics OS major");
-  if (process.platform === "darwin") {
-    if (options.osMajor !== undefined) return { osFamily: "darwin", osMajor: options.osMajor };
-    if (macOsMajor === undefined) {
-      try {
-        const parsed = Number.parseInt(
-          execFileSync("/usr/bin/sw_vers", ["-productVersion"], { timeout: 1_000 }).toString(),
-          10,
-        );
-        macOsMajor = Number.isSafeInteger(parsed) && parsed > 0 ? parsed : "unknown";
-      } catch {
-        macOsMajor = "unknown";
-      }
-    }
-    return { osFamily: "darwin", osMajor: macOsMajor };
-  }
-  if (process.platform === "linux" || process.platform === "win32")
-    return {
-      osFamily: process.platform === "win32" ? "windows" : "linux",
-      osMajor: options.osMajor ?? (Number.parseInt(os.release(), 10) || "unknown"),
-    };
-  throw new Error("Unsupported diagnostics OS");
 }
 
+/** One bounded host probe per process; an Electron supplied major skips the subprocess. */
+export function createDiagnosticOsResolver(input: {
+  platform: NodeJS.Platform;
+  release: () => string;
+  macProductVersion: (timeoutMs: number) => string;
+}): (override?: number | "unknown") => DiagnosticOs {
+  let cached: DiagnosticOs | undefined;
+  return (override) => {
+    validateOsMajor(override);
+    const osFamily =
+      input.platform === "darwin"
+        ? "darwin"
+        : input.platform === "win32"
+          ? "windows"
+          : input.platform === "linux"
+            ? "linux"
+            : null;
+    if (!osFamily) throw new Error("Unsupported diagnostics OS");
+    if (override !== undefined) return { osFamily, osMajor: override };
+    if (!cached) {
+      let osMajor: number | "unknown" = "unknown";
+      try {
+        const version =
+          osFamily === "darwin"
+            ? input.macProductVersion(DIAGNOSTIC_LIMITS.osProbeMs).trim()
+            : input.release().trim();
+        const match =
+          osFamily === "darwin"
+            ? /^(\d+)(?:\.\d+)*$/u.exec(version)
+            : /^(\d+)(?=[.-]|$)/u.exec(version);
+        const major = match ? Number(match[1]) : NaN;
+        if (Number.isSafeInteger(major) && major > 0) osMajor = major;
+      } catch {
+        // A failed or timed-out lookup is a validated unknown, never a write failure.
+      }
+      cached = { osFamily, osMajor };
+    }
+    return cached;
+  };
+}
+
+const diagnosticOs = createDiagnosticOsResolver({
+  platform: process.platform,
+  release: () => os.release(),
+  macProductVersion: (timeoutMs) =>
+    execFileSync("/usr/bin/sw_vers", ["-productVersion"], {
+      timeout: timeoutMs,
+      maxBuffer: 256,
+    }).toString(),
+});
+
 function diagnosticEnvironment(options: DiagnosticsOptions, event: SpoolEnvelope): string {
-  const { osFamily, osMajor } = diagnosticOs(options);
+  const { osFamily, osMajor } = diagnosticOs(event.osMajor ?? options.osMajor);
   return JSON.stringify({
     appVersion: options.appVersion,
     buildId: options.buildId ?? "unknown",
@@ -1171,6 +1198,7 @@ export class DiagnosticsStore {
     if (!/^\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?$/u.test(options.appVersion)) {
       throw new TypeError("Invalid app version");
     }
+    diagnosticOs(options.osMajor);
     this.dir = diagnosticsDir(options.stateDir);
     this.dbPath = path.join(this.dir, "diagnostics.sqlite");
     this.spoolPath = path.join(this.dir, `spool-${this.bootId}.jsonl`);
@@ -1403,6 +1431,7 @@ export class DiagnosticsStore {
               throw new Error("Invalid diagnostics spool event type");
             if (!Number.isFinite(Date.parse(event.at)) || !Number.isFinite(event.monoMs))
               throw new Error("Invalid diagnostics spool timestamp");
+            validateOsMajor(event.osMajor);
             const safe = prepareEnvelope(
               event.bootId,
               event.sequence,
@@ -1410,7 +1439,12 @@ export class DiagnosticsStore {
               event.type,
               event.data,
             );
-            event = { ...safe, at: new Date(event.at).toISOString(), monoMs: event.monoMs };
+            event = {
+              ...safe,
+              at: new Date(event.at).toISOString(),
+              monoMs: event.monoMs,
+              ...(event.osMajor === undefined ? {} : { osMajor: event.osMajor }),
+            };
           } catch {
             if (currentOffset >= priorBytes) invalid++;
             continue; // Torn final line or invalid/unallowlisted payload.
@@ -2159,6 +2193,7 @@ export class DiagnosticsSpoolWriter {
   constructor(private readonly options: DiagnosticsOptions) {
     if (!/^\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?$/u.test(options.appVersion))
       throw new TypeError("Invalid app version");
+    validateOsMajor(options.osMajor);
     this.dir = diagnosticsDir(options.stateDir);
     this.identity = storeIdentity(options);
     this.spoolPath = path.join(this.dir, `spool-${this.bootId}.jsonl`);
@@ -2217,7 +2252,10 @@ export class DiagnosticsSpoolWriter {
       if (this.stale) {
         fs.writeFileSync(stalePath, "{}", { mode: 0o600 });
       }
-      const event = prepareEnvelope(this.bootId, ++this.sequence, this.options.process, type, data);
+      const event = {
+        ...prepareEnvelope(this.bootId, ++this.sequence, this.options.process, type, data),
+        ...(this.options.osMajor === undefined ? {} : { osMajor: this.options.osMajor }),
+      };
       const line = `${JSON.stringify(event)}\n`;
       const bytes = Buffer.byteLength(line);
       const spoolBytes = fs.existsSync(this.spoolPath) ? fs.statSync(this.spoolPath).size : 0;

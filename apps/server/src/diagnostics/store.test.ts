@@ -4,11 +4,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   DiagnosticsSpoolWriter,
   DiagnosticsStore,
+  createDiagnosticOsResolver,
   openDiagnosticsReader,
   readLossLedger,
 } from "./store";
@@ -708,12 +709,47 @@ describe("diagnostics store", () => {
     const environment = JSON.parse(row.env_json);
     expect(environment.osFamily).toBe(process.platform === "win32" ? "windows" : process.platform);
     if (process.platform === "darwin") {
-      expect(environment.osMajor).toBe(
-        Number.parseInt(execFileSync("/usr/bin/sw_vers", ["-productVersion"]).toString(), 10),
-      );
+      expect(
+        environment.osMajor === "unknown" ||
+          (Number.isSafeInteger(environment.osMajor) && environment.osMajor > 0),
+      ).toBe(true);
     }
     db.close();
     store.close();
+  });
+
+  it("caches a failed macOS product lookup as unknown", () => {
+    const macProductVersion = vi.fn(() => {
+      throw new Error("sw_vers unavailable");
+    });
+    const resolve = createDiagnosticOsResolver({
+      platform: "darwin",
+      release: () => "25.0.0",
+      macProductVersion,
+    });
+    expect(resolve()).toEqual({ osFamily: "darwin", osMajor: "unknown" });
+    expect(resolve()).toEqual({ osFamily: "darwin", osMajor: "unknown" });
+    expect(macProductVersion).toHaveBeenCalledExactlyOnceWith(DIAGNOSTIC_LIMITS.osProbeMs);
+    expect(resolve(15)).toEqual({ osFamily: "darwin", osMajor: 15 });
+    expect(macProductVersion).toHaveBeenCalledTimes(1);
+  });
+
+  it("bounds a hanging OS subprocess and caches the timeout as unknown", () => {
+    const macProductVersion = vi.fn((timeoutMs: number) =>
+      execFileSync(process.execPath, ["-e", "setInterval(() => {}, 1_000)"], {
+        timeout: timeoutMs,
+      }).toString(),
+    );
+    const resolve = createDiagnosticOsResolver({
+      platform: "darwin",
+      release: () => "25.0.0",
+      macProductVersion,
+    });
+    const started = performance.now();
+    expect(resolve()).toEqual({ osFamily: "darwin", osMajor: "unknown" });
+    expect(performance.now() - started).toBeLessThan(1_500);
+    expect(resolve()).toEqual({ osFamily: "darwin", osMajor: "unknown" });
+    expect(macProductVersion).toHaveBeenCalledExactlyOnceWith(DIAGNOSTIC_LIMITS.osProbeMs);
   });
 
   it("records an unavailable OS major as unknown", () => {
@@ -739,6 +775,33 @@ describe("diagnostics store", () => {
     };
     expect(JSON.parse(row.env_json).osMajor).toBe("unknown");
     db.close();
+    store.close();
+  });
+
+  it("preserves Electron's product major through a desktop spool import", () => {
+    const { stateDir, store } = fixture();
+    const desktop = new DiagnosticsSpoolWriter({
+      stateDir,
+      appVersion: "0.14.3",
+      process: "desktop-main",
+      osMajor: 15,
+    });
+    desktop.incident({
+      traceId,
+      spanId,
+      kind: "command.failed",
+      code: "COMMAND_REJECTED",
+      where: "server.command",
+      severity: "error",
+    });
+    store.importPeerSpools();
+    const db = openDiagnosticsReader(stateDir)!;
+    const row = db
+      .prepare("SELECT env_json FROM incident_occurrences WHERE boot_id = ?")
+      .get(desktop.bootId) as { env_json: string };
+    expect(JSON.parse(row.env_json).osMajor).toBe(15);
+    db.close();
+    desktop.close();
     store.close();
   });
 
