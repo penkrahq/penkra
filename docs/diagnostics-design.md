@@ -538,7 +538,9 @@ includes the last durable sequence and a bounded loss/gap count when known.
   matches the currently installed bundle reads its app version, commit hash and
   bundle signature, then deletes all diagnostics (database, spools and loss
   ledgers) under the lifecycle lock if that identity differs from the store.
-  `meta` records the identity and reset time. A stale process cannot reset or
+  `meta` records the identity, reset time and a fresh random reset generation.
+  The clean QA gate compares that generation across its run, including when
+  the initial incident list is empty. A stale process cannot reset or
   write SQLite; its marked spool is counted as dropped rather than imported.
 
 ## Noise cleanup (part of the same work)
@@ -597,6 +599,10 @@ before it is added to the default lint gate.
 ## QA with diagnostics
 
 - Scripted flows drive a numbered Dev instance through RPC and Playwright: send, stop, play, queue, archive, multi-window, thread create, reconnect and provider switch. No computer use.
+- Each flow script exits successfully and writes a result file at
+  `PENKRA_DIAGNOSTICS_QA_REPORT_PATH` naming its flow, a passing status and its
+  required live-app assertions. A zero exit without that report, a mismatched
+  flow or missing assertions fails the gate.
 - **Pass for the clean QA run:** every script meets its expectations, and `penkra diagnostics incidents --since <run start>` returns **zero new occurrences**, including repeats of an existing aggregate. No unexplained-incident exemption exists.
 - Expected-failure and fault-injection scripts run separately from the clean gate. Each intended failure (for example, sending to an archived thread) must produce its expected code and occurrence, or coverage fails. Their incident-producing interval is excluded only by running a separate clean gate with a fresh baseline, not by filtering incidents from that gate.
 - QA reports cite incident IDs and trace IDs instead of screenshots.
