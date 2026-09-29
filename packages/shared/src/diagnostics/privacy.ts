@@ -296,6 +296,7 @@ const enumValues = {
     "server.provider",
     "server.ws_rpc",
     "server.http",
+    "server.codex_app_transport",
     "server.sync_ack",
     "server.stream_admission",
     "provider.runtime_event_pump",
