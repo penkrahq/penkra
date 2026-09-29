@@ -23,6 +23,7 @@ export default defineConfig({
   clean: true,
   define: {
     __PENKRA_DIAGNOSTICS_QA_PROVIDER_BUILD__: JSON.stringify(diagnosticsQaProviderBuild),
+    __PENKRA_DIAGNOSTICS_QA_PROOF_BUILD__: JSON.stringify(diagnosticsQaProviderBuild),
   },
   noExternal: (id) => id.startsWith("@penkra/"),
   inlineOnly: false,

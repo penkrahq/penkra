@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   qaEvidencePath,
   verifyQaAction,
@@ -24,7 +24,9 @@ const traceId = "1".repeat(32);
 const spanId = "2".repeat(16);
 const challenge = "3".repeat(64);
 
+beforeEach(() => vi.stubGlobal("__PENKRA_DIAGNOSTICS_QA_PROOF_BUILD__", true));
 afterEach(() => {
+  vi.unstubAllGlobals();
   delete process.env.PENKRA_DIAGNOSTICS_QA_PROOF_DIR;
   delete process.env.PENKRA_DIAGNOSTICS_QA_RUN_ID;
   delete process.env.PENKRA_DIAGNOSTICS_QA_SECRET;
