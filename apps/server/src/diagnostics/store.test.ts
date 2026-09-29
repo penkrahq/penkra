@@ -870,6 +870,49 @@ describe("diagnostics store", () => {
     reopened.close();
   });
 
+  it("replays a failed late resolution exactly once with expected and actual timing", async () => {
+    const { stateDir, store } = fixture();
+    const id = store.armExpectation({ traceId, spanId, kind: "turn.started", deadlineMs: 1 });
+    const databasePath = path.join(stateDir, "diagnostics", "diagnostics.sqlite");
+    const failDelete = new DatabaseSync(databasePath);
+    failDelete.exec(`CREATE TRIGGER fail_late_expectation_delete
+      BEFORE DELETE ON expectations BEGIN SELECT RAISE(ABORT, 'simulated crash'); END`);
+    failDelete.close();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(() => store.resolveExpectation(id)).toThrow("simulated crash");
+    const before = openDiagnosticsReader(stateDir)!;
+    expect(before.prepare("SELECT COUNT(*) AS count FROM expectations").get()).toMatchObject({
+      count: 1,
+    });
+    expect(
+      before.prepare("SELECT COUNT(*) AS count FROM incident_occurrences").get(),
+    ).toMatchObject({
+      count: 0,
+    });
+    before.close();
+    const recovery = new DatabaseSync(databasePath);
+    recovery.exec("DROP TRIGGER fail_late_expectation_delete");
+    recovery.close();
+    store.close();
+    const restarted = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
+    restarted.importPeerSpools();
+    const after = openDiagnosticsReader(stateDir)!;
+    const rows = after
+      .prepare(`SELECT o.expected_json, o.actual_json, o.context_json
+        FROM incident_occurrences o JOIN incidents i ON i.id = o.incident_id
+        WHERE i.code = 'TURN_START_TIMEOUT'`)
+      .all() as Array<{ expected_json: string; actual_json: string; context_json: string }>;
+    expect(rows).toHaveLength(1);
+    expect(JSON.parse(rows[0]!.expected_json)).toEqual({ deadlineMs: 1 });
+    expect(JSON.parse(rows[0]!.actual_json).elapsedMs).toBeGreaterThanOrEqual(20);
+    expect(JSON.parse(rows[0]!.context_json)).toEqual({ reason: "late_resolution", entityId: id });
+    expect(after.prepare("SELECT COUNT(*) AS count FROM expectations").get()).toMatchObject({
+      count: 0,
+    });
+    after.close();
+    restarted.close();
+  });
+
   it("marks unresolved expectations unknown after a restart", () => {
     const { stateDir, store } = fixture();
     const id = store.armExpectation({
