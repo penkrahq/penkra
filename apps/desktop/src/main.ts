@@ -113,6 +113,7 @@ import { startDesktopDiagnosticsMonitors } from "./desktopDiagnosticsMonitors";
 import { DesktopDiagnosticsQueue } from "./desktopDiagnosticsQueue";
 import { desktopDiagnosticStateDir } from "./desktopDiagnosticStateDir";
 import { DiagnosticsQaWindowTracker } from "./diagnosticsQaWindow";
+import { diagnosticsQaAccountEnabled } from "./diagnosticsQaAccount";
 import {
   retainLiveBackendAfterShutdownFailure,
   requireWindowsBackendExit,
@@ -7896,6 +7897,32 @@ if (hasSingleInstanceLock) {
     inspectInitialProtocolUrlFromArgv: desktopPlatform.deepLinks.inspectInitialArgv,
     websiteOrigin: penkraAccountServices.websiteOrigin,
   });
+  if (
+    diagnosticsQaAccountEnabled({
+      isPackaged: app.isPackaged,
+      isDevelopment,
+      root: PENKRA_ROOT,
+      smokeProfile: desktopSmokeUserDataPath,
+      proofDir: process.env.PENKRA_DIAGNOSTICS_QA_PROOF_DIR,
+      runId: process.env.PENKRA_DIAGNOSTICS_QA_RUN_ID,
+      secret: process.env.PENKRA_DIAGNOSTICS_QA_SECRET,
+    })
+  ) {
+    ipcMain.removeHandler(IPC.accountAuth.getState);
+    ipcMain.handle(IPC.accountAuth.getState, (event) =>
+      event.sender === resolveShellWindow()?.webContents
+        ? {
+            status: "authenticated",
+            user: {
+              id: "diagnostics-qa-local-account",
+              email: "qa-fixture@example.invalid",
+              name: "Diagnostics QA",
+              image: null,
+            },
+          }
+        : { status: "error", message: "Authentication failed." },
+    );
+  }
   getPenkraAccountId = accountAuthRuntime.getAccountId;
   getPenkraAccountCookie = accountAuthRuntime.getCookie;
   appRegistryClient = new AppRegistryClient({
