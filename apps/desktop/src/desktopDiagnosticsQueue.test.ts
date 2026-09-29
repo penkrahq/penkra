@@ -1,7 +1,12 @@
 import { EventEmitter } from "node:events";
+import { spawnSync } from "node:child_process";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import type { Worker } from "node:worker_threads";
 import { describe, expect, it, vi } from "vitest";
 import { DIAGNOSTIC_LIMITS } from "@penkra/shared/diagnostics/limits";
+import { DiagnosticsStore, openDiagnosticsReader } from "@penkra/shared/diagnostics/store";
 
 import { DesktopDiagnosticsQueue } from "./desktopDiagnosticsQueue";
 
@@ -17,6 +22,42 @@ class FakeWorker extends EventEmitter {
 }
 
 describe("desktop diagnostics queue", () => {
+  it("reports an unacknowledged enqueue after a hard process crash", () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-queue-crash-"));
+    try {
+      const child = spawnSync(
+        "bun",
+        [path.resolve(import.meta.dirname, "../scripts/crash-diagnostics-queue.mjs"), stateDir],
+        { cwd: path.resolve(import.meta.dirname, ".."), timeout: 10_000 },
+      );
+      expect(child.signal).toBe("SIGKILL");
+      const store = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
+      expect(store.sweepExpectations(new Date(), true)).toBe(0);
+      const db = openDiagnosticsReader(stateDir)!;
+      expect(
+        db
+          .prepare(
+            "SELECT COUNT(*) AS count FROM incident_occurrences WHERE incident_id IN (SELECT id FROM incidents WHERE code = 'DIAGNOSTICS_DROPPED')",
+          )
+          .get(),
+      ).toMatchObject({ count: 1 });
+      expect(
+        db
+          .prepare(
+            "SELECT code, expected_json, actual_json FROM incidents WHERE code = 'DIAGNOSTICS_DROPPED'",
+          )
+          .get(),
+      ).toMatchObject({
+        code: "DIAGNOSTICS_DROPPED",
+        expected_json: expect.stringContaining('"accepted":true'),
+        actual_json: expect.stringContaining('"accepted":false'),
+      });
+      db.close();
+      store.close();
+    } finally {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
   it("bounds pending writes and records rejected messages", async () => {
     const worker = new FakeWorker();
     const drop = vi.fn();

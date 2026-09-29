@@ -14,6 +14,7 @@ export class DesktopDiagnosticsQueue {
   constructor(
     private readonly createWorker: () => Worker,
     private readonly recordDrop: (reason: DropReason, count: number) => void,
+    private readonly reserve?: (kind: WriteKind, input: unknown) => string,
   ) {}
 
   enqueue(kind: WriteKind, input: unknown): void {
@@ -29,13 +30,18 @@ export class DesktopDiagnosticsQueue {
       this.pending >= DIAGNOSTIC_LIMITS.desktopWorkerQueueDepth
     )
       return this.recordDrop("capacity", 1);
+    let reserved = false;
+    let counted = false;
     try {
       const worker = this.ensureWorker();
+      const expectationId = this.reserve?.(kind, input);
+      reserved = expectationId !== undefined;
       this.pending++;
-      worker.postMessage({ kind, input });
+      counted = true;
+      worker.postMessage({ kind, input, expectationId });
     } catch {
-      if (this.pending > 0) this.pending--;
-      this.recordDrop("spool", 1);
+      if (counted) this.pending--;
+      if (!reserved) this.recordDrop("spool", 1);
     }
   }
 
@@ -48,7 +54,7 @@ export class DesktopDiagnosticsQueue {
       if (this.worker !== worker) return;
       if (message?.kind === "ack") this.pending = Math.max(0, this.pending - 1);
       if (message?.kind === "drained") {
-        if (this.pending > 0) this.recordDrop("spool", this.pending);
+        if (this.pending > 0 && !this.reserve) this.recordDrop("spool", this.pending);
         this.pending = 0;
         this.resolveDrain?.();
       }
@@ -61,7 +67,7 @@ export class DesktopDiagnosticsQueue {
   private onWorkerLost(worker: Worker): void {
     if (this.worker !== worker) return;
     this.worker = null;
-    if (this.pending > 0) this.recordDrop("spool", this.pending);
+    if (this.pending > 0 && !this.reserve) this.recordDrop("spool", this.pending);
     this.pending = 0;
     this.resolveDrain?.();
   }

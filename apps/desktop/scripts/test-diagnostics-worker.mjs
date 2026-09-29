@@ -5,6 +5,7 @@ import path from "node:path";
 import { Worker } from "node:worker_threads";
 import { fileURLToPath } from "node:url";
 import {
+  DiagnosticsSpoolWriter,
   DiagnosticsStore,
   openDiagnosticsReader,
   readLossLedger,
@@ -17,6 +18,12 @@ const server = new DiagnosticsStore({
   appVersion: "0.14.3",
   buildId: "abcdef123456",
   process: "server",
+});
+const desktop = new DiagnosticsSpoolWriter({
+  stateDir,
+  appVersion: "0.14.3",
+  buildId: "abcdef123456",
+  process: "desktop-main",
 });
 const worker = new Worker(path.join(desktopDir, "dist-electron/diagnosticsWorker.js"), {
   workerData: {
@@ -44,8 +51,14 @@ try {
     spanId: "2222222222222222",
     threadId: "test-thread",
   };
+  const expectationId = desktop.armExpectation({
+    ...trace,
+    kind: "desktop.worker_ack",
+    deadlineMs: 30_000,
+  });
   worker.postMessage({
     kind: "checkpoint",
+    expectationId,
     input: { ...trace, flow: "send", step: "composer.preflight" },
   });
   const armedAt = new Date().toISOString();
@@ -66,7 +79,10 @@ try {
   const diagnosticDir = path.join(stateDir, "diagnostics");
   const spool = fs
     .readdirSync(diagnosticDir)
-    .find((name) => /^spool-[a-f0-9]{32}\.jsonl$/u.test(name));
+    .find(
+      (name) =>
+        /^spool-[a-f0-9]{32}\.jsonl$/u.test(name) && name !== `spool-${desktop.bootId}.jsonl`,
+    );
   assert.ok(spool, "worker must create a durable spool");
   const records = fs
     .readFileSync(path.join(diagnosticDir, spool), "utf8")
@@ -80,11 +96,12 @@ try {
   );
   assert.deepEqual(
     records.map((record) => record.type),
-    ["checkpoint", "expectation_arm"],
+    ["checkpoint", "expectation_resolved", "expectation_arm"],
   );
   assert.equal(records[0].data.traceId, trace.traceId);
-  assert.equal(records[1].data.kind, "send.accepted");
-  assert.equal(records[1].data.armedAt, armedAt);
+  assert.equal(records[1].data.fields.entityId, expectationId);
+  assert.equal(records[2].data.kind, "send.accepted");
+  assert.equal(records[2].data.armedAt, armedAt);
   const lossSlots = fs
     .readdirSync(diagnosticDir)
     .filter((name) => /^loss-[a-f0-9]{32}\.bin$/u.test(name))
@@ -95,7 +112,7 @@ try {
   );
   assert.equal(
     fs.readdirSync(diagnosticDir).filter((name) => name.startsWith("active-")).length,
-    1,
+    2,
   );
 
   server.checkpoint({ ...trace, flow: "send", step: "command.accepted", outcome: "ok" });
@@ -115,6 +132,7 @@ try {
   }
 } finally {
   await worker.terminate();
+  desktop.close();
   server.close();
   fs.rmSync(stateDir, { recursive: true, force: true });
 }

@@ -63,6 +63,12 @@ records `unknown`.
 Desktop spool writers leave one-eighth of the total cap free, up to 128 MiB,
 while the server store is absent. This space lets an update write its durable
 loss manifest even if desktop spools otherwise fill their writable budget.
+Before the desktop main process posts a diagnostic write to its worker, it
+fsyncs a small `desktop.worker_ack` expectation to its own spool. The worker
+resolves that expectation in its spool after handling the write. An unresolved
+receipt from a crashed process, or one still unacknowledged after 30 seconds,
+produces `DIAGNOSTICS_DROPPED`. Import accepts the resolution before the arm
+without creating a false miss. The renderer does not await this IPC.
 On reset, the current process may first remove old SQLite and other files that
 carry no unreported spool or ledger loss; it retains every counted spool and
 ledger until their loss counts are durable. A crash before that point leaves
@@ -109,7 +115,7 @@ values used by code and the incident's `limit` field:
 | Total diagnostics (SQLite, WAL, SHM, and all spools)                            |                    1,073,741,824 bytes (1 GiB) |
 | Prune start                                                                     |                           80% of the total cap |
 | Per-process spool                                                               |                                         16 MiB |
-| Desktop diagnostics worker queue / message / shutdown drain                     |                       256 / 64 KiB / 2 seconds |
+| Desktop diagnostics worker queue / message / shutdown drain / ack               |          256 / 64 KiB / 2 seconds / 30 seconds |
 | OS product version probe                                                        |                                         250 ms |
 | Batch interval                                                                  |    at most 250 ms; incidents flush immediately |
 | Incident age                                                                    |                 90 days within one app version |
