@@ -83,6 +83,15 @@ describe("scripted provider QA fixture", () => {
       };
       visit(root);
     }
+  }, 30_000);
+
+  it("excludes the QA account override from the default desktop bundle", () => {
+    const mainBundle = fs.readFileSync(
+      path.join(repoRoot, "apps/desktop/dist-electron/main.js"),
+      "utf8",
+    );
+    expect(mainBundle).not.toContain("diagnostics-qa-local-account");
+    expect(mainBundle).not.toContain("qa-fixture@example.invalid");
   });
 
   it("labels fixture coverage without claiming real-provider coverage", () => {
