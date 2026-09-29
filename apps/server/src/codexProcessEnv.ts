@@ -225,11 +225,12 @@ export async function linkOrCopyCodexOverlayEntry(
   try {
     await linker.symlink(input.sourcePath, input.targetPath, input.type);
   } catch (error: unknown) {
-    recordCodexConfigFailure();
     if (input.type === "file" && CODEX_OVERLAY_SHARED_STATE_FILES.has(input.entryName)) {
+      recordCodexConfigFailure();
       await linker.copyFile(input.sourcePath, input.targetPath);
       return;
     }
+    // The caller records the failed entry at its recovery boundary.
     throw error;
   }
 }

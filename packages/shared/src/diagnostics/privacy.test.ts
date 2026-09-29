@@ -24,4 +24,11 @@ describe("diagnostic field privacy", () => {
       expect(validateDiagnosticToken(where, "where")).toBe(where);
     }
   });
+
+  it("accepts the browser local-state and client-runtime locations", () => {
+    expect(validateDiagnosticToken("browser.local_state", "where")).toBe("browser.local_state");
+    expect(validateDiagnosticToken("browser.client_runtime", "where")).toBe(
+      "browser.client_runtime",
+    );
+  });
 });
