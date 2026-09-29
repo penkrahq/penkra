@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -17,9 +18,23 @@ export const REQUIRED_QA_FLOWS = [
 ] as const;
 export type QaFlow = (typeof REQUIRED_QA_FLOWS)[number];
 
+/** Assertions each Playwright flow must report after checking the live app. */
+export const REQUIRED_QA_CHECKS: Record<QaFlow, readonly string[]> = {
+  send: ["send.dispatched", "send.accepted"],
+  stop: ["stop.requested", "turn.terminal"],
+  play: ["play.requested", "turn.started"],
+  queue: ["queue.enqueued", "queue.started"],
+  archive: ["archive.requested", "thread.archived"],
+  "multi-window": ["window.opened", "window.synced"],
+  "thread-create": ["thread.create_requested", "thread.created"],
+  reconnect: ["socket.disconnected", "socket.reconnected"],
+  "provider-switch": ["provider.switch_requested", "provider.switched"],
+};
+
 export interface QaFlowResult {
   readonly flow: QaFlow;
   readonly passed: boolean;
+  readonly checks: readonly string[];
 }
 
 export function evaluateDiagnosticsQaGate(
@@ -40,7 +55,10 @@ export function evaluateDiagnosticsQaGate(
   const failedFlows = REQUIRED_QA_FLOWS.filter(
     (flow) =>
       results.filter((result) => result.flow === flow).length !== 1 ||
-      !results.find((result) => result.flow === flow)?.passed,
+      !results.find((result) => result.flow === flow)?.passed ||
+      !REQUIRED_QA_CHECKS[flow].every((check) =>
+        results.find((result) => result.flow === flow)?.checks.includes(check),
+      ),
   );
   const newIncidentIds = [...afterIds].filter((id) => !beforeIds.has(id)).toSorted();
   return {
@@ -86,6 +104,8 @@ function diagnosticsState(stateDir: string): {
   expectations: number;
   spools: number;
   identity: string;
+  resetAt: string;
+  resetId: string;
   losses: Map<string, number>;
   spoolAnomalies: Map<string, number>;
 } {
@@ -93,6 +113,16 @@ function diagnosticsState(stateDir: string): {
   if (!db) throw new Error("Diagnostics store must exist before the clean QA gate starts");
   try {
     const rows = db.prepare("SELECT id FROM incident_occurrences").all() as Array<{ id: string }>;
+    const reset = db.prepare("SELECT value FROM meta WHERE key = 'reset_at'").get() as
+      | { value: string }
+      | undefined;
+    if (!reset || Number.isNaN(Date.parse(reset.value)))
+      throw new Error("Diagnostics store reset timestamp is unavailable");
+    const resetId = db.prepare("SELECT value FROM meta WHERE key = 'reset_id'").get() as
+      | { value: string }
+      | undefined;
+    if (!resetId || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/u.test(resetId.value))
+      throw new Error("Diagnostics store generation is unavailable");
     const expectations = (
       db.prepare("SELECT COUNT(*) AS count FROM expectations").get() as { count: number }
     ).count;
@@ -120,6 +150,8 @@ function diagnosticsState(stateDir: string): {
       expectations,
       spools,
       identity: fs.readFileSync(path.join(dir, "identity"), "utf8"),
+      resetAt: reset.value,
+      resetId: resetId.value,
       losses: lossCounts(dir),
       spoolAnomalies,
     };
@@ -131,13 +163,40 @@ function diagnosticsState(stateDir: string): {
 export function runDiagnosticsQaGate(
   stateDir: string,
   scripts: ReadonlyMap<QaFlow, string>,
-  runner: (script: string, stateDir: string) => boolean = (script, dir) => {
-    const result = spawnSync(process.execPath, [script], {
-      stdio: "inherit",
-      timeout: 120_000,
-      env: { ...process.env, PENKRA_DIAGNOSTICS_QA_STATE_DIR: dir },
-    });
-    return result.status === 0 && result.error === undefined;
+  runner: (script: string, stateDir: string, flow: QaFlow) => QaFlowResult = (
+    script,
+    dir,
+    flow,
+  ) => {
+    const reportPath = path.join(dir, `.diagnostics-qa-${randomUUID()}.json`);
+    try {
+      const result = spawnSync(process.execPath, [script], {
+        stdio: "inherit",
+        timeout: 120_000,
+        env: {
+          ...process.env,
+          PENKRA_DIAGNOSTICS_QA_STATE_DIR: dir,
+          PENKRA_DIAGNOSTICS_QA_FLOW: flow,
+          PENKRA_DIAGNOSTICS_QA_REPORT_PATH: reportPath,
+        },
+      });
+      if (result.status !== 0 || result.error || !fs.existsSync(reportPath))
+        return { flow, passed: false, checks: [] };
+      const report = JSON.parse(fs.readFileSync(reportPath, "utf8")) as QaFlowResult;
+      if (
+        !report ||
+        !REQUIRED_QA_FLOWS.includes(report.flow) ||
+        typeof report.passed !== "boolean" ||
+        !Array.isArray(report.checks) ||
+        !report.checks.every((check) => typeof check === "string")
+      )
+        return { flow, passed: false, checks: [] };
+      return report;
+    } catch {
+      return { flow, passed: false, checks: [] };
+    } finally {
+      fs.rmSync(reportPath, { force: true });
+    }
   },
 ): ReturnType<typeof evaluateDiagnosticsQaGate> {
   if (
@@ -150,17 +209,17 @@ export function runDiagnosticsQaGate(
     if (!fs.statSync(script).isFile()) throw new Error(`QA script is not a file: ${script}`);
   }
   const before = diagnosticsState(stateDir);
-  const results = REQUIRED_QA_FLOWS.map((flow) => ({
-    flow,
-    passed: runner(scripts.get(flow)!, stateDir),
-  }));
+  const results = REQUIRED_QA_FLOWS.map((flow) => runner(scripts.get(flow)!, stateDir, flow));
   const after = diagnosticsState(stateDir);
   const newLosses =
     countGrowth(after.losses, before.losses) +
     countGrowth(after.spoolAnomalies, before.spoolAnomalies);
   return evaluateDiagnosticsQaGate(before.ids, after.ids, results, after, {
     storeReset:
-      before.identity !== after.identity || [...before.ids].some((id) => !after.ids.has(id)),
+      before.identity !== after.identity ||
+      before.resetAt !== after.resetAt ||
+      before.resetId !== after.resetId ||
+      [...before.ids].some((id) => !after.ids.has(id)),
     newLosses,
   });
 }

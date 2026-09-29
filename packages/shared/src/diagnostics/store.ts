@@ -1313,6 +1313,9 @@ export class DiagnosticsStore {
         db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES ('reset_at', ?)").run(
           new Date().toISOString(),
         );
+        db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES ('reset_id', ?)").run(
+          randomUUID(),
+        );
         if (
           totalBytes(this.dir) +
             Buffer.byteLength(options.appVersion) +
