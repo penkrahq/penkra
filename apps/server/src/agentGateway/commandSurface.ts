@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { recordMcpScopeDenied } from "./mcpWriteDiagnostics.ts";
+import { recordGatewayConsumedFailure } from "./gatewayFailureDiagnostics.ts";
 import {
   assembleInstructions,
   generateOperationHelp,
@@ -170,5 +171,10 @@ export function invokeResolvedAgentGatewayCommand(input: {
     : entry.tool.requiresThreadAuthority
       ? input.context.assertCallerThreadAuthorized().pipe(Effect.andThen(invoke))
       : invoke;
-  return authorized.pipe(Effect.catch((error) => Effect.succeed(gatewayToolErrorResult(error))));
+  return authorized.pipe(
+    Effect.catch((error) => {
+      if (!(error instanceof GatewayToolError)) recordGatewayConsumedFailure(error);
+      return Effect.succeed(gatewayToolErrorResult(error));
+    }),
+  );
 }
