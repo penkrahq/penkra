@@ -54,7 +54,13 @@ export function evaluateDiagnosticsQaGate(
   afterIds: ReadonlySet<string>,
   results: ReadonlyArray<QaFlowResult>,
   pending: { expectations: number; spools: number } = { expectations: 0, spools: 0 },
-  integrity: { storeReset: boolean; newLosses: number } = { storeReset: false, newLosses: 0 },
+  integrity: {
+    storeReset: boolean;
+    newLosses: number;
+    possiblyLost?: number;
+    lostCountUnknown?: number;
+    exactOverflow?: number;
+  } = { storeReset: false, newLosses: 0 },
 ): {
   passed: boolean;
   failedFlows: QaFlow[];
@@ -63,6 +69,9 @@ export function evaluateDiagnosticsQaGate(
   pendingSpools: number;
   storeReset: boolean;
   newLosses: number;
+  possiblyLost: number;
+  lostCountUnknown: number;
+  exactOverflow: number;
 } {
   const failedFlows = REQUIRED_QA_FLOWS.filter(
     (flow) =>
@@ -80,13 +89,19 @@ export function evaluateDiagnosticsQaGate(
       pending.expectations === 0 &&
       pending.spools === 0 &&
       !integrity.storeReset &&
-      integrity.newLosses === 0,
+      integrity.newLosses === 0 &&
+      (integrity.possiblyLost ?? 0) === 0 &&
+      (integrity.lostCountUnknown ?? 0) === 0 &&
+      (integrity.exactOverflow ?? 0) === 0,
     failedFlows,
     newIncidentIds,
     pendingExpectations: pending.expectations,
     pendingSpools: pending.spools,
     storeReset: integrity.storeReset,
     newLosses: integrity.newLosses,
+    possiblyLost: integrity.possiblyLost ?? 0,
+    lostCountUnknown: integrity.lostCountUnknown ?? 0,
+    exactOverflow: integrity.exactOverflow ?? 0,
   };
 }
 
@@ -140,7 +155,7 @@ function diagnosticsState(stateDir: string): {
     ).count;
     const anomalyRows = db
       .prepare(
-        "SELECT key, value FROM meta WHERE key LIKE 'spool-invalid:%' OR key LIKE 'sequence-gap:%' OR key = 'incident_evictions'",
+        "SELECT key, value FROM meta WHERE key LIKE 'spool-invalid:%' OR key LIKE 'sequence-gap:%' OR key = 'incident_evictions' OR key LIKE 'possibly-lost:%' OR key LIKE 'lost-count-unknown:%' OR key LIKE 'worker-overflow:%'",
       )
       .all() as Array<{ key: string; value: string }>;
     const spoolAnomalies = new Map<string, number>();
@@ -213,6 +228,17 @@ function lastDetailId(stateDir: string): number {
   }
 }
 
+function prefixedGrowth(
+  after: ReadonlyMap<string, number>,
+  before: ReadonlyMap<string, number>,
+  prefix: string,
+): number {
+  return countGrowth(
+    new Map([...after].filter(([key]) => key.startsWith(prefix))),
+    new Map([...before].filter(([key]) => key.startsWith(prefix))),
+  );
+}
+
 export function runDiagnosticsQaGate(
   stateDir: string,
   scripts: ReadonlyMap<QaFlow, string>,
@@ -274,7 +300,17 @@ export function runDiagnosticsQaGate(
   const after = diagnosticsState(stateDir);
   const newLosses =
     countGrowth(after.losses, before.losses) +
-    countGrowth(after.spoolAnomalies, before.spoolAnomalies);
+    countGrowth(
+      new Map(
+        [...after.spoolAnomalies].filter(
+          ([key]) =>
+            !["possibly-lost:", "lost-count-unknown:", "worker-overflow:"].some((prefix) =>
+              key.startsWith(prefix),
+            ),
+        ),
+      ),
+      before.spoolAnomalies,
+    );
   return evaluateDiagnosticsQaGate(before.ids, after.ids, results, after, {
     storeReset:
       before.identity !== after.identity ||
@@ -282,6 +318,13 @@ export function runDiagnosticsQaGate(
       before.resetId !== after.resetId ||
       [...before.ids].some((id) => !after.ids.has(id)),
     newLosses,
+    possiblyLost: prefixedGrowth(after.spoolAnomalies, before.spoolAnomalies, "possibly-lost:"),
+    lostCountUnknown: prefixedGrowth(
+      after.spoolAnomalies,
+      before.spoolAnomalies,
+      "lost-count-unknown:",
+    ),
+    exactOverflow: prefixedGrowth(after.spoolAnomalies, before.spoolAnomalies, "worker-overflow:"),
   });
 }
 

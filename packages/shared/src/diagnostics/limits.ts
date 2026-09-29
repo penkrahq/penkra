@@ -4,6 +4,7 @@ export const DIAGNOSTIC_LIMITS = {
   pruneAtRatio: 0.8,
   spoolBytesPerProcess: 16 * 1024 * 1024,
   desktopWorkerQueueDepth: 256,
+  desktopWorkerCreditBlock: 1_024,
   desktopWorkerMessageBytes: 64 * 1024,
   desktopWorkerDrainMs: 2_000,
   desktopWorkerAckMs: 30_000,

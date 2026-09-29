@@ -58,6 +58,9 @@ describe("diagnostics clean QA gate", () => {
       pendingSpools: 0,
       storeReset: false,
       newLosses: 0,
+      possiblyLost: 0,
+      lostCountUnknown: 0,
+      exactOverflow: 0,
     });
   });
 
@@ -88,6 +91,9 @@ describe("diagnostics clean QA gate", () => {
         pendingSpools: 0,
         storeReset: false,
         newLosses: 0,
+        possiblyLost: 0,
+        lostCountUnknown: 0,
+        exactOverflow: 0,
       });
       expect(runDiagnosticsQaGate(stateDir, scripts).failedFlows).toEqual([...REQUIRED_QA_FLOWS]);
       expect(
@@ -208,6 +214,31 @@ describe("diagnostics clean QA gate", () => {
       );
       expect(evicted.passed).toBe(false);
       expect(evicted.newLosses).toBe(1);
+      runs = 0;
+      const creditLoss = runDiagnosticsQaGate(
+        stateDir,
+        scripts,
+        withObservedChecks(store, (script, dir, flow) => {
+          if (++runs === 1) {
+            const db = new DatabaseSync(databasePath);
+            db.prepare("INSERT INTO meta(key, value) VALUES (?, ?)").run("possibly-lost:boot", "2");
+            db.prepare("INSERT INTO meta(key, value) VALUES (?, ?)").run(
+              "lost-count-unknown:boot",
+              "1",
+            );
+            db.prepare("INSERT INTO meta(key, value) VALUES (?, ?)").run(
+              "worker-overflow:boot",
+              "3",
+            );
+            db.close();
+          }
+          return passing(script, dir, flow);
+        }),
+      );
+      expect(creditLoss.passed).toBe(false);
+      expect(creditLoss.possiblyLost).toBe(2);
+      expect(creditLoss.lostCountUnknown).toBe(1);
+      expect(creditLoss.exactOverflow).toBe(3);
       const identityPath = path.join(stateDir, "diagnostics", "identity");
       const identity = fs.readFileSync(identityPath, "utf8");
       runs = 0;
@@ -222,7 +253,7 @@ describe("diagnostics clean QA gate", () => {
     } finally {
       fs.rmSync(stateDir, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
   it("detects a same-identity reset with an empty incident baseline", () => {
     const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-qa-reset-"));
