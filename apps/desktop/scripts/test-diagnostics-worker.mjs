@@ -96,12 +96,12 @@ try {
   );
   assert.deepEqual(
     records.map((record) => record.type),
-    ["checkpoint", "expectation_resolved", "expectation_arm"],
+    ["checkpoint", "expectation_arm"],
   );
   assert.equal(records[0].data.traceId, trace.traceId);
-  assert.equal(records[1].data.fields.entityId, expectationId);
-  assert.equal(records[2].data.kind, "send.accepted");
-  assert.equal(records[2].data.armedAt, armedAt);
+  assert.equal(records[0].receiptId, expectationId);
+  assert.equal(records[1].data.kind, "send.accepted");
+  assert.equal(records[1].data.armedAt, armedAt);
   const lossSlots = fs
     .readdirSync(diagnosticDir)
     .filter((name) => /^loss-[a-f0-9]{32}\.bin$/u.test(name))
