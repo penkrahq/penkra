@@ -2265,6 +2265,29 @@ const make = Effect.gen(function* () {
         (candidate) => candidate.providerTurnId === nativeTurnId,
       );
       const logicalTurnId = qaProjectedTurn?.turnId;
+      const activityTurnIdentity = { turnId: logicalTurnId ?? null } as const;
+      const canonicalOperationMaterialized =
+        canonicalOperationFromRuntimeEvent(canonicalActivityEvent) !== null;
+      const canonicalNoticeMaterialized = canonicalActivityEvent.type === "runtime.warning";
+      const canonicalActivity = projectProviderRuntimeActivities(
+        canonicalActivityEvent,
+        activityTurnIdentity,
+      )[0];
+      if (canonicalOperationMaterialized || canonicalNoticeMaterialized) {
+        yield* dispatchProviderCommandOnce({
+          type: "thread.activity-read-model.touch",
+          commandId: providerCommandId(
+            canonicalActivityEvent,
+            "activity-read-model-touch",
+            thread.id,
+          ),
+          threadId: thread.id,
+          turnId: canonicalActivityEvent.turnId ?? null,
+          ...(canonicalActivity === undefined ? {} : { activity: canonicalActivity }),
+          createdAt: canonicalActivityEvent.createdAt,
+        });
+      }
+      yield* commitCanonical(canonicalActivityEvent);
       if (
         event.type === "turn.started" ||
         event.type === "turn.completed" ||
@@ -2299,29 +2322,6 @@ const make = Effect.gen(function* () {
             }),
           );
       }
-      const activityTurnIdentity = { turnId: logicalTurnId ?? null } as const;
-      const canonicalOperationMaterialized =
-        canonicalOperationFromRuntimeEvent(canonicalActivityEvent) !== null;
-      const canonicalNoticeMaterialized = canonicalActivityEvent.type === "runtime.warning";
-      const canonicalActivity = projectProviderRuntimeActivities(
-        canonicalActivityEvent,
-        activityTurnIdentity,
-      )[0];
-      if (canonicalOperationMaterialized || canonicalNoticeMaterialized) {
-        yield* dispatchProviderCommandOnce({
-          type: "thread.activity-read-model.touch",
-          commandId: providerCommandId(
-            canonicalActivityEvent,
-            "activity-read-model-touch",
-            thread.id,
-          ),
-          threadId: thread.id,
-          turnId: canonicalActivityEvent.turnId ?? null,
-          ...(canonicalActivity === undefined ? {} : { activity: canonicalActivity }),
-          createdAt: canonicalActivityEvent.createdAt,
-        });
-      }
-      yield* commitCanonical(canonicalActivityEvent);
       // Startup settles projected requests before consuming the runtime journal.
       // A request first projected by that replay must not outlive its owner.
       // Keep the original event in the journal and its question in the expiry activity.

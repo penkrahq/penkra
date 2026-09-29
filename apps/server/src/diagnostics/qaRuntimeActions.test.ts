@@ -46,6 +46,15 @@ describe("QA runtime action proofs", () => {
         disposition: "skipped",
         projectedTurnState: "running",
       }),
+    ).toBe(true);
+    expect(
+      shouldObserveQaLifecycle({
+        eventType: "turn.completed",
+        state: "interrupted",
+        shouldApply: false,
+        disposition: "skipped",
+        projectedTurnState: null,
+      }),
     ).toBe(false);
     expect(
       shouldObserveQaLifecycle({

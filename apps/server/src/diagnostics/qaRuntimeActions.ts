@@ -3,7 +3,7 @@ import { recordDiagnosticCheckpoint } from "./recorder";
 
 type RuntimeFlow = "stop" | "play" | "queue";
 
-/** A native terminal may arrive after the command already projected interruption. */
+/** A canonical native terminal can settle a turn whose session update was fenced out. */
 export function shouldObserveQaLifecycle(input: {
   readonly eventType: "turn.started" | "turn.completed" | "turn.aborted";
   readonly state: "running" | "interrupted" | "ready" | "error";
@@ -15,7 +15,7 @@ export function shouldObserveQaLifecycle(input: {
     (input.shouldApply && input.disposition === "applied") ||
     ((input.eventType === "turn.completed" || input.eventType === "turn.aborted") &&
       input.state === "interrupted" &&
-      input.projectedTurnState === "interrupted")
+      input.projectedTurnState !== null)
   );
 }
 
