@@ -11,6 +11,7 @@ import { existsSync } from "node:fs";
 import { delimiter, dirname, extname, join } from "node:path";
 import { spawn } from "node:child_process";
 import { appTabKeyDefinition } from "./appTabKeyboard";
+import { recordDesktopConsumedFailure } from "./desktopFailureCoverage";
 import {
   AGENT_CURSOR_SOURCE,
   boundPageContent,
@@ -794,6 +795,7 @@ export class AppTabObserver {
       try {
         image = await target.webContents.capturePage(bounds);
       } catch (error) {
+        recordDesktopConsumedFailure("tab");
         throw visualUnavailable(
           target.document,
           `Capture failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -1332,6 +1334,7 @@ export class AppTabObserver {
       await this.#evaluateCursor(installation, "globalThis.__agentBrowserRecordingCursorHide?.()");
       this.#cursorLog("hidden", key, installation, { reason });
     } catch (error) {
+      recordDesktopConsumedFailure("tab");
       this.#cursorLog("hide-failed", key, installation, {
         reason,
         error: error instanceof Error ? error.message : String(error),

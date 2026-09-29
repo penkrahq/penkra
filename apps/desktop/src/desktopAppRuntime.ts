@@ -41,6 +41,7 @@ import { AppRendererRpcHost } from "./appRendererRpc";
 import { AppRuntimeLifecycle } from "./appRuntimeLifecycle";
 import { AppSessionManager } from "./appSessionManager";
 import { AppRuntimeDiagnostics, resolveAppRuntimeDiagnosticsPath } from "./appRuntimeDiagnostics";
+import { recordDesktopConsumedFailure } from "./desktopFailureCoverage";
 import { AppIdentityService } from "./appIdentityService";
 import { AppDataVault } from "./appDataVault";
 import { ProviderCredentialVault } from "./providerCredentialVault";
@@ -429,6 +430,7 @@ export async function startDesktopAppRuntime(input: {
           failures.push({ role: "transfers-dispose", failure: error });
         }
         if (failures.length > 0) {
+          recordDesktopConsumedFailure("app");
           const failure = appRuntimeGroupFailure(
             "App renderer-generation retirement was incomplete.",
             failures,
@@ -477,6 +479,7 @@ export async function startDesktopAppRuntime(input: {
           failures.push({ role: "transfers-dispose", failure: error });
         }
         if (failures.length > 0) {
+          recordDesktopConsumedFailure("app");
           const failure = appRuntimeGroupFailure(
             "App logical-tab retirement was incomplete.",
             failures,
@@ -509,6 +512,7 @@ export async function startDesktopAppRuntime(input: {
     state: installations.snapshot(),
     openWith,
   }).catch((error) => {
+    recordDesktopConsumedFailure("app");
     console.error("[penkra-app] Could not reconcile Open With preferences at startup.", error);
   });
   const unsubscribeOpenWithReconciliation = installations.subscribe((state) => {
@@ -516,6 +520,7 @@ export async function startDesktopAppRuntime(input: {
     if (nextFingerprint === openWithHandlerFingerprint) return;
     openWithHandlerFingerprint = nextFingerprint;
     void reconcileAppOpenWithPreferences({ state, openWith }).catch((error) => {
+      recordDesktopConsumedFailure("app");
       console.error("[penkra-app] Could not reconcile Open With preferences.", error);
     });
   });
