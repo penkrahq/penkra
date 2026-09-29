@@ -587,7 +587,7 @@ Coverage is enforced the same way test coverage is.
 
 The coverage check tracks each catch, throw, explicit rejection and timeout site by file,
 line and syntax kind. A `diagnostics-covered: CODE where` marker means that the same
-file records that failure. A `diagnostics-propagates: CODE where` marker means the
+block records that failure before the marked site. A `diagnostics-propagates: CODE where` marker means the
 failure reaches a registered recording boundary. Each boundary is
 registered with its stable incident code, location and source file, and the checker
 verifies that one recording call contains both values. Validation failures and

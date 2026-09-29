@@ -36,34 +36,92 @@ function recordsAtBoundary(source: string, boundary: CoverageBoundary): boolean 
   let found = false;
   function visit(node: ts.Node): void {
     if (found) return;
-    if (
-      ts.isCallExpression(node) &&
-      ts.isIdentifier(node.expression) &&
-      node.expression.text === "recordDiagnosticIncident" &&
-      node.arguments[0] &&
-      ts.isObjectLiteralExpression(node.arguments[0])
-    ) {
-      const fields = new Map(
-        node.arguments[0].properties
-          .filter(ts.isPropertyAssignment)
-          .filter(
-            (property) =>
-              ts.isIdentifier(property.name) && ts.isStringLiteralLike(property.initializer),
-          )
-          .map((property) => [
-            property.name.getText(parsed),
-            property.initializer.getText(parsed).slice(1, -1),
-          ]),
-      );
-      if (fields.get("code") === boundary.code && fields.get("where") === boundary.where) {
-        found = true;
-        return;
-      }
+    if (isRecordingCall(node, boundary.code, boundary.where)) {
+      found = true;
+      return;
     }
     ts.forEachChild(node, visit);
   }
   visit(parsed);
   return found;
+}
+
+function isRecordingCall(node: ts.Node, code: string, where: string): boolean {
+  if (
+    !ts.isCallExpression(node) ||
+    !ts.isIdentifier(node.expression) ||
+    node.expression.text !== "recordDiagnosticIncident" ||
+    !node.arguments[0] ||
+    !ts.isObjectLiteralExpression(node.arguments[0])
+  )
+    return false;
+  const fields = new Map(
+    node.arguments[0].properties
+      .filter(ts.isPropertyAssignment)
+      .filter(
+        (property) =>
+          ts.isIdentifier(property.name) && ts.isStringLiteralLike(property.initializer),
+      )
+      .map((property) => [property.name.getText(), property.initializer.getText().slice(1, -1)]),
+  );
+  return fields.get("code") === code && fields.get("where") === where;
+}
+
+/** A local marker must be preceded by a recording statement in its own block. */
+function recordsBeforeSite(
+  source: string,
+  site: FailureSite,
+  code: string,
+  where: string,
+): boolean {
+  const parsed = ts.createSourceFile(site.file, source, ts.ScriptTarget.Latest, true);
+  let siteNode: ts.Node | undefined;
+  function findSite(node: ts.Node): void {
+    if (siteNode) return;
+    const kind = ts.isCatchClause(node)
+      ? "catch"
+      : ts.isThrowStatement(node)
+        ? "throw"
+        : ts.isCallExpression(node)
+          ? callKind(node)
+          : null;
+    if (
+      kind === site.kind &&
+      parsed.getLineAndCharacterOfPosition(node.getStart(parsed)).line + 1 === site.line
+    ) {
+      siteNode = node;
+      return;
+    }
+    ts.forEachChild(node, findSite);
+  }
+  findSite(parsed);
+  if (!siteNode) return false;
+  let statement: ts.Node = siteNode;
+  while (statement.parent && !ts.isBlock(statement.parent) && !ts.isSourceFile(statement.parent))
+    statement = statement.parent;
+  const block = statement.parent;
+  if (!block || (!ts.isBlock(block) && !ts.isSourceFile(block))) return false;
+  for (const preceding of block.statements) {
+    if (preceding === statement) break;
+    if (!ts.isExpressionStatement(preceding)) continue;
+    const expression = preceding.expression;
+    if (isRecordingCall(expression, code, where)) return true;
+    if (!ts.isYieldExpression(expression) || !expression.asteriskToken) continue;
+    const effect = expression.expression;
+    if (
+      !effect ||
+      !ts.isCallExpression(effect) ||
+      !ts.isPropertyAccessExpression(effect.expression) ||
+      !ts.isIdentifier(effect.expression.expression) ||
+      effect.expression.expression.text !== "Effect" ||
+      effect.expression.name.text !== "sync"
+    )
+      continue;
+    const callback = effect.arguments[0];
+    if (callback && ts.isArrowFunction(callback) && isRecordingCall(callback.body, code, where))
+      return true;
+  }
+  return false;
 }
 
 /** A propagated site is covered only when its named recording boundary is registered. */
@@ -107,7 +165,11 @@ function hasCoverageMarker(
   try {
     validateDiagnosticToken(marker[3] ?? "", "where");
     const recordingFile = boundaries.get(`${marker[2]}:${marker[3]}`);
-    return Boolean(recordingFile && (marker[1] === "propagates" || recordingFile === site.file));
+    return Boolean(
+      recordingFile &&
+      (marker[1] === "propagates" ||
+        (recordingFile === site.file && recordsBeforeSite(source, site, marker[2]!, marker[3]!))),
+    );
   } catch {
     return false;
   }
