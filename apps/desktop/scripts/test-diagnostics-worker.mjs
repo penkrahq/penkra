@@ -74,10 +74,12 @@ try {
   assert.equal(records[1].data.armedAt, armedAt);
   const loss = fs.readdirSync(diagnosticDir).find((name) => name.startsWith("loss-"));
   assert.ok(loss);
-  assert.equal(
-    JSON.parse(fs.readFileSync(path.join(diagnosticDir, loss), "utf8")).reasons.spool,
-    1,
-  );
+  const lossSlots = fs
+    .readFileSync(path.join(diagnosticDir, loss), "utf8")
+    .match(/.{256}/g)
+    .map((slot) => JSON.parse(slot.trim()))
+    .sort((a, b) => b.generation - a.generation);
+  assert.equal(lossSlots[0].reasons.spool, 1);
   assert.equal(
     fs.readdirSync(diagnosticDir).some((name) => name.startsWith("active-")),
     false,
