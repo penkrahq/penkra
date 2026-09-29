@@ -8,6 +8,7 @@ vi.mock("./diagnostics/recorder", () => ({ recordDiagnosticIncident: vi.fn() }))
 import { recordDiagnosticIncident } from "./diagnostics/recorder";
 import {
   buildCodexProcessEnv,
+  linkOrCopyCodexOverlayEntry,
   prepareManagedCodexProfileConfig,
   prepareOptionalCodexOverlayEntries,
 } from "./codexProcessEnv";
@@ -19,6 +20,26 @@ afterEach(async () => {
 });
 
 describe("Codex profile filesystem diagnostics", () => {
+  it("lets the caller report a failed optional link once", async () => {
+    await expect(
+      linkOrCopyCodexOverlayEntry(
+        {
+          entryName: "sessions",
+          sourcePath: "/source/sessions",
+          targetPath: "/overlay/sessions",
+          type: "dir",
+        },
+        {
+          symlink: async () => {
+            throw new Error("private link detail");
+          },
+          copyFile: vi.fn(),
+        },
+      ),
+    ).rejects.toThrow("private link detail");
+    expect(recordDiagnosticIncident).not.toHaveBeenCalled();
+  });
+
   it("records and skips one failed optional overlay entry while preparing later entries", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "penkra-codex-overlay-diagnostic-"));
     roots.push(root);

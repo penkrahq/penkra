@@ -31,7 +31,7 @@
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
-    "reason": "The existing recovery or final failure outcome remains unchanged; unexpected failure records a fixed incident.",
+    "reason": "The auth copy fallback records the symlink failure; other entry failures rethrow to the caller recovery boundary for one incident.",
     "reviewer": "diagnostics-0143",
     "boundary": {
       "code": "EXTERNAL_CALL_FAILED",
@@ -40,11 +40,11 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 233,
+    "line": 234,
     "column": 5,
     "kind": "throw",
     "disposition": "rethrow",
-    "reason": "This error reaches the serialized preparation boundary, which records it before returning failure.",
+    "reason": "The optional-entry or managed-profile caller records this rethrown symlink failure at its recovery boundary.",
     "reviewer": "diagnostics-0143",
     "boundary": {
       "code": "EXTERNAL_CALL_FAILED",
@@ -53,7 +53,7 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 261,
+    "line": 262,
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
@@ -66,7 +66,7 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 627,
+    "line": 628,
     "column": 28,
     "kind": "catch",
     "disposition": "expected-recovery",
@@ -75,7 +75,7 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 635,
+    "line": 636,
     "column": 5,
     "kind": "catch",
     "disposition": "recorded",
@@ -88,7 +88,7 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 637,
+    "line": 638,
     "column": 5,
     "kind": "throw",
     "disposition": "rethrow",
@@ -101,7 +101,7 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 664,
+    "line": 665,
     "column": 7,
     "kind": "catch",
     "disposition": "recorded",
@@ -114,7 +114,7 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 686,
+    "line": 687,
     "column": 52,
     "kind": "catch",
     "disposition": "recorded",
@@ -127,7 +127,7 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 693,
+    "line": 694,
     "column": 68,
     "kind": "catch",
     "disposition": "propagates",
@@ -140,7 +140,7 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 697,
+    "line": 698,
     "column": 5,
     "kind": "throw",
     "disposition": "rethrow",
@@ -153,7 +153,7 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 708,
+    "line": 709,
     "column": 8,
     "kind": "catch",
     "disposition": "propagates",
@@ -166,7 +166,7 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 712,
+    "line": 713,
     "column": 9,
     "kind": "throw",
     "disposition": "rethrow",
@@ -179,7 +179,7 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 754,
+    "line": 755,
     "column": 19,
     "kind": "throw",
     "disposition": "validation",
@@ -188,7 +188,7 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 758,
+    "line": 759,
     "column": 60,
     "kind": "catch",
     "disposition": "propagates",
@@ -201,7 +201,7 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 760,
+    "line": 761,
     "column": 7,
     "kind": "throw",
     "disposition": "rethrow",
@@ -214,7 +214,7 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 765,
+    "line": 766,
     "column": 74,
     "kind": "catch",
     "disposition": "recorded",
@@ -227,7 +227,7 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 783,
+    "line": 784,
     "column": 55,
     "kind": "catch",
     "disposition": "propagates",
@@ -240,7 +240,7 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 785,
+    "line": 786,
     "column": 13,
     "kind": "throw",
     "disposition": "rethrow",
@@ -253,7 +253,7 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 850,
+    "line": 851,
     "column": 7,
     "kind": "catch",
     "disposition": "recorded",
