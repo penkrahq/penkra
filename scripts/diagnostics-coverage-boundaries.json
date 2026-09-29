@@ -48,5 +48,35 @@
     "code": "EXTERNAL_CALL_FAILED",
     "where": "browser.socket_connect",
     "file": "apps/web/src/wsTransport.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "server.ws_rpc",
+    "file": "apps/server/src/wsRpc.ts"
+  },
+  {
+    "code": "DIAGNOSTICS_WRITE_FAILED",
+    "where": "server.ws_rpc",
+    "file": "apps/server/src/wsRpc.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "server.http",
+    "file": "apps/server/src/http.ts"
+  },
+  {
+    "code": "SEND_PREFLIGHT_REJECTED",
+    "where": "browser.send",
+    "file": "apps/web/src/components/ChatView.tsx"
+  },
+  {
+    "code": "COMMAND_REJECTED",
+    "where": "browser.send",
+    "file": "apps/web/src/components/ChatView.tsx"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "browser.send",
+    "file": "apps/web/src/components/ChatView.tsx"
   }
 ]

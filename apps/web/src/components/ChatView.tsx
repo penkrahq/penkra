@@ -462,6 +462,7 @@ import {
   revokeUserMessagePreviewUrls,
 } from "./ChatView.logic";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
+import { recordChatSendFailure } from "./chatSendFailure";
 import { useComposerSlashCommands } from "../hooks/useComposerSlashCommands";
 import { useFeatureFlags } from "../featureFlags";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
@@ -558,7 +559,11 @@ async function waitForShellProjectById(
 }> {
   let latestSnapshot: OrchestrationShellSnapshot | null = null;
   for (let attempt = 1; attempt <= DRAFT_PROJECT_SYNC_MAX_ATTEMPTS; attempt += 1) {
-    const snapshot = await api.orchestration.getShellSnapshot().catch(() => null);
+    const snapshot = await api.orchestration.getShellSnapshot().catch(() => {
+      if (attempt === DRAFT_PROJECT_SYNC_MAX_ATTEMPTS)
+        recordChatSendFailure("EXTERNAL_CALL_FAILED");
+      return null;
+    });
     if (snapshot) {
       latestSnapshot = snapshot;
       const project = snapshot.folders.find((candidate) => candidate.id === folderId) ?? null;
@@ -629,12 +634,15 @@ async function stagePersistedComposerImageAttachments(input: {
           const existingPersisted = existingPersistedById.get(image.id);
           if (existingPersisted) {
             stagedAttachmentById.set(image.id, existingPersisted);
+          } else {
+            recordChatSendFailure("EXTERNAL_CALL_FAILED");
           }
         }
       }),
     );
     return Array.from(stagedAttachmentById.values());
   } catch {
+    recordChatSendFailure("EXTERNAL_CALL_FAILED");
     const currentImageIds = new Set(input.images.map((image) => image.id));
     return input
       .getPersistedAttachments()
@@ -1278,7 +1286,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     void reconcileCancelledPendingStart(
       pendingStartCancellation.messageId,
       pendingStartCancellation.sequence,
-    ).catch(() => undefined);
+    ).catch(() => recordChatSendFailure("EXTERNAL_CALL_FAILED"));
   }, [pendingStartCancellation, reconcileCancelledPendingStart, threadId]);
   useEffect(() => {
     for (const message of serverThread?.messages ?? EMPTY_MESSAGES) {
@@ -1305,6 +1313,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
             prepare: () => markPendingStartRecoveryAccepted(threadId, message.id, sequence),
           });
         void settleAcceptedDurably().catch((error: unknown) => {
+          recordChatSendFailure("EXTERNAL_CALL_FAILED");
           setStoreThreadError(
             threadId,
             error instanceof Error ? error.message : "Could not persist accepted message state.",
@@ -1339,6 +1348,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         sequence: recovery.receiptSequence ?? recovery.restorationReceipt?.sequence ?? 0,
         prepare: () => true,
       }).catch((error: unknown) => {
+        recordChatSendFailure("EXTERNAL_CALL_FAILED");
         setStoreThreadError(
           threadId,
           error instanceof Error ? error.message : "Could not clear settled recovery.",
@@ -6281,7 +6291,10 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
               : message.delivery.queued === true && message.delivery.state === "queued";
           if (!queued) return finish("sent");
         };
-        const timeout = setTimeout(() => finish("unknown"), 10_000);
+        const timeout = setTimeout(() => {
+          recordChatSendFailure("EXTERNAL_CALL_FAILED");
+          finish("unknown");
+        }, 10_000);
         unsubscribe = useStore.subscribe(inspect);
         inspect();
       });
@@ -6348,6 +6361,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         }
         return false;
       } catch (error) {
+        recordChatSendFailure("EXTERNAL_CALL_FAILED");
         setThreadError(
           threadId,
           error instanceof Error ? error.message : "Failed to cancel queued message.",
@@ -6398,6 +6412,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       try {
         await pendingConnectionUpdate.promise;
       } catch (error) {
+        recordChatSendFailure("SEND_PREFLIGHT_REJECTED", sendTrace);
         setThreadError(
           activeThread.id,
           error instanceof Error ? error.message : "Couldn't change this thread's Connection.",
@@ -6524,6 +6539,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
           );
           if (handledSlashCommand) return true;
         } catch (error) {
+          recordChatSendFailure("SEND_PREFLIGHT_REJECTED", sendTrace);
           setThreadError(
             activeThread.id,
             error instanceof Error ? error.message : "Failed to run the command.",
@@ -6805,6 +6821,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
           hydratedPendingImages =
             await hydratePendingBlobComposerAttachments(pendingBlobAttachments);
         } catch (error) {
+          recordChatSendFailure("SEND_PREFLIGHT_REJECTED", sendTrace);
           releaseSendPreflight({ restoreComposer: true });
           setThreadError(
             activeThread.id,
@@ -6869,6 +6886,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
           hasThreadStarted,
         });
       } catch (error) {
+        recordChatSendFailure("SEND_PREFLIGHT_REJECTED", sendTrace);
         releaseSendPreflight({ restoreComposer: true });
         setThreadError(
           activeThread.id,
@@ -6924,6 +6942,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         handledSlashCommand =
           await lateSendHandlers.handleStandaloneSlashCommand(trimmedPromptForSend);
       } catch (error) {
+        recordChatSendFailure("SEND_PREFLIGHT_REJECTED", sendTrace);
         releaseSendPreflight({ restoreComposer: true });
         setThreadError(
           activeThread.id,
@@ -7112,6 +7131,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         });
       }
     } catch (error) {
+      recordChatSendFailure("SEND_PREFLIGHT_REJECTED", sendTrace);
       durablePreparationError = error;
     }
     if (durablePreparationError !== null) {
@@ -7125,6 +7145,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
             prepare: () => markPendingStartRecoveryFailed(threadIdForSend, messageIdForSend),
           });
         } catch (cleanupError) {
+          recordChatSendFailure("EXTERNAL_CALL_FAILED", sendTrace);
           error = new Error(
             `${error instanceof Error ? error.message : "Could not durably prepare this message."} ` +
               `(Recovery cleanup also failed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)})`,
@@ -7394,6 +7415,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       }
     })().catch(async (err: unknown) => {
       const wasCancelled = err instanceof PendingTurnStartCancelled;
+      if (!wasCancelled) recordChatSendFailure("COMMAND_REJECTED", sendTrace);
       const pendingRestoration = wasCancelled
         ? pendingStartRecoveryRegistryRef.current.get(threadIdForSend, messageIdForSend)
         : undefined;
@@ -7428,7 +7450,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
             }
             return prepared;
           },
-        }).catch(() => undefined);
+        }).catch(() => recordChatSendFailure("EXTERNAL_CALL_FAILED", sendTrace));
       }
       if (
         !wasCancelled &&
@@ -7456,7 +7478,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
             commandId: newCommandId(),
             threadId: threadIdForSend,
           })
-          .catch(() => undefined);
+          .catch(() => recordChatSendFailure("EXTERNAL_CALL_FAILED", sendTrace));
       }
       if (
         queuedChatTurn === null &&
@@ -7524,6 +7546,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
           createdAt: new Date().toISOString(),
         })
         .catch((err: unknown) => {
+          recordChatSendFailure("COMMAND_REJECTED");
           setStoreThreadError(
             activeThreadId,
             err instanceof Error ? err.message : "Failed to submit approval decision.",
@@ -7561,6 +7584,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
           createdAt: new Date().toISOString(),
         })
         .catch((err: unknown) => {
+          recordChatSendFailure("COMMAND_REJECTED");
           setStoreThreadError(
             activeThreadId,
             err instanceof Error ? err.message : "Failed to submit user input.",
@@ -7811,6 +7835,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         return true;
       })()
         .catch((err: unknown) => {
+          recordChatSendFailure("COMMAND_REJECTED");
           setThreadError(
             activeThread.id,
             err instanceof Error ? err.message : "Failed to edit message.",
@@ -7895,6 +7920,8 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
             if (editorText === expectedText) return onSendRef.current(undefined, mode);
             await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
           }
+          recordChatSendFailure("SEND_PREFLIGHT_REJECTED");
+          // diagnostics-covered: SEND_PREFLIGHT_REJECTED browser.send
           throw Object.assign(
             new Error("The visible composer did not converge on the staged composition."),
             { code: "COMPOSER_NOT_READY" },
@@ -7981,6 +8008,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
           });
           setThreadError(threadId, null);
         } catch (error) {
+          recordChatSendFailure("COMMAND_REJECTED");
           setThreadError(
             threadId,
             error instanceof Error ? error.message : "Failed to steer queued message.",
