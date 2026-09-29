@@ -20,10 +20,11 @@ export interface FailureSite {
 }
 
 export interface CoverageException extends FailureSite {
-  readonly disposition: "cannot-fail";
+  readonly disposition: "cannot-fail" | "validation" | "rethrow" | "propagates" | "scheduled";
   readonly reason: string;
   readonly reviewer: string;
-  readonly issue: string;
+  readonly issue?: string;
+  readonly boundary?: { readonly code: string; readonly where: string };
 }
 
 export interface CoverageBoundary {
@@ -202,13 +203,22 @@ export function uncoveredFailureSites(
   }
   for (const entry of exceptions) {
     const key = siteKey(entry);
+    const needsBoundary = entry.disposition === "rethrow" || entry.disposition === "propagates";
+    const boundaryKey = entry.boundary ? `${entry.boundary.code}:${entry.boundary.where}` : null;
     if (
       !known.has(key) ||
       reviewed.has(key) ||
-      entry.disposition !== "cannot-fail" ||
+      !["cannot-fail", "validation", "rethrow", "propagates", "scheduled"].includes(
+        entry.disposition,
+      ) ||
+      (entry.disposition === "validation" && !["throw", "rejection"].includes(entry.kind)) ||
+      (entry.disposition === "rethrow" && entry.kind !== "throw") ||
+      (entry.disposition === "scheduled" && entry.kind !== "timeout") ||
+      (needsBoundary && (!boundaryKey || !boundaries.has(boundaryKey))) ||
+      (!needsBoundary && entry.boundary !== undefined) ||
       entry.reason.trim().length < 20 ||
       entry.reviewer.trim().length < 2 ||
-      !entry.issue.startsWith("https://")
+      (entry.issue !== undefined && !entry.issue.startsWith("https://"))
     )
       throw new Error(`Invalid or stale diagnostics coverage exception: ${key}`);
     reviewed.add(key);

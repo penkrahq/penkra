@@ -78,11 +78,24 @@ throw new Error("three");`;
     expect(() =>
       uncoveredFailureSites(sites, () => source, [{ ...exception, line: 99 }], boundaries),
     ).toThrow("stale");
+    const propagation: CoverageException = {
+      ...sites[1]!,
+      disposition: "propagates",
+      reason: "This failure reaches the registered command boundary without being consumed.",
+      reviewer: "diagnostics-0143",
+      boundary: { code: "APP_OPERATION_FAILED", where: "server.command" },
+    };
+    expect(uncoveredFailureSites(sites, () => source, [propagation], boundaries)).toEqual([
+      sites[2],
+    ]);
+    expect(() => uncoveredFailureSites(sites, () => source, [propagation], new Map())).toThrow(
+      "Invalid",
+    );
     expect(() =>
       uncoveredFailureSites(
         sites,
         () => source,
-        [{ ...exception, disposition: "validation" } as unknown as CoverageException],
+        [{ ...exception, disposition: "scheduled" }],
         boundaries,
       ),
     ).toThrow("Invalid");
