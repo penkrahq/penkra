@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchesRequestedTurnOutcome } from "./qaTurnOutcomes";
+import { matchesPromotedQueuedMessage, matchesRequestedTurnOutcome } from "./qaTurnOutcomes";
 
 describe("QA stop and play outcome correlation", () => {
   it("does not accept another turn on the same thread", () => {
@@ -45,5 +45,30 @@ describe("QA stop and play outcome correlation", () => {
     expect(
       matchesRequestedTurnOutcome({ ...base, actualState: "running", expectedState: "running" }),
     ).toBe(true);
+  });
+});
+
+describe("QA queued send correlation", () => {
+  it("does not claim promotion after cancel followed by an unrelated turn", () => {
+    const queued = {
+      startCommandId: "command-queued",
+      messageId: "message-queued",
+      queuedMessageIds: [],
+      seenQueued: true,
+      latestTurnState: "running",
+    };
+    expect(matchesPromotedQueuedMessage({ ...queued, latestTurnId: "turn:command-other" })).toBe(
+      false,
+    );
+    expect(
+      matchesPromotedQueuedMessage({
+        ...queued,
+        queuedMessageIds: ["message-queued"],
+        latestTurnId: "turn:command-queued",
+      }),
+    ).toBe(false);
+    expect(matchesPromotedQueuedMessage({ ...queued, latestTurnId: "turn:command-queued" })).toBe(
+      true,
+    );
   });
 });
