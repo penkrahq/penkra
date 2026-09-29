@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+
 import type {
   CheckpointInput,
   DiagnosticContext,
@@ -11,10 +13,51 @@ import type {
 import { DIAGNOSTIC_LIMITS } from "./limits";
 
 let activeStore: DiagnosticsStore | null = null;
+const EARLY_INCIDENT_CAPACITY = 256;
+const EARLY_INCIDENT_DRAIN_BATCH = 8;
+const earlyIncidents: IncidentInput[] = [];
+let earlyIncidentOverflow = 0;
+
+function drainEarlyIncidents(store: DiagnosticsStore): void {
+  if (activeStore !== store) return;
+  if (earlyIncidentOverflow > 0) {
+    const count = earlyIncidentOverflow;
+    try {
+      store.incident({
+        traceId: randomBytes(16).toString("hex"),
+        spanId: randomBytes(8).toString("hex"),
+        kind: "diagnostics.degraded",
+        code: "DIAGNOSTICS_DROPPED",
+        where: "diagnostics.write",
+        severity: "error",
+        expected: { count: 0 },
+        actual: { count },
+      });
+      earlyIncidentOverflow = 0;
+    } catch {
+      // Keep the count for the next scheduled drain.
+    }
+  }
+  for (let i = 0; i < EARLY_INCIDENT_DRAIN_BATCH && earlyIncidents.length > 0; i++) {
+    const input = earlyIncidents.shift()!;
+    try {
+      store.incident(input);
+    } catch {
+      earlyIncidentOverflow += 1;
+    }
+  }
+  if (earlyIncidents.length > 0) {
+    setImmediate(() => drainEarlyIncidents(store));
+  } else if (earlyIncidentOverflow > 0) {
+    const retry = setTimeout(() => drainEarlyIncidents(store), DIAGNOSTIC_LIMITS.batchMs);
+    retry.unref();
+  }
+}
 
 /** Startup installs the single server writer after version reset and spool import. */
 export function installDiagnosticsStore(store: DiagnosticsStore): () => void {
   activeStore = store;
+  setImmediate(() => drainEarlyIncidents(store));
   const stopHealthSampling = store.startHealthSampling();
   const stopProcessWatchdog = store.startProcessWatchdog();
   const importTimer = setInterval(() => {
@@ -93,8 +136,16 @@ export function recordDiagnosticExternalOutcome(input: ExternalOutcomeInput): vo
 }
 
 export function recordDiagnosticIncident(input: IncidentInput): void {
+  if (activeStore === null) {
+    if (earlyIncidents.length === EARLY_INCIDENT_CAPACITY) {
+      earlyIncidents.shift();
+      earlyIncidentOverflow += 1;
+    }
+    earlyIncidents.push(input);
+    return;
+  }
   try {
-    activeStore?.incident(input);
+    activeStore.incident(input);
   } catch {
     process.stderr.write("[diagnostics] incident write failed\n");
   }

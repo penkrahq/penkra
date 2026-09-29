@@ -642,6 +642,31 @@ async function serializeCodexOverlayPreparation<A>(
   }
 }
 
+/** Optional source entries are independent; one failure cannot stop later links. */
+export async function prepareOptionalCodexOverlayEntries(input: {
+  readonly sourceHomePath: string;
+  readonly overlayHomePath: string;
+  readonly entries: readonly string[];
+  readonly readEntryStat?: (sourcePath: string) => Promise<Awaited<ReturnType<typeof fs.lstat>>>;
+}): Promise<void> {
+  for (const entry of prioritizeCodexOverlayEntries(input.entries)) {
+    if (entry === "config.toml") continue;
+    try {
+      const sourcePath = path.join(input.sourceHomePath, entry);
+      const targetPath = path.join(input.overlayHomePath, entry);
+      const stat = await (input.readEntryStat ?? fs.lstat)(sourcePath);
+      await ensureCodexOverlaySymlink({
+        entryName: entry,
+        sourcePath,
+        targetPath,
+        type: stat.isDirectory() ? "dir" : "file",
+      });
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code !== "ENOENT") recordCodexConfigFailure();
+    }
+  }
+}
+
 async function preparePenkraCodexHomeOverlayUnlocked(input: {
   readonly env: NodeJS.ProcessEnv;
   readonly homePath?: string;
@@ -655,30 +680,14 @@ async function preparePenkraCodexHomeOverlayUnlocked(input: {
 
   await fs.mkdir(overlayHomePath, { recursive: true });
 
-  try {
-    // Auth must get a best-effort link/copy before optional entries whose
-    // symlinks may fail on restricted Windows installs.
-    for (const entry of prioritizeCodexOverlayEntries(await fs.readdir(sourceHomePath))) {
-      if (entry === "config.toml") {
-        continue;
-      }
-      const sourcePath = path.join(sourceHomePath, entry);
-      const targetPath = path.join(overlayHomePath, entry);
-      const stat = await fs.lstat(sourcePath);
-      await ensureCodexOverlaySymlink({
-        entryName: entry,
-        sourcePath,
-        targetPath,
-        type: stat.isDirectory() ? "dir" : "file",
-      });
-    }
-  } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code !== "ENOENT") {
-      recordCodexConfigFailure();
-    }
-    // If the source home is partially missing, Codex can still start with the
-    // overlay config and create any required state lazily.
-  }
+  // Auth must get a best-effort link/copy before optional entries whose
+  // symlinks may fail on restricted Windows installs. One optional failure
+  // must not prevent the remaining entries from following the source home.
+  const entries = await fs.readdir(sourceHomePath).catch((cause: unknown) => {
+    if ((cause as NodeJS.ErrnoException).code !== "ENOENT") recordCodexConfigFailure();
+    return [];
+  });
+  await prepareOptionalCodexOverlayEntries({ sourceHomePath, overlayHomePath, entries });
 
   const sourceConfigPath = path.join(sourceHomePath, "config.toml");
   const sourceConfig = await fs.readFile(sourceConfigPath, "utf8").catch((cause: unknown) => {

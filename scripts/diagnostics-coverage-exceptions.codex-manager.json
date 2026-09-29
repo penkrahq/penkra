@@ -1,0 +1,1254 @@
+[
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 502,
+    "column": 7,
+    "kind": "timeout",
+    "disposition": "recorded",
+    "reason": "The failure or missed deadline records a fixed content-free incident while preserving the existing outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 747,
+    "column": 3,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This guard rejects invalid caller state or propagates an intentional caller cancellation before provider recovery.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 973,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This guard rejects invalid caller state or propagates an intentional caller cancellation before provider recovery.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1071,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The failure or missed deadline records a fixed content-free incident while preserving the existing outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1072,
+    "column": 28,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This guard rejects invalid caller state or propagates an intentional caller cancellation before provider recovery.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1100,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The failure or missed deadline records a fixed content-free incident while preserving the existing outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1101,
+    "column": 30,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This guard rejects invalid caller state or propagates an intentional caller cancellation before provider recovery.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1102,
+    "column": 67,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The caught error is rethrown after recording here or at the enclosing manager operation boundary.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1106,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The failure or missed deadline records a fixed content-free incident while preserving the existing outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1107,
+    "column": 28,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This guard rejects invalid caller state or propagates an intentional caller cancellation before provider recovery.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1115,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The caught error is rethrown after recording here or at the enclosing manager operation boundary.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1126,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The failure or missed deadline records a fixed content-free incident while preserving the existing outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1127,
+    "column": 28,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This guard rejects invalid caller state or propagates an intentional caller cancellation before provider recovery.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1129,
+    "column": 57,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The caught error is rethrown after recording here or at the enclosing manager operation boundary.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1249,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The failure or missed deadline records a fixed content-free incident while preserving the existing outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1250,
+    "column": 30,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This guard rejects invalid caller state or propagates an intentional caller cancellation before provider recovery.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1269,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The failure or missed deadline records a fixed content-free incident while preserving the existing outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1270,
+    "column": 30,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This guard rejects invalid caller state or propagates an intentional caller cancellation before provider recovery.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1327,
+    "column": 11,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1339,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The caught error is rethrown after recording here or at the enclosing manager operation boundary.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1363,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1380,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1434,
+    "column": 79,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The failure or missed deadline records a fixed content-free incident while preserving the existing outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1442,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The failure or missed deadline records a fixed content-free incident while preserving the existing outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1484,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1497,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This guard rejects invalid caller state or propagates an intentional caller cancellation before provider recovery.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1507,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1561,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1601,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This guard rejects invalid caller state or propagates an intentional caller cancellation before provider recovery.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1611,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1624,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The failure or missed deadline records a fixed content-free incident while preserving the existing outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1640,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The failure or missed deadline records a fixed content-free incident while preserving the existing outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1642,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The caught error is rethrown after recording here or at the enclosing manager operation boundary.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1645,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The caught error is rethrown after recording here or at the enclosing manager operation boundary.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1658,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1688,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1701,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1774,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The failure or missed deadline records a fixed content-free incident while preserving the existing outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1784,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The caught error is rethrown after recording here or at the enclosing manager operation boundary.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1828,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The caught error is rethrown after recording here or at the enclosing manager operation boundary.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1864,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The failure or missed deadline records a fixed content-free incident while preserving the existing outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1917,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 1945,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2028,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The failure or missed deadline records a fixed content-free incident while preserving the existing outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2083,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The failure or missed deadline records a fixed content-free incident while preserving the existing outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2096,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2109,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2131,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2173,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The failure or missed deadline records a fixed content-free incident while preserving the existing outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2184,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The caught error is rethrown after recording here or at the enclosing manager operation boundary.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2243,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This guard rejects invalid caller state or propagates an intentional caller cancellation before provider recovery.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2266,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This guard rejects invalid caller state or propagates an intentional caller cancellation before provider recovery.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2346,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The failure or missed deadline records a fixed content-free incident while preserving the existing outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2361,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The failure or missed deadline records a fixed content-free incident while preserving the existing outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2377,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The failure or missed deadline records a fixed content-free incident while preserving the existing outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2380,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2457,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The caught error is rethrown after recording here or at the enclosing manager operation boundary.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2486,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2516,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The failure or missed deadline records a fixed content-free incident while preserving the existing outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2519,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The caught error is rethrown after recording here or at the enclosing manager operation boundary.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2572,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2628,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2701,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2722,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2732,
+    "column": 40,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "This timer schedules normal polling, idle cleanup or stderr batching and is not itself a failure.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2784,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The failure or missed deadline records a fixed content-free incident while preserving the existing outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2786,
+    "column": 20,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The caught error is rethrown after recording here or at the enclosing manager operation boundary.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2834,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This guard rejects invalid caller state or propagates an intentional caller cancellation before provider recovery.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2841,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This guard rejects invalid caller state or propagates an intentional caller cancellation before provider recovery.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2868,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This guard rejects invalid caller state or propagates an intentional caller cancellation before provider recovery.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2872,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This guard rejects invalid caller state or propagates an intentional caller cancellation before provider recovery.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2892,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This guard rejects invalid caller state or propagates an intentional caller cancellation before provider recovery.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2912,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This guard rejects invalid caller state or propagates an intentional caller cancellation before provider recovery.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2915,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This guard rejects invalid caller state or propagates an intentional caller cancellation before provider recovery.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 2998,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The failure or missed deadline records a fixed content-free incident while preserving the existing outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 3005,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The failure or missed deadline records a fixed content-free incident while preserving the existing outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 3008,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The caught error is rethrown after recording here or at the enclosing manager operation boundary.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 3018,
+    "column": 19,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "This timer schedules normal polling, idle cleanup or stderr batching and is not itself a failure.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 3033,
+    "column": 52,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The failure or missed deadline records a fixed content-free incident while preserving the existing outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 3084,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The caught error is rethrown after recording here or at the enclosing manager operation boundary.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 3102,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 3113,
+    "column": 34,
+    "kind": "timeout",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 3126,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 3243,
+    "column": 19,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The failure or missed deadline records a fixed content-free incident while preserving the existing outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 3265,
+    "column": 38,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "This timer schedules normal polling, idle cleanup or stderr batching and is not itself a failure.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 3339,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "Non-protocol stdout may be command output; an affected RPC times out at its recorded deadline.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 3357,
+    "column": 54,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 3904,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This guard rejects invalid caller state or propagates an intentional caller cancellation before provider recovery.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 3970,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This guard rejects invalid caller state or propagates an intentional caller cancellation before provider recovery.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 3986,
+    "column": 23,
+    "kind": "timeout",
+    "disposition": "recorded",
+    "reason": "The failure or missed deadline records a fixed content-free incident while preserving the existing outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 4010,
+    "column": 63,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 4021,
+    "column": 47,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 4023,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The caught error is rethrown after recording here or at the enclosing manager operation boundary.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 4092,
+    "column": 21,
+    "kind": "timeout",
+    "disposition": "recorded",
+    "reason": "The failure or missed deadline records a fixed content-free incident while preserving the existing outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 4269,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 4627,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 4657,
+    "column": 13,
+    "kind": "timeout",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 4719,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 4721,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 4729,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 4734,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The failure reaches an enclosing manager operation or transport boundary that records its outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 4785,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The failure or missed deadline records a fixed content-free incident while preserving the existing outcome.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 4795,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The caught error is rethrown after recording here or at the enclosing manager operation boundary.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerManager.ts",
+    "line": 4837,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The caught error is rethrown after recording here or at the enclosing manager operation boundary.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app"
+    }
+  }
+]

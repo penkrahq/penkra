@@ -114,7 +114,10 @@ import { ActiveWorkPowerBlocker } from "./activeWorkPowerBlocker";
 import { recordDesktopOsLookupFailure, resolveDesktopOsMajor } from "./desktopDiagnosticOs";
 import { startDesktopDiagnosticsMonitors } from "./desktopDiagnosticsMonitors";
 import { DesktopDiagnosticsQueue } from "./desktopDiagnosticsQueue";
-import { installDesktopFailureCoverageReporter } from "./desktopFailureCoverage";
+import {
+  installDesktopFailureCoverageReporter,
+  recordDesktopConsumedFailure,
+} from "./desktopFailureCoverage";
 import { wrapDesktopIpcHandler } from "./desktopIpcCoverage";
 import { recordDesktopMainIncident } from "./desktopMainIncident";
 import { desktopDiagnosticStateDir } from "./desktopDiagnosticStateDir";
@@ -174,6 +177,7 @@ import {
 } from "./resumableUpdateDownload";
 import { hardenElectronUpdater } from "./electronUpdaterSecurity";
 import { ServerListeningDetector } from "./serverListeningDetector";
+import { createBackendStartupIncidentRecorder } from "./backendStartupIncident";
 import { BackendStartupBlockDetector, type BackendStartupBlock } from "./backendStartupBlock";
 import {
   BACKEND_MAX_CONSECUTIVE_START_FAILURES,
@@ -5228,6 +5232,7 @@ function startBackend(trigger: BackendStartTrigger = "lifecycle"): void {
     stdio: ["ignore", "pipe", "pipe"],
   });
   const listeningDetector = new ServerListeningDetector();
+  const startupIncident = createBackendStartupIncidentRecorder(recordDiagnosticIncident);
   const startupBlockDetector = new BackendStartupBlockDetector();
   const outputTailDetector = new BackendOutputTailDetector();
   backendListeningDetector = listeningDetector;
@@ -5262,6 +5267,7 @@ function startBackend(trigger: BackendStartTrigger = "lifecycle"): void {
   void listeningDetector.promise.then(
     () => {
       if (backendListeningDetector === listeningDetector) {
+        startupIncident.markReady();
         backendSupervision.recordReadiness();
       }
     },
@@ -5282,6 +5288,7 @@ function startBackend(trigger: BackendStartTrigger = "lifecycle"): void {
   });
 
   child.on("exit", (code, signal) => {
+    if (!isQuitting && backendProcess === child) startupIncident.recordExit(code);
     if (backendListeningDetector === listeningDetector) {
       listeningDetector.fail(
         new Error(
@@ -8643,6 +8650,7 @@ async function bootstrap(): Promise<void> {
       retireTab: retireAppTabAuthority,
     },
     onInvalidRendererMessage: (error, senderId) => {
+      recordDesktopConsumedFailure("app");
       console.warn(
         `[penkra-app] Rejected invalid renderer message sender=${senderId}: ${formatErrorMessage(error)}`,
       );
