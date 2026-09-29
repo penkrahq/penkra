@@ -25,6 +25,7 @@ import {
   stageClaudeThreadAccountTransition,
   discardClaudeThreadAccountTransition,
 } from "./claudeThreadNativeState.ts";
+import { providerOpaquePathKey } from "./providerNativeStatePaths.ts";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -258,6 +259,59 @@ it("discards a failed account switch without changing the owner", async () => {
       bindingConnectionId: "connection-b",
       bindingRevision: 8,
     }),
+  );
+  assert.deepEqual(await readClaudeThreadAccount(stateDir, threadId), source);
+});
+
+it("removes a partial target revision when copying fails before completion", async () => {
+  const root = await mkdtemp(Path.join(tmpdir(), "penkra-claude-partial-copy-"));
+  roots.push(root);
+  const stateDir = Path.join(root, "state");
+  const threadId = "partial-copy-thread";
+  const source = {
+    authenticationMethodId: "claude-account",
+    providerIdentityId: "alice@example.com",
+  };
+  const target = {
+    authenticationMethodId: "claude-account",
+    providerIdentityId: "bob@example.com",
+  };
+  await prepareClaudeThreadProject({
+    stateDir,
+    threadId,
+    configDir: Path.join(root, "source-profile"),
+    account: source,
+  });
+  await writeFile(claudeThreadTranscriptPath(stateDir, threadId, "source-session"), "source");
+  const targetRoot = Path.join(
+    claudeThreadStateRoot(stateDir, threadId),
+    "accounts",
+    providerOpaquePathKey("claude-account:bob@example.com"),
+    "revision-8",
+  );
+  await mkdir(targetRoot, { recursive: true });
+  await writeFile(Path.join(targetRoot, "project"), "blocks directory copy");
+  await assert.rejects(
+    stageClaudeThreadAccountTransition({
+      stateDir,
+      threadId,
+      transition: {
+        commandId: "partial-copy-command",
+        connectionId: "connection-b",
+        bindingRevision: 8,
+        source,
+        target,
+      },
+    }),
+  );
+  await discardClaudeThreadAccountTransition({
+    stateDir,
+    threadId,
+    commandId: "partial-copy-command",
+  });
+  await assert.rejects(access(targetRoot));
+  await assert.rejects(
+    access(Path.join(claudeThreadStateRoot(stateDir, threadId), "account-transition.json")),
   );
   assert.deepEqual(await readClaudeThreadAccount(stateDir, threadId), source);
 });

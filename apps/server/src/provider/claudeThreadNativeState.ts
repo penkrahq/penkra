@@ -290,6 +290,24 @@ export async function stageClaudeThreadAccountTransition(input: {
   );
   if (sourceRoot === targetRoot)
     throw new Error("The Claude account switch has no distinct storage.");
+  // Persist the cleanup intent before any target revision is created. If a
+  // copy fails or the process crashes halfway through it, recovery can remove
+  // that exact revision using this marker.
+  const path = Path.join(root, CLAUDE_THREAD_ACCOUNT_TRANSITION_FILE);
+  const staging = `${path}.penkra-${randomUUID()}`;
+  await writeSyncedFile(staging, `${JSON.stringify(input.transition)}\n`);
+  try {
+    await link(staging, path).catch(async (cause: NodeJS.ErrnoException) => {
+      if (cause.code !== "EEXIST") throw cause;
+      const pending: unknown = JSON.parse(await readFile(path, "utf8"));
+      if (JSON.stringify(pending) !== JSON.stringify(input.transition)) {
+        throw new Error("A different Claude account transition is already pending.");
+      }
+    });
+    await syncDirectory(root);
+  } finally {
+    await rm(staging, { force: true });
+  }
   if (existing !== null) {
     // Verification may have written a disposable probe into this revision.
     // Unlink the target profile first, then rebuild the whole copy from the
@@ -312,21 +330,6 @@ export async function stageClaudeThreadAccountTransition(input: {
   await syncCopiedTree(targetRoot);
   await syncDirectory(Path.dirname(targetRoot));
   await syncDirectory(root);
-  const path = Path.join(root, CLAUDE_THREAD_ACCOUNT_TRANSITION_FILE);
-  const staging = `${path}.penkra-${randomUUID()}`;
-  await writeSyncedFile(staging, `${JSON.stringify(input.transition)}\n`);
-  try {
-    await link(staging, path).catch(async (cause: NodeJS.ErrnoException) => {
-      if (cause.code !== "EEXIST") throw cause;
-      const pending: unknown = JSON.parse(await readFile(path, "utf8"));
-      if (JSON.stringify(pending) !== JSON.stringify(input.transition)) {
-        throw new Error("A different Claude account transition is already pending.");
-      }
-    });
-    await syncDirectory(root);
-  } finally {
-    await rm(staging, { force: true });
-  }
 }
 
 export async function revokeClaudeThreadAccountTransitionLinks(input: {
