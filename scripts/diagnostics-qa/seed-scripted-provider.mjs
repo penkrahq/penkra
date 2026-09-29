@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 const fixture = fileURLToPath(new URL("./scripted-codex-app-server.mjs", import.meta.url));
 const installId = "qa-scripted-codex-installation";
 const connectionId = "qa-scripted-codex-connection";
+const fixtureVersion = "1.0.0";
 
 export function assertIsolatedQaStateDir(stateDir) {
   const resolved = fs.realpathSync(stateDir);
@@ -45,6 +46,53 @@ export function seedScriptedProvider(stateDir) {
     db.exec("DELETE FROM provider_installations");
     const now = new Date().toISOString();
     const digest = createHash("sha256").update(fs.readFileSync(fixture)).digest("hex");
+    // Register a managed generation as well. Otherwise the normal provider
+    // bootstrap retires the fixture row and installs a real Codex binary.
+    const runtimeRoot = path.join(dir, "provider-runtimes", "codex");
+    const versionDir = path.join(runtimeRoot, "versions", fixtureVersion);
+    const executable = path.join(versionDir, "bin", "codex.mjs");
+    if (fs.existsSync(versionDir)) throw new Error("Fixture generation already exists");
+    fs.mkdirSync(path.dirname(executable), { recursive: true });
+    fs.copyFileSync(fixture, executable);
+    fs.chmodSync(executable, 0o700);
+    fs.writeFileSync(
+      path.join(versionDir, "managed-runtime.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        provider: "codex",
+        installationId: installId,
+        version: fixtureVersion,
+        platform: process.platform,
+        architecture: process.arch,
+        adapterVersion: "1",
+        protocolVersion: "codex-app-server-v2",
+        executableRelativePath: "bin/codex.mjs",
+        installedAt: now,
+        artifact: {
+          source: "qa-fixture",
+          metadataUrl: `file://${fixture}`,
+          url: `file://${fixture}`,
+          assetName: "scripted-codex-app-server.mjs",
+          sha256: digest,
+          integrity: "verified",
+        },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(runtimeRoot, "activation.json"),
+      JSON.stringify({
+        schemaVersion: 2,
+        provider: "codex",
+        active: {
+          installationId: installId,
+          version: fixtureVersion,
+          executableRelativePath: "bin/codex.mjs",
+          activatedAt: now,
+        },
+        previous: null,
+        rejected: null,
+      }),
+    );
     db.prepare(`
       INSERT INTO provider_installations (
         installation_id, harness_kind, version, platform, architecture,
@@ -56,7 +104,7 @@ export function seedScriptedProvider(stateDir) {
       installId,
       process.platform,
       process.arch,
-      fixture,
+      executable,
       `file://${fixture}`,
       digest,
       now,
