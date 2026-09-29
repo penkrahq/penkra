@@ -1554,6 +1554,15 @@ describe("ProviderCommandReactor", () => {
       ThreadId.makeUnsafe("thread-1"),
       secondThread,
     ]);
+    await waitFor(async () => {
+      const completed = await Effect.runPromise(harness.sql<{ readonly state: string }>`
+        SELECT state
+        FROM provider_intent_outbox
+        WHERE event_type = 'thread.turn-start-requested'
+        ORDER BY event_sequence
+      `);
+      return completed[1]?.state === "succeeded";
+    });
     const jobs = await Effect.runPromise(harness.sql<{
       readonly threadId: string;
       readonly state: string;
