@@ -109,6 +109,8 @@ import { presentFile, resolvePresentFileWorkingDirectory } from "../presentFile.
 import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
 import type { AgentThreadSendResult } from "@penkra/sdk";
 
+import { gatewayMcpToolErrorResult } from "../gatewayFailureDiagnostics.ts";
+
 const TURN_INTERRUPT_CONFIRM_TIMEOUT_MS = 5_000;
 const TURN_INTERRUPT_CONFIRM_POLL_MS = 25;
 
@@ -150,7 +152,7 @@ function sendMessageErrorResult(error: unknown) {
   if (error instanceof ProviderThreadSwitchCoordinatorError) {
     return gatewayToolErrorResult(new GatewayToolError(error.code, error.message));
   }
-  return mcpToolResultError(errorText(error));
+  return gatewayMcpToolErrorResult(error);
 }
 
 export const makeAgentGateway = Effect.gen(function* () {
@@ -372,7 +374,7 @@ export const makeAgentGateway = Effect.gen(function* () {
           assertAuthority: context.assertCallerTurnActive,
           attachmentPrincipal: attachmentPrincipalForSession(context.callerSessionKey),
         }),
-      ).pipe(Effect.catchDefect((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
+      ).pipe(Effect.catchDefect((error) => Effect.succeed(gatewayMcpToolErrorResult(error)))),
   };
 
   const sendMessage: ToolEntry = {
@@ -661,7 +663,7 @@ export const makeAgentGateway = Effect.gen(function* () {
           turnId: activeTurn?.turnId ?? null,
           state: activeTurn ? "interrupted" : "cancelled",
         });
-      }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
+      }).pipe(Effect.catch((error) => Effect.succeed(gatewayMcpToolErrorResult(error)))),
   };
 
   const makeSetThreadArchived = (archived: boolean): ToolEntry => ({
@@ -717,7 +719,7 @@ export const makeAgentGateway = Effect.gen(function* () {
           Effect.succeed(
             error instanceof GatewayToolError
               ? gatewayToolErrorResult(error)
-              : mcpToolResultError(errorText(error)),
+              : gatewayMcpToolErrorResult(error),
           ),
         ),
       ),
@@ -787,7 +789,7 @@ export const makeAgentGateway = Effect.gen(function* () {
             }),
           );
           return mcpToolResultJson(results.length === 1 ? results[0] : { items: results });
-        }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
+        }).pipe(Effect.catch((error) => Effect.succeed(gatewayMcpToolErrorResult(error)))),
     } satisfies ToolEntry,
   ] as const;
   const requireInternalTool = (name: string): ToolEntry => {
@@ -948,7 +950,7 @@ export const makeAgentGateway = Effect.gen(function* () {
           });
         }
         return mcpToolResultJson(result);
-      }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
+      }).pipe(Effect.catch((error) => Effect.succeed(gatewayMcpToolErrorResult(error)))),
   };
 
   const tools: ReadonlyArray<ToolEntry> = [penkraExecCommand];
