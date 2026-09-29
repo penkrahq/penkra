@@ -281,6 +281,7 @@ const enumValues = {
     "desktop.bundle_snapshot",
     "desktop.external_open",
     "desktop.external_url",
+    "desktop.ipc_dispatch",
     "desktop.launch_record",
     "desktop.log_setup",
     "desktop.migration_recovery",
