@@ -27,7 +27,8 @@ export interface CoverageException extends FailureSite {
     | "propagates"
     | "scheduled"
     | "recorded"
-    | "diagnostics-isolated";
+    | "diagnostics-isolated"
+    | "expected-recovery";
   readonly reason: string;
   readonly reviewer: string;
   readonly issue?: string;
@@ -64,6 +65,33 @@ function recordsAtBoundary(source: string, boundary: CoverageBoundary): boolean 
 }
 
 function isRecordingCall(node: ts.Node, code: string, where: string): boolean {
+  if (
+    ts.isCallExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === "recordChatSendFailure" &&
+    where === "browser.send" &&
+    node.arguments[0] !== undefined &&
+    ts.isStringLiteralLike(node.arguments[0])
+  )
+    return node.arguments[0].text === code;
+  if (
+    ts.isCallExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === "recordHttpFailure" &&
+    code === "EXTERNAL_CALL_FAILED" &&
+    where === "server.http"
+  )
+    return true;
+  if (
+    ts.isCallExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === "recordWsRpcFailure" &&
+    (node.arguments[1] && ts.isStringLiteralLike(node.arguments[1])
+      ? node.arguments[1].text === code
+      : code === "EXTERNAL_CALL_FAILED") &&
+    where === "server.ws_rpc"
+  )
+    return true;
   if (
     ts.isCallExpression(node) &&
     ts.isIdentifier(node.expression) &&
@@ -122,6 +150,16 @@ function recordsInsideCatch(
   let found = false;
   function containsRecording(node: ts.Node): boolean {
     if (isRecordingCall(node, code, where)) return true;
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) &&
+      node.expression.expression.text === "Effect" &&
+      node.expression.name.text === "sync" &&
+      node.arguments[0] &&
+      ts.isArrowFunction(node.arguments[0])
+    )
+      return containsRecording(node.arguments[0].body);
     if (ts.isFunctionLike(node)) return false;
     return ts.forEachChild(node, containsRecording) === true;
   }
@@ -142,6 +180,15 @@ function recordsInsideCatch(
           const body = callback.body;
           found = containsRecording(body);
         }
+        return;
+      }
+    }
+    if (ts.isCallExpression(node) && callKind(node) === "timeout") {
+      const position = failureSitePosition(node, parsed);
+      if (position.line + 1 === site.line && position.character + 1 === site.column) {
+        const callback = node.arguments[0];
+        if (callback && (ts.isArrowFunction(callback) || ts.isFunctionExpression(callback)))
+          found = containsRecording(callback.body);
         return;
       }
     }
@@ -313,12 +360,12 @@ export function uncoveredFailureSites(
         "scheduled",
         "recorded",
         "diagnostics-isolated",
+        "expected-recovery",
       ].includes(entry.disposition) ||
-      (entry.disposition === "validation" && !["throw", "rejection"].includes(entry.kind)) ||
       (entry.disposition === "rethrow" && entry.kind !== "throw") ||
       (entry.disposition === "scheduled" && entry.kind !== "timeout") ||
       (entry.disposition === "recorded" &&
-        (entry.kind !== "catch" ||
+        (!["catch", "timeout"].includes(entry.kind) ||
           !entry.boundary ||
           !recordsInsideCatch(
             sourceFor(entry.file),
