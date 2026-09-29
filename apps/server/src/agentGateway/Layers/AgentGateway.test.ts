@@ -2689,6 +2689,48 @@ describe("AgentGateway", () => {
 
   it.effect("combines durable events, delivery blockers, and stream incidents in diagnosis", () => {
     const threadId = ThreadId.makeUnsafe("thread-parent");
+    const legacyIncidentRows: ReadonlyArray<OperationalDiagnostic> = [
+      {
+        sequence: 1,
+        threadId: "thread-parent",
+        source: "server",
+        kind: "ws.stream-admission-rejected",
+        severity: "warning",
+        code: "THREAD_STREAM_CAPACITY_EXCEEDED",
+        detail: { reason: "thread-capacity" },
+        occurredAt: NOW,
+      },
+      {
+        sequence: 2,
+        threadId: "thread-parent",
+        source: "server",
+        kind: "ws.thread-stream-events-dropped",
+        severity: "error",
+        code: "THREAD_STREAM_EVENTS_DROPPED",
+        detail: { label: "orchestration.thread-detail", capacity: 1024, droppedAtLeast: 1 },
+        occurredAt: NOW,
+      },
+      {
+        sequence: 3,
+        threadId: "thread-parent",
+        source: "server",
+        kind: "ws.thread-stream-resnapshot-required",
+        severity: "warning",
+        code: "ORCHESTRATION_RESNAPSHOT_REQUIRED",
+        detail: { snapshotSequence: 1, highWaterSequence: 4, replayCount: 3, replayLimit: 1024 },
+        occurredAt: NOW,
+      },
+      {
+        sequence: 4,
+        threadId: "thread-parent",
+        source: "server",
+        kind: "provider.native-continuation-verification",
+        severity: "error",
+        code: "NATIVE_CONTINUATION_VERIFICATION_FAILED",
+        detail: { stage: "validate-resumed-identity", errorMessage: "identity mismatch" },
+        occurredAt: NOW,
+      },
+    ];
     const events: ReadonlyArray<OrchestrationEvent> = [
       {
         sequence: 7,
@@ -2736,18 +2778,7 @@ describe("AgentGateway", () => {
         quarantinedAt: NOW,
         resolvedAt: null,
       },
-      operationalDiagnostics: [
-        {
-          sequence: 1,
-          threadId: "thread-parent",
-          source: "server",
-          kind: "ws.stream-admission-rejected",
-          severity: "warning",
-          code: "THREAD_STREAM_CAPACITY_EXCEEDED",
-          detail: { reason: "thread-capacity" },
-          occurredAt: NOW,
-        },
-      ],
+      operationalDiagnostics: legacyIncidentRows,
       providerDeliveryBlockers: [
         {
           consumerName: "provider-command-reactor.v1",
@@ -2790,13 +2821,16 @@ describe("AgentGateway", () => {
         ).failure.status,
         "quarantined",
       );
-      assert.lengthOf(payload.operationalIncidents as Array<unknown>, 1);
+      assert.deepEqual(payload.operationalIncidents, legacyIncidentRows);
       assert.includeMembers(
         (payload.findings as Array<{ code: string }>).map((finding) => finding.code),
         [
           "provider_delivery_blocked",
           "provider_runtime_projection_quarantined",
           "THREAD_STREAM_CAPACITY_EXCEEDED",
+          "THREAD_STREAM_EVENTS_DROPPED",
+          "ORCHESTRATION_RESNAPSHOT_REQUIRED",
+          "NATIVE_CONTINUATION_VERIFICATION_FAILED",
         ],
       );
       const retryPayload = toolResultJson(

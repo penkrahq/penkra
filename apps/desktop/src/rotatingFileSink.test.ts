@@ -20,6 +20,35 @@ afterEach(() => {
 });
 
 describe("RotatingFileSink", () => {
+  it("bounds an oversized file found at startup", () => {
+    const dir = makeTempDir();
+    const logPath = path.join(dir, "server.log");
+    fs.writeFileSync(logPath, "abcdefghijklmnop");
+    fs.writeFileSync(`${logPath}.1`, "0123456789abcdef");
+    const sink = new RotatingFileSink({ filePath: logPath, maxBytes: 8, maxFiles: 2 });
+    sink.write("z");
+    expect(fs.readFileSync(path.join(dir, "server.log.1"), "utf8")).toBe("ijklmnop");
+    expect(fs.readFileSync(path.join(dir, "server.log.2"), "utf8")).toBe("89abcdef");
+    expect(fs.readFileSync(logPath, "utf8")).toBe("z");
+  });
+
+  it("keeps an oversized entry in the current file within the byte limit", () => {
+    const dir = makeTempDir();
+    const logPath = path.join(dir, "server.log");
+    const sink = new RotatingFileSink({ filePath: logPath, maxBytes: 8, maxFiles: 2 });
+    sink.write("abcdefghijklmnop");
+    expect(fs.readFileSync(logPath, "utf8")).toBe("ijklmnop");
+    expect(fs.readdirSync(dir)).toEqual(["server.log"]);
+  });
+  it("can keep only the current file", () => {
+    const dir = makeTempDir();
+    const logPath = path.join(dir, "single.log");
+    const sink = new RotatingFileSink({ filePath: logPath, maxBytes: 4, maxFiles: 0 });
+    sink.write("aaaa");
+    sink.write("bbbb");
+    expect(fs.readdirSync(dir)).toEqual(["single.log"]);
+    expect(fs.readFileSync(logPath, "utf8")).toBe("bbbb");
+  });
   it("rotates when writes exceed max bytes", () => {
     const dir = makeTempDir();
     const logPath = path.join(dir, "desktop-main.log");

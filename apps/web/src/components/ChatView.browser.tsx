@@ -129,6 +129,7 @@ const PROJECT_ID = "project-1" as FolderId;
 const OTHER_PROJECT_ID = "project-2" as FolderId;
 const TEST_SPACE_ID = SpaceId.makeUnsafe("space-browser-test");
 const TEST_CONNECTION_ID = ProviderConnectionId.makeUnsafe("connection-codex-browser");
+const ALTERNATE_CONNECTION_ID = ProviderConnectionId.makeUnsafe("connection-codex-alternate");
 const INBOX_FOLDER_ID = "folder-inbox" as FolderId;
 const NOW_ISO = "2026-03-04T12:00:00.000Z";
 const BASE_TIME_MS = Date.parse(NOW_ISO);
@@ -140,6 +141,7 @@ let emitDomainEvent: ((event: OrchestrationEvent) => void) | null = null;
 let emitSyncDomainEvent: ((event: OrchestrationEvent) => void) | null = null;
 let providerConnectionsResponseGate: Promise<void> | null = null;
 let providerConnectionsReleasedResponses = 0;
+let fixtureHasAlternateCodexConnection = false;
 const fixtureSocketClients = new Set<{ close: () => void }>();
 let fixtureSocketConnectionCount = 0;
 let fixtureActiveThreadPageId: ThreadId | null = null;
@@ -1388,6 +1390,26 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
           createdAt: NOW_ISO,
           updatedAt: NOW_ISO,
         },
+        ...(fixtureHasAlternateCodexConnection
+          ? [
+              {
+                id: ALTERNATE_CONNECTION_ID,
+                harness: "codex",
+                authenticationTargetId: "openai-first-party",
+                authenticationMethodId: "chatgpt",
+                label: "alternate@example.com",
+                providerIdentityId: "alternate@example.com",
+                health: "ready",
+                healthReason: null,
+                lastCheckedAt: NOW_ISO,
+                lifecycle: "active",
+                terminationReason: null,
+                terminatedAt: null,
+                createdAt: NOW_ISO,
+                updatedAt: NOW_ISO,
+              },
+            ]
+          : []),
       ],
       installations: [
         {
@@ -1483,7 +1505,10 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
         {
           slug: "gpt-5.5",
           name: "GPT-5.5",
-          availableConnectionIds: ["connection-codex-browser"],
+          availableConnectionIds: [
+            "connection-codex-browser",
+            ...(fixtureHasAlternateCodexConnection ? [ALTERNATE_CONNECTION_ID] : []),
+          ],
           supportedReasoningEfforts: [
             { value: "low", label: "Low" },
             { value: "medium", label: "Medium" },
@@ -1494,7 +1519,10 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
         {
           slug: "gpt-5.2",
           name: "GPT-5.2",
-          availableConnectionIds: ["connection-codex-browser"],
+          availableConnectionIds: [
+            "connection-codex-browser",
+            ...(fixtureHasAlternateCodexConnection ? [ALTERNATE_CONNECTION_ID] : []),
+          ],
           supportedReasoningEfforts: [
             { value: "low", label: "Low" },
             { value: "medium", label: "Medium" },
@@ -1552,6 +1580,7 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
 function installDeterministicSendNativeApi(options?: {
   dispatchError?: Error;
   dispatchGate?: Promise<void>;
+  threadUpdateGate?: Promise<void>;
   pendingStartOutcome?:
     | "accepted"
     | "cancelled"
@@ -1605,6 +1634,9 @@ function installDeterministicSendNativeApi(options?: {
             _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
             command,
           });
+          if (command.type === "thread.update") {
+            await options?.threadUpdateGate;
+          }
           if (command.type === "thread.turn.start" || command.type === "thread.turn.recover") {
             await options?.dispatchGate;
           }
@@ -2409,6 +2441,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     emitSyncDomainEvent = null;
     providerConnectionsResponseGate = null;
     providerConnectionsReleasedResponses = 0;
+    fixtureHasAlternateCodexConnection = false;
     fixtureSocketConnectionCount = 0;
     fixtureSocketClients.clear();
     fixtureActiveThreadPageId = null;
@@ -3208,7 +3241,54 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("sends the visible turn ID when the session active ID has not arrived", async () => {
+    const turnId = TurnId.makeUnsafe("turn-stop-session-lag");
+    const snapshot = createSnapshotForTargetUser({
+      targetMessageId: MessageId.makeUnsafe("msg-stop-session-lag"),
+      targetText: "Stop this turn",
+    });
+    const runningSnapshot = {
+      ...snapshot,
+      threads: snapshot.threads.map((thread) => ({
+        ...thread,
+        latestTurn: {
+          turnId,
+          state: "running" as const,
+          requestedAt: NOW_ISO,
+          startedAt: NOW_ISO,
+          completedAt: null,
+          assistantMessageId: null,
+        },
+        session: thread.session && {
+          ...thread.session,
+          status: "running" as const,
+          activeTurnId: null,
+        },
+      })),
+    };
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot: runningSnapshot });
+    const restoreNativeApi = installDeterministicSendNativeApi();
+    try {
+      const stop = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
+        "Stop did not appear for the visible running turn.",
+      );
+      stop.click();
+      await vi.waitFor(() => expect(hasDispatchedCommandType("thread.turn.interrupt")).toBe(true));
+      expect(
+        wsRequests
+          .map(readDispatchedCommand)
+          .find((command) => command?.type === "thread.turn.interrupt"),
+      ).toMatchObject({ turnId });
+    } finally {
+      restoreNativeApi();
+      await mounted.cleanup();
+    }
+  });
+
   it("shows Play after Stop when the final assistant message arrives before the interrupted session", async () => {
+    const previousBridge = window.desktopBridge;
+    const recordDiagnosticCheckpoint = vi.fn().mockResolvedValue(undefined);
     const turnId = TurnId.makeUnsafe("turn-stop-after-assistant-complete");
     const assistantMessageId = MessageId.makeUnsafe("assistant-stop-after-complete");
     const startedAt = isoAt(20);
@@ -3238,11 +3318,22 @@ describe("ChatView timeline estimator parity (full app)", () => {
       })),
     };
     const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot: runningSnapshot });
+    const restoreNativeApi = installDeterministicSendNativeApi();
+    const dispatchCommand = vi.spyOn(window.nativeApi!.orchestration, "dispatchCommand");
+    window.desktopBridge = {
+      ...previousBridge,
+      getWsUrl: () => null,
+      setTheme: async () => undefined,
+      setAppTheme: async () => undefined,
+      recordDiagnosticCheckpoint,
+    } as never;
     try {
-      await waitForElement(
+      const stop = await waitForElement(
         () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
         "Stop did not appear for a running turn.",
       );
+      stop.click();
+      await vi.waitFor(() => expect(hasDispatchedCommandType("thread.turn.interrupt")).toBe(true));
       useStore.getState().applyOrchestrationEvents([
         makeDomainEvent(
           "thread.turn-interrupt-requested",
@@ -3293,6 +3384,24 @@ describe("ChatView timeline estimator parity (full app)", () => {
       expect(getThreadFromState(useStore.getState(), THREAD_ID)?.latestTurn?.state).toBe(
         "interrupted",
       );
+      await vi.waitFor(() =>
+        expect(recordDiagnosticCheckpoint).toHaveBeenCalledWith(
+          expect.objectContaining({ flow: "stop", step: "turn.terminal", outcome: "ok" }),
+        ),
+      );
+      const stopTrace = dispatchCommand.mock.calls.find(
+        ([command]) => command.type === "thread.turn.interrupt",
+      )?.[1];
+      expect(
+        dispatchCommand.mock.calls.find(
+          ([command]) => command.type === "thread.turn.interrupt",
+        )?.[0],
+      ).toMatchObject({ turnId });
+      expect(stopTrace?.traceId).toBe(
+        recordDiagnosticCheckpoint.mock.calls.find(
+          ([checkpoint]) => checkpoint.flow === "stop" && checkpoint.step === "turn.terminal",
+        )?.[0].traceId,
+      );
       await vi.waitFor(() => {
         expect(
           getChatLifecycleDiagnosticSamples(THREAD_ID).some(
@@ -3308,11 +3417,16 @@ describe("ChatView timeline estimator parity (full app)", () => {
         ).toBe(true);
       });
     } finally {
+      if (previousBridge) window.desktopBridge = previousBridge;
+      else Reflect.deleteProperty(window, "desktopBridge");
       await mounted.cleanup();
+      restoreNativeApi();
     }
   });
 
   it("continues the logical turn after a tool outlives two Stop requests", async () => {
+    const previousBridge = window.desktopBridge;
+    const recordDiagnosticCheckpoint = vi.fn().mockResolvedValue(undefined);
     const turnId = TurnId.makeUnsafe("turn:5e4001b7-a59c-42de-b1dd-20e7d27640be");
     const providerTurnId = TurnId.makeUnsafe("a3f9d56b-1701-49a9-9787-d529072d9b5f");
     const messageId = MessageId.makeUnsafe("a810f055-436d-49ad-a1bf-96d4519798de");
@@ -3324,11 +3438,19 @@ describe("ChatView timeline estimator parity (full app)", () => {
       targetText: "Run a long tool",
     });
     const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    window.desktopBridge = {
+      ...previousBridge,
+      getWsUrl: () => null,
+      setTheme: async () => undefined,
+      setAppTheme: async () => undefined,
+      recordDiagnosticCheckpoint,
+    } as never;
     let releaseDispatch!: () => void;
     const dispatchGate = new Promise<void>((resolve) => {
       releaseDispatch = resolve;
     });
     const restoreNativeApi = installDeterministicSendNativeApi({ dispatchGate });
+    const dispatchCommand = vi.spyOn(window.nativeApi!.orchestration, "dispatchCommand");
     try {
       const session = (
         status: "running" | "interrupted",
@@ -3462,9 +3584,124 @@ describe("ChatView timeline estimator parity (full app)", () => {
         expect(
           document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
         ).not.toBeNull();
+        expect(recordDiagnosticCheckpoint).toHaveBeenCalledWith(
+          expect.objectContaining({ flow: "play", step: "turn.started", outcome: "ok" }),
+        );
       });
+      const playTrace = dispatchCommand.mock.calls.find(
+        ([command]) => command.type === "thread.turn.recover",
+      )?.[1];
+      expect(playTrace?.traceId).toBe(
+        recordDiagnosticCheckpoint.mock.calls.find(
+          ([checkpoint]) => checkpoint.flow === "play" && checkpoint.step === "turn.started",
+        )?.[0].traceId,
+      );
     } finally {
+      if (previousBridge) window.desktopBridge = previousBridge;
+      else Reflect.deleteProperty(window, "desktopBridge");
       releaseDispatch();
+      await mounted.cleanup();
+      restoreNativeApi();
+    }
+  });
+
+  it("records a queued follow-up only after queue and promotion are observed", async () => {
+    const previousBridge = window.desktopBridge;
+    const recordDiagnosticCheckpoint = vi.fn().mockResolvedValue(undefined);
+    const firstTurnId = TurnId.makeUnsafe("turn-qa-queue-first");
+    const nextTurnId = TurnId.makeUnsafe("turn-qa-queue-next");
+    const base = createSnapshotForTargetUser({
+      targetMessageId: MessageId.makeUnsafe("msg-qa-queue-first"),
+      targetText: "First turn",
+      sessionStatus: "running",
+    });
+    let snapshot = {
+      ...base,
+      threads: base.threads.map((thread) => ({
+        ...thread,
+        latestTurn: {
+          turnId: firstTurnId,
+          state: "running" as const,
+          requestedAt: NOW_ISO,
+          startedAt: NOW_ISO,
+          completedAt: null,
+          assistantMessageId: null,
+        },
+        session: thread.session && {
+          ...thread.session,
+          status: "running" as const,
+          activeTurnId: firstTurnId,
+        },
+      })),
+    };
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const restoreNativeApi = installDeterministicSendNativeApi();
+    window.desktopBridge = {
+      ...previousBridge,
+      getWsUrl: () => null,
+      setTheme: async () => undefined,
+      setAppTheme: async () => undefined,
+      recordDiagnosticCheckpoint,
+    } as never;
+    try {
+      await page.getByTestId("composer-editor").fill("Queue the second turn");
+      await page.getByTestId("composer-editor").click();
+      await userEvent.keyboard("{Enter}");
+      const start = await vi.waitFor(() => {
+        const command = wsRequests
+          .map(readDispatchedCommand)
+          .find((candidate) => candidate?.type === "thread.turn.start");
+        expect(command).toBeTruthy();
+        return command!;
+      });
+      const messageId = (start.message as { messageId: MessageId }).messageId;
+      snapshot = {
+        ...snapshot,
+        snapshotSequence: snapshot.snapshotSequence + 1,
+        threads: snapshot.threads.map((thread) => ({
+          ...thread,
+          queuedMessageIds: [messageId],
+        })),
+      };
+      useStore.getState().syncServerReadModel(snapshot);
+      await vi.waitFor(() =>
+        expect(recordDiagnosticCheckpoint).toHaveBeenCalledWith(
+          expect.objectContaining({ flow: "queue", step: "queue.enqueued", outcome: "ok" }),
+        ),
+      );
+      snapshot = {
+        ...snapshot,
+        snapshotSequence: snapshot.snapshotSequence + 1,
+        threads: snapshot.threads.map((thread) => ({
+          ...thread,
+          queuedMessageIds: [],
+          latestTurn: {
+            turnId: nextTurnId,
+            state: "running" as const,
+            requestedAt: NOW_ISO,
+            startedAt: NOW_ISO,
+            completedAt: null,
+            assistantMessageId: null,
+          },
+        })),
+      };
+      useStore.getState().syncServerReadModel(snapshot);
+      await vi.waitFor(() =>
+        expect(recordDiagnosticCheckpoint).toHaveBeenCalledWith(
+          expect.objectContaining({ flow: "queue", step: "queue.started", outcome: "ok" }),
+        ),
+      );
+      const queueCalls = recordDiagnosticCheckpoint.mock.calls
+        .map(([checkpoint]) => checkpoint)
+        .filter((checkpoint) => checkpoint.flow === "queue");
+      expect(queueCalls.map((checkpoint) => checkpoint.step)).toEqual([
+        "queue.enqueued",
+        "queue.started",
+      ]);
+      expect(queueCalls[0]?.traceId).toBe(queueCalls[1]?.traceId);
+    } finally {
+      if (previousBridge) window.desktopBridge = previousBridge;
+      else Reflect.deleteProperty(window, "desktopBridge");
       await mounted.cleanup();
       restoreNativeApi();
     }
@@ -4736,6 +4973,73 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await expect.element(page.getByText("Connection", { exact: true })).not.toBeInTheDocument();
     } finally {
       await mounted.cleanup();
+    }
+  });
+
+  it("sends through a newly selected Connection before the thread update projects", async () => {
+    fixtureHasAlternateCodexConnection = true;
+    let releaseThreadUpdate!: () => void;
+    const threadUpdateGate = new Promise<void>((resolve) => {
+      releaseThreadUpdate = resolve;
+    });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-connection-switch-race" as MessageId,
+        targetText: "previous turn",
+      }),
+    });
+    const restoreNativeApi = installDeterministicSendNativeApi({ threadUpdateGate });
+
+    try {
+      await waitForServerConfigToApply();
+      await page.getByRole("button", { name: "Change connection" }).click();
+      await page.getByText("personal@example.com", { exact: true }).click();
+      await page.getByText("alternate@example.com", { exact: true }).click();
+      await vi.waitFor(() => {
+        expect(
+          wsRequests
+            .map(readDispatchedCommand)
+            .find((command) => command?.type === "thread.update"),
+        ).toMatchObject({ connectionId: ALTERNATE_CONNECTION_ID });
+      });
+      // The fixture intentionally keeps the old shell and binding projection.
+      // A real user can submit before the update appears in that projection.
+      useComposerDraftStore.getState().setPrompt(THREAD_ID, "send immediately after switching");
+      const composerForm = await waitForElement(
+        () => document.querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]'),
+        "Unable to find composer form.",
+      );
+      composerForm.requestSubmit();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(
+        wsRequests
+          .map(readDispatchedCommand)
+          .some((command) => command?.type === "thread.turn.start"),
+      ).toBe(false);
+      releaseThreadUpdate();
+
+      await vi.waitFor(
+        () => {
+          const command = wsRequests
+            .map(readDispatchedCommand)
+            .find(
+              (candidate) =>
+                candidate?.type === "thread.turn.start" &&
+                candidate.threadId === THREAD_ID &&
+                typeof candidate.message === "object" &&
+                candidate.message !== null &&
+                "text" in candidate.message &&
+                candidate.message.text === "send immediately after switching",
+            );
+          expect(command).toMatchObject({ connectionId: ALTERNATE_CONNECTION_ID });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      releaseThreadUpdate();
+      await mounted.cleanup();
+      restoreNativeApi();
     }
   });
 

@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { recordMcpScopeDenied } from "./mcpWriteDiagnostics.ts";
 import {
   assembleInstructions,
   generateOperationHelp,
@@ -140,6 +141,12 @@ export function invokeResolvedAgentGatewayCommand(input: {
 }): Effect.Effect<McpToolCallResult> {
   const { entry } = input.resolution;
   if (!input.context.callerCapabilities.has(entry.tool.requiredCapability)) {
+    recordMcpScopeDenied({
+      trace: input.context.diagnosticTrace,
+      threadId: input.context.callerThreadId,
+      turnId: input.context.callerTurnId,
+      capability: entry.tool.requiredCapability,
+    });
     return Effect.succeed(
       gatewayToolErrorResult(
         new GatewayToolError(

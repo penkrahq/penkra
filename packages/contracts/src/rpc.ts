@@ -6,7 +6,7 @@ import { OpenInEditorInput } from "./editor";
 import { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem";
 import { KeybindingRule } from "./keybindings";
 import {
-  ClientOrchestrationCommand,
+  DispatchCommandRpcInput,
   ORCHESTRATION_WS_METHODS,
   OrchestrationEvent,
   OrchestrationImportThreadInput,
@@ -136,7 +136,7 @@ export const WsBootstrapNegotiateRpc = Rpc.make(WS_BOOTSTRAP_METHOD, {
 export const WsOrchestrationDispatchCommandRpc = Rpc.make(
   ORCHESTRATION_WS_METHODS.dispatchCommand,
   {
-    payload: ClientOrchestrationCommand,
+    payload: DispatchCommandRpcInput,
     success: OrchestrationRpcSchemas.dispatchCommand.output,
     error: WsRpcError,
   },

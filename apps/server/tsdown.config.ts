@@ -8,6 +8,9 @@ import { readFile } from "node:fs/promises";
 
 const sourcemapEnv = process.env.PENKRA_SERVER_SOURCEMAP?.trim().toLowerCase();
 const buildSourcemap = sourcemapEnv === "1" || sourcemapEnv === "true";
+const diagnosticsQaProviderBuild =
+  process.env.PENKRA_DIAGNOSTICS_QA_BUILD === "1" &&
+  process.env.PENKRA_DESKTOP_FLAVOR === "development";
 
 export default defineConfig({
   entry: ["src/index.ts", "src/databaseMaintenance.ts", "src/restoreMigrationBackup.ts"],
@@ -18,6 +21,9 @@ export default defineConfig({
   outDir: "dist",
   sourcemap: buildSourcemap,
   clean: true,
+  define: {
+    __PENKRA_DIAGNOSTICS_QA_PROVIDER_BUILD__: JSON.stringify(diagnosticsQaProviderBuild),
+  },
   noExternal: (id) => id.startsWith("@penkra/"),
   inlineOnly: false,
   banner: {

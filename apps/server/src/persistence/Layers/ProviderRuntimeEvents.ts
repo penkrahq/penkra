@@ -1,9 +1,14 @@
 import { createHash } from "node:crypto";
 
 import { EventId, NonNegativeInt, ProviderRuntimeEvent } from "@penkra/contracts";
+import { startDiagnosticTrace } from "@penkra/shared/traceContext";
 import { Effect, Layer, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { observeRuntimeJournalTiming } from "../runtimeJournalMetrics.ts";
+import {
+  recordDiagnosticCheckpoint,
+  recordDiagnosticIncident,
+} from "../../diagnostics/recorder.ts";
 
 import {
   PersistenceDecodeError,
@@ -230,6 +235,38 @@ const make = Effect.gen(function* () {
         .pipe(
           Effect.mapError(
             toPersistenceSqlError("ProviderRuntimeEvent.appendWithDiagnosticAdmission"),
+          ),
+          Effect.tap(() =>
+            Effect.sync(() => {
+              const trace = startDiagnosticTrace();
+              const context = {
+                ...trace,
+                threadId: event.threadId,
+                ...(event.turnId === undefined ? {} : { turnId: event.turnId }),
+              };
+              const step =
+                diagnostic.state === "active"
+                  ? "provider.runtime_warning_active"
+                  : "provider.runtime_warning_resolved";
+              recordDiagnosticCheckpoint({
+                ...context,
+                flow: "provider_delivery",
+                step,
+                fields: { provider: event.provider },
+              });
+              if (diagnostic.state === "active")
+                recordDiagnosticIncident({
+                  ...context,
+                  kind: "external.failed",
+                  code: "EXTERNAL_CALL_FAILED",
+                  where: "provider.runtime_event_pump",
+                  severity: "error",
+                  expected: { accepted: true },
+                  actual: { accepted: false },
+                  context: { provider: event.provider },
+                  lastCheckpoint: step,
+                });
+            }),
           ),
         );
     };

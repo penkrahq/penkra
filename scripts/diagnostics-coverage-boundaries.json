@@ -1,0 +1,7 @@
+[
+  {
+    "code": "REJECTED_STREAMING_RPC_ADMISSION",
+    "where": "server.stream_admission",
+    "file": "apps/server/src/wsStreamAdmission.ts"
+  }
+]

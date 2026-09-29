@@ -91,4 +91,26 @@ describe("removeDeckThreadPreservingNavigation", () => {
 
     expect(operations).toEqual([`remove:${ids[4]}`]);
   });
+
+  it("restores the active thread when archive is rejected after navigation", async () => {
+    const operations: string[] = [];
+    const rejection = new Error("This thread is still running. Stop it before archiving.");
+
+    await expect(
+      removeDeckThreadPreservingNavigation({
+        threadIds: ids,
+        removedThreadId: ids[2]!,
+        activeThreadId: ids[2]!,
+        isVisible: () => true,
+        activate: async (threadId) => {
+          operations.push(`activate:${threadId ?? "none"}`);
+        },
+        remove: async () => {
+          operations.push("archive:rejected");
+          throw rejection;
+        },
+      }),
+    ).rejects.toBe(rejection);
+    expect(operations).toEqual([`activate:${ids[3]}`, "archive:rejected", `activate:${ids[2]}`]);
+  });
 });

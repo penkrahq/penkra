@@ -1,6 +1,11 @@
 import { Cause, Deferred, Effect, Fiber, Option, Queue, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import { EventId, ThreadId, TurnId, type ProviderRuntimeEvent } from "@penkra/contracts";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { installDiagnosticsStore } from "../diagnostics/recorder";
+import { DiagnosticsStore, openDiagnosticsReader } from "../diagnostics/store";
 
 import {
   makeProviderRuntimeEventPumpHealthRegistry,
@@ -107,6 +112,9 @@ describe("providerRuntimeEventPump", () => {
 
   it("quarantines a permanent event failure and continues with later events", async () => {
     class PermanentEventError extends Error {}
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-provider-pump-diagnostics-"));
+    const diagnostics = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
+    const uninstall = installDiagnosticsStore(diagnostics);
 
     await Effect.runPromise(
       Effect.scoped(
@@ -159,6 +167,15 @@ describe("providerRuntimeEventPump", () => {
         }),
       ),
     );
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(db.prepare("SELECT code, context_json FROM incidents").get()).toMatchObject({
+      code: "PROVIDER_EVENT_DECODE_FAILED",
+      context_json: expect.stringContaining('"providerEventType":"turn.completed"'),
+    });
+    db.close();
+    uninstall();
+    diagnostics.close();
+    fs.rmSync(stateDir, { recursive: true, force: true });
   });
 
   it("returns to healthy after enough successful events follow a quarantine", async () => {
