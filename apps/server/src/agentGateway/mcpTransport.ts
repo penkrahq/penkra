@@ -34,6 +34,11 @@ import {
 } from "./toolRuntime.ts";
 import { errorText } from "./toolInput.ts";
 
+import {
+  gatewayMcpToolErrorResult,
+  recordGatewayConsumedFailure,
+} from "./gatewayFailureDiagnostics.ts";
+
 const MCP_MAX_BATCH_MESSAGES = 50;
 
 export function makeAgentGatewayMcpTransport(input: {
@@ -237,7 +242,10 @@ export function makeAgentGatewayMcpTransport(input: {
             }
           }
           const result = yield* Effect.suspend(() => tool.handler(args, invocationContext)).pipe(
-            Effect.catchDefect((defect) => Effect.succeed(mcpToolResultError(errorText(defect)))),
+            Effect.catchDefect((defect) => {
+              recordGatewayConsumedFailure(defect);
+              return Effect.succeed(mcpToolResultError(errorText(defect)));
+            }),
           );
           return jsonRpcResult(request.id, result);
         }
@@ -269,7 +277,12 @@ export function makeAgentGatewayMcpTransport(input: {
       const callerThreadId = callerSession.threadId;
       const callerThread = yield* input.snapshotQuery
         .getThreadShellById(ThreadId.makeUnsafe(callerThreadId))
-        .pipe(Effect.catch(() => Effect.succeed(Option.none())));
+        .pipe(
+          Effect.catch((error) => {
+            recordGatewayConsumedFailure(error);
+            return Effect.succeed(Option.none());
+          }),
+        );
       if (Option.isNone(callerThread)) {
         return {
           status: 401,
@@ -302,8 +315,9 @@ export function makeAgentGatewayMcpTransport(input: {
         };
       }
       const ingressAuthority = yield* resolveCallerTurnId(callerThread.value).pipe(
-        Effect.catch((error) =>
-          Effect.logWarning("agent_gateway.active_turn_lookup_failed", {
+        Effect.catch((error) => {
+          recordGatewayConsumedFailure(error);
+          return Effect.logWarning("agent_gateway.active_turn_lookup_failed", {
             callerThreadId,
             error: errorText(error),
           }).pipe(
@@ -316,8 +330,8 @@ export function makeAgentGatewayMcpTransport(input: {
               openTurnIds: [],
               openRuntimeTurns: [],
             }),
-          ),
-        ),
+          );
+        }),
       );
       if (
         callerThread.value.session?.status === "running" &&
@@ -568,7 +582,7 @@ export function makeAgentGatewayMcpTransport(input: {
               yield* handleRequest(parsed.request, context).pipe(
                 Effect.catch((error) =>
                   Effect.succeed(
-                    jsonRpcResult(parsed.request.id, mcpToolResultError(errorText(error))),
+                    jsonRpcResult(parsed.request.id, gatewayMcpToolErrorResult(error)),
                   ),
                 ),
               ),
