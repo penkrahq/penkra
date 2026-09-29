@@ -1035,6 +1035,23 @@ function insertEnvelope(
     }
   } else {
     const data = event.data as IncidentInput;
+    const overflowReportId =
+      data.where === "diagnostics.worker_queue" &&
+      typeof data.context?.reportId === "string" &&
+      /^[0-9a-f-]{36}$/iu.test(data.context.reportId)
+        ? data.context.reportId
+        : null;
+    if (
+      overflowReportId &&
+      database
+        .prepare("SELECT 1 FROM meta WHERE key = ?")
+        .get(`overflow-report:${overflowReportId}`)
+    ) {
+      database
+        .prepare("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)")
+        .run(receiptKey, String(event.sequence));
+      return;
+    }
     const expectationId = data.context?.entityId;
     const closesExpectation =
       data.kind === "expectation.missed" &&
@@ -1228,6 +1245,10 @@ function insertEnvelope(
       typeof expectationId === "string"
     )
       database.prepare("DELETE FROM expectations WHERE id = ?").run(expectationId);
+    if (overflowReportId)
+      database
+        .prepare("INSERT INTO meta(key, value) VALUES (?, ?)")
+        .run(`overflow-report:${overflowReportId}`, event.at);
   }
   database
     .prepare("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)")
