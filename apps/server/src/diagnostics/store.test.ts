@@ -1152,6 +1152,33 @@ describe("diagnostics store", () => {
     store.close();
   });
 
+  it("marks a clean close after a live import empties the worker spool", () => {
+    const { stateDir, store } = fixture();
+    const worker = new DiagnosticsSpoolWriter({
+      stateDir,
+      appVersion: "0.14.3",
+      process: "desktop-main",
+    });
+    worker.reserveWorkerCredits(2);
+    worker.checkpointWithSlot({ traceId, spanId, flow: "send", step: "composer.preflight" }, 1);
+    store.importPeerSpools();
+    const spoolPath = path.join(stateDir, "diagnostics", `spool-${worker.bootId}.jsonl`);
+    expect(fs.statSync(spoolPath).size).toBe(0);
+    worker.close();
+    expect(fs.existsSync(path.join(stateDir, "diagnostics", `closed-${worker.bootId}.json`))).toBe(
+      true,
+    );
+    store.importPeerSpools();
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(
+      db
+        .prepare("SELECT COUNT(*) AS count FROM meta WHERE key IN (?, ?)")
+        .get(`lost-count-unknown:${worker.bootId}`, `possibly-lost:${worker.bootId}`),
+    ).toMatchObject({ count: 0 });
+    db.close();
+    store.close();
+  });
+
   it("persists the exact overflow count and degradation incident after worker recovery", () => {
     const { stateDir, store } = fixture();
     const worker = new DiagnosticsSpoolWriter({

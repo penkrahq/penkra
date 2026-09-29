@@ -2654,15 +2654,19 @@ export class DiagnosticsSpoolWriter {
 
   close(): void {
     withLifecycleLock(this.dir, () => {
+      const creditPath = path.join(this.dir, `queue-credit-${this.bootId}.json`);
       if (fs.existsSync(this.spoolPath)) {
         if (fs.statSync(this.spoolPath).size === 0) {
           fs.rmSync(this.spoolPath, { force: true });
-        } else {
-          // Reuse the active marker's bytes instead of allocating space at cap.
-          if (fs.existsSync(this.activePath))
-            fs.renameSync(this.activePath, path.join(this.dir, `closed-${this.bootId}.json`));
         }
       }
+      // Live imports can empty the spool before a normal close. The credit
+      // ledger still needs a durable clean-close marker for reconciliation.
+      if (
+        fs.existsSync(this.activePath) &&
+        (fs.existsSync(this.spoolPath) || fs.existsSync(creditPath))
+      )
+        fs.renameSync(this.activePath, path.join(this.dir, `closed-${this.bootId}.json`));
       fs.rmSync(this.activePath, { force: true });
     });
   }
