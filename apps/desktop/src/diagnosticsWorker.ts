@@ -11,7 +11,7 @@ import { startDiagnosticTrace } from "@penkra/shared/traceContext";
 type DiagnosticsMessage =
   | { readonly kind: "shutdown" }
   | { readonly kind: "refill" }
-  | { readonly kind: "overflow"; readonly count: number }
+  | { readonly kind: "overflow"; readonly id: string; readonly count: number }
   | {
       readonly kind: "checkpoint";
       readonly input: CheckpointInput;
@@ -58,7 +58,11 @@ parentPort?.on("message", (message: DiagnosticsMessage) => {
         reserveCredits();
         break;
       case "overflow":
-        if (!Number.isSafeInteger(message.count) || message.count < 1)
+        if (
+          !Number.isSafeInteger(message.count) ||
+          message.count < 1 ||
+          !/^[0-9a-f-]{36}$/iu.test(message.id)
+        )
           throw new TypeError("Invalid diagnostic queue overflow count");
         writer.incident({
           ...startDiagnosticTrace(),
@@ -68,8 +72,14 @@ parentPort?.on("message", (message: DiagnosticsMessage) => {
           severity: "error",
           expected: { count: 0 },
           actual: { count: message.count },
-          context: { count: message.count, reason: "capacity", bootId: writer.bootId },
+          context: {
+            count: message.count,
+            reason: "capacity",
+            bootId: writer.bootId,
+            reportId: message.id,
+          },
         });
+        parentPort?.postMessage({ kind: "overflow_ack", id: message.id });
         break;
       case "checkpoint":
         if (message.queueSlot) writer.checkpointWithSlot(message.input, message.queueSlot);

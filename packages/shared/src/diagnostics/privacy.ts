@@ -26,6 +26,7 @@ const idKeys = new Set([
   "callerTurnId",
   "providerSessionId",
   "eventId",
+  "reportId",
 ]);
 const enumValues = {
   flow: [

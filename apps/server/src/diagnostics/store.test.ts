@@ -1213,6 +1213,41 @@ describe("diagnostics store", () => {
     store.close();
   });
 
+  it("imports a retried overflow report only once after worker restart", () => {
+    const { stateDir, store } = fixture();
+    const reportId = "01234567-89ab-4cde-8fab-0123456789ab";
+    for (let i = 0; i < 2; i++) {
+      const worker = new DiagnosticsSpoolWriter({
+        stateDir,
+        appVersion: "0.14.3",
+        process: "desktop-main",
+      });
+      worker.incident({
+        traceId,
+        spanId,
+        kind: "diagnostics.degraded",
+        code: "DIAGNOSTICS_DROPPED",
+        where: "diagnostics.worker_queue",
+        severity: "error",
+        expected: { count: 0 },
+        actual: { count: 2 },
+        context: { count: 2, reason: "capacity", bootId: worker.bootId, reportId },
+      });
+      worker.close();
+      store.importPeerSpools();
+    }
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(
+      db
+        .prepare(
+          "SELECT COUNT(*) AS count FROM incident_occurrences WHERE incident_id IN (SELECT id FROM incidents WHERE where_name = 'diagnostics.worker_queue')",
+        )
+        .get(),
+    ).toMatchObject({ count: 1 });
+    db.close();
+    store.close();
+  });
+
   it("rejects content in expectation correlation before persisting it", () => {
     const { stateDir, store } = fixture();
     expect(() =>

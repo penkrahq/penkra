@@ -1,4 +1,5 @@
 import type { Worker } from "node:worker_threads";
+import { randomUUID } from "node:crypto";
 import { DIAGNOSTIC_LIMITS } from "@penkra/shared/diagnostics/limits";
 
 type WriteKind = "checkpoint" | "incident" | "sendExpectation";
@@ -14,6 +15,8 @@ export class DesktopDiagnosticsQueue {
   private availableCredits = 0;
   private refillRequested = false;
   private overflowCount = 0;
+  private overflowInFlight: { id: string; count: number } | null = null;
+  private overflowSent = false;
   private readonly startupBacklog: Array<{ kind: WriteKind; input: unknown }> = [];
   private receivedCredits = false;
 
@@ -101,11 +104,16 @@ export class DesktopDiagnosticsQueue {
   }
 
   private flushOverflow(worker: Worker): void {
-    if (!this.useCredits || this.overflowCount === 0) return;
-    const count = this.overflowCount;
-    try {
-      worker.postMessage({ kind: "overflow", count });
+    if (!this.useCredits) return;
+    if (!this.overflowInFlight && this.overflowCount > 0) {
+      this.overflowInFlight = { id: randomUUID(), count: this.overflowCount };
       this.overflowCount = 0;
+    }
+    const report = this.overflowInFlight;
+    if (!report || this.overflowSent) return;
+    try {
+      worker.postMessage({ kind: "overflow", ...report });
+      this.overflowSent = true;
     } catch {
       this.onWorkerLost(worker);
     }
@@ -116,37 +124,45 @@ export class DesktopDiagnosticsQueue {
     const worker = this.createWorker();
     this.worker = worker;
     worker.unref();
-    worker.on("message", (message: { kind?: string; start?: number; count?: number }) => {
-      if (this.worker !== worker) return;
-      if (this.useCredits && message?.kind === "credits") {
-        if (
-          !Number.isSafeInteger(message.start) ||
-          !Number.isSafeInteger(message.count) ||
-          message.start! < 1 ||
-          message.count! < 1
-        ) {
-          this.onWorkerLost(worker);
-          return;
+    worker.on(
+      "message",
+      (message: { kind?: string; start?: number; count?: number; id?: string }) => {
+        if (this.worker !== worker) return;
+        if (this.useCredits && message?.kind === "credits") {
+          if (
+            !Number.isSafeInteger(message.start) ||
+            !Number.isSafeInteger(message.count) ||
+            message.start! < 1 ||
+            message.count! < 1
+          ) {
+            this.onWorkerLost(worker);
+            return;
+          }
+          this.credits.push({ next: message.start!, last: message.start! + message.count! - 1 });
+          this.availableCredits += message.count!;
+          this.receivedCredits = true;
+          this.refillRequested = false;
+          while (this.startupBacklog.length > 0) {
+            const item = this.startupBacklog.shift()!;
+            this.sendWithCredit(worker, item.kind, item.input);
+          }
+          this.flushOverflow(worker);
         }
-        this.credits.push({ next: message.start!, last: message.start! + message.count! - 1 });
-        this.availableCredits += message.count!;
-        this.receivedCredits = true;
-        this.refillRequested = false;
-        while (this.startupBacklog.length > 0) {
-          const item = this.startupBacklog.shift()!;
-          this.sendWithCredit(worker, item.kind, item.input);
+        if (message?.kind === "ack") this.pending = Math.max(0, this.pending - 1);
+        if (message?.kind === "ack") this.flushOverflow(worker);
+        if (message?.kind === "overflow_ack" && message.id === this.overflowInFlight?.id) {
+          this.overflowInFlight = null;
+          this.overflowSent = false;
+          this.flushOverflow(worker);
         }
-        this.flushOverflow(worker);
-      }
-      if (message?.kind === "ack") this.pending = Math.max(0, this.pending - 1);
-      if (message?.kind === "ack") this.flushOverflow(worker);
-      if (message?.kind === "drained") {
-        if (this.pending > 0 && !this.reserve && !this.useCredits)
-          this.recordDrop("spool", this.pending);
-        this.pending = 0;
-        this.resolveDrain?.();
-      }
-    });
+        if (message?.kind === "drained") {
+          if (this.pending > 0 && !this.reserve && !this.useCredits)
+            this.recordDrop("spool", this.pending);
+          this.pending = 0;
+          this.resolveDrain?.();
+        }
+      },
+    );
     worker.on("error", () => this.onWorkerLost(worker));
     worker.on("exit", () => this.onWorkerLost(worker));
     return worker;
@@ -159,6 +175,7 @@ export class DesktopDiagnosticsQueue {
     this.availableCredits = 0;
     this.refillRequested = false;
     this.receivedCredits = false;
+    this.overflowSent = false;
     if (this.pending > 0 && !this.reserve && !this.useCredits)
       this.recordDrop("spool", this.pending);
     this.pending = 0;
@@ -167,7 +184,7 @@ export class DesktopDiagnosticsQueue {
 
   async drain(): Promise<void> {
     this.closing = true;
-    if (this.useCredits && this.overflowCount > 0 && !this.worker) {
+    if (this.useCredits && (this.overflowCount > 0 || this.overflowInFlight) && !this.worker) {
       try {
         this.ensureWorker();
       } catch {

@@ -51,10 +51,43 @@ describe("desktop diagnostics queue", () => {
     worker.emit("message", { kind: "credits", start: 3, count: 2 });
     expect(
       worker.messages.filter((message) => (message as { kind?: string }).kind === "overflow"),
-    ).toEqual([{ kind: "overflow", count: 2 }]);
+    ).toEqual([{ kind: "overflow", count: 2, id: expect.any(String) }]);
+    const overflow = worker.messages.find(
+      (message) => (message as { kind?: string }).kind === "overflow",
+    ) as { id: string };
+    worker.emit("message", { kind: "overflow_ack", id: overflow.id });
     const draining = queue.drain();
     worker.emit("message", { kind: "drained" });
     await draining;
+  });
+
+  it("retries an unacknowledged overflow report with the same id after worker restart", () => {
+    const first = new FakeWorker();
+    const second = new FakeWorker();
+    const workers = [first, second];
+    const queue = new DesktopDiagnosticsQueue(
+      () => workers.shift()! as unknown as Worker,
+      vi.fn(),
+      undefined,
+      true,
+    );
+    queue.enqueue("checkpoint", { sequence: 1 });
+    first.emit("message", { kind: "credits", start: 1, count: 1 });
+    queue.enqueue("checkpoint", { sequence: 2 });
+    first.emit("message", { kind: "ack" });
+    const firstReport = first.messages.find(
+      (message) => (message as { kind?: string }).kind === "overflow",
+    ) as { kind: string; id: string; count: number };
+    expect(firstReport).toMatchObject({ kind: "overflow", count: 1 });
+    first.emit("exit", 1);
+    queue.enqueue("checkpoint", { sequence: 3 });
+    second.emit("message", { kind: "credits", start: 1, count: 1 });
+    expect(second.messages).toContainEqual(firstReport);
+    second.emit("message", { kind: "overflow_ack", id: firstReport.id });
+    second.emit("message", { kind: "ack" });
+    expect(
+      second.messages.filter((message) => (message as { kind?: string }).kind === "overflow"),
+    ).toHaveLength(1);
   });
 
   it("reconciles an unclean credit block after a hard crash before worker ack", () => {
