@@ -502,6 +502,13 @@ preserves only records whose spool sync completed; a torn final record, a failed
 spool sync, or storage hardware failure can lose evidence. The recovery record
 includes the last durable sequence and a bounded loss/gap count when known.
 
+Before the server store opens, the recorder holds at most 256 incidents in
+memory. It drains eight per event-loop turn after installation, so startup does
+not wait for these writes. Overflow drops the oldest entries and later records
+their exact count in a `DIAGNOSTICS_DROPPED` incident. This memory buffer is not
+crash durable. If the backend fails before its store opens, desktop records the
+backend startup failure with a fixed code and failing phase in its own store.
+
 Desktop main never synchronously writes or fsyncs diagnostics during a send. The
 diagnostics worker reserves and syncs blocks of 1,024 queue slots, then grants
 them to main over IPC. Main assigns slots in memory. The worker refills when half
