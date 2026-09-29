@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createInterface } from "node:readline";
@@ -13,6 +14,29 @@ const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 const marker = "PENKRA_QA_SCRIPTED_PROVIDER_FIXTURE_V1";
 
 describe("scripted provider QA fixture", () => {
+  it("gives the alternate profile a distinct account identity", async () => {
+    const root = fs.mkdtempSync("/tmp/penkra-diagnostics-qa-account.");
+    const profileKey = createHash("sha256").update("qa-scripted-alternate").digest("hex");
+    const child = spawn(process.execPath, [fixture, "app-server"], {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env, CODEX_HOME: path.join(root, profileKey) },
+    });
+    const lines = createInterface({ input: child.stdout! });
+    try {
+      const response = new Promise<Record<string, unknown>>((resolve) =>
+        lines.on("line", (line) => resolve(JSON.parse(line) as Record<string, unknown>)),
+      );
+      child.stdin!.write(`${JSON.stringify({ id: 1, method: "account/read" })}\n`);
+      expect(await response).toMatchObject({
+        result: { account: { email: "qa-fixture-alternate@example.invalid" } },
+      });
+    } finally {
+      child.kill();
+      lines.close();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("serves a real JSONL app-server process and completes or interrupts turns", async () => {
     const fixtureHome = fs.mkdtempSync("/tmp/penkra-diagnostics-qa-codex-home.");
     const child = spawn(process.execPath, [fixture, "app-server"], {
@@ -193,7 +217,15 @@ describe("scripted provider QA fixture", () => {
       const read = new DatabaseSync(path.join(stateDir, "state.sqlite"));
       try {
         expect(read.prepare("SELECT COUNT(*) AS n FROM provider_installations").get()?.n).toBe(1);
-        expect(read.prepare("SELECT COUNT(*) AS n FROM provider_connections").get()?.n).toBe(1);
+        expect(read.prepare("SELECT COUNT(*) AS n FROM provider_connections").get()?.n).toBe(2);
+        expect(
+          read
+            .prepare("SELECT connection_id FROM provider_connections ORDER BY connection_id")
+            .all(),
+        ).toEqual([
+          expect.objectContaining({ connection_id: "qa-scripted-codex-alternate" }),
+          expect.objectContaining({ connection_id: "qa-scripted-codex-connection" }),
+        ]);
         const binary = read.prepare("SELECT executable_path FROM provider_installations").get()
           ?.executable_path as string;
         expect(binary).toBe(

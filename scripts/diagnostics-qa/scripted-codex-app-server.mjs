@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Test-only Codex app-server protocol fixture. Never import this from app code.
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createInterface } from "node:readline";
@@ -8,6 +8,10 @@ import { createInterface } from "node:readline";
 export const FIXTURE_MARKER = "PENKRA_QA_SCRIPTED_PROVIDER_FIXTURE_V1";
 const threads = new Map();
 const turns = new Map();
+const alternateProfileKey = createHash("sha256").update("qa-scripted-alternate").digest("hex");
+const fixtureEmail = process.env.CODEX_HOME?.includes(alternateProfileKey)
+  ? "qa-fixture-alternate@example.invalid"
+  : "qa-fixture@example.invalid";
 const emit = (row) => process.stdout.write(`${JSON.stringify(row)}\n`);
 const respond = (id, result) => emit({ id, result });
 const notify = (method, params) => emit({ method, params });
@@ -76,7 +80,7 @@ function handle(message) {
       });
       return;
     case "account/read":
-      respond(id, { account: { type: "chatgpt", email: "qa-fixture@example.invalid" } });
+      respond(id, { account: { type: "chatgpt", email: fixtureEmail } });
       return;
     case "thread/start": {
       const threadId = randomUUID();
