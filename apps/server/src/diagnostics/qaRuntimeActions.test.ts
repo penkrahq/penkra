@@ -198,15 +198,16 @@ describe("QA runtime action proofs", () => {
       checkpoint: (input: unknown) => checkpoints.push(input),
     } as unknown as DiagnosticsStore);
     try {
-      prepareQaRuntimeAction("stop", "thread-a", "turn-a", "1".repeat(32), "2".repeat(16));
+      prepareQaRuntimeAction("stop", "thread-a", "native-turn-a", "1".repeat(32), "2".repeat(16));
       settleQaRuntimeAction({
         threadId: "thread-a",
-        logicalTurnId: "turn-a",
+        logicalTurnId: "logical-turn-a",
+        nativeTurnId: "native-turn-a",
         eventType: "turn.completed",
         state: "interrupted",
       });
       expect(checkpoints).toEqual([]);
-      admitQaRuntimeAction("stop", "thread-a", "turn-a", "1".repeat(32));
+      admitQaRuntimeAction("stop", "thread-a", "native-turn-a", "1".repeat(32));
       expect(checkpoints).toEqual([
         expect.objectContaining({
           traceId: "1".repeat(32),

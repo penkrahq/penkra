@@ -2272,6 +2272,7 @@ const make = Effect.gen(function* () {
           settleQaRuntimeAction({
             threadId: thread.id,
             logicalTurnId: logicalTurnId ?? null,
+            nativeTurnId: nativeTurnId ?? null,
             eventType: event.type,
             state:
               event.type === "turn.started"
