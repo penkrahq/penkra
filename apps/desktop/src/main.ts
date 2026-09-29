@@ -81,6 +81,7 @@ import {
   type IncidentInput,
   type DiagnosticsOptions,
 } from "@penkra/shared/diagnostics/store";
+import { recordQaActionAsync } from "@penkra/shared/diagnostics/qaEvidence";
 import { ensureStaticSnapshot, findAsarArchivePath } from "@penkra/shared/staticSnapshot";
 import { isBackendReadinessAborted, waitForHttpReady } from "./backendReadiness";
 import { queryAppPermission } from "./appPermissionQuery";
@@ -110,6 +111,7 @@ import { ActiveWorkPowerBlocker } from "./activeWorkPowerBlocker";
 import { recordDesktopOsLookupFailure, resolveDesktopOsMajor } from "./desktopDiagnosticOs";
 import { startDesktopDiagnosticsMonitors } from "./desktopDiagnosticsMonitors";
 import { DesktopDiagnosticsQueue } from "./desktopDiagnosticsQueue";
+import { DiagnosticsQaWindowTracker } from "./diagnosticsQaWindow";
 import {
   retainLiveBackendAfterShutdownFailure,
   requireWindowsBackendExit,
@@ -1076,6 +1078,22 @@ function parseAppThreadDeckPosition(
   throw new Error("Thread Deck position type must be start, end, before, or after.");
 }
 
+const qaWindowTracker = new DiagnosticsQaWindowTracker(
+  (trace, step, windowId) =>
+    enqueueDesktopDiagnosticWrite("checkpoint", {
+      ...trace,
+      flow: "window",
+      step,
+      outcome: "ok",
+      fields: { windowId: String(windowId) },
+    }),
+  (traceId) => {
+    void recordQaActionAsync("multi-window", traceId).catch(() =>
+      process.stderr.write("[diagnostics] QA window action proof failed\n"),
+    );
+  },
+);
+
 function acceptThreadApiState(event: Electron.IpcMainEvent, input: unknown): void {
   if (
     event.sender.isDestroyed() ||
@@ -1098,6 +1116,7 @@ function acceptThreadApiState(event: Electron.IpcMainEvent, input: unknown): voi
   ) {
     return;
   }
+  qaWindowTracker.synced(event.sender.id);
   const tabs = desktopAppRuntime?.appTabs;
   if (!tabs) return;
   for (const tab of tabs.listFor(state.spaceId, state.deckId)) {
@@ -7435,6 +7454,12 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
   shellWindowRegistry.add(window);
   mainWindow ??= window;
   const rendererOwnerId = window.webContents.id;
+  if (cloneFrom)
+    qaWindowTracker.opened(rendererOwnerId, {
+      traceId: Crypto.randomBytes(16).toString("hex"),
+      spanId: Crypto.randomBytes(8).toString("hex"),
+    });
+  window.on("closed", () => qaWindowTracker.closed(rendererOwnerId));
   // `ready-to-show` is not guaranteed by every development compositor path.
   // A completed main-frame load is an equally valid event-driven fallback.
   const showInitialWindow = createInitialWindowPresenter({
@@ -7515,6 +7540,7 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
     window.setTitle(APP_DISPLAY_NAME);
   });
   window.webContents.on("did-finish-load", () => {
+    qaWindowTracker.loaded(rendererOwnerId);
     window.setTitle(APP_DISPLAY_NAME);
     emitUpdateState();
     flushPendingAppTabs(window);

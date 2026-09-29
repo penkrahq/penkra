@@ -159,3 +159,19 @@ export function recordQaAction(flow: QaActionFlow, traceId: string): void {
     fs.closeSync(handle);
   }
 }
+
+/** Electron main uses the thread pool for the proof fsync. */
+export async function recordQaActionAsync(flow: QaActionFlow, traceId: string): Promise<void> {
+  const config = qaEvidenceConfigFromEnv();
+  if (!config) return;
+  const challenge = (await fs.promises.readFile(qaChallengePath(config, flow), "utf8")).trim();
+  const evidence = signQaAction(config, flow, traceId, challenge);
+  await fs.promises.mkdir(config.dir, { recursive: true, mode: 0o700 });
+  const handle = await fs.promises.open(qaEvidencePath(config), "a", 0o600);
+  try {
+    await handle.write(`${JSON.stringify(evidence)}\n`);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
