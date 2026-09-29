@@ -101,11 +101,11 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 675,
-    "column": 5,
+    "line": 664,
+    "column": 7,
     "kind": "catch",
     "disposition": "recorded",
-    "reason": "The existing recovery or final failure outcome remains unchanged; unexpected failure records a fixed incident.",
+    "reason": "A failed optional overlay entry records a fixed incident and later entries are still prepared.",
     "reviewer": "diagnostics-0143",
     "boundary": {
       "code": "EXTERNAL_CALL_FAILED",
@@ -114,7 +114,20 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 684,
+    "line": 686,
+    "column": 52,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "A failed source-home listing records a fixed incident and leaves optional overlay entries absent without failing launch.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_config"
+    }
+  },
+  {
+    "file": "apps/server/src/codexProcessEnv.ts",
+    "line": 693,
     "column": 68,
     "kind": "catch",
     "disposition": "propagates",
@@ -127,7 +140,7 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 688,
+    "line": 697,
     "column": 5,
     "kind": "throw",
     "disposition": "rethrow",
@@ -140,7 +153,7 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 699,
+    "line": 708,
     "column": 8,
     "kind": "catch",
     "disposition": "propagates",
@@ -153,7 +166,7 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 703,
+    "line": 712,
     "column": 9,
     "kind": "throw",
     "disposition": "rethrow",
@@ -166,7 +179,7 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 745,
+    "line": 754,
     "column": 19,
     "kind": "throw",
     "disposition": "validation",
@@ -175,7 +188,7 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 749,
+    "line": 758,
     "column": 60,
     "kind": "catch",
     "disposition": "propagates",
@@ -188,7 +201,7 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 751,
+    "line": 760,
     "column": 7,
     "kind": "throw",
     "disposition": "rethrow",
@@ -201,7 +214,7 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 756,
+    "line": 765,
     "column": 74,
     "kind": "catch",
     "disposition": "recorded",
@@ -214,7 +227,7 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 774,
+    "line": 783,
     "column": 55,
     "kind": "catch",
     "disposition": "propagates",
@@ -227,7 +240,7 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 776,
+    "line": 785,
     "column": 13,
     "kind": "throw",
     "disposition": "rethrow",
@@ -240,7 +253,7 @@
   },
   {
     "file": "apps/server/src/codexProcessEnv.ts",
-    "line": 841,
+    "line": 850,
     "column": 7,
     "kind": "catch",
     "disposition": "recorded",
