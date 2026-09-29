@@ -6,6 +6,7 @@ export const DIAGNOSTIC_LIMITS = {
   desktopWorkerQueueDepth: 256,
   desktopWorkerMessageBytes: 64 * 1024,
   desktopWorkerDrainMs: 2_000,
+  desktopWorkerAckMs: 30_000,
   osProbeMs: 250,
   batchMs: 250,
   incidentDays: 90,

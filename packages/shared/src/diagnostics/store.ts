@@ -129,6 +129,7 @@ export interface ProvenanceInput {
 }
 
 const EXPECTATION_CODES = {
+  "desktop.worker_ack": "DIAGNOSTICS_DROPPED",
   "send.accepted": "SEND_ACCEPT_TIMEOUT",
   "turn.started": "TURN_START_TIMEOUT",
   "turn.first_output": "TURN_OUTPUT_SILENT",
@@ -141,6 +142,7 @@ const EXPECTATION_CODES = {
 } as const satisfies Record<string, IncidentCode>;
 
 const EXPECTATION_LIMIT_NAMES = {
+  "desktop.worker_ack": "desktopWorkerAckMs",
   "send.accepted": "sendAcceptedMs",
   "turn.started": "turnStartedMs",
   "turn.first_output": "firstOutputMs",
@@ -195,6 +197,7 @@ interface ExpectationRow {
 }
 
 function expectationFlow(kind: ExpectationKind): string {
+  if (kind === "desktop.worker_ack") return "app";
   if (kind.startsWith("turn.") || kind.startsWith("send.")) return "send";
   if (kind.startsWith("stop.")) return "stop";
   if (kind.startsWith("play.")) return "play";
@@ -909,6 +912,13 @@ function insertEnvelope(
       );
   } else if (event.type === "expectation_arm") {
     const expectation = event.data as ExpectationArmInput;
+    const resolvedKey = `expectation-resolved:${expectation.id}`;
+    if (database.prepare("DELETE FROM meta WHERE key = ?").run(resolvedKey).changes > 0) {
+      database
+        .prepare("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)")
+        .run(receiptKey, String(event.sequence));
+      return;
+    }
     const armedAt = expectation.armedAt ?? event.at;
     const deadlineAt = new Date(Date.parse(armedAt) + expectation.deadlineMs).toISOString();
     // The desktop writes through a worker. A fast server acceptance can reach
@@ -981,15 +991,20 @@ function insertEnvelope(
         }),
         pin.until,
       );
-    if (event.type === "expectation_resolved" && typeof data.fields?.entityId === "string")
-      database.prepare("DELETE FROM expectations WHERE id = ?").run(data.fields.entityId);
+    if (event.type === "expectation_resolved" && typeof data.fields?.entityId === "string") {
+      const id = data.fields.entityId;
+      if (database.prepare("DELETE FROM expectations WHERE id = ?").run(id).changes === 0)
+        database
+          .prepare("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)")
+          .run(`expectation-resolved:${id}`, event.at);
+    }
   } else {
     const data = event.data as IncidentInput;
     const expectationId = data.context?.entityId;
     const closesExpectation =
       data.kind === "expectation.missed" &&
       typeof expectationId === "string" &&
-      ["late_resolution", "deadline", "unknown"].includes(String(data.context?.reason));
+      ["late_resolution", "deadline", "unknown", "crashed"].includes(String(data.context?.reason));
     if (
       closesExpectation &&
       !database.prepare("SELECT 1 FROM expectations WHERE id = ?").get(expectationId as string)
@@ -1167,7 +1182,9 @@ function insertEnvelope(
     // the expectation here prevents a crash from replaying a second miss.
     if (
       data.kind === "expectation.missed" &&
-      ["late_resolution", "deadline", "unknown"].includes(String(data.context?.reason)) &&
+      ["late_resolution", "deadline", "unknown", "crashed"].includes(
+        String(data.context?.reason),
+      ) &&
       typeof expectationId === "string"
     )
       database.prepare("DELETE FROM expectations WHERE id = ?").run(expectationId);
@@ -1958,7 +1975,12 @@ export class DiagnosticsStore {
       const expired = Date.parse(pending.deadline_at) <= now.getTime();
       if (!expired && ownerAlive) continue;
       const restarted = !ownerAlive;
-      const code = restarted ? "EXPECTATION_MISSED" : EXPECTATION_CODES[pending.kind];
+      const code =
+        pending.kind === "desktop.worker_ack"
+          ? "DIAGNOSTICS_DROPPED"
+          : restarted
+            ? "EXPECTATION_MISSED"
+            : EXPECTATION_CODES[pending.kind];
       const last = this.database
         .prepare("SELECT step FROM detail WHERE trace_id = ? ORDER BY id DESC LIMIT 1")
         .get(pending.trace_id) as { step: string } | undefined;
@@ -1973,14 +1995,32 @@ export class DiagnosticsStore {
         code,
         where: "diagnostics.expectation",
         severity: "error",
-        expected: { deadlineMs: pending.deadline_ms },
-        actual: { elapsedMs: Math.max(0, now.getTime() - Date.parse(pending.armed_at)) },
+        expected:
+          pending.kind === "desktop.worker_ack"
+            ? { accepted: true, deadlineMs: pending.deadline_ms }
+            : { deadlineMs: pending.deadline_ms },
+        actual:
+          pending.kind === "desktop.worker_ack"
+            ? {
+                accepted: false,
+                elapsedMs: Math.max(0, now.getTime() - Date.parse(pending.armed_at)),
+              }
+            : { elapsedMs: Math.max(0, now.getTime() - Date.parse(pending.armed_at)) },
         limit: {
           name: EXPECTATION_LIMIT_NAMES[pending.kind],
           value: pending.deadline_ms,
           observed: Math.max(0, now.getTime() - Date.parse(pending.armed_at)),
         },
-        context: { ...context, reason: restarted ? "unknown" : "deadline", entityId: pending.id },
+        context: {
+          ...context,
+          reason:
+            pending.kind === "desktop.worker_ack" && restarted
+              ? "crashed"
+              : restarted
+                ? "unknown"
+                : "deadline",
+          entityId: pending.id,
+        },
         ...((last?.step ?? pending.last_checkpoint)
           ? { lastCheckpoint: last?.step ?? pending.last_checkpoint! }
           : {}),
@@ -2293,6 +2333,17 @@ export class DiagnosticsSpoolWriter {
     const id = randomUUID();
     this.append("expectation_arm", { ...input, id });
     return id;
+  }
+
+  resolveExpectation(id: string, trace: Pick<DiagnosticContext, "traceId" | "spanId">): void {
+    validateDiagnosticId(id);
+    this.append("expectation_resolved", {
+      ...trace,
+      flow: "app",
+      step: "expectation.resolved",
+      outcome: "ok",
+      fields: { entityId: id },
+    });
   }
 
   sampleHealth(input: HealthSampleInput): void {

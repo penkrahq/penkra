@@ -1006,6 +1006,39 @@ describe("diagnostics store", () => {
     store.close();
   });
 
+  it("settles a worker receipt imported before its desktop queue reservation", () => {
+    const { stateDir, store } = fixture();
+    const options = { stateDir, appVersion: "0.14.3", process: "desktop-main" } as const;
+    const desktop = new DiagnosticsSpoolWriter(options);
+    const worker = new DiagnosticsSpoolWriter(options);
+    const id = desktop.armExpectation({
+      traceId,
+      spanId,
+      kind: "desktop.worker_ack",
+      deadlineMs: 30_000,
+    });
+    worker.resolveExpectation(id, { traceId, spanId });
+    const dir = path.join(stateDir, "diagnostics");
+    const spool = path.join(dir, `spool-${desktop.bootId}.jsonl`);
+    const hidden = path.join(dir, "hidden-parent-spool");
+    fs.renameSync(spool, hidden);
+    store.importPeerSpools();
+    fs.renameSync(hidden, spool);
+    store.importPeerSpools();
+    expect(store.sweepExpectations(new Date(Date.now() + 60_000))).toBe(0);
+    const db = openDiagnosticsReader(stateDir)!;
+    expect(db.prepare("SELECT COUNT(*) AS count FROM expectations").get()).toMatchObject({
+      count: 0,
+    });
+    expect(db.prepare("SELECT COUNT(*) AS count FROM incident_occurrences").get()).toMatchObject({
+      count: 0,
+    });
+    db.close();
+    desktop.close();
+    worker.close();
+    store.close();
+  });
+
   it("rejects content in expectation correlation before persisting it", () => {
     const { stateDir, store } = fixture();
     expect(() =>
