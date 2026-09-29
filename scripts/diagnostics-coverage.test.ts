@@ -166,4 +166,31 @@ function fail() {
       expect(uncoveredFailureSites(sites, () => source, [], boundary)).toEqual(sites);
     }
   });
+
+  it("accepts a reviewed recorded catch only when that catch calls its registered recorder", () => {
+    const file = "apps/web/src/lib/composerSend.ts";
+    const source = `
+      try { upload() } catch {
+        recordComposerAttachmentFailure("SEND_PREFLIGHT_REJECTED", "browser.composer_attachment_upload");
+      }
+      try { upload() } catch { recover(); }
+    `;
+    const sites = scanFailureSites(file, source);
+    const boundary = {
+      code: "SEND_PREFLIGHT_REJECTED",
+      where: "browser.composer_attachment_upload",
+    };
+    const boundaries = validateCoverageBoundaries([{ ...boundary, file }], () => source);
+    const reviewed: CoverageException = {
+      ...sites[0]!,
+      disposition: "recorded",
+      reason: "The catch emits its fixed preflight incident before recovery.",
+      reviewer: "diagnostics-0143",
+      boundary,
+    };
+    expect(uncoveredFailureSites(sites, () => source, [reviewed], boundaries)).toEqual([sites[1]]);
+    expect(() =>
+      uncoveredFailureSites(sites, () => source, [{ ...reviewed, ...sites[1]! }], boundaries),
+    ).toThrow("Invalid");
+  });
 });

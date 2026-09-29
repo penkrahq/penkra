@@ -20,7 +20,14 @@ export interface FailureSite {
 }
 
 export interface CoverageException extends FailureSite {
-  readonly disposition: "cannot-fail" | "validation" | "rethrow" | "propagates" | "scheduled";
+  readonly disposition:
+    | "cannot-fail"
+    | "validation"
+    | "rethrow"
+    | "propagates"
+    | "scheduled"
+    | "recorded"
+    | "diagnostics-isolated";
   readonly reason: string;
   readonly reviewer: string;
   readonly issue?: string;
@@ -58,6 +65,16 @@ function recordsAtBoundary(source: string, boundary: CoverageBoundary): boolean 
 
 function isRecordingCall(node: ts.Node, code: string, where: string): boolean {
   if (
+    ts.isCallExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === "recordComposerAttachmentFailure" &&
+    node.arguments[0] !== undefined &&
+    node.arguments[1] !== undefined &&
+    ts.isStringLiteralLike(node.arguments[0]) &&
+    ts.isStringLiteralLike(node.arguments[1])
+  )
+    return node.arguments[0].text === code && node.arguments[1].text === where;
+  if (
     !ts.isCallExpression(node) ||
     !ts.isIdentifier(node.expression) ||
     node.expression.text !== "recordDiagnosticIncident" ||
@@ -75,6 +92,33 @@ function isRecordingCall(node: ts.Node, code: string, where: string): boolean {
       .map((property) => [property.name.getText(), property.initializer.getText().slice(1, -1)]),
   );
   return fields.get("code") === code && fields.get("where") === where;
+}
+
+function recordsInsideCatch(
+  source: string,
+  site: FailureSite,
+  code: string,
+  where: string,
+): boolean {
+  const parsed = ts.createSourceFile(site.file, source, ts.ScriptTarget.Latest, true);
+  let found = false;
+  function visit(node: ts.Node): void {
+    if (found) return;
+    if (ts.isCatchClause(node)) {
+      const position = failureSitePosition(node, parsed);
+      if (position.line + 1 === site.line && position.character + 1 === site.column) {
+        found = node.block.statements.some(
+          (statement) =>
+            ts.isExpressionStatement(statement) &&
+            isRecordingCall(statement.expression, code, where),
+        );
+        return;
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(parsed);
+  return found;
 }
 
 /** A local marker must be preceded by a recording statement in its own block. */
@@ -203,17 +247,32 @@ export function uncoveredFailureSites(
   }
   for (const entry of exceptions) {
     const key = siteKey(entry);
-    const needsBoundary = entry.disposition === "rethrow" || entry.disposition === "propagates";
+    const needsBoundary = ["rethrow", "propagates", "recorded"].includes(entry.disposition);
     const boundaryKey = entry.boundary ? `${entry.boundary.code}:${entry.boundary.where}` : null;
     if (
       !known.has(key) ||
       reviewed.has(key) ||
-      !["cannot-fail", "validation", "rethrow", "propagates", "scheduled"].includes(
-        entry.disposition,
-      ) ||
+      ![
+        "cannot-fail",
+        "validation",
+        "rethrow",
+        "propagates",
+        "scheduled",
+        "recorded",
+        "diagnostics-isolated",
+      ].includes(entry.disposition) ||
       (entry.disposition === "validation" && !["throw", "rejection"].includes(entry.kind)) ||
       (entry.disposition === "rethrow" && entry.kind !== "throw") ||
       (entry.disposition === "scheduled" && entry.kind !== "timeout") ||
+      (entry.disposition === "recorded" &&
+        (entry.kind !== "catch" ||
+          !entry.boundary ||
+          !recordsInsideCatch(
+            sourceFor(entry.file),
+            entry,
+            entry.boundary.code,
+            entry.boundary.where,
+          ))) ||
       (needsBoundary && (!boundaryKey || !boundaries.has(boundaryKey))) ||
       (!needsBoundary && entry.boundary !== undefined) ||
       entry.reason.trim().length < 20 ||

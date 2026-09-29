@@ -3,5 +3,25 @@
     "code": "REJECTED_STREAMING_RPC_ADMISSION",
     "where": "server.stream_admission",
     "file": "apps/server/src/wsStreamAdmission.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "browser.composer_attachment_cancel",
+    "file": "apps/web/src/lib/composerSend.ts"
+  },
+  {
+    "code": "SEND_PREFLIGHT_REJECTED",
+    "where": "browser.composer_attachment_upload",
+    "file": "apps/web/src/lib/composerSend.ts"
+  },
+  {
+    "code": "COMMAND_REJECTED",
+    "where": "browser.composer_attachment_dispatch",
+    "file": "apps/web/src/lib/composerSend.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "browser.composer_attachment_hydrate",
+    "file": "apps/web/src/lib/composerSend.ts"
   }
 ]
