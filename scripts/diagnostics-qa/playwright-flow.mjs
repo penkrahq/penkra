@@ -154,6 +154,28 @@ async function run(flow, page, stateDir) {
       await page.getByRole("button", { name: "Continue" }).waitFor({ state: "hidden" });
       return;
     }
+    case "queue": {
+      const id = await newThread(page, stateDir);
+      await send(page, stateDir, id, "qa:hold");
+      await page.waitForFunction(async (targetId) => {
+        const { readNativeApi } = await import("/src/nativeApi.ts");
+        const snapshot = await readNativeApi()?.orchestration.getThreadDetailSnapshot({
+          threadId: targetId,
+        });
+        return !!snapshot?.thread?.session?.activeTurnId;
+      }, id);
+      await page.getByRole("button", { name: "Stop generation" }).waitFor();
+      await page.waitForTimeout(1_500);
+      const queued = `qa:queued-${Date.now()}`;
+      const editor = page.getByRole("textbox");
+      await editor.fill(queued);
+      await editor.press("Enter");
+      await waitForDetail(stateDir, "queue", "queue.enqueued", id, 20_000);
+      await page.getByText(queued, { exact: true }).first().waitFor();
+      await page.getByRole("button", { name: "Stop generation" }).click();
+      await waitForDetail(stateDir, "queue", "queue.started", id, 20_000);
+      return;
+    }
     case "archive": {
       const id = await newThread(page, stateDir);
       const message = `qa:archive-${Date.now()}`;
