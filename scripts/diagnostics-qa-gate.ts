@@ -31,6 +31,18 @@ export const REQUIRED_QA_CHECKS: Record<QaFlow, readonly string[]> = {
   "provider-switch": ["provider.switch_requested", "provider.switched"],
 };
 
+export const DIAGNOSTIC_FLOW: Record<QaFlow, string> = {
+  send: "send",
+  stop: "stop",
+  play: "play",
+  queue: "queue",
+  archive: "archive",
+  "multi-window": "window",
+  "thread-create": "thread_create",
+  reconnect: "socket_connect",
+  "provider-switch": "app",
+};
+
 export interface QaFlowResult {
   readonly flow: QaFlow;
   readonly passed: boolean;
@@ -160,6 +172,47 @@ function diagnosticsState(stateDir: string): {
   }
 }
 
+function observedQaChecks(stateDir: string, flow: QaFlow, afterId: number): readonly string[] {
+  const db = openDiagnosticsReader(stateDir);
+  if (!db) return [];
+  try {
+    const rows = db
+      .prepare(
+        "SELECT trace_id, step, payload_json FROM detail WHERE id > ? AND flow = ? ORDER BY id",
+      )
+      .all(afterId, DIAGNOSTIC_FLOW[flow]) as Array<{
+      trace_id: string;
+      step: string;
+      payload_json: string;
+    }>;
+    const byTrace = new Map<string, Set<string>>();
+    for (const row of rows) {
+      const payload = JSON.parse(row.payload_json) as { outcome?: unknown };
+      if (payload.outcome !== "ok") continue;
+      const checks = byTrace.get(row.trace_id) ?? new Set<string>();
+      checks.add(row.step);
+      byTrace.set(row.trace_id, checks);
+    }
+    return [...byTrace.values()].find((checks) =>
+      REQUIRED_QA_CHECKS[flow].every((step) => checks.has(step)),
+    )
+      ? REQUIRED_QA_CHECKS[flow]
+      : [];
+  } finally {
+    db.close();
+  }
+}
+
+function lastDetailId(stateDir: string): number {
+  const db = openDiagnosticsReader(stateDir);
+  if (!db) throw new Error("Diagnostics store is unavailable during clean QA");
+  try {
+    return (db.prepare("SELECT COALESCE(MAX(id), 0) AS id FROM detail").get() as { id: number }).id;
+  } finally {
+    db.close();
+  }
+}
+
 export function runDiagnosticsQaGate(
   stateDir: string,
   scripts: ReadonlyMap<QaFlow, string>,
@@ -209,7 +262,15 @@ export function runDiagnosticsQaGate(
     if (!fs.statSync(script).isFile()) throw new Error(`QA script is not a file: ${script}`);
   }
   const before = diagnosticsState(stateDir);
-  const results = REQUIRED_QA_FLOWS.map((flow) => runner(scripts.get(flow)!, stateDir, flow));
+  const results = REQUIRED_QA_FLOWS.map((flow) => {
+    const beforeDetailId = lastDetailId(stateDir);
+    const report = runner(scripts.get(flow)!, stateDir, flow);
+    return {
+      flow: report.flow,
+      passed: report.passed,
+      checks: observedQaChecks(stateDir, flow, beforeDetailId),
+    };
+  });
   const after = diagnosticsState(stateDir);
   const newLosses =
     countGrowth(after.losses, before.losses) +
