@@ -8,6 +8,10 @@
       "types": "./src/diagnostics/codes.ts",
       "import": "./src/diagnostics/codes.ts"
     },
+    "./diagnostics/startupExit": {
+      "types": "./src/diagnostics/startupExit.ts",
+      "import": "./src/diagnostics/startupExit.ts"
+    },
     "./diagnostics/limits": {
       "types": "./src/diagnostics/limits.ts",
       "import": "./src/diagnostics/limits.ts"

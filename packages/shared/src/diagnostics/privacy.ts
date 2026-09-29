@@ -1,5 +1,6 @@
 /** The only diagnostic values allowed to cross the spool boundary. */
 import { INCIDENT_CODES } from "./codes";
+import { PRE_STORE_BOOT_STAGES } from "./startupExit";
 
 export type DiagnosticScalar = string | number | boolean | null;
 export type DiagnosticFields = Readonly<Record<string, DiagnosticScalar>>;
@@ -171,6 +172,7 @@ const enumValues = {
   ],
   capability: ["thread:read", "thread:write", "diagnostics:read"],
   bootStage: [
+    ...PRE_STORE_BOOT_STAGES,
     "provider-native-state-deletion.recover",
     "provider-connection-lifecycle.recover",
     "provider-connection-login.recover",
@@ -271,6 +273,7 @@ const enumValues = {
     "desktop.app_tab",
     "desktop.app_transfer",
     "desktop.backend_readiness",
+    "desktop.backend_start",
     "desktop.backend_restart",
     "desktop.backend_shutdown",
     "desktop.bootstrap",
