@@ -903,6 +903,53 @@ describe("WsTransport", () => {
     expect(transportInternals.reconnectPromise).toBeNull();
   });
 
+  it("records a clean reconnect on one trace after the replacement session opens", async () => {
+    const recordDiagnosticCheckpoint = vi.fn().mockResolvedValue(undefined);
+    window.desktopBridge = { recordDiagnosticCheckpoint } as never;
+    const { internals } = makeBareTransport();
+    const runtime = {
+      runPromise: vi.fn().mockResolvedValue(undefined),
+      dispose: vi.fn().mockResolvedValue(undefined),
+    };
+    const transportInternals = internals as unknown as {
+      runtime: typeof runtime;
+      clientScope: Scope.Scope;
+      state: string;
+      readonly stateListeners: Set<(state: string) => void>;
+      reconnectPromise: Promise<unknown> | null;
+      reconnect: () => Promise<unknown>;
+      setState: (state: string) => void;
+      openReconnectSession: () => Promise<unknown>;
+    };
+    Object.assign(transportInternals, {
+      runtime,
+      clientScope: Effect.runSync(Scope.make()),
+      state: "open",
+      stateListeners: new Set(),
+      reconnectPromise: null,
+      openReconnectSession: async () => {
+        transportInternals.setState("open");
+        return {};
+      },
+    });
+    await transportInternals.reconnect();
+    expect(recordDiagnosticCheckpoint).toHaveBeenCalledTimes(2);
+    const [disconnected, reconnected] = recordDiagnosticCheckpoint.mock.calls.map(
+      ([input]) => input,
+    );
+    expect(disconnected).toMatchObject({
+      flow: "socket_connect",
+      step: "socket.disconnected",
+      outcome: "ok",
+    });
+    expect(reconnected).toMatchObject({
+      flow: "socket_connect",
+      step: "socket.reconnected",
+      outcome: "ok",
+    });
+    expect(reconnected.traceId).toBe(disconnected.traceId);
+  });
+
   it("shares one reconnect when cancelling multiple streams synchronously re-enters", async () => {
     const { internals } = makeBareTransport();
     const replacementClient = { id: "replacement" };
