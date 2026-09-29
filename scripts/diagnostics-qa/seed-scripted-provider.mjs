@@ -32,11 +32,17 @@ export function assertIsolatedQaStateDir(stateDir) {
 }
 
 export function seedScriptedProvider(stateDir) {
-  const dir = assertIsolatedQaStateDir(stateDir);
+  const realDir = assertIsolatedQaStateDir(stateDir);
+  // Keep the spelling used by ServerConfig. On macOS /tmp resolves to
+  // /private/tmp, but installation executable_path is an immutable identity.
+  const dir = path.resolve(stateDir);
   const databasePath = path.join(dir, "state.sqlite");
   if (!fs.existsSync(databasePath))
     throw new Error("Start and stop the Dev server to migrate first");
-  if (fs.lstatSync(databasePath).isSymbolicLink() || fs.realpathSync(databasePath) !== databasePath)
+  if (
+    fs.lstatSync(databasePath).isSymbolicLink() ||
+    fs.realpathSync(databasePath) !== path.join(realDir, "state.sqlite")
+  )
     throw new Error("Fixture seeding requires a non-symlinked Dev database");
   const db = new DatabaseSync(databasePath, { timeout: 1000 });
   try {
