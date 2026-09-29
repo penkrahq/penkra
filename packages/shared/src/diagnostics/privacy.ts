@@ -274,6 +274,7 @@ const enumValues = {
     "server.stream_admission",
     "provider.runtime_event_pump",
     "provider.runtime_journal",
+    "provider.native_state",
     "server.boot",
     "agent.mcp_write",
     "provider.delivery",

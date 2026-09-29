@@ -1,0 +1,496 @@
+[
+  {
+    "file": "apps/server/src/provider/defaultConnection.ts",
+    "line": 22,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "Connection selection rejects an unavailable or ambiguous provider choice.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/provider/defaultConnection.ts",
+    "line": 29,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "Connection selection rejects an unavailable or ambiguous provider choice.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/provider/defaultConnection.ts",
+    "line": 35,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "Connection selection rejects an unavailable or ambiguous provider choice.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/provider/defaultConnection.ts",
+    "line": 37,
+    "column": 3,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "Connection selection rejects an unavailable or ambiguous provider choice.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderNativeStateMaterializer.ts",
+    "line": 46,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "Unexpected filesystem failure reaches the materialization error recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.native_state"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderNativeStateMaterializer.ts",
+    "line": 48,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The original filesystem failure reaches the materialization error recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.native_state"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderNativeStateMaterializer.ts",
+    "line": 55,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The invalid or unavailable native state reaches the materialization error recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.native_state"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderNativeStateMaterializer.ts",
+    "line": 75,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The invalid or unavailable native state reaches the materialization error recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.native_state"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderNativeStateMaterializer.ts",
+    "line": 103,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The invalid or unavailable native state reaches the materialization error recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.native_state"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderNativeStateMaterializer.ts",
+    "line": 115,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The invalid or unavailable native state reaches the materialization error recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.native_state"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderNativeStateMaterializer.ts",
+    "line": 127,
+    "column": 13,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The invalid or unavailable native state reaches the materialization error recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.native_state"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderNativeStateMaterializer.ts",
+    "line": 139,
+    "column": 13,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The invalid or unavailable native state reaches the materialization error recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.native_state"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderNativeStateMaterializer.ts",
+    "line": 140,
+    "column": 13,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "Unexpected filesystem failure reaches the materialization error recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.native_state"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderNativeStateMaterializer.ts",
+    "line": 142,
+    "column": 15,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The original filesystem failure reaches the materialization error recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.native_state"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderNativeStateMaterializer.ts",
+    "line": 147,
+    "column": 15,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The invalid or unavailable native state reaches the materialization error recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.native_state"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderNativeStateMaterializer.ts",
+    "line": 161,
+    "column": 15,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The invalid or unavailable native state reaches the materialization error recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.native_state"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderNativeStateMaterializer.ts",
+    "line": 171,
+    "column": 19,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The invalid or unavailable native state reaches the materialization error recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.native_state"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderNativeStateMaterializer.ts",
+    "line": 197,
+    "column": 15,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "Unexpected filesystem failure reaches the materialization error recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.native_state"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderNativeStateMaterializer.ts",
+    "line": 203,
+    "column": 15,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The original filesystem failure reaches the materialization error recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.native_state"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderNativeStateMaterializer.ts",
+    "line": 208,
+    "column": 13,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The invalid or unavailable native state reaches the materialization error recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.native_state"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderNativeStateMaterializer.ts",
+    "line": 222,
+    "column": 13,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "Unexpected filesystem failure reaches the materialization error recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.native_state"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderNativeStateMaterializer.ts",
+    "line": 224,
+    "column": 13,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The original filesystem failure reaches the materialization error recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.native_state"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderNativeStateMaterializer.ts",
+    "line": 240,
+    "column": 11,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "Unexpected filesystem failure reaches the materialization error recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.native_state"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderNativeStateMaterializer.ts",
+    "line": 242,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The original filesystem failure reaches the materialization error recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.native_state"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderNativeStateMaterializer.ts",
+    "line": 252,
+    "column": 13,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The invalid or unavailable native state reaches the materialization error recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.native_state"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderService.ts",
+    "line": 526,
+    "column": 21,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "The idle-stop timer schedules a normal lifecycle check after inactivity.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderService.ts",
+    "line": 730,
+    "column": 16,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The consumed provider service failure is recorded before recovery or fallback.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.provider"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderService.ts",
+    "line": 1148,
+    "column": 16,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The consumed provider service failure is recorded before recovery or fallback.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.provider"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderService.ts",
+    "line": 1482,
+    "column": 26,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The consumed provider service failure is recorded before recovery or fallback.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.provider"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderService.ts",
+    "line": 1748,
+    "column": 20,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The consumed provider service failure is recorded before recovery or fallback.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.provider"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderService.ts",
+    "line": 2251,
+    "column": 22,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "A missing persisted binding is an expected idempotent stop condition.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderService.ts",
+    "line": 2254,
+    "column": 28,
+    "kind": "rejection",
+    "disposition": "validation",
+    "reason": "Other provider validation errors remain typed failures to the caller.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderService.ts",
+    "line": 2399,
+    "column": 16,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The consumed provider service failure is recorded before recovery or fallback.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.provider"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderService.ts",
+    "line": 2685,
+    "column": 22,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The consumed provider service failure is recorded before recovery or fallback.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.provider"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderService.ts",
+    "line": 2852,
+    "column": 36,
+    "kind": "rejection",
+    "disposition": "validation",
+    "reason": "An invalid provider-native cursor is rejected before it is persisted.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderService.ts",
+    "line": 2857,
+    "column": 36,
+    "kind": "rejection",
+    "disposition": "validation",
+    "reason": "An invalid provider-native cursor is rejected before it is persisted.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderService.ts",
+    "line": 2875,
+    "column": 36,
+    "kind": "rejection",
+    "disposition": "validation",
+    "reason": "An invalid provider-native cursor is rejected before it is persisted.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderService.ts",
+    "line": 2885,
+    "column": 36,
+    "kind": "rejection",
+    "disposition": "validation",
+    "reason": "An invalid provider-native cursor is rejected before it is persisted.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/provider/Layers/ProviderService.ts",
+    "line": 2890,
+    "column": 36,
+    "kind": "rejection",
+    "disposition": "validation",
+    "reason": "An invalid provider-native cursor is rejected before it is persisted.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/provider/providerRuntimeEventPump.ts",
+    "line": 65,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "cannot-fail",
+    "reason": "The registry seeds every provider before its snapshot can be read.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/provider/providerRuntimeEventPump.ts",
+    "line": 196,
+    "column": 16,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The caught adapter failure records an occurrence before it is retried.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.runtime_event_pump"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/providerRuntimeEventPump.ts",
+    "line": 241,
+    "column": 16,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The caught adapter failure records an occurrence before it is retried.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.runtime_event_pump"
+    }
+  }
+]

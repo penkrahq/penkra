@@ -65,6 +65,20 @@ function recordsAtBoundary(source: string, boundary: CoverageBoundary): boolean 
 }
 
 function isRecordingCall(node: ts.Node, code: string, where: string): boolean {
+  if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+    if (
+      node.expression.text === "recordFailure" &&
+      code === "EXTERNAL_CALL_FAILED" &&
+      where === "provider.runtime_event_pump"
+    )
+      return true;
+    if (
+      node.expression.text === "reportProviderServiceFailure" &&
+      code === "EXTERNAL_CALL_FAILED" &&
+      where === "server.provider"
+    )
+      return true;
+  }
   if (
     ts.isCallExpression(node) &&
     ts.isIdentifier(node.expression) &&
