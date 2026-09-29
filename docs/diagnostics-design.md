@@ -524,12 +524,16 @@ overflow count. Once the worker responds, it writes that count durably and
 records `DIAGNOSTICS_DROPPED`. The QA gate fails on growth in confirmed loss,
 `possibly_lost`, or `lost_count_unknown`, as well as exact overflow.
 
-The runnable main-thread enqueue benchmark is
-`bun scripts/benchmark-desktop-diagnostics-queue.mjs`. On the development host
-with 2,000 writes and an immediate fake worker, synchronous reservation measured
-p50 0.58 ms, p95 0.902 ms, max 8.273 ms; in-memory worker-credit enqueue
-measured p50 0 ms, p95 0.001 ms, max 0.043 ms. This isolates enqueue overhead;
-it does not measure end-to-end worker persistence or real Electron rendering.
+The runnable benchmark is `bun scripts/benchmark-desktop-diagnostics-queue.mjs`
+after building the desktop diagnostics worker. Its `inMemoryMicrobenchmark`
+compares synchronous reservation with worker-credit enqueue using an immediate
+fake worker; those figures isolate enqueue overhead only. On the development
+host, 2,000 writes through a real Node worker measured main-thread enqueue
+p50 0.001 ms and p95 0.005 ms, durable acknowledgement p50 53.891 ms and
+p95 111.623 ms, and a refill fsync round trip of 107.212 ms (one refill).
+The run produced 2,000 acknowledgements across three credit blocks. These
+measurements include `postMessage`, worker persistence, and acknowledgement,
+but do not measure Electron rendering or represent a latency guarantee.
 
 **Cost limits.**
 
