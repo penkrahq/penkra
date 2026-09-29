@@ -284,6 +284,22 @@ function hasFreshAppAction(
   return false;
 }
 
+/** Proofs are fsynced by app workers after the visible checkpoint is spooled. */
+export function waitForQaEvidence(
+  read: () => boolean,
+  timeoutMs = 5_000,
+  pause: (milliseconds: number) => void = (milliseconds) =>
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds),
+): boolean {
+  const deadline = Date.now() + timeoutMs;
+  if (read()) return true;
+  while (Date.now() < deadline) {
+    pause(50);
+    if (read()) return true;
+  }
+  return false;
+}
+
 function lastDetailId(stateDir: string): number {
   const db = openDiagnosticsReader(stateDir);
   if (!db) throw new Error("Diagnostics store is unavailable during clean QA");
@@ -347,6 +363,7 @@ export function runDiagnosticsQaGate(
   },
   evidenceConfig: QaEvidenceConfig | null = qaEvidenceConfigFromEnv(),
   drainTimeoutMs = 10_000,
+  proofTimeoutMs = 5_000,
 ): ReturnType<typeof evaluateDiagnosticsQaGate> {
   if (
     scripts.size !== REQUIRED_QA_FLOWS.length ||
@@ -370,7 +387,17 @@ export function runDiagnosticsQaGate(
         flow: report.flow,
         passed:
           report.passed &&
-          hasFreshAppAction(evidenceConfig, flow, observed.traceId, beforeProofOffset, challenge),
+          waitForQaEvidence(
+            () =>
+              hasFreshAppAction(
+                evidenceConfig,
+                flow,
+                observed.traceId,
+                beforeProofOffset,
+                challenge,
+              ),
+            proofTimeoutMs,
+          ),
         checks: observed.checks,
       };
     } finally {
