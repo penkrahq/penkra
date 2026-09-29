@@ -32,6 +32,7 @@ describe("desktop diagnostics queue", () => {
       true,
     );
     queue.enqueue("checkpoint", { sequence: 0 });
+    expect(worker.messages).toEqual([]);
     worker.emit("message", { kind: "credits", start: 1, count: 2 });
     queue.enqueue("checkpoint", { sequence: 1 });
     queue.enqueue("checkpoint", { sequence: 2 });
@@ -39,21 +40,18 @@ describe("desktop diagnostics queue", () => {
     expect(reserve).not.toHaveBeenCalled();
     expect(worker.messages).toContainEqual({
       kind: "checkpoint",
-      input: { sequence: 1 },
+      input: { sequence: 0 },
       queueSlot: 1,
     });
     expect(worker.messages).toContainEqual({
       kind: "checkpoint",
-      input: { sequence: 2 },
+      input: { sequence: 1 },
       queueSlot: 2,
     });
     worker.emit("message", { kind: "credits", start: 3, count: 2 });
     expect(
       worker.messages.filter((message) => (message as { kind?: string }).kind === "overflow"),
-    ).toEqual([
-      { kind: "overflow", count: 1 },
-      { kind: "overflow", count: 1 },
-    ]);
+    ).toEqual([{ kind: "overflow", count: 2 }]);
     const draining = queue.drain();
     worker.emit("message", { kind: "drained" });
     await draining;

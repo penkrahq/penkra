@@ -505,7 +505,8 @@ includes the last durable sequence and a bounded loss/gap count when known.
 Desktop main never synchronously writes or fsyncs diagnostics during a send. The
 diagnostics worker reserves and syncs blocks of 1,024 queue slots, then grants
 them to main over IPC. Main assigns slots in memory. The worker refills when half
-of the granted slots remain. A record is accepted only after the worker has
+of the granted slots remain. Main holds a bounded startup buffer until the first
+grant arrives, then sends those records with credits. A record is accepted only after the worker has
 synced its spool entry and acknowledged it. On an unclean exit, reconciliation
 counts reserved slots without imported entries as `possibly_lost`, a conservative
 upper bound that includes unused credits. It also records
