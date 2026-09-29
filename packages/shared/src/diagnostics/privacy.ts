@@ -326,6 +326,14 @@ export function validateDiagnosticFields(value: DiagnosticFields): DiagnosticFie
   }
   const safe: Record<string, DiagnosticScalar> = {};
   for (const [key, item] of Object.entries(value)) {
+    if (
+      !idKeys.has(key) &&
+      !Object.hasOwn(allowedEnumValues, key) &&
+      !numericKeys.has(key) &&
+      !booleanKeys.has(key) &&
+      !timestampKeys.has(key)
+    )
+      throw new TypeError(`Diagnostic field ${key} is not allowlisted`);
     if (item === null) {
       safe[key] = null;
     } else if (idKeys.has(key) && typeof item === "string" && generatedId.test(item)) {
