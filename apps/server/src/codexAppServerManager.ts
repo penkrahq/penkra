@@ -195,6 +195,8 @@ interface CodexSessionContext {
   readonly gatewaySessionLease?: AgentGatewaySessionLease;
   session: ProviderSession;
   lifecycleGeneration?: string;
+  pendingGatewayTurnStart?: { turnId?: TurnId; registered: boolean };
+  nativeTurnStartTail?: Promise<void>;
   account: CodexAccountSnapshot;
   child: ChildProcessWithoutNullStreams;
   binaryPath?: string;
@@ -1528,8 +1530,34 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
   }
 
+  private async withNativeTurnStart<T>(
+    context: CodexSessionContext,
+    start: () => Promise<T>,
+  ): Promise<T> {
+    const previous = context.nativeTurnStartTail;
+    let release!: () => void;
+    const tail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    context.nativeTurnStartTail = tail;
+    await previous;
+    try {
+      return await start();
+    } finally {
+      release();
+      if (context.nativeTurnStartTail === tail) delete context.nativeTurnStartTail;
+    }
+  }
+
   async sendTurn(input: CodexAppServerSendTurnInput): Promise<ProviderTurnStartResult> {
     const context = this.requireSession(input.threadId);
+    return this.withNativeTurnStart(context, () => this.sendTurnInSession(context, input));
+  }
+
+  private async sendTurnInSession(
+    context: CodexSessionContext,
+    input: CodexAppServerSendTurnInput,
+  ): Promise<ProviderTurnStartResult> {
     context.collabReceiverTurns.clear();
     context.collabReceiverParents.clear();
 
@@ -1596,39 +1624,58 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       });
     }
 
-    const response = await this.sendRequest(context, "turn/start", turnStartParams);
-    const turn = this.readObject(this.readObject(response), "turn");
-    const turnIdRaw = this.readString(turn, "id");
-    if (!turnIdRaw) {
-      recordCodexManagerFailure();
-      throw new Error("turn/start response did not include a turn id.");
-    }
-    const turnId = TurnId.makeUnsafe(turnIdRaw);
-    const turnStatus = this.readString(turn, "status");
-    if (turnStatus === "failed" || turnStatus === "completed" || turnStatus === "interrupted") {
-      if (!context.terminalTurnIds.has(turnId)) {
-        this.handleServerNotification(context, {
-          method: "turn/completed",
-          params: { threadId: providerThreadId, turn },
+    const pendingStart: { turnId?: TurnId; registered: boolean } = { registered: false };
+    context.pendingGatewayTurnStart = pendingStart;
+    try {
+      const response = await this.sendRequest(context, "turn/start", turnStartParams);
+      const turn = this.readObject(this.readObject(response), "turn");
+      const turnIdRaw = this.readString(turn, "id");
+      if (!turnIdRaw) {
+        recordCodexManagerFailure();
+        throw new Error("turn/start response did not include a turn id.");
+      }
+      const turnId = TurnId.makeUnsafe(turnIdRaw);
+      if (pendingStart.turnId !== undefined && pendingStart.turnId !== turnId) {
+        recordCodexManagerFailure();
+        throw new Error("turn/start response does not match the registered native turn.");
+      }
+      pendingStart.turnId = turnId;
+      const turnStatus = this.readString(turn, "status");
+      if (turnStatus === "failed" || turnStatus === "completed" || turnStatus === "interrupted") {
+        if (!context.terminalTurnIds.has(turnId)) {
+          this.handleServerNotification(context, {
+            method: "turn/completed",
+            params: { threadId: providerThreadId, turn },
+          });
+        }
+      } else if (!context.terminalTurnIds.has(turnId)) {
+        if (!pendingStart.registered) {
+          this.agentGatewayHostTool?.beginTurn?.(
+            context.session.threadId,
+            turnId,
+            context.lifecycleGeneration,
+          );
+          pendingStart.registered = true;
+        }
+        this.updateSession(context, {
+          status: "running",
+          activeTurnId: turnId,
+          ...(context.session.resumeCursor !== undefined
+            ? { resumeCursor: context.session.resumeCursor }
+            : {}),
         });
       }
-    } else if (!context.terminalTurnIds.has(turnId)) {
-      this.updateSession(context, {
-        status: "running",
-        activeTurnId: turnId,
+
+      return {
+        threadId: context.session.threadId,
+        turnId,
         ...(context.session.resumeCursor !== undefined
           ? { resumeCursor: context.session.resumeCursor }
           : {}),
-      });
+      };
+    } finally {
+      if (context.pendingGatewayTurnStart === pendingStart) delete context.pendingGatewayTurnStart;
     }
-
-    return {
-      threadId: context.session.threadId,
-      turnId,
-      ...(context.session.resumeCursor !== undefined
-        ? { resumeCursor: context.session.resumeCursor }
-        : {}),
-    };
   }
 
   async steerTurn(input: CodexAppServerSendTurnInput): Promise<ProviderTurnStartResult> {
@@ -1721,6 +1768,13 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
   async startReview(input: ProviderStartReviewInput): Promise<ProviderTurnStartResult> {
     const context = this.requireSession(input.threadId);
+    return this.withNativeTurnStart(context, () => this.startReviewInSession(context, input));
+  }
+
+  private async startReviewInSession(
+    context: CodexSessionContext,
+    input: ProviderStartReviewInput,
+  ): Promise<ProviderTurnStartResult> {
     const providerThreadId = readResumeThreadId({
       threadId: context.session.threadId,
       runtimeMode: context.session.runtimeMode,
@@ -3397,7 +3451,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
 
     if (this.isServerRequest(parsed)) {
-      void this.handleServerRequest(context, parsed).catch((cause) =>
+      // Stdio frames are ordered. Capture an ID-less tool's execution before
+      // asynchronous dispatch can observe a successor turn.
+      const ingressTurnId = context.session.activeTurnId ?? null;
+      void this.handleServerRequest(context, parsed, ingressTurnId).catch((cause) =>
         this.handleTransportFailure(context, cause),
       );
       return;
@@ -3545,6 +3602,20 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         method: notification.method,
       });
       return;
+    }
+    if (
+      notification.method === "turn/started" &&
+      !isChildConversation &&
+      rawRoute.turnId !== undefined
+    ) {
+      const pendingStart = context.pendingGatewayTurnStart;
+      if (
+        pendingStart &&
+        (pendingStart.turnId === undefined || pendingStart.turnId === rawRoute.turnId)
+      ) {
+        pendingStart.turnId = rawRoute.turnId;
+        pendingStart.registered = true;
+      }
     }
     const textDelta =
       notification.method === "item/agentMessage/delta"
@@ -3777,6 +3848,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   private async handleServerRequest(
     context: CodexSessionContext,
     request: JsonRpcRequest,
+    ingressTurnId: TurnId | null,
   ): Promise<void> {
     if (context.discovery && context.authProbeActive) {
       await this.writeMessage(context, {
@@ -3887,7 +3959,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const requestedThreadId = this.readString(params, "threadId");
       const activeProviderThreadId = readResumeCursorThreadId(context.session.resumeCursor);
       const toolName = this.readString(params, "tool");
-      const toolTurnId = toTurnId(this.readString(params, "turnId"));
+      const toolTurnId = toTurnId(this.readString(params, "turnId")) ?? ingressTurnId ?? undefined;
       const namespace = params?.namespace;
       const rawArguments = params?.arguments;
       if (
@@ -3915,14 +3987,33 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         });
         return;
       }
-      // The native request itself is trusted evidence of a live turn. Codex
-      // may deliver it before its turn/started notification, so grant that
-      // exact turn before dispatching the tool into the gateway.
-      if (
+      const pendingStart = context.pendingGatewayTurnStart;
+      const canRegisterDispatchedStart =
         toolTurnId !== undefined &&
-        !context.terminalTurnIds.has(toolTurnId) &&
-        (context.session.activeTurnId === undefined || context.session.activeTurnId === toolTurnId)
+        pendingStart !== undefined &&
+        !pendingStart.registered &&
+        (pendingStart.turnId === undefined || pendingStart.turnId === toolTurnId);
+      const currentTurnId = context.session.activeTurnId;
+      if (
+        (toolTurnId !== undefined && context.terminalTurnIds.has(toolTurnId)) ||
+        (toolTurnId !== undefined && currentTurnId !== toolTurnId && !canRegisterDispatchedStart) ||
+        toolTurnId === undefined
       ) {
+        await this.writeMessage(context, {
+          id: request.id,
+          result: {
+            contentItems: [
+              { type: "inputText", text: "Penkra rejected a tool request from an inactive turn." },
+            ],
+            success: false,
+          },
+        });
+        return;
+      }
+      if (canRegisterDispatchedStart && toolTurnId !== undefined) {
+        pendingStart.turnId = toolTurnId;
+        pendingStart.registered = true;
+        context.session = { ...context.session, status: "running", activeTurnId: toolTurnId };
         this.agentGatewayHostTool.beginTurn?.(
           context.session.threadId,
           toolTurnId,

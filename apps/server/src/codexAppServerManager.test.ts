@@ -267,7 +267,7 @@ describe("Codex Penkra harness policy", () => {
       session: {
         provider: "codex",
         status: "running",
-        activeTurnId: asTurnId("turn-successor"),
+        activeTurnId: asTurnId("turn-native"),
         threadId: asThreadId("thread-native-tool"),
         runtimeMode: "full-access",
         cwd: resourceRoot,
@@ -358,10 +358,33 @@ describe("Codex Penkra harness policy", () => {
       bearerToken: "thread-token",
       name: "penkra_exec_command",
       arguments: { command: "apps list" },
+      originTurnId: "turn-native",
     });
     expect(writeMessage.mock.calls[1]?.[1]).toMatchObject({
       result: { success: true },
     });
+    // An ID-less arrival while idle cannot acquire the current turn later.
+    await handleServerRequestForTest(
+      manager,
+      context,
+      {
+        jsonrpc: "2.0",
+        id: 79,
+        method: "item/tool/call",
+        params: {
+          threadId: "provider-thread-native",
+          namespace: null,
+          tool: "penkra_exec_command",
+          arguments: { command: "apps list" },
+        },
+      },
+      null,
+    );
+    expect(invoke).toHaveBeenCalledTimes(2);
+    expect(writeMessage).toHaveBeenLastCalledWith(
+      context,
+      expect.objectContaining({ result: expect.objectContaining({ success: false }) }),
+    );
     rmSync(resourceRoot, { recursive: true, force: true });
     expect(writeMessage).toHaveBeenCalledWith(context, {
       id: 71,
@@ -391,6 +414,7 @@ describe("Codex Penkra harness policy", () => {
       },
     });
     const context = {
+      pendingGatewayTurnStart: undefined as { turnId?: TurnId; registered: boolean } | undefined,
       gatewaySessionLease: {
         connection: { url: "http://unused.invalid/mcp", bearerToken: "thread-token" },
         release: () => undefined,
@@ -426,6 +450,51 @@ describe("Codex Penkra harness policy", () => {
     await handleServerRequestForTest(manager, context, {
       jsonrpc: "2.0",
       id: 73,
+      method: "item/tool/call",
+      params: {
+        threadId: "provider-thread-native",
+        turnId: "turn-immediate",
+        namespace: null,
+        tool: "penkra_exec_command",
+        arguments: { command: "apps list" },
+      },
+    });
+    expect(order).toEqual([]);
+    context.pendingGatewayTurnStart = {
+      turnId: asTurnId("turn-dispatched-other"),
+      registered: false,
+    };
+    await handleServerRequestForTest(manager, context, {
+      jsonrpc: "2.0",
+      id: 76,
+      method: "item/tool/call",
+      params: {
+        threadId: "provider-thread-native",
+        turnId: "turn-immediate",
+        namespace: null,
+        tool: "penkra_exec_command",
+        arguments: { command: "apps list" },
+      },
+    });
+    expect(order).toEqual([]);
+    context.pendingGatewayTurnStart = { registered: false };
+    await handleServerRequestForTest(manager, context, {
+      jsonrpc: "2.0",
+      id: 74,
+      method: "item/tool/call",
+      params: {
+        threadId: "provider-thread-native",
+        turnId: "turn-immediate",
+        namespace: null,
+        tool: "penkra_exec_command",
+        arguments: { command: "apps list" },
+      },
+    });
+    expect(order).toEqual(["begin:turn-immediate", "invoke"]);
+    context.terminalTurnIds.add(asTurnId("turn-immediate"));
+    await handleServerRequestForTest(manager, context, {
+      jsonrpc: "2.0",
+      id: 75,
       method: "item/tool/call",
       params: {
         threadId: "provider-thread-native",
@@ -490,6 +559,108 @@ function createSendTurnHarness(runtimeMode: "approval-required" | "full-access" 
 
   return { manager, context, requireSession, sendRequest, updateSession };
 }
+
+describe("Codex native start ordering", () => {
+  it.each(["send", "review"])(
+    "allows only one native start in flight per session before another %s",
+    async (nextKind) => {
+      const { manager, sendRequest } = createSendTurnHarness();
+      let release!: () => void;
+      let entered!: () => void;
+      const firstEntered = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const firstResponse = new Promise<unknown>((resolve) => {
+        release = () => resolve({ turn: { id: "turn-first" } });
+      });
+      sendRequest.mockImplementationOnce(() => {
+        entered();
+        return firstResponse;
+      });
+      const first = manager.sendTurn({ threadId: asThreadId("thread_1"), input: "first" });
+      await firstEntered;
+      const second =
+        nextKind === "send"
+          ? manager.sendTurn({ threadId: asThreadId("thread_1"), input: "second" })
+          : manager.startReview({
+              threadId: asThreadId("thread_1"),
+              target: { type: "uncommittedChanges" },
+            });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      try {
+        expect(sendRequest).toHaveBeenCalledTimes(1);
+      } finally {
+        release();
+        await Promise.all([first, second]);
+      }
+      expect(sendRequest).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it("releases the native start slot after a failed dispatch", async () => {
+    const { manager, sendRequest } = createSendTurnHarness();
+    sendRequest.mockRejectedValueOnce(new Error("start failed"));
+    const results = await Promise.allSettled([
+      manager.sendTurn({ threadId: asThreadId("thread_1"), input: "first" }),
+      manager.sendTurn({ threadId: asThreadId("thread_1"), input: "second" }),
+    ]);
+    expect(results.map((result) => result.status)).toEqual(["rejected", "fulfilled"]);
+    expect(sendRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it("captures the active turn synchronously at stdio ingress, including an idle arrival", () => {
+    const { manager, context, updateSession } = createSendTurnHarness();
+    updateSession.mockImplementation((_context, patch) => {
+      Object.assign(context.session, patch);
+    });
+    context.session.status = "running";
+    context.session.activeTurnId = "turn-received";
+    const requests = vi
+      .spyOn(
+        manager as unknown as {
+          handleServerRequest: (
+            context: unknown,
+            request: unknown,
+            ingressTurnId?: TurnId | null,
+          ) => Promise<void>;
+        },
+        "handleServerRequest",
+      )
+      .mockResolvedValue();
+    const receive = () =>
+      (
+        manager as unknown as { handleStdoutLine: (context: unknown, line: string) => void }
+      ).handleStdoutLine(
+        context,
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 89,
+          method: "item/tool/call",
+          params: {
+            threadId: "thread_1",
+            namespace: null,
+            tool: "penkra_exec_command",
+            arguments: { command: "apps list" },
+          },
+        }),
+      );
+    receive();
+    (
+      manager as unknown as { handleStdoutLine: (context: unknown, line: string) => void }
+    ).handleStdoutLine(
+      context,
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "turn/completed",
+        params: { threadId: "thread_1", turn: { id: "turn-received", status: "completed" } },
+      }),
+    );
+    receive();
+    context.session.activeTurnId = "turn-later";
+    expect(requests.mock.calls[0]?.[2]).toBe("turn-received");
+    expect(requests.mock.calls[1]?.[2]).toBeNull();
+  });
+});
 
 function createThreadControlHarness() {
   const manager = new CodexAppServerManager();
@@ -769,12 +940,18 @@ async function handleServerRequestForTest(
   manager: CodexAppServerManager,
   context: unknown,
   request: Record<string, unknown>,
+  ingressTurnId: string | null = (context as { session: { activeTurnId?: string } }).session
+    .activeTurnId ?? null,
 ): Promise<void> {
   await (
     manager as unknown as {
-      handleServerRequest: (context: unknown, request: Record<string, unknown>) => Promise<void>;
+      handleServerRequest: (
+        context: unknown,
+        request: Record<string, unknown>,
+        ingressTurnId: string | null,
+      ) => Promise<void>;
     }
-  ).handleServerRequest(context, request);
+  ).handleServerRequest(context, request, ingressTurnId);
 }
 
 function createProcessOutputHarness() {

@@ -172,6 +172,14 @@ export function makeAgentGatewayMcpTransport(input: {
           ),
         };
       }
+      // Capture authority before the first asynchronous thread lookup. HTTP
+      // requests carry the earlier snapshot taken before body parsing.
+      const callerWriteAuthority =
+        requestInput.ingressWriteAuthority !== undefined
+          ? requestInput.ingressWriteAuthority.token === token
+            ? requestInput.ingressWriteAuthority.authority
+            : null
+          : input.credentials.bindWriteAuthority(token);
       const callerThreadId = callerSession.threadId;
       const callerThread = yield* input.snapshotQuery
         .getThreadShellById(ThreadId.makeUnsafe(callerThreadId))
@@ -214,7 +222,7 @@ export function makeAgentGatewayMcpTransport(input: {
       }
       // This request inherits only its own provider runtime's current execution.
       // Projection and runtime-journal summaries may lag or briefly disagree.
-      const callerWriteAuthority = input.credentials.bindWriteAuthority(token);
+
       const callerTurnId =
         requestInput.originTurnId?.trim() ||
         (callerThread.value.session?.status === "running"
