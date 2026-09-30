@@ -67,7 +67,17 @@ function storeIdentity(options: DiagnosticsOptions): string {
 function runningBundleIsInstalled(options: DiagnosticsOptions): boolean {
   if (!options.bundlePath) return true;
   try {
-    const stats = fs.statSync(options.bundlePath);
+    // Electron's fs shim reports an asar archive as a virtual directory. The
+    // desktop signs the real archive with original-fs, so inspect the same file.
+    const electronProcess = process as NodeJS.Process & { noAsar: boolean | undefined };
+    const previousNoAsar = electronProcess.noAsar;
+    let stats: fs.Stats;
+    try {
+      electronProcess.noAsar = true;
+      stats = fs.statSync(options.bundlePath);
+    } finally {
+      electronProcess.noAsar = previousNoAsar;
+    }
     const current = { size: stats.size, mtimeMs: stats.mtimeMs, inode: stats.ino };
     return JSON.stringify(current) === JSON.stringify(options.bundleSignature);
   } catch {
