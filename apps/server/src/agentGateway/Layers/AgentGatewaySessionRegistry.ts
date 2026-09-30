@@ -17,9 +17,11 @@ export function makeAgentGatewaySessionRegistry(options?: {
   const randomId = options?.randomId ?? randomUUID;
   const sessions = new Map<string, AgentGatewaySessionIdentity>();
   const sessionsByKey = new Map<string, AgentGatewaySessionIdentity>();
+  const endedTurnsBySession = new Map<string, Set<string>>();
+  const endedSessions = new Set<string>();
 
   return {
-    issue: (threadId, provider) => {
+    issue: (threadId, provider, lifecycleGeneration) => {
       // Every provider runtime owns an independent credential. Replacement
       // runtimes overlap their predecessor during startup, and the outgoing
       // runtime revokes its own token during teardown. Reusing a token here
@@ -32,10 +34,13 @@ export function makeAgentGatewaySessionRegistry(options?: {
         threadId,
         provider,
         issuedAt,
+        ...(lifecycleGeneration === undefined ? {} : { lifecycleGeneration }),
+        activeTurnId: null,
         capabilities: new Set(["thread:read", "thread:write", "diagnostics:read"]),
       };
       sessions.set(token, identity);
       sessionsByKey.set(sessionKey, identity);
+      endedTurnsBySession.set(sessionKey, new Set());
       return { token, ...identity };
     },
     verify: (token) => {
@@ -43,14 +48,92 @@ export function makeAgentGatewaySessionRegistry(options?: {
       if (!identity) return null;
       return identity;
     },
-    bindWriteAuthority: (token, turnId) => {
+    beginTurn: (threadId, provider, turnId, lifecycleGeneration, source = "delivery") => {
+      const owner = [...sessions.values()]
+        .reverse()
+        .find(
+          (identity) =>
+            identity.threadId === threadId &&
+            identity.provider === provider &&
+            identity.lifecycleGeneration === lifecycleGeneration,
+        );
+      if (
+        owner &&
+        !endedSessions.has(owner.sessionKey) &&
+        !endedTurnsBySession.get(owner.sessionKey)?.has(turnId)
+      ) {
+        if (owner.activeTurnId === turnId) return;
+        // Runtime events arrive through a durable queue. An older event must
+        // not displace a newer execution registered at prompt delivery.
+        if (source === "runtime-event" && owner.activeTurnId !== null) return;
+        if (owner.activeTurnId !== null) {
+          endedTurnsBySession.get(owner.sessionKey)?.add(owner.activeTurnId);
+        }
+        // A replacement can overlap its predecessor. Once its turn starts,
+        // outgoing credentials must not retain authority over the thread.
+        for (const [token, identity] of sessions) {
+          if (
+            identity.threadId === threadId &&
+            identity.provider === provider &&
+            identity.sessionKey !== owner.sessionKey &&
+            identity.activeTurnId !== null
+          ) {
+            const cleared = { ...identity, activeTurnId: null };
+            sessions.set(token, cleared);
+            sessionsByKey.set(identity.sessionKey, cleared);
+          }
+        }
+        const updated = { ...owner, activeTurnId: turnId };
+        for (const [token, identity] of sessions) {
+          if (identity.sessionKey === owner.sessionKey) sessions.set(token, updated);
+        }
+        sessionsByKey.set(owner.sessionKey, updated);
+      }
+    },
+    endTurn: (threadId, provider, turnId, lifecycleGeneration) => {
+      const owner = [...sessions.values()]
+        .reverse()
+        .find(
+          (identity) =>
+            identity.threadId === threadId &&
+            identity.provider === provider &&
+            identity.lifecycleGeneration === lifecycleGeneration,
+        );
+      if (owner?.activeTurnId === turnId) {
+        const updated = { ...owner, activeTurnId: null };
+        for (const [token, identity] of sessions) {
+          if (identity.sessionKey === owner.sessionKey) sessions.set(token, updated);
+        }
+        sessionsByKey.set(owner.sessionKey, updated);
+      }
+      if (owner) endedTurnsBySession.get(owner.sessionKey)?.add(turnId);
+    },
+    endSession: (threadId, provider, lifecycleGeneration) => {
+      const owner = [...sessions.values()]
+        .reverse()
+        .find(
+          (identity) =>
+            identity.threadId === threadId &&
+            identity.provider === provider &&
+            identity.lifecycleGeneration === lifecycleGeneration,
+        );
+      if (owner) {
+        endedSessions.add(owner.sessionKey);
+        const updated = { ...owner, activeTurnId: null };
+        for (const [token, identity] of sessions) {
+          if (identity.sessionKey === owner.sessionKey) sessions.set(token, updated);
+        }
+        sessionsByKey.set(owner.sessionKey, updated);
+      }
+    },
+    bindWriteAuthority: (token) => {
       const identity = sessions.get(token);
-      if (!identity) return null;
+      if (!identity?.activeTurnId) return null;
       return {
         sessionKey: identity.sessionKey,
         threadId: identity.threadId,
         provider: identity.provider,
-        turnId,
+        turnId: identity.activeTurnId,
       } satisfies AgentGatewayWriteAuthority;
     },
     verifyWriteAuthority: (authority) => {
@@ -58,7 +141,8 @@ export function makeAgentGatewaySessionRegistry(options?: {
       return (
         identity !== undefined &&
         identity.threadId === authority.threadId &&
-        identity.provider === authority.provider
+        identity.provider === authority.provider &&
+        identity.activeTurnId === authority.turnId
       );
     },
     revoke: (token) => {
@@ -66,6 +150,8 @@ export function makeAgentGatewaySessionRegistry(options?: {
       if (!identity) return;
       sessions.delete(token);
       sessionsByKey.delete(identity.sessionKey);
+      endedTurnsBySession.delete(identity.sessionKey);
+      endedSessions.delete(identity.sessionKey);
     },
   };
 }

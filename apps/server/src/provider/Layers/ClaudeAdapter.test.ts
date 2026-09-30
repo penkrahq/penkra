@@ -34,6 +34,7 @@ import {
 } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
 import { AgentGatewayToolBridge } from "../../agentGateway/Services/AgentGatewayToolBridge.ts";
 import { makeAgentGatewayToolBridge } from "../../agentGateway/Layers/AgentGatewayToolBridge.ts";
+import { makeAgentGatewaySessionRegistry } from "../../agentGateway/Layers/AgentGatewaySessionRegistry.ts";
 import { claudeDefaultModelId, claudeModelsListFixture } from "../claudeModelsListFixture.ts";
 import {
   PENKRA_EXEC_COMMAND_ANNOTATIONS,
@@ -240,6 +241,7 @@ function makeHarness(config?: {
   readonly cwd?: string;
   readonly baseDir?: string;
   readonly workflowRuntimePollIntervalMs?: number;
+  readonly gatewayCredentials?: AgentGatewayCredentialsShape;
 }) {
   const query = new FakeClaudeQuery();
   let createInput:
@@ -293,7 +295,9 @@ function makeHarness(config?: {
         ),
       ),
       Layer.provideMerge(NodeServices.layer),
-      Layer.provideMerge(Layer.succeed(AgentGatewayCredentials, gateway.credentials)),
+      Layer.provideMerge(
+        Layer.succeed(AgentGatewayCredentials, config?.gatewayCredentials ?? gateway.credentials),
+      ),
       Layer.provideMerge(Layer.succeed(AgentGatewayToolBridge, bridge)),
     ),
     query,
@@ -358,6 +362,9 @@ function makeGatewayCredentialsHarness() {
     verifySessionToken: () => null,
     verifySession: () => null,
     bindWriteAuthority: () => null,
+    beginTurn: () => undefined,
+    endTurn: () => undefined,
+    endSession: () => undefined,
     verifyWriteAuthority: () => false,
     revokeSessionToken: (token: string) => {
       revokedTokens.push(token);
@@ -1310,6 +1317,45 @@ describe("ClaudeAdapterLive", () => {
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
     );
+  });
+
+  it.effect("authorizes a tool request at the instant the Claude prompt is delivered", () => {
+    const registry = makeAgentGatewaySessionRegistry();
+    let token: string | undefined;
+    const base = makeGatewayCredentialsHarness().credentials;
+    const credentials: AgentGatewayCredentialsShape = {
+      ...base,
+      connectionForThread: (threadId, provider, generation) => {
+        token = registry.issue(threadId, provider, generation).token;
+        return { url: base.mcpEndpointUrl, bearerToken: token };
+      },
+      beginTurn: registry.beginTurn,
+      endTurn: registry.endTurn,
+      bindWriteAuthority: registry.bindWriteAuthority,
+      verifyWriteAuthority: registry.verifyWriteAuthority,
+    };
+    const harness = makeHarness({ gatewayCredentials: credentials });
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
+      const prompt = harness.getLastCreateQueryInput()?.prompt;
+      assert.ok(prompt);
+      const delivered = prompt[Symbol.asyncIterator]()
+        .next()
+        .then(() => (token ? registry.bindWriteAuthority(token) : null));
+      const turn = yield* adapter.sendTurn({
+        threadId: THREAD_ID,
+        input: "Call the host tool immediately",
+        attachments: [],
+      });
+      const authorityAtDelivery = yield* Effect.promise(() => delivered);
+      assert.equal(authorityAtDelivery?.turnId, String(turn.turnId));
+      assert.isTrue(registry.verifyWriteAuthority(authorityAtDelivery!));
+    }).pipe(Effect.provide(harness.layer));
   });
 
   it.effect("re-sends setPermissionMode on a second turn with the same desired mode", () => {

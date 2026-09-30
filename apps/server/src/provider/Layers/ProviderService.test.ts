@@ -58,6 +58,8 @@ import {
 import { AnalyticsService } from "../../telemetry/Services/AnalyticsService.ts";
 import { installDiagnosticsStore } from "../../diagnostics/recorder.ts";
 import { DiagnosticsStore, openDiagnosticsReader } from "../../diagnostics/store.ts";
+import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
+import { makeAgentGatewaySessionRegistry } from "../../agentGateway/Layers/AgentGatewaySessionRegistry.ts";
 
 const asRequestId = (value: string): ApprovalRequestId => ApprovalRequestId.makeUnsafe(value);
 const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
@@ -403,7 +405,10 @@ const waitUntilEffect = <E = never, R = never>(
     }
   });
 
-function makeProviderServiceLayer(options?: Parameters<typeof makeProviderServiceLive>[0]) {
+function makeProviderServiceLayer(
+  options?: Parameters<typeof makeProviderServiceLive>[0],
+  gatewayRegistry?: ReturnType<typeof makeAgentGatewaySessionRegistry>,
+) {
   const codex = makeFakeCodexAdapter();
   const claude = makeFakeCodexAdapter("claudeAgent");
   const registry: typeof ProviderAdapterRegistry.Service = {
@@ -422,12 +427,36 @@ function makeProviderServiceLayer(options?: Parameters<typeof makeProviderServic
   );
   const directoryLayer = ProviderSessionDirectoryLive.pipe(Layer.provide(runtimeRepositoryLayer));
 
+  const gatewayCredentialsLayer = gatewayRegistry
+    ? Layer.succeed(AgentGatewayCredentials, {
+        mcpEndpointUrl: "http://127.0.0.1/mcp",
+        setListeningPort: () => undefined,
+        issueSessionToken: (threadId, provider, generation) =>
+          gatewayRegistry.issue(threadId, provider, generation).token,
+        verifySessionToken: (token) => gatewayRegistry.verify(token)?.threadId ?? null,
+        verifySession: gatewayRegistry.verify,
+        beginTurn: gatewayRegistry.beginTurn,
+        endTurn: gatewayRegistry.endTurn,
+        endSession: gatewayRegistry.endSession,
+        bindWriteAuthority: gatewayRegistry.bindWriteAuthority,
+        verifyWriteAuthority: gatewayRegistry.verifyWriteAuthority,
+        revokeSessionToken: gatewayRegistry.revoke,
+        connectionForThread: (threadId, provider, generation) => ({
+          url: "http://127.0.0.1/mcp",
+          bearerToken: gatewayRegistry.issue(threadId, provider, generation).token,
+        }),
+        stdioProxy: { command: "node", args: [] },
+      })
+    : undefined;
+  const providerServiceLayer = makeProviderServiceLive(options).pipe(
+    Layer.provide(providerAdapterLayer),
+    Layer.provide(directoryLayer),
+    Layer.provideMerge(AnalyticsService.layerTest),
+  );
   const rawLayer = Layer.mergeAll(
-    makeProviderServiceLive(options).pipe(
-      Layer.provide(providerAdapterLayer),
-      Layer.provide(directoryLayer),
-      Layer.provideMerge(AnalyticsService.layerTest),
-    ),
+    gatewayCredentialsLayer
+      ? providerServiceLayer.pipe(Layer.provide(gatewayCredentialsLayer))
+      : providerServiceLayer,
     directoryLayer,
     runtimeRepositoryLayer,
     NodeServices.layer,
@@ -443,6 +472,136 @@ function makeProviderServiceLayer(options?: Parameters<typeof makeProviderServic
 }
 
 const routing = makeProviderServiceLayer();
+const gatewayTurnRegistry = makeAgentGatewaySessionRegistry();
+const gatewayTurnRouting = makeProviderServiceLayer(undefined, gatewayTurnRegistry);
+gatewayTurnRouting.layer("gateway turn ownership", (it) => {
+  it.effect("tracks provider execution events without consulting projection or ledger", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const directory = yield* ProviderSessionDirectory;
+      const threadId = asThreadId("thread-gateway-execution-events");
+      yield* provider.startSession(threadId, {
+        provider: "codex",
+        threadId,
+        runtimeMode: "full-access",
+      });
+      const binding = Option.getOrUndefined(yield* directory.getBinding(threadId));
+      const generation = binding?.lifecycleGeneration;
+      assert.equal(typeof generation, "string");
+      const token = gatewayTurnRegistry.issue(threadId, "codex", generation).token;
+      const oldTurn = asTurnId("provider-turn-old");
+      const newTurn = asTurnId("provider-turn-new");
+      yield* gatewayTurnRouting.codex.waitForRuntimeSubscribers();
+      gatewayTurnRouting.codex.emit({
+        type: "turn.started",
+        eventId: asEventId("gateway-turn-old-start"),
+        provider: "codex",
+        createdAt: "2026-09-29T00:00:00.000Z",
+        threadId,
+        turnId: oldTurn,
+        lifecycleGeneration: generation,
+        payload: { state: "running" },
+      });
+      yield* waitUntil(() => gatewayTurnRegistry.bindWriteAuthority(token)?.turnId === oldTurn);
+      const oldAuthority = gatewayTurnRegistry.bindWriteAuthority(token);
+      assert.ok(oldAuthority);
+
+      gatewayTurnRouting.codex.emit({
+        type: "turn.started",
+        eventId: asEventId("gateway-child-turn-start"),
+        provider: "codex",
+        createdAt: "2026-09-29T00:00:00.500Z",
+        threadId,
+        turnId: asTurnId("provider-child-turn"),
+        lifecycleGeneration: generation,
+        payload: { state: "running" },
+        providerRefs: {
+          providerThreadId: "child-session",
+          providerParentThreadId: String(threadId),
+        },
+      });
+      yield* sleep(20);
+      assert.isTrue(gatewayTurnRegistry.verifyWriteAuthority(oldAuthority));
+
+      // The adapter grants the next turn before prompt delivery; the later
+      // runtime event is only an idempotent observation.
+      gatewayTurnRegistry.beginTurn(threadId, "codex", String(newTurn), generation);
+      gatewayTurnRouting.codex.emit({
+        type: "turn.started",
+        eventId: asEventId("gateway-delayed-old-turn-start"),
+        provider: "codex",
+        createdAt: "2026-09-29T00:00:00.750Z",
+        threadId,
+        turnId: oldTurn,
+        lifecycleGeneration: generation,
+        payload: { state: "running" },
+      });
+      yield* sleep(20);
+      assert.equal(gatewayTurnRegistry.bindWriteAuthority(token)?.turnId, newTurn);
+      gatewayTurnRouting.codex.emit({
+        type: "turn.started",
+        eventId: asEventId("gateway-turn-new-start"),
+        provider: "codex",
+        createdAt: "2026-09-29T00:00:01.000Z",
+        threadId,
+        turnId: newTurn,
+        lifecycleGeneration: generation,
+        payload: { state: "running" },
+      });
+      yield* waitUntil(() => gatewayTurnRegistry.bindWriteAuthority(token)?.turnId === newTurn);
+      assert.equal(gatewayTurnRegistry.verifyWriteAuthority(oldAuthority), false);
+
+      gatewayTurnRouting.codex.emit({
+        type: "turn.completed",
+        eventId: asEventId("gateway-turn-old-complete"),
+        provider: "codex",
+        createdAt: "2026-09-29T00:00:02.000Z",
+        threadId,
+        turnId: oldTurn,
+        lifecycleGeneration: generation,
+        payload: { state: "completed" },
+      });
+      yield* sleep(20);
+      assert.equal(gatewayTurnRegistry.bindWriteAuthority(token)?.turnId, newTurn);
+
+      gatewayTurnRouting.codex.emit({
+        type: "turn.aborted",
+        eventId: asEventId("gateway-turn-new-abort"),
+        provider: "codex",
+        createdAt: "2026-09-29T00:00:03.000Z",
+        threadId,
+        turnId: newTurn,
+        lifecycleGeneration: generation,
+        payload: {},
+      });
+      yield* waitUntil(() => gatewayTurnRegistry.bindWriteAuthority(token) === null);
+
+      gatewayTurnRouting.codex.emit({
+        type: "turn.started",
+        eventId: asEventId("gateway-turn-after-abort-start"),
+        provider: "codex",
+        createdAt: "2026-09-29T00:00:04.000Z",
+        threadId,
+        turnId: asTurnId("provider-turn-after-abort"),
+        lifecycleGeneration: generation,
+        payload: { state: "running" },
+      });
+      yield* waitUntil(
+        () => gatewayTurnRegistry.bindWriteAuthority(token)?.turnId === "provider-turn-after-abort",
+      );
+      gatewayTurnRouting.codex.emit({
+        type: "session.exited",
+        eventId: asEventId("gateway-session-exited"),
+        provider: "codex",
+        createdAt: "2026-09-29T00:00:05.000Z",
+        threadId,
+        lifecycleGeneration: generation,
+        payload: {},
+      });
+      yield* waitUntil(() => gatewayTurnRegistry.bindWriteAuthority(token) === null);
+    }),
+  );
+});
 const managedLaunch = {
   binaryPath: "/managed/codex",
   isolationKey: "managed:test",

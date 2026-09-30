@@ -371,6 +371,72 @@ describe("Codex Penkra harness policy", () => {
       },
     });
   });
+
+  it("registers a native turn before dispatching its first dynamic-tool request", async () => {
+    const order: string[] = [];
+    const manager = new CodexAppServerManager(undefined, {
+      agentGatewayHostTool: {
+        acquireSessionLease: () => ({
+          connection: { url: "http://unused.invalid/mcp", bearerToken: "thread-token" },
+          release: () => undefined,
+        }),
+        beginTurn: (_threadId, turnId) => order.push(`begin:${turnId}`),
+        requireNativeSurface: () => ({
+          definitions: [],
+          invoke: async () => {
+            order.push("invoke");
+            return { content: [{ type: "text", text: "ok" }] };
+          },
+        }),
+      },
+    });
+    const context = {
+      gatewaySessionLease: {
+        connection: { url: "http://unused.invalid/mcp", bearerToken: "thread-token" },
+        release: () => undefined,
+      },
+      session: {
+        provider: "codex",
+        status: "running",
+        activeTurnId: undefined,
+        threadId: asThreadId("thread-first-tool"),
+        runtimeMode: "full-access",
+        resumeCursor: { threadId: "provider-thread-native" },
+        createdAt: "2026-09-29T00:00:00.000Z",
+        updatedAt: "2026-09-29T00:00:00.000Z",
+      },
+      pendingApprovals: new Map(),
+      pendingUserInputs: new Map(),
+      collabReceiverTurns: new Map(),
+      collabReceiverParents: new Map(),
+      reviewTurnIds: new Set(),
+      terminalTurnIds: new Set(),
+      temporaryResourcePaths: new Map(),
+      stopping: false,
+    };
+    vi.spyOn(
+      manager as unknown as { emitEvent: (...args: unknown[]) => void },
+      "emitEvent",
+    ).mockImplementation(() => {});
+    vi.spyOn(
+      manager as unknown as { writeMessage: (...args: unknown[]) => Promise<void> },
+      "writeMessage",
+    ).mockResolvedValue(undefined);
+
+    await handleServerRequestForTest(manager, context, {
+      jsonrpc: "2.0",
+      id: 73,
+      method: "item/tool/call",
+      params: {
+        threadId: "provider-thread-native",
+        turnId: "turn-immediate",
+        namespace: null,
+        tool: "penkra_exec_command",
+        arguments: { command: "apps list" },
+      },
+    });
+    expect(order).toEqual(["begin:turn-immediate", "invoke"]);
+  });
 });
 
 function createSendTurnHarness(runtimeMode: "approval-required" | "full-access" = "full-access") {

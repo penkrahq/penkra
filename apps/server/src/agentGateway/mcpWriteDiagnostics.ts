@@ -7,7 +7,8 @@ export type McpAuthorityCheck =
   | "ingress_write_authority_missing"
   | "caller_thread_lookup_failed"
   | "active_execution_lookup_failed"
-  | "authorized_turn_no_longer_active";
+  | "authorized_turn_no_longer_active"
+  | "origin_turn_does_not_own_execution";
 
 export function recordMcpAuthorityRejected(input: {
   readonly trace: DiagnosticContext;

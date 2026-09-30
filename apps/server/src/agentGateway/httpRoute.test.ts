@@ -45,10 +45,14 @@ async function withGatewayServer(
               threadId,
               provider: "opencode",
               issuedAt: 1,
+              activeTurnId: null,
               capabilities: new Set(["thread:read", "thread:write", "diagnostics:read"]),
             }
           : null,
       bindWriteAuthority: () => null,
+      beginTurn: () => undefined,
+      endTurn: () => undefined,
+      endSession: () => undefined,
       verifyWriteAuthority: () => false,
       revokeSessionToken: () => undefined,
       connectionForThread: () => ({

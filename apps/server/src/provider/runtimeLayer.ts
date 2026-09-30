@@ -70,6 +70,7 @@ export function makeServerProviderLayer(
       canonicalEventLogger ? { canonicalEventLogger } : undefined,
     ).pipe(
       Layer.provide(adapterRegistryLayer),
+      Layer.provide(agentGatewayCredentialsLayer),
       Layer.provide(providerSessionDirectoryLayer),
       Layer.provide(ProviderRuntimeEventRepositoryLive),
       Layer.provide(ThreadProviderBindingRepositoryLive),
