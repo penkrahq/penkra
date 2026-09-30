@@ -225,7 +225,7 @@ describe("Codex Penkra harness policy", () => {
       session: {
         provider: "codex",
         status: "running",
-        activeTurnId: asTurnId("turn-successor"),
+        activeTurnId: asTurnId("turn-native"),
         threadId: asThreadId("thread-native-tool"),
         runtimeMode: "full-access",
         cwd: resourceRoot,
@@ -349,6 +349,7 @@ describe("Codex Penkra harness policy", () => {
       },
     });
     const context = {
+      pendingGatewayTurnStart: undefined as { turnId?: TurnId; registered: boolean } | undefined,
       gatewaySessionLease: {
         connection: { url: "http://unused.invalid/mcp", bearerToken: "thread-token" },
         release: () => undefined,
@@ -384,6 +385,51 @@ describe("Codex Penkra harness policy", () => {
     await handleServerRequestForTest(manager, context, {
       jsonrpc: "2.0",
       id: 73,
+      method: "item/tool/call",
+      params: {
+        threadId: "provider-thread-native",
+        turnId: "turn-immediate",
+        namespace: null,
+        tool: "penkra_exec_command",
+        arguments: { command: "apps list" },
+      },
+    });
+    expect(order).toEqual([]);
+    context.pendingGatewayTurnStart = {
+      turnId: asTurnId("turn-dispatched-other"),
+      registered: false,
+    };
+    await handleServerRequestForTest(manager, context, {
+      jsonrpc: "2.0",
+      id: 76,
+      method: "item/tool/call",
+      params: {
+        threadId: "provider-thread-native",
+        turnId: "turn-immediate",
+        namespace: null,
+        tool: "penkra_exec_command",
+        arguments: { command: "apps list" },
+      },
+    });
+    expect(order).toEqual([]);
+    context.pendingGatewayTurnStart = { registered: false };
+    await handleServerRequestForTest(manager, context, {
+      jsonrpc: "2.0",
+      id: 74,
+      method: "item/tool/call",
+      params: {
+        threadId: "provider-thread-native",
+        turnId: "turn-immediate",
+        namespace: null,
+        tool: "penkra_exec_command",
+        arguments: { command: "apps list" },
+      },
+    });
+    expect(order).toEqual(["begin:turn-immediate", "invoke"]);
+    context.terminalTurnIds.add(asTurnId("turn-immediate"));
+    await handleServerRequestForTest(manager, context, {
+      jsonrpc: "2.0",
+      id: 75,
       method: "item/tool/call",
       params: {
         threadId: "provider-thread-native",

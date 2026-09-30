@@ -98,6 +98,7 @@ const postRouteLayer = HttpRouter.add(
       return unauthorizedResponse();
     }
 
+    const ingressWriteAuthority = { token, authority: credentials.bindWriteAuthority(token) };
     const bodyResult = yield* readMcpJsonBody(request);
     if (bodyResult.kind === "too-large") {
       return HttpServerResponse.jsonUnsafe(
@@ -119,6 +120,7 @@ const postRouteLayer = HttpRouter.add(
     const result = yield* gateway.handleMcpPost({
       authorizationHeader: request.headers.authorization,
       body: bodyResult.body,
+      ingressWriteAuthority,
       ...(originTurnId ? { originTurnId } : {}),
     });
     if (result.body === undefined) {

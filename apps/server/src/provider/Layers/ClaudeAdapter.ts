@@ -1818,16 +1818,40 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       context: ClaudeSessionContext,
       event: ProviderRuntimeEvent,
     ): Effect.Effect<void> =>
-      Queue.offer(runtimeEventQueue, {
-        ...event,
-        // The Claude SDK stream has no replay cursor that uniquely identifies
-        // each delivery. Keep the per-emission UUID assigned by the adapter:
-        // content-derived identities collapse legitimate repeated deltas such
-        // as two consecutive spaces or punctuation chunks.
-        ...(context.lifecycleGeneration !== undefined
-          ? { lifecycleGeneration: context.lifecycleGeneration }
-          : {}),
-      }).pipe(Effect.asVoid);
+      Effect.sync(() => {
+        if (context.subagentRefs !== undefined) return;
+        if (
+          (event.type === "turn.completed" || event.type === "turn.aborted") &&
+          event.turnId !== undefined
+        ) {
+          agentGatewayCredentials?.endTurn(
+            context.session.threadId,
+            PROVIDER,
+            String(event.turnId),
+            context.lifecycleGeneration,
+          );
+        } else if (event.type === "session.exited") {
+          agentGatewayCredentials?.endSession(
+            context.session.threadId,
+            PROVIDER,
+            context.lifecycleGeneration,
+          );
+        }
+      }).pipe(
+        Effect.andThen(
+          Queue.offer(runtimeEventQueue, {
+            ...event,
+            // The Claude SDK stream has no replay cursor that uniquely identifies
+            // each delivery. Keep the per-emission UUID assigned by the adapter:
+            // content-derived identities collapse legitimate repeated deltas such
+            // as two consecutive spaces or punctuation chunks.
+            ...(context.lifecycleGeneration !== undefined
+              ? { lifecycleGeneration: context.lifecycleGeneration }
+              : {}),
+          }),
+        ),
+        Effect.asVoid,
+      );
 
     const logNativeSdkMessage = (
       context: ClaudeSessionContext,
@@ -2336,6 +2360,15 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       result?: SDKResultMessage,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
+        const terminalTurnId = context.turnState?.turnId ?? context.lastTurnId;
+        if (context.subagentRefs === undefined && terminalTurnId !== undefined) {
+          agentGatewayCredentials?.endTurn(
+            context.session.threadId,
+            PROVIDER,
+            String(terminalTurnId),
+            context.lifecycleGeneration,
+          );
+        }
         const liveContextUsage = yield* readClaudeContextUsage(context);
         const resultContextWindow = maxClaudeContextWindowFromModelUsage(result?.modelUsage);
         const liveRawContextWindow = positiveFiniteNumber(liveContextUsage?.rawMaxTokens);
@@ -4046,6 +4079,20 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       message: ClaudeRuntimeMessage,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
+        if (
+          message.type === "result" &&
+          context.subagentRefs === undefined &&
+          recognizedSubagentParentToolUseId(context, message) === undefined
+        ) {
+          const turnId = context.turnState?.turnId ?? context.lastTurnId;
+          if (turnId !== undefined)
+            agentGatewayCredentials?.endTurn(
+              context.session.threadId,
+              PROVIDER,
+              String(turnId),
+              context.lifecycleGeneration,
+            );
+        }
         yield* logNativeSdkMessage(context, message);
 
         if (
@@ -4133,6 +4180,14 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       Effect.gen(function* () {
         if (context.stopped) {
           return;
+        }
+
+        if (context.subagentRefs === undefined) {
+          agentGatewayCredentials?.endSession(
+            context.session.threadId,
+            PROVIDER,
+            context.lifecycleGeneration,
+          );
         }
 
         if (Exit.isFailure(exit)) {

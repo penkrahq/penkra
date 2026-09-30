@@ -2352,6 +2352,26 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
                 String(runtimeEvent.turnId),
                 runtimeEvent.lifecycleGeneration,
               );
+            } else if (
+              (runtimeEvent.type === "turn.completed" || runtimeEvent.type === "turn.aborted") &&
+              runtimeEvent.turnId !== undefined &&
+              runtimeEvent.providerRefs?.providerParentThreadId === undefined
+            ) {
+              agentGatewayCredentials?.endTurn(
+                runtimeEvent.threadId,
+                PROVIDER,
+                String(runtimeEvent.turnId),
+                runtimeEvent.lifecycleGeneration,
+              );
+            } else if (
+              runtimeEvent.type === "session.exited" &&
+              runtimeEvent.providerRefs?.providerParentThreadId === undefined
+            ) {
+              agentGatewayCredentials?.endSession(
+                runtimeEvent.threadId,
+                PROVIDER,
+                runtimeEvent.lifecycleGeneration,
+              );
             }
           }
           trackTurnWatchdogActivity(event.threadId, runtimeEvents);

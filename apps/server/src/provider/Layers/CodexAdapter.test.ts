@@ -793,6 +793,18 @@ it.effect("authorizes a Codex tool request immediately after native turn start",
     });
     assert.equal(authorityAtToolCall?.turnId, String(turn.turnId));
     assert.equal(registry.verifyWriteAuthority(authorityAtToolCall!), true);
+    manager.emit("event", {
+      id: asEventId("codex-immediate-turn-end"),
+      kind: "notification",
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      method: "turn/completed",
+      threadId,
+      turnId: asTurnId("codex-native-immediate"),
+      lifecycleGeneration: generation,
+      payload: { turn: { id: "codex-native-immediate", status: "completed" } },
+    } satisfies ProviderEvent);
+    assert.equal(registry.bindWriteAuthority(issued.token), null);
   }).pipe(
     Effect.provide(
       makeCodexAdapterLive({ manager }).pipe(

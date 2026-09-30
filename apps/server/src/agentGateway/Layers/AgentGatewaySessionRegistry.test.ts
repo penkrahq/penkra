@@ -45,6 +45,10 @@ describe("AgentGatewaySessionRegistry", () => {
     assert.ok(oldAuthority);
     const newSession = registry.issue(threadId, "claudeAgent", "generation-new");
 
+    assert.isNull(registry.bindWriteAuthority(oldSession.token));
+    assert.isFalse(registry.verifyWriteAuthority(oldAuthority));
+    registry.beginTurn(threadId, "claudeAgent", "reclaim-old", "generation-old");
+    assert.isNull(registry.bindWriteAuthority(oldSession.token));
     registry.beginTurn(threadId, "claudeAgent", "turn-new", "generation-new");
     assert.isNull(registry.bindWriteAuthority(oldSession.token));
     assert.isFalse(registry.verifyWriteAuthority(oldAuthority));
