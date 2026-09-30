@@ -56,22 +56,29 @@ async function waitForDetail(stateDir, flow, step, thread, timeoutMs = 12_000, m
   throw new Error(`Timed out waiting for ${flow}:${step}${thread ? ` on ${thread}` : ""}`);
 }
 
-async function waitForAgentWriteProof(targetThreadId, phase) {
-  const proofDir = process.env.PENKRA_DIAGNOSTICS_QA_PROOF_DIR;
-  if (!proofDir) throw new Error("Agent-write QA proof directory is unavailable");
-  const proofPath = path.join(proofDir, "agent-write-steer.jsonl");
+async function waitForAgentWriteProof(stateDir, targetThreadId, phase) {
+  const profilesDir = path.join(stateDir, "provider-connections");
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline) {
-    if (fs.existsSync(proofPath)) {
-      const proof = fs
-        .readFileSync(proofPath, "utf8")
-        .split("\n")
-        .filter(Boolean)
-        .map((line) => JSON.parse(line))
-        .find((row) => row.targetThreadId === targetThreadId && row.phase === phase);
-      if (proof) {
-        if (!proof.success) throw new Error(`Agent Penkra write failed ${phase}`);
-        return;
+    for (const profile of fs.readdirSync(profilesDir, { withFileTypes: true })) {
+      if (!profile.isDirectory()) continue;
+      const proofPath = path.join(
+        profilesDir,
+        profile.name,
+        "codex-home",
+        "qa-agent-write-steer.jsonl",
+      );
+      if (fs.existsSync(proofPath)) {
+        const proof = fs
+          .readFileSync(proofPath, "utf8")
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => JSON.parse(line))
+          .find((row) => row.targetThreadId === targetThreadId && row.phase === phase);
+        if (proof) {
+          if (!proof.success) throw new Error(`Agent Penkra write failed ${phase}`);
+          return;
+        }
       }
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -241,12 +248,12 @@ async function run(flow, page, stateDir) {
       await waitForCompletedTurn(page, targetId);
       const writerId = await newThread(page, stateDir);
       await send(page, stateDir, writerId, `qa:agent-write:${targetId}`);
-      await waitForAgentWriteProof(targetId, "before-steer");
+      await waitForAgentWriteProof(stateDir, targetId, "before-steer");
       await page.getByRole("textbox").fill(`qa:steer-${Date.now()}`);
       await page.getByRole("textbox").press("Enter");
       const queuedSteer = page.getByTestId("queued-follow-up-row").last();
       await queuedSteer.getByRole("button", { name: "Steer" }).click();
-      await waitForAgentWriteProof(targetId, "after-steer");
+      await waitForAgentWriteProof(stateDir, targetId, "after-steer");
       assertNoCallerTurnInactive(stateDir, writerId);
       await stop(page, stateDir, writerId);
       return;
