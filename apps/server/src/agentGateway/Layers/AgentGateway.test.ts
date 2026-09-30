@@ -1208,6 +1208,26 @@ describe("AgentGateway", () => {
     });
   }
 
+  it.effect("rejects a late native tool request from a replaced turn", () => {
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      harness.endTurn("thread-parent", "codex", "turn-parent-active");
+      harness.beginTurn("thread-parent", "codex", "turn-parent-next");
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_send_message",
+        args: { threadId: "thread-child", message: "Too late" },
+        originTurnId: "turn-parent-active",
+      });
+      assert.isTrue(isToolError(response.result));
+      assert.equal(
+        (toolResultJson(response.result).error as { code: string }).code,
+        "caller_turn_inactive",
+      );
+    }).pipe(Effect.provide(gatewayLayer));
+  });
+
   it.effect("logs ingress turn evidence for an inner penkra_exec_command write refusal", () => {
     const warnings: Array<ReadonlyArray<unknown>> = [];
     const logger = Logger.make(({ message }) => warnings.push(message as ReadonlyArray<unknown>));
