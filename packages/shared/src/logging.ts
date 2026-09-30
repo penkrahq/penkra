@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
+import { fsyncDirectory } from "./fsyncDirectory";
 
 export interface RotatingFileSinkOptions {
   readonly filePath: string;
@@ -104,12 +105,7 @@ export class RotatingFileSink {
         fs.closeSync(handle);
       }
       fs.renameSync(temporary, filePath);
-      const directory = fs.openSync(path.dirname(filePath), "r");
-      try {
-        fs.fsyncSync(directory);
-      } finally {
-        fs.closeSync(directory);
-      }
+      fsyncDirectory(path.dirname(filePath));
     } finally {
       fs.rmSync(temporary, { force: true });
     }
@@ -147,12 +143,7 @@ export class RotatingFileSink {
             fs.closeSync(copied);
           }
           fs.renameSync(temporary, backup);
-          const directory = fs.openSync(path.dirname(backup), "r");
-          try {
-            fs.fsyncSync(directory);
-          } finally {
-            fs.closeSync(directory);
-          }
+          fsyncDirectory(path.dirname(backup));
         } finally {
           fs.rmSync(temporary, { force: true });
         }
