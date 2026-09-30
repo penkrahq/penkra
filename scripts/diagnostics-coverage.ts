@@ -531,18 +531,23 @@ function walk(dir: string): string[] {
   });
 }
 
-export function inventoryFailureSites(repoRoot: string): FailureSite[] {
-  return COVERAGE_ROOTS.flatMap((root) =>
-    walk(path.join(repoRoot, root)).flatMap((file) =>
-      scanFailureSites(path.relative(repoRoot, file), fs.readFileSync(file, "utf8")),
-    ),
-  ).toSorted(
-    (left, right) =>
-      left.file.localeCompare(right.file) ||
-      left.line - right.line ||
-      left.column - right.column ||
-      left.kind.localeCompare(right.kind),
-  );
+export function inventoryFailureSites(
+  repoRoot: string,
+  roots: ReadonlyArray<string> = COVERAGE_ROOTS,
+): FailureSite[] {
+  return roots
+    .flatMap((root) =>
+      walk(path.join(repoRoot, root)).flatMap((file) =>
+        scanFailureSites(path.relative(repoRoot, file), fs.readFileSync(file, "utf8")),
+      ),
+    )
+    .toSorted(
+      (left, right) =>
+        left.file.localeCompare(right.file) ||
+        left.line - right.line ||
+        left.column - right.column ||
+        left.kind.localeCompare(right.kind),
+    );
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {

@@ -4,6 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { fsyncDirectory } from "../fsyncDirectory";
 
 import { INCIDENT_SUMMARIES, isIncidentCode, type IncidentCode } from "./codes";
 import { DIAGNOSTIC_LIMITS, type DiagnosticLimitName } from "./limits";
@@ -557,12 +558,7 @@ function writeResetLossManifest(
     fs.closeSync(handle);
   }
   fs.renameSync(temporary, file);
-  const directory = fs.openSync(dir, "r");
-  try {
-    fs.fsyncSync(directory);
-  } finally {
-    fs.closeSync(directory);
-  }
+  fsyncDirectory(dir);
 }
 
 function flushResetLossManifest(dir: string, maxTotalBytes: number): void {
@@ -2568,12 +2564,7 @@ export class DiagnosticsSpoolWriter {
         fs.closeSync(handle);
       }
       fs.renameSync(temporary, this.creditPath);
-      const directory = fs.openSync(this.dir, "r");
-      try {
-        fs.fsyncSync(directory);
-      } finally {
-        fs.closeSync(directory);
-      }
+      fsyncDirectory(this.dir);
       this.reservedCredits = reserved;
       return { start, count };
     });
@@ -2749,12 +2740,7 @@ export class DiagnosticsSpoolWriter {
       } finally {
         fs.closeSync(handle);
       }
-      const directory = fs.openSync(this.dir, "r");
-      try {
-        fs.fsyncSync(directory);
-      } finally {
-        fs.closeSync(directory);
-      }
+      fsyncDirectory(this.dir);
     });
   }
 }
@@ -2773,11 +2759,6 @@ export function markDiagnosticWorkerExited(stateDir: string, bootId: string): vo
     const activePath = path.join(dir, `active-${bootId}.json`);
     if (!fs.existsSync(activePath)) return;
     fs.rmSync(activePath);
-    const directory = fs.openSync(dir, "r");
-    try {
-      fs.fsyncSync(directory);
-    } finally {
-      fs.closeSync(directory);
-    }
+    fsyncDirectory(dir);
   });
 }

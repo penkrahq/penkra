@@ -1,6 +1,7 @@
 import * as FS from "node:fs";
 import * as OS from "node:os";
 import * as Path from "node:path";
+import { fsyncDirectory } from "@penkra/shared/fsyncDirectory";
 
 const POINTER_DIRECTORY_NAME = "Penkra";
 const POINTER_FILE_NAME = "root.json";
@@ -97,12 +98,7 @@ export function writePenkraRootPointer(pointerPath: string, root: string): void 
       FS.closeSync(descriptor);
     }
     FS.renameSync(temporaryPath, pointerPath);
-    const directoryDescriptor = FS.openSync(directory, "r");
-    try {
-      FS.fsyncSync(directoryDescriptor);
-    } finally {
-      FS.closeSync(directoryDescriptor);
-    }
+    fsyncDirectory(directory);
   } finally {
     FS.rmSync(temporaryPath, { force: true });
   }
