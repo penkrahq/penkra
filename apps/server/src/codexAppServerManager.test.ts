@@ -36,6 +36,7 @@ import {
   inspectCodexThreadActivity,
   normalizeCodexModelSlug,
   readCodexAccountSnapshot,
+  recordCodexCapabilityPreflightFailure,
   resumeCodexThreadWithoutHistoryReplay,
   resolveCodexModelForAccount,
   shouldRetryCodexPreThreadOpenFailure,
@@ -49,6 +50,8 @@ import {
 import { CodexJsonlFramer, CodexJsonlWriter } from "./codexAppServerTransport";
 import { ensureDurableThreadWorkspace } from "./scratchWorkspaces";
 import { acquireAgentGatewaySessionLease } from "./agentGateway/sessionLease.ts";
+import { installDiagnosticsStore } from "./diagnostics/recorder.ts";
+import { DiagnosticsStore, openDiagnosticsReader } from "./diagnostics/store.ts";
 
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
 const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
@@ -60,6 +63,39 @@ const approvalRequiredTurnOverrides = {
   approvalPolicy: "untrusted",
   sandboxPolicy: { type: "readOnly" },
 } as const;
+
+describe("Codex capability preflight diagnostics", () => {
+  it("ignores an intentional session stop but records an unexpected failure", () => {
+    const stateDir = mkdtempSync(path.join(os.tmpdir(), "penkra-codex-preflight-diagnostics-"));
+    const store = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
+    const uninstall = installDiagnosticsStore(store);
+    try {
+      const threadId = asThreadId("thread-preflight-diagnostics");
+      recordCodexCapabilityPreflightFailure({
+        stopping: true,
+        threadId,
+        error: new Error("Session stopped before request completed."),
+      });
+      recordCodexCapabilityPreflightFailure({
+        stopping: true,
+        threadId,
+        error: new Error("MCP capability probe failed"),
+      });
+      const db = openDiagnosticsReader(stateDir)!;
+      try {
+        expect(db.prepare("SELECT code FROM incidents").all()).toEqual([
+          { code: "EXTERNAL_CALL_FAILED" },
+        ]);
+      } finally {
+        db.close();
+      }
+    } finally {
+      uninstall();
+      store.close();
+      rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("Codex Penkra harness policy", () => {
   it("probes Responses with an isolated read-only turn and requires completion", async () => {
