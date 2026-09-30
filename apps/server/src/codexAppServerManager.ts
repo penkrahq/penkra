@@ -95,6 +95,12 @@ import {
 const log = createLogger("codex");
 const SESSION_STOPPED_REQUEST_MESSAGE = "Session stopped before request completed.";
 
+export class CodexSessionStoppedRequestError extends Error {
+  constructor() {
+    super(SESSION_STOPPED_REQUEST_MESSAGE);
+  }
+}
+
 export function recordCodexCapabilityPreflightFailure(input: {
   readonly stopping: boolean;
   readonly threadId: ThreadId;
@@ -102,11 +108,7 @@ export function recordCodexCapabilityPreflightFailure(input: {
 }): void {
   // stopSession rejects outstanding requests before tearing down the probe.
   // That rejection is the expected result of disposing a verification session.
-  if (
-    input.stopping &&
-    input.error instanceof Error &&
-    input.error.message === SESSION_STOPPED_REQUEST_MESSAGE
-  ) {
+  if (input.stopping && input.error instanceof CodexSessionStoppedRequestError) {
     return;
   }
   recordCodexManagerFailure();
@@ -2430,7 +2432,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       void this.clearTemporaryResources(context);
       context.gatewaySessionLease?.release();
 
-      this.rejectPendingRequests(context, new Error(SESSION_STOPPED_REQUEST_MESSAGE));
+      this.rejectPendingRequests(context, new CodexSessionStoppedRequestError());
       if (this.hasPendingHumanRequests(context)) {
         // Answer parked server requests while stdin is still writable, then close.
         // Time-boxed so a child that stopped reading stdin cannot stall teardown.
