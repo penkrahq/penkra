@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { QaSocketReconnectTracker } from "./qaSocketReconnect";
 
 const clientId = "a".repeat(32);
@@ -25,6 +25,30 @@ describe("QaSocketReconnectTracker", () => {
     tracker.opened(forged).receivedFrame(request);
     expect(proofs).toEqual([]);
   });
+
+  it.each([true, false])(
+    "retains a long-lived socket until its close (close first: %s)",
+    (closeFirst) => {
+      const clock = vi.spyOn(Date, "now").mockReturnValue(0);
+      try {
+        const proofs: string[] = [];
+        const tracker = new QaSocketReconnectTracker(
+          (id) => proofs.push(id),
+          () => true,
+        );
+        const first = tracker.opened(signed(null));
+        clock.mockReturnValue(120_001);
+        if (closeFirst) first.closed();
+        const recovered = tracker.opened(signed(traceId));
+        recovered.receivedFrame(request);
+        recovered.sentFrame(success);
+        if (!closeFirst) first.closed();
+        expect(proofs).toEqual([traceId]);
+      } finally {
+        clock.mockRestore();
+      }
+    },
+  );
 
   it("requires the same signed transport to close and resume valid RPC traffic", () => {
     const proofs: string[] = [];

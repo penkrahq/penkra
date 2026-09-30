@@ -3267,6 +3267,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
         () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
         "Stop did not appear for the visible running turn.",
       );
+      expect(stop.dataset.turnId).toBe(turnId);
+      expect(stop.dataset.turnState).toBe("running");
+      expect(stop.dataset.threadId).toBe(runningSnapshot.threads[0]!.id);
       stop.click();
       await vi.waitFor(() => expect(hasDispatchedCommandType("thread.turn.interrupt")).toBe(true));
       expect(
