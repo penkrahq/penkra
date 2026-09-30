@@ -3491,7 +3491,12 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           // server that this runtime isolates to the exact Penkra thread.
           const agentGatewaySessionLease = serverUrl
             ? undefined
-            : acquireAgentGatewaySessionLease(agentGatewayCredentials, input.threadId, provider);
+            : acquireAgentGatewaySessionLease(
+                agentGatewayCredentials,
+                input.threadId,
+                provider,
+                input.lifecycleGeneration,
+              );
           if (!agentGatewaySessionLease) {
             return yield* Effect.fail(
               toAdapterProcessError(
@@ -3924,6 +3929,14 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         });
 
         const providerMessageId = `msg_${randomUUID()}`;
+        // promptAsync can run tools as soon as it is called. Register the
+        // execution before giving the prompt to OpenCode.
+        agentGatewayCredentials?.beginTurn(
+          input.threadId,
+          provider,
+          String(turnId),
+          context.lifecycleGeneration,
+        );
         yield* submitOpenCodePromptAsync(context, {
           turnId,
           promptInput: {
@@ -3937,7 +3950,20 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
               ...fileParts,
             ],
           },
-        });
+        }).pipe(
+          Effect.onExit((exit) =>
+            Exit.isFailure(exit)
+              ? Effect.sync(() =>
+                  agentGatewayCredentials?.endTurn(
+                    input.threadId,
+                    provider,
+                    String(turnId),
+                    context.lifecycleGeneration,
+                  ),
+                )
+              : Effect.void,
+          ),
+        );
         // Poll status as a completion backstop for dropped or delayed idle events.
         yield* startTurnSnapshotWatchdog(context, turnId, providerMessageId, {
           pollMessagesWhileBusy: false,

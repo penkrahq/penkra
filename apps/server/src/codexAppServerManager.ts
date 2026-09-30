@@ -979,7 +979,15 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   private readonly penkraSkillsDir: string | undefined;
   private readonly agentGatewayHostTool:
     | {
-        readonly acquireSessionLease: (threadId: ThreadId) => AgentGatewaySessionLease;
+        readonly acquireSessionLease: (
+          threadId: ThreadId,
+          lifecycleGeneration?: string,
+        ) => AgentGatewaySessionLease;
+        readonly beginTurn?: (
+          threadId: ThreadId,
+          turnId: TurnId,
+          lifecycleGeneration?: string,
+        ) => void;
         readonly requireNativeSurface: () => AgentGatewayNativeToolSurface;
       }
     | undefined;
@@ -1035,7 +1043,15 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     options?: {
       readonly penkraSkillsDir?: string;
       readonly agentGatewayHostTool?: {
-        readonly acquireSessionLease: (threadId: ThreadId) => AgentGatewaySessionLease;
+        readonly acquireSessionLease: (
+          threadId: ThreadId,
+          lifecycleGeneration?: string,
+        ) => AgentGatewaySessionLease;
+        readonly beginTurn?: (
+          threadId: ThreadId,
+          turnId: TurnId,
+          lifecycleGeneration?: string,
+        ) => void;
         readonly requireNativeSurface: () => AgentGatewayNativeToolSurface;
       };
       readonly teardownProcessTree?: typeof teardownProviderProcessTree;
@@ -1202,7 +1218,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         });
       }
       const resumeThreadId = readResumeThreadId(input);
-      gatewaySessionLease = this.agentGatewayHostTool?.acquireSessionLease(threadId);
+      gatewaySessionLease = this.agentGatewayHostTool?.acquireSessionLease(
+        threadId,
+        input.lifecycleGeneration,
+      );
       const child = spawnCodexAppServer({
         binaryPath: codexBinaryPath,
         cwd: resolvedCwd,
@@ -3895,6 +3914,20 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           },
         });
         return;
+      }
+      // The native request itself is trusted evidence of a live turn. Codex
+      // may deliver it before its turn/started notification, so grant that
+      // exact turn before dispatching the tool into the gateway.
+      if (
+        toolTurnId !== undefined &&
+        !context.terminalTurnIds.has(toolTurnId) &&
+        (context.session.activeTurnId === undefined || context.session.activeTurnId === toolTurnId)
+      ) {
+        this.agentGatewayHostTool.beginTurn?.(
+          context.session.threadId,
+          toolTurnId,
+          context.lifecycleGeneration,
+        );
       }
       const result = await this.agentGatewayHostTool.requireNativeSurface().invoke({
         bearerToken: context.gatewaySessionLease.connection.bearerToken,

@@ -18,6 +18,7 @@ import { ServerConfig } from "../../config.ts";
 import { installDiagnosticsStore } from "../../diagnostics/recorder.ts";
 import { DiagnosticsStore, openDiagnosticsReader } from "../../diagnostics/store.ts";
 import { PENKRA_HOST_POLICY_MARKER } from "../../agentGateway/harnessPolicy.ts";
+import { makeAgentGatewaySessionRegistry } from "../../agentGateway/Layers/AgentGatewaySessionRegistry.ts";
 import {
   AgentGatewayCredentials,
   type AgentGatewayCredentialsShape,
@@ -301,6 +302,9 @@ function makeGatewayCredentials() {
     verifySessionToken: (token) => ownerByToken.get(token) ?? null,
     verifySession: () => null,
     bindWriteAuthority: () => null,
+    beginTurn: () => undefined,
+    endTurn: () => undefined,
+    endSession: () => undefined,
     verifyWriteAuthority: () => false,
     revokeSessionToken: (token) => {
       revoked.push(token);
@@ -4450,6 +4454,63 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
       "thread.started",
       "turn.started",
     ]);
+  });
+
+  it("authorizes a tool request at the instant the OpenCode prompt is submitted", async () => {
+    const registry = makeAgentGatewaySessionRegistry();
+    let token: string | undefined;
+    const promptObservation: { authority: ReturnType<typeof registry.bindWriteAuthority> } = {
+      authority: null,
+    };
+    const base = makeGatewayCredentials().credentials;
+    const credentials: AgentGatewayCredentialsShape = {
+      ...base,
+      connectionForThread: (threadId, provider, generation) => {
+        token = registry.issue(threadId, provider, generation).token;
+        return { url: base.mcpEndpointUrl, bearerToken: token };
+      },
+      beginTurn: registry.beginTurn,
+      endTurn: registry.endTurn,
+      bindWriteAuthority: registry.bindWriteAuthority,
+      verifyWriteAuthority: registry.verifyWriteAuthority,
+    };
+    const runtime = createMockOpenCodeRuntime({
+      promptAsync: async () => {
+        promptObservation.authority = token ? registry.bindWriteAuthority(token) : null;
+        return { data: null };
+      },
+    });
+    const turn = await Effect.runPromise(
+      Effect.gen(function* () {
+        const adapter = yield* OpenCodeAdapter;
+        const threadId = asThreadId("thread-immediate-opencode-tool");
+        yield* adapter.startSession({
+          provider: "opencode",
+          threadId,
+          runtimeMode: "full-access",
+        });
+        return yield* adapter.sendTurn({
+          threadId,
+          input: "Call the host tool immediately",
+          attachments: [],
+          modelSelection: { provider: "opencode", model: "opencode/claude-opus-4-7" },
+        });
+      }).pipe(
+        Effect.provide(
+          makeOpenCodeAdapterLive({
+            runtime: runtime.runtime,
+            agentGatewayCredentials: credentials,
+          }).pipe(
+            Layer.provideMerge(
+              ServerConfig.layerTest(process.cwd(), { prefix: "opencode-adapter-test-" }),
+            ),
+            Layer.provideMerge(NodeServices.layer),
+          ),
+        ),
+      ),
+    );
+    expect(promptObservation.authority?.turnId).toBe(String(turn.turnId));
+    expect(registry.verifyWriteAuthority(promptObservation.authority!)).toBe(true);
   });
 
   it("completes an OpenCode turn from the exact parent message when terminal SSE is missed", async () => {
