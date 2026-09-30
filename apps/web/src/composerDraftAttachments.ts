@@ -20,6 +20,7 @@ import {
 } from "./composerDraftDomain";
 import { getLocalStorageItem } from "./hooks/useLocalStorage";
 import { deleteComposerAsset } from "./lib/composerAssetStore";
+import { recordWebConsumedFailure } from "./webFailureCoverage";
 
 const composerAttachmentPersistenceQueueByThreadId = new Map<string, Promise<void>>();
 // Tracks the newest in-flight sync per (slot, thread) so a superseded verification knows not to
@@ -43,6 +44,7 @@ function enqueueComposerAttachmentPersistence<Result>(
     try {
       result = Promise.resolve(operation());
     } catch (error) {
+      recordWebConsumedFailure("state");
       return Promise.reject(error);
     }
   }
@@ -533,6 +535,7 @@ export function syncPersistedAttachmentsForSlot(
     });
     deletePersistedComposerImageBlobs(supersededBlobAttachments, () => get().draftsByThreadId);
   } catch (error) {
+    recordWebConsumedFailure("state");
     return Promise.reject(error);
   }
   // Verification stays serialized per thread (across both slots) so overlapping

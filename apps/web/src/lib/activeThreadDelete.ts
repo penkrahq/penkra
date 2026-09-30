@@ -9,6 +9,7 @@ import { readNativeApi } from "../nativeApi";
 import { useStore } from "../store";
 import { getThreadFromState } from "../threadDerivation";
 import type { Thread } from "../types";
+import { recordWebConsumedFailure } from "../webFailureCoverage";
 import { reconcileDeletedThreadFromClient } from "./deletedThreadClientReconciliation";
 import { newCommandId } from "./utils";
 
@@ -24,6 +25,7 @@ async function disposeThreadTerminalRuntimes(threadId: ThreadId): Promise<void> 
       await import("../components/terminal/terminalRuntimeRegistry");
     terminalRuntimeRegistry.disposeThread(threadId);
   } catch (error) {
+    recordWebConsumedFailure("runtime");
     // A failed chunk fetch must not abort the delete sequence: the durable delete
     // already landed server-side and the server owns provider/terminal teardown.
     console.error("Failed to dispose terminal runtimes for deleted thread", { threadId, error });
