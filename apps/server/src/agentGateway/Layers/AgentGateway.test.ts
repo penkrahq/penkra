@@ -282,6 +282,7 @@ function makeHarnessLayer(
     readonly providerRuntimeOpenTurns?: ReadonlyArray<ProviderRuntimeOpenTurn>;
     readonly clearProviderRuntimeOpenTurnsAfterRead?: boolean;
     readonly endParentTurnOnSecondShellRead?: boolean;
+    readonly replaceParentTurnOnFirstShellRead?: boolean;
     readonly projectParentTurnOnSecondShellRead?: {
       readonly turnId: string;
       readonly providerTurnId: string;
@@ -431,6 +432,9 @@ function makeHarnessLayer(
       Effect.sync(() => {
         if (threadId === "thread-parent") {
           parentShellReads += 1;
+          if (parentShellReads === 1 && options.replaceParentTurnOnFirstShellRead) {
+            activeTurnByScope.set("thread-parent:codex", "turn-parent-next");
+          }
           if (parentShellReads === 2 && options.endParentTurnOnSecondShellRead) {
             activeTurnByScope.delete("thread-parent:codex");
           }
@@ -1207,6 +1211,25 @@ describe("AgentGateway", () => {
       }).pipe(Effect.provide(gatewayLayer));
     });
   }
+
+  it.effect("binds writes before an awaited initial thread lookup", () => {
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
+      replaceParentTurnOnFirstShellRead: true,
+    });
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_send_message",
+        args: { threadId: "thread-child", message: "Arrived in the old turn" },
+      });
+      assert.isTrue(isToolError(response.result));
+      assert.equal(
+        (toolResultJson(response.result).error as { code: string }).code,
+        "caller_turn_inactive",
+      );
+    }).pipe(Effect.provide(gatewayLayer));
+  });
 
   it.effect("rejects a late native tool request from a replaced turn", () => {
     const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);

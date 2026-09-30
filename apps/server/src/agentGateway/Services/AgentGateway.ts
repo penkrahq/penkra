@@ -11,6 +11,7 @@
  */
 import { ServiceMap } from "effect";
 import type { Effect } from "effect";
+import type { AgentGatewayWriteAuthority } from "./AgentGatewaySessionRegistry.ts";
 import type { McpToolCallResult, McpToolDefinition } from "../protocol.ts";
 
 export interface AgentGatewayHttpResult {
@@ -35,6 +36,11 @@ export interface AgentGatewayShape {
   readonly handleMcpPost: (input: {
     readonly authorizationHeader: string | undefined;
     readonly body: unknown;
+    /** Captured by the HTTP route before body parsing; null remains unbound. */
+    readonly ingressWriteAuthority?: {
+      readonly token: string;
+      readonly authority: AgentGatewayWriteAuthority | null;
+    };
     /** Best-effort turn attribution metadata; never used to authorize the call. */
     readonly originTurnId?: string;
   }) => Effect.Effect<AgentGatewayHttpResult>;

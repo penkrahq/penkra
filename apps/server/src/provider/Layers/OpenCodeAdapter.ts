@@ -1235,12 +1235,36 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
       );
 
       const emit = (context: OpenCodeSessionContext, event: ProviderRuntimeEvent) =>
-        Queue.offer(runtimeEvents, {
-          ...event,
-          ...(context.lifecycleGeneration !== undefined
-            ? { lifecycleGeneration: context.lifecycleGeneration }
-            : {}),
-        }).pipe(Effect.asVoid);
+        Effect.sync(() => {
+          if (event.providerRefs?.providerParentThreadId !== undefined) return;
+          if (
+            (event.type === "turn.completed" || event.type === "turn.aborted") &&
+            event.turnId !== undefined
+          ) {
+            agentGatewayCredentials?.endTurn(
+              context.session.threadId,
+              provider,
+              String(event.turnId),
+              context.lifecycleGeneration,
+            );
+          } else if (event.type === "session.exited") {
+            agentGatewayCredentials?.endSession(
+              context.session.threadId,
+              provider,
+              context.lifecycleGeneration,
+            );
+          }
+        }).pipe(
+          Effect.andThen(
+            Queue.offer(runtimeEvents, {
+              ...event,
+              ...(context.lifecycleGeneration !== undefined
+                ? { lifecycleGeneration: context.lifecycleGeneration }
+                : {}),
+            }),
+          ),
+          Effect.asVoid,
+        );
       const writeNativeEvent = (
         threadId: ThreadId,
         event: {
@@ -1316,6 +1340,11 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         if (yield* Ref.getAndSet(context.stopped, true)) {
           return;
         }
+        agentGatewayCredentials?.endSession(
+          context.session.threadId,
+          provider,
+          context.lifecycleGeneration,
+        );
         const turnId = context.activeTurnId;
         sessions.delete(context.session.threadId);
         yield* emit(context, {

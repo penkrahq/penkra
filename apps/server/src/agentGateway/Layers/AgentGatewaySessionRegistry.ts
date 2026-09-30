@@ -26,6 +26,16 @@ export function makeAgentGatewaySessionRegistry(options?: {
       // runtimes overlap their predecessor during startup, and the outgoing
       // runtime revokes its own token during teardown. Reusing a token here
       // would therefore let old-session cleanup invalidate the replacement.
+      // Issuing the replacement commits registry ownership. Retain old
+      // credentials for reads/cleanup, but remove their write grants now.
+      for (const [oldToken, old] of sessions) {
+        if (old.threadId === threadId && old.provider === provider) {
+          endedSessions.add(old.sessionKey);
+          const cleared = { ...old, activeTurnId: null };
+          sessions.set(oldToken, cleared);
+          sessionsByKey.set(old.sessionKey, cleared);
+        }
+      }
       const issuedAt = now();
       const sessionKey = `gateway-session:${randomId()}`;
       const token = `sagw_session_${randomId()}`;
@@ -51,14 +61,10 @@ export function makeAgentGatewaySessionRegistry(options?: {
     beginTurn: (threadId, provider, turnId, lifecycleGeneration, source = "delivery") => {
       const owner = [...sessions.values()]
         .reverse()
-        .find(
-          (identity) =>
-            identity.threadId === threadId &&
-            identity.provider === provider &&
-            identity.lifecycleGeneration === lifecycleGeneration,
-        );
+        .find((identity) => identity.threadId === threadId && identity.provider === provider);
       if (
         owner &&
+        owner.lifecycleGeneration === lifecycleGeneration &&
         !endedSessions.has(owner.sessionKey) &&
         !endedTurnsBySession.get(owner.sessionKey)?.has(turnId)
       ) {
