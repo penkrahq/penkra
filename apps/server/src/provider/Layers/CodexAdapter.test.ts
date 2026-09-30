@@ -27,6 +27,13 @@ import {
   type CodexAppServerSendTurnInput,
 } from "../../codexAppServerManager.ts";
 import { ServerConfig } from "../../config.ts";
+import { makeAgentGatewaySessionRegistry } from "../../agentGateway/Layers/AgentGatewaySessionRegistry.ts";
+import { makeAgentGatewayToolBridge } from "../../agentGateway/Layers/AgentGatewayToolBridge.ts";
+import {
+  AgentGatewayCredentials,
+  type AgentGatewayCredentialsShape,
+} from "../../agentGateway/Services/AgentGatewayCredentials.ts";
+import { AgentGatewayToolBridge } from "../../agentGateway/Services/AgentGatewayToolBridge.ts";
 import { ProviderAdapterValidationError } from "../Errors.ts";
 import { classifyProviderAuthFailure } from "../providerAuthFailure.ts";
 import { CodexAdapter } from "../Services/CodexAdapter.ts";
@@ -735,6 +742,69 @@ turnPreparationLayer("CodexAdapterLive turn input preparation", (it) => {
 });
 
 const lifecycleManager = new FakeCodexManager();
+it.effect("authorizes a Codex tool request immediately after native turn start", () => {
+  const manager = new FakeCodexManager();
+  const registry = makeAgentGatewaySessionRegistry();
+  const threadId = asThreadId("thread-immediate-codex-tool");
+  const generation = "codex-immediate-generation";
+  const issued = registry.issue(threadId, "codex", generation);
+  const bridge = makeAgentGatewayToolBridge();
+  const credentials: AgentGatewayCredentialsShape = {
+    mcpEndpointUrl: "http://127.0.0.1/mcp",
+    setListeningPort: () => undefined,
+    issueSessionToken: (threadId, provider, generation) =>
+      registry.issue(threadId, provider, generation).token,
+    verifySessionToken: (token) => registry.verify(token)?.threadId ?? null,
+    verifySession: registry.verify,
+    beginTurn: registry.beginTurn,
+    endTurn: registry.endTurn,
+    endSession: registry.endSession,
+    bindWriteAuthority: registry.bindWriteAuthority,
+    verifyWriteAuthority: registry.verifyWriteAuthority,
+    revokeSessionToken: registry.revoke,
+    connectionForThread: (threadId, provider, generation) => ({
+      url: "http://127.0.0.1/mcp",
+      bearerToken: registry.issue(threadId, provider, generation).token,
+    }),
+    stdioProxy: { command: "node", args: [] },
+  };
+  let authorityAtToolCall: ReturnType<typeof registry.bindWriteAuthority> = null;
+  manager.sendTurnImpl.mockImplementationOnce(async () => {
+    manager.emit("event", {
+      id: asEventId("codex-immediate-turn-start"),
+      kind: "notification",
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      method: "turn/started",
+      threadId,
+      turnId: asTurnId("codex-native-immediate"),
+      lifecycleGeneration: generation,
+      payload: { turn: { id: "codex-native-immediate", status: "inProgress" } },
+    } satisfies ProviderEvent);
+    authorityAtToolCall = registry.bindWriteAuthority(issued.token);
+    return { threadId, turnId: asTurnId("codex-native-immediate") };
+  });
+  return Effect.gen(function* () {
+    const adapter = yield* CodexAdapter;
+    const turn = yield* adapter.sendTurn({
+      threadId,
+      input: "Call the host tool",
+      attachments: [],
+    });
+    assert.equal(authorityAtToolCall?.turnId, String(turn.turnId));
+    assert.equal(registry.verifyWriteAuthority(authorityAtToolCall!), true);
+  }).pipe(
+    Effect.provide(
+      makeCodexAdapterLive({ manager }).pipe(
+        Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
+        Layer.provideMerge(providerSessionDirectoryTestLayer),
+        Layer.provideMerge(NodeServices.layer),
+        Layer.provideMerge(Layer.succeed(AgentGatewayCredentials, credentials)),
+        Layer.provideMerge(Layer.succeed(AgentGatewayToolBridge, bridge)),
+      ),
+    ),
+  );
+});
 const lifecycleLayer = it.layer(
   makeCodexAdapterLive({ manager: lifecycleManager }).pipe(
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),

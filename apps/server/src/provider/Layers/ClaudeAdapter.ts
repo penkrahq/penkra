@@ -3109,6 +3109,14 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           activeTurnId: turnId,
           updatedAt: startedAt,
         };
+        if (context.subagentRefs === undefined) {
+          agentGatewayCredentials?.beginTurn(
+            context.session.threadId,
+            PROVIDER,
+            String(turnId),
+            context.lifecycleGeneration,
+          );
+        }
         const turnStartedStamp = yield* makeEventStamp();
         yield* offerRuntimeEvent(context, {
           type: "turn.started",
@@ -5421,10 +5429,37 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           attachmentsDir: serverConfig.attachmentsDir,
         });
 
+        // Queue.offer makes the prompt visible to the SDK immediately. Grant
+        // this exact execution before that handoff, independently of the
+        // asynchronous runtime-event pump.
+        if (context.subagentRefs === undefined) {
+          agentGatewayCredentials?.beginTurn(
+            context.session.threadId,
+            PROVIDER,
+            String(turnId),
+            context.lifecycleGeneration,
+          );
+        }
         yield* Queue.offer(context.promptQueue, {
           type: "message",
           message,
-        }).pipe(Effect.mapError((cause) => toRequestError(input.threadId, "turn/start", cause)));
+        }).pipe(
+          Effect.mapError((cause) => toRequestError(input.threadId, "turn/start", cause)),
+          Effect.onExit((exit) =>
+            Exit.isFailure(exit)
+              ? Effect.sync(
+                  () =>
+                    context.subagentRefs === undefined &&
+                    agentGatewayCredentials?.endTurn(
+                      context.session.threadId,
+                      PROVIDER,
+                      String(turnId),
+                      context.lifecycleGeneration,
+                    ),
+                )
+              : Effect.void,
+          ),
+        );
 
         // The first prompt has been dispatched; the CLI's spawn mode is no longer
         // provably its current mode, so subsequent turns re-send unconditionally.

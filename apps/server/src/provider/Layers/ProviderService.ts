@@ -1167,6 +1167,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                   canonicalEvent.provider,
                   String(canonicalEvent.turnId),
                   canonicalEvent.lifecycleGeneration,
+                  "runtime-event",
                 );
               } else if (
                 (canonicalEvent.type === "turn.completed" ||

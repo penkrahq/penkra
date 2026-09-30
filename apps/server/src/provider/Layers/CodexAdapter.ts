@@ -2330,6 +2330,23 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
           const runtimeEvents = assignDerivedProviderRuntimeEventIds(
             mapToRuntimeEvents(event, event.threadId),
           ).map(compactProviderRuntimeEventForIngress);
+          // Codex assigns the turn id inside app-server. Its turn/started
+          // notification is handled synchronously before the next protocol
+          // message, including an immediate dynamic-tool request.
+          for (const runtimeEvent of runtimeEvents) {
+            if (
+              runtimeEvent.type === "turn.started" &&
+              runtimeEvent.turnId !== undefined &&
+              runtimeEvent.providerRefs?.providerParentThreadId === undefined
+            ) {
+              agentGatewayCredentials?.beginTurn(
+                runtimeEvent.threadId,
+                PROVIDER,
+                String(runtimeEvent.turnId),
+                runtimeEvent.lifecycleGeneration,
+              );
+            }
+          }
           trackTurnWatchdogActivity(event.threadId, runtimeEvents);
           const result = ingress.offer({
             nativeEvent: compactCodexNativeEventForIngress(event),

@@ -49,6 +49,7 @@ export interface AgentGatewayCredentialsShape {
     provider: ProviderKind,
     turnId: string,
     lifecycleGeneration?: string,
+    source?: "delivery" | "runtime-event",
   ) => void;
   readonly endTurn: (
     threadId: ThreadId,

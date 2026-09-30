@@ -521,6 +521,21 @@ gatewayTurnRouting.layer("gateway turn ownership", (it) => {
       yield* sleep(20);
       assert.isTrue(gatewayTurnRegistry.verifyWriteAuthority(oldAuthority));
 
+      // The adapter grants the next turn before prompt delivery; the later
+      // runtime event is only an idempotent observation.
+      gatewayTurnRegistry.beginTurn(threadId, "codex", String(newTurn), generation);
+      gatewayTurnRouting.codex.emit({
+        type: "turn.started",
+        eventId: asEventId("gateway-delayed-old-turn-start"),
+        provider: "codex",
+        createdAt: "2026-09-29T00:00:00.750Z",
+        threadId,
+        turnId: oldTurn,
+        lifecycleGeneration: generation,
+        payload: { state: "running" },
+      });
+      yield* sleep(20);
+      assert.equal(gatewayTurnRegistry.bindWriteAuthority(token)?.turnId, newTurn);
       gatewayTurnRouting.codex.emit({
         type: "turn.started",
         eventId: asEventId("gateway-turn-new-start"),
