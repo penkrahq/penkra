@@ -1,9 +1,14 @@
 import { ThreadId, type OrchestrationThreadShell } from "@penkra/contracts";
 import { Effect, Option } from "effect";
+import { startDiagnosticTrace } from "@penkra/shared/traceContext";
+import { recordDiagnosticCheckpoint } from "../diagnostics/recorder.ts";
+import {
+  recordMcpAuthorityRejected,
+  recordMcpScopeDenied,
+  type McpAuthorityCheck,
+} from "./mcpWriteDiagnostics.ts";
 
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import type { ProjectionTurnRepositoryShape } from "../persistence/Services/ProjectionTurns.ts";
-import type { ProviderRuntimeEventRepositoryShape } from "../persistence/Services/ProviderRuntimeEvents.ts";
 import type { AgentGatewayShape } from "./Services/AgentGateway.ts";
 import type { AgentGatewayCredentialsShape } from "./Services/AgentGatewayCredentials.ts";
 import { extractBearerToken } from "./bearerToken.ts";
@@ -18,7 +23,6 @@ import {
   parseMcpMessage,
   type JsonRpcRequest,
 } from "./protocol.ts";
-import { resolveAuthoritativeActiveTurn } from "./activeExecution.ts";
 import {
   GatewayToolError,
   gatewayToolErrorResult,
@@ -27,16 +31,16 @@ import {
 } from "./toolRuntime.ts";
 import { errorText } from "./toolInput.ts";
 
+import {
+  gatewayMcpToolErrorResult,
+  recordGatewayConsumedFailure,
+} from "./gatewayFailureDiagnostics.ts";
+
 const MCP_MAX_BATCH_MESSAGES = 50;
 
 export function makeAgentGatewayMcpTransport(input: {
   readonly credentials: AgentGatewayCredentialsShape;
   readonly snapshotQuery: ProjectionSnapshotQueryShape;
-  readonly projectionTurns: ProjectionTurnRepositoryShape;
-  readonly providerRuntimeEvents: Pick<
-    ProviderRuntimeEventRepositoryShape,
-    "listOpenTurnsByThreadId"
-  >;
   readonly tools: ReadonlyArray<ToolEntry>;
   readonly instructions:
     | string
@@ -46,100 +50,6 @@ export function makeAgentGatewayMcpTransport(input: {
   ) => Effect.Effect<OrchestrationThreadShell, unknown>;
 }): AgentGatewayShape["handleMcpPost"] {
   const toolsByName = new Map(input.tools.map((tool) => [tool.definition.name, tool]));
-
-  const resolveCallerTurnId = (thread: OrchestrationThreadShell) =>
-    Effect.gen(function* () {
-      const [projectedTurn, openTurns] = yield* Effect.all([
-        resolveAuthoritativeActiveTurn({
-          threadId: thread.id,
-          session: thread.session,
-          projectionTurns: input.projectionTurns,
-        }),
-        input.providerRuntimeEvents.listOpenTurnsByThreadId(thread.id),
-      ]);
-      const projectedTurnId = projectedTurn?.turnId ?? null;
-      const projectedProviderTurnId = projectedTurn?.providerTurnId ?? null;
-      const openTurnIds: string[] = openTurns.map((turn) => turn.turnId);
-      const sessionTurnId = thread.session?.activeTurnId ?? null;
-      const evidence = {
-        projectedTurnId,
-        projectedTurnState: projectedTurn?.state ?? null,
-        projectedProviderTurnId,
-        openTurnIds,
-        openRuntimeTurns: openTurns.map(({ turnId, firstSequence, updatedAt }) => ({
-          turnId,
-          firstSequence,
-          updatedAt,
-        })),
-      };
-      const projectedAliases: string[] = [];
-      if (projectedTurnId !== null) projectedAliases.push(projectedTurnId);
-      if (projectedProviderTurnId !== null) projectedAliases.push(projectedProviderTurnId);
-
-      if (
-        thread.session?.status === "running" &&
-        sessionTurnId !== null &&
-        openTurnIds.includes(sessionTurnId)
-      ) {
-        if (
-          projectedTurnId !== null &&
-          (sessionTurnId === projectedTurnId || sessionTurnId === projectedProviderTurnId)
-        ) {
-          return {
-            turnId: projectedTurnId,
-            activeTurnIds: projectedAliases,
-            ...evidence,
-          };
-        }
-        return {
-          turnId: sessionTurnId,
-          activeTurnIds: [sessionTurnId],
-          ...evidence,
-        };
-      }
-      if (projectedTurnId !== null && openTurnIds.length === 0) {
-        return {
-          turnId: projectedTurnId,
-          activeTurnIds: projectedAliases,
-          ...evidence,
-        };
-      }
-      if (
-        projectedTurnId !== null &&
-        openTurnIds.some(
-          (turnId) => turnId === projectedTurnId || turnId === projectedProviderTurnId,
-        )
-      ) {
-        return {
-          turnId: projectedTurnId,
-          activeTurnIds: projectedAliases,
-          ...evidence,
-        };
-      }
-      if (projectedTurnId === null && openTurnIds.length === 1) {
-        const openTurnId = openTurnIds[0] ?? null;
-        if (
-          thread.session?.status !== "running" ||
-          (sessionTurnId !== null && sessionTurnId !== openTurnId)
-        ) {
-          return {
-            turnId: null,
-            activeTurnIds: [],
-            ...evidence,
-          };
-        }
-        return {
-          turnId: openTurnId,
-          activeTurnIds: openTurnId === null ? [] : [openTurnId],
-          ...evidence,
-        };
-      }
-      return {
-        turnId: null,
-        activeTurnIds: [],
-        ...evidence,
-      };
-    });
 
   const handleRequest = (request: JsonRpcRequest, context: Omit<ToolContext, "jsonRpcRequestId">) =>
     Effect.gen(function* () {
@@ -179,6 +89,12 @@ export function makeAgentGatewayMcpTransport(input: {
               : {};
           const requiredCapability = tool.requiredCapability;
           if (!context.callerCapabilities.has(requiredCapability)) {
+            recordMcpScopeDenied({
+              trace: context.diagnosticTrace,
+              threadId: context.callerThreadId,
+              turnId: context.callerTurnId,
+              capability: requiredCapability,
+            });
             return jsonRpcResult(
               request.id,
               gatewayToolErrorResult(
@@ -224,7 +140,10 @@ export function makeAgentGatewayMcpTransport(input: {
             }
           }
           const result = yield* Effect.suspend(() => tool.handler(args, invocationContext)).pipe(
-            Effect.catchDefect((defect) => Effect.succeed(mcpToolResultError(errorText(defect)))),
+            Effect.catchDefect((defect) => {
+              recordGatewayConsumedFailure(defect);
+              return Effect.succeed(mcpToolResultError(errorText(defect)));
+            }),
           );
           return jsonRpcResult(request.id, result);
         }
@@ -240,6 +159,7 @@ export function makeAgentGatewayMcpTransport(input: {
   return (requestInput) =>
     Effect.gen(function* () {
       const mcpRequestArrivedAt = new Date().toISOString();
+      const diagnosticTrace = startDiagnosticTrace();
       const token = extractBearerToken(requestInput.authorizationHeader);
       const callerSession = token ? input.credentials.verifySession(token) : null;
       if (!token || !callerSession) {
@@ -252,10 +172,23 @@ export function makeAgentGatewayMcpTransport(input: {
           ),
         };
       }
+      // Capture authority before the first asynchronous thread lookup. HTTP
+      // requests carry the earlier snapshot taken before body parsing.
+      const callerWriteAuthority =
+        requestInput.ingressWriteAuthority !== undefined
+          ? requestInput.ingressWriteAuthority.token === token
+            ? requestInput.ingressWriteAuthority.authority
+            : null
+          : input.credentials.bindWriteAuthority(token);
       const callerThreadId = callerSession.threadId;
       const callerThread = yield* input.snapshotQuery
         .getThreadShellById(ThreadId.makeUnsafe(callerThreadId))
-        .pipe(Effect.catch(() => Effect.succeed(Option.none())));
+        .pipe(
+          Effect.catch((error) => {
+            recordGatewayConsumedFailure(error);
+            return Effect.succeed(Option.none());
+          }),
+        );
       if (Option.isNone(callerThread)) {
         return {
           status: 401,
@@ -287,71 +220,41 @@ export function makeAgentGatewayMcpTransport(input: {
           ),
         };
       }
-      const ingressAuthority = yield* resolveCallerTurnId(callerThread.value).pipe(
-        Effect.catch((error) =>
-          Effect.logWarning("agent_gateway.active_turn_lookup_failed", {
-            callerThreadId,
-            error: errorText(error),
-          }).pipe(
-            Effect.as({
-              turnId: null,
-              activeTurnIds: [],
-              projectedTurnId: null,
-              projectedTurnState: null,
-              projectedProviderTurnId: null,
-              openTurnIds: [],
-              openRuntimeTurns: [],
-            }),
-          ),
-        ),
-      );
-      if (
-        callerThread.value.session?.status === "running" &&
-        callerThread.value.session.activeTurnId !== null &&
-        ingressAuthority.turnId === null
-      ) {
-        yield* Effect.logWarning("agent_gateway.active_turn_projection_mismatch", {
-          callerThreadId,
-          sessionActiveTurnId: callerThread.value.session.activeTurnId,
-          latestTurnId: callerThread.value.latestTurn?.turnId ?? null,
-          latestProviderTurnId: callerThread.value.latestTurn?.providerTurnId ?? null,
-          latestTurnState: callerThread.value.latestTurn?.state ?? null,
-          projectedTurnId: ingressAuthority.projectedTurnId,
-          projectedProviderTurnId: ingressAuthority.projectedProviderTurnId,
-          openRuntimeTurnIds: ingressAuthority.openTurnIds,
-        });
-      }
-      const callerWriteAuthority =
-        ingressAuthority.turnId === null
-          ? null
-          : input.credentials.bindWriteAuthority(token, ingressAuthority.turnId);
+      // This request inherits only its own provider runtime's current execution.
+      // Projection and runtime-journal summaries may lag or briefly disagree.
+
       const callerTurnId =
         requestInput.originTurnId?.trim() ||
         (callerThread.value.session?.status === "running"
           ? callerThread.value.session.activeTurnId
           : null) ||
         null;
-      const failCallerTurnInactive = (
-        failedCheck: string,
-        error: GatewayToolError,
-        observed: typeof ingressAuthority = ingressAuthority,
-        session: OrchestrationThreadShell["session"] = callerThread.value.session,
-      ) =>
-        Effect.logWarning("agent_gateway.caller_turn_inactive", {
+      recordDiagnosticCheckpoint({
+        ...diagnosticTrace,
+        threadId: callerThreadId,
+        ...(callerTurnId ? { turnId: callerTurnId } : {}),
+        flow: "mcp_write",
+        step: "mcp.request_received",
+      });
+      const failCallerTurnInactive = (failedCheck: McpAuthorityCheck, error: GatewayToolError) => {
+        const observedTurnId = input.credentials.verifySession(token)?.activeTurnId ?? null;
+        recordMcpAuthorityRejected({
+          trace: diagnosticTrace,
+          threadId: callerThreadId,
+          arrivedTurnId: callerTurnId,
+          expectedTurnId: callerWriteAuthority?.turnId ?? null,
+          observedTurnId,
+          failedCheck,
+        });
+        return Effect.logWarning("agent_gateway.caller_turn_inactive", {
           callerThreadId,
           mcpRequestArrivedAt,
           failedCheck,
-          projectedActiveTurnId: observed.projectedTurnId,
-          projectedActiveTurnState: observed.projectedTurnState,
-          projectedProviderTurnId: observed.projectedProviderTurnId,
-          sessionStatus: session?.status ?? null,
-          sessionTurnId: session?.activeTurnId ?? null,
-          openRuntimeTurns: observed.openRuntimeTurns,
-          ingressAuthorityTurnId: ingressAuthority.turnId,
-          expectedTurnId: callerWriteAuthority?.turnId ?? null,
-          arrivedTurnId: callerTurnId,
-          observedAuthorityTurnId: observed.turnId,
+          registryTurnId: input.credentials.verifySession(token)?.activeTurnId ?? null,
+          ingressTurnId: callerWriteAuthority?.turnId ?? null,
+          arrivedOriginTurnId: requestInput.originTurnId?.trim() || null,
         }).pipe(Effect.andThen(Effect.fail(error)));
+      };
       const assertCallerThreadAuthorized: ToolContext["assertCallerThreadAuthorized"] = () =>
         Effect.gen(function* () {
           const currentSession = input.credentials.verifySession(token);
@@ -413,69 +316,30 @@ export function makeAgentGatewayMcpTransport(input: {
               ),
             );
           }
-          if (!input.credentials.verifyWriteAuthority(callerWriteAuthority)) {
-            return yield* Effect.fail(
+          const arrivedOriginTurnId = requestInput.originTurnId?.trim();
+          if (arrivedOriginTurnId && arrivedOriginTurnId !== callerWriteAuthority.turnId) {
+            return yield* failCallerTurnInactive(
+              "origin_turn_does_not_own_execution",
               new GatewayToolError(
-                "caller_session_inactive",
-                "This Penkra write was rejected because its provider-session authority is no longer active.",
+                "caller_turn_inactive",
+                "This Penkra write was rejected because its originating turn is no longer active.",
                 { callerThreadId },
               ),
             );
           }
-          const caller = yield* input
-            .requireThreadShell(callerThreadId)
-            .pipe(
-              Effect.catch((error) =>
-                failCallerTurnInactive(
-                  "caller_thread_lookup_failed",
-                  new GatewayToolError(
-                    "caller_turn_inactive",
-                    "This Penkra write was rejected because the caller thread could no longer be verified.",
-                    { callerThreadId, error: errorText(error) },
-                  ),
-                ),
-              ),
-            );
-          const activeAuthority = yield* resolveCallerTurnId(caller).pipe(
-            Effect.catch((error) =>
-              failCallerTurnInactive(
-                "active_execution_lookup_failed",
-                new GatewayToolError(
-                  "caller_turn_inactive",
-                  "This Penkra write was rejected because the active execution could not be verified.",
-                  { callerThreadId, error: errorText(error) },
-                ),
-                ingressAuthority,
-                caller.session,
-              ),
-            ),
-          );
-          const activeTurnIds: ReadonlyArray<string> = activeAuthority.activeTurnIds;
-          if (!activeTurnIds.includes(callerWriteAuthority.turnId)) {
+          if (!input.credentials.verifyWriteAuthority(callerWriteAuthority)) {
             return yield* failCallerTurnInactive(
               "authorized_turn_no_longer_active",
               new GatewayToolError(
                 "caller_turn_inactive",
                 "This Penkra write was rejected because the turn that received this MCP request is no longer active. In-flight requests cannot inherit authority from a later turn.",
-                {
-                  callerThreadId,
-                  authorizedTurnId: callerWriteAuthority.turnId,
-                  sessionStatus: caller.session?.status ?? null,
-                  sessionActiveTurnId: caller.session?.activeTurnId ?? null,
-                  latestTurnId: caller.latestTurn?.turnId ?? null,
-                  latestProviderTurnId: caller.latestTurn?.providerTurnId ?? null,
-                  latestTurnState: caller.latestTurn?.state ?? null,
-                  projectedTurnId: activeAuthority.projectedTurnId,
-                  projectedProviderTurnId: activeAuthority.projectedProviderTurnId,
-                  openRuntimeTurnIds: activeAuthority.openTurnIds,
-                },
+                { callerThreadId, authorizedTurnId: callerWriteAuthority.turnId },
               ),
-              activeAuthority,
-              caller.session,
             );
           }
         }).pipe(Effect.asVoid);
       const context: Omit<ToolContext, "jsonRpcRequestId"> = {
+        diagnosticTrace,
         principal: {
           kind: "provider-session",
           sessionKey: callerSession.sessionKey,
@@ -537,7 +401,7 @@ export function makeAgentGatewayMcpTransport(input: {
               yield* handleRequest(parsed.request, context).pipe(
                 Effect.catch((error) =>
                   Effect.succeed(
-                    jsonRpcResult(parsed.request.id, mcpToolResultError(errorText(error))),
+                    jsonRpcResult(parsed.request.id, gatewayMcpToolErrorResult(error)),
                   ),
                 ),
               ),

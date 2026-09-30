@@ -6,6 +6,8 @@
  */
 import { createHash } from "node:crypto";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
+import { startDiagnosticTrace } from "@penkra/shared/traceContext";
+import { recordDiagnosticIncident } from "../diagnostics/recorder.ts";
 
 import * as Cache from "effect/Cache";
 import * as Config from "effect/Config";
@@ -110,6 +112,18 @@ const makeWithDatabase = (
       let fatalSqlError: SqlError | null = null;
       const makeSqlError = (cause: unknown, message: string): SqlError => {
         if (fatalSqlError !== null) return fatalSqlError;
+        recordDiagnosticIncident({
+          ...startDiagnosticTrace(),
+          kind: "external.failed",
+          code: "APP_OPERATION_FAILED",
+          where: "server.database",
+          severity: "error",
+          expected: { accepted: true },
+          actual: { accepted: false },
+          context: {
+            dbOperation: message === "Failed to prepare statement" ? "prepare" : "execute",
+          },
+        });
         const error = new SqlError({ cause, message });
         if (isFatalSqliteDatabaseError(cause)) {
           fatalSqlError = error;

@@ -12,6 +12,7 @@ import { DESKTOP_IPC_CHANNELS } from "./ipcChannels";
 import { shouldRouteShellPanelClose } from "./panelShortcuts";
 
 const IPC = DESKTOP_IPC_CHANNELS;
+declare const __PENKRA_DIAGNOSTICS_QA_ACCOUNT_BUILD__: boolean;
 
 function shellInteractionTarget(target: EventTarget | null): Element | null {
   if (!(target instanceof Node)) return null;
@@ -86,6 +87,13 @@ function getDesktopWsUrl(): string | null {
 
 contextBridge.exposeInMainWorld("desktopBridge", {
   getWsUrl: getDesktopWsUrl,
+  recordDiagnosticCheckpoint: (input) => ipcRenderer.invoke(IPC.diagnosticsCheckpoint, input),
+  recordDiagnosticIncident: (input) => ipcRenderer.invoke(IPC.diagnosticsIncident, input),
+  armSendDiagnosticExpectation: (input) =>
+    ipcRenderer.invoke(IPC.diagnosticsSendExpectation, {
+      ...input,
+      armedAt: new Date().toISOString(),
+    }),
   // Absolute path for OS-dropped File objects (folders with spaces/parens, etc.).
   getPathForFile: (file: File) => {
     try {
@@ -140,6 +148,16 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       ipcRenderer.removeListener(IPC.menuAction, wrappedListener);
     };
   },
+  ...(__PENKRA_DIAGNOSTICS_QA_ACCOUNT_BUILD__
+    ? {
+        qaOpenWindow: () =>
+          ipcRenderer.send(IPC.panelFocus.resolveShellShortcut, {
+            command: "new-window",
+            insidePanel: false,
+            deckId: null,
+          }),
+      }
+    : {}),
   panelFocus: {
     onClosePanelTab: (listener) => {
       const wrapped = (_event: Electron.IpcRendererEvent, input: unknown) => {

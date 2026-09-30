@@ -1,4 +1,43 @@
 import { randomUUID } from "node:crypto";
+import { startDiagnosticTrace } from "@penkra/shared/traceContext";
+import { recordDiagnosticIncident } from "../../diagnostics/recorder.ts";
+
+type OpenCodeAdapterAction =
+  | "snapshot-key"
+  | "native-event-write"
+  | "message-probe"
+  | "pending-reconciliation"
+  | "permission-reconciliation"
+  | "question-reconciliation"
+  | "reply-watchdog"
+  | "interaction-reconciliation"
+  | "model-inventory"
+  | "cli-model-discovery"
+  | "prompt"
+  | "prompt-async"
+  | "mcp-setup"
+  | "session-create"
+  | "command-list";
+
+function recordOpenCodeAdapterFailure(
+  adapterAction: OpenCodeAdapterAction,
+  threadId?: string,
+): void {
+  recordDiagnosticIncident({
+    ...startDiagnosticTrace(),
+    ...(threadId ? { threadId } : {}),
+    kind: "external.failed",
+    code: "EXTERNAL_CALL_FAILED",
+    where: "provider.adapter",
+    severity: "error",
+    expected: { accepted: true },
+    actual: { accepted: false },
+    context: { provider: "opencode", adapterAction },
+  });
+}
+
+const noteOpenCodeAdapterFailure = (action: OpenCodeAdapterAction, threadId?: string) =>
+  Effect.sync(() => recordOpenCodeAdapterFailure(action, threadId));
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
@@ -388,6 +427,7 @@ function openCodeSnapshotKey(value: unknown): string {
   try {
     return JSON.stringify(value);
   } catch {
+    recordOpenCodeAdapterFailure("snapshot-key");
     return String(value);
   }
 }
@@ -1235,12 +1275,36 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
       );
 
       const emit = (context: OpenCodeSessionContext, event: ProviderRuntimeEvent) =>
-        Queue.offer(runtimeEvents, {
-          ...event,
-          ...(context.lifecycleGeneration !== undefined
-            ? { lifecycleGeneration: context.lifecycleGeneration }
-            : {}),
-        }).pipe(Effect.asVoid);
+        Effect.sync(() => {
+          if (event.providerRefs?.providerParentThreadId !== undefined) return;
+          if (
+            (event.type === "turn.completed" || event.type === "turn.aborted") &&
+            event.turnId !== undefined
+          ) {
+            agentGatewayCredentials?.endTurn(
+              context.session.threadId,
+              provider,
+              String(event.turnId),
+              context.lifecycleGeneration,
+            );
+          } else if (event.type === "session.exited") {
+            agentGatewayCredentials?.endSession(
+              context.session.threadId,
+              provider,
+              context.lifecycleGeneration,
+            );
+          }
+        }).pipe(
+          Effect.andThen(
+            Queue.offer(runtimeEvents, {
+              ...event,
+              ...(context.lifecycleGeneration !== undefined
+                ? { lifecycleGeneration: context.lifecycleGeneration }
+                : {}),
+            }),
+          ),
+          Effect.asVoid,
+        );
       const writeNativeEvent = (
         threadId: ThreadId,
         event: {
@@ -1254,7 +1318,10 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           readonly observedAt: string;
           readonly event: Record<string, unknown>;
         },
-      ) => writeNativeEvent(threadId, event).pipe(Effect.catchCause(() => Effect.void));
+      ) =>
+        writeNativeEvent(threadId, event).pipe(
+          Effect.catchCause(() => noteOpenCodeAdapterFailure("native-event-write", threadId)),
+        );
 
       const emitContextCompactionProgress = Effect.fn("emitContextCompactionProgress")(function* (
         context: OpenCodeSessionContext,
@@ -1316,6 +1383,11 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         if (yield* Ref.getAndSet(context.stopped, true)) {
           return;
         }
+        agentGatewayCredentials?.endSession(
+          context.session.threadId,
+          provider,
+          context.lifecycleGeneration,
+        );
         const turnId = context.activeTurnId;
         sessions.delete(context.session.threadId);
         yield* emit(context, {
@@ -1776,8 +1848,10 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             }),
           ).pipe(
             Effect.catchCause(() =>
-              Effect.succeed(
-                null as Awaited<ReturnType<OpencodeClient["session"]["messages"]>> | null,
+              noteOpenCodeAdapterFailure("message-probe", context.session.threadId).pipe(
+                Effect.as(
+                  null as Awaited<ReturnType<OpencodeClient["session"]["messages"]>> | null,
+                ),
               ),
             ),
           );
@@ -1817,8 +1891,10 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             }),
           ).pipe(
             Effect.catchCause(() =>
-              Effect.succeed(
-                null as Awaited<ReturnType<OpencodeClient["session"]["messages"]>> | null,
+              noteOpenCodeAdapterFailure("message-probe", context.session.threadId).pipe(
+                Effect.as(
+                  null as Awaited<ReturnType<OpencodeClient["session"]["messages"]>> | null,
+                ),
               ),
             ),
           );
@@ -1864,8 +1940,10 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             }),
           ).pipe(
             Effect.catchCause(() =>
-              Effect.succeed(
-                null as Awaited<ReturnType<OpencodeClient["session"]["messages"]>> | null,
+              noteOpenCodeAdapterFailure("message-probe", context.session.threadId).pipe(
+                Effect.as(
+                  null as Awaited<ReturnType<OpencodeClient["session"]["messages"]>> | null,
+                ),
               ),
             ),
           );
@@ -1990,6 +2068,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           ),
           Effect.catch((requestError) =>
             Effect.gen(function* () {
+              yield* noteOpenCodeAdapterFailure("prompt", context.session.threadId);
               if (yield* Ref.get(context.stopped)) {
                 return requestError;
               }
@@ -2049,6 +2128,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           Effect.as(null),
           Effect.catch((requestError) =>
             Effect.gen(function* () {
+              yield* noteOpenCodeAdapterFailure("prompt-async", context.session.threadId);
               if (yield* Ref.get(context.stopped)) {
                 return requestError;
               }
@@ -3091,9 +3171,13 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
       )(function* (context: OpenCodeSessionContext) {
         yield* refreshRelatedOpenCodeSessions(context).pipe(
           Effect.catchCause((cause) =>
-            Effect.logWarning(
-              `${adapterConfig.displayName} pending child-session reconciliation failed`,
-              Cause.squash(cause),
+            noteOpenCodeAdapterFailure("pending-reconciliation", context.session.threadId).pipe(
+              Effect.andThen(
+                Effect.logWarning(
+                  `${adapterConfig.displayName} pending child-session reconciliation failed`,
+                  Cause.squash(cause),
+                ),
+              ),
             ),
           ),
         );
@@ -3101,19 +3185,32 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           runOpenCodeSdk("permission.list", () => context.client.permission.list()).pipe(
             Effect.map((response) => response.data ?? []),
             Effect.catchCause((cause) =>
-              Effect.logWarning(
-                `${adapterConfig.displayName} pending permission reconciliation failed`,
-                Cause.squash(cause),
-              ).pipe(Effect.as([] as ReadonlyArray<PermissionRequest>)),
+              noteOpenCodeAdapterFailure(
+                "permission-reconciliation",
+                context.session.threadId,
+              ).pipe(
+                Effect.andThen(
+                  Effect.logWarning(
+                    `${adapterConfig.displayName} pending permission reconciliation failed`,
+                    Cause.squash(cause),
+                  ),
+                ),
+                Effect.as([] as ReadonlyArray<PermissionRequest>),
+              ),
             ),
           ),
           runOpenCodeSdk("question.list", () => context.client.question.list()).pipe(
             Effect.map((response) => response.data ?? []),
             Effect.catchCause((cause) =>
-              Effect.logWarning(
-                `${adapterConfig.displayName} pending question reconciliation failed`,
-                Cause.squash(cause),
-              ).pipe(Effect.as([] as ReadonlyArray<QuestionRequest>)),
+              noteOpenCodeAdapterFailure("question-reconciliation", context.session.threadId).pipe(
+                Effect.andThen(
+                  Effect.logWarning(
+                    `${adapterConfig.displayName} pending question reconciliation failed`,
+                    Cause.squash(cause),
+                  ),
+                ),
+                Effect.as([] as ReadonlyArray<QuestionRequest>),
+              ),
             ),
           ),
         ]);
@@ -3260,10 +3357,13 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           }
         }).pipe(
           Effect.catchCause((cause) =>
-            Effect.logWarning(
-              `${adapterConfig.displayName} exact reply watchdog failed`,
-              Cause.squash(cause),
-            ).pipe(
+            noteOpenCodeAdapterFailure("reply-watchdog", context.session.threadId).pipe(
+              Effect.andThen(
+                Effect.logWarning(
+                  `${adapterConfig.displayName} exact reply watchdog failed`,
+                  Cause.squash(cause),
+                ),
+              ),
               Effect.andThen(
                 writeNativeEventBestEffort(context.session.threadId, {
                   observedAt: nowIso(),
@@ -3304,9 +3404,16 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                 );
                 yield* reconcilePendingOpenCodeInteractions(context).pipe(
                   Effect.catchCause((cause) =>
-                    Effect.logWarning(
-                      `${adapterConfig.displayName} pending interaction reconciliation failed`,
-                      Cause.squash(cause),
+                    noteOpenCodeAdapterFailure(
+                      "interaction-reconciliation",
+                      context.session.threadId,
+                    ).pipe(
+                      Effect.andThen(
+                        Effect.logWarning(
+                          `${adapterConfig.displayName} pending interaction reconciliation failed`,
+                          Cause.squash(cause),
+                        ),
+                      ),
                     ),
                   ),
                 );
@@ -3413,7 +3520,12 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           // server that this runtime isolates to the exact Penkra thread.
           const agentGatewaySessionLease = serverUrl
             ? undefined
-            : acquireAgentGatewaySessionLease(agentGatewayCredentials, input.threadId, provider);
+            : acquireAgentGatewaySessionLease(
+                agentGatewayCredentials,
+                input.threadId,
+                provider,
+                input.lifecycleGeneration,
+              );
           if (!agentGatewaySessionLease) {
             return yield* Effect.fail(
               toAdapterProcessError(
@@ -3488,14 +3600,18 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                         const status = result.data?.[PENKRA_MCP_SERVER_NAME];
                         return status?.status === "connected"
                           ? Effect.void
-                          : Effect.fail(
-                              new OpenCodeRuntimeError({
-                                operation: "mcp.add",
-                                detail:
-                                  status?.status === "failed"
-                                    ? `${adapterConfig.displayName} Penkra MCP connection failed: ${status.error}`
-                                    : `${adapterConfig.displayName} Penkra MCP connection did not become ready.`,
-                              }),
+                          : noteOpenCodeAdapterFailure("mcp-setup", input.threadId).pipe(
+                              Effect.andThen(
+                                Effect.fail(
+                                  new OpenCodeRuntimeError({
+                                    operation: "mcp.add",
+                                    detail:
+                                      status?.status === "failed"
+                                        ? `${adapterConfig.displayName} Penkra MCP connection failed: ${status.error}`
+                                        : `${adapterConfig.displayName} Penkra MCP connection did not become ready.`,
+                                  }),
+                                ),
+                              ),
                             );
                       }),
                     );
@@ -3539,11 +3655,15 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                           Effect.flatMap((sessionResult) =>
                             sessionResult.data?.id
                               ? Effect.succeed(sessionResult.data.id)
-                              : Effect.fail(
-                                  new OpenCodeRuntimeError({
-                                    operation: "session.create",
-                                    detail: `${adapterConfig.displayName} session.create returned no session payload.`,
-                                  }),
+                              : noteOpenCodeAdapterFailure("session-create", input.threadId).pipe(
+                                  Effect.andThen(
+                                    Effect.fail(
+                                      new OpenCodeRuntimeError({
+                                        operation: "session.create",
+                                        detail: `${adapterConfig.displayName} session.create returned no session payload.`,
+                                      }),
+                                    ),
+                                  ),
                                 ),
                           ),
                         );
@@ -3551,7 +3671,11 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                       .loadOpenCodeInventory(client)
                       .pipe(
                         Effect.map(buildOpenCodeModelContextLimitMap),
-                        Effect.catchCause(() => Effect.succeed(new Map<string, number>())),
+                        Effect.catchCause(() =>
+                          noteOpenCodeAdapterFailure("model-inventory", input.threadId).pipe(
+                            Effect.as(new Map<string, number>()),
+                          ),
+                        ),
                       );
                     // Session creation and metadata discovery are independent once the server is up.
                     const [openCodeSessionId, modelContextLimitBySlug] = yield* Effect.all(
@@ -3834,6 +3958,14 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         });
 
         const providerMessageId = `msg_${randomUUID()}`;
+        // promptAsync can run tools as soon as it is called. Register the
+        // execution before giving the prompt to OpenCode.
+        agentGatewayCredentials?.beginTurn(
+          input.threadId,
+          provider,
+          String(turnId),
+          context.lifecycleGeneration,
+        );
         yield* submitOpenCodePromptAsync(context, {
           turnId,
           promptInput: {
@@ -3847,7 +3979,20 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
               ...fileParts,
             ],
           },
-        });
+        }).pipe(
+          Effect.onExit((exit) =>
+            Exit.isFailure(exit)
+              ? Effect.sync(() =>
+                  agentGatewayCredentials?.endTurn(
+                    input.threadId,
+                    provider,
+                    String(turnId),
+                    context.lifecycleGeneration,
+                  ),
+                )
+              : Effect.void,
+          ),
+        );
         // Poll status as a completion backstop for dropped or delayed idle events.
         yield* startTurnSnapshotWatchdog(context, turnId, providerMessageId, {
           pollMessagesWhileBusy: false,
@@ -4385,10 +4530,15 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             })
             .pipe(
               Effect.catch((error) =>
-                Effect.logDebug(`${adapterConfig.displayName} CLI model discovery failed`, {
-                  binaryPath,
-                  detail: openCodeRuntimeErrorDetail(error),
-                }).pipe(Effect.as([] as ReadonlyArray<OpenCodeCliModelDescriptor>)),
+                noteOpenCodeAdapterFailure("cli-model-discovery").pipe(
+                  Effect.andThen(
+                    Effect.logDebug(`${adapterConfig.displayName} CLI model discovery failed`, {
+                      binaryPath,
+                      detail: openCodeRuntimeErrorDetail(error),
+                    }),
+                  ),
+                  Effect.as([] as ReadonlyArray<OpenCodeCliModelDescriptor>),
+                ),
               ),
             );
           const inventoryEffect = withDiscoveryInventory(
@@ -4532,7 +4682,9 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                     source: "unsupported",
                     cached: false,
                   } satisfies ProviderListCommandsResult)
-                : Effect.fail(cause),
+                : noteOpenCodeAdapterFailure("command-list").pipe(
+                    Effect.andThen(Effect.fail(cause)),
+                  ),
             ),
             Effect.mapError(toAdapterRequestError),
           ),

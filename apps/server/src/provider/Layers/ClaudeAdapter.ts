@@ -440,9 +440,12 @@ interface ClaudeQueryRuntime extends AsyncIterable<ClaudeRuntimeMessage> {
 }
 
 interface ClaudeWarmQueryRuntime {
+  readonly query: (prompt: AsyncIterable<SDKUserMessage>) => AsyncIterable<ClaudeRuntimeMessage>;
   readonly close: () => void;
   readonly [Symbol.asyncDispose]: () => Promise<void>;
 }
+
+async function* emptyClaudeVerificationPrompt(): AsyncIterable<SDKUserMessage> {}
 
 export type ClaudeOwnedProcess = ClaudeSpawnedProcess & ProcessExitHandle;
 
@@ -1818,16 +1821,40 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       context: ClaudeSessionContext,
       event: ProviderRuntimeEvent,
     ): Effect.Effect<void> =>
-      Queue.offer(runtimeEventQueue, {
-        ...event,
-        // The Claude SDK stream has no replay cursor that uniquely identifies
-        // each delivery. Keep the per-emission UUID assigned by the adapter:
-        // content-derived identities collapse legitimate repeated deltas such
-        // as two consecutive spaces or punctuation chunks.
-        ...(context.lifecycleGeneration !== undefined
-          ? { lifecycleGeneration: context.lifecycleGeneration }
-          : {}),
-      }).pipe(Effect.asVoid);
+      Effect.sync(() => {
+        if (context.subagentRefs !== undefined) return;
+        if (
+          (event.type === "turn.completed" || event.type === "turn.aborted") &&
+          event.turnId !== undefined
+        ) {
+          agentGatewayCredentials?.endTurn(
+            context.session.threadId,
+            PROVIDER,
+            String(event.turnId),
+            context.lifecycleGeneration,
+          );
+        } else if (event.type === "session.exited") {
+          agentGatewayCredentials?.endSession(
+            context.session.threadId,
+            PROVIDER,
+            context.lifecycleGeneration,
+          );
+        }
+      }).pipe(
+        Effect.andThen(
+          Queue.offer(runtimeEventQueue, {
+            ...event,
+            // The Claude SDK stream has no replay cursor that uniquely identifies
+            // each delivery. Keep the per-emission UUID assigned by the adapter:
+            // content-derived identities collapse legitimate repeated deltas such
+            // as two consecutive spaces or punctuation chunks.
+            ...(context.lifecycleGeneration !== undefined
+              ? { lifecycleGeneration: context.lifecycleGeneration }
+              : {}),
+          }),
+        ),
+        Effect.asVoid,
+      );
 
     const logNativeSdkMessage = (
       context: ClaudeSessionContext,
@@ -2336,6 +2363,15 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       result?: SDKResultMessage,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
+        const terminalTurnId = context.turnState?.turnId ?? context.lastTurnId;
+        if (context.subagentRefs === undefined && terminalTurnId !== undefined) {
+          agentGatewayCredentials?.endTurn(
+            context.session.threadId,
+            PROVIDER,
+            String(terminalTurnId),
+            context.lifecycleGeneration,
+          );
+        }
         const liveContextUsage = yield* readClaudeContextUsage(context);
         const resultContextWindow = maxClaudeContextWindowFromModelUsage(result?.modelUsage);
         const liveRawContextWindow = positiveFiniteNumber(liveContextUsage?.rawMaxTokens);
@@ -3109,6 +3145,14 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           activeTurnId: turnId,
           updatedAt: startedAt,
         };
+        if (context.subagentRefs === undefined) {
+          agentGatewayCredentials?.beginTurn(
+            context.session.threadId,
+            PROVIDER,
+            String(turnId),
+            context.lifecycleGeneration,
+          );
+        }
         const turnStartedStamp = yield* makeEventStamp();
         yield* offerRuntimeEvent(context, {
           type: "turn.started",
@@ -4038,6 +4082,20 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       message: ClaudeRuntimeMessage,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
+        if (
+          message.type === "result" &&
+          context.subagentRefs === undefined &&
+          recognizedSubagentParentToolUseId(context, message) === undefined
+        ) {
+          const turnId = context.turnState?.turnId ?? context.lastTurnId;
+          if (turnId !== undefined)
+            agentGatewayCredentials?.endTurn(
+              context.session.threadId,
+              PROVIDER,
+              String(turnId),
+              context.lifecycleGeneration,
+            );
+        }
         yield* logNativeSdkMessage(context, message);
 
         if (
@@ -4125,6 +4183,14 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       Effect.gen(function* () {
         if (context.stopped) {
           return;
+        }
+
+        if (context.subagentRefs === undefined) {
+          agentGatewayCredentials?.endSession(
+            context.session.threadId,
+            PROVIDER,
+            context.lifecycleGeneration,
+          );
         }
 
         if (Exit.isFailure(exit)) {
@@ -4795,6 +4861,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           agentGatewayCredentials,
           threadId,
           PROVIDER,
+          input.lifecycleGeneration,
         );
         if (!gatewaySessionLease || !agentGatewayToolBridge) {
           return yield* Effect.fail(
@@ -5177,6 +5244,16 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             issue: "The Claude resume cursor does not contain an exact native session id.",
           });
         }
+        if (
+          input.requireCompletedProbe &&
+          (input.modelSelection?.provider !== PROVIDER || !input.modelSelection.model)
+        ) {
+          return yield* new ProviderAdapterValidationError({
+            provider: PROVIDER,
+            operation: "verifyNativeResume",
+            issue: "A completed Claude resume probe requires an explicitly selected test model.",
+          });
+        }
 
         const processOwner: ClaudeProcessOwner = {};
         const claudeSdkEnv = input.managedLaunch.childEnvironment(process.env);
@@ -5188,6 +5265,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 options: {
                   ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
                   resume,
+                  ...(input.requireCompletedProbe
+                    ? { model: input.modelSelection!.model, tools: [], maxTurns: 1 }
+                    : {}),
                   env: claudeSdkEnv,
                   pathToClaudeCodeExecutable: input.managedLaunch.binaryPath,
                   settingSources: [],
@@ -5205,10 +5285,81 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 cause,
               }),
           }),
-          () =>
-            Effect.succeed({
-              providerSessionId: resume,
-              resumeCursor: input.sourceResumeCursor,
+          (warmQuery) =>
+            Effect.tryPromise({
+              try: async () => {
+                const stream = warmQuery.query(
+                  input.requireCompletedProbe
+                    ? (async function* (): AsyncIterable<SDKUserMessage> {
+                        yield {
+                          type: "user",
+                          message: {
+                            role: "user",
+                            content: "Penkra continuation check. Reply OK without using tools.",
+                          },
+                          parent_tool_use_id: null,
+                          isSynthetic: true,
+                        };
+                      })()
+                    : emptyClaudeVerificationPrompt(),
+                );
+                let timeout: ReturnType<typeof setTimeout> | undefined;
+                const reportedSessionId = await Promise.race([
+                  (async () => {
+                    let initializedSessionId: string | undefined;
+                    for await (const message of stream) {
+                      if (message.type === "system" && message.subtype === "init") {
+                        initializedSessionId = message.session_id;
+                        if (!input.requireCompletedProbe) return initializedSessionId;
+                      }
+                      if (input.requireCompletedProbe && message.type === "result") {
+                        if (message.subtype !== "success" || message.is_error) {
+                          throw new Error(
+                            "Claude rejected the resumed verification turn: " +
+                              ("errors" in message ? message.errors.join(" ") : message.result),
+                          );
+                        }
+                        if (initializedSessionId === undefined) {
+                          throw new Error(
+                            "Claude completed a turn without reporting its native session id.",
+                          );
+                        }
+                        if (message.session_id !== initializedSessionId) {
+                          throw new Error(
+                            "Claude changed native sessions during resume verification.",
+                          );
+                        }
+                        return message.session_id;
+                      }
+                    }
+                    throw new Error(
+                      input.requireCompletedProbe
+                        ? "Claude did not complete the resumed verification turn."
+                        : "Claude did not report a native session id during resume.",
+                    );
+                  })(),
+                  new Promise<never>((_resolve, reject) => {
+                    timeout = setTimeout(
+                      () => reject(new Error("Claude did not report a native session id in time.")),
+                      CLAUDE_NATIVE_RESUME_VERIFICATION_TIMEOUT_MS,
+                    );
+                  }),
+                ]).finally(() => clearTimeout(timeout));
+                if (reportedSessionId !== resume) {
+                  throw new Error("Claude opened a different native session during resume.");
+                }
+                return {
+                  providerSessionId: reportedSessionId,
+                  resumeCursor: input.sourceResumeCursor,
+                };
+              },
+              catch: (cause) =>
+                new ProviderAdapterRequestError({
+                  provider: PROVIDER,
+                  method: "startup.resume",
+                  detail: toMessage(cause, "Claude did not prove exact native continuation."),
+                  cause,
+                }),
             }),
           (warmQuery) =>
             Effect.tryPromise({
@@ -5420,10 +5571,37 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           attachmentsDir: serverConfig.attachmentsDir,
         });
 
+        // Queue.offer makes the prompt visible to the SDK immediately. Grant
+        // this exact execution before that handoff, independently of the
+        // asynchronous runtime-event pump.
+        if (context.subagentRefs === undefined) {
+          agentGatewayCredentials?.beginTurn(
+            context.session.threadId,
+            PROVIDER,
+            String(turnId),
+            context.lifecycleGeneration,
+          );
+        }
         yield* Queue.offer(context.promptQueue, {
           type: "message",
           message,
-        }).pipe(Effect.mapError((cause) => toRequestError(input.threadId, "turn/start", cause)));
+        }).pipe(
+          Effect.mapError((cause) => toRequestError(input.threadId, "turn/start", cause)),
+          Effect.onExit((exit) =>
+            Exit.isFailure(exit)
+              ? Effect.sync(
+                  () =>
+                    context.subagentRefs === undefined &&
+                    agentGatewayCredentials?.endTurn(
+                      context.session.threadId,
+                      PROVIDER,
+                      String(turnId),
+                      context.lifecycleGeneration,
+                    ),
+                )
+              : Effect.void,
+          ),
+        );
 
         // The first prompt has been dispatched; the CLI's spawn mode is no longer
         // provably its current mode, so subsequent turns re-send unconditionally.

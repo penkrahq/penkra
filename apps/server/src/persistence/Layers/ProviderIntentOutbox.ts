@@ -1,4 +1,4 @@
-import { OrchestrationEvent } from "@penkra/contracts";
+import { OrchestrationEvent, type DiagnosticTraceContext } from "@penkra/contracts";
 import { Effect, Layer, Option, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
@@ -24,6 +24,10 @@ interface RawJobRow {
   readonly lifecycleGeneration: string | null;
   readonly eventType: string;
   readonly eventJson: string;
+  readonly diagnosticTraceId: string | null;
+  readonly diagnosticSpanId: string | null;
+  readonly diagnosticParentSpanId: string | null;
+  readonly diagnosticAttemptId: string | null;
   readonly state: ProviderIntentOutboxJob["state"];
   readonly claimGeneration: number;
   readonly claimOwner: string | null;
@@ -49,6 +53,16 @@ const decodeJobRows = (rows: ReadonlyArray<RawJobRow>) =>
         lifecycleGeneration: row.lifecycleGeneration,
         eventType: row.eventType,
         event,
+        ...(row.diagnosticTraceId && row.diagnosticSpanId
+          ? {
+              diagnosticTrace: {
+                traceId: row.diagnosticTraceId,
+                spanId: row.diagnosticSpanId,
+                ...(row.diagnosticParentSpanId ? { parentSpanId: row.diagnosticParentSpanId } : {}),
+                ...(row.diagnosticAttemptId ? { attemptId: row.diagnosticAttemptId } : {}),
+              } satisfies DiagnosticTraceContext,
+            }
+          : {}),
         state: row.state,
         claimGeneration: row.claimGeneration,
         claimOwner: row.claimOwner,
@@ -69,6 +83,10 @@ export const ProviderIntentOutboxLive = Layer.effect(
       thread_id AS "threadId", lane_key AS "laneKey", event_type AS "eventType",
       binding_revision AS "bindingRevision",
       lifecycle_generation AS "lifecycleGeneration",
+      diagnostic_trace_id AS "diagnosticTraceId",
+      diagnostic_span_id AS "diagnosticSpanId",
+      diagnostic_parent_span_id AS "diagnosticParentSpanId",
+      diagnostic_attempt_id AS "diagnosticAttemptId",
       event_json AS "eventJson", state,
       claim_generation AS "claimGeneration", claim_owner AS "claimOwner",
       claim_expires_at AS "claimExpiresAt", attempt_count AS "attemptCount",
@@ -101,6 +119,7 @@ export const ProviderIntentOutboxLive = Layer.effect(
 
     const enqueueInCurrentTransaction: ProviderIntentOutboxShape["enqueueInCurrentTransaction"] = (
       event,
+      diagnosticTrace,
     ) =>
       Effect.gen(function* () {
         // A subagent shares its ancestor's provider session. A native fork
@@ -146,11 +165,17 @@ export const ProviderIntentOutboxLive = Layer.effect(
             INSERT INTO provider_intent_outbox (
               event_sequence, event_id, thread_id, lane_key,
               binding_revision, lifecycle_generation, event_type,
+              diagnostic_trace_id, diagnostic_span_id,
+              diagnostic_parent_span_id, diagnostic_attempt_id,
               event_json, state, created_at, updated_at
             ) VALUES (
               ${event.sequence}, ${event.eventId}, ${event.payload.threadId}, ${laneKey},
               ${binding[0]?.revision ?? null}, ${lifecycle[0]?.generation ?? null},
-              ${event.type}, ${JSON.stringify(event)}, 'pending',
+              ${event.type}, ${diagnosticTrace?.traceId ?? null},
+              ${diagnosticTrace?.spanId ?? null},
+              ${diagnosticTrace?.parentSpanId ?? null},
+              ${diagnosticTrace?.attemptId ?? null},
+              ${JSON.stringify(event)}, 'pending',
               ${event.occurredAt}, ${event.occurredAt}
             )
           `;

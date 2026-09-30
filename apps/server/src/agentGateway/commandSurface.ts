@@ -1,4 +1,8 @@
 import { Effect } from "effect";
+import { startDiagnosticTrace } from "@penkra/shared/traceContext";
+import { recordDiagnosticIncident } from "../diagnostics/recorder.ts";
+import { recordMcpScopeDenied } from "./mcpWriteDiagnostics.ts";
+import { recordGatewayConsumedFailure } from "./gatewayFailureDiagnostics.ts";
 import {
   assembleInstructions,
   generateOperationHelp,
@@ -140,6 +144,12 @@ export function invokeResolvedAgentGatewayCommand(input: {
 }): Effect.Effect<McpToolCallResult> {
   const { entry } = input.resolution;
   if (!input.context.callerCapabilities.has(entry.tool.requiredCapability)) {
+    recordMcpScopeDenied({
+      trace: input.context.diagnosticTrace,
+      threadId: input.context.callerThreadId,
+      turnId: input.context.callerTurnId,
+      capability: entry.tool.requiredCapability,
+    });
     return Effect.succeed(
       gatewayToolErrorResult(
         new GatewayToolError(
@@ -163,5 +173,23 @@ export function invokeResolvedAgentGatewayCommand(input: {
     : entry.tool.requiresThreadAuthority
       ? input.context.assertCallerThreadAuthorized().pipe(Effect.andThen(invoke))
       : invoke;
-  return authorized.pipe(Effect.catch((error) => Effect.succeed(gatewayToolErrorResult(error))));
+  return authorized.pipe(
+    Effect.catch((error) => {
+      if (!(error instanceof GatewayToolError)) recordGatewayConsumedFailure(error);
+      if (error.code === "caller_session_inactive" || error.code === "caller_thread_inactive") {
+        recordDiagnosticIncident({
+          ...(input.context.diagnosticTrace ?? startDiagnosticTrace()),
+          threadId: input.context.callerThreadId,
+          ...(callerTurnId ? { turnId: callerTurnId } : {}),
+          kind: "command.rejected",
+          code: "COMMAND_REJECTED",
+          where: "agent.mcp_write",
+          severity: "error",
+          expected: { accepted: true },
+          actual: { accepted: false },
+        });
+      }
+      return Effect.succeed(gatewayToolErrorResult(error));
+    }),
+  );
 }

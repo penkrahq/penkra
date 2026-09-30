@@ -11,6 +11,7 @@ import { ProviderInstallationRepository } from "../../persistence/Services/Provi
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { buildProviderChildEnvironment } from "../../providerChildEnvironment.ts";
 import { ProviderCredentialBroker } from "../providerCredentialBroker.ts";
+import { qaFixtureLaunchAllowed } from "../qaFixtureLaunch.ts";
 import { prepareClaudeThreadProject } from "../claudeThreadNativeState.ts";
 import {
   providerConnectionProfileRoot,
@@ -36,6 +37,8 @@ const fail = (detail: string, cause?: unknown) =>
       ...(cause === undefined ? {} : { cause }),
     }),
   );
+
+declare const __PENKRA_DIAGNOSTICS_QA_PROVIDER_BUILD__: boolean;
 
 export const makeProviderLaunchResolver = Effect.gen(function* () {
   const config = yield* ServerConfig;
@@ -66,6 +69,17 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
       ) {
         return yield* fail("The selected managed installation is not active for this harness.");
       }
+      if (
+        installation.value.artifactSource === "qa-fixture" &&
+        !qaFixtureLaunchAllowed({
+          buildEnabled:
+            typeof __PENKRA_DIAGNOSTICS_QA_PROVIDER_BUILD__ !== "undefined" &&
+            __PENKRA_DIAGNOSTICS_QA_PROVIDER_BUILD__,
+          stateDir: config.stateDir,
+          env: process.env,
+        })
+      )
+        return yield* fail("QA fixture installation is unavailable outside disposable Dev QA.");
 
       let credentialEnvironment: NodeJS.ProcessEnv = {};
       let profileIdentity: string = input.connectionId ?? `anonymous:${input.harness}`;
@@ -171,6 +185,18 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
           }),
       });
 
+      const claudeBinding =
+        input.harness === "claudeAgent" && input.claudeThreadId !== undefined
+          ? yield* threads.getRuntimeBinding(input.claudeThreadId).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProviderLaunchResolutionError({
+                    detail: "Could not read the Claude Thread binding before launch.",
+                    cause,
+                  }),
+              ),
+            )
+          : Option.none();
       const claudeProjectName =
         input.harness === "claudeAgent" && input.claudeThreadId !== undefined
           ? yield* Effect.tryPromise({
@@ -180,6 +206,13 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
                   threadId: input.claudeThreadId!,
                   configDir: `${profileRoot}/claude-config`,
                   ...(claudeAccount === undefined ? {} : { account: claudeAccount }),
+                  ...(input.connectionId === null ? {} : { connectionId: input.connectionId }),
+                  ...(Option.isNone(claudeBinding)
+                    ? {}
+                    : {
+                        bindingConnectionId: claudeBinding.value.connectionId,
+                        bindingRevision: claudeBinding.value.revision,
+                      }),
                 }),
               catch: (cause) =>
                 new ProviderLaunchResolutionError({

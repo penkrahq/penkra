@@ -40,6 +40,13 @@ export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "penkra:last-invoked-script-by
 export const DISMISSED_PROVIDER_HEALTH_BANNERS_KEY = "penkra:dismissed-provider-health-banners";
 export const PROMPT_HISTORY_MAX_ENTRIES = 100;
 
+export function resolveInterruptTurnId<T extends string>(
+  latestTurn: { turnId: T; state: string } | null,
+  sessionActiveTurnId: T | null | undefined,
+): T | null {
+  return latestTurn?.state === "running" ? latestTurn.turnId : (sessionActiveTurnId ?? null);
+}
+
 export const LastInvokedScriptByProjectSchema = Schema.Record(FolderId, Schema.String);
 export const DismissedProviderHealthBannersSchema = Schema.Array(Schema.String);
 

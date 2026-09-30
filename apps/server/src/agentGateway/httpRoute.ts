@@ -16,6 +16,8 @@ import { AGENT_GATEWAY_MCP_PATH } from "./Layers/AgentGatewayCredentials";
 import { AgentGateway } from "./Services/AgentGateway";
 import { AgentGatewayCredentials } from "./Services/AgentGatewayCredentials";
 import { extractBearerToken } from "./bearerToken.ts";
+import { recordGatewayConsumedFailure } from "./gatewayFailureDiagnostics.ts";
+import { ToolInputError } from "./toolInput.ts";
 
 export const AGENT_GATEWAY_MCP_MAX_BODY_BYTES = 1024 * 1024;
 
@@ -63,11 +65,17 @@ export function readMcpJsonBody(
         catch: () => new Error("Invalid JSON body."),
       }),
     ),
-    Effect.catch((error) =>
-      Effect.succeed<McpBodyReadResult>(
+    Effect.catch((error) => {
+      recordGatewayConsumedFailure(
+        error === BODY_TOO_LARGE ||
+          (error instanceof Error && error.message === "Invalid JSON body.")
+          ? new ToolInputError("Invalid MCP request body")
+          : error,
+      );
+      return Effect.succeed<McpBodyReadResult>(
         error === BODY_TOO_LARGE ? { kind: "too-large" } : { kind: "invalid" },
-      ),
-    ),
+      );
+    }),
   );
 }
 
@@ -98,6 +106,7 @@ const postRouteLayer = HttpRouter.add(
       return unauthorizedResponse();
     }
 
+    const ingressWriteAuthority = { token, authority: credentials.bindWriteAuthority(token) };
     const bodyResult = yield* readMcpJsonBody(request);
     if (bodyResult.kind === "too-large") {
       return HttpServerResponse.jsonUnsafe(
@@ -119,6 +128,7 @@ const postRouteLayer = HttpRouter.add(
     const result = yield* gateway.handleMcpPost({
       authorizationHeader: request.headers.authorization,
       body: bodyResult.body,
+      ingressWriteAuthority,
       ...(originTurnId ? { originTurnId } : {}),
     });
     if (result.body === undefined) {

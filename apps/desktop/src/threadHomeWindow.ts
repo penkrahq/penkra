@@ -3,6 +3,7 @@ export class ThreadHomeWindow {
   readonly #home = new Map<string, number>();
   readonly #view = new Map<number, Map<string, string>>();
   readonly #activeThread = new Map<number, string>();
+  readonly #syncRevision = new Map<number, number>();
   readonly #pending = new Map<string, string>();
   readonly #pendingThreadSelection = new Map<string, string>();
   readonly #agentNavigation = new Map<number, Set<string>>();
@@ -42,11 +43,27 @@ export class ThreadHomeWindow {
     views: readonly { threadId: string; deckId: string }[],
     activeThreadId: string,
     userAction: boolean,
-  ): void {
+  ): { readonly windowId: number; readonly revision: number } {
     this.#view.set(windowId, new Map(views.map((view) => [view.threadId, view.deckId])));
     this.#activeThread.set(windowId, activeThreadId);
+    const revision = (this.#syncRevision.get(windowId) ?? 0) + 1;
+    this.#syncRevision.set(windowId, revision);
     const agentNavigation = this.#consumeAgentNavigation(windowId, activeThreadId);
     if (userAction && !agentNavigation) this.#home.set(activeThreadId, windowId);
+    return { windowId, revision };
+  }
+
+  snapshot(windowId: number): {
+    readonly activeThreadId: string;
+    readonly views: readonly { threadId: string; deckId: string }[];
+  } | null {
+    const activeThreadId = this.#activeThread.get(windowId);
+    const views = this.#view.get(windowId);
+    if (!activeThreadId || !views?.has(activeThreadId)) return null;
+    return {
+      activeThreadId,
+      views: [...views].map(([threadId, deckId]) => ({ threadId, deckId })),
+    };
   }
 
   leave(windowId: number): void {
@@ -71,6 +88,7 @@ export class ThreadHomeWindow {
   close(windowId: number): void {
     this.#view.delete(windowId);
     this.#activeThread.delete(windowId);
+    this.#syncRevision.delete(windowId);
     this.#agentNavigation.delete(windowId);
     for (const [threadId, home] of this.#home) {
       if (home === windowId) this.#home.delete(threadId);

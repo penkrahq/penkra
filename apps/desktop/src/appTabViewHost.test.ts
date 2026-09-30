@@ -3,11 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 import {
   detachedHostPlatformPolicy,
   detachedHostLayoutBounds,
-  clipAppTabBounds,
   hasRegisteredShellWindow,
   dockTransitionProgress,
   resolveAppTabPresentationMode,
   restoreShellFocusAfterHide,
+  resizedAppTabBounds,
   shouldApplyAppTabHide,
   shouldKeepNativeAppViewVisible,
   shouldKeepPresentationAnimation,
@@ -220,34 +220,30 @@ describe("shouldKeepPresentationAnimation", () => {
   });
 });
 
-describe("clipAppTabBounds", () => {
-  const viewport = { x: 0, y: 0, width: 840, height: 600 };
-
-  it("retains a host rect below the former dock minimum", () => {
-    expect(clipAppTabBounds({ x: 640, y: 46, width: 180, height: 500 }, viewport)).toEqual({
-      x: 640,
-      y: 46,
-      width: 180,
-      height: 500,
-    });
+describe("resizedAppTabBounds", () => {
+  it("preserves the dock's pixel width when leaving a wider fullscreen window", () => {
+    expect(
+      resizedAppTabBounds({
+        bounds: { x: 1600, y: 70, width: 1400, height: 1930 },
+        dockWidth: 1400,
+        rightInset: 0,
+        bottom: 0,
+        width: 2048,
+        height: 1280,
+      }),
+    ).toEqual({ x: 648, y: 70, width: 1400, height: 1210 });
   });
 
-  it("clips the host rect to the viewport without moving its left edge", () => {
-    expect(clipAppTabBounds({ x: 640, y: 46, width: 300, height: 700 }, viewport)).toEqual({
-      x: 640,
-      y: 46,
-      width: 200,
-      height: 554,
-    });
-  });
-
-  it("does not expand a previously measured view after a window grows", () => {
-    const host = { x: 640, y: 46, width: 180, height: 500 };
-    expect(clipAppTabBounds(host, { x: 0, y: 0, width: 1200, height: 800 })).toEqual(host);
-    expect(clipAppTabBounds(host, viewport)).toEqual(host);
-  });
-
-  it("returns no native view when the host is outside the viewport", () => {
-    expect(clipAppTabBounds({ x: 900, y: 46, width: 180, height: 500 }, viewport)).toBeNull();
+  it("clamps the dock width when the resized window is narrower", () => {
+    expect(
+      resizedAppTabBounds({
+        bounds: { x: 600, y: 46, width: 800, height: 754 },
+        dockWidth: 800,
+        rightInset: 1,
+        bottom: 0,
+        width: 640,
+        height: 480,
+      }),
+    ).toEqual({ x: 0, y: 46, width: 639, height: 434 });
   });
 });

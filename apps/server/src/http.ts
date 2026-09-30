@@ -30,6 +30,8 @@ import {
 } from "./attachmentPaths";
 import { resolveAttachmentPathById } from "./attachmentStore.ts";
 import { authErrorResponse, makeEffectAuthRequest } from "./auth/effectHttp";
+import { recordHttpFailure } from "./diagnostics/httpFailure";
+import { recoverMissingFile } from "./diagnostics/missingFileRecovery";
 import { AuthError, ServerAuth } from "./auth/Services/ServerAuth";
 import { SessionCredentialService } from "./auth/Services/SessionCredentialService";
 import { deriveAuthClientMetadata } from "./auth/utils";
@@ -585,8 +587,13 @@ export const authEffectRouteLayer = HttpRouter.add(
 
     return HttpServerResponse.text("Not Found", { status: 404 });
   }).pipe(
-    Effect.catch((error) =>
-      Effect.succeed(
+    Effect.catch((error) => {
+      const status =
+        typeof (error as { status?: unknown }).status === "number"
+          ? (error as { status: number }).status
+          : 500;
+      if (status >= 500) recordHttpFailure();
+      return Effect.succeed(
         HttpServerResponse.jsonUnsafe(
           {
             error:
@@ -595,14 +602,11 @@ export const authEffectRouteLayer = HttpRouter.add(
                 : String((error as { message?: unknown }).message ?? error),
           },
           {
-            status:
-              typeof (error as { status?: unknown }).status === "number"
-                ? (error as { status: number }).status
-                : 500,
+            status,
           },
         ),
-      ),
-    ),
+      );
+    }),
   ),
 );
 
@@ -641,9 +645,10 @@ export const projectFaviconEffectRouteLayer = HttpRouter.add(
           : {}),
       },
     }).pipe(
-      Effect.catch(() =>
-        Effect.succeed(HttpServerResponse.text("Internal Server Error", { status: 500 })),
-      ),
+      Effect.catch(() => {
+        recordHttpFailure();
+        return Effect.succeed(HttpServerResponse.text("Internal Server Error", { status: 500 }));
+      }),
     );
   }).pipe(Effect.catchTag("AuthError", (error) => Effect.succeed(authErrorResponse(error)))),
 );
@@ -1105,8 +1110,13 @@ const binaryUploadEffectHandler = Effect.gen(function* () {
 
   return HttpServerResponse.text("Not Found", { status: 404, headers: corsHeaders });
 }).pipe(
-  Effect.catch((error) =>
-    Effect.succeed(
+  Effect.catch((error) => {
+    const status =
+      typeof (error as { readonly status?: unknown }).status === "number"
+        ? (error as { readonly status: number }).status
+        : 500;
+    if (!(error instanceof AuthError) && status >= 500) recordHttpFailure();
+    return Effect.succeed(
       error instanceof AuthError
         ? authErrorResponse(error)
         : HttpServerResponse.jsonUnsafe(
@@ -1117,14 +1127,11 @@ const binaryUploadEffectHandler = Effect.gen(function* () {
                   : String((error as { readonly message?: unknown }).message ?? error),
             },
             {
-              status:
-                typeof (error as { readonly status?: unknown }).status === "number"
-                  ? (error as { readonly status: number }).status
-                  : 500,
+              status,
             },
           ),
-    ),
-  ),
+    );
+  }),
 );
 
 export const binaryUploadEffectRouteLayer = Layer.merge(
@@ -1193,9 +1200,7 @@ export const attachmentsEffectRouteLayer = HttpRouter.add(
     }
 
     const fileSystem = yield* FileSystem.FileSystem;
-    const fileInfo = yield* fileSystem
-      .stat(filePath)
-      .pipe(Effect.catch(() => Effect.succeed(null)));
+    const fileInfo = yield* recoverMissingFile(fileSystem.stat(filePath), recordHttpFailure);
     if (!fileInfo || fileInfo.type !== "File") {
       return HttpServerResponse.text("Not Found", { status: 404 });
     }
@@ -1281,14 +1286,13 @@ export const staticAndDevEffectRouteLayer = HttpRouter.add(
       }
     }
 
-    const fileInfo = yield* fileSystem
-      .stat(filePath)
-      .pipe(Effect.catch(() => Effect.succeed(null)));
+    const fileInfo = yield* recoverMissingFile(fileSystem.stat(filePath), recordHttpFailure);
     if (!fileInfo || fileInfo.type !== "File") {
       const indexPath = path.resolve(staticRoot, "index.html");
-      const indexData = yield* fileSystem
-        .readFile(indexPath)
-        .pipe(Effect.catch(() => Effect.succeed(null)));
+      const indexData = yield* recoverMissingFile(
+        fileSystem.readFile(indexPath),
+        recordHttpFailure,
+      );
       if (!indexData) return HttpServerResponse.text("Not Found", { status: 404 });
       return HttpServerResponse.uint8Array(indexData, {
         status: 200,
@@ -1296,9 +1300,12 @@ export const staticAndDevEffectRouteLayer = HttpRouter.add(
       });
     }
 
-    const data = yield* fileSystem
-      .readFile(filePath)
-      .pipe(Effect.catch(() => Effect.succeed(null)));
+    const data = yield* fileSystem.readFile(filePath).pipe(
+      Effect.catch(() => {
+        recordHttpFailure();
+        return Effect.succeed(null);
+      }),
+    );
     if (!data) return HttpServerResponse.text("Internal Server Error", { status: 500 });
     return HttpServerResponse.uint8Array(data, {
       status: 200,

@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { randomBytes } from "node:crypto";
 
 export interface RotatingFileSinkOptions {
   readonly filePath: string;
@@ -21,8 +22,8 @@ export class RotatingFileSink {
     if (options.maxBytes < 1) {
       throw new Error(`maxBytes must be >= 1 (received ${options.maxBytes})`);
     }
-    if (options.maxFiles < 1) {
-      throw new Error(`maxFiles must be >= 1 (received ${options.maxFiles})`);
+    if (options.maxFiles < 0) {
+      throw new Error(`maxFiles must be >= 0 (received ${options.maxFiles})`);
     }
 
     this.filePath = options.filePath;
@@ -33,16 +34,20 @@ export class RotatingFileSink {
 
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
     this.pruneOverflowBackups();
-    this.currentSize = this.readCurrentSize();
+    this.currentSize = this.clampFile(this.filePath, this.readCurrentSize());
   }
 
   write(chunk: string | Buffer): void {
-    const buffer = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+    const fullBuffer = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+    const buffer =
+      fullBuffer.length > this.maxBytes
+        ? fullBuffer.subarray(fullBuffer.length - this.maxBytes)
+        : fullBuffer;
     if (buffer.length === 0) return;
 
     try {
       if (this.currentSize > 0 && this.currentSize + buffer.length > this.maxBytes) {
-        this.rotate();
+        if (!this.rotate()) return;
       }
 
       if (this.mode === undefined) {
@@ -51,10 +56,6 @@ export class RotatingFileSink {
         fs.appendFileSync(this.filePath, buffer, { mode: this.mode });
       }
       this.currentSize += buffer.length;
-
-      if (this.currentSize > this.maxBytes) {
-        this.rotate();
-      }
     } catch {
       this.currentSize = this.readCurrentSize();
       if (this.throwOnError) {
@@ -63,8 +64,64 @@ export class RotatingFileSink {
     }
   }
 
-  private rotate(): void {
+  private clampFile(filePath: string, currentSize: number): number {
+    if (currentSize <= this.maxBytes) return currentSize;
     try {
+      const tail = Buffer.allocUnsafe(this.maxBytes);
+      const handle = fs.openSync(filePath, "r");
+      try {
+        let read = 0;
+        while (read < tail.length) {
+          const next = fs.readSync(
+            handle,
+            tail,
+            read,
+            tail.length - read,
+            currentSize - tail.length + read,
+          );
+          if (next === 0) throw new Error("Log file changed while clamping");
+          read += next;
+        }
+      } finally {
+        fs.closeSync(handle);
+      }
+      this.replaceFile(filePath, tail);
+      return tail.length;
+    } catch {
+      if (this.throwOnError) throw new Error(`Failed to clamp log file ${filePath}`);
+      return this.readCurrentSize(filePath);
+    }
+  }
+
+  private replaceFile(filePath: string, contents: Buffer): void {
+    const temporary = `${filePath}.penkra-tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
+    try {
+      const handle = fs.openSync(temporary, "wx", this.mode ?? 0o600);
+      try {
+        fs.writeFileSync(handle, contents);
+        fs.fsyncSync(handle);
+      } finally {
+        fs.closeSync(handle);
+      }
+      fs.renameSync(temporary, filePath);
+      const directory = fs.openSync(path.dirname(filePath), "r");
+      try {
+        fs.fsyncSync(directory);
+      } finally {
+        fs.closeSync(directory);
+      }
+    } finally {
+      fs.rmSync(temporary, { force: true });
+    }
+  }
+
+  private rotate(): boolean {
+    try {
+      if (this.maxFiles === 0) {
+        this.replaceFile(this.filePath, Buffer.alloc(0));
+        this.currentSize = 0;
+        return true;
+      }
       const oldest = this.withSuffix(this.maxFiles);
       if (fs.existsSync(oldest)) {
         fs.rmSync(oldest, { force: true });
@@ -79,15 +136,37 @@ export class RotatingFileSink {
       }
 
       if (fs.existsSync(this.filePath)) {
-        fs.renameSync(this.filePath, this.withSuffix(1));
+        const backup = this.withSuffix(1);
+        const temporary = `${backup}.penkra-tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
+        try {
+          fs.copyFileSync(this.filePath, temporary);
+          const copied = fs.openSync(temporary, "r");
+          try {
+            fs.fsyncSync(copied);
+          } finally {
+            fs.closeSync(copied);
+          }
+          fs.renameSync(temporary, backup);
+          const directory = fs.openSync(path.dirname(backup), "r");
+          try {
+            fs.fsyncSync(directory);
+          } finally {
+            fs.closeSync(directory);
+          }
+        } finally {
+          fs.rmSync(temporary, { force: true });
+        }
+        this.replaceFile(this.filePath, Buffer.alloc(0));
       }
 
       this.currentSize = 0;
+      return true;
     } catch {
       this.currentSize = this.readCurrentSize();
       if (this.throwOnError) {
         throw new Error(`Failed to rotate log file ${this.filePath}`);
       }
+      return false;
     }
   }
 
@@ -96,10 +175,16 @@ export class RotatingFileSink {
       const dir = path.dirname(this.filePath);
       const baseName = path.basename(this.filePath);
       for (const entry of fs.readdirSync(dir)) {
+        if (entry.startsWith(`${baseName}.`) && entry.includes(".penkra-tmp-")) {
+          fs.rmSync(path.join(dir, entry), { force: true });
+          continue;
+        }
         if (!entry.startsWith(`${baseName}.`)) continue;
         const suffix = Number(entry.slice(baseName.length + 1));
-        if (!Number.isInteger(suffix) || suffix <= this.maxFiles) continue;
-        fs.rmSync(path.join(dir, entry), { force: true });
+        if (!Number.isInteger(suffix)) continue;
+        const backupPath = path.join(dir, entry);
+        if (suffix > this.maxFiles) fs.rmSync(backupPath, { force: true });
+        else if (suffix > 0) this.clampFile(backupPath, this.readCurrentSize(backupPath));
       }
     } catch {
       if (this.throwOnError) {
@@ -108,9 +193,9 @@ export class RotatingFileSink {
     }
   }
 
-  private readCurrentSize(): number {
+  private readCurrentSize(filePath = this.filePath): number {
     try {
-      return fs.statSync(this.filePath).size;
+      return fs.statSync(filePath).size;
     } catch {
       return 0;
     }

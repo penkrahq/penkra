@@ -1,0 +1,4741 @@
+[
+  {
+    "file": "apps/web/src/appInstallationStore.ts",
+    "line": 27,
+    "column": 6,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/appInstallationStore.ts",
+    "line": 57,
+    "column": 16,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/appInstallationStore.ts",
+    "line": 68,
+    "column": 16,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/appInstallationStore.ts",
+    "line": 77,
+    "column": 16,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/appInstallationStore.ts",
+    "line": 88,
+    "column": 16,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/appInstallationStore.ts",
+    "line": 98,
+    "column": 16,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/appInstallationStore.ts",
+    "line": 109,
+    "column": 16,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/appSettings.ts",
+    "line": 754,
+    "column": 8,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/appSettings.ts",
+    "line": 778,
+    "column": 8,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The operation is optional or cleanup-only, so its failure leaves the authoritative state available for retry.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/appSettings.ts",
+    "line": 792,
+    "column": 8,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The operation is optional or cleanup-only, so its failure leaves the authoritative state available for retry.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/authLogout.ts",
+    "line": 17,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Every failure from logout or navigation is recorded locally before the error callback; the payload contains only fixed fields.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
+    }
+  },
+  {
+    "file": "apps/web/src/chatLifecycleDiagnostics.ts",
+    "line": 266,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "This optional diagnostics path isolates its own failure from the user operation being observed.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/chatLifecycleDiagnostics.ts",
+    "line": 280,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "This optional diagnostics path isolates its own failure from the user operation being observed.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/chatScrollDiagnostics.ts",
+    "line": 102,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "This optional diagnostics path isolates its own failure from the user operation being observed.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/chatScrollDiagnostics.ts",
+    "line": 115,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "This optional diagnostics path isolates its own failure from the user operation being observed.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/chatScrollDiagnostics.ts",
+    "line": 162,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "This optional diagnostics path isolates its own failure from the user operation being observed.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/chatScrollDiagnostics.ts",
+    "line": 170,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "This optional diagnostics path isolates its own failure from the user operation being observed.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/chatScrollDiagnostics.ts",
+    "line": 193,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "This optional diagnostics path isolates its own failure from the user operation being observed.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/chat/AppDockPane.tsx",
+    "line": 165,
+    "column": 72,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/chat/appTabRestore.logic.ts",
+    "line": 77,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/chat/appTabRestore.logic.ts",
+    "line": 85,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch preserves or wraps the failure for its caller and the request recording boundary.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/chat/appTabRestore.logic.ts",
+    "line": 87,
+    "column": 48,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/chat/appTabRestore.logic.ts",
+    "line": 89,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The original failure is preserved for the caller, whose transport boundary records the rejected operation.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/chat/ChatTranscriptPane.tsx",
+    "line": 205,
+    "column": 8,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/chat/ComposerLocalDirectoryMenu.tsx",
+    "line": 207,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/chat/MessagesTimeline.logic.ts",
+    "line": 82,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/chat/ProjectPicker.tsx",
+    "line": 138,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The desktop bridge call reaches the main-process IPC boundary, which records the failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
+    }
+  },
+  {
+    "file": "apps/web/src/components/chat/ProjectPicker.tsx",
+    "line": 149,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The desktop bridge call reaches the main-process IPC boundary, which records the failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
+    }
+  },
+  {
+    "file": "apps/web/src/components/chat/ProjectPicker.tsx",
+    "line": 152,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The desktop bridge call reaches the main-process IPC boundary, which records the failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
+    }
+  },
+  {
+    "file": "apps/web/src/components/chat/SingleChatSurface.tsx",
+    "line": 202,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The desktop bridge call reaches the main-process IPC boundary, which records the failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
+    }
+  },
+  {
+    "file": "apps/web/src/components/chat/SingleChatSurface.tsx",
+    "line": 221,
+    "column": 46,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/chat/SingleChatSurface.tsx",
+    "line": 276,
+    "column": 52,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/chat/SingleChatSurface.tsx",
+    "line": 305,
+    "column": 53,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/chat/SingleChatSurface.tsx",
+    "line": 320,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The failed desktop bridge request reaches the main-process IPC boundary, which records the failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
+    }
+  },
+  {
+    "file": "apps/web/src/components/chat/SingleChatSurface.tsx",
+    "line": 362,
+    "column": 12,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The desktop bridge call reaches the main-process IPC boundary, which records the failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
+    }
+  },
+  {
+    "file": "apps/web/src/components/chat/SingleChatSurface.tsx",
+    "line": 382,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The desktop bridge call reaches the main-process IPC boundary, which records the failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
+    }
+  },
+  {
+    "file": "apps/web/src/components/chat/SingleChatSurface.tsx",
+    "line": 442,
+    "column": 8,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The desktop bridge call reaches the main-process IPC boundary, which records the failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
+    }
+  },
+  {
+    "file": "apps/web/src/components/chat/SingleChatSurface.tsx",
+    "line": 489,
+    "column": 66,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/chat/useComposerVoiceController.ts",
+    "line": 203,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch records a content-free browser runtime incident before retaining the existing error handling.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
+    }
+  },
+  {
+    "file": "apps/web/src/components/chat/useComposerVoiceController.ts",
+    "line": 233,
+    "column": 8,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch records a content-free browser runtime incident before retaining the existing error handling.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
+    }
+  },
+  {
+    "file": "apps/web/src/components/chat/usePinnedMessageActions.ts",
+    "line": 94,
+    "column": 61,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected command reaches the browser socket RPC boundary, which records the transport failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/chat/usePinnedMessageActions.ts",
+    "line": 117,
+    "column": 56,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected command reaches the browser socket RPC boundary, which records the transport failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/chat/usePinnedMessageActions.ts",
+    "line": 140,
+    "column": 66,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected command reaches the browser socket RPC boundary, which records the transport failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/chat/usePinnedMessageActions.ts",
+    "line": 165,
+    "column": 59,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected command reaches the browser socket RPC boundary, which records the transport failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/chat/usePinnedMessageActions.ts",
+    "line": 186,
+    "column": 68,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected command reaches the browser socket RPC boundary, which records the transport failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/chat/usePinnedMessageActions.ts",
+    "line": 204,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch preserves or wraps the failure for its caller and the request recording boundary.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/chat/usePinnedMessageActions.ts",
+    "line": 206,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The original failure is preserved for the caller, whose transport boundary records the rejected operation.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatMarkdown.tsx",
+    "line": 671,
+    "column": 34,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "This timer schedules bounded UI work, retry, or debounce and is cancelled or settled by its owner.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ChatMarkdown.tsx",
+    "line": 676,
+    "column": 8,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch records a content-free browser runtime incident before retaining the existing error handling.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ChatView.browser.tsx",
+    "line": 533,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This browser fixture deliberately exercises a failure or fallback in test-only code.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ChatView.browser.tsx",
+    "line": 608,
+    "column": 22,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This browser fixture deliberately exercises a failure or fallback in test-only code.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ChatView.browser.tsx",
+    "line": 611,
+    "column": 20,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This browser fixture deliberately exercises a failure or fallback in test-only code.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ChatView.browser.tsx",
+    "line": 1595,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This browser fixture deliberately exercises a failure or fallback in test-only code.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ChatView.browser.tsx",
+    "line": 1643,
+    "column": 39,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This browser fixture deliberately exercises a failure or fallback in test-only code.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ChatView.browser.tsx",
+    "line": 1949,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This browser fixture deliberately exercises a failure or fallback in test-only code.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ChatView.browser.tsx",
+    "line": 2200,
+    "column": 3,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This browser fixture deliberately exercises a failure or fallback in test-only code.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ChatView.browser.tsx",
+    "line": 2332,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "This browser fixture deliberately exercises a failure or fallback in test-only code.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ChatView.browser.tsx",
+    "line": 2335,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This browser fixture deliberately exercises a failure or fallback in test-only code.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ChatView.browser.tsx",
+    "line": 2389,
+    "column": 44,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "This timer schedules bounded UI work, retry, or debounce and is cancelled or settled by its owner.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ChatView.browser.tsx",
+    "line": 5014,
+    "column": 38,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "This timer schedules bounded UI work, retry, or debounce and is cancelled or settled by its owner.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ChatView.browser.tsx",
+    "line": 5335,
+    "column": 21,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This browser fixture deliberately exercises a failure or fallback in test-only code.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ChatView.browser.tsx",
+    "line": 5365,
+    "column": 15,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This browser fixture deliberately exercises a failure or fallback in test-only code.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ChatView.browser.tsx",
+    "line": 5481,
+    "column": 11,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "This browser fixture deliberately exercises a failure or fallback in test-only code.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ChatView.browser.tsx",
+    "line": 5548,
+    "column": 21,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This browser fixture deliberately exercises a failure or fallback in test-only code.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ChatView.browser.tsx",
+    "line": 6023,
+    "column": 23,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This browser fixture deliberately exercises a failure or fallback in test-only code.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ChatView.browser.tsx",
+    "line": 6042,
+    "column": 31,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "This browser fixture deliberately exercises a failure or fallback in test-only code.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ChatView.browser.tsx",
+    "line": 6103,
+    "column": 17,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This browser fixture deliberately exercises a failure or fallback in test-only code.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ChatView.browser.tsx",
+    "line": 6251,
+    "column": 42,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "This timer schedules bounded UI work, retry, or debounce and is cancelled or settled by its owner.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ChatView.browser.tsx",
+    "line": 6290,
+    "column": 42,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "This timer schedules bounded UI work, retry, or debounce and is cancelled or settled by its owner.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ChatView.browser.tsx",
+    "line": 6480,
+    "column": 21,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This browser fixture deliberately exercises a failure or fallback in test-only code.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ChatView.browser.tsx",
+    "line": 6561,
+    "column": 21,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This browser fixture deliberately exercises a failure or fallback in test-only code.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ChatView.browser.tsx",
+    "line": 6632,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This browser fixture deliberately exercises a failure or fallback in test-only code.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ChatView.browser.tsx",
+    "line": 7879,
+    "column": 21,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This browser fixture deliberately exercises a failure or fallback in test-only code.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ChatView.browser.tsx",
+    "line": 8763,
+    "column": 13,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This browser fixture deliberately exercises a failure or fallback in test-only code.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ChatView.browser.tsx",
+    "line": 9281,
+    "column": 21,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This browser fixture deliberately exercises a failure or fallback in test-only code.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ChatView.browser.tsx",
+    "line": 9453,
+    "column": 25,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This browser fixture deliberately exercises a failure or fallback in test-only code.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ComposerPromptEditor.tsx",
+    "line": 1325,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The original failure is preserved for the caller, whose transport boundary records the rejected operation.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ConnectionDefaultsMigration.tsx",
+    "line": 26,
+    "column": 8,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected command reaches the browser socket RPC boundary, which records the transport failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/DesktopActiveWorkPowerSync.tsx",
+    "line": 23,
+    "column": 87,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected desktop bridge call reaches the main-process IPC boundary, which records the failed dispatch.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
+    }
+  },
+  {
+    "file": "apps/web/src/components/DesktopActiveWorkPowerSync.tsx",
+    "line": 38,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/desktopThreadApiTarget.ts",
+    "line": 20,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/desktopThreadApiTarget.ts",
+    "line": 27,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/desktopThreadApiTarget.ts",
+    "line": 56,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch preserves or wraps the failure for its caller and the request recording boundary.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
+    }
+  },
+  {
+    "file": "apps/web/src/components/desktopThreadApiTarget.ts",
+    "line": 57,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "This operational failure reaches the caller, where the request boundary records the failed operation.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
+    }
+  },
+  {
+    "file": "apps/web/src/components/desktopThreadApiTarget.ts",
+    "line": 62,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/desktopUpdate.subscription.ts",
+    "line": 27,
+    "column": 6,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/DiffWorkerPoolProvider.tsx",
+    "line": 25,
+    "column": 8,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/EventRouter.browser.tsx",
+    "line": 192,
+    "column": 16,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This browser fixture deliberately exercises a failure or fallback in test-only code.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/EventRouter.browser.tsx",
+    "line": 331,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This browser fixture deliberately exercises a failure or fallback in test-only code.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/EventRouter.browser.tsx",
+    "line": 559,
+    "column": 13,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This browser fixture deliberately exercises a failure or fallback in test-only code.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/EventRouter.browser.tsx",
+    "line": 688,
+    "column": 59,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "This timer schedules bounded UI work, retry, or debounce and is cancelled or settled by its owner.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/EventRouter.browser.tsx",
+    "line": 722,
+    "column": 46,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "This timer schedules bounded UI work, retry, or debounce and is cancelled or settled by its owner.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/FeedbackDialog.tsx",
+    "line": 41,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch records a content-free browser runtime incident before retaining the existing error handling.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
+    }
+  },
+  {
+    "file": "apps/web/src/components/find/FindProvider.tsx",
+    "line": 105,
+    "column": 17,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/foundations/penkra-mark-shared/PenkraMark.browser.tsx",
+    "line": 26,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This browser fixture deliberately exercises a failure or fallback in test-only code.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/foundations/penkra-mark-shared/PenkraMark.browser.tsx",
+    "line": 47,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This browser fixture deliberately exercises a failure or fallback in test-only code.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/KeybindingsToast.browser.tsx",
+    "line": 86,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "This browser fixture deliberately exercises a failure or fallback in test-only code.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/KeybindingsToast.browser.tsx",
+    "line": 89,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "This browser fixture deliberately exercises a failure or fallback in test-only code.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/left-rail/useInlineNameEditor.ts",
+    "line": 63,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/LocalImagePreview.tsx",
+    "line": 107,
+    "column": 8,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch records a content-free browser runtime incident before retaining the existing error handling.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
+    }
+  },
+  {
+    "file": "apps/web/src/components/middle-panel/composer-pending-approval/ComposerPendingApprovalPanel.tsx",
+    "line": 281,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/middle-panel/thread-deck-bar/ThreadDeckBar.tsx",
+    "line": 277,
+    "column": 14,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/middle-panel/thread-deck-bar/ThreadDeckBar.tsx",
+    "line": 281,
+    "column": 17,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/middle-panel/thread-deck-bar/ThreadDeckBar.tsx",
+    "line": 452,
+    "column": 8,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected request reaches the socket RPC boundary, which records the operation failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/onboarding/DesktopOnboardingGate.tsx",
+    "line": 38,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/onboarding/DesktopOnboardingGate.tsx",
+    "line": 89,
+    "column": 8,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/profile/avatarImage.ts",
+    "line": 28,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The failure reaches a browser runtime handler that records a content-free incident.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
+    }
+  },
+  {
+    "file": "apps/web/src/components/profile/avatarImage.ts",
+    "line": 29,
+    "column": 44,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The failure reaches a browser runtime handler that records a content-free incident.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
+    }
+  },
+  {
+    "file": "apps/web/src/components/profile/avatarImage.ts",
+    "line": 30,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The failure reaches a browser runtime handler that records a content-free incident.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
+    }
+  },
+  {
+    "file": "apps/web/src/components/profile/EditProfileDialog.tsx",
+    "line": 102,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch records a content-free browser runtime incident before retaining the existing error handling.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ProjectMenuPicker.tsx",
+    "line": 93,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ProjectScriptsControl.tsx",
+    "line": 245,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/RenameDialog.tsx",
+    "line": 111,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected command reaches the browser socket RPC boundary, which records the transport failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/RestoreOrCreateChatRoute.tsx",
+    "line": 101,
+    "column": 61,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/sendDiagnosticLifecycle.ts",
+    "line": 10,
+    "column": 24,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "This optional diagnostics path isolates its own failure from the user operation being observed.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/sendDiagnosticLifecycle.ts",
+    "line": 11,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "This optional diagnostics path isolates its own failure from the user operation being observed.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ServerConfigUpdateNotifications.tsx",
+    "line": 57,
+    "column": 30,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ServerConfigUpdateNotifications.tsx",
+    "line": 60,
+    "column": 16,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch preserves or wraps the failure for its caller and the request recording boundary.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/settings/AdvancedSettingsPanel.tsx",
+    "line": 69,
+    "column": 8,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/settings/AdvancedSettingsPanel.tsx",
+    "line": 102,
+    "column": 8,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/settings/DebouncedSettingTextInput.tsx",
+    "line": 90,
+    "column": 28,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "This timer schedules bounded UI work, retry, or debounce and is cancelled or settled by its owner.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/settings/pages/account/SettingsAccountPage.tsx",
+    "line": 41,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/settings/pages/agents/SettingsAgentsPage.tsx",
+    "line": 38,
+    "column": 65,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/settings/pages/agents/SettingsAgentsPage.tsx",
+    "line": 155,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/settings/pages/agents/SettingsAgentsPage.tsx",
+    "line": 197,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/settings/pages/agents/SettingsAgentsPage.tsx",
+    "line": 244,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/settings/pages/agents/SettingsAgentsPage.tsx",
+    "line": 265,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/settings/pages/appearance/SettingsAppearancePage.tsx",
+    "line": 34,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/settings/pages/appearance/SettingsAppearancePage.tsx",
+    "line": 55,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/settings/pages/apps/AppContributedSettings.tsx",
+    "line": 40,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected desktop bridge call reaches the main-process IPC boundary, which records the failed dispatch.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
+    }
+  },
+  {
+    "file": "apps/web/src/components/settings/pages/apps/AppContributedSettings.tsx",
+    "line": 47,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected desktop bridge call reaches the main-process IPC boundary, which records the failed dispatch.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
+    }
+  },
+  {
+    "file": "apps/web/src/components/settings/pages/apps/AppContributedSkills.tsx",
+    "line": 32,
+    "column": 87,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/settings/pages/apps/SettingsAppsPage.tsx",
+    "line": 55,
+    "column": 22,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/settings/pages/permissions/SettingsPermissionsPage.tsx",
+    "line": 99,
+    "column": 28,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/settings/pages/spaces/SettingsSpacesPage.tsx",
+    "line": 76,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/settings/pages/spaces/SettingsSpacesPage.tsx",
+    "line": 90,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch preserves or wraps the failure for its caller and the request recording boundary.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/settings/pages/spaces/SettingsSpacesPage.tsx",
+    "line": 96,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The original failure is preserved for the caller, whose transport boundary records the rejected operation.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/settings/SkillsSettingsPanel.tsx",
+    "line": 91,
+    "column": 8,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The operation is optional or cleanup-only, so its failure leaves the authoritative state available for retry.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/Sidebar.tsx",
+    "line": 302,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/Sidebar.tsx",
+    "line": 387,
+    "column": 8,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/Sidebar.tsx",
+    "line": 441,
+    "column": 8,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/Sidebar.tsx",
+    "line": 886,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch preserves or wraps the failure for its caller and the request recording boundary.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/Sidebar.tsx",
+    "line": 904,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The original failure is preserved for the caller, whose transport boundary records the rejected operation.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/Sidebar.tsx",
+    "line": 921,
+    "column": 50,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/Sidebar.tsx",
+    "line": 1092,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/Sidebar.tsx",
+    "line": 1096,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/Sidebar.tsx",
+    "line": 1103,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "This operational failure reaches the caller, where the request boundary records the failed operation.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/Sidebar.tsx",
+    "line": 1149,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch preserves or wraps the failure for its caller and the request recording boundary.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/Sidebar.tsx",
+    "line": 1157,
+    "column": 14,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/Sidebar.tsx",
+    "line": 1159,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The original failure is preserved for the caller, whose transport boundary records the rejected operation.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/Sidebar.tsx",
+    "line": 1173,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/Sidebar.tsx",
+    "line": 1176,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/Sidebar.tsx",
+    "line": 1193,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/Sidebar.tsx",
+    "line": 1205,
+    "column": 15,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/Sidebar.tsx",
+    "line": 1225,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/Sidebar.tsx",
+    "line": 1618,
+    "column": 17,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/Sidebar.tsx",
+    "line": 1648,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch preserves or wraps the failure for its caller and the request recording boundary.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/Sidebar.tsx",
+    "line": 1650,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The original failure is preserved for the caller, whose transport boundary records the rejected operation.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/Sidebar.tsx",
+    "line": 1673,
+    "column": 11,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The desktop bridge call reaches the main-process IPC boundary, which records the failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
+    }
+  },
+  {
+    "file": "apps/web/src/components/Sidebar.tsx",
+    "line": 1732,
+    "column": 11,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/Sidebar.tsx",
+    "line": 1988,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/Sidebar.tsx",
+    "line": 1992,
+    "column": 11,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/Sidebar.tsx",
+    "line": 3004,
+    "column": 13,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/Sidebar.tsx",
+    "line": 3156,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The desktop bridge call reaches the main-process IPC boundary, which records the failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
+    }
+  },
+  {
+    "file": "apps/web/src/components/Sidebar.tsx",
+    "line": 3195,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The desktop bridge call reaches the main-process IPC boundary, which records the failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
+    }
+  },
+  {
+    "file": "apps/web/src/components/Sidebar.tsx",
+    "line": 3232,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The desktop bridge call reaches the main-process IPC boundary, which records the failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
+    }
+  },
+  {
+    "file": "apps/web/src/components/Sidebar.uiState.ts",
+    "line": 71,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch records a content-free local-state incident before applying the existing fallback.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.local_state"
+    }
+  },
+  {
+    "file": "apps/web/src/components/Sidebar.uiState.ts",
+    "line": 140,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch records a content-free local-state incident before applying the existing fallback.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.local_state"
+    }
+  },
+  {
+    "file": "apps/web/src/components/Sidebar.uiState.ts",
+    "line": 172,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch records a content-free local-state incident before applying the existing fallback.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.local_state"
+    }
+  },
+  {
+    "file": "apps/web/src/components/SidebarSearchPalette.tsx",
+    "line": 400,
+    "column": 8,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected command reaches the browser socket RPC boundary, which records the transport failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/terminal/terminalFontSettle.ts",
+    "line": 29,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/terminal/terminalPerformance.ts",
+    "line": 30,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/terminal/terminalRuntime.ts",
+    "line": 98,
+    "column": 6,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/terminal/terminalRuntime.ts",
+    "line": 306,
+    "column": 6,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The operation is optional or cleanup-only, so its failure leaves the authoritative state available for retry.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/terminal/terminalRuntime.ts",
+    "line": 589,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch records a content-free browser runtime incident before retaining the existing error handling.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
+    }
+  },
+  {
+    "file": "apps/web/src/components/terminal/terminalRuntime.ts",
+    "line": 682,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/terminal/terminalRuntime.ts",
+    "line": 723,
+    "column": 6,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected request reaches the socket RPC boundary, which records the operation failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/terminal/terminalRuntime.ts",
+    "line": 790,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/terminal/terminalRuntime.ts",
+    "line": 862,
+    "column": 50,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/terminal/terminalRuntime.ts",
+    "line": 955,
+    "column": 57,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/terminal/terminalRuntime.ts",
+    "line": 962,
+    "column": 55,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/terminal/terminalRuntime.ts",
+    "line": 988,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/terminal/terminalRuntime.ts",
+    "line": 1130,
+    "column": 14,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/terminal/terminalRuntime.ts",
+    "line": 1141,
+    "column": 6,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected request reaches the socket RPC boundary, which records the operation failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/terminal/terminalSession.ts",
+    "line": 32,
+    "column": 67,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/terminal/terminalSession.ts",
+    "line": 37,
+    "column": 60,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/terminal/terminalSession.ts",
+    "line": 40,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ThemePackEditor.tsx",
+    "line": 110,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch records a content-free browser runtime incident before retaining the existing error handling.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
+    }
+  },
+  {
+    "file": "apps/web/src/components/ThemePackEditor.tsx",
+    "line": 598,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "validation",
+    "reason": "The invalid theme share string is rejected with an inline error for the user to correct.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ui/sidebar.tsx",
+    "line": 82,
+    "column": 6,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The operation is optional or cleanup-only, so its failure leaves the authoritative state available for retry.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ui/sidebar.tsx",
+    "line": 173,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/ui/toast.tsx",
+    "line": 342,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/useSpacesController.ts",
+    "line": 43,
+    "column": 24,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/useSpacesController.ts",
+    "line": 109,
+    "column": 28,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The operation is optional or cleanup-only, so its failure leaves the authoritative state available for retry.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/useSpacesController.ts",
+    "line": 249,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/useSpacesController.ts",
+    "line": 280,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch preserves or wraps the failure for its caller and the request recording boundary.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/useSpacesController.ts",
+    "line": 287,
+    "column": 11,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/useSpacesController.ts",
+    "line": 290,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The original failure is preserved for the caller, whose transport boundary records the rejected operation.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/useSpacesController.ts",
+    "line": 307,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/useSpacesController.ts",
+    "line": 332,
+    "column": 11,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected request reaches the socket RPC boundary, which records the operation failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/useSpacesController.ts",
+    "line": 384,
+    "column": 27,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/useSpacesController.ts",
+    "line": 390,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/useSpacesController.ts",
+    "line": 420,
+    "column": 27,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/useSpacesController.ts",
+    "line": 426,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/useSpacesController.ts",
+    "line": 442,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/components/useSpacesController.ts",
+    "line": 456,
+    "column": 66,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/useSpacesController.ts",
+    "line": 469,
+    "column": 11,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/components/useSpacesController.ts",
+    "line": 493,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/composerDraftActions.ts",
+    "line": 99,
+    "column": 42,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected desktop bridge call reaches the main-process IPC boundary, which records the failed dispatch.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
+    }
+  },
+  {
+    "file": "apps/web/src/composerDraftAttachments.ts",
+    "line": 46,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The generic attachment operation can fail in browser storage; its rejection is recorded locally with fixed fields before propagation.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.local_state"
+    }
+  },
+  {
+    "file": "apps/web/src/composerDraftAttachments.ts",
+    "line": 48,
+    "column": 22,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "The generic attachment operation can fail in browser storage; its rejection is recorded locally with fixed fields before propagation.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.local_state"
+    }
+  },
+  {
+    "file": "apps/web/src/composerDraftAttachments.ts",
+    "line": 217,
+    "column": 41,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected desktop bridge call reaches the main-process IPC boundary, which records the failed dispatch.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
+    }
+  },
+  {
+    "file": "apps/web/src/composerDraftAttachments.ts",
+    "line": 334,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/composerDraftAttachments.ts",
+    "line": 418,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/composerDraftAttachments.ts",
+    "line": 436,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/composerDraftAttachments.ts",
+    "line": 537,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The generic attachment operation can fail in browser storage; its rejection is recorded locally with fixed fields before propagation.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.local_state"
+    }
+  },
+  {
+    "file": "apps/web/src/composerDraftAttachments.ts",
+    "line": 539,
+    "column": 20,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "The generic attachment operation can fail in browser storage; its rejection is recorded locally with fixed fields before propagation.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.local_state"
+    }
+  },
+  {
+    "file": "apps/web/src/composerDraftAttachments.ts",
+    "line": 593,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/composerDraftDomain.ts",
+    "line": 735,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/confirmedCustomBinaryPathStore.ts",
+    "line": 33,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch records a content-free local-state incident before applying the existing fallback.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.local_state"
+    }
+  },
+  {
+    "file": "apps/web/src/confirmedCustomBinaryPathStore.ts",
+    "line": 43,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/confirmedCustomBinaryPathStore.ts",
+    "line": 70,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch records a content-free local-state incident before applying the existing fallback.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.local_state"
+    }
+  },
+  {
+    "file": "apps/web/src/desktopThreadApiBroker.ts",
+    "line": 54,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/editorPreferences.ts",
+    "line": 33,
+    "column": 16,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/featureFlags.ts",
+    "line": 108,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/featureFlags.ts",
+    "line": 122,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/feedback.ts",
+    "line": 154,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/feedback.ts",
+    "line": 172,
+    "column": 44,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/feedback.ts",
+    "line": 174,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "This operational failure reaches the caller, where the request boundary records the failed operation.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/feedback.ts",
+    "line": 175,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The failure reaches a browser runtime handler that records a content-free incident.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
+    }
+  },
+  {
+    "file": "apps/web/src/feedback.ts",
+    "line": 177,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "This operational failure reaches the caller, where the request boundary records the failed operation.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/feedback.ts",
+    "line": 179,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The failure reaches a browser runtime handler that records a content-free incident.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
+    }
+  },
+  {
+    "file": "apps/web/src/hooks/useAppTypography.ts",
+    "line": 64,
+    "column": 8,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/hooks/useComposerDropzone.ts",
+    "line": 81,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/hooks/useComposerSlashCommands.ts",
+    "line": 151,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/hooks/useComposerSlashCommands.ts",
+    "line": 162,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected request reaches the socket RPC boundary, which records the operation failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/hooks/useComposerSlashCommands.ts",
+    "line": 294,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/hooks/useComposerSlashCommands.ts",
+    "line": 330,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected request reaches the socket RPC boundary, which records the operation failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/hooks/useComposerSlashCommands.ts",
+    "line": 365,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/hooks/useComposerSlashCommands.ts",
+    "line": 407,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected request reaches the socket RPC boundary, which records the operation failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/hooks/useComposerSlashCommands.ts",
+    "line": 442,
+    "column": 8,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/hooks/useComposerSlashCommands.ts",
+    "line": 575,
+    "column": 11,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/hooks/useCopyToClipboard.ts",
+    "line": 53,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/hooks/useCopyToClipboard.ts",
+    "line": 64,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The failure reaches a browser runtime handler that records a content-free incident.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
+    }
+  },
+  {
+    "file": "apps/web/src/hooks/useCopyToClipboard.ts",
+    "line": 68,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The failure reaches a browser runtime handler that records a content-free incident.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
+    }
+  },
+  {
+    "file": "apps/web/src/hooks/useCopyToClipboard.ts",
+    "line": 76,
+    "column": 3,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/hooks/useCopyToClipboard.ts",
+    "line": 114,
+    "column": 34,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "This timer schedules bounded UI work, retry, or debounce and is cancelled or settled by its owner.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/hooks/useLocalStorage.ts",
+    "line": 73,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch records a content-free local-state incident before applying the existing fallback.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.local_state"
+    }
+  },
+  {
+    "file": "apps/web/src/hooks/useLocalStorage.ts",
+    "line": 96,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch records a content-free local-state incident before applying the existing fallback.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.local_state"
+    }
+  },
+  {
+    "file": "apps/web/src/hooks/usePreloadRouteChunks.ts",
+    "line": 29,
+    "column": 23,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "This timer schedules bounded UI work, retry, or debounce and is cancelled or settled by its owner.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/hooks/usePreloadSettingsRoute.ts",
+    "line": 26,
+    "column": 23,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "This timer schedules bounded UI work, retry, or debounce and is cancelled or settled by its owner.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/hooks/useProviderStatusRefresh.ts",
+    "line": 42,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected request reaches the socket RPC boundary, which records the operation failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/hooks/useProviderStatusRefresh.ts",
+    "line": 100,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/hooks/useSidebarProjectRunController.ts",
+    "line": 174,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/hooks/useSidebarProjectRunController.ts",
+    "line": 202,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/hooks/useSidebarProjectRunController.ts",
+    "line": 206,
+    "column": 11,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected request reaches the socket RPC boundary, which records the operation failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/hooks/useSidebarProjectRunController.ts",
+    "line": 228,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/hooks/useSidebarProjectRunController.ts",
+    "line": 251,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected command reaches the browser socket RPC boundary, which records the transport failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/hooks/useSidebarThreadActions.ts",
+    "line": 54,
+    "column": 15,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "This operational failure reaches the caller, where the request boundary records the failed operation.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/hooks/useSidebarThreadActions.ts",
+    "line": 56,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch preserves or wraps the failure for its caller and the request recording boundary.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/hooks/useSidebarThreadActions.ts",
+    "line": 57,
+    "column": 59,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The original failure is preserved for the caller, whose transport boundary records the rejected operation.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/hooks/useSidebarThreadActions.ts",
+    "line": 170,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch preserves or wraps the failure for its caller and the request recording boundary.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/hooks/useSidebarThreadActions.ts",
+    "line": 187,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The original failure is preserved for the caller, whose transport boundary records the rejected operation.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/hooks/useSidebarThreadActions.ts",
+    "line": 201,
+    "column": 49,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/hooks/useSidebarThreadActions.ts",
+    "line": 252,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected command reaches the browser socket RPC boundary, which records the transport failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/hooks/useSidebarThreadActions.ts",
+    "line": 418,
+    "column": 11,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected request reaches the socket RPC boundary, which records the operation failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/hooks/useSidebarThreadActions.ts",
+    "line": 464,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/hooks/useSidebarThreadActions.ts",
+    "line": 518,
+    "column": 11,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/hooks/useSidebarThreadActions.ts",
+    "line": 593,
+    "column": 11,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/hooks/useTheme.ts",
+    "line": 70,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch records a content-free local-state incident before applying the existing fallback.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.local_state"
+    }
+  },
+  {
+    "file": "apps/web/src/hooks/useTheme.ts",
+    "line": 227,
+    "column": 33,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The operation is optional or cleanup-only, so its failure leaves the authoritative state available for retry.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/hooks/useTheme.ts",
+    "line": 234,
+    "column": 39,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The operation is optional or cleanup-only, so its failure leaves the authoritative state available for retry.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/activeThreadDelete.ts",
+    "line": 27,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "Optional local terminal disposal cannot cancel a durable thread delete; its failure is recorded locally with fixed fields.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/browserDownload.ts",
+    "line": 30,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/browserDownload.ts",
+    "line": 53,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/composerDropPaths.ts",
+    "line": 28,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/composerDropPaths.ts",
+    "line": 40,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/composerDropPaths.ts",
+    "line": 51,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/composerPastedText.ts",
+    "line": 164,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/desktopClipboard.ts",
+    "line": 23,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/desktopComposerDraftStorage.ts",
+    "line": 19,
+    "column": 48,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch preserves or wraps the failure for its caller and the request recording boundary.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/desktopComposerDraftStorage.ts",
+    "line": 21,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The original failure is preserved for the caller, whose transport boundary records the rejected operation.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/desktopComposerDraftStorage.ts",
+    "line": 29,
+    "column": 51,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The failed desktop bridge request reaches the main-process IPC boundary, which records the failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/desktopComposerDraftStorage.ts",
+    "line": 42,
+    "column": 66,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/desktopComposerDraftStorage.ts",
+    "line": 43,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/desktopComposerDraftStorage.ts",
+    "line": 52,
+    "column": 70,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/desktopComposerDraftStorage.ts",
+    "line": 53,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/desktopThreadState.ts",
+    "line": 11,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/diffRendering.ts",
+    "line": 251,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/externalUrl.ts",
+    "line": 6,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "validation",
+    "reason": "The catch converts malformed link input into the documented HTTP URL validation error.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/externalUrl.ts",
+    "line": 7,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/externalUrl.ts",
+    "line": 10,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/find/findCoordinator.ts",
+    "line": 47,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/find/findCoordinator.ts",
+    "line": 62,
+    "column": 19,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "This timer schedules bounded UI work, retry, or debounce and is cancelled or settled by its owner.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/find/findCoordinator.ts",
+    "line": 69,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/find/findCoordinator.ts",
+    "line": 100,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/find/findCoordinator.ts",
+    "line": 238,
+    "column": 15,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/find/findCoordinator.ts",
+    "line": 244,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/find/findCoordinator.ts",
+    "line": 273,
+    "column": 26,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "This timer schedules bounded UI work, retry, or debounce and is cancelled or settled by its owner.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/indexedDb.ts",
+    "line": 18,
+    "column": 20,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "Unavailable browser storage is recorded locally with fixed fields before the promise rejects.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.local_state"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/linkChips.ts",
+    "line": 72,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/linkChips.ts",
+    "line": 198,
+    "column": 39,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The operation is optional or cleanup-only, so its failure leaves the authoritative state available for retry.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/localImageUrls.ts",
+    "line": 21,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/localImageUrls.ts",
+    "line": 27,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/modelFavorites.ts",
+    "line": 31,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/openUsageReactQuery.ts",
+    "line": 48,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/pdf/pdfLinks.ts",
+    "line": 60,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/pdf/pdfLinks.ts",
+    "line": 102,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/pdf/useContainerSize.ts",
+    "line": 47,
+    "column": 15,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "This timer schedules bounded UI work, retry, or debounce and is cancelled or settled by its owner.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/pdf/usePdfDocument.ts",
+    "line": 106,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "expected-recovery",
+    "reason": "The surrounding catch records the PDF load failure locally and sets an error state without using the socket.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/pdf/usePdfDocument.ts",
+    "line": 131,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch records a content-free browser runtime incident before retaining the existing error handling.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/pdf/usePdfPageRender.ts",
+    "line": 195,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch records a content-free browser runtime incident before retaining the existing error handling.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/pendingStartRecoveryRegistry.ts",
+    "line": 165,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected command reaches the browser socket RPC boundary, which records the transport failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/pendingStartRecoveryRegistry.ts",
+    "line": 240,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/projectCreateRecovery.ts",
+    "line": 34,
+    "column": 5,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "This timer schedules bounded UI work, retry, or debounce and is cancelled or settled by its owner.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/projectReactQuery.ts",
+    "line": 118,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/projectReactQuery.ts",
+    "line": 149,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/projectReactQuery.ts",
+    "line": 172,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/projectReactQuery.ts",
+    "line": 194,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/projectReactQuery.ts",
+    "line": 221,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/projectReactQuery.ts",
+    "line": 251,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/projectScriptKeybindings.ts",
+    "line": 30,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/projectSnapshotHydration.ts",
+    "line": 49,
+    "column": 19,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "This timer schedules bounded UI work, retry, or debounce and is cancelled or settled by its owner.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/providerAvailability.ts",
+    "line": 131,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/providerConnectionsReactQuery.ts",
+    "line": 22,
+    "column": 30,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/providerDiscoveryReactQuery.ts",
+    "line": 99,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/providerDiscoveryReactQuery.ts",
+    "line": 124,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/providerDiscoveryReactQuery.ts",
+    "line": 222,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/providerDiscoveryReactQuery.ts",
+    "line": 281,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/remarkComposerChips.ts",
+    "line": 102,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/shellMutation.ts",
+    "line": 20,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/siteFavicon.ts",
+    "line": 52,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/spaceGrouping.ts",
+    "line": 34,
+    "column": 15,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/spaceGrouping.ts",
+    "line": 93,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/spaces.ts",
+    "line": 149,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/spaces.ts",
+    "line": 164,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/squareImage.ts",
+    "line": 32,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/squareImage.ts",
+    "line": 39,
+    "column": 24,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/squareImage.ts",
+    "line": 47,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/squareImage.ts",
+    "line": 66,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/stagedDraftNavigation.ts",
+    "line": 62,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch preserves or wraps the failure for its caller and the request recording boundary.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/stagedDraftNavigation.ts",
+    "line": 64,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The original failure is preserved for the caller, whose transport boundary records the rejected operation.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/startContainerChat.ts",
+    "line": 53,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected request reaches the socket RPC boundary, which records the operation failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/syntaxHighlighting.ts",
+    "line": 69,
+    "column": 6,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The failure reaches a browser runtime handler that records a content-free incident.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/syntaxHighlighting.ts",
+    "line": 73,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The highlighting failure is recorded locally before the original error is rethrown for the plain-text path.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/syntaxHighlighting.ts",
+    "line": 89,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch records a content-free browser runtime incident before retaining the existing error handling.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/threadBindingAdmission.ts",
+    "line": 17,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/threadBootstrap.ts",
+    "line": 43,
+    "column": 25,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/threadCreatePromotion.ts",
+    "line": 69,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch preserves or wraps the failure for its caller and the request recording boundary.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/threadCreatePromotion.ts",
+    "line": 77,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/threadCreatePromotion.ts",
+    "line": 80,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The original failure is preserved for the caller, whose transport boundary records the rejected operation.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/threadCreatePromotion.ts",
+    "line": 89,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/threadDeckNavigation.ts",
+    "line": 47,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch preserves or wraps the failure for its caller and the request recording boundary.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/threadDeckNavigation.ts",
+    "line": 51,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/threadDeckNavigation.ts",
+    "line": 55,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The original failure is preserved for the caller, whose transport boundary records the rejected operation.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/threadResourceOpener.ts",
+    "line": 80,
+    "column": 8,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The failed desktop bridge request reaches the main-process IPC boundary, which records the operation failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/threadResourceOpener.ts",
+    "line": 103,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The failed desktop bridge request reaches the main-process IPC boundary, which records the operation failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/threadResourceOpener.ts",
+    "line": 123,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The failed desktop bridge request reaches the main-process IPC boundary, which records the operation failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/toolArgumentSummary.ts",
+    "line": 54,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/voiceRecorder.ts",
+    "line": 95,
+    "column": 42,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/voiceRecorder.ts",
+    "line": 104,
+    "column": 37,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/voiceRecorder.ts",
+    "line": 128,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/voiceRecorder.ts",
+    "line": 131,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/voiceRecorder.ts",
+    "line": 143,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/voiceRecorder.ts",
+    "line": 267,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The failure reaches a browser runtime handler that records a content-free incident.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/voiceRecorder.ts",
+    "line": 273,
+    "column": 37,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/voiceRecorder.ts",
+    "line": 274,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The microphone setup failure is recorded locally before cleanup and rethrow.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/voiceRecorder.ts",
+    "line": 363,
+    "column": 6,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected desktop bridge call reaches the main-process IPC boundary, which records the failed dispatch.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/voiceRecordingChunks.ts",
+    "line": 61,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/voiceRecordingChunks.ts",
+    "line": 72,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/voiceTranscriptionJobStore.ts",
+    "line": 83,
+    "column": 66,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected desktop bridge call reaches the main-process IPC boundary, which records the failed dispatch.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/voiceTranscriptionSequence.ts",
+    "line": 31,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/voiceTranscriptionSequence.ts",
+    "line": 39,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/lib/wsHttpUrl.ts",
+    "line": 33,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/markdown-links.ts",
+    "line": 27,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/markdown-links.ts",
+    "line": 59,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/nativeApi.ts",
+    "line": 21,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/nativeApi.ts",
+    "line": 28,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/pairingBootstrap.ts",
+    "line": 79,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch records a content-free browser runtime incident before retaining the existing error handling.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
+    }
+  },
+  {
+    "file": "apps/web/src/providerUpdates.ts",
+    "line": 36,
+    "column": 17,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "This timer schedules bounded UI work, retry, or debounce and is cancelled or settled by its owner.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/rightDockStore.logic.ts",
+    "line": 238,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/rightDockStore.ts",
+    "line": 155,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/rightDockStore.ts",
+    "line": 166,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/routes/__root.tsx",
+    "line": 380,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/routes/__root.tsx",
+    "line": 387,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/routes/__root.tsx",
+    "line": 399,
+    "column": 8,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/routes/__root.tsx",
+    "line": 764,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/routes/__root.tsx",
+    "line": 826,
+    "column": 13,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected command reaches the browser socket RPC boundary, which records the transport failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/routes/__root.tsx",
+    "line": 971,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch records a content-free browser runtime incident before retaining the existing error handling.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
+    }
+  },
+  {
+    "file": "apps/web/src/routes/__root.tsx",
+    "line": 986,
+    "column": 42,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "This timer schedules bounded UI work, retry, or debounce and is cancelled or settled by its owner.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/routes/__root.tsx",
+    "line": 1056,
+    "column": 34,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "This timer schedules bounded UI work, retry, or debounce and is cancelled or settled by its owner.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/routes/__root.tsx",
+    "line": 1135,
+    "column": 8,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/routes/__root.tsx",
+    "line": 1162,
+    "column": 12,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/routes/__root.tsx",
+    "line": 1180,
+    "column": 76,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/routes/__root.tsx",
+    "line": 1193,
+    "column": 65,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/routes/__root.tsx",
+    "line": 1283,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected command reaches the browser socket RPC boundary, which records the transport failure.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/routes/_chat.$threadId.tsx",
+    "line": 153,
+    "column": 61,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/routes/_chat.tsx",
+    "line": 526,
+    "column": 64,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/spacesUiStore.ts",
+    "line": 57,
+    "column": 6,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/storageOriginMigration.ts",
+    "line": 18,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/storageOriginMigration.ts",
+    "line": 52,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/storageOriginMigration.ts",
+    "line": 64,
+    "column": 41,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/storageOriginMigration.ts",
+    "line": 66,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/storePersistence.ts",
+    "line": 112,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch records a content-free local-state incident before applying the existing fallback.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.local_state"
+    }
+  },
+  {
+    "file": "apps/web/src/storePersistence.ts",
+    "line": 133,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch records a content-free local-state incident before applying the existing fallback.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.local_state"
+    }
+  },
+  {
+    "file": "apps/web/src/test/effectRpcWebSocketMock.ts",
+    "line": 38,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "This browser fixture deliberately exercises a failure or fallback in test-only code.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/theme/theme.logic.ts",
+    "line": 423,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/theme/theme.logic.ts",
+    "line": 445,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/theme/theme.logic.ts",
+    "line": 453,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "validation",
+    "reason": "Invalid theme share JSON is converted to a validation error for the importing caller.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/theme/theme.logic.ts",
+    "line": 454,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/theme/theme.logic.ts",
+    "line": 459,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/theme/theme.logic.ts",
+    "line": 475,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/theme/theme.logic.ts",
+    "line": 486,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/theme/theme.logic.ts",
+    "line": 966,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/theme/theme.logic.ts",
+    "line": 1141,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/theme/theme.logic.ts",
+    "line": 1147,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/theme/theme.logic.ts",
+    "line": 1160,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/theme/theme.logic.ts",
+    "line": 1176,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/theme/theme.logic.ts",
+    "line": 1187,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/theme/theme.logic.ts",
+    "line": 1199,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/theme/theme.logic.ts",
+    "line": 1206,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/theme/theme.logic.ts",
+    "line": 1216,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/theme/theme.logic.ts",
+    "line": 1223,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/theme/theme.logic.ts",
+    "line": 1227,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/theme/theme.logic.ts",
+    "line": 1235,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/threadDetailPrewarm.ts",
+    "line": 40,
+    "column": 38,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "This timer schedules bounded UI work, retry, or debounce and is cancelled or settled by its owner.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/threadDetailSubscriptionRetention.ts",
+    "line": 39,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/threadDetailSubscriptionRetention.ts",
+    "line": 149,
+    "column": 27,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "This timer schedules bounded UI work, retry, or debounce and is cancelled or settled by its owner.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/voiceSessionCoordinator.tsx",
+    "line": 176,
+    "column": 11,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/voiceSessionCoordinator.tsx",
+    "line": 190,
+    "column": 34,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "The rejected promise carries the original operation failure to its caller and request boundary.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/voiceSessionCoordinator.tsx",
+    "line": 218,
+    "column": 13,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The original failure is preserved for the caller, whose transport boundary records the rejected operation.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/voiceSessionCoordinator.tsx",
+    "line": 241,
+    "column": 56,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch records a content-free browser runtime incident before retaining the existing error handling.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
+    }
+  },
+  {
+    "file": "apps/web/src/voiceSessionCoordinator.tsx",
+    "line": 250,
+    "column": 10,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The catch records a content-free browser runtime incident before retaining the existing error handling.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
+    }
+  },
+  {
+    "file": "apps/web/src/voiceSessionCoordinator.tsx",
+    "line": 308,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The failure reaches a browser runtime handler that records a content-free incident.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
+    }
+  },
+  {
+    "file": "apps/web/src/voiceSessionCoordinator.tsx",
+    "line": 313,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The original failure is preserved for the caller, whose transport boundary records the rejected operation.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.socket_rpc"
+    }
+  },
+  {
+    "file": "apps/web/src/voiceSessionCoordinator.tsx",
+    "line": 349,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/voiceSessionCoordinator.tsx",
+    "line": 356,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The failure reaches a browser runtime handler that records a content-free incident.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
+    }
+  },
+  {
+    "file": "apps/web/src/voiceSessionCoordinator.tsx",
+    "line": 359,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/voiceSessionCoordinator.tsx",
+    "line": 427,
+    "column": 8,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The rejected desktop bridge call reaches the main-process IPC boundary, which records the failed dispatch.",
+    "reviewer": "web-coverage-0143",
+    "boundary": {
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
+    }
+  },
+  {
+    "file": "apps/web/src/voiceSessionCoordinator.tsx",
+    "line": 461,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/webFailureCoverage.ts",
+    "line": 12,
+    "column": 19,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "The browser incident bridge isolates its own rejection so diagnostics cannot change the source operation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/webFailureCoverage.ts",
+    "line": 13,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "The browser incident bridge isolates its own rejection so diagnostics cannot change the source operation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/workLog.ts",
+    "line": 1635,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/wsNativeApi.ts",
+    "line": 68,
+    "column": 11,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/wsNativeApi.ts",
+    "line": 90,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner converts this failure to an explicit fallback or keeps the authoritative state for reconciliation.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/wsNativeApi.ts",
+    "line": 163,
+    "column": 42,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/wsNativeApi.ts",
+    "line": 172,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/wsNativeApi.ts",
+    "line": 203,
+    "column": 42,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The owner intentionally handles an absent, cancelled, stale, or optional result with a bounded fallback.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/wsNativeApi.ts",
+    "line": 212,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/wsNativeApi.ts",
+    "line": 412,
+    "column": 13,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "A failed desktop or browser open operation is reported to its caller as a local validation failure.",
+    "reviewer": "web-coverage-0143"
+  },
+  {
+    "file": "apps/web/src/wsNativeApi.ts",
+    "line": 628,
+    "column": 18,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The explicit guard rejects invalid input, unavailable capability, or inconsistent UI state before proceeding.",
+    "reviewer": "web-coverage-0143"
+  }
+]

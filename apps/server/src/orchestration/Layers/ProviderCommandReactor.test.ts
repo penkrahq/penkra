@@ -48,6 +48,8 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { deriveServerPaths, ServerConfig } from "../../config.ts";
+import { DiagnosticsStore, openDiagnosticsReader } from "../../diagnostics/store.ts";
+import { installDiagnosticsStore } from "../../diagnostics/recorder.ts";
 import { TextGenerationError } from "../../textGeneration/Errors.ts";
 import {
   ProviderAdapterProcessError,
@@ -177,6 +179,8 @@ async function waitFor(
 }
 
 describe("ProviderCommandReactor", () => {
+  let diagnosticsStore: DiagnosticsStore | null = null;
+  let uninstallDiagnostics: (() => void) | null = null;
   let runtime: ManagedRuntime.ManagedRuntime<
     OrchestrationEngineService | ProviderCommandReactor | ProviderRuntimeIngestionService,
     unknown
@@ -186,6 +190,10 @@ describe("ProviderCommandReactor", () => {
   const createdBaseDirs = new Set<string>();
 
   afterEach(async () => {
+    uninstallDiagnostics?.();
+    uninstallDiagnostics = null;
+    diagnosticsStore?.close();
+    diagnosticsStore = null;
     if (scope) {
       await Effect.runPromise(Scope.close(scope, Exit.void));
     }
@@ -1156,8 +1164,62 @@ describe("ProviderCommandReactor", () => {
       expect(sent?.input).toContain("Continue with the current request");
       expect(sent?.input).toContain("penkra threads read --thread-id thread-1");
       expect(sent?.input).not.toContain("secret history before the retained boundary");
+      await waitFor(
+        async () =>
+          (await readHarnessThread(harness))?.activities.some(
+            (activity) => activity.kind === "continuation-reconstructed",
+          ) ?? false,
+      );
+      const notice = (await readHarnessThread(harness))?.activities.find(
+        (activity) => activity.kind === "continuation-reconstructed",
+      );
+      expect(notice?.summary).toContain("native tool state was not carried over");
     },
   );
+
+  it("does not announce reconstruction when the rebuilt turn is rejected", async () => {
+    const harness = await createHarness({
+      nativeStateLocatorJson: JSON.stringify({ penkraReconstruction: true }),
+      threadModelSelection: { provider: "claudeAgent", model: "claude-sonnet-5" },
+      sendTurn: () =>
+        Effect.fail(
+          new ProviderAdapterRequestError({
+            provider: "claudeAgent",
+            method: "sendTurn",
+            detail: "Target rejected the rebuilt turn.",
+          }),
+        ),
+    });
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        connectionId: TEST_CONNECTION_ID,
+        bindingRevision: 0,
+        commandId: CommandId.makeUnsafe("cmd-reconstruction-rejected"),
+        threadId,
+        message: {
+          messageId: asMessageId("message-reconstruction-rejected"),
+          role: "user",
+          text: "Continue",
+          attachments: [],
+        },
+        runtimeMode: "approval-required",
+        createdAt: new Date().toISOString(),
+      }),
+    );
+    await waitFor(
+      async () =>
+        (await readHarnessThread(harness))?.activities.some(
+          (activity) => activity.kind === "provider.turn.start.failed",
+        ) ?? false,
+    );
+    expect(
+      (await readHarnessThread(harness))?.activities.some(
+        (activity) => activity.kind === "continuation-reconstructed",
+      ),
+    ).toBe(false);
+  });
 
   it("rebuilds an old-layout Claude Thread from Penkra on its next turn", async () => {
     const sessionId = "550e8400-e29b-41d4-a716-446655440000";
@@ -1492,6 +1554,15 @@ describe("ProviderCommandReactor", () => {
       ThreadId.makeUnsafe("thread-1"),
       secondThread,
     ]);
+    await waitFor(async () => {
+      const completed = await Effect.runPromise(harness.sql<{ readonly state: string }>`
+        SELECT state
+        FROM provider_intent_outbox
+        WHERE event_type = 'thread.turn-start-requested'
+        ORDER BY event_sequence
+      `);
+      return completed[1]?.state === "succeeded";
+    });
     const jobs = await Effect.runPromise(harness.sql<{
       readonly threadId: string;
       readonly state: string;
@@ -3028,7 +3099,9 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    await waitFor(() => rollbackCompletionCommandIds.length === 2);
+    await waitFor(
+      () => rollbackCompletionCommandIds.length === 2 && replacementStartCommandIds.length === 2,
+    );
     expect(rollbackCompletionCommandIds[1]).toBe(rollbackCompletionCommandIds[0]);
     expect(replacementStartCommandIds).toHaveLength(2);
     expect(replacementStartCommandIds[1]).toBe(replacementStartCommandIds[0]);
@@ -3427,6 +3500,20 @@ describe("ProviderCommandReactor", () => {
 
   it("reacts to thread.turn.start by ensuring session and sending provider turn", async () => {
     const harness = await createHarness();
+    diagnosticsStore = new DiagnosticsStore({
+      stateDir: harness.stateDir,
+      appVersion: "0.14.3",
+      process: "server",
+    });
+    uninstallDiagnostics = installDiagnosticsStore(diagnosticsStore);
+    const traceId = "0123456789abcdef0123456789abcdef";
+    diagnosticsStore.checkpoint({
+      traceId,
+      spanId: "0123456789abcdef",
+      commandId: "cmd-turn-start-1",
+      flow: "send",
+      step: "server.received",
+    });
     const now = new Date().toISOString();
 
     await Effect.runPromise(
@@ -3461,6 +3548,48 @@ describe("ProviderCommandReactor", () => {
     const thread = await readHarnessThread(harness);
     expect(thread?.session?.threadId).toBe("thread-1");
     expect(thread?.session?.runtimeMode).toBe("approval-required");
+    await waitFor(() => {
+      const db = openDiagnosticsReader(harness.stateDir)!;
+      try {
+        return Boolean(
+          db
+            .prepare(
+              "SELECT 1 FROM detail WHERE step = 'provider.intent_settled' AND command_id = 'cmd-turn-start-1'",
+            )
+            .get(),
+        );
+      } finally {
+        db.close();
+      }
+    });
+    const db = openDiagnosticsReader(harness.stateDir)!;
+    const accepted = db
+      .prepare(
+        "SELECT step, trace_id, command_id, event_type FROM detail WHERE step = 'provider.call_accepted' AND command_id = 'cmd-turn-start-1'",
+      )
+      .all();
+    expect(accepted).toMatchObject([
+      { command_id: "cmd-turn-start-1", trace_id: traceId, event_type: "external_outcome" },
+    ]);
+    const rows = db
+      .prepare("SELECT step, trace_id, command_id FROM detail WHERE command_id = ? ORDER BY id")
+      .all("cmd-turn-start-1") as Array<{
+      step: string;
+      trace_id: string;
+      command_id: string | null;
+    }>;
+    expect(rows.map((row) => row.step)).toEqual(
+      expect.arrayContaining([
+        "server.received",
+        "command.queued",
+        "provider.intent_claimed",
+        "provider.call_started",
+        "provider.call_accepted",
+        "provider.intent_settled",
+      ]),
+    );
+    expect(rows.every((row) => row.trace_id === traceId)).toBe(true);
+    db.close();
   });
 
   it("routes subagent-thread turn starts to the parent session as steers", async () => {
@@ -5633,6 +5762,61 @@ describe("ProviderCommandReactor", () => {
     await waitFor(
       async () => (await readHarnessThread(harness))?.title === "Polish loading states",
     );
+  });
+
+  it("records failed title generation while preserving the fallback title", async () => {
+    const harness = await createHarness();
+    diagnosticsStore = new DiagnosticsStore({
+      stateDir: harness.stateDir,
+      appVersion: "0.14.3",
+      process: "server",
+    });
+    uninstallDiagnostics = installDiagnosticsStore(diagnosticsStore);
+    const now = new Date().toISOString();
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.update",
+        commandId: CommandId.makeUnsafe("cmd-title-failure-update"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        title: "New thread",
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        connectionId: TEST_CONNECTION_ID,
+        bindingRevision: 0,
+        commandId: CommandId.makeUnsafe("cmd-title-failure-send"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("message-title-failure"),
+          role: "user",
+          text: "Investigate provider title failure",
+          attachments: [],
+        },
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+    await waitFor(() => harness.generateThreadTitle.mock.calls.length === 1);
+    const db = openDiagnosticsReader(harness.stateDir)!;
+    await waitFor(
+      () =>
+        db
+          .prepare(
+            "SELECT context_json FROM incidents WHERE code = 'EXTERNAL_CALL_FAILED' AND where_name = 'provider.reactor'",
+          )
+          .all().length === 1,
+    );
+    expect(
+      db
+        .prepare(
+          "SELECT context_json FROM incidents WHERE code = 'EXTERNAL_CALL_FAILED' AND where_name = 'provider.reactor'",
+        )
+        .get(),
+    ).toMatchObject({ context_json: '{"reactorAction":"title-generation"}' });
+    db.close();
+    expect((await readHarnessThread(harness))?.title).toBe("New thread");
   });
 
   it("does not route title generation through another provider", async () => {

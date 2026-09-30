@@ -4,6 +4,38 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./diagnostics/codes": {
+      "types": "./src/diagnostics/codes.ts",
+      "import": "./src/diagnostics/codes.ts"
+    },
+    "./diagnostics/startupExit": {
+      "types": "./src/diagnostics/startupExit.ts",
+      "import": "./src/diagnostics/startupExit.ts"
+    },
+    "./diagnostics/limits": {
+      "types": "./src/diagnostics/limits.ts",
+      "import": "./src/diagnostics/limits.ts"
+    },
+    "./diagnostics/privacy": {
+      "types": "./src/diagnostics/privacy.ts",
+      "import": "./src/diagnostics/privacy.ts"
+    },
+    "./diagnostics/store": {
+      "types": "./src/diagnostics/store.ts",
+      "import": "./src/diagnostics/store.ts"
+    },
+    "./diagnostics/qaEvidence": {
+      "types": "./src/diagnostics/qaEvidence.ts",
+      "import": "./src/diagnostics/qaEvidence.ts"
+    },
+    "./diagnostics/qaSocketTicket": {
+      "types": "./src/diagnostics/qaSocketTicket.ts",
+      "import": "./src/diagnostics/qaSocketTicket.ts"
+    },
+    "./traceContext": {
+      "types": "./src/traceContext.ts",
+      "import": "./src/traceContext.ts"
+    },
     "./turnContinuation": {
       "types": "./src/turnContinuation.ts",
       "import": "./src/turnContinuation.ts"

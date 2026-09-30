@@ -3,6 +3,59 @@
 // Layer: Orchestration provider reactor
 
 import {
+  childDiagnosticSpan,
+  retryDiagnosticAttempt,
+  startDiagnosticTrace,
+} from "@penkra/shared/traceContext";
+import {
+  recordDiagnosticCheckpoint,
+  recordDiagnosticExternalOutcome,
+  recordDiagnosticIncident,
+  traceForDiagnosticCommand,
+} from "../../diagnostics/recorder.ts";
+
+type ProviderReactorAction =
+  | "title-generation"
+  | "workspace-lookup"
+  | "retry-stop"
+  | "turn-start"
+  | "skill-inline"
+  | "connection-probe"
+  | "task-stop"
+  | "task-background"
+  | "interaction-response"
+  | "quarantine-surface"
+  | "timeout-surface"
+  | "queue-recovery"
+  | "event-processing"
+  | "queue-drain"
+  | "blocker-heal"
+  | "outbox-recovery";
+
+function reportProviderReactorFailure(
+  reactorAction: ProviderReactorAction,
+  threadId?: string,
+  commandId?: string,
+): Effect.Effect<void> {
+  return Effect.sync(() =>
+    recordDiagnosticIncident({
+      ...(commandId
+        ? (traceForDiagnosticCommand(commandId) ?? startDiagnosticTrace())
+        : startDiagnosticTrace()),
+      ...(threadId ? { threadId } : {}),
+      ...(commandId ? { commandId } : {}),
+      kind: "external.failed",
+      code: "EXTERNAL_CALL_FAILED",
+      where: "provider.reactor",
+      severity: "error",
+      expected: { accepted: true },
+      actual: { accepted: false },
+      context: { reactorAction },
+    }),
+  );
+}
+
+import {
   type ChatAttachment,
   CommandId,
   EventId,
@@ -555,7 +608,11 @@ const make = Effect.gen(function* () {
     return Option.getOrUndefined(
       yield* projectionSnapshotQuery
         .getFolderShellById(thread.folderId)
-        .pipe(Effect.catch(() => Effect.succeed(Option.none()))),
+        .pipe(
+          Effect.catch(() =>
+            reportProviderReactorFailure("workspace-lookup").pipe(Effect.as(Option.none())),
+          ),
+        ),
     );
   });
 
@@ -1558,10 +1615,15 @@ const make = Effect.gen(function* () {
               }),
             ).pipe(
               Effect.catch((error) =>
-                Effect.logWarning("failed to inline portable skill instructions", {
-                  threadId: input.threadId,
-                  error,
-                }).pipe(Effect.as("")),
+                reportProviderReactorFailure("skill-inline", input.threadId).pipe(
+                  Effect.andThen(
+                    Effect.logWarning("failed to inline portable skill instructions", {
+                      threadId: input.threadId,
+                      error,
+                    }),
+                  ),
+                  Effect.as(""),
+                ),
               ),
             )
           : "";
@@ -1666,10 +1728,15 @@ const make = Effect.gen(function* () {
             }),
           ).pipe(
             Effect.catch((error) =>
-              Effect.logWarning("failed to inline portable skill instructions", {
-                threadId: input.threadId,
-                error,
-              }).pipe(Effect.as("")),
+              reportProviderReactorFailure("skill-inline", input.threadId).pipe(
+                Effect.andThen(
+                  Effect.logWarning("failed to inline portable skill instructions", {
+                    threadId: input.threadId,
+                    error,
+                  }),
+                ),
+                Effect.as(""),
+              ),
             ),
           )
         : "";
@@ -1828,7 +1895,7 @@ const make = Effect.gen(function* () {
             }
             yield* providerService
               .stopRuntimeSession({ threadId: input.threadId })
-              .pipe(Effect.catch(() => Effect.void));
+              .pipe(Effect.catch(() => reportProviderReactorFailure("retry-stop", input.threadId)));
             yield* ensureSessionForStaleRetry;
             yield* Effect.logWarning(
               "provider command reactor retrying claude turn with native resume",
@@ -1842,6 +1909,34 @@ const make = Effect.gen(function* () {
         ),
       );
       startedTurn = sentTurn;
+      if (reconstructedInput !== null) {
+        yield* orchestrationEngine
+          .dispatch({
+            type: "thread.activity.append",
+            commandId: CommandId.makeUnsafe(`continuation-reconstructed:${input.messageId}`),
+            threadId: input.threadId,
+            createdAt: new Date().toISOString(),
+            activity: {
+              id: EventId.makeUnsafe(crypto.randomUUID()),
+              tone: "info",
+              kind: "continuation-reconstructed",
+              summary:
+                "Context was rebuilt from thread history; native tool state was not carried over.",
+              payload: {},
+              turnId: sentTurn.turnId,
+              createdAt: new Date().toISOString(),
+            },
+          })
+          .pipe(
+            Effect.catch((cause) =>
+              Effect.logWarning("could not record reconstructed continuation notice", {
+                threadId: input.threadId,
+                messageId: input.messageId,
+                cause,
+              }),
+            ),
+          );
+      }
       if (
         yield* hasTurnStartCancellationRequest({
           threadId: input.threadId,
@@ -1940,10 +2035,15 @@ const make = Effect.gen(function* () {
     const nextTitle = yield* textGeneration.generateThreadTitle(titleGenerationInput).pipe(
       Effect.map((generated) => generated.title),
       Effect.catch((error) =>
-        Effect.logWarning("provider command reactor failed to generate thread title", {
-          ...textGenerationLogContext,
-          reason: error.message,
-        }).pipe(Effect.as(currentTitle)),
+        reportProviderReactorFailure("title-generation", input.threadId).pipe(
+          Effect.andThen(
+            Effect.logWarning("provider command reactor failed to generate thread title", {
+              ...textGenerationLogContext,
+              reason: error.message,
+            }),
+          ),
+          Effect.as(currentTitle),
+        ),
       ),
     );
 
@@ -2281,6 +2381,11 @@ const make = Effect.gen(function* () {
           Cause.hasInterruptsOnly(cause)
             ? Effect.failCause(cause)
             : Effect.gen(function* () {
+                yield* reportProviderReactorFailure(
+                  "turn-start",
+                  event.payload.threadId,
+                  event.commandId ?? undefined,
+                );
                 const detail = Cause.pretty(cause);
                 const failure = Option.getOrUndefined(Cause.findErrorOption(cause));
                 const failedBeforeProviderDispatch =
@@ -3110,7 +3215,11 @@ const make = Effect.gen(function* () {
       const probeSucceeded = !profileChanged
         ? yield* providerDiscovery
             .probeConnection({ provider: circuit.harness, connectionId: circuit.connectionId })
-            .pipe(Effect.catch(() => Effect.succeed(false)))
+            .pipe(
+              Effect.catch(() =>
+                reportProviderReactorFailure("connection-probe").pipe(Effect.as(false)),
+              ),
+            )
         : false;
       if (profileChanged || probeSucceeded) {
         yield* authCircuits.close(circuit.connectionId);
@@ -3191,9 +3300,13 @@ const make = Effect.gen(function* () {
       if (Cause.hasInterruptsOnly(cause)) {
         return Effect.failCause(cause);
       }
-      return Effect.logWarning("provider command reactor failed to recover queued turns", {
-        cause: Cause.pretty(cause),
-      });
+      return reportProviderReactorFailure("queue-recovery").pipe(
+        Effect.andThen(
+          Effect.logWarning("provider command reactor failed to recover queued turns", {
+            cause: Cause.pretty(cause),
+          }),
+        ),
+      );
     }),
   );
 
@@ -3321,14 +3434,18 @@ const make = Effect.gen(function* () {
       })
       .pipe(
         Effect.catchCause((cause) =>
-          appendProviderFailureActivity({
-            threadId: event.payload.threadId,
-            kind: "provider.task.stop.failed",
-            summary: "Provider task stop failed",
-            detail: Cause.pretty(cause),
-            turnId: null,
-            createdAt: event.payload.createdAt,
-          }),
+          reportProviderReactorFailure("task-stop", event.payload.threadId).pipe(
+            Effect.andThen(
+              appendProviderFailureActivity({
+                threadId: event.payload.threadId,
+                kind: "provider.task.stop.failed",
+                summary: "Provider task stop failed",
+                detail: Cause.pretty(cause),
+                turnId: null,
+                createdAt: event.payload.createdAt,
+              }),
+            ),
+          ),
         ),
       );
   });
@@ -3356,14 +3473,18 @@ const make = Effect.gen(function* () {
       })
       .pipe(
         Effect.catchCause((cause) =>
-          appendProviderFailureActivity({
-            threadId: event.payload.threadId,
-            kind: "provider.task.background.failed",
-            summary: "Provider task background failed",
-            detail: Cause.pretty(cause),
-            turnId: null,
-            createdAt: event.payload.createdAt,
-          }),
+          reportProviderReactorFailure("task-background", event.payload.threadId).pipe(
+            Effect.andThen(
+              appendProviderFailureActivity({
+                threadId: event.payload.threadId,
+                kind: "provider.task.background.failed",
+                summary: "Provider task background failed",
+                detail: Cause.pretty(cause),
+                turnId: null,
+                createdAt: event.payload.createdAt,
+              }),
+            ),
+          ),
         ),
       );
   });
@@ -3467,16 +3588,20 @@ const make = Effect.gen(function* () {
         Effect.asVoid,
         Effect.catchCause((cause) => {
           const unknownPendingRequest = isUnknownPendingInteractionError(cause);
-          return appendInteractionResponseFailure(event, {
-            interactionKind: "approval",
-            detail: unknownPendingRequest
-              ? buildStalePendingRequestFailureDetail("approval", event.payload.requestId)
-              : Cause.pretty(cause),
-            settlementStatus: interactionFailureSettlementStatus(cause, unknownPendingRequest),
-            ...(unknownPendingRequest
-              ? { failureCode: PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE }
-              : {}),
-          });
+          return reportProviderReactorFailure("interaction-response", event.payload.threadId).pipe(
+            Effect.andThen(
+              appendInteractionResponseFailure(event, {
+                interactionKind: "approval",
+                detail: unknownPendingRequest
+                  ? buildStalePendingRequestFailureDetail("approval", event.payload.requestId)
+                  : Cause.pretty(cause),
+                settlementStatus: interactionFailureSettlementStatus(cause, unknownPendingRequest),
+                ...(unknownPendingRequest
+                  ? { failureCode: PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE }
+                  : {}),
+              }),
+            ),
+          );
         }),
       );
   });
@@ -3504,16 +3629,20 @@ const make = Effect.gen(function* () {
         Effect.asVoid,
         Effect.catchCause((cause) => {
           const unknownPendingRequest = isUnknownPendingInteractionError(cause);
-          return appendInteractionResponseFailure(event, {
-            interactionKind: "userInput",
-            detail: unknownPendingRequest
-              ? buildStalePendingRequestFailureDetail("user-input", event.payload.requestId)
-              : Cause.pretty(cause),
-            settlementStatus: interactionFailureSettlementStatus(cause, unknownPendingRequest),
-            ...(unknownPendingRequest
-              ? { failureCode: PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE }
-              : {}),
-          });
+          return reportProviderReactorFailure("interaction-response", event.payload.threadId).pipe(
+            Effect.andThen(
+              appendInteractionResponseFailure(event, {
+                interactionKind: "userInput",
+                detail: unknownPendingRequest
+                  ? buildStalePendingRequestFailureDetail("user-input", event.payload.requestId)
+                  : Cause.pretty(cause),
+                settlementStatus: interactionFailureSettlementStatus(cause, unknownPendingRequest),
+                ...(unknownPendingRequest
+                  ? { failureCode: PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE }
+                  : {}),
+              }),
+            ),
+          );
         }),
       );
   });
@@ -4189,10 +4318,18 @@ const make = Effect.gen(function* () {
         if (Cause.hasInterruptsOnly(cause)) {
           return Effect.failCause(cause);
         }
-        return Effect.logWarning("provider command reactor failed to process event", {
-          eventType: event.type,
-          cause: Cause.pretty(cause),
-        });
+        return reportProviderReactorFailure(
+          "event-processing",
+          event.payload.threadId,
+          event.commandId ?? undefined,
+        ).pipe(
+          Effect.andThen(
+            Effect.logWarning("provider command reactor failed to process event", {
+              eventType: event.type,
+              cause: Cause.pretty(cause),
+            }),
+          ),
+        );
       }),
     );
 
@@ -4202,11 +4339,15 @@ const make = Effect.gen(function* () {
         if (Cause.hasInterruptsOnly(cause)) {
           return Effect.failCause(cause);
         }
-        return Effect.logWarning("provider command reactor failed to drain queued turn", {
-          eventType: event.type,
-          threadId: event.threadId,
-          cause: Cause.pretty(cause),
-        });
+        return reportProviderReactorFailure("queue-drain", event.threadId).pipe(
+          Effect.andThen(
+            Effect.logWarning("provider command reactor failed to drain queued turn", {
+              eventType: event.type,
+              threadId: event.threadId,
+              cause: Cause.pretty(cause),
+            }),
+          ),
+        );
       }),
     );
 
@@ -4467,10 +4608,14 @@ const make = Effect.gen(function* () {
           });
         }).pipe(
           Effect.catchCause((cause) =>
-            Effect.logWarning("failed to surface quarantined-thread skip", {
-              threadId: event.payload.threadId,
-              cause: Cause.pretty(cause),
-            }),
+            reportProviderReactorFailure("quarantine-surface", event.payload.threadId).pipe(
+              Effect.andThen(
+                Effect.logWarning("failed to surface quarantined-thread skip", {
+                  threadId: event.payload.threadId,
+                  cause: Cause.pretty(cause),
+                }),
+              ),
+            ),
           ),
         );
       }
@@ -4480,6 +4625,16 @@ const make = Effect.gen(function* () {
 
     const processClaimedProviderIntent = Effect.fnUntraced(function* (event: ProviderIntentEvent) {
       const threadId = event.payload.threadId;
+      const deliveryTrace = childDiagnosticSpan(
+        event.commandId === null
+          ? startDiagnosticTrace()
+          : (traceForDiagnosticCommand(event.commandId) ?? startDiagnosticTrace()),
+      );
+      const deliveryContext = {
+        ...deliveryTrace,
+        threadId,
+        ...(event.commandId === null ? {} : { commandId: event.commandId }),
+      };
       if (yield* skipQuarantinedSideEffect(event)) return;
 
       const existing = yield* deliveryRepository.getDelivery({
@@ -4534,6 +4689,8 @@ const make = Effect.gen(function* () {
       }
 
       while (true) {
+        const attemptTrace = retryDiagnosticAttempt(deliveryTrace);
+        const attemptContext = { ...deliveryContext, ...attemptTrace };
         const claimOwner = `${processOwner}:${event.sequence}`;
         const claimed = yield* deliveryRepository.claim({
           consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
@@ -4549,23 +4706,66 @@ const make = Effect.gen(function* () {
           );
         }
 
+        yield* Effect.sync(() =>
+          recordDiagnosticCheckpoint({
+            ...attemptContext,
+            flow: "provider_delivery",
+            step: "provider.intent_claimed",
+            fields: { sequence: event.sequence, attempt: claimed.value.attemptCount },
+          }),
+        );
+        const callStartedAt = performance.now();
+        yield* Effect.sync(() =>
+          recordDiagnosticCheckpoint({
+            ...attemptContext,
+            flow: "provider_delivery",
+            step: "provider.call_started",
+          }),
+        );
+
         const workerResult = yield* runBoundedProviderCall({
           label: `The provider command '${event.type}'`,
           timeout: commandEventTimeout,
           call: processDomainEvent(event),
         });
         if (workerResult._tag === "timeout") {
+          yield* Effect.sync(() => {
+            recordDiagnosticExternalOutcome({
+              ...attemptContext,
+              flow: "provider_delivery",
+              step: "provider.call_timed_out",
+              outcome: "timed_out",
+              elapsedMs: Math.round(performance.now() - callStartedAt),
+            });
+            recordDiagnosticIncident({
+              ...attemptContext,
+              kind: "timeout",
+              code:
+                event.type === "thread.turn-start-requested"
+                  ? "PROVIDER_START_TIMEOUT"
+                  : "DELIVERY_BLOCKED",
+              where: "provider.delivery",
+              severity: "error",
+              expected: { deadlineMs: Duration.toMillis(commandEventTimeout) },
+              actual: { elapsedMs: Math.round(performance.now() - callStartedAt) },
+              lastCheckpoint: "provider.call_started",
+            });
+          });
           // The delivery lock is single-permit and process-wide, so an attempt
           // that never returns is a total outage. Settle it as uncertain and
           // let the thread quarantine rather than block every other thread.
           if (event.type === "thread.turn-start-requested") {
             yield* surfaceTimedOutTurnStart(event, workerResult.detail).pipe(
               Effect.catchCause((cause) =>
-                Effect.logError("failed to surface timed-out provider turn start", {
-                  eventSequence: event.sequence,
-                  threadId: event.payload.threadId,
-                  cause: Cause.pretty(cause),
-                }),
+                reportProviderReactorFailure("timeout-surface", event.payload.threadId).pipe(
+                  Effect.andThen(
+                    Effect.logError("failed to surface timed-out provider turn start", {
+                      eventSequence: event.sequence,
+                      threadId: event.payload.threadId,
+                      cause: Cause.pretty(cause),
+                    }),
+                  ),
+                ),
               ),
             );
           }
@@ -4583,7 +4783,29 @@ const make = Effect.gen(function* () {
         switch (outcome._tag) {
           case "accepted":
           case "rejected": {
+            yield* Effect.sync(() =>
+              recordDiagnosticExternalOutcome({
+                ...attemptContext,
+                flow: "provider_delivery",
+                step:
+                  outcome._tag === "accepted" ? "provider.call_accepted" : "provider.call_rejected",
+                outcome: outcome._tag === "accepted" ? "ok" : "rejected",
+                elapsedMs: Math.round(performance.now() - callStartedAt),
+              }),
+            );
             if (outcome._tag === "rejected") {
+              yield* Effect.sync(() =>
+                recordDiagnosticIncident({
+                  ...attemptContext,
+                  kind: "external.failed",
+                  code: "PROVIDER_CALL_FAILED",
+                  where: "provider.delivery",
+                  severity: "error",
+                  expected: { accepted: true },
+                  actual: { accepted: false },
+                  lastCheckpoint: "provider.call_rejected",
+                }),
+              );
               yield* Effect.logWarning("provider command was rejected before acceptance", {
                 eventType: event.type,
                 eventSequence: event.sequence,
@@ -4603,10 +4825,29 @@ const make = Effect.gen(function* () {
               );
             }
             yield* refreshCursor;
+            yield* Effect.sync(() =>
+              recordDiagnosticCheckpoint({
+                ...attemptContext,
+                flow: "provider_delivery",
+                step: "provider.cursor_advanced",
+              }),
+            );
             return;
           }
           case "safe_retry": {
             if (claimed.value.attemptCount >= PROVIDER_COMMAND_SAFE_RETRY_LIMIT) {
+              yield* Effect.sync(() =>
+                recordDiagnosticIncident({
+                  ...attemptContext,
+                  kind: "command.failed",
+                  code: "INTENT_QUARANTINED",
+                  where: "provider.delivery",
+                  severity: "error",
+                  expected: { attempt: PROVIDER_COMMAND_SAFE_RETRY_LIMIT },
+                  actual: { attempt: claimed.value.attemptCount },
+                  lastCheckpoint: "provider.call_started",
+                }),
+              );
               yield* settleTerminalFailure({
                 event,
                 claimOwner,
@@ -4627,10 +4868,29 @@ const make = Effect.gen(function* () {
                 new Error(`Provider command delivery ${event.sequence} lost retry ownership`),
               );
             }
+            yield* Effect.sync(() =>
+              recordDiagnosticCheckpoint({
+                ...attemptContext,
+                flow: "provider_delivery",
+                step: "provider.retry_scheduled",
+              }),
+            );
             yield* Effect.sleep(PROVIDER_COMMAND_SAFE_RETRY_DELAY);
             break;
           }
           case "uncertain":
+            yield* Effect.sync(() =>
+              recordDiagnosticIncident({
+                ...attemptContext,
+                kind: "external.failed",
+                code: "PROVIDER_CALL_FAILED",
+                where: "provider.delivery",
+                severity: "error",
+                expected: { accepted: true },
+                actual: { accepted: false },
+                lastCheckpoint: "provider.call_started",
+              }),
+            );
             yield* settleTerminalFailure({
               event,
               claimOwner,
@@ -4807,9 +5067,13 @@ const make = Effect.gen(function* () {
       }
     }).pipe(
       Effect.catchCause((cause) =>
-        Effect.logWarning("provider delivery blocker auto-heal failed", {
-          cause: Cause.pretty(cause),
-        }),
+        reportProviderReactorFailure("blocker-heal").pipe(
+          Effect.andThen(
+            Effect.logWarning("provider delivery blocker auto-heal failed", {
+              cause: Cause.pretty(cause),
+            }),
+          ),
+        ),
       ),
     );
 
@@ -4893,29 +5157,122 @@ const make = Effect.gen(function* () {
         }
       });
 
-    const processOutboxJob = (job: ProviderIntentOutboxJob) =>
+    const processOutboxJob = (
+      job: ProviderIntentOutboxJob,
+      trace: import("@penkra/contracts").DiagnosticTraceContext,
+    ) =>
       Effect.gen(function* () {
         if (!isProviderIntentEvent(job.event)) {
           return { state: "dead", detail: "The outbox payload is not a provider intent." } as const;
         }
+        const context = {
+          ...trace,
+          threadId: job.event.payload.threadId,
+          ...(job.event.commandId === null ? {} : { commandId: job.event.commandId }),
+        };
+        yield* Effect.sync(() => {
+          recordDiagnosticCheckpoint({
+            ...context,
+            flow: "provider_delivery",
+            step: "provider.intent_claimed",
+            fields: { sequence: job.eventSequence, attempt: job.attemptCount },
+          });
+          recordDiagnosticCheckpoint({
+            ...context,
+            flow: "provider_delivery",
+            step: "provider.call_started",
+          });
+        });
+        const callStartedAt = performance.now();
         const result = yield* runBoundedProviderCall({
           label: `The provider command '${job.event.type}'`,
           timeout: commandEventTimeout,
           call: processDomainEvent(job.event),
         });
         if (result._tag === "timeout") {
+          yield* Effect.sync(() => {
+            recordDiagnosticExternalOutcome({
+              ...context,
+              flow: "provider_delivery",
+              step: "provider.call_timed_out",
+              outcome: "timed_out",
+              elapsedMs: Math.round(performance.now() - callStartedAt),
+            });
+            recordDiagnosticIncident({
+              ...context,
+              kind: "timeout",
+              code:
+                job.event.type === "thread.turn-start-requested"
+                  ? "PROVIDER_START_TIMEOUT"
+                  : "DELIVERY_BLOCKED",
+              where: "provider.delivery",
+              severity: "error",
+              expected: { deadlineMs: Duration.toMillis(commandEventTimeout) },
+              actual: { elapsedMs: Math.round(performance.now() - callStartedAt) },
+              lastCheckpoint: "provider.call_started",
+            });
+          });
           if (job.event.type === "thread.turn-start-requested") {
             yield* surfaceTimedOutTurnStart(job.event, result.detail);
           }
           return { state: "uncertain", detail: result.detail } as const;
         }
-        if (result._tag === "ok") return { state: "succeeded" } as const;
+        if (result._tag === "ok") {
+          yield* Effect.sync(() =>
+            recordDiagnosticExternalOutcome({
+              ...context,
+              flow: "provider_delivery",
+              step: "provider.call_accepted",
+              outcome: "ok",
+              elapsedMs: Math.round(performance.now() - callStartedAt),
+            }),
+          );
+          return { state: "succeeded" } as const;
+        }
         switch (result.outcome._tag) {
           case "rejected":
+            yield* Effect.sync(() => {
+              recordDiagnosticExternalOutcome({
+                ...context,
+                flow: "provider_delivery",
+                step: "provider.call_rejected",
+                outcome: "rejected",
+                elapsedMs: Math.round(performance.now() - callStartedAt),
+              });
+              recordDiagnosticIncident({
+                ...context,
+                kind: "external.failed",
+                code: "PROVIDER_CALL_FAILED",
+                where: "provider.delivery",
+                severity: "error",
+                expected: { accepted: true },
+                actual: { accepted: false },
+                lastCheckpoint: "provider.call_rejected",
+              });
+            });
             return { state: "succeeded" } as const;
           case "safe_retry":
+            yield* Effect.sync(() =>
+              recordDiagnosticCheckpoint({
+                ...context,
+                flow: "provider_delivery",
+                step: "provider.retry_scheduled",
+              }),
+            );
             return { state: "retry", detail: result.outcome.detail } as const;
           case "uncertain":
+            yield* Effect.sync(() =>
+              recordDiagnosticIncident({
+                ...context,
+                kind: "external.failed",
+                code: "PROVIDER_CALL_FAILED",
+                where: "provider.delivery",
+                severity: "error",
+                expected: { accepted: true },
+                actual: { accepted: false },
+                lastCheckpoint: "provider.call_started",
+              }),
+            );
             return { state: "uncertain", detail: result.outcome.detail } as const;
         }
       });
@@ -4948,9 +5305,14 @@ const make = Effect.gen(function* () {
         Effect.catchCause((cause) =>
           Cause.hasInterruptsOnly(cause)
             ? Effect.failCause(cause)
-            : Effect.logError("provider outbox recovery sweep failed", {
-                cause: Cause.pretty(cause),
-              }).pipe(Effect.andThen(Effect.sleep(Duration.seconds(1)))),
+            : reportProviderReactorFailure("outbox-recovery").pipe(
+                Effect.andThen(
+                  Effect.logError("provider outbox recovery sweep failed", {
+                    cause: Cause.pretty(cause),
+                  }),
+                ),
+                Effect.andThen(Effect.sleep(Duration.seconds(1))),
+              ),
         ),
       ),
     );
@@ -4958,6 +5320,34 @@ const make = Effect.gen(function* () {
     yield* startProviderIntentOutboxWorker({
       outbox: providerIntentOutbox,
       process: processOutboxJob,
+      onSettled: (job, outcome, trace) =>
+        Effect.sync(() => {
+          if (!isProviderIntentEvent(job.event)) return;
+          const context = {
+            ...trace,
+            threadId: job.event.payload.threadId,
+            ...(job.event.commandId === null ? {} : { commandId: job.event.commandId }),
+          };
+          recordDiagnosticCheckpoint({
+            ...context,
+            flow: "provider_delivery",
+            step: "provider.intent_settled",
+            outcome: outcome.state === "succeeded" ? "ok" : "failed",
+            fields: { attempt: job.attemptCount },
+          });
+          if (outcome.state === "dead" || outcome.state === "uncertain") {
+            recordDiagnosticIncident({
+              ...context,
+              kind: "command.failed",
+              code: "INTENT_QUARANTINED",
+              where: "provider.delivery",
+              severity: "error",
+              expected: { accepted: true },
+              actual: { accepted: false },
+              lastCheckpoint: "provider.intent_settled",
+            });
+          }
+        }),
       onTerminal: (job) => fenceOutboxLane(job),
       options: {
         callDeadlineMs: Duration.toMillis(commandEventTimeout) + 5_000,

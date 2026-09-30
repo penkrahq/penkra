@@ -1,0 +1,22 @@
+[
+  {
+    "file": "apps/server/src/main.ts",
+    "line": 344,
+    "column": 12,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "A failed heartbeat count query records a fixed boot incident before retaining the existing zero-count fallback.",
+    "reviewer": "diagnostics-0143",
+    "boundary": { "code": "EXTERNAL_CALL_FAILED", "where": "server.boot" }
+  },
+  {
+    "file": "apps/server/src/main.ts",
+    "line": 617,
+    "column": 16,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "A failed browser auto-open records a fixed boot incident before retaining the existing fallback log.",
+    "reviewer": "diagnostics-0143",
+    "boundary": { "code": "EXTERNAL_CALL_FAILED", "where": "server.boot" }
+  }
+]

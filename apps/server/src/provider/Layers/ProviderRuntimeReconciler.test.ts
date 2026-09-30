@@ -7,6 +7,9 @@ import {
   type ProviderSession,
 } from "@penkra/contracts";
 import { Effect, Layer, Logger, Option } from "effect";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -28,6 +31,8 @@ import {
   type ProviderSessionDirectoryShape,
 } from "../Services/ProviderSessionDirectory.ts";
 import { makeProviderRuntimeReconcilerLive } from "./ProviderRuntimeReconciler.ts";
+import { DiagnosticsStore, openDiagnosticsReader } from "../../diagnostics/store.ts";
+import { installDiagnosticsStore } from "../../diagnostics/recorder.ts";
 
 const THREAD_ID = ThreadId.makeUnsafe("thread-runtime-reconciler");
 const TURN_ID = TurnId.makeUnsafe("turn-runtime-reconciler");
@@ -80,6 +85,9 @@ function readyProviderSession(): ProviderSession {
 
 describe("ProviderRuntimeReconcilerLive", () => {
   it("retries a terminal-session turn repair without reopening the session", async () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-reconcile-diagnostics-"));
+    const diagnostics = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
+    const uninstall = installDiagnosticsStore(diagnostics);
     const commands: OrchestrationCommand[] = [];
     const reconcileSettledOpenTurns = vi.fn();
     let bindingStatus: "stopped" | "error" = "stopped";
@@ -216,6 +224,22 @@ describe("ProviderRuntimeReconcilerLive", () => {
     expect(activityCommands[0]?.commandId).not.toBe(activityCommands[1]?.commandId);
     expect(sessionCommands[0]?.commandId).not.toBe(sessionCommands[1]?.commandId);
     expect(reconcileSettledOpenTurns).toHaveBeenCalledTimes(3);
+    const diagnosticRows = openDiagnosticsReader(stateDir)!;
+    expect(diagnosticRows.prepare("SELECT code FROM incidents ORDER BY code").all()).toMatchObject([
+      { code: "RECOVERY_PERFORMED" },
+      { code: "TURN_STATE_DIVERGED" },
+    ]);
+    expect(
+      diagnosticRows
+        .prepare(
+          "SELECT count(*) AS count FROM detail WHERE step = 'reconciliation.repair_started'",
+        )
+        .get(),
+    ).toMatchObject({ count: 6 });
+    diagnosticRows.close();
+    uninstall();
+    diagnostics.close();
+    fs.rmSync(stateDir, { recursive: true, force: true });
   });
 
   it("records the failed activity stage after the session repair commits", async () => {

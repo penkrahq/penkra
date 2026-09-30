@@ -1,0 +1,272 @@
+[
+  {
+    "file": "apps/server/src/provider/Layers/OpenCodeAdapter.ts",
+    "line": 429,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The adapter failure is recorded before fallback, abort or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.adapter"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/OpenCodeAdapter.ts",
+    "line": 524,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The adapter rejects an invalid session, unavailable gateway or model route.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/provider/Layers/OpenCodeAdapter.ts",
+    "line": 530,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The adapter rejects an invalid session, unavailable gateway or model route.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/provider/Layers/OpenCodeAdapter.ts",
+    "line": 1299,
+    "column": 18,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The adapter failure is recorded before fallback, abort or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.adapter"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/OpenCodeAdapter.ts",
+    "line": 1821,
+    "column": 20,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The adapter failure is recorded before fallback, abort or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.adapter"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/OpenCodeAdapter.ts",
+    "line": 1864,
+    "column": 20,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The adapter failure is recorded before fallback, abort or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.adapter"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/OpenCodeAdapter.ts",
+    "line": 1913,
+    "column": 20,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The adapter failure is recorded before fallback, abort or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.adapter"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/OpenCodeAdapter.ts",
+    "line": 2040,
+    "column": 18,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The adapter failure is recorded before fallback, abort or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.adapter"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/OpenCodeAdapter.ts",
+    "line": 2100,
+    "column": 18,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The adapter failure is recorded before fallback, abort or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.adapter"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/OpenCodeAdapter.ts",
+    "line": 3144,
+    "column": 18,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The adapter failure is recorded before fallback, abort or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.adapter"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/OpenCodeAdapter.ts",
+    "line": 3158,
+    "column": 20,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The adapter failure is recorded before fallback, abort or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.adapter"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/OpenCodeAdapter.ts",
+    "line": 3175,
+    "column": 20,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The adapter failure is recorded before fallback, abort or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.adapter"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/OpenCodeAdapter.ts",
+    "line": 3330,
+    "column": 18,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The adapter failure is recorded before fallback, abort or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.adapter"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/OpenCodeAdapter.ts",
+    "line": 3377,
+    "column": 26,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The adapter failure is recorded before fallback, abort or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.adapter"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/OpenCodeAdapter.ts",
+    "line": 3496,
+    "column": 34,
+    "kind": "rejection",
+    "disposition": "validation",
+    "reason": "The adapter rejects an invalid session, unavailable gateway or model route.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/provider/Layers/OpenCodeAdapter.ts",
+    "line": 3571,
+    "column": 40,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "The adapter records this failure before returning the typed error.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.adapter"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/OpenCodeAdapter.ts",
+    "line": 3626,
+    "column": 44,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "The adapter records this failure before returning the typed error.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.adapter"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/OpenCodeAdapter.ts",
+    "line": 3640,
+    "column": 32,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The adapter failure is recorded before fallback, abort or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.adapter"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/OpenCodeAdapter.ts",
+    "line": 4393,
+    "column": 25,
+    "kind": "rejection",
+    "disposition": "validation",
+    "reason": "The adapter rejects an invalid session, unavailable gateway or model route.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/provider/Layers/OpenCodeAdapter.ts",
+    "line": 4477,
+    "column": 22,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The adapter failure is recorded before fallback, abort or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.adapter"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/OpenCodeAdapter.ts",
+    "line": 4623,
+    "column": 20,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The adapter failure is recorded before fallback, abort or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.adapter"
+    }
+  },
+  {
+    "file": "apps/server/src/provider/Layers/OpenCodeAdapter.ts",
+    "line": 4631,
+    "column": 43,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "The adapter records this failure before returning the typed error.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.adapter"
+    }
+  }
+]

@@ -26,6 +26,7 @@ import {
   type DownloadedRegistryPackage,
   type RegistryPackageDownloadDiagnostic,
 } from "./appRegistryPackageDownload";
+import { recordDesktopConsumedFailure } from "./desktopFailureCoverage";
 
 const APP_SLUG = /^[a-z][a-z0-9-]{1,62}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -142,6 +143,7 @@ export class AppRegistryClient {
       try {
         text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
       } catch {
+        recordDesktopConsumedFailure("registry");
         throw new Error("The registry help document is not valid UTF-8.");
       }
       return { kind: "text", contentType: mediaType, text };
@@ -218,6 +220,7 @@ export class AppRegistryClient {
       });
       return { package: packageDownload, release };
     } catch (error) {
+      recordDesktopConsumedFailure("registry");
       await packageDownload.dispose();
       throw error;
     }
@@ -241,6 +244,7 @@ export class AppRegistryClient {
       this.#memoryPolicy = { value: policy, loadedAt: Date.now() };
       return policy;
     } catch (networkError) {
+      recordDesktopConsumedFailure("registry");
       if (!this.#policyCachePath) throw networkError;
       try {
         const compactJws = await readFile(this.#policyCachePath, "utf8");
@@ -610,6 +614,7 @@ export class AppRegistryClient {
         entry,
       ]);
     } catch (error) {
+      recordDesktopConsumedFailure("registry");
       console.warn("[penkra-app] Installed App receipt could not be queued.", error);
     }
     try {
@@ -620,6 +625,7 @@ export class AppRegistryClient {
         ),
       );
     } catch (error) {
+      recordDesktopConsumedFailure("registry");
       console.warn("[penkra-app] Installed App receipt will be retried.", error);
     }
   }
@@ -640,6 +646,7 @@ export class AppRegistryClient {
           ),
         );
       } catch {
+        recordDesktopConsumedFailure("registry");
         return;
       }
     }
@@ -802,6 +809,7 @@ export class AppRegistryClient {
       await rename(temporaryPath, this.#policyCachePath);
     } catch (error) {
       await unlink(temporaryPath).catch(() => undefined);
+      recordDesktopConsumedFailure("registry");
       console.warn("[penkra-app] Registry policy cache could not be updated.", error);
     }
   }
@@ -825,6 +833,7 @@ export class AppRegistryClient {
       parsed = JSON.parse(await readFile(this.#receiptQueuePath, "utf8"));
     } catch (error) {
       if (isNodeError(error) && error.code === "ENOENT") return [];
+      recordDesktopConsumedFailure("registry");
       throw error;
     }
     if (!isRecord(parsed) || parsed.schemaVersion !== 1 || !Array.isArray(parsed.entries)) {
@@ -854,6 +863,7 @@ async function writeAtomic(path: string, contents: string): Promise<void> {
     await writeFile(temporaryPath, contents, { encoding: "utf8", mode: 0o600 });
     await rename(temporaryPath, path);
   } catch (error) {
+    recordDesktopConsumedFailure("registry");
     await unlink(temporaryPath).catch(() => undefined);
     throw error;
   }

@@ -11,6 +11,7 @@ import {
 } from "@pierre/diffs";
 
 import { basenameOfPath } from "../file-icons";
+import { recordWebConsumedFailure } from "../webFailureCoverage";
 import { fnv1a32, resolveDiffThemeName, type DiffThemeName } from "./diffRendering";
 import { LRUCache } from "./lruCache";
 
@@ -66,6 +67,7 @@ export function getSyntaxHighlighterPromise(language: string): Promise<DiffsHigh
     langs: [language as SupportedLanguages],
     preferredHighlighter: "shiki-js",
   }).catch((err) => {
+    recordWebConsumedFailure("runtime");
     highlighterPromiseCache.delete(language);
     if (language === "text") {
       throw err;
@@ -85,6 +87,7 @@ export function highlightCodeToHtmlWithFallback(
   try {
     return highlighter.codeToHtml(code, { lang: language, theme: themeName });
   } catch (error) {
+    recordWebConsumedFailure("runtime");
     console.warn(
       `Code highlighting failed for language "${language}", falling back to plain text.`,
       error instanceof Error ? error.message : error,

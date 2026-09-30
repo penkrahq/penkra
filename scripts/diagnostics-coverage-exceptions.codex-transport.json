@@ -1,0 +1,354 @@
+[
+  {
+    "file": "apps/server/src/codexAppServerTransport.ts",
+    "line": 95,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "Caller supplied invalid frame budget; constructor rejects before the transport starts.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/codexAppServerTransport.ts",
+    "line": 103,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The transport error reaches CodexAppServerManager.handleTransportFailure, which records once per active session.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerTransport.ts",
+    "line": 134,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The transport error reaches CodexAppServerManager.handleTransportFailure, which records once per active session.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerTransport.ts",
+    "line": 161,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The transport error reaches CodexAppServerManager.handleTransportFailure, which records once per active session.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerTransport.ts",
+    "line": 162,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The transport error reaches CodexAppServerManager.handleTransportFailure, which records once per active session.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerTransport.ts",
+    "line": 176,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The transport error reaches CodexAppServerManager.handleTransportFailure, which records once per active session.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerTransport.ts",
+    "line": 184,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The transport error reaches CodexAppServerManager.handleTransportFailure, which records once per active session.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerTransport.ts",
+    "line": 202,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The transport error reaches CodexAppServerManager.handleTransportFailure, which records once per active session.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerTransport.ts",
+    "line": 203,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The transport error reaches CodexAppServerManager.handleTransportFailure, which records once per active session.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerTransport.ts",
+    "line": 211,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The transport error reaches CodexAppServerManager.handleTransportFailure, which records once per active session.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerTransport.ts",
+    "line": 219,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The transport error reaches CodexAppServerManager.handleTransportFailure, which records once per active session.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerTransport.ts",
+    "line": 227,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The transport error reaches CodexAppServerManager.handleTransportFailure, which records once per active session.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerTransport.ts",
+    "line": 235,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The transport error reaches CodexAppServerManager.handleTransportFailure, which records once per active session.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerTransport.ts",
+    "line": 258,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The transport error reaches CodexAppServerManager.handleTransportFailure, which records once per active session.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerTransport.ts",
+    "line": 259,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The transport error reaches CodexAppServerManager.handleTransportFailure, which records once per active session.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerTransport.ts",
+    "line": 273,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The transport error reaches CodexAppServerManager.handleTransportFailure, which records once per active session.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerTransport.ts",
+    "line": 297,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The transport error reaches CodexAppServerManager.handleTransportFailure, which records once per active session.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerTransport.ts",
+    "line": 298,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "The transport error reaches CodexAppServerManager.handleTransportFailure, which records once per active session.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerTransport.ts",
+    "line": 614,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "Malformed oversized envelope field is ignored and the enclosing frame fails closed when classified.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/codexAppServerTransport.ts",
+    "line": 751,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "Caller supplied invalid frame budget; constructor rejects before the transport starts.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/codexAppServerTransport.ts",
+    "line": 759,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The transport error reaches CodexAppServerManager.handleTransportFailure, which records once per active session.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerTransport.ts",
+    "line": 760,
+    "column": 22,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "The transport error reaches CodexAppServerManager.handleTransportFailure, which records once per active session.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerTransport.ts",
+    "line": 763,
+    "column": 22,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "The transport error reaches CodexAppServerManager.handleTransportFailure, which records once per active session.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerTransport.ts",
+    "line": 768,
+    "column": 22,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "The transport error reaches CodexAppServerManager.handleTransportFailure, which records once per active session.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerTransport.ts",
+    "line": 777,
+    "column": 22,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "The transport error reaches CodexAppServerManager.handleTransportFailure, which records once per active session.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerTransport.ts",
+    "line": 780,
+    "column": 22,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "The transport error reaches CodexAppServerManager.handleTransportFailure, which records once per active session.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerTransport.ts",
+    "line": 822,
+    "column": 11,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The transport error reaches CodexAppServerManager.handleTransportFailure, which records once per active session.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  },
+  {
+    "file": "apps/server/src/codexAppServerTransport.ts",
+    "line": 897,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The transport error reaches CodexAppServerManager.handleTransportFailure, which records once per active session.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_app_transport"
+    }
+  }
+]

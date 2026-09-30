@@ -41,6 +41,7 @@ import { AppRendererRpcHost } from "./appRendererRpc";
 import { AppRuntimeLifecycle } from "./appRuntimeLifecycle";
 import { AppSessionManager } from "./appSessionManager";
 import { AppRuntimeDiagnostics, resolveAppRuntimeDiagnosticsPath } from "./appRuntimeDiagnostics";
+import { recordDesktopConsumedFailure } from "./desktopFailureCoverage";
 import { AppIdentityService } from "./appIdentityService";
 import { AppDataVault } from "./appDataVault";
 import { ProviderCredentialVault } from "./providerCredentialVault";
@@ -160,6 +161,13 @@ export async function startDesktopAppRuntime(input: {
     decrypt: (value) => safeStorage.decryptString(value),
   });
   const recordDiagnostic = (entry: import("./appRuntimeDiagnostics").AppRuntimeDiagnosticInput) => {
+    if (
+      entry.kind === "operation-failed" ||
+      entry.kind === "app-update-failed" ||
+      entry.kind === "tab-navigation-restore-failed" ||
+      entry.kind === "tab-crashed"
+    )
+      recordDesktopConsumedFailure("app");
     void diagnostics.record(entry).catch((error) => {
       console.error("[penkra-app] Could not persist App runtime diagnostics.", error);
     });
@@ -509,6 +517,7 @@ export async function startDesktopAppRuntime(input: {
     state: installations.snapshot(),
     openWith,
   }).catch((error) => {
+    recordDesktopConsumedFailure("app");
     console.error("[penkra-app] Could not reconcile Open With preferences at startup.", error);
   });
   const unsubscribeOpenWithReconciliation = installations.subscribe((state) => {
@@ -516,6 +525,7 @@ export async function startDesktopAppRuntime(input: {
     if (nextFingerprint === openWithHandlerFingerprint) return;
     openWithHandlerFingerprint = nextFingerprint;
     void reconcileAppOpenWithPreferences({ state, openWith }).catch((error) => {
+      recordDesktopConsumedFailure("app");
       console.error("[penkra-app] Could not reconcile Open With preferences.", error);
     });
   });
