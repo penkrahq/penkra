@@ -6,7 +6,8 @@
     "claude-fast-mode-probe": "bun run claude-fast-mode-probe.ts",
     "claude-haiku-thinking-probe": "bun run claude-haiku-thinking-probe.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run --exclude '**/scripted-provider-bundles.test.ts'",
+    "test:diagnostics-bundles": "vitest run diagnostics-qa/scripted-provider-bundles.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.207",

@@ -152,51 +152,6 @@ describe("scripted provider QA fixture", () => {
     }
   });
 
-  it("is outside packaged files and absent from the built app bundles", () => {
-    const serverPackage = JSON.parse(
-      fs.readFileSync(path.join(repoRoot, "apps/server/package.json"), "utf8"),
-    ) as { files: string[] };
-    expect(serverPackage.files).toEqual(["dist"]);
-    expect(fs.existsSync(path.join(repoRoot, "apps/server/dist/index.mjs"))).toBe(true);
-    expect(fixture.startsWith(path.join(repoRoot, "apps/server/dist"))).toBe(false);
-    // build-desktop-artifact stages dist-electron into the packaged app.
-    for (const output of ["apps/server/dist", "apps/desktop/dist-electron", "apps/web/dist"]) {
-      const root = path.join(repoRoot, output);
-      if (!fs.existsSync(root)) continue;
-      const visit = (dir: string) => {
-        for (const name of fs.readdirSync(dir)) {
-          const file = path.join(dir, name);
-          const stat = fs.statSync(file);
-          if (stat.isDirectory()) visit(file);
-          else if (/\.(?:js|mjs|cjs)$/u.test(name))
-            expect(fs.readFileSync(file, "utf8"), file).not.toContain(marker);
-        }
-      };
-      visit(root);
-    }
-  }, 30_000);
-
-  it("compiles the QA account guard false in the staged desktop bundle", () => {
-    const bundled = fs.readFileSync(
-      path.join(repoRoot, "apps/desktop/dist-electron/main.js"),
-      "utf8",
-    );
-    expect(/function diagnosticsQaShellEnabled\(\)\s*\{\s*return false;\s*\}/u.test(bundled)).toBe(
-      true,
-    );
-    const preload = fs.readFileSync(
-      path.join(repoRoot, "apps/desktop/dist-electron/preload.js"),
-      "utf8",
-    );
-    expect(preload).not.toContain("qaOpenWindow");
-  });
-
-  it("compiles fixture launch permission off in the staged server bundle", () => {
-    const serverBundle = fs.readFileSync(path.join(repoRoot, "apps/server/dist/index.mjs"), "utf8");
-    expect(serverBundle).toContain("buildEnabled: false");
-    expect(serverBundle).not.toContain("buildEnabled: true");
-  });
-
   it("labels fixture coverage without claiming real-provider coverage", () => {
     expect(qaProviderCoverageLabel("scripted-fixture")).toBe(
       "scripted-fixture; real provider not covered",
