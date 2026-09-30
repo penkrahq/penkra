@@ -1573,7 +1573,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
               return yield* startAndPersistReplacement;
             }
 
-            const previousGeneration = persistedBinding.lifecycleGeneration ?? "legacy";
             const previousModelSelection = readPersistedModelSelection(
               persistedBinding.runtimePayload,
             );
@@ -1590,14 +1589,17 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                   : Effect.gen(function* () {
                       // A provider switch is stop-first so one thread is never dual-owned.
                       // If anything after the stop fails, retire a partially started
-                      // replacement before restoring the exact previous generation.
+                      // replacement before restoring the conversation in a fresh runtime.
+                      // Runtime identity is never reused: delayed events from the
+                      // stopped instance must not retire its restored successor.
+                      const restoredGeneration = randomUUID();
                       if (replacementStarted) {
                         yield* adapter.stopSession(threadId);
                       }
                       const restored = yield* previousAdapter.startSession({
                         threadId,
                         provider: persistedBinding.provider,
-                        lifecycleGeneration: previousGeneration,
+                        lifecycleGeneration: restoredGeneration,
                         runtimeMode: persistedBinding.runtimeMode ?? "full-access",
                         ...(previousCwd !== undefined ? { cwd: previousCwd } : {}),
                         ...(previousModelSelection !== undefined
@@ -1619,16 +1621,13 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                       yield* withBindingWriteLock(
                         threadId,
                         upsertSessionBinding(restored, threadId, {
-                          lifecycleGeneration: previousGeneration,
+                          lifecycleGeneration: restoredGeneration,
                           modelSelection: previousModelSelection,
                           providerOptions: previousProviderOptions,
                         }),
                       );
-                      // The restored runtime stamps its events with the exact
-                      // generation persisted above, so the coordinator must end
-                      // the run owning that generation and not the abandoned
-                      // replacement's.
-                      lease.adopt(previousGeneration);
+                      // Adopt the fresh identity persisted for the restored runtime.
+                      lease.adopt(restoredGeneration);
                     }),
               ),
             );

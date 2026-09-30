@@ -170,6 +170,7 @@ interface CodexSessionContext {
   session: ProviderSession;
   lifecycleGeneration?: string;
   pendingGatewayTurnStart?: { turnId?: TurnId; registered: boolean };
+  nativeTurnStartTail?: Promise<void>;
   account: CodexAccountSnapshot;
   child: ChildProcessWithoutNullStreams;
   binaryPath?: string;
@@ -1487,8 +1488,34 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
   }
 
+  private async withNativeTurnStart<T>(
+    context: CodexSessionContext,
+    start: () => Promise<T>,
+  ): Promise<T> {
+    const previous = context.nativeTurnStartTail;
+    let release!: () => void;
+    const tail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    context.nativeTurnStartTail = tail;
+    await previous;
+    try {
+      return await start();
+    } finally {
+      release();
+      if (context.nativeTurnStartTail === tail) delete context.nativeTurnStartTail;
+    }
+  }
+
   async sendTurn(input: CodexAppServerSendTurnInput): Promise<ProviderTurnStartResult> {
     const context = this.requireSession(input.threadId);
+    return this.withNativeTurnStart(context, () => this.sendTurnInSession(context, input));
+  }
+
+  private async sendTurnInSession(
+    context: CodexSessionContext,
+    input: CodexAppServerSendTurnInput,
+  ): Promise<ProviderTurnStartResult> {
     context.collabReceiverTurns.clear();
     context.collabReceiverParents.clear();
 
@@ -1692,6 +1719,13 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
   async startReview(input: ProviderStartReviewInput): Promise<ProviderTurnStartResult> {
     const context = this.requireSession(input.threadId);
+    return this.withNativeTurnStart(context, () => this.startReviewInSession(context, input));
+  }
+
+  private async startReviewInSession(
+    context: CodexSessionContext,
+    input: ProviderStartReviewInput,
+  ): Promise<ProviderTurnStartResult> {
     const providerThreadId = readResumeThreadId({
       threadId: context.session.threadId,
       runtimeMode: context.session.runtimeMode,
@@ -3340,7 +3374,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
 
     if (this.isServerRequest(parsed)) {
-      void this.handleServerRequest(context, parsed).catch((cause) =>
+      // Stdio frames are ordered. Capture an ID-less tool's execution before
+      // asynchronous dispatch can observe a successor turn.
+      const ingressTurnId = context.session.activeTurnId ?? null;
+      void this.handleServerRequest(context, parsed, ingressTurnId).catch((cause) =>
         this.handleTransportFailure(context, cause),
       );
       return;
@@ -3734,6 +3771,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   private async handleServerRequest(
     context: CodexSessionContext,
     request: JsonRpcRequest,
+    ingressTurnId: TurnId | null,
   ): Promise<void> {
     if (context.discovery && context.authProbeActive) {
       await this.writeMessage(context, {
@@ -3844,7 +3882,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const requestedThreadId = this.readString(params, "threadId");
       const activeProviderThreadId = readResumeCursorThreadId(context.session.resumeCursor);
       const toolName = this.readString(params, "tool");
-      const toolTurnId = toTurnId(this.readString(params, "turnId"));
+      const toolTurnId = toTurnId(this.readString(params, "turnId")) ?? ingressTurnId ?? undefined;
       const namespace = params?.namespace;
       const rawArguments = params?.arguments;
       if (
@@ -3882,8 +3920,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       if (
         (toolTurnId !== undefined && context.terminalTurnIds.has(toolTurnId)) ||
         (toolTurnId !== undefined && currentTurnId !== toolTurnId && !canRegisterDispatchedStart) ||
-        (toolTurnId === undefined &&
-          (currentTurnId === undefined || context.terminalTurnIds.has(currentTurnId)))
+        toolTurnId === undefined
       ) {
         await this.writeMessage(context, {
           id: request.id,
