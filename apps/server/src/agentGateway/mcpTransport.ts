@@ -228,10 +228,7 @@ export function makeAgentGatewayMcpTransport(input: {
         flow: "mcp_write",
         step: "mcp.request_received",
       });
-      const failCallerTurnInactive = (
-        failedCheck: McpAuthorityCheck,
-        error: GatewayToolError,
-      ) => {
+      const failCallerTurnInactive = (failedCheck: McpAuthorityCheck, error: GatewayToolError) => {
         const observedTurnId = input.credentials.verifySession(token)?.activeTurnId ?? null;
         recordMcpAuthorityRejected({
           trace: diagnosticTrace,
