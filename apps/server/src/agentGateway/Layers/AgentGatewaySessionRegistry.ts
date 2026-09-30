@@ -17,6 +17,8 @@ export function makeAgentGatewaySessionRegistry(options?: {
   const randomId = options?.randomId ?? randomUUID;
   const sessions = new Map<string, AgentGatewaySessionIdentity>();
   const sessionsByKey = new Map<string, AgentGatewaySessionIdentity>();
+  const endedTurnsBySession = new Map<string, Set<string>>();
+  const endedSessions = new Set<string>();
 
   return {
     issue: (threadId, provider, lifecycleGeneration) => {
@@ -38,6 +40,7 @@ export function makeAgentGatewaySessionRegistry(options?: {
       };
       sessions.set(token, identity);
       sessionsByKey.set(sessionKey, identity);
+      endedTurnsBySession.set(sessionKey, new Set());
       return { token, ...identity };
     },
     verify: (token) => {
@@ -45,7 +48,7 @@ export function makeAgentGatewaySessionRegistry(options?: {
       if (!identity) return null;
       return identity;
     },
-    beginTurn: (threadId, provider, turnId, lifecycleGeneration) => {
+    beginTurn: (threadId, provider, turnId, lifecycleGeneration, source = "delivery") => {
       const owner = [...sessions.values()]
         .reverse()
         .find(
@@ -54,7 +57,18 @@ export function makeAgentGatewaySessionRegistry(options?: {
             identity.provider === provider &&
             identity.lifecycleGeneration === lifecycleGeneration,
         );
-      if (owner) {
+      if (
+        owner &&
+        !endedSessions.has(owner.sessionKey) &&
+        !endedTurnsBySession.get(owner.sessionKey)?.has(turnId)
+      ) {
+        if (owner.activeTurnId === turnId) return;
+        // Runtime events arrive through a durable queue. An older event must
+        // not displace a newer execution registered at prompt delivery.
+        if (source === "runtime-event" && owner.activeTurnId !== null) return;
+        if (owner.activeTurnId !== null) {
+          endedTurnsBySession.get(owner.sessionKey)?.add(owner.activeTurnId);
+        }
         // A replacement can overlap its predecessor. Once its turn starts,
         // outgoing credentials must not retain authority over the thread.
         for (const [token, identity] of sessions) {
@@ -92,6 +106,7 @@ export function makeAgentGatewaySessionRegistry(options?: {
         }
         sessionsByKey.set(owner.sessionKey, updated);
       }
+      if (owner) endedTurnsBySession.get(owner.sessionKey)?.add(turnId);
     },
     endSession: (threadId, provider, lifecycleGeneration) => {
       const owner = [...sessions.values()]
@@ -103,6 +118,7 @@ export function makeAgentGatewaySessionRegistry(options?: {
             identity.lifecycleGeneration === lifecycleGeneration,
         );
       if (owner) {
+        endedSessions.add(owner.sessionKey);
         const updated = { ...owner, activeTurnId: null };
         for (const [token, identity] of sessions) {
           if (identity.sessionKey === owner.sessionKey) sessions.set(token, updated);
@@ -134,6 +150,8 @@ export function makeAgentGatewaySessionRegistry(options?: {
       if (!identity) return;
       sessions.delete(token);
       sessionsByKey.delete(identity.sessionKey);
+      endedTurnsBySession.delete(identity.sessionKey);
+      endedSessions.delete(identity.sessionKey);
     },
   };
 }

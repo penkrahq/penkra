@@ -15,6 +15,8 @@ describe("AgentGatewaySessionRegistry", () => {
     const first = registry.bindWriteAuthority(issued.token);
     assert.equal(first?.turnId, "turn-1");
     assert.isTrue(registry.verifyWriteAuthority(first!));
+    registry.beginTurn(threadId, "claudeAgent", "turn-1", "generation-1");
+    assert.isTrue(registry.verifyWriteAuthority(first!));
     // A steer reuses the provider execution and therefore retains its grant.
     assert.equal(registry.bindWriteAuthority(issued.token)?.turnId, "turn-1");
     assert.isTrue(registry.verifyWriteAuthority(first!));
@@ -24,7 +26,12 @@ describe("AgentGatewaySessionRegistry", () => {
     registry.beginTurn(threadId, "claudeAgent", "turn-2", "generation-1");
     assert.isFalse(registry.verifyWriteAuthority(first!));
     assert.equal(registry.bindWriteAuthority(issued.token)?.turnId, "turn-2");
+    registry.beginTurn(threadId, "claudeAgent", "turn-1", "generation-1", "runtime-event");
+    registry.beginTurn(threadId, "claudeAgent", "turn-2", "generation-1", "runtime-event");
+    assert.equal(registry.bindWriteAuthority(issued.token)?.turnId, "turn-2");
     registry.endTurn(threadId, "claudeAgent", "turn-2", "generation-1");
+    assert.isNull(registry.bindWriteAuthority(issued.token));
+    registry.beginTurn(threadId, "claudeAgent", "turn-2", "generation-1");
     assert.isNull(registry.bindWriteAuthority(issued.token));
   });
 
