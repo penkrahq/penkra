@@ -69,7 +69,8 @@ export class QaSocketReconnectTracker {
     )
       return noop;
     const now = Date.now();
-    for (const [key, state] of this.clients) if (now - state.at > TTL_MS) this.clients.delete(key);
+    for (const [key, state] of this.clients)
+      if (state.closed && now - state.at > TTL_MS) this.clients.delete(key);
     for (const [key, at] of this.usedTickets) if (now - at > TTL_MS) this.usedTickets.delete(key);
     if (this.usedTickets.has(ticketId)) return noop;
     this.usedTickets.set(ticketId, now);
@@ -97,6 +98,7 @@ export class QaSocketReconnectTracker {
     return {
       closed: () => {
         current.closed = true;
+        current.at = Date.now();
         current.onClosed?.();
       },
       receivedFrame: (raw) => {
