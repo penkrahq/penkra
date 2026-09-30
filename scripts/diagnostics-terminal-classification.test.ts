@@ -15,8 +15,7 @@ const classes = new Set([
 describe("terminal diagnostics failure classification", () => {
   it("classifies every current terminal site exactly once with evidence", () => {
     const root = classification.scope;
-    const actual = inventoryFailureSites(import.meta.dirname + "/..")
-      .filter((site) => site.file.startsWith(`${root}/`))
+    const actual = inventoryFailureSites(import.meta.dirname + "/..", [root])
       .map((site) => `${site.file.slice(root.length + 1)}:${site.line}:${site.column}:${site.kind}`)
       .toSorted();
     const reviewed = Object.entries(classification.files).flatMap(([file, rows]) =>
