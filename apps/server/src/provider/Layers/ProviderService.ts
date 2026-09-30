@@ -66,6 +66,7 @@ import { PersistenceDecodeError } from "../../persistence/Errors.ts";
 import { ProviderRuntimeEventRepository } from "../../persistence/Services/ProviderRuntimeEvents.ts";
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
+import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
 import {
   classifyTerminalTurnApplicability,
   isStartedTurnApplicable,
@@ -440,6 +441,9 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         : undefined);
 
     const registry = yield* ProviderAdapterRegistry;
+    const agentGatewayCredentials = Option.getOrUndefined(
+      yield* Effect.serviceOption(AgentGatewayCredentials),
+    );
     const directory = yield* ProviderSessionDirectory;
     const lifecycle = makeProviderLifecycleCoordinator();
     for (const binding of yield* directory.listBindings()) {
@@ -1154,6 +1158,35 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           }
           const canonicalEvent = normalizeProviderRuntimeEvent(event);
           return Effect.sync(() => {
+            // Child runtime events are attributed to the parent thread but do
+            // not own its gateway session or turn.
+            if (canonicalEvent.providerRefs?.providerParentThreadId === undefined) {
+              if (canonicalEvent.type === "turn.started" && canonicalEvent.turnId !== undefined) {
+                agentGatewayCredentials?.beginTurn(
+                  canonicalEvent.threadId,
+                  canonicalEvent.provider,
+                  String(canonicalEvent.turnId),
+                  canonicalEvent.lifecycleGeneration,
+                );
+              } else if (
+                (canonicalEvent.type === "turn.completed" ||
+                  canonicalEvent.type === "turn.aborted") &&
+                canonicalEvent.turnId !== undefined
+              ) {
+                agentGatewayCredentials?.endTurn(
+                  canonicalEvent.threadId,
+                  canonicalEvent.provider,
+                  String(canonicalEvent.turnId),
+                  canonicalEvent.lifecycleGeneration,
+                );
+              } else if (canonicalEvent.type === "session.exited") {
+                agentGatewayCredentials?.endSession(
+                  canonicalEvent.threadId,
+                  canonicalEvent.provider,
+                  canonicalEvent.lifecycleGeneration,
+                );
+              }
+            }
             if (canonicalEvent.type === "turn.started") {
               reconcileRuntimeIdleTimer(canonicalEvent);
             }

@@ -3413,7 +3413,12 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           // server that this runtime isolates to the exact Penkra thread.
           const agentGatewaySessionLease = serverUrl
             ? undefined
-            : acquireAgentGatewaySessionLease(agentGatewayCredentials, input.threadId, provider);
+            : acquireAgentGatewaySessionLease(
+                agentGatewayCredentials,
+                input.threadId,
+                provider,
+                input.lifecycleGeneration,
+              );
           if (!agentGatewaySessionLease) {
             return yield* Effect.fail(
               toAdapterProcessError(

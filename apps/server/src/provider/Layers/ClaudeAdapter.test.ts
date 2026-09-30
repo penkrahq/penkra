@@ -358,6 +358,9 @@ function makeGatewayCredentialsHarness() {
     verifySessionToken: () => null,
     verifySession: () => null,
     bindWriteAuthority: () => null,
+    beginTurn: () => undefined,
+    endTurn: () => undefined,
+    endSession: () => undefined,
     verifyWriteAuthority: () => false,
     revokeSessionToken: (token: string) => {
       revokedTokens.push(token);

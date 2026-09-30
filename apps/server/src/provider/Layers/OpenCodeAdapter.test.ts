@@ -296,6 +296,9 @@ function makeGatewayCredentials() {
     verifySessionToken: (token) => ownerByToken.get(token) ?? null,
     verifySession: () => null,
     bindWriteAuthority: () => null,
+    beginTurn: () => undefined,
+    endTurn: () => undefined,
+    endSession: () => undefined,
     verifyWriteAuthority: () => false,
     revokeSessionToken: (token) => {
       revoked.push(token);

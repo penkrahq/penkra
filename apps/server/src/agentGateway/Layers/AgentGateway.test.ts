@@ -162,6 +162,16 @@ interface GatewayHarness {
   readonly setThreadDetail: (thread: OrchestrationThread) => void;
   readonly deleteThread: (threadId: string) => void;
   readonly revokeToken: (token: string) => void;
+  readonly beginTurn: (
+    threadId: string,
+    provider: "codex" | "claudeAgent" | "opencode",
+    turnId: string,
+  ) => void;
+  readonly endTurn: (
+    threadId: string,
+    provider: "codex" | "claudeAgent" | "opencode",
+    turnId: string,
+  ) => void;
   readonly setProjectionTurn: (input: {
     readonly threadId: string;
     readonly turnId: string;
@@ -271,6 +281,7 @@ function makeHarnessLayer(
     readonly providerRuntimeEvents?: ReadonlyArray<PersistedProviderRuntimeEvent>;
     readonly providerRuntimeOpenTurns?: ReadonlyArray<ProviderRuntimeOpenTurn>;
     readonly clearProviderRuntimeOpenTurnsAfterRead?: boolean;
+    readonly endParentTurnOnSecondShellRead?: boolean;
     readonly projectParentTurnOnSecondShellRead?: {
       readonly turnId: string;
       readonly providerTurnId: string;
@@ -282,16 +293,21 @@ function makeHarnessLayer(
 ) {
   const dispatched: Array<OrchestrationCommand> = [];
   const revokedTokens = new Set<string>();
-  const writeAuthoritySessions = new Map<
-    string,
-    { readonly threadId: ThreadIdType; readonly provider: "codex" | "claudeAgent" | "opencode" }
-  >();
+  const activeTurnByScope = new Map<string, string>();
+  for (const thread of threads) {
+    if (thread.session?.status === "running" && thread.session.activeTurnId !== null) {
+      activeTurnByScope.set(
+        `${thread.id}:${thread.session.providerName}`,
+        thread.session.activeTurnId,
+      );
+    }
+  }
   const resolveSessionIdentity = (token: string) => {
     if (revokedTokens.has(token)) return null;
     const threadId = VALID_TOKENS[token];
     if (!threadId) return null;
     return {
-      sessionKey: `session-for-${threadId}`,
+      sessionKey: `session-for-${token}`,
       threadId: ThreadId.makeUnsafe(threadId),
       provider:
         token === "token-parent-claude"
@@ -300,6 +316,10 @@ function makeHarnessLayer(
             ? ("opencode" as const)
             : ("codex" as const),
       issuedAt: 0,
+      activeTurnId:
+        activeTurnByScope.get(
+          `${threadId}:${token === "token-parent-claude" ? "claudeAgent" : token === "token-parent-opencode" ? "opencode" : "codex"}`,
+        ) ?? null,
       capabilities:
         token === "token-parent-readonly"
           ? new Set(["thread:read"] as const)
@@ -326,26 +346,33 @@ function makeHarnessLayer(
   const credentialsLayer = Layer.succeed(AgentGatewayCredentials, {
     mcpEndpointUrl: "http://127.0.0.1:3773/mcp",
     setListeningPort: () => undefined,
-    bindWriteAuthority: (token: string, turnId: string) => {
+    beginTurn: (threadId, provider, turnId) => {
+      activeTurnByScope.set(`${threadId}:${provider}`, turnId);
+    },
+    endTurn: (threadId, provider, turnId) => {
+      if (activeTurnByScope.get(`${threadId}:${provider}`) === turnId)
+        activeTurnByScope.delete(`${threadId}:${provider}`);
+    },
+    endSession: (threadId, provider) => {
+      activeTurnByScope.delete(`${threadId}:${provider}`);
+    },
+    bindWriteAuthority: (token: string) => {
       const identity = resolveSessionIdentity(token);
-      if (!identity) return null;
-      writeAuthoritySessions.set(identity.sessionKey, {
-        threadId: identity.threadId,
-        provider: identity.provider,
-      });
+      if (!identity?.activeTurnId) return null;
       return {
         sessionKey: identity.sessionKey,
         threadId: identity.threadId,
         provider: identity.provider,
-        turnId,
+        turnId: identity.activeTurnId,
       };
     },
     verifyWriteAuthority: (authority) => {
-      const identity = writeAuthoritySessions.get(authority.sessionKey);
+      const identity = resolveSessionIdentity(authority.sessionKey.replace(/^session-for-/, ""));
       return (
-        identity !== undefined &&
+        identity !== null &&
         identity.threadId === authority.threadId &&
-        identity.provider === authority.provider
+        identity.provider === authority.provider &&
+        identity.activeTurnId === authority.turnId
       );
     },
     issueSessionToken: (threadId: ThreadIdType) => `token-for-${threadId}`,
@@ -404,6 +431,9 @@ function makeHarnessLayer(
       Effect.sync(() => {
         if (threadId === "thread-parent") {
           parentShellReads += 1;
+          if (parentShellReads === 2 && options.endParentTurnOnSecondShellRead) {
+            activeTurnByScope.delete("thread-parent:codex");
+          }
           if (parentShellReads === 2 && options.projectParentTurnOnSecondShellRead) {
             const projected = options.projectParentTurnOnSecondShellRead;
             projectionTurnsByKey.set(`thread-parent:${projected.turnId}`, {
@@ -1065,6 +1095,13 @@ function makeHarnessLayer(
       revokeToken: (token) => {
         revokedTokens.add(token);
       },
+      beginTurn: (threadId, provider, turnId) => {
+        activeTurnByScope.set(`${threadId}:${provider}`, turnId);
+      },
+      endTurn: (threadId, provider, turnId) => {
+        if (activeTurnByScope.get(`${threadId}:${provider}`) === turnId)
+          activeTurnByScope.delete(`${threadId}:${provider}`);
+      },
       setProjectionTurn: (input) => {
         projectionTurnsByKey.set(`${input.threadId}:${input.turnId}`, {
           threadId: input.threadId,
@@ -1117,6 +1154,60 @@ describe("AgentGateway", () => {
     makeThreadShell("thread-archived", { archivedAt: NOW }),
   ];
 
+  for (const projection of ["terminal", "missing", "stale-ledger"] as const) {
+    it.effect(`accepts a live provider turn with ${projection} projection evidence`, () => {
+      const nativeTurnId = "claude-native-live";
+      const parent = makeThreadShell("thread-parent", {
+        modelSelection: { provider: "claudeAgent", model: "claude-opus" },
+        latestTurn:
+          projection === "missing"
+            ? null
+            : {
+                turnId: TurnId.makeUnsafe("logical-parent"),
+                providerTurnId: TurnId.makeUnsafe(nativeTurnId),
+                state: projection === "terminal" ? "completed" : "running",
+                requestedAt: NOW,
+                startedAt: NOW,
+                completedAt: projection === "terminal" ? NOW : null,
+                assistantMessageId: null,
+              },
+        session: {
+          threadId: ThreadId.makeUnsafe("thread-parent"),
+          status: "running",
+          providerName: "claudeAgent",
+          runtimeMode: "full-access",
+          activeTurnId: TurnId.makeUnsafe(nativeTurnId),
+          lastError: null,
+          updatedAt: NOW,
+        },
+      });
+      const { gatewayLayer, makeHarness } = makeHarnessLayer(
+        [parent, ...baseThreads.filter((thread) => thread.id !== "thread-parent")],
+        projection === "stale-ledger"
+          ? {
+              providerRuntimeOpenTurns: [
+                {
+                  threadId: "thread-parent",
+                  turnId: "old-native-turn",
+                  firstSequence: 1,
+                  updatedAt: NOW,
+                },
+              ],
+            }
+          : {},
+      );
+      return Effect.gen(function* () {
+        const harness = yield* makeHarness;
+        const response = yield* harness.callTool({
+          token: "token-parent-claude",
+          name: "penkra_send_message",
+          args: { threadId: "thread-child", message: "Please continue." },
+        });
+        assert.isFalse(isToolError(response.result), toolErrorText(response.result));
+      }).pipe(Effect.provide(gatewayLayer));
+    });
+  }
+
   it.effect("logs ingress turn evidence for an inner penkra_exec_command write refusal", () => {
     const warnings: Array<ReadonlyArray<unknown>> = [];
     const logger = Logger.make(({ message }) => warnings.push(message as ReadonlyArray<unknown>));
@@ -1168,18 +1259,9 @@ describe("AgentGateway", () => {
       assert.equal(fields.callerThreadId, "thread-parent");
       assert.match(String(fields.mcpRequestArrivedAt), /^\d{4}-\d\d-\d\dT/);
       assert.equal(fields.failedCheck, "ingress_write_authority_missing");
-      assert.equal(fields.projectedActiveTurnId, null);
-      assert.equal(fields.projectedActiveTurnState, null);
-      assert.equal(fields.projectedProviderTurnId, null);
-      assert.equal(fields.sessionStatus, "ready");
-      assert.equal(fields.sessionTurnId, null);
-      assert.deepEqual(fields.openRuntimeTurns, [
-        { turnId: "sdk-background-turn", firstSequence: 23, updatedAt: NOW },
-      ]);
-      assert.equal(fields.ingressAuthorityTurnId, null);
-      assert.equal(fields.expectedTurnId, null);
-      assert.equal(fields.arrivedTurnId, null);
-      assert.equal(fields.observedAuthorityTurnId, null);
+      assert.equal(fields.registryTurnId, null);
+      assert.equal(fields.ingressTurnId, null);
+      assert.equal(fields.arrivedOriginTurnId, null);
     }).pipe(
       Effect.provide(
         Layer.mergeAll(gatewayLayer, Logger.layer([logger], { mergeWithExisting: false })),
@@ -1204,7 +1286,7 @@ describe("AgentGateway", () => {
           updatedAt: NOW,
         },
       ],
-      clearProviderRuntimeOpenTurnsAfterRead: true,
+      endParentTurnOnSecondShellRead: true,
     });
     return Effect.gen(function* () {
       const harness = yield* makeHarness;
@@ -1223,14 +1305,9 @@ describe("AgentGateway", () => {
       assert.equal(refusalWarnings.length, 1);
       const fields = refusalWarnings[0]?.[1] as Record<string, unknown>;
       assert.equal(fields.failedCheck, "authorized_turn_no_longer_active");
-      assert.equal(fields.projectedActiveTurnId, null);
-      assert.equal(fields.projectedActiveTurnState, null);
-      assert.equal(fields.sessionTurnId, "turn-parent-active");
-      assert.deepEqual(fields.openRuntimeTurns, []);
-      assert.equal(fields.ingressAuthorityTurnId, "turn-parent-active");
-      assert.equal(fields.expectedTurnId, "turn-parent-active");
-      assert.equal(fields.arrivedTurnId, "turn-parent-active");
-      assert.equal(fields.observedAuthorityTurnId, null);
+      assert.equal(fields.registryTurnId, null);
+      assert.equal(fields.ingressTurnId, "turn-parent-active");
+      assert.equal(fields.arrivedOriginTurnId, null);
     }).pipe(
       Effect.provide(
         Layer.mergeAll(gatewayLayer, Logger.layer([logger], { mergeWithExisting: false })),
@@ -1289,6 +1366,8 @@ describe("AgentGateway", () => {
               Effect.gen(function* () {
                 yield* Deferred.await(entered);
                 if (replacement === "different-execution") {
+                  harness.endTurn("thread-parent", "codex", "turn-parent-active");
+                  harness.beginTurn("thread-parent", "codex", "native-next");
                   harness.setProjectionTurn({
                     threadId: "thread-parent",
                     turnId: "turn-parent-active",
@@ -1339,6 +1418,8 @@ describe("AgentGateway", () => {
     let harness: GatewayHarness;
     const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
       resolveConnection: () => {
+        harness.endTurn("thread-parent", "codex", "turn-parent-active");
+        harness.beginTurn("thread-parent", "codex", "zz-followup");
         harness.setProjectionTurn({
           threadId: "thread-parent",
           turnId: "turn-parent-active",
@@ -3236,6 +3317,7 @@ describe("AgentGateway", () => {
       harness.setThreadDetail(
         makeThreadDetail(makeThreadShell("thread-parent", { session: null, latestTurn: null })),
       );
+      harness.endTurn("thread-parent", "codex", "turn-parent-active");
       const response = yield* harness.callTool({
         token: "token-parent",
         name: "penkra_retry_thread_projection",
