@@ -28,6 +28,17 @@ function threadId(page) {
   return id;
 }
 
+function diagnosticsDetailFrontier(stateDir) {
+  const db = new DatabaseSync(path.join(stateDir, "diagnostics", "diagnostics.sqlite"), {
+    readOnly: true,
+  });
+  try {
+    return db.prepare("SELECT COALESCE(MAX(id), 0) AS id FROM detail").get().id;
+  } finally {
+    db.close();
+  }
+}
+
 async function waitForDetail(stateDir, flow, step, thread, timeoutMs = 12_000, match = {}) {
   const database = path.join(stateDir, "diagnostics", "diagnostics.sqlite");
   const deadline = Date.now() + timeoutMs;
@@ -149,17 +160,22 @@ async function stop(page, stateDir, id) {
       const snapshot = await readNativeApi()?.orchestration.getThreadDetailSnapshot({
         threadId: targetId,
       });
-      return !!snapshot?.thread.session?.activeTurnId;
+      return (
+        !!snapshot?.thread.session?.activeTurnId &&
+        !!snapshot.thread.latestTurn?.turnId &&
+        snapshot.thread.latestTurn.state === "running"
+      );
     },
     id,
     { polling: 200, timeout: 20_000 },
   );
-  await page.waitForFunction(async (targetId) => {
-    const [{ useStore }, { getThreadFromState }] = await Promise.all([
-      import("/src/store.ts"),
-      import("/src/threadDerivation.ts"),
-    ]);
-    return !!getThreadFromState(useStore.getState(), targetId)?.session?.activeTurnId;
+  await page.waitForFunction((targetId) => {
+    const button = document.querySelector('button[aria-label="Stop generation"]');
+    return (
+      button?.getAttribute("data-thread-id") === targetId &&
+      !!button.getAttribute("data-turn-id") &&
+      button.getAttribute("data-turn-state") === "running"
+    );
   }, id);
   await page.waitForFunction(async (targetId) => {
     const { getActiveComposerSendPreparation, getComposerDispatchedSendOwner } =
@@ -169,7 +185,7 @@ async function stop(page, stateDir, id) {
       getComposerDispatchedSendOwner(targetId) === null
     );
   }, id);
-  await page.waitForTimeout(1_500);
+  await page.getByRole("button", { name: "Stop generation" }).waitFor();
   await page.evaluate(
     () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
   );
@@ -311,17 +327,24 @@ async function run(flow, page, stateDir) {
       await send(page, stateDir, id, `qa:window-${Date.now()}`);
       const context = page.context();
       const before = context.pages().length;
-      const opened = context.waitForEvent("page", { timeout: 15_000 });
+      const opened = context.waitForEvent("page", {
+        timeout: 20_000,
+        predicate: async (candidate) => {
+          try {
+            await candidate.waitForURL((url) => url.hash === `#/${id}`, { timeout: 15_000 });
+            return true;
+          } catch {
+            return false;
+          }
+        },
+      });
       await page.evaluate(() => {
         if (!window.desktopBridge?.qaOpenWindow)
           throw new Error("Disposable Dev QA window action is unavailable");
         window.desktopBridge.qaOpenWindow();
       });
-      await opened;
+      const clone = await opened;
       await waitForDetail(stateDir, "window", "window.synced", null, 20_000);
-      const clone = context
-        .pages()
-        .find((candidate) => candidate !== page && candidate.url().includes(id));
       if (!clone || context.pages().length <= before)
         throw new Error("The cloned shell did not open on the source thread");
       await clone.getByRole("textbox").waitFor();
@@ -330,6 +353,7 @@ async function run(flow, page, stateDir) {
     case "reconnect": {
       const id = await newThread(page, stateDir);
       await send(page, stateDir, id, `qa:reconnect-${Date.now()}`);
+      const afterId = diagnosticsDetailFrontier(stateDir);
       const recovered = await page.evaluate(async (targetId) => {
         const { readNativeApi, reconnectNativeApiTransportForQa } =
           await import("/src/nativeApi.ts");
@@ -342,7 +366,18 @@ async function run(flow, page, stateDir) {
         return detail?.thread?.id === targetId;
       }, id);
       if (!recovered) throw new Error("Thread RPC failed after transport recovery");
-      await waitForDetail(stateDir, "socket_connect", "socket.reconnected", null, 20_000);
+      const disconnected = await waitForDetail(
+        stateDir,
+        "socket_connect",
+        "socket.disconnected",
+        null,
+        20_000,
+        { afterId },
+      );
+      await waitForDetail(stateDir, "socket_connect", "socket.reconnected", null, 20_000, {
+        afterId,
+        traceId: disconnected.trace_id,
+      });
       return;
     }
     case "provider-switch": {
@@ -362,8 +397,19 @@ async function run(flow, page, stateDir) {
           ? "qa-fixture-alternate@example.invalid"
           : "qa-fixture@example.invalid";
       await page.getByRole("button", { name: "Change connection" }).click();
-      await page.getByRole("menuitem").first().click();
-      await page.getByRole("menuitem", { name: new RegExp(targetLabel, "u") }).click();
+      const submenu = page.locator('[data-slot="menu-sub-trigger"]');
+      await submenu.waitFor({ state: "visible" });
+      await submenu.focus();
+      await submenu.press("ArrowRight");
+      await page.waitForFunction(
+        () =>
+          document
+            .querySelector('[data-slot="menu-sub-trigger"]')
+            ?.getAttribute("aria-expanded") === "true",
+      );
+      const connection = page.getByRole("menuitem", { name: new RegExp(targetLabel, "u") });
+      await connection.waitFor({ state: "visible" });
+      await connection.click();
       await page.waitForFunction(
         async ({ threadId: targetThreadId, connectionId }) => {
           const { readNativeApi } = await import("/src/nativeApi.ts");
