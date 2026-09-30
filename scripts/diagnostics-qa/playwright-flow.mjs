@@ -56,6 +56,46 @@ async function waitForDetail(stateDir, flow, step, thread, timeoutMs = 12_000, m
   throw new Error(`Timed out waiting for ${flow}:${step}${thread ? ` on ${thread}` : ""}`);
 }
 
+async function waitForAgentWriteProof(targetThreadId, phase) {
+  const proofDir = process.env.PENKRA_DIAGNOSTICS_QA_PROOF_DIR;
+  if (!proofDir) throw new Error("Agent-write QA proof directory is unavailable");
+  const proofPath = path.join(proofDir, "agent-write-steer.jsonl");
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline) {
+    if (fs.existsSync(proofPath)) {
+      const proof = fs
+        .readFileSync(proofPath, "utf8")
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line))
+        .find((row) => row.targetThreadId === targetThreadId && row.phase === phase);
+      if (proof) {
+        if (!proof.success) throw new Error(`Agent Penkra write failed ${phase}`);
+        return;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`Timed out waiting for agent Penkra write ${phase}`);
+}
+
+function assertNoCallerTurnInactive(stateDir, threadId) {
+  const db = new DatabaseSync(path.join(stateDir, "diagnostics", "diagnostics.sqlite"), {
+    readOnly: true,
+  });
+  try {
+    const count = db
+      .prepare(
+        "SELECT COUNT(*) AS count FROM incident_occurrences o JOIN incidents i ON i.id = o.incident_id WHERE i.code = 'CALLER_TURN_INACTIVE' AND o.thread_id = ?",
+      )
+      .get(threadId).count;
+    if (count !== 0)
+      throw new Error(`Agent writes produced ${count} caller_turn_inactive incidents`);
+  } finally {
+    db.close();
+  }
+}
+
 async function newThread(page, stateDir) {
   const before = page.url();
   const previousId = new URL(before).hash.match(/^#\/([0-9a-f-]{36})$/u)?.[1];
@@ -196,6 +236,19 @@ async function run(flow, page, stateDir) {
         traceId: enqueued.trace_id,
         afterId: enqueued.id,
       });
+      const targetId = await newThread(page, stateDir);
+      await send(page, stateDir, targetId, `qa:write-target-${Date.now()}`);
+      await waitForCompletedTurn(page, targetId);
+      const writerId = await newThread(page, stateDir);
+      await send(page, stateDir, writerId, `qa:agent-write:${targetId}`);
+      await waitForAgentWriteProof(targetId, "before-steer");
+      await page.getByRole("textbox").fill(`qa:steer-${Date.now()}`);
+      await page.getByRole("textbox").press("Enter");
+      const queuedSteer = page.getByTestId("queued-follow-up-row").last();
+      await queuedSteer.getByRole("button", { name: "Steer" }).click();
+      await waitForAgentWriteProof(targetId, "after-steer");
+      assertNoCallerTurnInactive(stateDir, writerId);
+      await stop(page, stateDir, writerId);
       return;
     }
     case "archive": {

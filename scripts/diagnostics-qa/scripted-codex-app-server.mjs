@@ -8,6 +8,8 @@ import { createInterface } from "node:readline";
 export const FIXTURE_MARKER = "PENKRA_QA_SCRIPTED_PROVIDER_FIXTURE_V1";
 const threads = new Map();
 const turns = new Map();
+const pendingWriteCalls = new Map();
+let nextWriteCallId = 1_000_000;
 const alternateProfileKey = createHash("sha256").update("qa-scripted-alternate").digest("hex");
 const fixtureEmail = process.env.CODEX_HOME?.includes(alternateProfileKey)
   ? "qa-fixture-alternate@example.invalid"
@@ -52,7 +54,44 @@ function finish(turnId, status = "completed") {
   });
 }
 
+function requestAgentWrite(turn, targetThreadId, phase) {
+  const id = nextWriteCallId++;
+  pendingWriteCalls.set(id, { targetThreadId, phase });
+  emit({
+    jsonrpc: "2.0",
+    id,
+    method: "item/tool/call",
+    params: {
+      threadId: turn.threadId,
+      turnId: turn.id,
+      callId: `qa-agent-write-${phase}-${id}`,
+      namespace: null,
+      tool: "penkra_exec_command",
+      arguments: {
+        command: `penkra threads send --thread-id ${targetThreadId} --message 'qa agent write ${phase}'`,
+      },
+    },
+  });
+}
+
+function recordAgentWriteResponse(message) {
+  const pending = pendingWriteCalls.get(message.id);
+  if (!pending) return;
+  pendingWriteCalls.delete(message.id);
+  const proofDir = process.env.PENKRA_DIAGNOSTICS_QA_PROOF_DIR;
+  if (!proofDir) return;
+  fs.appendFileSync(
+    path.join(proofDir, "agent-write-steer.jsonl"),
+    `${JSON.stringify({ ...pending, success: message.result?.success === true })}\n`,
+    { mode: 0o600 },
+  );
+}
+
 function handle(message) {
+  if (typeof message?.id === "number" && typeof message.method !== "string") {
+    recordAgentWriteResponse(message);
+    return;
+  }
   if (typeof message?.id !== "number" || typeof message.method !== "string") return;
   const params = message.params ?? {};
   const id = message.id;
@@ -121,11 +160,31 @@ function handle(message) {
       const queueFirst = Array.isArray(params.input)
         ? params.input.some((item) => item?.type === "text" && item.text === "qa:queue-first")
         : false;
-      const turn = { id: turnId, threadId, status: "inProgress", timer: null };
+      const writeTarget = Array.isArray(params.input)
+        ? params.input
+            .find(
+              (item) => item?.type === "text" && /^qa:agent-write:[0-9a-f-]{36}$/u.test(item.text),
+            )
+            ?.text.slice("qa:agent-write:".length)
+        : undefined;
+      const turn = { id: turnId, threadId, status: "inProgress", timer: null, writeTarget };
       turns.set(turnId, turn);
       respond(id, { turn: { id: turnId, status: "inProgress", items: [] } });
       notify("turn/started", { threadId, turn: { id: turnId, status: "inProgress" } });
-      if (!hold) turn.timer = setTimeout(() => finish(turnId), queueFirst ? 8_000 : 300);
+      if (writeTarget) setTimeout(() => requestAgentWrite(turn, writeTarget, "before-steer"), 50);
+      if (!hold && !writeTarget)
+        turn.timer = setTimeout(() => finish(turnId), queueFirst ? 8_000 : 300);
+      return;
+    }
+    case "turn/steer": {
+      const turn = turns.get(params.expectedTurnId);
+      if (!turn || turn.status !== "inProgress" || turn.threadId !== params.threadId) {
+        emit({ id, error: { code: -32001, message: "No active QA fixture turn to steer" } });
+        return;
+      }
+      respond(id, { turnId: turn.id });
+      if (turn.writeTarget)
+        setTimeout(() => requestAgentWrite(turn, turn.writeTarget, "after-steer"), 50);
       return;
     }
     case "turn/interrupt": {
