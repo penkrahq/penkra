@@ -27,6 +27,7 @@ import {
   buildCodexDynamicTools,
   CODEX_MODEL_DISCOVERY_CACHE_TTL_MS,
   CODEX_DEVELOPER_INSTRUCTIONS,
+  CodexSessionStoppedRequestError,
   __codexCliVersionGateTesting,
   CodexAppServerManager,
   CodexJsonRpcResponseError,
@@ -74,6 +75,11 @@ describe("Codex capability preflight diagnostics", () => {
       recordCodexCapabilityPreflightFailure({
         stopping: true,
         threadId,
+        error: new CodexSessionStoppedRequestError(),
+      });
+      recordCodexCapabilityPreflightFailure({
+        stopping: true,
+        threadId,
         error: new Error("Session stopped before request completed."),
       });
       recordCodexCapabilityPreflightFailure({
@@ -83,8 +89,8 @@ describe("Codex capability preflight diagnostics", () => {
       });
       const db = openDiagnosticsReader(stateDir)!;
       try {
-        expect(db.prepare("SELECT code FROM incidents").all()).toEqual([
-          { code: "EXTERNAL_CALL_FAILED" },
+        expect(db.prepare("SELECT code, count FROM incidents").all()).toEqual([
+          { code: "EXTERNAL_CALL_FAILED", count: 2 },
         ]);
       } finally {
         db.close();
