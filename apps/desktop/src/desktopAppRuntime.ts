@@ -166,7 +166,8 @@ export async function startDesktopAppRuntime(input: {
       entry.kind === "app-update-failed" ||
       entry.kind === "tab-navigation-restore-failed" ||
       entry.kind === "tab-crashed"
-    ) recordDesktopConsumedFailure("app");
+    )
+      recordDesktopConsumedFailure("app");
     void diagnostics.record(entry).catch((error) => {
       console.error("[penkra-app] Could not persist App runtime diagnostics.", error);
     });
@@ -436,7 +437,6 @@ export async function startDesktopAppRuntime(input: {
           failures.push({ role: "transfers-dispose", failure: error });
         }
         if (failures.length > 0) {
-          recordDesktopConsumedFailure("app");
           const failure = appRuntimeGroupFailure(
             "App renderer-generation retirement was incomplete.",
             failures,
@@ -485,7 +485,6 @@ export async function startDesktopAppRuntime(input: {
           failures.push({ role: "transfers-dispose", failure: error });
         }
         if (failures.length > 0) {
-          recordDesktopConsumedFailure("app");
           const failure = appRuntimeGroupFailure(
             "App logical-tab retirement was incomplete.",
             failures,

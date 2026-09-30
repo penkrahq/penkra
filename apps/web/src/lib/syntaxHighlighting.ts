@@ -67,6 +67,7 @@ export function getSyntaxHighlighterPromise(language: string): Promise<DiffsHigh
     langs: [language as SupportedLanguages],
     preferredHighlighter: "shiki-js",
   }).catch((err) => {
+    recordWebConsumedFailure("runtime");
     highlighterPromiseCache.delete(language);
     if (language === "text") {
       throw err;

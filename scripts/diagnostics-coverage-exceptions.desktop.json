@@ -11315,7 +11315,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 201,
+    "line": 202,
     "column": 5,
     "kind": "throw",
     "disposition": "validation",
@@ -11324,7 +11324,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 280,
+    "line": 281,
     "column": 52,
     "kind": "throw",
     "disposition": "validation",
@@ -11333,7 +11333,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 287,
+    "line": 288,
     "column": 48,
     "kind": "throw",
     "disposition": "validation",
@@ -11342,7 +11342,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 296,
+    "line": 297,
     "column": 52,
     "kind": "throw",
     "disposition": "validation",
@@ -11351,7 +11351,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 303,
+    "line": 304,
     "column": 52,
     "kind": "throw",
     "disposition": "validation",
@@ -11360,7 +11360,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 308,
+    "line": 309,
     "column": 15,
     "kind": "throw",
     "disposition": "validation",
@@ -11369,7 +11369,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 314,
+    "line": 315,
     "column": 52,
     "kind": "throw",
     "disposition": "validation",
@@ -11378,7 +11378,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 322,
+    "line": 323,
     "column": 48,
     "kind": "throw",
     "disposition": "validation",
@@ -11387,7 +11387,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 327,
+    "line": 328,
     "column": 52,
     "kind": "throw",
     "disposition": "validation",
@@ -11396,7 +11396,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 331,
+    "line": 332,
     "column": 52,
     "kind": "throw",
     "disposition": "validation",
@@ -11405,7 +11405,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 335,
+    "line": 336,
     "column": 52,
     "kind": "throw",
     "disposition": "validation",
@@ -11414,7 +11414,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 340,
+    "line": 341,
     "column": 15,
     "kind": "throw",
     "disposition": "validation",
@@ -11423,7 +11423,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 346,
+    "line": 347,
     "column": 13,
     "kind": "throw",
     "disposition": "validation",
@@ -11432,7 +11432,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 587,
+    "line": 588,
     "column": 47,
     "kind": "throw",
     "disposition": "validation",
@@ -11441,7 +11441,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 592,
+    "line": 593,
     "column": 7,
     "kind": "throw",
     "disposition": "validation",
@@ -11450,7 +11450,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 596,
+    "line": 597,
     "column": 47,
     "kind": "throw",
     "disposition": "validation",
@@ -11459,7 +11459,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 604,
+    "line": 605,
     "column": 48,
     "kind": "throw",
     "disposition": "validation",
@@ -11468,7 +11468,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 609,
+    "line": 610,
     "column": 43,
     "kind": "throw",
     "disposition": "validation",
@@ -11477,7 +11477,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 612,
+    "line": 613,
     "column": 5,
     "kind": "throw",
     "disposition": "validation",
@@ -15409,7 +15409,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 170,
+    "line": 171,
     "column": 36,
     "kind": "catch",
     "disposition": "expected-recovery",
@@ -15418,7 +15418,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 186,
+    "line": 187,
     "column": 9,
     "kind": "catch",
     "disposition": "expected-recovery",
@@ -15427,7 +15427,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 407,
+    "line": 408,
     "column": 11,
     "kind": "catch",
     "disposition": "propagates",
@@ -15440,7 +15440,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 412,
+    "line": 413,
     "column": 11,
     "kind": "catch",
     "disposition": "propagates",
@@ -15453,7 +15453,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 417,
+    "line": 418,
     "column": 11,
     "kind": "catch",
     "disposition": "propagates",
@@ -15466,7 +15466,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 422,
+    "line": 423,
     "column": 11,
     "kind": "catch",
     "disposition": "propagates",
@@ -15479,7 +15479,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 430,
+    "line": 431,
     "column": 11,
     "kind": "catch",
     "disposition": "propagates",
@@ -15492,7 +15492,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 435,
+    "line": 436,
     "column": 11,
     "kind": "catch",
     "disposition": "propagates",
@@ -15505,7 +15505,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 460,
+    "line": 461,
     "column": 11,
     "kind": "catch",
     "disposition": "propagates",
@@ -15518,7 +15518,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 465,
+    "line": 466,
     "column": 11,
     "kind": "catch",
     "disposition": "propagates",
@@ -15531,7 +15531,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 470,
+    "line": 471,
     "column": 11,
     "kind": "catch",
     "disposition": "propagates",
@@ -15544,7 +15544,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 478,
+    "line": 479,
     "column": 11,
     "kind": "catch",
     "disposition": "propagates",
@@ -15557,7 +15557,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 483,
+    "line": 484,
     "column": 11,
     "kind": "catch",
     "disposition": "propagates",
@@ -15570,7 +15570,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 518,
+    "line": 519,
     "column": 6,
     "kind": "catch",
     "disposition": "propagates",
@@ -15583,7 +15583,7 @@
   },
   {
     "file": "apps/desktop/src/desktopAppRuntime.ts",
-    "line": 526,
+    "line": 527,
     "column": 63,
     "kind": "catch",
     "disposition": "propagates",

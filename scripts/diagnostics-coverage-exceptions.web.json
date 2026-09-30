@@ -91,15 +91,15 @@
   },
   {
     "file": "apps/web/src/authLogout.ts",
-    "line": 16,
+    "line": 17,
     "column": 5,
     "kind": "catch",
-    "disposition": "propagates",
-    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "disposition": "recorded",
+    "reason": "Every failure from logout or navigation is recorded locally before the error callback; the payload contains only fixed fields.",
     "reviewer": "web-coverage-0143",
     "boundary": {
-      "code": "EXTERNAL_CALL_FAILED",
-      "where": "browser.socket_rpc"
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
     }
   },
   {
@@ -2242,33 +2242,33 @@
   },
   {
     "file": "apps/web/src/composerDraftAttachments.ts",
-    "line": 45,
+    "line": 46,
     "column": 7,
     "kind": "catch",
     "disposition": "propagates",
-    "reason": "The catch preserves or wraps the failure for its caller and the request recording boundary.",
+    "reason": "The generic attachment operation can fail in browser storage; its rejection is recorded locally with fixed fields before propagation.",
     "reviewer": "web-coverage-0143",
     "boundary": {
-      "code": "EXTERNAL_CALL_FAILED",
-      "where": "browser.socket_rpc"
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.local_state"
     }
   },
   {
     "file": "apps/web/src/composerDraftAttachments.ts",
-    "line": 46,
+    "line": 48,
     "column": 22,
     "kind": "rejection",
     "disposition": "propagates",
-    "reason": "The rejected promise carries the original operation failure to its caller and request boundary.",
+    "reason": "The generic attachment operation can fail in browser storage; its rejection is recorded locally with fixed fields before propagation.",
     "reviewer": "web-coverage-0143",
     "boundary": {
-      "code": "EXTERNAL_CALL_FAILED",
-      "where": "browser.socket_rpc"
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.local_state"
     }
   },
   {
     "file": "apps/web/src/composerDraftAttachments.ts",
-    "line": 215,
+    "line": 217,
     "column": 41,
     "kind": "catch",
     "disposition": "propagates",
@@ -2281,7 +2281,7 @@
   },
   {
     "file": "apps/web/src/composerDraftAttachments.ts",
-    "line": 332,
+    "line": 334,
     "column": 7,
     "kind": "catch",
     "disposition": "expected-recovery",
@@ -2290,7 +2290,7 @@
   },
   {
     "file": "apps/web/src/composerDraftAttachments.ts",
-    "line": 416,
+    "line": 418,
     "column": 5,
     "kind": "catch",
     "disposition": "expected-recovery",
@@ -2299,7 +2299,7 @@
   },
   {
     "file": "apps/web/src/composerDraftAttachments.ts",
-    "line": 434,
+    "line": 436,
     "column": 5,
     "kind": "catch",
     "disposition": "expected-recovery",
@@ -2308,33 +2308,33 @@
   },
   {
     "file": "apps/web/src/composerDraftAttachments.ts",
-    "line": 535,
+    "line": 537,
     "column": 5,
     "kind": "catch",
     "disposition": "propagates",
-    "reason": "The catch preserves or wraps the failure for its caller and the request recording boundary.",
+    "reason": "The generic attachment operation can fail in browser storage; its rejection is recorded locally with fixed fields before propagation.",
     "reviewer": "web-coverage-0143",
     "boundary": {
-      "code": "EXTERNAL_CALL_FAILED",
-      "where": "browser.socket_rpc"
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.local_state"
     }
   },
   {
     "file": "apps/web/src/composerDraftAttachments.ts",
-    "line": 536,
+    "line": 539,
     "column": 20,
     "kind": "rejection",
     "disposition": "propagates",
-    "reason": "The rejected promise carries the original operation failure to its caller and request boundary.",
+    "reason": "The generic attachment operation can fail in browser storage; its rejection is recorded locally with fixed fields before propagation.",
     "reviewer": "web-coverage-0143",
     "boundary": {
-      "code": "EXTERNAL_CALL_FAILED",
-      "where": "browser.socket_rpc"
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.local_state"
     }
   },
   {
     "file": "apps/web/src/composerDraftAttachments.ts",
-    "line": 590,
+    "line": 593,
     "column": 5,
     "kind": "catch",
     "disposition": "expected-recovery",
@@ -2969,16 +2969,12 @@
   },
   {
     "file": "apps/web/src/lib/activeThreadDelete.ts",
-    "line": 26,
+    "line": 27,
     "column": 5,
     "kind": "catch",
-    "disposition": "propagates",
-    "reason": "The rejected request reaches the socket RPC boundary, which records the operation failure.",
-    "reviewer": "web-coverage-0143",
-    "boundary": {
-      "code": "EXTERNAL_CALL_FAILED",
-      "where": "browser.socket_rpc"
-    }
+    "disposition": "expected-recovery",
+    "reason": "Optional local terminal disposal cannot cancel a durable thread delete; its failure is recorded locally with fixed fields.",
+    "reviewer": "web-coverage-0143"
   },
   {
     "file": "apps/web/src/lib/browserDownload.ts",
@@ -3228,15 +3224,15 @@
   },
   {
     "file": "apps/web/src/lib/indexedDb.ts",
-    "line": 15,
+    "line": 18,
     "column": 20,
     "kind": "rejection",
     "disposition": "propagates",
-    "reason": "The rejected promise carries the original operation failure to its caller and request boundary.",
+    "reason": "Unavailable browser storage is recorded locally with fixed fields before the promise rejects.",
     "reviewer": "web-coverage-0143",
     "boundary": {
-      "code": "EXTERNAL_CALL_FAILED",
-      "where": "browser.socket_rpc"
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.local_state"
     }
   },
   {
@@ -3325,13 +3321,9 @@
     "line": 106,
     "column": 7,
     "kind": "throw",
-    "disposition": "propagates",
-    "reason": "This operational failure reaches the caller, where the request boundary records the failed operation.",
-    "reviewer": "web-coverage-0143",
-    "boundary": {
-      "code": "EXTERNAL_CALL_FAILED",
-      "where": "browser.socket_rpc"
-    }
+    "disposition": "expected-recovery",
+    "reason": "The surrounding catch records the PDF load failure locally and sets an error state without using the socket.",
+    "reviewer": "web-coverage-0143"
   },
   {
     "file": "apps/web/src/lib/pdf/usePdfDocument.ts",
@@ -3669,20 +3661,20 @@
   },
   {
     "file": "apps/web/src/lib/syntaxHighlighting.ts",
-    "line": 72,
+    "line": 73,
     "column": 7,
     "kind": "throw",
     "disposition": "rethrow",
-    "reason": "The original failure is preserved for the caller, whose transport boundary records the rejected operation.",
+    "reason": "The highlighting failure is recorded locally before the original error is rethrown for the plain-text path.",
     "reviewer": "web-coverage-0143",
     "boundary": {
-      "code": "EXTERNAL_CALL_FAILED",
-      "where": "browser.socket_rpc"
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
     }
   },
   {
     "file": "apps/web/src/lib/syntaxHighlighting.ts",
-    "line": 88,
+    "line": 89,
     "column": 5,
     "kind": "catch",
     "disposition": "propagates",
@@ -3796,11 +3788,11 @@
     "column": 8,
     "kind": "catch",
     "disposition": "propagates",
-    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reason": "The failed desktop bridge request reaches the main-process IPC boundary, which records the operation failure.",
     "reviewer": "web-coverage-0143",
     "boundary": {
-      "code": "EXTERNAL_CALL_FAILED",
-      "where": "browser.socket_rpc"
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
     }
   },
   {
@@ -3809,11 +3801,11 @@
     "column": 10,
     "kind": "catch",
     "disposition": "propagates",
-    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reason": "The failed desktop bridge request reaches the main-process IPC boundary, which records the operation failure.",
     "reviewer": "web-coverage-0143",
     "boundary": {
-      "code": "EXTERNAL_CALL_FAILED",
-      "where": "browser.socket_rpc"
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
     }
   },
   {
@@ -3822,11 +3814,11 @@
     "column": 10,
     "kind": "catch",
     "disposition": "propagates",
-    "reason": "The caller receives an explicit failed result or error notice after the request boundary records rejection.",
+    "reason": "The failed desktop bridge request reaches the main-process IPC boundary, which records the operation failure.",
     "reviewer": "web-coverage-0143",
     "boundary": {
-      "code": "EXTERNAL_CALL_FAILED",
-      "where": "browser.socket_rpc"
+      "code": "APP_OPERATION_FAILED",
+      "where": "desktop.ipc_dispatch"
     }
   },
   {
@@ -3840,7 +3832,7 @@
   },
   {
     "file": "apps/web/src/lib/voiceRecorder.ts",
-    "line": 94,
+    "line": 95,
     "column": 42,
     "kind": "catch",
     "disposition": "expected-recovery",
@@ -3849,7 +3841,7 @@
   },
   {
     "file": "apps/web/src/lib/voiceRecorder.ts",
-    "line": 103,
+    "line": 104,
     "column": 37,
     "kind": "throw",
     "disposition": "validation",
@@ -3858,7 +3850,7 @@
   },
   {
     "file": "apps/web/src/lib/voiceRecorder.ts",
-    "line": 127,
+    "line": 128,
     "column": 9,
     "kind": "throw",
     "disposition": "validation",
@@ -3867,7 +3859,7 @@
   },
   {
     "file": "apps/web/src/lib/voiceRecorder.ts",
-    "line": 130,
+    "line": 131,
     "column": 9,
     "kind": "throw",
     "disposition": "validation",
@@ -3876,7 +3868,7 @@
   },
   {
     "file": "apps/web/src/lib/voiceRecorder.ts",
-    "line": 142,
+    "line": 143,
     "column": 11,
     "kind": "throw",
     "disposition": "validation",
@@ -3885,7 +3877,7 @@
   },
   {
     "file": "apps/web/src/lib/voiceRecorder.ts",
-    "line": 266,
+    "line": 267,
     "column": 9,
     "kind": "catch",
     "disposition": "propagates",
@@ -3898,7 +3890,7 @@
   },
   {
     "file": "apps/web/src/lib/voiceRecorder.ts",
-    "line": 271,
+    "line": 273,
     "column": 37,
     "kind": "catch",
     "disposition": "expected-recovery",
@@ -3907,20 +3899,20 @@
   },
   {
     "file": "apps/web/src/lib/voiceRecorder.ts",
-    "line": 272,
+    "line": 274,
     "column": 9,
     "kind": "throw",
     "disposition": "rethrow",
-    "reason": "The original failure is preserved for the caller, whose transport boundary records the rejected operation.",
+    "reason": "The microphone setup failure is recorded locally before cleanup and rethrow.",
     "reviewer": "web-coverage-0143",
     "boundary": {
-      "code": "EXTERNAL_CALL_FAILED",
-      "where": "browser.socket_rpc"
+      "code": "APP_OPERATION_FAILED",
+      "where": "browser.client_runtime"
     }
   },
   {
     "file": "apps/web/src/lib/voiceRecorder.ts",
-    "line": 361,
+    "line": 363,
     "column": 6,
     "kind": "catch",
     "disposition": "propagates",
@@ -4332,13 +4324,9 @@
     "line": 453,
     "column": 5,
     "kind": "catch",
-    "disposition": "propagates",
-    "reason": "The catch preserves or wraps the failure for its caller and the request recording boundary.",
-    "reviewer": "web-coverage-0143",
-    "boundary": {
-      "code": "EXTERNAL_CALL_FAILED",
-      "where": "browser.socket_rpc"
-    }
+    "disposition": "validation",
+    "reason": "Invalid theme share JSON is converted to a validation error for the importing caller.",
+    "reviewer": "web-coverage-0143"
   },
   {
     "file": "apps/web/src/theme/theme.logic.ts",
@@ -4737,13 +4725,9 @@
     "line": 412,
     "column": 13,
     "kind": "throw",
-    "disposition": "propagates",
-    "reason": "This operational failure reaches the caller, where the request boundary records the failed operation.",
-    "reviewer": "web-coverage-0143",
-    "boundary": {
-      "code": "EXTERNAL_CALL_FAILED",
-      "where": "browser.socket_rpc"
-    }
+    "disposition": "validation",
+    "reason": "A failed desktop or browser open operation is reported to its caller as a local validation failure.",
+    "reviewer": "web-coverage-0143"
   },
   {
     "file": "apps/web/src/wsNativeApi.ts",
