@@ -4795,6 +4795,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           agentGatewayCredentials,
           threadId,
           PROVIDER,
+          input.lifecycleGeneration,
         );
         if (!gatewaySessionLease || !agentGatewayToolBridge) {
           return yield* Effect.fail(

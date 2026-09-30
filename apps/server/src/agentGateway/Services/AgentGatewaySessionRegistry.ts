@@ -8,6 +8,8 @@ export interface AgentGatewaySessionIdentity {
   readonly threadId: ThreadId;
   readonly provider: ProviderKind;
   readonly issuedAt: number;
+  readonly lifecycleGeneration?: string;
+  readonly activeTurnId: string | null;
   readonly capabilities: ReadonlySet<AgentGatewayCapability>;
 }
 
@@ -23,9 +25,30 @@ export interface AgentGatewayWriteAuthority {
 }
 
 export interface AgentGatewaySessionRegistryShape {
-  readonly issue: (threadId: ThreadId, provider: ProviderKind) => AgentGatewayIssuedSession;
+  readonly issue: (
+    threadId: ThreadId,
+    provider: ProviderKind,
+    lifecycleGeneration?: string,
+  ) => AgentGatewayIssuedSession;
   readonly verify: (token: string) => AgentGatewaySessionIdentity | null;
-  readonly bindWriteAuthority: (token: string, turnId: string) => AgentGatewayWriteAuthority | null;
+  readonly beginTurn: (
+    threadId: ThreadId,
+    provider: ProviderKind,
+    turnId: string,
+    lifecycleGeneration?: string,
+  ) => void;
+  readonly endTurn: (
+    threadId: ThreadId,
+    provider: ProviderKind,
+    turnId: string,
+    lifecycleGeneration?: string,
+  ) => void;
+  readonly endSession: (
+    threadId: ThreadId,
+    provider: ProviderKind,
+    lifecycleGeneration?: string,
+  ) => void;
+  readonly bindWriteAuthority: (token: string) => AgentGatewayWriteAuthority | null;
   readonly verifyWriteAuthority: (authority: AgentGatewayWriteAuthority) => boolean;
   readonly revoke: (token: string) => void;
 }

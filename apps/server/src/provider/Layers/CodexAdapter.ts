@@ -1727,8 +1727,13 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
             ...(agentGatewayCredentials
               ? {
                   agentGatewayHostTool: {
-                    acquireSessionLease: (threadId) =>
-                      acquireAgentGatewaySessionLease(agentGatewayCredentials, threadId, PROVIDER)!,
+                    acquireSessionLease: (threadId, lifecycleGeneration) =>
+                      acquireAgentGatewaySessionLease(
+                        agentGatewayCredentials,
+                        threadId,
+                        PROVIDER,
+                        lifecycleGeneration,
+                      )!,
                     requireNativeSurface: agentGatewayToolBridge!.requireSurface,
                   },
                 }

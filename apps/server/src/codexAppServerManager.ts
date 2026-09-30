@@ -945,7 +945,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   private readonly penkraSkillsDir: string | undefined;
   private readonly agentGatewayHostTool:
     | {
-        readonly acquireSessionLease: (threadId: ThreadId) => AgentGatewaySessionLease;
+        readonly acquireSessionLease: (
+          threadId: ThreadId,
+          lifecycleGeneration?: string,
+        ) => AgentGatewaySessionLease;
         readonly requireNativeSurface: () => AgentGatewayNativeToolSurface;
       }
     | undefined;
@@ -1001,7 +1004,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     options?: {
       readonly penkraSkillsDir?: string;
       readonly agentGatewayHostTool?: {
-        readonly acquireSessionLease: (threadId: ThreadId) => AgentGatewaySessionLease;
+        readonly acquireSessionLease: (
+          threadId: ThreadId,
+          lifecycleGeneration?: string,
+        ) => AgentGatewaySessionLease;
         readonly requireNativeSurface: () => AgentGatewayNativeToolSurface;
       };
       readonly teardownProcessTree?: typeof teardownProviderProcessTree;
@@ -1164,7 +1170,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         });
       }
       const resumeThreadId = readResumeThreadId(input);
-      gatewaySessionLease = this.agentGatewayHostTool?.acquireSessionLease(threadId);
+      gatewaySessionLease = this.agentGatewayHostTool?.acquireSessionLease(
+        threadId,
+        input.lifecycleGeneration,
+      );
       const child = spawnCodexAppServer({
         binaryPath: codexBinaryPath,
         cwd: resolvedCwd,
