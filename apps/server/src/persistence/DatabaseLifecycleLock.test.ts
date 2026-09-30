@@ -15,6 +15,7 @@ import {
 } from "./DatabaseLifecycleLock.ts";
 import { makeSqlitePersistenceLive } from "./Layers/Sqlite.ts";
 import { restoreMarkedMigrationBackup } from "./MigrationBackup.ts";
+import { serverExitCodeForRuntimeCode } from "../diagnostics/preStoreStartup.ts";
 
 const tempDirectories: Array<string> = [];
 
@@ -44,6 +45,23 @@ afterEach(async () => {
 });
 
 describe("database lifecycle lock", () => {
+  it("maps a blocked pre-store database acquisition to the fixed desktop exit code", async () => {
+    const dbPath = await makeDbPath();
+    const owner = await Effect.runPromise(acquireDatabaseLifecycleLock(dbPath));
+    try {
+      await expect(
+        Effect.runPromise(
+          Effect.scoped(
+            Layer.build(makeSqlitePersistenceLive(dbPath).pipe(Layer.provide(NodeServices.layer))),
+          ),
+        ),
+      ).rejects.toBeInstanceOf(DatabaseLifecycleLockedError);
+      expect(serverExitCodeForRuntimeCode(1)).toBe(71);
+    } finally {
+      await Effect.runPromise(releaseDatabaseLifecycleLock(owner));
+    }
+  });
+
   it("allows one same-process owner and releases only its owner token", async () => {
     const dbPath = await makeDbPath();
     const first = await Effect.runPromise(acquireDatabaseLifecycleLock(dbPath));

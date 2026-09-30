@@ -7,6 +7,7 @@
  * @module CliConfig
  */
 import OS from "node:os";
+import { randomBytes } from "node:crypto";
 import { Config, Data, Effect, FileSystem, Layer, Option, Path, Schema, ServiceMap } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 import { NetService } from "@penkra/shared/Net";
@@ -46,6 +47,18 @@ import { ProviderConnectionLoginCoordinator } from "./provider/Services/Provider
 import { ProviderNativeStateDeletionCoordinator } from "./provider/Services/ProviderNativeStateDeletionCoordinator";
 import { Server } from "./effectServer";
 import { ServerLoggerLive } from "./serverLogger";
+import { DiagnosticsStore, parseDiagnosticsBundleSignature } from "./diagnostics/store";
+import { installDiagnosticsStore, recordDiagnosticIncident } from "./diagnostics/recorder";
+import { noteDiagnosticsStoreReady, notePreStoreBootFailure } from "./diagnostics/preStoreStartup";
+import {
+  measuredBootStage,
+  recordBootStageFailure,
+  recordBootReady,
+  recordBootSlow,
+  type BootStage,
+} from "./diagnostics/boot";
+import { DIAGNOSTIC_LIMITS } from "./diagnostics/limits";
+import { version as serverPackageVersion } from "../package.json" with { type: "json" };
 import { ServerSettingsService } from "./serverSettings";
 import { formatHostForUrl, isLoopbackHost, isWildcardHost } from "./startupAccess";
 import { AnalyticsServiceLayerLive } from "./telemetry/Layers/AnalyticsService";
@@ -54,7 +67,6 @@ import { OrchestrationEngineService } from "./orchestration/Services/Orchestrati
 import { ensureDefaultSpaces } from "./orchestration/defaultSpacesBootstrap";
 import { startThreadRetentionJob } from "./threadRetention";
 import { ThreadPurge } from "./threadPurge";
-import { runStartupStage } from "./startupTiming";
 import {
   consumeDesktopParentPidFromEnvironment,
   waitForDesktopParentDisconnect,
@@ -330,7 +342,19 @@ export const recordStartupHeartbeat = Effect.gen(function* () {
 
   const { threadCount, folderCount } = yield* projectionSnapshotQuery.getCounts().pipe(
     Effect.catch((cause) =>
-      Effect.logWarning("failed to gather startup projection counts for telemetry", { cause }).pipe(
+      Effect.sync(() =>
+        recordDiagnosticIncident({
+          traceId: randomBytes(16).toString("hex"),
+          spanId: randomBytes(8).toString("hex"),
+          kind: "external.failed",
+          code: "EXTERNAL_CALL_FAILED",
+          where: "server.boot",
+          severity: "warn",
+        }),
+      ).pipe(
+        Effect.andThen(
+          Effect.logWarning("failed to gather startup projection counts for telemetry", { cause }),
+        ),
         Effect.as({
           threadCount: 0,
           folderCount: 0,
@@ -396,6 +420,81 @@ const makeServerProgram = (input: CliInput) => {
     yield* cliConfig.fixPath;
 
     const config = yield* ServerConfig;
+    const bootStartedAt = performance.now();
+    const bootStages: Array<{ stage: BootStage; elapsedMs: number }> = [];
+    let activeBootStage: BootStage | undefined;
+    let bootTimedOut = false;
+    const diagnostics = yield* Effect.acquireRelease(
+      Effect.sync(() => {
+        try {
+          return new DiagnosticsStore({
+            stateDir: config.stateDir,
+            appVersion: process.env.PENKRA_APP_VERSION ?? serverPackageVersion,
+            buildId: process.env.PENKRA_DIAGNOSTICS_BUILD_ID ?? "unknown",
+            ...(process.env.PENKRA_DIAGNOSTICS_BUNDLE_PATH
+              ? {
+                  bundlePath: process.env.PENKRA_DIAGNOSTICS_BUNDLE_PATH,
+                  bundleSignature: parseDiagnosticsBundleSignature(
+                    process.env.PENKRA_DIAGNOSTICS_BUNDLE_SIGNATURE,
+                  )!,
+                }
+              : {}),
+            process: "server",
+          });
+        } catch (cause) {
+          notePreStoreBootFailure("diagnostics_store");
+          throw cause;
+        }
+      }),
+      (store) => Effect.sync(() => store.close()),
+    );
+    yield* Effect.acquireRelease(
+      Effect.sync(() => installDiagnosticsStore(diagnostics)),
+      (uninstall) => Effect.sync(uninstall),
+    );
+    noteDiagnosticsStoreReady();
+    const bootTraceId = randomBytes(16).toString("hex");
+    yield* Effect.sync(() =>
+      diagnostics.checkpoint({
+        traceId: bootTraceId,
+        spanId: randomBytes(8).toString("hex"),
+        flow: "boot",
+        step: "server.starting",
+      }),
+    );
+    const bootTimer = yield* Effect.acquireRelease(
+      Effect.sync(() => {
+        const timer = setTimeout(
+          () => {
+            bootTimedOut = true;
+            try {
+              recordBootSlow(
+                diagnostics,
+                bootTraceId,
+                Math.round(performance.now() - bootStartedAt),
+                activeBootStage,
+              );
+            } catch {
+              process.stderr.write("[diagnostics] boot deadline write failed\n");
+            }
+          },
+          Math.max(0, DIAGNOSTIC_LIMITS.bootMs - (performance.now() - bootStartedAt)),
+        );
+        timer.unref();
+        return timer;
+      }),
+      (timer) => Effect.sync(() => clearTimeout(timer)),
+    );
+    const noteBootStage = (stage: BootStage) => {
+      activeBootStage = stage;
+    };
+    const noteBootStageFailure = (stage: BootStage, elapsedMs: number) => {
+      try {
+        recordBootStageFailure(diagnostics, bootTraceId, stage, elapsedMs);
+      } catch {
+        process.stderr.write("[diagnostics] boot stage failure write failed\n");
+      }
+    };
     yield* Effect.sync(() => startServerMemoryDiagnostics({ mode: config.mode }));
     yield* Effect.sync(() => startServerEventLoopDiagnostics({ mode: config.mode }));
 
@@ -409,20 +508,51 @@ const makeServerProgram = (input: CliInput) => {
     }
 
     const orchestrationEngine = yield* OrchestrationEngineService;
-    yield* runStartupStage(
+    yield* measuredBootStage(
       "provider-native-state-deletion.recover",
       providerNativeStateDeletionCoordinator.recover,
+      bootStages,
+      noteBootStage,
+      noteBootStageFailure,
     );
-    yield* runStartupStage(
+    yield* measuredBootStage(
       "provider-connection-lifecycle.recover",
       providerConnectionLifecycle.recover,
+      bootStages,
+      noteBootStage,
+      noteBootStageFailure,
     );
-    yield* runStartupStage(
+    yield* measuredBootStage(
       "provider-connection-login.recover",
       providerConnectionLoginCoordinator.recover,
+      bootStages,
+      noteBootStage,
+      noteBootStageFailure,
     );
-    yield* runStartupStage("default-spaces.ensure", ensureDefaultSpaces(orchestrationEngine));
-    const startedServer = yield* runStartupStage("http-runtime.start", start);
+    yield* measuredBootStage(
+      "default-spaces.ensure",
+      ensureDefaultSpaces(orchestrationEngine),
+      bootStages,
+      noteBootStage,
+      noteBootStageFailure,
+    );
+    const startedServer = yield* measuredBootStage(
+      "http-runtime.start",
+      start,
+      bootStages,
+      noteBootStage,
+      noteBootStageFailure,
+    );
+    clearTimeout(bootTimer);
+    yield* Effect.sync(() =>
+      recordBootReady(
+        diagnostics,
+        bootTraceId,
+        Math.round(performance.now() - bootStartedAt),
+        bootStages,
+        bootTimedOut,
+      ),
+    );
 
     const localUrl = `http://localhost:${config.port}`;
     const bindUrl =
@@ -485,9 +615,22 @@ const makeServerProgram = (input: CliInput) => {
       const target = startupPairingUrl ?? config.devUrl?.toString() ?? bindUrl;
       yield* openDeps.openBrowser(target).pipe(
         Effect.catch(() =>
-          Effect.logInfo("browser auto-open unavailable", {
-            hint: `Open ${target} in your browser.`,
-          }),
+          Effect.sync(() =>
+            recordDiagnosticIncident({
+              traceId: randomBytes(16).toString("hex"),
+              spanId: randomBytes(8).toString("hex"),
+              kind: "external.failed",
+              code: "EXTERNAL_CALL_FAILED",
+              where: "server.boot",
+              severity: "warn",
+            }),
+          ).pipe(
+            Effect.andThen(
+              Effect.logInfo("browser auto-open unavailable", {
+                hint: `Open ${target} in your browser.`,
+              }),
+            ),
+          ),
         ),
       );
     }

@@ -1,0 +1,137 @@
+[
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "server.boot",
+    "file": "apps/server/src/main.ts"
+  },
+  {
+    "code": "REJECTED_STREAMING_RPC_ADMISSION",
+    "where": "server.stream_admission",
+    "file": "apps/server/src/wsStreamAdmission.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "browser.composer_attachment_cancel",
+    "file": "apps/web/src/lib/composerSend.ts"
+  },
+  {
+    "code": "SEND_PREFLIGHT_REJECTED",
+    "where": "browser.composer_attachment_upload",
+    "file": "apps/web/src/lib/composerSend.ts"
+  },
+  {
+    "code": "COMMAND_REJECTED",
+    "where": "browser.composer_attachment_dispatch",
+    "file": "apps/web/src/lib/composerSend.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "browser.composer_attachment_hydrate",
+    "file": "apps/web/src/lib/composerSend.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "browser.socket_rpc",
+    "file": "apps/web/src/wsTransport.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "server.codex_app_transport",
+    "file": "apps/server/src/diagnostics/codexTransportFailure.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "server.codex_config",
+    "file": "apps/server/src/diagnostics/codexConfigFailure.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "server.codex_app",
+    "file": "apps/server/src/diagnostics/codexManagerFailure.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "browser.socket_stream",
+    "file": "apps/web/src/wsTransport.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "browser.socket_listener",
+    "file": "apps/web/src/wsTransport.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "browser.socket_cleanup",
+    "file": "apps/web/src/wsTransport.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "browser.socket_connect",
+    "file": "apps/web/src/wsTransport.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "server.ws_rpc",
+    "file": "apps/server/src/wsRpc.ts"
+  },
+  {
+    "code": "DIAGNOSTICS_WRITE_FAILED",
+    "where": "server.ws_rpc",
+    "file": "apps/server/src/wsRpc.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "server.http",
+    "file": "apps/server/src/http.ts"
+  },
+  {
+    "code": "SEND_PREFLIGHT_REJECTED",
+    "where": "browser.send",
+    "file": "apps/web/src/components/ChatView.tsx"
+  },
+  {
+    "code": "COMMAND_REJECTED",
+    "where": "browser.send",
+    "file": "apps/web/src/components/ChatView.tsx"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "browser.send",
+    "file": "apps/web/src/components/ChatView.tsx"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "provider.runtime_event_pump",
+    "file": "apps/server/src/provider/providerRuntimeEventPump.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "server.provider",
+    "file": "apps/server/src/provider/Layers/ProviderService.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "provider.native_state",
+    "file": "apps/server/src/provider/Layers/ProviderNativeStateMaterializer.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "provider.reactor",
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts"
+  },
+  {
+    "code": "APP_OPERATION_FAILED",
+    "where": "server.database",
+    "file": "apps/server/src/persistence/NodeSqliteClient.ts"
+  },
+  {
+    "code": "INVARIANT_VIOLATED",
+    "where": "server.database",
+    "file": "apps/server/src/persistence/DatabaseHealth.ts"
+  },
+  {
+    "code": "EXTERNAL_CALL_FAILED",
+    "where": "provider.adapter",
+    "file": "apps/server/src/provider/Layers/OpenCodeAdapter.ts"
+  }
+]

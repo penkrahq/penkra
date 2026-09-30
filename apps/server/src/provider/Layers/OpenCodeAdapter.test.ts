@@ -1,4 +1,7 @@
 import { ProviderConnectionId, ThreadId } from "@penkra/contracts";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import type {
   Agent,
@@ -12,7 +15,10 @@ import { Deferred, Effect, Exit, Fiber, Layer, Scope, Stream } from "effect";
 import { describe, it, expect, vi } from "vitest";
 
 import { ServerConfig } from "../../config.ts";
+import { installDiagnosticsStore } from "../../diagnostics/recorder.ts";
+import { DiagnosticsStore, openDiagnosticsReader } from "../../diagnostics/store.ts";
 import { PENKRA_HOST_POLICY_MARKER } from "../../agentGateway/harnessPolicy.ts";
+import { makeAgentGatewaySessionRegistry } from "../../agentGateway/Layers/AgentGatewaySessionRegistry.ts";
 import {
   AgentGatewayCredentials,
   type AgentGatewayCredentialsShape,
@@ -296,6 +302,9 @@ function makeGatewayCredentials() {
     verifySessionToken: (token) => ownerByToken.get(token) ?? null,
     verifySession: () => null,
     bindWriteAuthority: () => null,
+    beginTurn: () => undefined,
+    endTurn: () => undefined,
+    endSession: () => undefined,
     verifyWriteAuthority: () => false,
     revokeSessionToken: (token) => {
       revoked.push(token);
@@ -893,6 +902,48 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     expect(runtime.cliModelCalls[0]).toMatchObject({
       cwd: "/repo/server-startup-fails",
     });
+  });
+
+  it("records failed CLI discovery before using server inventory", async () => {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-opencode-diagnostics-"));
+    const diagnostics = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
+    const uninstall = installDiagnosticsStore(diagnostics);
+    try {
+      const runtime = createMockOpenCodeRuntime({
+        cliModelsError: new OpenCodeRuntimeError({
+          operation: "listOpenCodeCliModels",
+          detail: "secret fixture model list failure",
+        }),
+      });
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const adapter = yield* OpenCodeAdapter;
+          return yield* adapter.listModels!({ provider: "opencode", binaryPath: "opencode" });
+        }).pipe(
+          Effect.provide(
+            makeOpenCodeAdapterLive({ runtime: runtime.runtime }).pipe(
+              Layer.provideMerge(
+                ServerConfig.layerTest(process.cwd(), { prefix: "opencode-adapter-test-" }),
+              ),
+              Layer.provideMerge(NodeServices.layer),
+            ),
+          ),
+        ),
+      );
+      const reader = openDiagnosticsReader(stateDir)!;
+      expect(reader.prepare("SELECT code, where_name, context_json FROM incidents").all()).toEqual([
+        {
+          code: "EXTERNAL_CALL_FAILED",
+          where_name: "provider.adapter",
+          context_json: '{"provider":"opencode","adapterAction":"cli-model-discovery"}',
+        },
+      ]);
+      reader.close();
+    } finally {
+      uninstall();
+      diagnostics.close();
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
   });
 
   it("lists OpenCode agents from the active discovery cwd", async () => {
@@ -4403,6 +4454,99 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
       "thread.started",
       "turn.started",
     ]);
+  });
+
+  it("authorizes a tool request at the instant the OpenCode prompt is submitted", async () => {
+    const registry = makeAgentGatewaySessionRegistry();
+    let token: string | undefined;
+    const promptObservation: { authority: ReturnType<typeof registry.bindWriteAuthority> } = {
+      authority: null,
+    };
+    const base = makeGatewayCredentials().credentials;
+    let ended!: () => void;
+    const terminalObserved = new Promise<void>((resolve) => {
+      ended = resolve;
+    });
+    const credentials: AgentGatewayCredentialsShape = {
+      ...base,
+      connectionForThread: (threadId, provider, generation) => {
+        token = registry.issue(threadId, provider, generation).token;
+        return { url: base.mcpEndpointUrl, bearerToken: token };
+      },
+      beginTurn: registry.beginTurn,
+      endTurn: (...args) => {
+        registry.endTurn(...args);
+        ended();
+      },
+      bindWriteAuthority: registry.bindWriteAuthority,
+      verifyWriteAuthority: registry.verifyWriteAuthority,
+    };
+    const eventQueue = createSubscribedEventQueue();
+    const runtime = createMockOpenCodeRuntime({
+      events: eventQueue.stream,
+      promptAsync: async () => {
+        promptObservation.authority = token ? registry.bindWriteAuthority(token) : null;
+        return { data: null };
+      },
+    });
+    const turn = await Effect.runPromise(
+      Effect.gen(function* () {
+        const adapter = yield* OpenCodeAdapter;
+        const threadId = asThreadId("thread-immediate-opencode-tool");
+        yield* adapter.startSession({
+          provider: "opencode",
+          threadId,
+          runtimeMode: "full-access",
+        });
+        const turn = yield* adapter.sendTurn({
+          threadId,
+          input: "Call the host tool immediately",
+          attachments: [],
+          modelSelection: { provider: "opencode", model: "opencode/claude-opus-4-7" },
+        });
+        expect(registry.verifyWriteAuthority(promptObservation.authority!)).toBe(true);
+        eventQueue.push({
+          type: "message.updated",
+          properties: {
+            sessionID: "opencode-session-1",
+            info: { id: "authority-assistant", role: "assistant" },
+          },
+        });
+        eventQueue.push({
+          type: "message.part.updated",
+          properties: {
+            sessionID: "opencode-session-1",
+            part: {
+              id: "authority-text",
+              messageID: "authority-assistant",
+              type: "text",
+              text: "done",
+              time: { start: 1, end: 2 },
+            },
+          },
+        });
+        eventQueue.push({ type: "session.idle", properties: { sessionID: "opencode-session-1" } });
+        yield* Effect.promise(() => terminalObserved);
+        expect(registry.bindWriteAuthority(token!)).toBeNull();
+        expect(registry.verifyWriteAuthority(promptObservation.authority!)).toBe(false);
+        eventQueue.close();
+        return turn;
+      }).pipe(
+        Effect.provide(
+          makeOpenCodeAdapterLive({
+            runtime: runtime.runtime,
+            agentGatewayCredentials: credentials,
+          }).pipe(
+            Layer.provideMerge(
+              ServerConfig.layerTest(process.cwd(), { prefix: "opencode-adapter-test-" }),
+            ),
+            Layer.provideMerge(NodeServices.layer),
+          ),
+        ),
+      ),
+    );
+    expect(promptObservation.authority?.turnId).toBe(String(turn.turnId));
+    expect(registry.verifyWriteAuthority(promptObservation.authority!)).toBe(false);
   });
 
   it("completes an OpenCode turn from the exact parent message when terminal SSE is missed", async () => {

@@ -1,0 +1,389 @@
+[
+  {
+    "file": "apps/server/src/diagnostics/cli.ts",
+    "line": 37,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The diagnostics CLI rejects malformed command input or cursor syntax before executing a read.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/cli.ts",
+    "line": 39,
+    "column": 35,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The diagnostics CLI rejects malformed command input or cursor syntax before executing a read.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/cli.ts",
+    "line": 41,
+    "column": 43,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The diagnostics CLI rejects malformed command input or cursor syntax before executing a read.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/cli.ts",
+    "line": 58,
+    "column": 37,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The diagnostics CLI rejects malformed command input or cursor syntax before executing a read.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/cli.ts",
+    "line": 66,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The diagnostics CLI rejects malformed command input or cursor syntax before executing a read.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/cli.ts",
+    "line": 76,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "validation",
+    "reason": "The diagnostics CLI rejects malformed command input or cursor syntax before executing a read.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/cli.ts",
+    "line": 77,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The diagnostics CLI rejects malformed command input or cursor syntax before executing a read.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/cli.ts",
+    "line": 84,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The diagnostics CLI rejects malformed command input or cursor syntax before executing a read.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/cli.ts",
+    "line": 92,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "diagnostics-isolated",
+    "reason": "The read-only diagnostics CLI rejects a malformed stored row with a fixed error and cannot safely write back into the store it is reading.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/cli.ts",
+    "line": 98,
+    "column": 34,
+    "kind": "throw",
+    "disposition": "diagnostics-isolated",
+    "reason": "The read-only diagnostics CLI rejects a malformed stored row with a fixed error and cannot safely write back into the store it is reading.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/cli.ts",
+    "line": 102,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "diagnostics-isolated",
+    "reason": "The read-only diagnostics CLI rejects a malformed stored row with a fixed error and cannot safely write back into the store it is reading.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/cli.ts",
+    "line": 116,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "diagnostics-isolated",
+    "reason": "The read-only diagnostics CLI rejects a malformed stored row with a fixed error and cannot safely write back into the store it is reading.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/cli.ts",
+    "line": 120,
+    "column": 33,
+    "kind": "throw",
+    "disposition": "diagnostics-isolated",
+    "reason": "The read-only diagnostics CLI rejects a malformed stored row with a fixed error and cannot safely write back into the store it is reading.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/cli.ts",
+    "line": 127,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "diagnostics-isolated",
+    "reason": "The read-only diagnostics CLI rejects a malformed stored row with a fixed error and cannot safely write back into the store it is reading.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/cli.ts",
+    "line": 142,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "diagnostics-isolated",
+    "reason": "The read-only diagnostics CLI rejects a malformed stored row with a fixed error and cannot safely write back into the store it is reading.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/cli.ts",
+    "line": 200,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "diagnostics-isolated",
+    "reason": "The read-only diagnostics CLI rejects a malformed stored row with a fixed error and cannot safely write back into the store it is reading.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/cli.ts",
+    "line": 214,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "diagnostics-isolated",
+    "reason": "The read-only diagnostics CLI rejects a malformed stored row with a fixed error and cannot safely write back into the store it is reading.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/cli.ts",
+    "line": 220,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "diagnostics-isolated",
+    "reason": "The read-only diagnostics CLI rejects a malformed stored row with a fixed error and cannot safely write back into the store it is reading.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/cli.ts",
+    "line": 223,
+    "column": 50,
+    "kind": "throw",
+    "disposition": "diagnostics-isolated",
+    "reason": "The read-only diagnostics CLI rejects a malformed stored row with a fixed error and cannot safely write back into the store it is reading.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/cli.ts",
+    "line": 229,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "diagnostics-isolated",
+    "reason": "The read-only diagnostics CLI rejects a malformed stored row with a fixed error and cannot safely write back into the store it is reading.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/cli.ts",
+    "line": 251,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The diagnostics CLI rejects malformed command input or cursor syntax before executing a read.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/cli.ts",
+    "line": 257,
+    "column": 30,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The diagnostics CLI rejects malformed command input or cursor syntax before executing a read.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/cli.ts",
+    "line": 305,
+    "column": 36,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The diagnostics CLI rejects malformed command input or cursor syntax before executing a read.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/cli.ts",
+    "line": 341,
+    "column": 30,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The diagnostics CLI rejects malformed command input or cursor syntax before executing a read.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/cli.ts",
+    "line": 395,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "The diagnostics CLI rejects malformed command input or cursor syntax before executing a read.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/qaProviderSwitch.ts",
+    "line": 23,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "QA-only proof failure is isolated from production behavior and causes the required QA evidence to be absent, so the gate fails.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/qaProviderSwitch.ts",
+    "line": 66,
+    "column": 68,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "QA-only proof failure is isolated from production behavior and causes the required QA evidence to be absent, so the gate fails.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/qaRuntimeActions.ts",
+    "line": 39,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "QA-only proof failure is isolated from production behavior and causes the required QA evidence to be absent, so the gate fails.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/qaRuntimeActions.ts",
+    "line": 61,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "QA-only proof failure is isolated from production behavior and causes the required QA evidence to be absent, so the gate fails.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/qaSocketReconnect.ts",
+    "line": 9,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "validation",
+    "reason": "Malformed QA-only WebSocket observation frames are ignored; they cannot satisfy the required proof.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/recorder.ts",
+    "line": 37,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "The diagnostics recorder isolates its own write failure; the store accounts for durable loss where possible or the bounded early buffer retains its retry count.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/recorder.ts",
+    "line": 45,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "The diagnostics recorder isolates its own write failure; the store accounts for durable loss where possible or the bounded early buffer retains its retry count.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/recorder.ts",
+    "line": 52,
+    "column": 19,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "The timer retries the bounded pre-store overflow report after a failed store write without delaying startup.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/recorder.ts",
+    "line": 66,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "The diagnostics recorder isolates its own write failure; the store accounts for durable loss where possible or the bounded early buffer retains its retry count.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/recorder.ts",
+    "line": 74,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "The diagnostics recorder isolates its own write failure; the store accounts for durable loss where possible or the bounded early buffer retains its retry count.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/recorder.ts",
+    "line": 91,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "The diagnostics recorder isolates its own write failure; the store accounts for durable loss where possible or the bounded early buffer retains its retry count.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/recorder.ts",
+    "line": 104,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "The diagnostics recorder isolates its own write failure; the store accounts for durable loss where possible or the bounded early buffer retains its retry count.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/recorder.ts",
+    "line": 116,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "The diagnostics recorder isolates its own write failure; the store accounts for durable loss where possible or the bounded early buffer retains its retry count.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/recorder.ts",
+    "line": 124,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "The diagnostics recorder isolates its own write failure; the store accounts for durable loss where possible or the bounded early buffer retains its retry count.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/recorder.ts",
+    "line": 133,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "The diagnostics recorder isolates its own write failure; the store accounts for durable loss where possible or the bounded early buffer retains its retry count.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/recorder.ts",
+    "line": 149,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "The diagnostics recorder isolates its own write failure; the store accounts for durable loss where possible or the bounded early buffer retains its retry count.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/recorder.ts",
+    "line": 157,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "The diagnostics recorder isolates its own write failure; the store accounts for durable loss where possible or the bounded early buffer retains its retry count.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/diagnostics/recorder.ts",
+    "line": 165,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "The diagnostics recorder isolates its own write failure; the store accounts for durable loss where possible or the bounded early buffer retains its retry count.",
+    "reviewer": "diagnostics-0143"
+  }
+]

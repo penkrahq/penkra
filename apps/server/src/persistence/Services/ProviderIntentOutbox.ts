@@ -1,4 +1,4 @@
-import type { OrchestrationEvent } from "@penkra/contracts";
+import type { DiagnosticTraceContext, OrchestrationEvent } from "@penkra/contracts";
 import { ServiceMap, type Effect, type Option } from "effect";
 
 import type { PersistenceDecodeError, PersistenceSqlError } from "../Errors.ts";
@@ -17,6 +17,7 @@ export interface ProviderIntentOutboxShape {
   /** Called inside the command's event, projection, and receipt transaction. */
   readonly enqueueInCurrentTransaction: (
     event: ProviderIntentEvent,
+    diagnosticTrace?: DiagnosticTraceContext,
   ) => Effect.Effect<void, PersistenceSqlError>;
   readonly readPending: (
     limit: number,
@@ -99,6 +100,7 @@ export interface ProviderIntentOutboxShape {
 }
 
 export interface ProviderIntentOutboxJob {
+  readonly diagnosticTrace?: DiagnosticTraceContext;
   readonly eventSequence: number;
   readonly eventId: string;
   readonly threadId: string;

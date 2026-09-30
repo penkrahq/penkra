@@ -1,0 +1,267 @@
+[
+  {
+    "file": "apps/server/src/codexProcessEnv.ts",
+    "line": 34,
+    "column": 44,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "Only ENOENT takes the missing-file fallback; other failures propagate to the recorded preparation boundary.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_config"
+    }
+  },
+  {
+    "file": "apps/server/src/codexProcessEnv.ts",
+    "line": 36,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "This error reaches the serialized preparation boundary, which records it before returning failure.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_config"
+    }
+  },
+  {
+    "file": "apps/server/src/codexProcessEnv.ts",
+    "line": 227,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The auth copy fallback records the symlink failure; other entry failures rethrow to the caller recovery boundary for one incident.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_config"
+    }
+  },
+  {
+    "file": "apps/server/src/codexProcessEnv.ts",
+    "line": 234,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The optional-entry or managed-profile caller records this rethrown symlink failure at its recovery boundary.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_config"
+    }
+  },
+  {
+    "file": "apps/server/src/codexProcessEnv.ts",
+    "line": 262,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The existing recovery or final failure outcome remains unchanged; unexpected failure records a fixed incident.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_config"
+    }
+  },
+  {
+    "file": "apps/server/src/codexProcessEnv.ts",
+    "line": 628,
+    "column": 28,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "The previous preparation rejected its caller and was recorded at the preparation boundary.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/codexProcessEnv.ts",
+    "line": 636,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The existing recovery or final failure outcome remains unchanged; unexpected failure records a fixed incident.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_config"
+    }
+  },
+  {
+    "file": "apps/server/src/codexProcessEnv.ts",
+    "line": 638,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "This error reaches the serialized preparation boundary, which records it before returning failure.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_config"
+    }
+  },
+  {
+    "file": "apps/server/src/codexProcessEnv.ts",
+    "line": 665,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "A failed optional overlay entry records a fixed incident and later entries are still prepared.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_config"
+    }
+  },
+  {
+    "file": "apps/server/src/codexProcessEnv.ts",
+    "line": 687,
+    "column": 52,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "A failed source-home listing records a fixed incident and leaves optional overlay entries absent without failing launch.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_config"
+    }
+  },
+  {
+    "file": "apps/server/src/codexProcessEnv.ts",
+    "line": 694,
+    "column": 68,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "Only ENOENT takes the missing-file fallback; other failures propagate to the recorded preparation boundary.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_config"
+    }
+  },
+  {
+    "file": "apps/server/src/codexProcessEnv.ts",
+    "line": 698,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "This error reaches the serialized preparation boundary, which records it before returning failure.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_config"
+    }
+  },
+  {
+    "file": "apps/server/src/codexProcessEnv.ts",
+    "line": 709,
+    "column": 8,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "Only ENOENT takes the missing-file fallback; other failures propagate to the recorded preparation boundary.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_config"
+    }
+  },
+  {
+    "file": "apps/server/src/codexProcessEnv.ts",
+    "line": 713,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "This error reaches the serialized preparation boundary, which records it before returning failure.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_config"
+    }
+  },
+  {
+    "file": "apps/server/src/codexProcessEnv.ts",
+    "line": 755,
+    "column": 19,
+    "kind": "throw",
+    "disposition": "validation",
+    "reason": "A missing managed Codex home is invalid caller configuration before filesystem work.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/codexProcessEnv.ts",
+    "line": 759,
+    "column": 60,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "Only ENOENT takes the missing-file fallback; other failures propagate to the recorded preparation boundary.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_config"
+    }
+  },
+  {
+    "file": "apps/server/src/codexProcessEnv.ts",
+    "line": 761,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "This error reaches the serialized preparation boundary, which records it before returning failure.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_config"
+    }
+  },
+  {
+    "file": "apps/server/src/codexProcessEnv.ts",
+    "line": 766,
+    "column": 74,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The existing recovery or final failure outcome remains unchanged; unexpected failure records a fixed incident.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_config"
+    }
+  },
+  {
+    "file": "apps/server/src/codexProcessEnv.ts",
+    "line": 784,
+    "column": 55,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "Only ENOENT takes the missing-file fallback; other failures propagate to the recorded preparation boundary.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_config"
+    }
+  },
+  {
+    "file": "apps/server/src/codexProcessEnv.ts",
+    "line": 786,
+    "column": 13,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "This error reaches the serialized preparation boundary, which records it before returning failure.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_config"
+    }
+  },
+  {
+    "file": "apps/server/src/codexProcessEnv.ts",
+    "line": 851,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The existing recovery or final failure outcome remains unchanged; unexpected failure records a fixed incident.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "server.codex_config"
+    }
+  }
+]

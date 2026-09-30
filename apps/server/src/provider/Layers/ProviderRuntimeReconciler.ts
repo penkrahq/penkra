@@ -14,6 +14,11 @@ import {
   type OrchestrationThreadShell,
 } from "@penkra/contracts";
 import { Cause, Duration, Effect, Layer, Option, Schedule } from "effect";
+import { startDiagnosticTrace } from "@penkra/shared/traceContext";
+import {
+  recordDiagnosticCheckpoint,
+  recordDiagnosticIncident,
+} from "../../diagnostics/recorder.ts";
 
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { OrchestrationReactor } from "../../orchestration/Services/OrchestrationReactor.ts";
@@ -150,7 +155,35 @@ const make = (options?: ProviderRuntimeReconcilerLiveOptions) =>
       // change between retries. The activity id identifies the semantic repair,
       // allowing projectors to suppress a repeated visible recovery while a
       // failed or lagging session update remains safe to retry.
-      const attemptKey = `${key}:${attemptId}`;
+      const diagnosticTrace = { ...startDiagnosticTrace(), attemptId, threadId: plan.threadId };
+      const sessionCommandId = CommandId.makeUnsafe(`provider-reconcile-${attemptId}-session`);
+      const activityCommandId = CommandId.makeUnsafe(`provider-reconcile-${attemptId}-activity`);
+      yield* Effect.sync(() => {
+        recordDiagnosticCheckpoint({
+          ...diagnosticTrace,
+          flow: "reconciliation",
+          step: "reconciliation.detected",
+        });
+        recordDiagnosticIncident({
+          ...diagnosticTrace,
+          kind: "invariant.violated",
+          code: "TURN_STATE_DIVERGED",
+          where: "provider.reconciliation",
+          severity: "error",
+          expected: { turnId: plan.projectedTurnId },
+          actual: { providerTurnId: plan.runtimeTurnId },
+          context: { provider: plan.provider, recoveryAction: plan.action },
+          lastCheckpoint: "reconciliation.detected",
+        });
+        for (const commandId of [sessionCommandId, activityCommandId]) {
+          recordDiagnosticCheckpoint({
+            ...diagnosticTrace,
+            commandId,
+            flow: "reconciliation",
+            step: "reconciliation.repair_started",
+          });
+        }
+      });
       const attemptFields = {
         attemptId,
         threadId: plan.threadId,
@@ -172,7 +205,7 @@ const make = (options?: ProviderRuntimeReconcilerLiveOptions) =>
       yield* orchestrationEngine
         .dispatch({
           type: "thread.session.set",
-          commandId: CommandId.makeUnsafe(`${attemptKey}:session`),
+          commandId: sessionCommandId,
           threadId: plan.threadId,
           session,
           ...(thread.session === null
@@ -187,7 +220,7 @@ const make = (options?: ProviderRuntimeReconcilerLiveOptions) =>
       yield* orchestrationEngine
         .dispatch({
           type: "thread.activity.append",
-          commandId: CommandId.makeUnsafe(`${attemptKey}:activity`),
+          commandId: activityCommandId,
           threadId: plan.threadId,
           activity: {
             id: EventId.makeUnsafe(`${key}:activity`),
@@ -229,6 +262,25 @@ const make = (options?: ProviderRuntimeReconcilerLiveOptions) =>
           })
           .pipe(Effect.tapCause(reportFailedStage("binding")));
       }
+      yield* Effect.sync(() => {
+        recordDiagnosticCheckpoint({
+          ...diagnosticTrace,
+          flow: "reconciliation",
+          step: "reconciliation.repair_applied",
+          outcome: "ok",
+        });
+        recordDiagnosticIncident({
+          ...diagnosticTrace,
+          kind: "recovery.performed",
+          code: "RECOVERY_PERFORMED",
+          where: "provider.reconciliation",
+          severity: "warn",
+          expected: { providerTurnId: plan.runtimeTurnId },
+          actual: { activeTurnId: session.activeTurnId },
+          context: { provider: plan.provider, recoveryAction: plan.action },
+          lastCheckpoint: "reconciliation.repair_applied",
+        });
+      });
       yield* Effect.logWarning("provider.runtime_reconciliation.applied", attemptFields);
     });
 

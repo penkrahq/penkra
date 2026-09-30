@@ -18,6 +18,8 @@ import {
   agentGatewayRouteLayer,
 } from "./httpRoute.ts";
 
+import type { AgentGatewayWriteAuthority } from "./Services/AgentGatewaySessionRegistry.ts";
+
 const VALID_TOKEN = "sagw_session_http_route_test";
 
 async function withGatewayServer(
@@ -25,11 +27,17 @@ async function withGatewayServer(
     readonly origin: string;
     readonly handledBodies: ReadonlyArray<unknown>;
     readonly handledOrigins: ReadonlyArray<string | undefined>;
+    readonly handledAuthorities: ReadonlyArray<AgentGatewayWriteAuthority | null | undefined>;
+    readonly setActiveTurn: (turnId: string | null) => void;
+    readonly onNextBinding: () => Promise<void>;
   }) => Promise<void>,
 ): Promise<void> {
   const scope = await Effect.runPromise(Scope.make("sequential"));
   const handledBodies: unknown[] = [];
   const handledOrigins: Array<string | undefined> = [];
+  const handledAuthorities: Array<AgentGatewayWriteAuthority | null | undefined> = [];
+  let activeTurnId: string | null = "turn-http-old";
+  let bindingObserved: (() => void) | undefined;
   let nodeServer: http.Server | null = null;
   try {
     const threadId = ThreadId.makeUnsafe("thread-http-route-test");
@@ -45,10 +53,27 @@ async function withGatewayServer(
               threadId,
               provider: "opencode",
               issuedAt: 1,
+              activeTurnId,
               capabilities: new Set(["thread:read", "thread:write", "diagnostics:read"]),
             }
           : null,
-      bindWriteAuthority: () => null,
+      bindWriteAuthority: () => {
+        const authority =
+          activeTurnId === null
+            ? null
+            : {
+                sessionKey: "session-http-route-test",
+                threadId,
+                provider: "opencode" as const,
+                turnId: activeTurnId,
+              };
+        bindingObserved?.();
+        bindingObserved = undefined;
+        return authority;
+      },
+      beginTurn: () => undefined,
+      endTurn: () => undefined,
+      endSession: () => undefined,
       verifyWriteAuthority: () => false,
       revokeSessionToken: () => undefined,
       connectionForThread: () => ({
@@ -63,6 +88,7 @@ async function withGatewayServer(
       handleMcpPost: (input) => {
         handledBodies.push(input.body);
         handledOrigins.push(input.originTurnId);
+        handledAuthorities.push(input.ingressWriteAuthority?.authority);
         return Effect.succeed({ status: 200, body: { ok: true } });
       },
     };
@@ -96,7 +122,19 @@ async function withGatewayServer(
     if (!address || typeof address !== "object") {
       throw new Error("Expected agent gateway test server to expose an address");
     }
-    await run({ origin: `http://127.0.0.1:${address.port}`, handledBodies, handledOrigins });
+    await run({
+      origin: `http://127.0.0.1:${address.port}`,
+      handledBodies,
+      handledOrigins,
+      handledAuthorities,
+      setActiveTurn: (turnId) => {
+        activeTurnId = turnId;
+      },
+      onNextBinding: () =>
+        new Promise<void>((resolve) => {
+          bindingObserved = resolve;
+        }),
+    });
   } finally {
     await Effect.runPromise(Scope.close(scope, Exit.void));
   }
@@ -137,6 +175,44 @@ describe("agentGatewayRouteLayer", () => {
       expect(handledBodies).toEqual([validBody]);
     });
   });
+
+  it.each(["turn-http-old", null])(
+    "captures authority %s before a delayed HTTP body",
+    async (arrivedTurn) => {
+      await withGatewayServer(
+        async ({ origin, handledAuthorities, setActiveTurn, onNextBinding }) => {
+          setActiveTurn(arrivedTurn);
+          const bound = onNextBinding();
+          const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call" });
+          let request!: http.ClientRequest;
+          const completed = new Promise<void>((resolve, reject) => {
+            request = http.request(
+              `${origin}/mcp`,
+              {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${VALID_TOKEN}`,
+                  "Content-Length": Buffer.byteLength(body),
+                },
+              },
+              (response) => {
+                response.resume();
+                response.on("end", resolve);
+              },
+            );
+            request.on("error", reject);
+            request.flushHeaders();
+          });
+          await bound;
+          setActiveTurn("turn-http-new");
+          request.end(body);
+          await completed;
+          expect(handledAuthorities).toHaveLength(1);
+          expect(handledAuthorities[0]?.turnId ?? null).toBe(arrivedTurn);
+        },
+      );
+    },
+  );
 
   it("returns 400 for malformed authenticated JSON", async () => {
     await withGatewayServer(async ({ origin, handledBodies }) => {

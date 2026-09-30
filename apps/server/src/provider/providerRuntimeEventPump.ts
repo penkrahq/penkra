@@ -9,6 +9,8 @@
  */
 import type { ProviderKind, ProviderRuntimeEvent } from "@penkra/contracts";
 import { Cause, Effect, Stream } from "effect";
+import { startDiagnosticTrace } from "@penkra/shared/traceContext";
+import { recordDiagnosticIncident } from "../diagnostics/recorder.ts";
 
 import type {
   ProviderRuntimeEventPumpHealth,
@@ -115,6 +117,25 @@ function health(input: {
 export function runProviderRuntimeEventPump<R>(
   options: ProviderRuntimeEventPumpOptions<R>,
 ): Effect.Effect<void, never, R> {
+  const recordFailure = (attempt: number, event?: ProviderRuntimeEvent) =>
+    Effect.sync(() =>
+      recordDiagnosticIncident({
+        ...startDiagnosticTrace(),
+        ...(event ? { threadId: event.threadId } : {}),
+        ...(event?.turnId ? { turnId: event.turnId } : {}),
+        kind: "external.failed",
+        code: "EXTERNAL_CALL_FAILED",
+        where: "provider.runtime_event_pump",
+        severity: "error",
+        expected: { accepted: true },
+        actual: { accepted: false },
+        context: {
+          provider: options.provider,
+          attempt,
+          ...(event ? { eventId: event.eventId, providerEventType: event.type } : {}),
+        },
+      }),
+    );
   const retryBaseDelayMs = Math.max(
     1,
     Math.floor(options.retryBaseDelayMs ?? DEFAULT_RETRY_BASE_DELAY_MS),
@@ -178,7 +199,8 @@ export function runProviderRuntimeEventPump<R>(
           }
           const delayMs = retryDelayMs(attempt, retryBaseDelayMs, retryMaxDelayMs);
           const quarantineDetail = Cause.pretty(cause);
-          return setHealth("recovering", attempt, quarantineDetail).pipe(
+          return recordFailure(attempt, event).pipe(
+            Effect.andThen(setHealth("recovering", attempt, quarantineDetail)),
             Effect.andThen(
               Effect.logWarning("provider.runtime_event_pump.retrying_quarantine", {
                 provider: options.provider,
@@ -233,6 +255,36 @@ export function runProviderRuntimeEventPump<R>(
                 }),
               ),
               Effect.andThen(
+                Effect.sync(() => {
+                  const decodeField = /threadId/u.test(detail)
+                    ? "threadId"
+                    : /turnId/u.test(detail)
+                      ? "turnId"
+                      : /payload/u.test(detail)
+                        ? "payload"
+                        : /\btype\b/u.test(detail)
+                          ? "type"
+                          : "unknown";
+                  recordDiagnosticIncident({
+                    ...startDiagnosticTrace(),
+                    threadId: event.threadId,
+                    ...(event.turnId ? { turnId: event.turnId } : {}),
+                    kind: "external.failed",
+                    code: "PROVIDER_EVENT_DECODE_FAILED",
+                    where: "provider.runtime_event_pump",
+                    severity: "error",
+                    expected: { accepted: true },
+                    actual: { accepted: false },
+                    context: {
+                      provider: options.provider,
+                      eventId: event.eventId,
+                      providerEventType: event.type,
+                      decodeField,
+                    },
+                  });
+                }),
+              ),
+              Effect.andThen(
                 Effect.logError("provider.runtime_event_pump.quarantined_event", {
                   provider: options.provider,
                   eventId: event.eventId,
@@ -259,7 +311,8 @@ export function runProviderRuntimeEventPump<R>(
                 cause: detail,
               })
             : Effect.void;
-          return setHealth("recovering", attempt, detail).pipe(
+          return recordFailure(attempt, event).pipe(
+            Effect.andThen(setHealth("recovering", attempt, detail)),
             Effect.andThen(retryLog),
             Effect.andThen(Effect.sleep(delayMs)),
             Effect.andThen(processEventReliably(event, attempt + 1)),
@@ -281,7 +334,8 @@ export function runProviderRuntimeEventPump<R>(
           const attempt = restartAttempt + 1;
           const delayMs = retryDelayMs(attempt, retryBaseDelayMs, retryMaxDelayMs);
           const detail = Cause.pretty(cause);
-          return setHealth("recovering", attempt, detail).pipe(
+          return recordFailure(attempt).pipe(
+            Effect.andThen(setHealth("recovering", attempt, detail)),
             Effect.andThen(
               Effect.logError("provider.runtime_event_pump.stream_failed", {
                 provider: options.provider,
@@ -298,7 +352,8 @@ export function runProviderRuntimeEventPump<R>(
           const attempt = restartAttempt + 1;
           const delayMs = retryDelayMs(attempt, retryBaseDelayMs, retryMaxDelayMs);
           const detail = "Adapter runtime event stream ended unexpectedly.";
-          return setHealth("recovering", attempt, detail).pipe(
+          return recordFailure(attempt).pipe(
+            Effect.andThen(setHealth("recovering", attempt, detail)),
             Effect.andThen(
               Effect.logWarning("provider.runtime_event_pump.stream_ended", {
                 provider: options.provider,

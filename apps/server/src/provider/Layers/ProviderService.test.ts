@@ -56,6 +56,10 @@ import {
   SqlitePersistenceMemory,
 } from "../../persistence/Layers/Sqlite.ts";
 import { AnalyticsService } from "../../telemetry/Services/AnalyticsService.ts";
+import { installDiagnosticsStore } from "../../diagnostics/recorder.ts";
+import { DiagnosticsStore, openDiagnosticsReader } from "../../diagnostics/store.ts";
+import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
+import { makeAgentGatewaySessionRegistry } from "../../agentGateway/Layers/AgentGatewaySessionRegistry.ts";
 
 const asRequestId = (value: string): ApprovalRequestId => ApprovalRequestId.makeUnsafe(value);
 const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
@@ -401,7 +405,10 @@ const waitUntilEffect = <E = never, R = never>(
     }
   });
 
-function makeProviderServiceLayer(options?: Parameters<typeof makeProviderServiceLive>[0]) {
+function makeProviderServiceLayer(
+  options?: Parameters<typeof makeProviderServiceLive>[0],
+  gatewayRegistry?: ReturnType<typeof makeAgentGatewaySessionRegistry>,
+) {
   const codex = makeFakeCodexAdapter();
   const claude = makeFakeCodexAdapter("claudeAgent");
   const registry: typeof ProviderAdapterRegistry.Service = {
@@ -420,12 +427,36 @@ function makeProviderServiceLayer(options?: Parameters<typeof makeProviderServic
   );
   const directoryLayer = ProviderSessionDirectoryLive.pipe(Layer.provide(runtimeRepositoryLayer));
 
+  const gatewayCredentialsLayer = gatewayRegistry
+    ? Layer.succeed(AgentGatewayCredentials, {
+        mcpEndpointUrl: "http://127.0.0.1/mcp",
+        setListeningPort: () => undefined,
+        issueSessionToken: (threadId, provider, generation) =>
+          gatewayRegistry.issue(threadId, provider, generation).token,
+        verifySessionToken: (token) => gatewayRegistry.verify(token)?.threadId ?? null,
+        verifySession: gatewayRegistry.verify,
+        beginTurn: gatewayRegistry.beginTurn,
+        endTurn: gatewayRegistry.endTurn,
+        endSession: gatewayRegistry.endSession,
+        bindWriteAuthority: gatewayRegistry.bindWriteAuthority,
+        verifyWriteAuthority: gatewayRegistry.verifyWriteAuthority,
+        revokeSessionToken: gatewayRegistry.revoke,
+        connectionForThread: (threadId, provider, generation) => ({
+          url: "http://127.0.0.1/mcp",
+          bearerToken: gatewayRegistry.issue(threadId, provider, generation).token,
+        }),
+        stdioProxy: { command: "node", args: [] },
+      })
+    : undefined;
+  const providerServiceLayer = makeProviderServiceLive(options).pipe(
+    Layer.provide(providerAdapterLayer),
+    Layer.provide(directoryLayer),
+    Layer.provideMerge(AnalyticsService.layerTest),
+  );
   const rawLayer = Layer.mergeAll(
-    makeProviderServiceLive(options).pipe(
-      Layer.provide(providerAdapterLayer),
-      Layer.provide(directoryLayer),
-      Layer.provideMerge(AnalyticsService.layerTest),
-    ),
+    gatewayCredentialsLayer
+      ? providerServiceLayer.pipe(Layer.provide(gatewayCredentialsLayer))
+      : providerServiceLayer,
     directoryLayer,
     runtimeRepositoryLayer,
     NodeServices.layer,
@@ -441,6 +472,212 @@ function makeProviderServiceLayer(options?: Parameters<typeof makeProviderServic
 }
 
 const routing = makeProviderServiceLayer();
+const gatewayTurnRegistry = makeAgentGatewaySessionRegistry();
+const gatewayTurnRouting = makeProviderServiceLayer(undefined, gatewayTurnRegistry);
+gatewayTurnRouting.layer("gateway turn ownership", (it) => {
+  it.effect(
+    "ignores the old runtime exit after provider-switch rollback restores a live turn",
+    () =>
+      Effect.gen(function* () {
+        const provider = yield* ProviderService;
+        const directory = yield* ProviderSessionDirectory;
+        const threadId = asThreadId("thread-gateway-rollback-exit");
+        yield* provider.startSession(threadId, {
+          provider: "codex",
+          threadId,
+          runtimeMode: "full-access",
+        });
+        const original = Option.getOrUndefined(yield* directory.getBinding(threadId));
+        gatewayTurnRegistry.issue(threadId, "codex", original?.lifecycleGeneration);
+        gatewayTurnRouting.claude.startSession.mockImplementationOnce(() =>
+          Effect.fail(
+            new ProviderAdapterSessionNotFoundError({ provider: "claudeAgent", threadId }),
+          ),
+        );
+        yield* Effect.result(
+          provider.startSession(threadId, {
+            provider: "claudeAgent",
+            threadId,
+            runtimeMode: "full-access",
+          }),
+        );
+        const restored = Option.getOrUndefined(yield* directory.getBinding(threadId));
+        const token = gatewayTurnRegistry.issue(
+          threadId,
+          "codex",
+          restored?.lifecycleGeneration,
+        ).token;
+        const turnId = asTurnId("restored-live-turn");
+        gatewayTurnRegistry.beginTurn(threadId, "codex", turnId, restored?.lifecycleGeneration);
+        yield* gatewayTurnRouting.codex.waitForRuntimeSubscribers();
+        // Adapter observation and the later event pump both see this stale exit.
+        gatewayTurnRegistry.endSession(threadId, "codex", original?.lifecycleGeneration);
+        gatewayTurnRouting.codex.emit({
+          type: "session.exited",
+          eventId: asEventId("rollback-old-exit"),
+          provider: "codex",
+          threadId,
+          lifecycleGeneration: original?.lifecycleGeneration,
+          createdAt: "2026-09-29T00:00:00.000Z",
+          payload: {},
+        });
+        gatewayTurnRouting.codex.emit({
+          type: "turn.started",
+          eventId: asEventId("rollback-restored-start"),
+          provider: "codex",
+          threadId,
+          turnId,
+          lifecycleGeneration: restored?.lifecycleGeneration,
+          createdAt: "2026-09-29T00:00:01.000Z",
+          payload: { state: "running" },
+        });
+        yield* waitUntilEffect(
+          () =>
+            directory.getBinding(threadId).pipe(
+              Effect.map((binding) => {
+                const payload = Option.getOrUndefined(binding)?.runtimePayload as
+                  | Record<string, unknown>
+                  | undefined;
+                return payload?.activeTurnId === turnId;
+              }),
+            ),
+          500,
+          5,
+          "restored start persisted after the stale exit",
+        );
+        assert.notEqual(restored?.lifecycleGeneration, original?.lifecycleGeneration);
+        assert.equal(gatewayTurnRegistry.bindWriteAuthority(token)?.turnId, turnId);
+        yield* provider.stopSession({ threadId });
+      }),
+  );
+
+  it.effect("tracks provider execution events without consulting projection or ledger", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const directory = yield* ProviderSessionDirectory;
+      const threadId = asThreadId("thread-gateway-execution-events");
+      yield* provider.startSession(threadId, {
+        provider: "codex",
+        threadId,
+        runtimeMode: "full-access",
+      });
+      const binding = Option.getOrUndefined(yield* directory.getBinding(threadId));
+      const generation = binding?.lifecycleGeneration;
+      assert.equal(typeof generation, "string");
+      const token = gatewayTurnRegistry.issue(threadId, "codex", generation).token;
+      const oldTurn = asTurnId("provider-turn-old");
+      const newTurn = asTurnId("provider-turn-new");
+      yield* gatewayTurnRouting.codex.waitForRuntimeSubscribers();
+      gatewayTurnRouting.codex.emit({
+        type: "turn.started",
+        eventId: asEventId("gateway-turn-old-start"),
+        provider: "codex",
+        createdAt: "2026-09-29T00:00:00.000Z",
+        threadId,
+        turnId: oldTurn,
+        lifecycleGeneration: generation,
+        payload: { state: "running" },
+      });
+      yield* waitUntil(() => gatewayTurnRegistry.bindWriteAuthority(token)?.turnId === oldTurn);
+      const oldAuthority = gatewayTurnRegistry.bindWriteAuthority(token);
+      assert.ok(oldAuthority);
+
+      gatewayTurnRouting.codex.emit({
+        type: "turn.started",
+        eventId: asEventId("gateway-child-turn-start"),
+        provider: "codex",
+        createdAt: "2026-09-29T00:00:00.500Z",
+        threadId,
+        turnId: asTurnId("provider-child-turn"),
+        lifecycleGeneration: generation,
+        payload: { state: "running" },
+        providerRefs: {
+          providerThreadId: "child-session",
+          providerParentThreadId: String(threadId),
+        },
+      });
+      yield* sleep(20);
+      assert.isTrue(gatewayTurnRegistry.verifyWriteAuthority(oldAuthority));
+
+      // The adapter grants the next turn before prompt delivery; the later
+      // runtime event is only an idempotent observation.
+      gatewayTurnRegistry.beginTurn(threadId, "codex", String(newTurn), generation);
+      gatewayTurnRouting.codex.emit({
+        type: "turn.started",
+        eventId: asEventId("gateway-delayed-old-turn-start"),
+        provider: "codex",
+        createdAt: "2026-09-29T00:00:00.750Z",
+        threadId,
+        turnId: oldTurn,
+        lifecycleGeneration: generation,
+        payload: { state: "running" },
+      });
+      yield* sleep(20);
+      assert.equal(gatewayTurnRegistry.bindWriteAuthority(token)?.turnId, newTurn);
+      gatewayTurnRouting.codex.emit({
+        type: "turn.started",
+        eventId: asEventId("gateway-turn-new-start"),
+        provider: "codex",
+        createdAt: "2026-09-29T00:00:01.000Z",
+        threadId,
+        turnId: newTurn,
+        lifecycleGeneration: generation,
+        payload: { state: "running" },
+      });
+      yield* waitUntil(() => gatewayTurnRegistry.bindWriteAuthority(token)?.turnId === newTurn);
+      assert.equal(gatewayTurnRegistry.verifyWriteAuthority(oldAuthority), false);
+
+      gatewayTurnRouting.codex.emit({
+        type: "turn.completed",
+        eventId: asEventId("gateway-turn-old-complete"),
+        provider: "codex",
+        createdAt: "2026-09-29T00:00:02.000Z",
+        threadId,
+        turnId: oldTurn,
+        lifecycleGeneration: generation,
+        payload: { state: "completed" },
+      });
+      yield* sleep(20);
+      assert.equal(gatewayTurnRegistry.bindWriteAuthority(token)?.turnId, newTurn);
+
+      gatewayTurnRouting.codex.emit({
+        type: "turn.aborted",
+        eventId: asEventId("gateway-turn-new-abort"),
+        provider: "codex",
+        createdAt: "2026-09-29T00:00:03.000Z",
+        threadId,
+        turnId: newTurn,
+        lifecycleGeneration: generation,
+        payload: {},
+      });
+      yield* waitUntil(() => gatewayTurnRegistry.bindWriteAuthority(token) === null);
+
+      gatewayTurnRouting.codex.emit({
+        type: "turn.started",
+        eventId: asEventId("gateway-turn-after-abort-start"),
+        provider: "codex",
+        createdAt: "2026-09-29T00:00:04.000Z",
+        threadId,
+        turnId: asTurnId("provider-turn-after-abort"),
+        lifecycleGeneration: generation,
+        payload: { state: "running" },
+      });
+      yield* waitUntil(
+        () => gatewayTurnRegistry.bindWriteAuthority(token)?.turnId === "provider-turn-after-abort",
+      );
+      gatewayTurnRouting.codex.emit({
+        type: "session.exited",
+        eventId: asEventId("gateway-session-exited"),
+        provider: "codex",
+        createdAt: "2026-09-29T00:00:05.000Z",
+        threadId,
+        lifecycleGeneration: generation,
+        payload: {},
+      });
+      yield* waitUntil(() => gatewayTurnRegistry.bindWriteAuthority(token) === null);
+    }),
+  );
+});
 const managedLaunch = {
   binaryPath: "/managed/codex",
   isolationKey: "managed:test",
@@ -924,55 +1161,72 @@ routing.layer("ProviderServiceLive routing", (it) => {
     }),
   );
 
-  it.effect("restores the previous runtime and generation when provider replacement fails", () =>
-    Effect.gen(function* () {
-      const provider = yield* ProviderService;
-      const directory = yield* ProviderSessionDirectory;
-      const threadId = asThreadId("thread-failed-provider-replacement");
-      const initial = yield* provider.startSession(threadId, {
-        provider: "codex",
-        threadId,
-        cwd: "/tmp/failed-provider-replacement",
-        runtimeMode: "full-access",
-      });
-      const originalBinding = Option.getOrUndefined(yield* directory.getBinding(threadId));
-      const replacementFailure = new ProviderAdapterSessionNotFoundError({
-        provider: "claudeAgent",
-        threadId,
-      });
-      routing.claude.startSession.mockImplementationOnce(() => Effect.fail(replacementFailure));
-
-      const replacement = yield* Effect.result(
-        provider.startSession(threadId, {
-          provider: "claudeAgent",
+  it.effect(
+    "restores the previous conversation with a fresh runtime identity when provider replacement fails",
+    () =>
+      Effect.gen(function* () {
+        const provider = yield* ProviderService;
+        const directory = yield* ProviderSessionDirectory;
+        const threadId = asThreadId("thread-failed-provider-replacement");
+        const initial = yield* provider.startSession(threadId, {
+          provider: "codex",
           threadId,
           cwd: "/tmp/failed-provider-replacement",
           runtimeMode: "full-access",
-        }),
-      );
-      assertFailure(replacement, replacementFailure);
+        });
+        const originalBinding = Option.getOrUndefined(yield* directory.getBinding(threadId));
+        const replacementFailure = new ProviderAdapterSessionNotFoundError({
+          provider: "claudeAgent",
+          threadId,
+        });
+        routing.claude.startSession.mockImplementationOnce(() => Effect.fail(replacementFailure));
 
-      const restoredBinding = Option.getOrUndefined(yield* directory.getBinding(threadId));
-      const [codexSessions, claudeSessions] = yield* Effect.all([
-        routing.codex.listSessions(),
-        routing.claude.listSessions(),
-      ]);
-      const restoreCall = routing.codex.startSession.mock.calls.findLast(
-        ([input]) => input.threadId === threadId,
-      )?.[0];
-      assert.equal(restoredBinding?.provider, "codex");
-      assert.equal(restoredBinding?.status, "running");
-      assert.equal(restoredBinding?.lifecycleGeneration, originalBinding?.lifecycleGeneration);
-      assert.equal(codexSessions.filter((session) => session.threadId === threadId).length, 1);
-      assert.equal(
-        claudeSessions.some((session) => session.threadId === threadId),
-        false,
-      );
-      assert.deepEqual(restoreCall?.resumeCursor, initial.resumeCursor);
-      assert.equal(restoreCall?.lifecycleGeneration, originalBinding?.lifecycleGeneration);
+        const replacement = yield* Effect.result(
+          provider.startSession(threadId, {
+            provider: "claudeAgent",
+            threadId,
+            cwd: "/tmp/failed-provider-replacement",
+            runtimeMode: "full-access",
+          }),
+        );
+        assertFailure(replacement, replacementFailure);
 
-      yield* provider.stopSession({ threadId });
-    }),
+        const restoredBinding = Option.getOrUndefined(yield* directory.getBinding(threadId));
+        const [codexSessions, claudeSessions] = yield* Effect.all([
+          routing.codex.listSessions(),
+          routing.claude.listSessions(),
+        ]);
+        const restoreCall = routing.codex.startSession.mock.calls.findLast(
+          ([input]) => input.threadId === threadId,
+        )?.[0];
+        assert.equal(restoredBinding?.provider, "codex");
+        assert.equal(restoredBinding?.status, "running");
+        assert.notEqual(restoredBinding?.lifecycleGeneration, originalBinding?.lifecycleGeneration);
+        assert.equal(codexSessions.filter((session) => session.threadId === threadId).length, 1);
+        assert.equal(
+          claudeSessions.some((session) => session.threadId === threadId),
+          false,
+        );
+        assert.deepEqual(restoreCall?.resumeCursor, initial.resumeCursor);
+        assert.equal(restoreCall?.lifecycleGeneration, restoredBinding?.lifecycleGeneration);
+
+        const credentials = makeAgentGatewaySessionRegistry();
+        credentials.issue(threadId, "codex", originalBinding?.lifecycleGeneration);
+        const restoredToken = credentials.issue(
+          threadId,
+          "codex",
+          restoredBinding?.lifecycleGeneration,
+        ).token;
+        credentials.beginTurn(
+          threadId,
+          "codex",
+          "restored-live-turn",
+          restoredBinding?.lifecycleGeneration,
+        );
+        credentials.endSession(threadId, "codex", originalBinding?.lifecycleGeneration);
+        assert.equal(credentials.bindWriteAuthority(restoredToken)?.turnId, "restored-live-turn");
+        yield* provider.stopSession({ threadId });
+      }),
   );
 
   it.effect("serializes recovery before a competing provider start", () =>
@@ -2709,6 +2963,50 @@ managedRouting.layer("ProviderService managed launch enforcement", (it) => {
         ).managedLaunch,
         managedLaunch,
       );
+    }),
+  );
+});
+
+routing.layer("ProviderService fork failure diagnostics", (it) => {
+  it.effect("records a failed native fork even when the caller receives null", () =>
+    Effect.gen(function* () {
+      const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-fork-diagnostics-"));
+      const diagnostics = new DiagnosticsStore({
+        stateDir,
+        appVersion: "0.14.3",
+        process: "server",
+      });
+      const uninstall = installDiagnosticsStore(diagnostics);
+      try {
+        const provider = yield* ProviderService;
+        const sourceThreadId = asThreadId("fork-source-failure");
+        yield* provider.startSession(sourceThreadId, {
+          provider: "codex",
+          threadId: sourceThreadId,
+          runtimeMode: "full-access",
+        });
+        routing.codex.forkThread.mockImplementationOnce(
+          () =>
+            Effect.fail(new Error("fixture native fork failure")) as unknown as ReturnType<
+              typeof routing.codex.forkThread
+            >,
+        );
+        const result = yield* provider.forkThread!({
+          sourceThreadId,
+          threadId: asThreadId("fork-target-failure"),
+          runtimeMode: "full-access",
+        });
+        assert.strictEqual(result, null);
+        const db = openDiagnosticsReader(stateDir)!;
+        assert.deepStrictEqual(db.prepare("SELECT code, where_name FROM incidents").all(), [
+          { code: "EXTERNAL_CALL_FAILED", where_name: "server.provider" },
+        ]);
+        db.close();
+      } finally {
+        uninstall();
+        diagnostics.close();
+        fs.rmSync(stateDir, { recursive: true, force: true });
+      }
     }),
   );
 });

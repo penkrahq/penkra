@@ -2,10 +2,16 @@
 // Purpose: Clone, launch, and silently verify exact native provider continuation.
 
 import { Effect, Layer, Option } from "effect";
+import { startDiagnosticTrace } from "@penkra/shared/traceContext";
 
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { ThreadDiagnosticsQuery } from "../../diagnostics/Services/ThreadDiagnosticsQuery.ts";
+import {
+  recordDiagnosticCheckpoint,
+  recordDiagnosticIncident,
+} from "../../diagnostics/recorder.ts";
 import { providerNativeResumeIdentity } from "../nativeResumeIdentity.ts";
+import { selectNativeResumeProbeModel } from "../nativeResumeProbeModel.ts";
 import { readClaudeSessionMarker } from "../claudeThreadNativeState.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
 import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
@@ -90,6 +96,44 @@ export const makeProviderNativeContinuationVerifier = Effect.gen(function* () {
 
   const verifySwitch: ProviderNativeContinuationVerifierShape["verifySwitch"] = (input) => {
     const startedAt = Date.now();
+    const diagnosticTrace = startDiagnosticTrace();
+    const recordNewDiagnostic = (code: "started" | "succeeded" | "failed") =>
+      Effect.sync(() => {
+        const step =
+          code === "started"
+            ? "provider.continuation_verification_started"
+            : code === "succeeded"
+              ? "provider.continuation_verification_succeeded"
+              : "provider.continuation_verification_failed";
+        const fields = {
+          provider: input.selection.harness,
+          verificationStage: stage,
+          elapsedMs: Date.now() - startedAt,
+        };
+        recordDiagnosticCheckpoint({
+          ...diagnosticTrace,
+          threadId: input.selection.threadId,
+          flow: "provider_delivery",
+          step,
+          ...(step === "provider.continuation_verification_failed"
+            ? { outcome: "failed" as const }
+            : {}),
+          fields,
+        });
+        if (step === "provider.continuation_verification_failed")
+          recordDiagnosticIncident({
+            ...diagnosticTrace,
+            threadId: input.selection.threadId,
+            kind: "command.failed",
+            code: "APP_OPERATION_FAILED",
+            where: "server.provider",
+            severity: "error",
+            expected: { accepted: true },
+            actual: { accepted: false },
+            context: fields,
+            lastCheckpoint: step,
+          });
+      });
     let stage = "validate-selection";
     const commonDetail = {
       provider: input.selection.harness,
@@ -106,6 +150,7 @@ export const makeProviderNativeContinuationVerifier = Effect.gen(function* () {
         severity: "info",
         detail: { ...commonDetail, stage },
       });
+      yield* recordNewDiagnostic("started");
       if (!input.selection.changed) {
         return yield* fail("Native continuation verification requires an actual selection change.");
       }
@@ -227,6 +272,49 @@ export const makeProviderNativeContinuationVerifier = Effect.gen(function* () {
         if (adapter.verifyNativeResume === undefined) {
           return yield* fail("The target provider adapter cannot verify native continuation.");
         }
+        const requiresCompletedProbe = input.selection.claudeAccountTransition !== undefined;
+        let verificationModelId = input.selection.modelId;
+        if (requiresCompletedProbe) {
+          if (adapter.listModels === undefined) {
+            return yield* fail("The target provider cannot list models for the resume probe.");
+          }
+          stage = "select-target-probe-model";
+          const catalog = yield* adapter
+            .listModels({
+              provider: input.selection.harness,
+              connectionId: input.selection.connectionId,
+              internalProviderId: input.selection.internalProviderId,
+              managedLaunch: {
+                binaryPath: launch.binaryPath,
+                isolationKey: launch.isolationKey,
+                profileRoot: launch.profileRoot,
+                nativeStateRoot: launch.nativeStateRoot,
+                childEnvironment: (baseEnv) => launch.childEnvironment(baseEnv),
+              },
+              ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
+            })
+            .pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProviderNativeContinuationVerificationError({
+                    detail: "Could not list the target account's resume probe models.",
+                    cause,
+                  }),
+              ),
+            );
+          const probeModelId = selectNativeResumeProbeModel({
+            provider: input.selection.harness,
+            connectionId: input.selection.connectionId,
+            models: catalog.models,
+            selectedModelId: input.selection.modelId,
+          });
+          if (probeModelId === null) {
+            return yield* fail(
+              "The target account has no available model for resume verification.",
+            );
+          }
+          verificationModelId = probeModelId;
+        }
         stage = "initialize-target-resume";
         const verified = yield* adapter
           .verifyNativeResume({
@@ -241,19 +329,38 @@ export const makeProviderNativeContinuationVerifier = Effect.gen(function* () {
             ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
             modelSelection: {
               provider: input.selection.harness,
-              model: input.selection.modelId,
+              model: verificationModelId,
             },
             runtimeMode: input.runtimeMode,
+            requireCompletedProbe: requiresCompletedProbe,
           })
           .pipe(
-            Effect.mapError(
-              (cause) =>
-                new ProviderNativeContinuationVerificationError({
-                  detail: "The target provider rejected native continuation.",
-                  cause,
-                }),
+            Effect.catch((cause) =>
+              input.selection.harness === "claudeAgent" &&
+              /no conversation found with session id/i.test(describeCauseChain(cause))
+                ? Effect.succeed(null)
+                : Effect.fail(
+                    new ProviderNativeContinuationVerificationError({
+                      detail: "The target provider rejected native continuation.",
+                      cause,
+                    }),
+                  ),
             ),
           );
+        if (verified === null) {
+          return {
+            kind: "reconstructed" as const,
+            generationId: input.targetGenerationId,
+            adapterSchemaVersion: "penkra-reconstructed-continuation-v1",
+            stateManifestJson: JSON.stringify({
+              format: "penkra-reconstructed-continuation-v1",
+              reason: "The target Claude account could not resume the exact conversation.",
+            }),
+            providerSessionId: null,
+            nativeStateLocatorJson: '{"penkraReconstruction":true}',
+            verifiedAt: new Date().toISOString(),
+          };
+        }
         stage = "validate-resumed-identity";
         const verifiedIdentity = providerNativeResumeIdentity(
           input.selection.harness,
@@ -286,14 +393,21 @@ export const makeProviderNativeContinuationVerifier = Effect.gen(function* () {
     });
 
     return verification.pipe(
-      Effect.tap(() =>
-        recordDiagnostic({
-          threadId: input.selection.threadId,
-          code: "NATIVE_CONTINUATION_VERIFICATION_SUCCEEDED",
-          severity: "info",
-          detail: { ...commonDetail, stage: "completed", elapsedMs: Date.now() - startedAt },
-        }),
-      ),
+      Effect.tap(() => {
+        stage = "completed";
+        return Effect.all(
+          [
+            recordDiagnostic({
+              threadId: input.selection.threadId,
+              code: "NATIVE_CONTINUATION_VERIFICATION_SUCCEEDED",
+              severity: "info",
+              detail: { ...commonDetail, stage: "completed", elapsedMs: Date.now() - startedAt },
+            }),
+            recordNewDiagnostic("succeeded"),
+          ],
+          { concurrency: "unbounded", discard: true },
+        );
+      }),
       Effect.tapError((cause) => {
         const failureDetail = {
           ...commonDetail,
@@ -311,6 +425,7 @@ export const makeProviderNativeContinuationVerifier = Effect.gen(function* () {
               severity: "error",
               detail: failureDetail,
             }),
+            recordNewDiagnostic("failed"),
             Effect.logWarning("native continuation verification failed", {
               threadId: input.selection.threadId,
               ...failureDetail,

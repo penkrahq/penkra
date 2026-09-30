@@ -20,13 +20,19 @@ import {
   providerCredentialProfileRoot,
 } from "../providerNativeStatePaths.ts";
 import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
-import { claudeThreadProjectName, claudeThreadTranscriptPath } from "../claudeThreadNativeState.ts";
+import {
+  claudeThreadProjectName,
+  claudeThreadTranscriptPath,
+  readClaudeThreadAccount,
+  stageClaudeThreadAccountTransition,
+} from "../claudeThreadNativeState.ts";
 import { ProviderLaunchResolverLive } from "./ProviderLaunchResolver.ts";
 
 const threadId = ThreadId.makeUnsafe("launch-thread");
 const connectionId = ProviderConnectionId.makeUnsafe("launch-connection");
 const installationId = ProviderInstallationId.makeUnsafe("launch-installation");
 const retiredInstallationId = ProviderInstallationId.makeUnsafe("launch-installation-retired");
+const qaFixtureInstallationId = ProviderInstallationId.makeUnsafe("launch-qa-fixture");
 const timestamp = "2026-08-08T00:00:00.000Z";
 const codexProfileRef = "provider-profile:credential-generation-two";
 
@@ -36,6 +42,7 @@ const configLayer = ServerConfig.layerTest(process.cwd(), {
 const dependencies = Layer.mergeAll(
   configLayer,
   Layer.succeed(ThreadProviderBindingRepository, {
+    getRuntimeBinding: () => Effect.succeed(Option.none()),
     getHarnessState: () =>
       Effect.succeed(
         Option.some({
@@ -178,16 +185,16 @@ const codexDependencies = Layer.mergeAll(
       ),
   } as never),
   Layer.succeed(ProviderInstallationRepository, {
-    getRecord: () =>
+    getRecord: (id: typeof installationId) =>
       Effect.succeed(
         Option.some({
-          id: installationId,
+          id,
           harness: "codex",
           version: "1.0.0",
           platform: "darwin",
           architecture: "arm64",
           executablePath: "/managed/codex",
-          artifactSource: "github-release",
+          artifactSource: id === qaFixtureInstallationId ? "qa-fixture" : "github-release",
           artifactUrl: "https://example.invalid/codex",
           artifactSha256: "a".repeat(64),
           adapterVersion: "1",
@@ -264,11 +271,43 @@ it.effect("keeps the real OS home for a Connection-scoped Codex keyring", () =>
   ),
 );
 
+it.effect("rejects a QA fixture installation in an ordinary server profile", () =>
+  Effect.gen(function* () {
+    const resolver = yield* ProviderLaunchResolver;
+    const result = yield* Effect.exit(
+      resolver.resolveProfile({
+        harness: "codex",
+        connectionId,
+        installationId: qaFixtureInstallationId,
+        internalProviderId: null,
+        nativeStateIdentity: "qa-fixture-attempt",
+      }),
+    );
+    assert.strictEqual(result._tag, "Failure");
+    if (result._tag === "Failure") {
+      assert.match(String(result.cause), /QA fixture installation is unavailable/);
+    }
+  }).pipe(
+    Effect.provide(ProviderLaunchResolverLive.pipe(Layer.provide(codexDependencies))),
+    Effect.provide(codexDependencies),
+    Effect.provide(NodeServices.layer),
+  ),
+);
+
 const claudeActiveProfileRef = "provider-profile:claude-active-profile";
+const claudeOtherConnectionId = ProviderConnectionId.makeUnsafe("launch-claude-other-connection");
+let claudeBoundConnectionId: typeof connectionId | typeof claudeOtherConnectionId | null = null;
+let claudeBindingRevision = 7;
 const claudeSessionId = "550e8400-e29b-41d4-a716-446655440088";
 const claudeDependencies = Layer.mergeAll(
   configLayer,
   Layer.succeed(ThreadProviderBindingRepository, {
+    getRuntimeBinding: () =>
+      Effect.succeed(
+        claudeBoundConnectionId === null
+          ? Option.none()
+          : Option.some({ connectionId: claudeBoundConnectionId, revision: claudeBindingRevision }),
+      ),
     getHarnessState: () =>
       Effect.succeed(
         Option.some({
@@ -309,17 +348,21 @@ const claudeDependencies = Layer.mergeAll(
       ),
   } as never),
   Layer.succeed(ProviderConnectionRepository, {
-    getRecord: () =>
+    getRecord: (id: typeof connectionId) =>
       Effect.succeed(
         Option.some({
-          id: connectionId,
+          id,
           harness: "claudeAgent",
           authenticationTargetId: "anthropic-first-party",
           authenticationMethodId: "claude-account",
           label: "Claude",
           credentialRef: null,
-          profileRef: claudeActiveProfileRef,
-          providerIdentityId: "person@example.com",
+          profileRef:
+            id === claudeOtherConnectionId
+              ? "provider-profile:claude-other-profile"
+              : claudeActiveProfileRef,
+          providerIdentityId:
+            id === claudeOtherConnectionId ? "other@example.com" : "person@example.com",
           health: "ready",
           healthReason: null,
           lastCheckedAt: timestamp,
@@ -410,6 +453,69 @@ it.effect("ignores an old profile transcript so the Thread can rebuild from Penk
       ),
     );
     assert.strictEqual(yield* Effect.promise(() => readFile(legacy, "utf8")), bytes);
+  }).pipe(
+    Effect.provide(ProviderLaunchResolverLive.pipe(Layer.provide(claudeDependencies))),
+    Effect.provide(claudeDependencies),
+    Effect.provide(NodeServices.layer),
+  ),
+);
+
+it.effect("links a different Claude account only after the staged binding commits", () =>
+  Effect.gen(function* () {
+    const config = yield* ServerConfig;
+    const resolver = yield* ProviderLaunchResolver;
+    claudeBoundConnectionId = connectionId;
+    claudeBindingRevision = 7;
+    try {
+      yield* resolver.resolve({ threadId, connectionId, installationId, internalProviderId: null });
+      yield* Effect.promise(() =>
+        stageClaudeThreadAccountTransition({
+          stateDir: config.stateDir,
+          threadId,
+          transition: {
+            commandId: "launch-account-switch",
+            connectionId: claudeOtherConnectionId,
+            bindingRevision: 8,
+            source: {
+              authenticationMethodId: "claude-account",
+              providerIdentityId: "person@example.com",
+            },
+            target: {
+              authenticationMethodId: "claude-account",
+              providerIdentityId: "other@example.com",
+            },
+          },
+        }),
+      );
+      // Pre-commit access is limited to the isolated target copy for exact
+      // native-resume verification; Thread ownership still belongs to source.
+      yield* resolver.resolve({
+        threadId,
+        connectionId: claudeOtherConnectionId,
+        installationId,
+        internalProviderId: null,
+      });
+      assert.strictEqual(
+        (yield* Effect.promise(() => readClaudeThreadAccount(config.stateDir, threadId)))
+          ?.providerIdentityId,
+        "person@example.com",
+      );
+      claudeBoundConnectionId = claudeOtherConnectionId;
+      claudeBindingRevision = 8;
+      yield* resolver.resolve({
+        threadId,
+        connectionId: claudeOtherConnectionId,
+        installationId,
+        internalProviderId: null,
+      });
+      const oldAccount = yield* Effect.exit(
+        resolver.resolve({ threadId, connectionId, installationId, internalProviderId: null }),
+      );
+      assert.strictEqual(oldAccount._tag, "Failure");
+    } finally {
+      claudeBoundConnectionId = null;
+      claudeBindingRevision = 7;
+    }
   }).pipe(
     Effect.provide(ProviderLaunchResolverLive.pipe(Layer.provide(claudeDependencies))),
     Effect.provide(claudeDependencies),

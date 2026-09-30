@@ -17,6 +17,7 @@ import {
   type ReactNode,
 } from "react";
 import { create } from "zustand";
+import { recordWebConsumedFailure } from "./webFailureCoverage";
 
 import {
   serializeCapturedVoiceRecording,
@@ -238,6 +239,7 @@ export function VoiceSessionCoordinatorProvider({ children }: { children: ReactN
               if (attemptedRecoveryJobIdsRef.current.has(job.id)) return Promise.resolve();
               attemptedRecoveryJobIdsRef.current.add(job.id);
               return runTranscriptionJob(job, backend).catch((error: unknown) => {
+                recordWebConsumedFailure("runtime");
                 consumerRef.current?.onRecoveredTranscriptionFailure?.(
                   new VoiceSessionTranscriptionError(error),
                 );
@@ -246,6 +248,7 @@ export function VoiceSessionCoordinatorProvider({ children }: { children: ReactN
           ),
         )
         .catch((error: unknown) => {
+          recordWebConsumedFailure("runtime");
           console.error("[voice-session] Could not recover saved voice notes.", error);
         });
     },

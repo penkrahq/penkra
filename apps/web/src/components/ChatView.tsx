@@ -28,7 +28,10 @@ import {
   OrchestrationThreadActivity,
   RuntimeMode,
 } from "@penkra/contracts";
+import { matchesPromotedQueuedMessage, matchesRequestedTurnOutcome } from "./qaTurnOutcomes";
 import { getModelCapabilities, normalizeModelSlug } from "@penkra/shared/model";
+import { startDiagnosticTrace } from "@penkra/shared/traceContext";
+import { createSendDiagnosticLifecycle } from "./sendDiagnosticLifecycle";
 import { resolveTailUserMessageEditTarget } from "@penkra/shared/conversationEdit";
 import { threadExportBlockedReason } from "@penkra/shared/threadExport";
 import { pendingRequestInstanceKey } from "@penkra/shared/threadSummary";
@@ -454,10 +457,12 @@ import {
   type LocalDispatchSnapshot,
   shouldRenderProviderHealthBanner,
   resolveRuntimeModeAfterApprovalDecision,
+  resolveInterruptTurnId,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
 } from "./ChatView.logic";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
+import { recordChatSendFailure } from "./chatSendFailure";
 import { useComposerSlashCommands } from "../hooks/useComposerSlashCommands";
 import { useFeatureFlags } from "../featureFlags";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
@@ -554,7 +559,11 @@ async function waitForShellProjectById(
 }> {
   let latestSnapshot: OrchestrationShellSnapshot | null = null;
   for (let attempt = 1; attempt <= DRAFT_PROJECT_SYNC_MAX_ATTEMPTS; attempt += 1) {
-    const snapshot = await api.orchestration.getShellSnapshot().catch(() => null);
+    const snapshot = await api.orchestration.getShellSnapshot().catch(() => {
+      if (attempt === DRAFT_PROJECT_SYNC_MAX_ATTEMPTS)
+        recordChatSendFailure("EXTERNAL_CALL_FAILED");
+      return null;
+    });
     if (snapshot) {
       latestSnapshot = snapshot;
       const project = snapshot.folders.find((candidate) => candidate.id === folderId) ?? null;
@@ -625,12 +634,15 @@ async function stagePersistedComposerImageAttachments(input: {
           const existingPersisted = existingPersistedById.get(image.id);
           if (existingPersisted) {
             stagedAttachmentById.set(image.id, existingPersisted);
+          } else {
+            recordChatSendFailure("EXTERNAL_CALL_FAILED");
           }
         }
       }),
     );
     return Array.from(stagedAttachmentById.values());
   } catch {
+    recordChatSendFailure("EXTERNAL_CALL_FAILED");
     const currentImageIds = new Set(input.images.map((image) => image.id));
     return input
       .getPersistedAttachments()
@@ -1274,7 +1286,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     void reconcileCancelledPendingStart(
       pendingStartCancellation.messageId,
       pendingStartCancellation.sequence,
-    ).catch(() => undefined);
+    ).catch(() => recordChatSendFailure("EXTERNAL_CALL_FAILED"));
   }, [pendingStartCancellation, reconcileCancelledPendingStart, threadId]);
   useEffect(() => {
     for (const message of serverThread?.messages ?? EMPTY_MESSAGES) {
@@ -1301,6 +1313,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
             prepare: () => markPendingStartRecoveryAccepted(threadId, message.id, sequence),
           });
         void settleAcceptedDurably().catch((error: unknown) => {
+          recordChatSendFailure("EXTERNAL_CALL_FAILED");
           setStoreThreadError(
             threadId,
             error instanceof Error ? error.message : "Could not persist accepted message state.",
@@ -1335,6 +1348,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         sequence: recovery.receiptSequence ?? recovery.restorationReceipt?.sequence ?? 0,
         prepare: () => true,
       }).catch((error: unknown) => {
+        recordChatSendFailure("EXTERNAL_CALL_FAILED");
         setStoreThreadError(
           threadId,
           error instanceof Error ? error.message : "Could not clear settled recovery.",
@@ -2175,6 +2189,10 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
   const [selectedConnectionByThread, setSelectedConnectionByThread] = useState<
     Partial<Record<ThreadId, PendingConnectionSelection>>
   >({});
+  const pendingConnectionUpdateRef = useRef<{
+    threadId: ThreadId;
+    promise: Promise<unknown>;
+  } | null>(null);
   const selectedConnectionByProvider = (() => {
     const pendingConnectionByProvider = selectedConnectionByThread[threadId] ?? {};
     const defaults = { ...stickyConnectionByProvider };
@@ -2185,14 +2203,22 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       }
     }
     if (serverThread?.connectionId !== undefined) {
-      return { ...defaults, [serverThread.modelSelection.provider]: serverThread.connectionId };
+      return {
+        ...defaults,
+        [serverThread.modelSelection.provider]: serverThread.connectionId,
+        ...pendingConnectionByProvider,
+      };
     }
     if (hasThreadStarted) {
       const provider = serverThread?.modelSelection.provider;
       const bindingConnectionId = threadProviderBindingQuery.data?.binding?.connectionId;
       return provider
-        ? { ...defaults, [provider]: bindingConnectionId ?? defaults[provider] ?? null }
-        : defaults;
+        ? {
+            ...defaults,
+            [provider]: bindingConnectionId ?? defaults[provider] ?? null,
+            ...pendingConnectionByProvider,
+          }
+        : { ...defaults, ...pendingConnectionByProvider };
     }
     return { ...defaults, ...pendingConnectionByProvider };
   })();
@@ -2205,6 +2231,23 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     },
     [threadId],
   );
+  useEffect(() => {
+    if (!serverThread || serverThread.connectionId === undefined) return;
+    const provider = serverThread.modelSelection.provider;
+    setSelectedConnectionByThread((current) => {
+      const pending = current[serverThread.id];
+      if (
+        !pending ||
+        !Object.prototype.hasOwnProperty.call(pending, provider) ||
+        pending[provider] !== serverThread.connectionId
+      ) {
+        return current;
+      }
+      const nextPending = { ...pending };
+      delete nextPending[provider];
+      return { ...current, [serverThread.id]: nextPending };
+    });
+  }, [serverThread?.connectionId, serverThread?.id, serverThread?.modelSelection.provider]);
   const configuredProviderKinds = useMemo(() => {
     const activeInstallations = new Set(
       providerConnectionsQuery.data?.installations
@@ -2488,6 +2531,10 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     );
   }, [providerConnectionsQuery.data, selectedProvider]);
   const handleConnectionChange = (connectionId: ProviderConnectionId | null) => {
+    setSelectedConnectionByProvider((current) => ({
+      ...current,
+      [selectedProvider]: connectionId,
+    }));
     void saveDefaultConnection(selectedProvider, connectionId)
       .then((settings) => queryClient.setQueryData(serverQueryKeys.settings(), settings))
       .catch((error) =>
@@ -2506,25 +2553,32 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     if (serverThread) {
       const api = readNativeApi();
       if (api) {
-        void api.orchestration
-          .dispatchCommand({
-            type: "thread.update",
-            commandId: newCommandId(),
-            threadId: serverThread.id,
-            connectionId,
-          })
-          .catch((error: unknown) =>
+        const update = api.orchestration.dispatchCommand({
+          type: "thread.update",
+          commandId: newCommandId(),
+          threadId: serverThread.id,
+          connectionId,
+        });
+        pendingConnectionUpdateRef.current = { threadId: serverThread.id, promise: update };
+        void update
+          .catch((error: unknown) => {
+            setSelectedConnectionByProvider((current) => {
+              if (current[selectedProvider] !== connectionId) return current;
+              const next = { ...current };
+              delete next[selectedProvider];
+              return next;
+            });
             setStoreThreadError(
               serverThread.id,
               error instanceof Error ? error.message : "Couldn't change this thread's Connection.",
-            ),
-          );
+            );
+          })
+          .finally(() => {
+            if (pendingConnectionUpdateRef.current?.promise === update) {
+              pendingConnectionUpdateRef.current = null;
+            }
+          });
       }
-    } else {
-      setSelectedConnectionByProvider((current) => ({
-        ...current,
-        [selectedProvider]: connectionId,
-      }));
     }
   };
   const handleManageConnections = useCallback(() => {
@@ -3907,6 +3961,114 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
 
   const continueInFlightRef = useRef(false);
   const pendingContinueCommandIdRef = useRef<string | null>(null);
+  const pendingQaStopRef = useRef<{
+    threadId: string;
+    turnId: string;
+    trace: ReturnType<typeof startDiagnosticTrace>;
+  } | null>(null);
+  const pendingQaPlayRef = useRef<{
+    threadId: string;
+    turnId: string;
+    trace: ReturnType<typeof startDiagnosticTrace>;
+  } | null>(null);
+  const pendingQaQueueRef = useRef<{
+    threadId: string;
+    messageId: string;
+    startCommandId: string;
+    trace: ReturnType<typeof startDiagnosticTrace>;
+    seenQueued: boolean;
+  } | null>(null);
+  useEffect(() => {
+    const stop = pendingQaStopRef.current;
+    if (
+      stop &&
+      matchesRequestedTurnOutcome({
+        requestedThreadId: stop.threadId,
+        requestedTurnId: stop.turnId,
+        activeThreadId,
+        activeTurnId: activeLatestTurn?.turnId ?? null,
+        actualState: activeLatestTurn?.state ?? null,
+        expectedState: "interrupted",
+      })
+    ) {
+      pendingQaStopRef.current = null;
+      void window.desktopBridge
+        ?.recordDiagnosticCheckpoint?.({
+          ...stop.trace,
+          threadId: stop.threadId,
+          flow: "stop",
+          step: "turn.terminal",
+          outcome: "ok",
+        })
+        .catch(() => undefined);
+    }
+    const play = pendingQaPlayRef.current;
+    if (
+      play &&
+      matchesRequestedTurnOutcome({
+        requestedThreadId: play.threadId,
+        requestedTurnId: play.turnId,
+        activeThreadId,
+        activeTurnId: activeLatestTurn?.turnId ?? null,
+        actualState: phase,
+        expectedState: "running",
+      })
+    ) {
+      pendingQaPlayRef.current = null;
+      void window.desktopBridge
+        ?.recordDiagnosticCheckpoint?.({
+          ...play.trace,
+          threadId: play.threadId,
+          flow: "play",
+          step: "turn.started",
+          outcome: "ok",
+        })
+        .catch(() => undefined);
+    }
+    const queue = pendingQaQueueRef.current;
+    if (queue && activeThreadId === queue.threadId) {
+      const isQueued =
+        activeThread?.queuedMessageIds?.some((id) => id === queue.messageId) ?? false;
+      if (isQueued && !queue.seenQueued) {
+        queue.seenQueued = true;
+        void window.desktopBridge
+          ?.recordDiagnosticCheckpoint?.({
+            ...queue.trace,
+            threadId: queue.threadId,
+            flow: "queue",
+            step: "queue.enqueued",
+            outcome: "ok",
+          })
+          .catch(() => undefined);
+      } else if (
+        matchesPromotedQueuedMessage({
+          startCommandId: queue.startCommandId,
+          messageId: queue.messageId,
+          queuedMessageIds: activeThread?.queuedMessageIds ?? [],
+          seenQueued: queue.seenQueued,
+          latestTurnId: activeLatestTurn?.turnId ?? null,
+          latestTurnState: activeLatestTurn?.state ?? null,
+        })
+      ) {
+        pendingQaQueueRef.current = null;
+        void window.desktopBridge
+          ?.recordDiagnosticCheckpoint?.({
+            ...queue.trace,
+            threadId: queue.threadId,
+            flow: "queue",
+            step: "queue.started",
+            outcome: "ok",
+          })
+          .catch(() => undefined);
+      }
+    }
+  }, [
+    activeLatestTurn?.state,
+    activeLatestTurn?.turnId,
+    activeThread?.queuedMessageIds,
+    activeThreadId,
+    phase,
+  ]);
   const [hiddenContinueTurnId, setHiddenContinueTurnId] = useState<TurnId | null>(null);
   useEffect(() => {
     const commandId = pendingContinueCommandIdRef.current;
@@ -4021,20 +4183,30 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     setContinueInFlight(target);
     const commandId = newCommandId();
     pendingContinueCommandIdRef.current = commandId;
+    const playTrace = startDiagnosticTrace();
+    pendingQaPlayRef.current = {
+      threadId: target.threadId,
+      turnId: target.turnId,
+      trace: playTrace,
+    };
     try {
-      await api.orchestration.dispatchCommand({
-        type: "thread.turn.recover",
-        reason: "play",
-        commandId,
-        threadId: target.threadId,
-        turnId: target.turnId,
-        interruptedTurnId: target.turnId,
-        recoveryMessageId: newMessageId(),
-        connectionId: bindingForContinue.connectionId,
-        bindingRevision: bindingForContinue.revision,
-        createdAt: new Date().toISOString(),
-      });
+      await api.orchestration.dispatchCommand(
+        {
+          type: "thread.turn.recover",
+          reason: "play",
+          commandId,
+          threadId: target.threadId,
+          turnId: target.turnId,
+          interruptedTurnId: target.turnId,
+          recoveryMessageId: newMessageId(),
+          connectionId: bindingForContinue.connectionId,
+          bindingRevision: bindingForContinue.revision,
+          createdAt: new Date().toISOString(),
+        },
+        playTrace,
+      );
     } catch (error) {
+      pendingQaPlayRef.current = null;
       pendingContinueCommandIdRef.current = null;
       continueInFlightRef.current = false;
       setContinueInFlight(null);
@@ -5489,14 +5661,20 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         });
       }
     }
+    // A provider can start the projected turn before session.activeTurnId is
+    // published. The visible latest turn is still the exact stop target.
+    const diagnosticActiveTurnId = resolveInterruptTurnId(
+      activeLatestTurn,
+      activeThread.session?.activeTurnId,
+    );
     const interruptCommand = {
       type: "thread.turn.interrupt" as const,
       commandId: newCommandId(),
       threadId: activeThread.id,
+      ...(diagnosticActiveTurnId ? { turnId: diagnosticActiveTurnId } : {}),
       ...(pendingMessageId ? { pendingMessageId } : {}),
       createdAt: new Date().toISOString(),
     };
-    const diagnosticActiveTurnId = activeThread.session?.activeTurnId ?? null;
     const diagnosticActiveTurnStartedAt = activeLatestTurn?.startedAt ?? null;
     const diagnosticPendingMessageId = pendingMessageId ?? null;
     recordChatLifecycleUiDiagnostic({
@@ -5508,10 +5686,17 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       commandId: interruptCommand.commandId,
       pendingMessageId: diagnosticPendingMessageId,
     });
+    const stopTrace = startDiagnosticTrace();
+    if (diagnosticActiveTurnId)
+      pendingQaStopRef.current = {
+        threadId: activeThread.id,
+        turnId: diagnosticActiveTurnId,
+        trace: stopTrace,
+      };
     try {
       // Receipt records interrupt intent only. Shared projection decides whether
       // the pending message was cancelled before acceptance or reached history.
-      const receipt = await api.orchestration.dispatchCommand(interruptCommand);
+      const receipt = await api.orchestration.dispatchCommand(interruptCommand, stopTrace);
       recordChatLifecycleUiDiagnostic({
         event: "interrupt-receipt",
         threadId: activeThread.id,
@@ -5531,6 +5716,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         void revalidatePendingStartOutcome(pendingMessageId, receipt.sequence);
       }
     } catch (error) {
+      pendingQaStopRef.current = null;
       recordChatLifecycleUiDiagnostic({
         event: "interrupt-dispatch-failed",
         threadId: activeThread.id,
@@ -6105,7 +6291,10 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
               : message.delivery.queued === true && message.delivery.state === "queued";
           if (!queued) return finish("sent");
         };
-        const timeout = setTimeout(() => finish("unknown"), 10_000);
+        const timeout = setTimeout(() => {
+          recordChatSendFailure("EXTERNAL_CALL_FAILED");
+          finish("unknown");
+        }, 10_000);
         unsubscribe = useStore.subscribe(inspect);
         inspect();
       });
@@ -6172,6 +6361,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         }
         return false;
       } catch (error) {
+        recordChatSendFailure("EXTERNAL_CALL_FAILED");
         setThreadError(
           threadId,
           error instanceof Error ? error.message : "Failed to cancel queued message.",
@@ -6209,10 +6399,26 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     queuedTurn?: QueuedComposerChatTurn,
   ): Promise<boolean> => {
     e?.preventDefault();
+    const sendTrace = startDiagnosticTrace();
+    const sendDiagnostics = createSendDiagnosticLifecycle(sendTrace, window.desktopBridge);
+    sendDiagnostics.preflight(activeThread?.id);
     const api = readNativeApi();
     const lateSendHandlers = lateComposerSendHandlersRef.current;
     if (!api || !lateSendHandlers || !activeThread || isVoiceTranscribing) {
       return false;
+    }
+    const pendingConnectionUpdate = pendingConnectionUpdateRef.current;
+    if (queuedTurn === undefined && pendingConnectionUpdate?.threadId === activeThread.id) {
+      try {
+        await pendingConnectionUpdate.promise;
+      } catch (error) {
+        recordChatSendFailure("SEND_PREFLIGHT_REJECTED", sendTrace);
+        setThreadError(
+          activeThread.id,
+          error instanceof Error ? error.message : "Couldn't change this thread's Connection.",
+        );
+        return false;
+      }
     }
     const existingPreparation = getActiveComposerSendPreparation(activeThread.id);
     if (existingPreparation) {
@@ -6333,6 +6539,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
           );
           if (handledSlashCommand) return true;
         } catch (error) {
+          recordChatSendFailure("SEND_PREFLIGHT_REJECTED", sendTrace);
           setThreadError(
             activeThread.id,
             error instanceof Error ? error.message : "Failed to run the command.",
@@ -6614,6 +6821,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
           hydratedPendingImages =
             await hydratePendingBlobComposerAttachments(pendingBlobAttachments);
         } catch (error) {
+          recordChatSendFailure("SEND_PREFLIGHT_REJECTED", sendTrace);
           releaseSendPreflight({ restoreComposer: true });
           setThreadError(
             activeThread.id,
@@ -6678,6 +6886,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
           hasThreadStarted,
         });
       } catch (error) {
+        recordChatSendFailure("SEND_PREFLIGHT_REJECTED", sendTrace);
         releaseSendPreflight({ restoreComposer: true });
         setThreadError(
           activeThread.id,
@@ -6733,6 +6942,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         handledSlashCommand =
           await lateSendHandlers.handleStandaloneSlashCommand(trimmedPromptForSend);
       } catch (error) {
+        recordChatSendFailure("SEND_PREFLIGHT_REJECTED", sendTrace);
         releaseSendPreflight({ restoreComposer: true });
         setThreadError(
           activeThread.id,
@@ -6921,6 +7131,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         });
       }
     } catch (error) {
+      recordChatSendFailure("SEND_PREFLIGHT_REJECTED", sendTrace);
       durablePreparationError = error;
     }
     if (durablePreparationError !== null) {
@@ -6934,6 +7145,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
             prepare: () => markPendingStartRecoveryFailed(threadIdForSend, messageIdForSend),
           });
         } catch (cleanupError) {
+          recordChatSendFailure("EXTERNAL_CALL_FAILED", sendTrace);
           error = new Error(
             `${error instanceof Error ? error.message : "Could not durably prepare this message."} ` +
               `(Recovery cleanup also failed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)})`,
@@ -7001,6 +7213,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     );
     const turnAttachmentsPromise = stageUploadComposerAttachments({
       threadId: threadIdForSend,
+      trace: sendTrace,
       images: composerImagesSnapshot,
       files: composerFilesSnapshot,
       assistantSelections: composerAssistantSelectionsSnapshot,
@@ -7129,39 +7342,53 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       // unstarted thread and the authoritative managed-binding revision for a
       // continuation.
       const bindingRevisionForSend = await resolveThreadBindingRevisionAtAdmission();
+      const startCommandId = newCommandId();
       const startReceipt = await stagedTurnAttachments.runWithDispatch((turnAttachments) => {
-        startCommandDispatched = true;
-        return api.orchestration.dispatchCommand({
-          type: "thread.turn.start",
-          commandId: newCommandId(),
-          threadId: threadIdForSend,
-          message: {
-            messageId: messageIdForSend,
-            role: "user",
-            text: outgoingMessageText,
-            attachments: turnAttachments,
-            ...(mentionedSkillsForSend.length > 0 ? { skills: mentionedSkillsForSend } : {}),
-            ...(mentionedPluginMentionsForSend.length > 0
-              ? { mentions: mentionedPluginMentionsForSend }
-              : {}),
-          },
-          modelSelection: selectedModelSelectionForSend,
-          ...(selectedConnectionIdForSend === undefined
-            ? {}
-            : { connectionId: selectedConnectionIdForSend }),
-          ...(bindingRevisionForSend === undefined
-            ? {}
-            : { bindingRevision: bindingRevisionForSend }),
-          ...(providerOptionsForDispatchForSend
-            ? { providerOptions: providerOptionsForDispatchForSend }
-            : {}),
-          assistantDeliveryMode,
-          dispatchMode,
-          runtimeMode: nextRuntimeModeForSend,
-          createdAt: messageCreatedAt,
+        return sendDiagnostics.dispatch(threadIdForSend, () => {
+          startCommandDispatched = true;
+          return api.orchestration.dispatchCommand(
+            {
+              type: "thread.turn.start",
+              commandId: startCommandId,
+              threadId: threadIdForSend,
+              message: {
+                messageId: messageIdForSend,
+                role: "user",
+                text: outgoingMessageText,
+                attachments: turnAttachments,
+                ...(mentionedSkillsForSend.length > 0 ? { skills: mentionedSkillsForSend } : {}),
+                ...(mentionedPluginMentionsForSend.length > 0
+                  ? { mentions: mentionedPluginMentionsForSend }
+                  : {}),
+              },
+              modelSelection: selectedModelSelectionForSend,
+              ...(selectedConnectionIdForSend === undefined
+                ? {}
+                : { connectionId: selectedConnectionIdForSend }),
+              ...(bindingRevisionForSend === undefined
+                ? {}
+                : { bindingRevision: bindingRevisionForSend }),
+              ...(providerOptionsForDispatchForSend
+                ? { providerOptions: providerOptionsForDispatchForSend }
+                : {}),
+              assistantDeliveryMode,
+              dispatchMode,
+              runtimeMode: nextRuntimeModeForSend,
+              createdAt: messageCreatedAt,
+            },
+            sendTrace,
+          );
         });
       });
       turnStartSucceeded = true;
+      if (hasLiveTurn && dispatchMode === "queue")
+        pendingQaQueueRef.current = {
+          threadId: threadIdForSend,
+          messageId: messageIdForSend,
+          startCommandId,
+          trace: sendTrace,
+          seenQueued: false,
+        };
       markComposerSendPreflightAdmission(sendPreflightOwner, startReceipt.sequence);
       pendingStartRecoveryRegistryRef.current.setFrontier(
         threadIdForSend,
@@ -7188,6 +7415,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       }
     })().catch(async (err: unknown) => {
       const wasCancelled = err instanceof PendingTurnStartCancelled;
+      if (!wasCancelled) recordChatSendFailure("COMMAND_REJECTED", sendTrace);
       const pendingRestoration = wasCancelled
         ? pendingStartRecoveryRegistryRef.current.get(threadIdForSend, messageIdForSend)
         : undefined;
@@ -7222,7 +7450,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
             }
             return prepared;
           },
-        }).catch(() => undefined);
+        }).catch(() => recordChatSendFailure("EXTERNAL_CALL_FAILED", sendTrace));
       }
       if (
         !wasCancelled &&
@@ -7250,7 +7478,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
             commandId: newCommandId(),
             threadId: threadIdForSend,
           })
-          .catch(() => undefined);
+          .catch(() => recordChatSendFailure("EXTERNAL_CALL_FAILED", sendTrace));
       }
       if (
         queuedChatTurn === null &&
@@ -7318,6 +7546,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
           createdAt: new Date().toISOString(),
         })
         .catch((err: unknown) => {
+          recordChatSendFailure("COMMAND_REJECTED");
           setStoreThreadError(
             activeThreadId,
             err instanceof Error ? err.message : "Failed to submit approval decision.",
@@ -7355,6 +7584,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
           createdAt: new Date().toISOString(),
         })
         .catch((err: unknown) => {
+          recordChatSendFailure("COMMAND_REJECTED");
           setStoreThreadError(
             activeThreadId,
             err instanceof Error ? err.message : "Failed to submit user input.",
@@ -7605,6 +7835,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         return true;
       })()
         .catch((err: unknown) => {
+          recordChatSendFailure("COMMAND_REJECTED");
           setThreadError(
             activeThread.id,
             err instanceof Error ? err.message : "Failed to edit message.",
@@ -7689,6 +7920,8 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
             if (editorText === expectedText) return onSendRef.current(undefined, mode);
             await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
           }
+          recordChatSendFailure("SEND_PREFLIGHT_REJECTED");
+          // diagnostics-covered: SEND_PREFLIGHT_REJECTED browser.send
           throw Object.assign(
             new Error("The visible composer did not converge on the staged composition."),
             { code: "COMPOSER_NOT_READY" },
@@ -7775,6 +8008,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
           });
           setThreadError(threadId, null);
         } catch (error) {
+          recordChatSendFailure("COMMAND_REJECTED");
           setThreadError(
             threadId,
             error instanceof Error ? error.message : "Failed to steer queued message.",
@@ -9091,6 +9325,9 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
                               visualState="stop"
                               onClick={() => void onInterrupt()}
                               aria-label="Stop generation"
+                              data-thread-id={activeThreadId}
+                              data-turn-id={activeLatestTurn?.turnId}
+                              data-turn-state={activeLatestTurn?.state}
                               title="Stop the current response. On Mac, press Ctrl+C to interrupt."
                             />
                           </>

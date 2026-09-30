@@ -1,4 +1,5 @@
 import Crypto from "node:crypto";
+import { recordDesktopConsumedFailure } from "./desktopFailureCoverage";
 
 import type {
   AppSimulatorButton,
@@ -473,6 +474,7 @@ export class DesktopSimulatorManager {
       try {
         await this.#requireAdapter(device.platform).close(toPublicDevice(device));
       } catch (error) {
+        recordDesktopConsumedFailure("simulator");
         const message = formatError(error);
         this.#updateDeviceState(device.id, "failed", message);
         session.state = this.#nextState(owner.tabId, {

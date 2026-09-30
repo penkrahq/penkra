@@ -528,6 +528,40 @@ describe("decider project scripts", () => {
       });
     }
 
+    const rebuiltResult = await Effect.runPromise(
+      decideOrchestrationCommand({
+        command: {
+          type: "thread.turn.start",
+          commandId: CommandId.makeUnsafe("cmd-turn-start-rebuilt"),
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          message: {
+            messageId: asMessageId("message-user-rebuilt"),
+            role: "user",
+            text: "continue from history",
+            attachments: [],
+          },
+          runtimeMode: "approval-required",
+          createdAt: now,
+        },
+        readModel,
+        acceptedConnectionChange: {
+          connectionId: "connection-work",
+          label: "Work",
+          previousModelId: "gpt-5-codex",
+          modelId: "gpt-5-codex",
+          modelLabel: "GPT-5 Codex",
+          previousConnectionId: "connection-work",
+        },
+      }),
+    );
+    const rebuiltEvents = Array.isArray(rebuiltResult) ? rebuiltResult : [rebuiltResult];
+    const notice = rebuiltEvents.find(
+      (event) =>
+        event.type === "thread.activity-appended" &&
+        event.payload.activity.kind === "continuation-reconstructed",
+    );
+    expect(notice).toBeUndefined();
+
     const anonymousResult = await Effect.runPromise(
       decideOrchestrationCommand({
         command: {

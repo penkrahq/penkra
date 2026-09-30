@@ -49,6 +49,8 @@ import {
 } from "effect";
 import * as Semaphore from "effect/Semaphore";
 import { nonEmptyTrimmed } from "@penkra/shared/text";
+import { startDiagnosticTrace } from "@penkra/shared/traceContext";
+import { recordDiagnosticIncident } from "../../diagnostics/recorder.ts";
 
 import { ProviderValidationError } from "../Errors.ts";
 import { PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE } from "@penkra/shared/threadSummary";
@@ -66,6 +68,7 @@ import { PersistenceDecodeError } from "../../persistence/Errors.ts";
 import { ProviderRuntimeEventRepository } from "../../persistence/Services/ProviderRuntimeEvents.ts";
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
+import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
 import {
   classifyTerminalTurnApplicability,
   isStartedTurnApplicable,
@@ -77,6 +80,21 @@ import {
   makeProviderRuntimeEventPumpHealthRegistry,
   runProviderRuntimeEventPump,
 } from "../providerRuntimeEventPump.ts";
+
+function reportProviderServiceFailure(threadId?: string): Effect.Effect<void> {
+  return Effect.sync(() =>
+    recordDiagnosticIncident({
+      ...startDiagnosticTrace(),
+      ...(threadId ? { threadId } : {}),
+      kind: "external.failed",
+      code: "EXTERNAL_CALL_FAILED",
+      where: "server.provider",
+      severity: "error",
+      expected: { accepted: true },
+      actual: { accepted: false },
+    }),
+  );
+}
 /**
  * Preserve the adapter's per-occurrence identity. A content-derived id cannot distinguish two
  * legitimate notifications with identical payloads (assistant streams commonly repeat spaces,
@@ -440,6 +458,9 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         : undefined);
 
     const registry = yield* ProviderAdapterRegistry;
+    const agentGatewayCredentials = Option.getOrUndefined(
+      yield* Effect.serviceOption(AgentGatewayCredentials),
+    );
     const directory = yield* ProviderSessionDirectory;
     const lifecycle = makeProviderLifecycleCoordinator();
     for (const binding of yield* directory.listBindings()) {
@@ -711,12 +732,17 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         return activeSession.resumeCursor;
       }).pipe(
         Effect.catchCause((cause) =>
-          Effect.logWarning("provider.session.resume_cursor_refresh_failed", {
-            threadId: event.threadId,
-            provider: binding.provider,
-            eventType: event.type,
-            cause: Cause.pretty(cause),
-          }).pipe(Effect.as(binding.resumeCursor)),
+          reportProviderServiceFailure(event.threadId).pipe(
+            Effect.andThen(
+              Effect.logWarning("provider.session.resume_cursor_refresh_failed", {
+                threadId: event.threadId,
+                provider: binding.provider,
+                eventType: event.type,
+                cause: Cause.pretty(cause),
+              }),
+            ),
+            Effect.as(binding.resumeCursor),
+          ),
         ),
       );
     };
@@ -1124,11 +1150,15 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         }),
       ).pipe(
         Effect.catchCause((cause) =>
-          Effect.logWarning("provider.session.runtime_binding_update_failed", {
-            threadId: event.threadId,
-            eventType: event.type,
-            cause: Cause.pretty(cause),
-          }),
+          reportProviderServiceFailure(event.threadId).pipe(
+            Effect.andThen(
+              Effect.logWarning("provider.session.runtime_binding_update_failed", {
+                threadId: event.threadId,
+                eventType: event.type,
+                cause: Cause.pretty(cause),
+              }),
+            ),
+          ),
         ),
       );
     };
@@ -1154,6 +1184,36 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           }
           const canonicalEvent = normalizeProviderRuntimeEvent(event);
           return Effect.sync(() => {
+            // Child runtime events are attributed to the parent thread but do
+            // not own its gateway session or turn.
+            if (canonicalEvent.providerRefs?.providerParentThreadId === undefined) {
+              if (canonicalEvent.type === "turn.started" && canonicalEvent.turnId !== undefined) {
+                agentGatewayCredentials?.beginTurn(
+                  canonicalEvent.threadId,
+                  canonicalEvent.provider,
+                  String(canonicalEvent.turnId),
+                  canonicalEvent.lifecycleGeneration,
+                  "runtime-event",
+                );
+              } else if (
+                (canonicalEvent.type === "turn.completed" ||
+                  canonicalEvent.type === "turn.aborted") &&
+                canonicalEvent.turnId !== undefined
+              ) {
+                agentGatewayCredentials?.endTurn(
+                  canonicalEvent.threadId,
+                  canonicalEvent.provider,
+                  String(canonicalEvent.turnId),
+                  canonicalEvent.lifecycleGeneration,
+                );
+              } else if (canonicalEvent.type === "session.exited") {
+                agentGatewayCredentials?.endSession(
+                  canonicalEvent.threadId,
+                  canonicalEvent.provider,
+                  canonicalEvent.lifecycleGeneration,
+                );
+              }
+            }
             if (canonicalEvent.type === "turn.started") {
               reconcileRuntimeIdleTimer(canonicalEvent);
             }
@@ -1445,6 +1505,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                 })
                 .pipe(Effect.timeoutOption(PROVIDER_START_SESSION_TIMEOUT));
               if (Option.isNone(started)) {
+                yield* reportProviderServiceFailure(threadId);
                 yield* Effect.logError("provider session start exceeded its deadline", {
                   threadId,
                   provider: input.provider,
@@ -1453,11 +1514,15 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                 yield* adapter.stopSession(threadId).pipe(
                   Effect.timeoutOption(PROVIDER_STOP_SESSION_TIMEOUT),
                   Effect.catchCause((cause) =>
-                    Effect.logWarning("failed to retire a timed-out provider session start", {
-                      threadId,
-                      provider: input.provider,
-                      cause: Cause.pretty(cause),
-                    }),
+                    reportProviderServiceFailure(threadId).pipe(
+                      Effect.andThen(
+                        Effect.logWarning("failed to retire a timed-out provider session start", {
+                          threadId,
+                          provider: input.provider,
+                          cause: Cause.pretty(cause),
+                        }),
+                      ),
+                    ),
                   ),
                 );
                 return yield* toValidationError(
@@ -1539,7 +1604,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
               return yield* startAndPersistReplacement;
             }
 
-            const previousGeneration = persistedBinding.lifecycleGeneration ?? "legacy";
             const previousModelSelection = readPersistedModelSelection(
               persistedBinding.runtimePayload,
             );
@@ -1556,14 +1620,17 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                   : Effect.gen(function* () {
                       // A provider switch is stop-first so one thread is never dual-owned.
                       // If anything after the stop fails, retire a partially started
-                      // replacement before restoring the exact previous generation.
+                      // replacement before restoring the conversation in a fresh runtime.
+                      // Runtime identity is never reused: delayed events from the
+                      // stopped instance must not retire its restored successor.
+                      const restoredGeneration = randomUUID();
                       if (replacementStarted) {
                         yield* adapter.stopSession(threadId);
                       }
                       const restored = yield* previousAdapter.startSession({
                         threadId,
                         provider: persistedBinding.provider,
-                        lifecycleGeneration: previousGeneration,
+                        lifecycleGeneration: restoredGeneration,
                         runtimeMode: persistedBinding.runtimeMode ?? "full-access",
                         ...(previousCwd !== undefined ? { cwd: previousCwd } : {}),
                         ...(previousModelSelection !== undefined
@@ -1585,16 +1652,13 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                       yield* withBindingWriteLock(
                         threadId,
                         upsertSessionBinding(restored, threadId, {
-                          lifecycleGeneration: previousGeneration,
+                          lifecycleGeneration: restoredGeneration,
                           modelSelection: previousModelSelection,
                           providerOptions: previousProviderOptions,
                         }),
                       );
-                      // The restored runtime stamps its events with the exact
-                      // generation persisted above, so the coordinator must end
-                      // the run owning that generation and not the abandoned
-                      // replacement's.
-                      lease.adopt(previousGeneration);
+                      // Adopt the fresh identity persisted for the restored runtime.
+                      lease.adopt(restoredGeneration);
                     }),
               ),
             );
@@ -1715,11 +1779,16 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           })
           .pipe(
             Effect.catch((error) =>
-              Effect.logWarning("provider native fork failed", {
-                sourceThreadId: input.sourceThreadId,
-                targetThreadId: input.threadId,
-                cause: error instanceof Error ? error.message : String(error),
-              }).pipe(Effect.as(null)),
+              reportProviderServiceFailure(input.threadId).pipe(
+                Effect.andThen(
+                  Effect.logWarning("provider native fork failed", {
+                    sourceThreadId: input.sourceThreadId,
+                    targetThreadId: input.threadId,
+                    cause: error instanceof Error ? error.message : String(error),
+                  }),
+                ),
+                Effect.as(null),
+              ),
             ),
           );
         if (!forked) {
@@ -2361,10 +2430,14 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         yield* stopRuntimeSessionInternal({ threadId }, generation);
       }).pipe(
         Effect.catchCause((cause) =>
-          Effect.logWarning("provider.session.idle_stop_failed", {
-            threadId,
-            cause,
-          }),
+          reportProviderServiceFailure(threadId).pipe(
+            Effect.andThen(
+              Effect.logWarning("provider.session.idle_stop_failed", {
+                threadId,
+                cause,
+              }),
+            ),
+          ),
         ),
       );
       const stopPromise = Effect.runPromise(stopEffect).finally(() => {
@@ -2643,9 +2716,13 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           Effect.andThen(
             runStopAll().pipe(
               Effect.catchCause((cause) =>
-                Effect.logWarning("failed to stop provider sessions", {
-                  cause: Cause.pretty(cause),
-                }),
+                reportProviderServiceFailure().pipe(
+                  Effect.andThen(
+                    Effect.logWarning("failed to stop provider sessions", {
+                      cause: Cause.pretty(cause),
+                    }),
+                  ),
+                ),
               ),
             ),
           ),

@@ -2,6 +2,8 @@ import * as Crypto from "node:crypto";
 
 import { WsRpcError } from "@penkra/contracts";
 import { Effect } from "effect";
+import { startDiagnosticTrace } from "@penkra/shared/traceContext";
+import { recordDiagnosticIncident } from "./diagnostics/recorder";
 
 interface ActiveSyncLease {
   readonly generation: string;
@@ -23,6 +25,7 @@ export interface SyncAcknowledgementLease {
  */
 export function makeSyncAcknowledgements() {
   const active = new Map<number, ActiveSyncLease>();
+  const knownDeliveries = new Set<string>();
 
   const open = (clientId: number): Effect.Effect<SyncAcknowledgementLease> =>
     Effect.gen(function* () {
@@ -44,6 +47,9 @@ export function makeSyncAcknowledgements() {
         deliveredSequence: null,
         acknowledgedSequence: null,
       };
+      knownDeliveries.add(lease.deliveryId);
+      if (knownDeliveries.size > 256)
+        knownDeliveries.delete(knownDeliveries.values().next().value!);
       active.set(clientId, lease);
       yield* Effect.logDebug("orchestration synchronization acknowledgement lease opened").pipe(
         Effect.annotateLogs({ clientId, generation, deliveryId: lease.deliveryId }),
@@ -80,7 +86,27 @@ export function makeSyncAcknowledgements() {
     Effect.gen(function* () {
       const lease = active.get(clientId);
       if (!lease || lease.deliveryId !== input.deliveryId || lease.deliveredSequence === null) {
-        yield* Effect.logWarning("stale orchestration synchronization acknowledgement").pipe(
+        // A close/reconnect can leave an applied acknowledgement in flight.
+        // Its earlier delivery is known and already superseded; accepting it as
+        // a no-op preserves the new lease and avoids a false incident.
+        if (knownDeliveries.has(input.deliveryId) && lease?.deliveryId !== input.deliveryId) return;
+        recordDiagnosticIncident({
+          ...startDiagnosticTrace(),
+          kind: "command.rejected",
+          code: "SYNC_ACK_STALE",
+          where: "server.sync_ack",
+          severity: "warn",
+          expected: { accepted: true },
+          actual: { accepted: false, clientId },
+          context: {
+            check: !lease
+              ? "lease_exists"
+              : lease.deliveryId !== input.deliveryId
+                ? "delivery_matches"
+                : "sequence_delivered",
+          },
+        });
+        yield* Effect.logDebug("stale orchestration synchronization acknowledgement").pipe(
           Effect.annotateLogs({ clientId, deliveryId: input.deliveryId }),
         );
         return yield* new WsRpcError({
@@ -90,6 +116,16 @@ export function makeSyncAcknowledgements() {
         });
       }
       if (input.appliedSequence > lease.deliveredSequence) {
+        recordDiagnosticIncident({
+          ...startDiagnosticTrace(),
+          kind: "command.rejected",
+          code: "COMMAND_REJECTED",
+          where: "server.sync_ack",
+          severity: "warn",
+          expected: { sequence: lease.deliveredSequence },
+          actual: { sequence: input.appliedSequence, clientId },
+          context: { check: "sequence_delivered" },
+        });
         yield* Effect.logWarning("ahead orchestration synchronization acknowledgement").pipe(
           Effect.annotateLogs({
             clientId,

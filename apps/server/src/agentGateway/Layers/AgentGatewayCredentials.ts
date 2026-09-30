@@ -55,7 +55,8 @@ export const makeAgentGatewayCredentials = Effect.gen(function* () {
   const issueSessionToken: AgentGatewayCredentialsShape["issueSessionToken"] = (
     threadId,
     provider,
-  ) => sessionRegistry.issue(threadId, provider).token;
+    lifecycleGeneration,
+  ) => sessionRegistry.issue(threadId, provider, lifecycleGeneration).token;
 
   const verifySessionToken: AgentGatewayCredentialsShape["verifySessionToken"] = (token) =>
     sessionRegistry.verify(token)?.threadId ?? null;
@@ -68,12 +69,15 @@ export const makeAgentGatewayCredentials = Effect.gen(function* () {
     issueSessionToken,
     verifySessionToken,
     verifySession: sessionRegistry.verify,
+    beginTurn: sessionRegistry.beginTurn,
+    endTurn: sessionRegistry.endTurn,
+    endSession: sessionRegistry.endSession,
     bindWriteAuthority: sessionRegistry.bindWriteAuthority,
     verifyWriteAuthority: sessionRegistry.verifyWriteAuthority,
     revokeSessionToken: sessionRegistry.revoke,
-    connectionForThread: (threadId, provider) => ({
+    connectionForThread: (threadId, provider, lifecycleGeneration) => ({
       url: endpoint.url,
-      bearerToken: issueSessionToken(threadId, provider),
+      bearerToken: issueSessionToken(threadId, provider, lifecycleGeneration),
     }),
     stdioProxy: {
       command: process.execPath,

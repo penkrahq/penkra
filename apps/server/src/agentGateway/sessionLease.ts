@@ -28,10 +28,14 @@ export function acquireAgentGatewaySessionLease(
   credentials: AgentGatewaySessionLeaseCredentials | undefined,
   threadId: ThreadId,
   provider: ProviderKind,
+  lifecycleGeneration?: string,
 ): AgentGatewaySessionLease | undefined {
   if (credentials === undefined) return undefined;
 
-  const connection = credentials.connectionForThread(threadId, provider);
+  const connection =
+    lifecycleGeneration === undefined
+      ? credentials.connectionForThread(threadId, provider)
+      : credentials.connectionForThread(threadId, provider, lifecycleGeneration);
   let released = false;
 
   return {

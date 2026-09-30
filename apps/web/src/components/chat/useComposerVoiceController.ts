@@ -15,6 +15,7 @@ import {
   useVoiceSessionCoordinatorStore,
 } from "../../voiceSessionCoordinator";
 import { toastManager } from "../ui/toast";
+import { recordWebConsumedFailure } from "../../webFailureCoverage";
 import {
   describeVoiceRecordingStartError,
   isVoiceAuthExpiredMessage,
@@ -200,6 +201,7 @@ export function useComposerVoiceController(
         return;
       }
     } catch (error) {
+      recordWebConsumedFailure("runtime");
       console.error("[voice-recorder] Could not start microphone capture.", error);
       toastManager.add({
         type: "error",
@@ -229,6 +231,7 @@ export function useComposerVoiceController(
         }
       })
       .catch((error: unknown) => {
+        recordWebConsumedFailure("runtime");
         const description =
           error instanceof Error
             ? sanitizeVoiceErrorMessage(error.message)

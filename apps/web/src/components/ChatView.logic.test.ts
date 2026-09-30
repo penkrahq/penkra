@@ -24,6 +24,7 @@ import {
   resolveCycledModelSlug,
   resolveProjectScriptTerminalTarget,
   resolveRuntimeModeAfterApprovalDecision,
+  resolveInterruptTurnId,
   resolveThreadDetailHydration,
   shouldShowComposerContinue,
   shouldRenderTranscriptDuringHydration,
@@ -36,6 +37,20 @@ import {
   shouldRenderProviderHealthBanner,
   shouldRenderTerminalWorkspace,
 } from "./ChatView.logic";
+
+describe("interrupt target", () => {
+  it("prefers the visible running turn over a stale session turn", () => {
+    expect(resolveInterruptTurnId({ turnId: "new-turn", state: "running" }, "previous-turn")).toBe(
+      "new-turn",
+    );
+  });
+
+  it("falls back to the session turn when the visible turn is settled", () => {
+    expect(
+      resolveInterruptTurnId({ turnId: "previous-turn", state: "completed" }, "current-turn"),
+    ).toBe("current-turn");
+  });
+});
 
 describe("composer Continue eligibility", () => {
   const turnId = TurnId.makeUnsafe("turn-continue-test");

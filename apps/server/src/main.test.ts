@@ -20,10 +20,15 @@ import { NetService } from "@penkra/shared/Net";
 
 import { ServerConfig, type ServerConfigShape } from "./config";
 import { Open, type OpenShape } from "./open";
-import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
+import {
+  ProjectionSnapshotQuery,
+  type ProjectionSnapshotQueryShape,
+} from "./orchestration/Services/ProjectionSnapshotQuery";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
 import { Server, type ServerShape } from "./effectServer";
 import { makeServerShutdownController } from "./serverShutdown";
+import { openDiagnosticsReader, type DiagnosticsStore } from "./diagnostics/store";
+import { installDiagnosticsStore } from "./diagnostics/recorder";
 
 vi.mock("./threadRetention", async () => {
   const Effect = await import("effect/Effect");
@@ -602,6 +607,33 @@ it.layer(testLayer)("server CLI command", (it) => {
     }),
   );
 
+  it.effect("records a failed browser auto-open without failing server startup", () =>
+    Effect.gen(function* () {
+      openBrowser.mockImplementationOnce(
+        () =>
+          Effect.fail(new Error("private browser detail")) as unknown as Effect.Effect<void, never>,
+      );
+      yield* runCli([], { PENKRA_NO_BROWSER: "false" });
+
+      assert.equal(start.mock.calls.length, 1);
+      const reader = openDiagnosticsReader(resolvedConfig!.stateDir)!;
+      try {
+        const incident = reader
+          .prepare("SELECT code, where_name, summary FROM incidents WHERE code = ?")
+          .get("EXTERNAL_CALL_FAILED") as {
+          code: string;
+          where_name: string;
+          summary: string;
+        };
+        assert.equal(incident.code, "EXTERNAL_CALL_FAILED");
+        assert.equal(incident.where_name, "server.boot");
+        assert.equal(incident.summary.includes("private browser detail"), false);
+      } finally {
+        reader.close();
+      }
+    }),
+  );
+
   it.effect("supports the HTTPS public origin through environment configuration", () =>
     Effect.gen(function* () {
       yield* runCli([], {
@@ -808,6 +840,37 @@ it.layer(testLayer)("server CLI command", (it) => {
           folderCount: 1,
         },
       ]);
+    }),
+  );
+
+  it.effect("records a failed heartbeat query and retains the existing zero-count fallback", () =>
+    Effect.gen(function* () {
+      const incidentWrite = vi.fn();
+      const store = {
+        incident: incidentWrite,
+        startHealthSampling: () => () => undefined,
+        startProcessWatchdog: () => () => undefined,
+        importPeerSpools: vi.fn(),
+        sweepExpectations: vi.fn(),
+      } as unknown as DiagnosticsStore;
+      const uninstall = installDiagnosticsStore(store);
+      const recordTelemetry = vi.fn(() => Effect.void);
+      try {
+        yield* recordStartupHeartbeat.pipe(
+          Effect.provideService(ProjectionSnapshotQuery, {
+            getCounts: () => Effect.fail(new Error("private projection detail")),
+          } as unknown as ProjectionSnapshotQueryShape),
+          Effect.provideService(AnalyticsService, { record: recordTelemetry, flush: Effect.void }),
+        );
+        assert.equal(incidentWrite.mock.calls[0]?.[0].code, "EXTERNAL_CALL_FAILED");
+        assert.equal(incidentWrite.mock.calls[0]?.[0].where, "server.boot");
+        assert.deepEqual(recordTelemetry.mock.calls[0], [
+          "server.boot.heartbeat",
+          { threadCount: 0, folderCount: 0 },
+        ]);
+      } finally {
+        uninstall();
+      }
     }),
   );
 

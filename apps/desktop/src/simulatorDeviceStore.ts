@@ -7,6 +7,7 @@ import * as Path from "node:path";
 
 import type { SimulatorStoredDevice } from "./simulatorManager";
 import { resolveDesktopPlatformAdapter } from "./desktopPlatform";
+import { recordDesktopConsumedFailure } from "./desktopFailureCoverage";
 
 export const SIMULATOR_DEVICE_STATE_FILE_NAME = "devices-v1.json";
 export const SIMULATOR_DEVICE_STATE_MAX_BYTES = 4 * 1024 * 1024;
@@ -78,6 +79,7 @@ export async function readSimulatorDeviceState(
     if (isNodeError(error) && error.code === "ENOENT") {
       return { status: "missing", state: { version: 1, devices: [] } };
     }
+    recordDesktopConsumedFailure("simulator");
     return { status: "corrupt", error: toError(error) };
   } finally {
     await handle?.close().catch(() => undefined);

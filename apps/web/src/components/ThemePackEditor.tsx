@@ -22,6 +22,7 @@ import { Select, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Switch } from "./ui/switch";
 import { Textarea } from "./ui/textarea";
 import { toastManager } from "./ui/toast";
+import { recordWebConsumedFailure } from "../webFailureCoverage";
 import { SettingsCard, SettingsSelectPopup } from "./settings/SettingsPanelPrimitives";
 import { copyTextToClipboard } from "../hooks/useCopyToClipboard";
 import { type ChromeTheme, type ThemeMode, type ThemeVariant, useTheme } from "../hooks/useTheme";
@@ -107,6 +108,7 @@ export function ThemePackEditor({
         description: `Copied the ${variant} theme share string.`,
       });
     } catch {
+      recordWebConsumedFailure("runtime");
       toastManager.add({
         type: "error",
         title: "Copy failed",

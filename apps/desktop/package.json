@@ -1,6 +1,6 @@
 {
   "name": "@penkra/desktop",
-  "version": "0.14.2",
+  "version": "0.14.3",
   "private": true,
   "main": "dist-electron/entry.js",
   "scripts": {
@@ -12,6 +12,7 @@
     "start": "bun run scripts/start-electron.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests --silent=passed-only",
+    "test:diagnostics-worker": "tsdown && bun scripts/test-diagnostics-worker.mjs",
     "smoke-test": "node scripts/smoke-test.mjs"
   },
   "dependencies": {

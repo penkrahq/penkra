@@ -34,6 +34,7 @@ import {
 } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
 import { AgentGatewayToolBridge } from "../../agentGateway/Services/AgentGatewayToolBridge.ts";
 import { makeAgentGatewayToolBridge } from "../../agentGateway/Layers/AgentGatewayToolBridge.ts";
+import { makeAgentGatewaySessionRegistry } from "../../agentGateway/Layers/AgentGatewaySessionRegistry.ts";
 import { claudeDefaultModelId, claudeModelsListFixture } from "../claudeModelsListFixture.ts";
 import {
   PENKRA_EXEC_COMMAND_ANNOTATIONS,
@@ -89,6 +90,7 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
   public readonly setMaxThinkingTokensCalls: Array<number | null> = [];
   public readonly applyFlagSettingsCalls: Array<Record<string, unknown>> = [];
   public getContextUsageCalls = 0;
+  public onGetContextUsage?: () => void;
   private contextUsageResponse: SDKControlGetContextUsageResponse | undefined;
   private contextUsageNeverResolves = false;
   public closeCalls = 0;
@@ -166,6 +168,7 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
 
   readonly getContextUsage = async (): Promise<SDKControlGetContextUsageResponse> => {
     this.getContextUsageCalls += 1;
+    this.onGetContextUsage?.();
     if (this.contextUsageNeverResolves) {
       return new Promise<SDKControlGetContextUsageResponse>(() => {});
     }
@@ -240,6 +243,7 @@ function makeHarness(config?: {
   readonly cwd?: string;
   readonly baseDir?: string;
   readonly workflowRuntimePollIntervalMs?: number;
+  readonly gatewayCredentials?: AgentGatewayCredentialsShape;
 }) {
   const query = new FakeClaudeQuery();
   let createInput:
@@ -293,7 +297,9 @@ function makeHarness(config?: {
         ),
       ),
       Layer.provideMerge(NodeServices.layer),
-      Layer.provideMerge(Layer.succeed(AgentGatewayCredentials, gateway.credentials)),
+      Layer.provideMerge(
+        Layer.succeed(AgentGatewayCredentials, config?.gatewayCredentials ?? gateway.credentials),
+      ),
       Layer.provideMerge(Layer.succeed(AgentGatewayToolBridge, bridge)),
     ),
     query,
@@ -358,6 +364,9 @@ function makeGatewayCredentialsHarness() {
     verifySessionToken: () => null,
     verifySession: () => null,
     bindWriteAuthority: () => null,
+    beginTurn: () => undefined,
+    endTurn: () => undefined,
+    endSession: () => undefined,
     verifyWriteAuthority: () => false,
     revokeSessionToken: (token: string) => {
       revokedTokens.push(token);
@@ -556,6 +565,9 @@ describe("ClaudeAdapterLive", () => {
       createWarmQuery: (input) => {
         warmInput = input;
         return {
+          query: async function* () {
+            yield { type: "system", subtype: "init", session_id: resume } as never;
+          },
           close: () => undefined,
           [Symbol.asyncDispose]: async () => {
             disposed = true;
@@ -614,6 +626,125 @@ describe("ClaudeAdapterLive", () => {
             }),
       });
       assert.equal(disposed, true);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("rejects a Claude resume when the SDK reports another session", () => {
+    const requested = "44c0b890-8775-4f30-b47f-0709d29cc9e1";
+    const layer = makeClaudeAdapterLive({
+      createWarmQuery: () => ({
+        query: async function* () {
+          yield { type: "system", subtype: "init", session_id: "different-session" } as never;
+        },
+        close: () => undefined,
+        [Symbol.asyncDispose]: async () => undefined,
+      }),
+    }).pipe(
+      Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-adapter-test", "/tmp")),
+      Layer.provideMerge(NodeServices.layer),
+    );
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const result = yield* Effect.exit(
+        adapter.verifyNativeResume!({
+          sourceResumeCursor: { resume: requested },
+          managedLaunch: {
+            binaryPath: "/managed/claude",
+            isolationKey: "verify-other-session",
+            profileRoot: "/isolated/profile",
+            nativeStateRoot: "/isolated/native",
+            childEnvironment: () => ({}),
+          },
+          runtimeMode: "full-access",
+        }),
+      );
+      assert.strictEqual(result._tag, "Failure");
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("waits for a completed probe because missing resume can arrive after init", () => {
+    const resume = "44c0b890-8775-4f30-b47f-0709d29cc9e1";
+    let promptReceived = false;
+    const layer = makeClaudeAdapterLive({
+      createWarmQuery: () => ({
+        query: async function* (prompt) {
+          yield { type: "system", subtype: "init", session_id: resume } as never;
+          for await (const _message of prompt) promptReceived = true;
+          throw new Error(`No conversation found with session ID: ${resume}`);
+        },
+        close: () => undefined,
+        [Symbol.asyncDispose]: async () => undefined,
+      }),
+    }).pipe(
+      Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-adapter-test", "/tmp")),
+      Layer.provideMerge(NodeServices.layer),
+    );
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const result = yield* Effect.exit(
+        adapter.verifyNativeResume!({
+          sourceResumeCursor: { resume },
+          managedLaunch: {
+            binaryPath: "/managed/claude",
+            isolationKey: "verify-late-missing",
+            profileRoot: "/isolated/profile",
+            nativeStateRoot: "/isolated/native",
+            childEnvironment: () => ({}),
+          },
+          runtimeMode: "full-access",
+          requireCompletedProbe: true,
+          modelSelection: { provider: "claudeAgent", model: "claude-haiku-4-5" },
+        }),
+      );
+      assert.strictEqual(result._tag, "Failure");
+      assert.strictEqual(promptReceived, true);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("accepts a probed resume only after the SDK completes the same session", () => {
+    const resume = "44c0b890-8775-4f30-b47f-0709d29cc9e1";
+    let probeModel: string | undefined;
+    const layer = makeClaudeAdapterLive({
+      createWarmQuery: (input) => {
+        probeModel = input.options.model;
+        return {
+          query: async function* (prompt) {
+            yield { type: "system", subtype: "init", session_id: resume } as never;
+            for await (const _message of prompt) {
+              yield {
+                type: "result",
+                subtype: "success",
+                is_error: false,
+                session_id: resume,
+                result: "OK",
+              } as never;
+            }
+          },
+          close: () => undefined,
+          [Symbol.asyncDispose]: async () => undefined,
+        };
+      },
+    }).pipe(
+      Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-adapter-test", "/tmp")),
+      Layer.provideMerge(NodeServices.layer),
+    );
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const result = yield* adapter.verifyNativeResume!({
+        sourceResumeCursor: { resume },
+        managedLaunch: {
+          binaryPath: "/managed/claude",
+          isolationKey: "verify-probe-completed",
+          profileRoot: "/isolated/profile",
+          nativeStateRoot: "/isolated/native",
+          childEnvironment: () => ({}),
+        },
+        runtimeMode: "full-access",
+        requireCompletedProbe: true,
+        modelSelection: { provider: "claudeAgent", model: "claude-haiku-4-5" },
+      });
+      assert.equal(result.providerSessionId, resume);
+      assert.equal(probeModel, "claude-haiku-4-5");
     }).pipe(Effect.provide(layer));
   });
 
@@ -1188,6 +1319,60 @@ describe("ClaudeAdapterLive", () => {
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
     );
+  });
+
+  it.effect("authorizes a tool request at the instant the Claude prompt is delivered", () => {
+    const registry = makeAgentGatewaySessionRegistry();
+    let token: string | undefined;
+    const base = makeGatewayCredentialsHarness().credentials;
+    const credentials: AgentGatewayCredentialsShape = {
+      ...base,
+      connectionForThread: (threadId, provider, generation) => {
+        token = registry.issue(threadId, provider, generation).token;
+        return { url: base.mcpEndpointUrl, bearerToken: token };
+      },
+      beginTurn: registry.beginTurn,
+      endTurn: registry.endTurn,
+      bindWriteAuthority: registry.bindWriteAuthority,
+      verifyWriteAuthority: registry.verifyWriteAuthority,
+    };
+    const harness = makeHarness({ gatewayCredentials: credentials });
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
+      const prompt = harness.getLastCreateQueryInput()?.prompt;
+      assert.ok(prompt);
+      const delivered = prompt[Symbol.asyncIterator]()
+        .next()
+        .then(() => (token ? registry.bindWriteAuthority(token) : null));
+      const turn = yield* adapter.sendTurn({
+        threadId: THREAD_ID,
+        input: "Call the host tool immediately",
+        attachments: [],
+      });
+      const authorityAtDelivery = yield* Effect.promise(() => delivered);
+      assert.equal(authorityAtDelivery?.turnId, String(turn.turnId));
+      assert.isTrue(registry.verifyWriteAuthority(authorityAtDelivery!));
+      const usageEntered = new Promise<void>((resolve) => {
+        harness.query.onGetContextUsage = resolve;
+      });
+      harness.query.emit({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        errors: [],
+        session_id: "sdk-session-terminal-authority",
+        uuid: "terminal-authority-result",
+      } as unknown as SDKMessage);
+      yield* Effect.promise(() => usageEntered);
+      // Terminal observation clears authority before slow SDK work and without consuming runtime events.
+      assert.isNull(registry.bindWriteAuthority(token!));
+      assert.isFalse(registry.verifyWriteAuthority(authorityAtDelivery!));
+    }).pipe(Effect.provide(harness.layer));
   });
 
   it.effect("re-sends setPermissionMode on a second turn with the same desired mode", () => {

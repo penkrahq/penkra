@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { childDiagnosticSpan, startDiagnosticTrace } from "@penkra/shared/traceContext";
 
 import {
   CommandId,
@@ -89,6 +90,26 @@ import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
 import { MAX_STREAMS_PER_RPC_CLIENT, makeWsStreamAdmission } from "./wsStreamAdmission";
 import { ThreadDiagnosticsQuery } from "./diagnostics/Services/ThreadDiagnosticsQuery";
+import { recordWsResnapshot, recordWsStreamDrop } from "./diagnostics/wsStream";
+import {
+  recordDiagnosticCheckpoint,
+  recordDiagnosticIncident,
+  resolveDiagnosticExpectationsForTrace,
+} from "./diagnostics/recorder";
+import {
+  qaAcceptedCommandAction,
+  qaCommandCheckpoint,
+  qaRuntimeActionForCommand,
+} from "./diagnostics/qaCommandCheckpoints";
+import {
+  admitQaRuntimeAction,
+  clearQaRuntimeAction,
+  prepareQaRuntimeAction,
+} from "./diagnostics/qaRuntimeActions";
+import { armQaProviderSwitch, clearQaProviderSwitch } from "./diagnostics/qaProviderSwitch";
+import { recordServerQaAction } from "./diagnostics/qaProofBuild";
+import { recordWsRpcFailure } from "./diagnostics/wsRpcFailure";
+import { recoverMissingFile } from "./diagnostics/missingFileRecovery";
 import { WorkspaceWatcher } from "./workspaceWatcher";
 import { makeWsRequestAdmission } from "./wsRequestAdmission";
 import {
@@ -329,11 +350,12 @@ const makeWsRpcHandlersLayer = () =>
               occurredAt: new Date().toISOString(),
             })
             .pipe(
-              Effect.catch((error) =>
-                Effect.logWarning("Failed to persist streaming RPC rejection diagnostic.", {
+              Effect.catch((error) => {
+                recordWsRpcFailure(undefined, "DIAGNOSTICS_WRITE_FAILED");
+                return Effect.logWarning("Failed to persist streaming RPC rejection diagnostic.", {
                   error: String(error),
-                }),
-              ),
+                });
+              }),
             ),
       });
       const recordThreadStreamDrop = (threadId: string, report: LiveUiStreamDropReport) =>
@@ -352,12 +374,22 @@ const makeWsRpcHandlersLayer = () =>
             occurredAt: new Date().toISOString(),
           })
           .pipe(
-            Effect.catch((error) =>
-              Effect.logWarning("Failed to persist thread stream drop diagnostic.", {
+            Effect.catch((error) => {
+              recordWsRpcFailure(undefined, "DIAGNOSTICS_WRITE_FAILED");
+              return Effect.logWarning("Failed to persist thread stream drop diagnostic.", {
                 error: String(error),
-              }),
-            ),
+              });
+            }),
             (diagnostic) => Effect.sync(() => Effect.runFork(diagnostic)),
+            Effect.tap(() =>
+              Effect.sync(() =>
+                recordWsStreamDrop({
+                  threadId,
+                  capacity: report.capacity,
+                  droppedAtLeast: report.droppedAtLeast,
+                }),
+              ),
+            ),
             Effect.andThen(failLiveUiStreamForSnapshotResync(report)),
           );
       const recordThreadResnapshotRequired = (
@@ -385,10 +417,21 @@ const makeWsRpcHandlersLayer = () =>
             occurredAt: new Date().toISOString(),
           })
           .pipe(
-            Effect.catch((error) =>
-              Effect.logWarning("Failed to persist thread resnapshot diagnostic.", {
+            Effect.catch((error) => {
+              recordWsRpcFailure(undefined, "DIAGNOSTICS_WRITE_FAILED");
+              return Effect.logWarning("Failed to persist thread resnapshot diagnostic.", {
                 error: String(error),
-              }),
+              });
+            }),
+            Effect.tap(() =>
+              Effect.sync(() =>
+                recordWsResnapshot({
+                  threadId,
+                  snapshotSequence: report.snapshotSequence,
+                  highWaterSequence: report.highWaterSequence,
+                  replayCount: report.replayCount,
+                }),
+              ),
             ),
           );
 
@@ -404,9 +447,15 @@ const makeWsRpcHandlersLayer = () =>
               ? path.join(config.homeDir, rawWorkspaceRoot.slice(2))
               : rawWorkspaceRoot;
         const normalizedWorkspaceRoot = path.resolve(expandedWorkspaceRoot);
-        let workspaceStat = yield* fileSystem
-          .stat(normalizedWorkspaceRoot)
-          .pipe(Effect.catch(() => Effect.succeed(null)));
+        const statWorkspace = () =>
+          recoverMissingFile(fileSystem.stat(normalizedWorkspaceRoot), () =>
+            recordWsRpcFailure(),
+          ).pipe(
+            Effect.mapError(
+              (cause) => new WsRpcError({ message: "Failed to inspect project directory", cause }),
+            ),
+          );
+        let workspaceStat = yield* statWorkspace();
         if (!workspaceStat) {
           if (!options.createIfMissing) {
             return yield* new WsRpcError({
@@ -422,9 +471,7 @@ const makeWsRpcHandlersLayer = () =>
                 }),
             ),
           );
-          workspaceStat = yield* fileSystem
-            .stat(normalizedWorkspaceRoot)
-            .pipe(Effect.catch(() => Effect.succeed(null)));
+          workspaceStat = yield* statWorkspace();
           if (!workspaceStat) {
             return yield* new WsRpcError({
               message: `Failed to create project directory: ${normalizedWorkspaceRoot}`,
@@ -559,7 +606,7 @@ const makeWsRpcHandlersLayer = () =>
           if (trackedServer) {
             yield* devServerManager
               .stop({ folderId: trackedServer.folderId })
-              .pipe(Effect.catch(() => Effect.void));
+              .pipe(Effect.catch(() => Effect.sync(() => recordWsRpcFailure())));
           }
         }
         return result;
@@ -798,9 +845,29 @@ const makeWsRpcHandlersLayer = () =>
         effect.pipe(Effect.mapError((cause) => toWsRpcError(cause, fallbackMessage)));
 
       return AdmittedWsFeatureRpcGroup.of({
-        [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
+        [ORCHESTRATION_WS_METHODS.dispatchCommand]: (input) =>
           rpcEffect(
             Effect.gen(function* () {
+              const command = "diagnostics" in input ? input.command : input;
+              const trace = childDiagnosticSpan(
+                "diagnostics" in input ? input.diagnostics : startDiagnosticTrace(),
+              );
+              const diagnosticFlow =
+                command.type === "thread.turn.start" ? "send" : "command_worker";
+              const diagnosticContext = {
+                ...trace,
+                commandId: command.commandId,
+                ...(command.type === "thread.turn.start" || "threadId" in command
+                  ? { threadId: command.threadId }
+                  : {}),
+              };
+              yield* Effect.sync(() =>
+                recordDiagnosticCheckpoint({
+                  ...diagnosticContext,
+                  flow: diagnosticFlow,
+                  step: "server.received",
+                }),
+              );
               yield* Effect.logInfo("orchestration command received").pipe(
                 Effect.annotateLogs({
                   commandId: command.commandId,
@@ -812,6 +879,15 @@ const makeWsRpcHandlersLayer = () =>
                 }),
               );
               const { command: normalizedCommand } = yield* normalizeDispatchCommand({ command });
+              const dispatchedQa = qaCommandCheckpoint(normalizedCommand, "dispatch");
+              if (dispatchedQa)
+                yield* Effect.sync(() =>
+                  recordDiagnosticCheckpoint({
+                    ...diagnosticContext,
+                    ...dispatchedQa,
+                    outcome: "ok",
+                  }),
+                );
               const lifecycleLogContext = {
                 commandId: normalizedCommand.commandId,
                 commandType: normalizedCommand.type,
@@ -829,27 +905,128 @@ const makeWsRpcHandlersLayer = () =>
                     }
                   : {}),
               };
+              const runtimeAction = qaRuntimeActionForCommand(normalizedCommand);
+              if (runtimeAction)
+                prepareQaRuntimeAction(
+                  runtimeAction.flow,
+                  runtimeAction.threadId,
+                  runtimeAction.turnId,
+                  trace.traceId,
+                  trace.spanId,
+                );
+              if (
+                normalizedCommand.type === "thread.turn.start" ||
+                normalizedCommand.type === "thread.turn.dispatch-queued"
+              )
+                armQaProviderSwitch(
+                  normalizedCommand.commandId,
+                  normalizedCommand.threadId,
+                  trace.traceId,
+                  trace.spanId,
+                );
               const result = yield* dispatchOrchestrationCommand(normalizedCommand).pipe(
                 Effect.tap((receipt) =>
-                  Effect.logInfo("orchestration command accepted").pipe(
-                    Effect.annotateLogs({
-                      ...lifecycleLogContext,
-                      resultSequence: receipt.sequence,
-                    }),
+                  Effect.sync(() => {
+                    clearQaProviderSwitch(normalizedCommand.commandId);
+                    if (runtimeAction)
+                      admitQaRuntimeAction(
+                        runtimeAction.flow,
+                        runtimeAction.threadId,
+                        runtimeAction.turnId,
+                        trace.traceId,
+                      );
+                    const acceptedQa = qaCommandCheckpoint(normalizedCommand, "accepted");
+                    if (acceptedQa)
+                      recordDiagnosticCheckpoint({
+                        ...diagnosticContext,
+                        ...acceptedQa,
+                        outcome: "ok",
+                      });
+                    const acceptedAction = qaAcceptedCommandAction(normalizedCommand);
+                    if (acceptedAction) {
+                      try {
+                        recordServerQaAction(acceptedAction, trace.traceId);
+                      } catch {
+                        process.stderr.write("[diagnostics] QA action proof failed\n");
+                      }
+                    }
+                    recordDiagnosticCheckpoint({
+                      ...diagnosticContext,
+                      flow: diagnosticFlow,
+                      step: "command.accepted",
+                      outcome: "ok",
+                      fields: { sequence: receipt.sequence },
+                    });
+                  }).pipe(
+                    Effect.tap(() =>
+                      Effect.sync(() => {
+                        if (normalizedCommand.type === "thread.turn.start") {
+                          resolveDiagnosticExpectationsForTrace(trace.traceId, "send.accepted");
+                        }
+                      }),
+                    ),
+                    Effect.andThen(
+                      Effect.logInfo("orchestration command accepted").pipe(
+                        Effect.annotateLogs({
+                          ...lifecycleLogContext,
+                          resultSequence: receipt.sequence,
+                        }),
+                      ),
+                    ),
                   ),
                 ),
                 Effect.tapError((cause) =>
                   Effect.gen(function* () {
+                    yield* Effect.sync(() => {
+                      clearQaProviderSwitch(normalizedCommand.commandId);
+                      if (runtimeAction)
+                        clearQaRuntimeAction(
+                          runtimeAction.flow,
+                          runtimeAction.threadId,
+                          runtimeAction.turnId,
+                          trace.traceId,
+                        );
+                      recordDiagnosticCheckpoint({
+                        ...diagnosticContext,
+                        flow: diagnosticFlow,
+                        step: "command.rejected",
+                        outcome: "rejected",
+                      });
+                      recordDiagnosticIncident({
+                        ...diagnosticContext,
+                        kind: "command.rejected",
+                        code: "COMMAND_REJECTED",
+                        where: "server.ws_rpc",
+                        severity: "error",
+                        expected: { accepted: true },
+                        actual: { accepted: false },
+                        lastCheckpoint: "command.rejected",
+                      });
+                    });
                     const playContext =
                       normalizedCommand.type === "thread.turn.recover" &&
                       normalizedCommand.reason === "play"
                         ? yield* Effect.gen(function* () {
                             const thread = yield* projectionReadModelQuery
                               .getThreadDetailById(normalizedCommand.threadId)
-                              .pipe(Effect.catch(() => Effect.succeed(Option.none())));
+                              .pipe(
+                                Effect.catch(() =>
+                                  Effect.sync(() => {
+                                    recordWsRpcFailure(diagnosticContext);
+                                    return Option.none();
+                                  }),
+                                ),
+                              );
                             const binding = yield* threadProviderBindings
                               .getRuntimeBinding(normalizedCommand.threadId)
-                              .pipe(Effect.catch(() => Effect.succeed(Option.none())));
+                              .pipe(
+                                Effect.catch(() =>
+                                  Effect.sync(() => {
+                                    recordWsRpcFailure(diagnosticContext);
+                                    return Option.none();
+                                  }),
+                                ),
+                              );
                             return describeRejectedPlay(
                               normalizedCommand,
                               Option.getOrNull(thread),
@@ -1235,7 +1412,7 @@ const makeWsRpcHandlersLayer = () =>
                   threadId: input.threadId,
                   terminalId: input.terminalId ?? DEFAULT_TERMINAL_ID,
                   data: input.data,
-                }).pipe(Effect.catch(() => Effect.void)),
+                }).pipe(Effect.catch(() => Effect.sync(() => recordWsRpcFailure()))),
               ),
             ),
             "Failed to write terminal",

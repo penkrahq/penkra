@@ -1727,8 +1727,20 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
             ...(agentGatewayCredentials
               ? {
                   agentGatewayHostTool: {
-                    acquireSessionLease: (threadId) =>
-                      acquireAgentGatewaySessionLease(agentGatewayCredentials, threadId, PROVIDER)!,
+                    acquireSessionLease: (threadId, lifecycleGeneration) =>
+                      acquireAgentGatewaySessionLease(
+                        agentGatewayCredentials,
+                        threadId,
+                        PROVIDER,
+                        lifecycleGeneration,
+                      )!,
+                    beginTurn: (threadId, turnId, lifecycleGeneration) =>
+                      agentGatewayCredentials.beginTurn(
+                        threadId,
+                        PROVIDER,
+                        String(turnId),
+                        lifecycleGeneration,
+                      ),
                     requireNativeSurface: agentGatewayToolBridge!.requireSurface,
                   },
                 }
@@ -2325,6 +2337,43 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
           const runtimeEvents = assignDerivedProviderRuntimeEventIds(
             mapToRuntimeEvents(event, event.threadId),
           ).map(compactProviderRuntimeEventForIngress);
+          // Codex assigns the turn id inside app-server. Its turn/started
+          // notification is handled synchronously before the next protocol
+          // message, including an immediate dynamic-tool request.
+          for (const runtimeEvent of runtimeEvents) {
+            if (
+              runtimeEvent.type === "turn.started" &&
+              runtimeEvent.turnId !== undefined &&
+              runtimeEvent.providerRefs?.providerParentThreadId === undefined
+            ) {
+              agentGatewayCredentials?.beginTurn(
+                runtimeEvent.threadId,
+                PROVIDER,
+                String(runtimeEvent.turnId),
+                runtimeEvent.lifecycleGeneration,
+              );
+            } else if (
+              (runtimeEvent.type === "turn.completed" || runtimeEvent.type === "turn.aborted") &&
+              runtimeEvent.turnId !== undefined &&
+              runtimeEvent.providerRefs?.providerParentThreadId === undefined
+            ) {
+              agentGatewayCredentials?.endTurn(
+                runtimeEvent.threadId,
+                PROVIDER,
+                String(runtimeEvent.turnId),
+                runtimeEvent.lifecycleGeneration,
+              );
+            } else if (
+              runtimeEvent.type === "session.exited" &&
+              runtimeEvent.providerRefs?.providerParentThreadId === undefined
+            ) {
+              agentGatewayCredentials?.endSession(
+                runtimeEvent.threadId,
+                PROVIDER,
+                runtimeEvent.lifecycleGeneration,
+              );
+            }
+          }
           trackTurnWatchdogActivity(event.threadId, runtimeEvents);
           const result = ingress.offer({
             nativeEvent: compactCodexNativeEventForIngress(event),

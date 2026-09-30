@@ -51,7 +51,6 @@ import {
 } from "./composerPickerStyles";
 import { SINGLE_CHAT_PANE_SCOPE_ID } from "../../lib/chatPaneScope";
 import { RightDock } from "./RightDock";
-import { SIDEBAR_RAIL_HIT_AREA_PX } from "../ui/sidebar";
 
 const APP_PANEL_DEFAULT_WIDTH = "max(28rem, calc(50vw - 8rem))";
 const APP_PANEL_MIN_WIDTH = 26 * 16;
@@ -62,9 +61,9 @@ function shouldAcceptAppPanelWidth(input: { nextWidth: number; wrapper: HTMLElem
   const nextWidth =
     shellWidth === undefined
       ? input.nextWidth
-      : Math.min(
-          Math.max(APP_PANEL_MIN_WIDTH, input.nextWidth),
-          Math.max(SIDEBAR_RAIL_HIT_AREA_PX, shellWidth - THREAD_PANEL_MIN_WIDTH),
+      : Math.max(
+          APP_PANEL_MIN_WIDTH,
+          Math.min(input.nextWidth, shellWidth - THREAD_PANEL_MIN_WIDTH),
         );
 
   const previousSidebarWidth = input.wrapper.style.getPropertyValue("--sidebar-width");

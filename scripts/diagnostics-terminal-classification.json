@@ -1,0 +1,296 @@
+{
+  "scope": "apps/server/src/terminal",
+  "startedAt": "2026-09-29T06:23:28Z",
+  "completedAt": "2026-09-29T06:28:43Z",
+  "files": {
+    "Layers/BunPTY.ts": [
+      {
+        "at": "32:8:catch",
+        "class": "consumes",
+        "evidence": "Rejected process exit becomes a synthetic exit event with code 1; no incident is recorded."
+      },
+      {
+        "at": "43:7:throw",
+        "class": "validation",
+        "evidence": "A missing Bun terminal handle rejects a write; the caller receives the error."
+      },
+      {
+        "at": "50:7:throw",
+        "class": "validation",
+        "evidence": "A missing Bun resize handle rejects a resize; the caller receives the error."
+      },
+      {
+        "at": "151:28:rejection",
+        "class": "validation",
+        "evidence": "The Bun PTY layer rejects Windows startup before a terminal can spawn."
+      }
+    ],
+    "Layers/Manager.ts": [
+      {
+        "at": "828:9:catch",
+        "class": "consumes",
+        "evidence": "Wrapper preparation failure logs a warning and disables managed wrappers."
+      },
+      {
+        "at": "986:7:throw",
+        "class": "validation",
+        "evidence": "Terminal write rejects a session that is not running."
+      },
+      {
+        "at": "1031:7:throw",
+        "class": "validation",
+        "evidence": "Terminal resize rejects a session that is not running."
+      },
+      {
+        "at": "1120:9:throw",
+        "class": "validation",
+        "evidence": "Terminal open rejects a session that failed to initialize."
+      },
+      {
+        "at": "1151:7:throw",
+        "class": "validation",
+        "evidence": "Archive cutoff rejects a timestamp that cannot be parsed."
+      },
+      {
+        "at": "1195:9:timeout",
+        "class": "scheduled",
+        "evidence": "Shutdown waits for signal escalation to settle; timer expiry is normal progress."
+      },
+      {
+        "at": "1295:11:catch",
+        "class": "consumes",
+        "evidence": "Retryable shell spawn failures select the next candidate; other errors are rethrown."
+      },
+      {
+        "at": "1298:13:throw",
+        "class": "rethrow",
+        "evidence": "A nonretryable shell spawn error is sent to the outer startup catch."
+      },
+      {
+        "at": "1316:9:throw",
+        "class": "propagates",
+        "evidence": "Exhausted shell candidates raise startup failure to the outer catch at line 1341."
+      },
+      {
+        "at": "1341:7:catch",
+        "class": "consumes",
+        "evidence": "Startup failure marks the session errored and emits an error event, but records no diagnostic incident."
+      },
+      {
+        "at": "1395:34:timeout",
+        "class": "scheduled",
+        "evidence": "Output batching flushes after a short normal scheduling interval."
+      },
+      {
+        "at": "1516:21:timeout",
+        "class": "deadline",
+        "evidence": "Missing renderer output ACK forces PTY resume after OUTPUT_ACK_RESUME_TIMEOUT_MS."
+      },
+      {
+        "at": "1572:7:catch",
+        "class": "consumes",
+        "evidence": "Mode replay tracker construction failure logs and disables replay."
+      },
+      {
+        "at": "1592:7:catch",
+        "class": "consumes",
+        "evidence": "Mode replay feed failure logs and resets the tracker."
+      },
+      {
+        "at": "1608:7:catch",
+        "class": "consumes",
+        "evidence": "Preamble failure logs, resets the tracker and returns an empty preamble."
+      },
+      {
+        "at": "1713:9:catch",
+        "class": "consumes",
+        "evidence": "Process signal failure ignores ESRCH or logs another error without recording an incident."
+      },
+      {
+        "at": "1765:19:timeout",
+        "class": "deadline",
+        "evidence": "A process still present after the grace period is escalated to SIGKILL."
+      },
+      {
+        "at": "1868:9:catch",
+        "class": "rethrow",
+        "evidence": "History persistence failure removes the temp file and rethrows to the queue catch."
+      },
+      {
+        "at": "1869:57:catch",
+        "class": "consumes",
+        "evidence": "Temp-file removal failure is discarded while the primary persistence error is rethrown."
+      },
+      {
+        "at": "1870:9:throw",
+        "class": "rethrow",
+        "evidence": "The primary persistence error is forwarded to the queue catch at line 1877."
+      },
+      {
+        "at": "1875:8:catch",
+        "class": "consumes",
+        "evidence": "A prior queued write rejection is ignored so the next write can run."
+      },
+      {
+        "at": "1877:8:catch",
+        "class": "consumes",
+        "evidence": "History write failure logs a warning and resolves the queued write."
+      },
+      {
+        "at": "1896:20:catch",
+        "class": "consumes",
+        "evidence": "A rejected finalized queue promise is ignored after the queue's own catch."
+      },
+      {
+        "at": "1903:19:timeout",
+        "class": "scheduled",
+        "evidence": "Persistence debounce schedules a write; timer expiry is normal progress."
+      },
+      {
+        "at": "1940:7:catch",
+        "class": "rethrow",
+        "evidence": "Missing history is handled as an optional file; other read errors are rethrown."
+      },
+      {
+        "at": "1942:9:throw",
+        "class": "rethrow",
+        "evidence": "A history read error other than ENOENT reaches the caller."
+      },
+      {
+        "at": "1967:9:catch",
+        "class": "consumes",
+        "evidence": "Legacy history cleanup failure logs a warning and keeps the migrated history."
+      },
+      {
+        "at": "1975:7:catch",
+        "class": "rethrow",
+        "evidence": "Missing legacy history becomes empty history; other errors are rethrown."
+      },
+      {
+        "at": "1980:7:throw",
+        "class": "rethrow",
+        "evidence": "A legacy history read or migration error reaches the caller."
+      },
+      {
+        "at": "1992:7:catch",
+        "class": "consumes",
+        "evidence": "History deletion failure logs a warning and resolves deleteHistory."
+      },
+      {
+        "at": "2016:21:catch",
+        "class": "consumes",
+        "evidence": "Waiting for a pending history write ignores its rejection."
+      },
+      {
+        "at": "2077:19:timeout",
+        "class": "scheduled",
+        "evidence": "Subprocess polling schedules its next normal cycle."
+      },
+      {
+        "at": "2156:13:catch",
+        "class": "consumes",
+        "evidence": "Subprocess activity check failure logs a warning and skips that poll."
+      },
+      {
+        "at": "2200:7:catch",
+        "class": "validation",
+        "evidence": "A cwd stat error is classified as missing cwd or rethrown."
+      },
+      {
+        "at": "2202:9:throw",
+        "class": "validation",
+        "evidence": "ENOENT becomes a terminal cwd missing error for the caller."
+      },
+      {
+        "at": "2204:7:throw",
+        "class": "rethrow",
+        "evidence": "A cwd stat error other than ENOENT reaches the caller."
+      },
+      {
+        "at": "2207:7:throw",
+        "class": "validation",
+        "evidence": "An existing cwd that is not a directory is rejected."
+      },
+      {
+        "at": "2268:7:catch",
+        "class": "consumes",
+        "evidence": "Bulk history deletion failure logs a warning and resolves cleanup."
+      },
+      {
+        "at": "2279:7:throw",
+        "class": "validation",
+        "evidence": "Unknown terminal session rejects operations requiring a session."
+      },
+      {
+        "at": "2335:20:catch",
+        "class": "consumes",
+        "evidence": "A previous thread-lock promise rejection is ignored before starting a new task."
+      }
+    ],
+    "Layers/NodePTY.ts": [
+      {
+        "at": "142:44:rejection",
+        "class": "propagates",
+        "evidence": "Native PTY spawn errors become PtySpawnError and reach manager startup handling."
+      }
+    ],
+    "managedTerminalWrappers.ts": [
+      {
+        "at": "242:5:catch",
+        "class": "consumes",
+        "evidence": "Best-effort chmod failure is ignored after wrapper content is written."
+      }
+    ],
+    "processTreeKiller.ts": [
+      {
+        "at": "125:5:catch",
+        "class": "consumes",
+        "evidence": "A failed process-tree snapshot becomes null and the caller uses a fallback."
+      },
+      {
+        "at": "142:5:catch",
+        "class": "consumes",
+        "evidence": "A failed command lookup becomes null and signaling uses conservative behavior."
+      },
+      {
+        "at": "151:5:catch",
+        "class": "propagates",
+        "evidence": "A failed signal becomes an Error result except for ESRCH, which means already exited."
+      }
+    ],
+    "subprocessActivity.ts": [
+      {
+        "at": "49:5:catch",
+        "class": "consumes",
+        "evidence": "PowerShell activity probe failure becomes an empty activity snapshot."
+      },
+      {
+        "at": "146:5:catch",
+        "class": "consumes",
+        "evidence": "Process-map capture failure becomes null and triggers a fallback walk."
+      },
+      {
+        "at": "165:5:catch",
+        "class": "consumes",
+        "evidence": "Child PID query failure becomes an empty list."
+      },
+      {
+        "at": "179:5:catch",
+        "class": "consumes",
+        "evidence": "Command lookup failure becomes an empty command string."
+      },
+      {
+        "at": "232:5:catch",
+        "class": "consumes",
+        "evidence": "Failed pgrep fast path falls back to the process-map walk."
+      }
+    ],
+    "terminalModeReplay.ts": [
+      {
+        "at": "88:5:throw",
+        "class": "propagates",
+        "evidence": "Unavailable xterm internals raise an error consumed by manager tracker construction."
+      }
+    ]
+  }
+}

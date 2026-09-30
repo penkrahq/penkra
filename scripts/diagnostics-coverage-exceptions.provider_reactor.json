@@ -1,0 +1,524 @@
+[
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 342,
+    "column": 21,
+    "kind": "timeout",
+    "disposition": "scheduled",
+    "reason": "The timer schedules a bounded provider-call timeout observation.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 612,
+    "column": 18,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The consumed provider reactor failure is recorded before fallback or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 1068,
+    "column": 40,
+    "kind": "rejection",
+    "disposition": "validation",
+    "reason": "Malformed persisted native-state locator becomes a typed provider validation error.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 1174,
+    "column": 28,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "The provider turn failure reaches the event-processing recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 1265,
+    "column": 16,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "A newer provider lifecycle projection won the compare-and-set race.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 1520,
+    "column": 16,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "A newer provider lifecycle projection won the compare-and-set race.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 1617,
+    "column": 22,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The consumed provider reactor failure is recorded before fallback or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 1685,
+    "column": 81,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "The provider turn failure reaches the event-processing recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 1730,
+    "column": 20,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The consumed provider reactor failure is recorded before fallback or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 1869,
+    "column": 16,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The provider turn failure reaches the event-processing recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 1872,
+    "column": 36,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "The provider turn failure reaches the event-processing recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 1879,
+    "column": 36,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "The provider turn failure reaches the event-processing recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 1894,
+    "column": 36,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "The provider turn failure reaches the event-processing recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 1898,
+    "column": 28,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The consumed provider reactor failure is recorded before fallback or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 2037,
+    "column": 14,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The consumed provider reactor failure is recorded before fallback or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 2380,
+    "column": 16,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The consumed provider reactor failure is recorded before fallback or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 2486,
+    "column": 26,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "A newer provider lifecycle projection won the compare-and-set race.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 2659,
+    "column": 32,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "The provider turn failure reaches the event-processing recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 2665,
+    "column": 32,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "The provider turn failure reaches the event-processing recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 2673,
+    "column": 32,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "The provider turn failure reaches the event-processing recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 2702,
+    "column": 32,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "The provider turn failure reaches the event-processing recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 2935,
+    "column": 32,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "The provider turn failure reaches the event-processing recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 2944,
+    "column": 32,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "The provider turn failure reaches the event-processing recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 3027,
+    "column": 58,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "The provider turn failure reaches the event-processing recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 3076,
+    "column": 32,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "The provider turn failure reaches the event-processing recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 3219,
+    "column": 22,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The consumed provider reactor failure is recorded before fallback or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 3299,
+    "column": 12,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The consumed provider reactor failure is recorded before fallback or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 3436,
+    "column": 16,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The consumed provider reactor failure is recorded before fallback or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 3475,
+    "column": 16,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The consumed provider reactor failure is recorded before fallback or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 3589,
+    "column": 16,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The consumed provider reactor failure is recorded before fallback or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 3630,
+    "column": 16,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The consumed provider reactor failure is recorded before fallback or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 3661,
+    "column": 28,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "The provider turn failure reaches the event-processing recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 3739,
+    "column": 28,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "The provider turn failure reaches the event-processing recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 3768,
+    "column": 28,
+    "kind": "rejection",
+    "disposition": "propagates",
+    "reason": "The provider turn failure reaches the event-processing recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 4288,
+    "column": 20,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "The provider turn failure reaches the event-processing recorder.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 4317,
+    "column": 14,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The consumed provider reactor failure is recorded before fallback or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 4338,
+    "column": 14,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The consumed provider reactor failure is recorded before fallback or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 4514,
+    "column": 18,
+    "kind": "catch",
+    "disposition": "expected-recovery",
+    "reason": "A newer provider lifecycle projection won the compare-and-set race.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 4610,
+    "column": 18,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The consumed provider reactor failure is recorded before fallback or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 4759,
+    "column": 22,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The consumed provider reactor failure is recorded before fallback or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 5069,
+    "column": 14,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The consumed provider reactor failure is recorded before fallback or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  },
+  {
+    "file": "apps/server/src/orchestration/Layers/ProviderCommandReactor.ts",
+    "line": 5305,
+    "column": 16,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The consumed provider reactor failure is recorded before fallback or retry.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "provider.reactor"
+    }
+  }
+]

@@ -39,6 +39,8 @@ import {
 } from "./targetResolver.ts";
 import { ToolInputError, errorText } from "./toolInput.ts";
 import { GatewayToolError, gatewayToolErrorResult } from "./toolRuntime.ts";
+import { recordGatewayCreateFailure } from "./createFailureDiagnostics.ts";
+import { recordGatewayConsumedFailure } from "./gatewayFailureDiagnostics.ts";
 
 const REQUEST_FINGERPRINT_VERSION = 1;
 const CREATION_PLAN_SCHEMA_VERSION = 1;
@@ -214,14 +216,18 @@ export const makeCreateThreadHandler = Effect.fn(function* (
           yield* Effect.suspend(() =>
             dependencies.onThreadCreated!(context.callerThreadId, result.threadId),
           ).pipe(
-            Effect.catchCause((cause) =>
-              Effect.logWarning("agent gateway could not inherit the child Thread's home window", {
-                operationId,
-                parentThreadId: context.callerThreadId,
-                childThreadId: result.threadId,
-                error: Cause.pretty(cause),
-              }),
-            ),
+            Effect.catchCause((cause) => {
+              recordGatewayConsumedFailure(cause);
+              return Effect.logWarning(
+                "agent gateway could not inherit the child Thread's home window",
+                {
+                  operationId,
+                  parentThreadId: context.callerThreadId,
+                  childThreadId: result.threadId,
+                  error: Cause.pretty(cause),
+                },
+              );
+            }),
             Effect.forkDetach({ startImmediately: true }),
             Effect.asVoid,
           );
@@ -271,13 +277,14 @@ export const makeCreateThreadHandler = Effect.fn(function* (
         }
         yield* context.assertAuthority();
         yield* orchestrationEngine.dispatch(recapCommand).pipe(
-          Effect.catch((error) =>
-            Effect.logWarning("agent gateway could not append thread creation recap", {
+          Effect.catch((error) => {
+            recordGatewayConsumedFailure(error);
+            return Effect.logWarning("agent gateway could not append thread creation recap", {
               operationId,
               callerThreadId: context.callerThreadId,
               error: errorText(error),
-            }),
-          ),
+            });
+          }),
         );
         return result;
       });
@@ -449,10 +456,12 @@ export const makeCreateThreadHandler = Effect.fn(function* (
     }).pipe(
       Effect.catch((error) => {
         if (error instanceof GatewayToolError || error instanceof AgentGatewayTargetError) {
+          recordGatewayConsumedFailure(error);
           return Effect.succeed(gatewayToolErrorResult(error));
         }
         const threadGuard = findThreadGuardInvariant(error);
         if (threadGuard?.code === "thread_archived") {
+          recordGatewayConsumedFailure(new GatewayToolError(threadGuard.code, threadGuard.detail));
           return Effect.succeed(
             gatewayToolErrorResult(new GatewayToolError(threadGuard.code, threadGuard.detail)),
           );
@@ -460,6 +469,7 @@ export const makeCreateThreadHandler = Effect.fn(function* (
 
         const provenance = extractGatewayErrorProvenance(error);
         const retainedThread = dispatchAttempted;
+        recordGatewayCreateFailure(idsForError.threadId, retainedThread);
         const diagnosticWrite: Effect.Effect<"retained" | "write-failed" | null> = retainedThread
           ? diagnostics
               .recordOperationalDiagnostic({

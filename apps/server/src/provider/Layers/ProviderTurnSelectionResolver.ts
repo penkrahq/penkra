@@ -13,6 +13,7 @@ import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts"
 import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
 import {
   claudeAccountsMatch,
+  claudeAccountTransitionMatchesCommittedBinding,
   readClaudeThreadAccount,
   rememberClaudeThreadAccount,
 } from "../claudeThreadNativeState.ts";
@@ -502,6 +503,7 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
         (installationChanged && state.value.providerSessionId !== null);
 
       let connectionLabel: string | null = null;
+      let claudeAccountTransition: ResolvedProviderTurnSelection["claudeAccountTransition"];
       if (connectionId === null) {
         if (!manifest.anonymous?.authorizesInternalProvider(internalProviderId)) {
           return yield* fail("This model needs a signed-in Connection.", "connection_unauthorized");
@@ -514,10 +516,9 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
         });
         connectionLabel = connection.label;
         if (state.value.harness === "claudeAgent") {
-          // A Thread's Claude conversation belongs to one provider account. The
-          // owner is recorded when the Thread is created, so it is compared on
-          // every turn, not only when the Connection id changes: re-authenticating
-          // the same Connection as another account must not expose the transcript.
+          // An ordinary resume must still use the recorded account. An explicit
+          // revision-checked Connection change is carried into the switch saga,
+          // which changes ownership only after the new binding commits.
           const recorded = yield* Effect.tryPromise({
             try: () => readClaudeThreadAccount(config.stateDir, input.threadId),
             catch: (cause) =>
@@ -526,13 +527,46 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
                 cause,
               }),
           });
+          const explicitConnectionSwitch =
+            input.connectionId !== undefined &&
+            connectionId !== binding.value.connectionId &&
+            binding.value.connectionId !== null;
           if (recorded !== null && !claudeConnectionsShareAccount(recorded, connection)) {
-            return yield* fail(
-              "This thread's Claude conversation belongs to a different Claude account. Use a Connection signed in to that account, or start a new thread.",
-              "connection_unauthorized",
-            );
+            if (!explicitConnectionSwitch) {
+              const committedTransition = yield* Effect.tryPromise({
+                try: () =>
+                  claudeAccountTransitionMatchesCommittedBinding({
+                    stateDir: config.stateDir,
+                    threadId: input.threadId,
+                    connectionId,
+                    bindingRevision: binding.value.revision,
+                    account: {
+                      authenticationMethodId: connection.authenticationMethodId,
+                      providerIdentityId: connection.providerIdentityId,
+                    },
+                  }),
+                catch: (cause) =>
+                  new ProviderTurnSelectionResolutionError({
+                    detail: "Could not read the pending Claude account transition.",
+                    cause,
+                  }),
+              });
+              if (!committedTransition)
+                return yield* fail(
+                  "This thread's Claude conversation belongs to a different Claude account. Use a Connection signed in to that account, or start a new thread.",
+                  "connection_unauthorized",
+                );
+            } else {
+              claudeAccountTransition = {
+                source: recorded,
+                target: {
+                  authenticationMethodId: connection.authenticationMethodId,
+                  providerIdentityId: connection.providerIdentityId,
+                },
+              };
+            }
           }
-          if (connectionId !== binding.value.connectionId && binding.value.connectionId !== null) {
+          if (explicitConnectionSwitch && recorded === null) {
             const previous = yield* connections.getRecord(binding.value.connectionId).pipe(
               Effect.mapError(
                 (cause) =>
@@ -542,14 +576,23 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
                   }),
               ),
             );
-            if (
-              Option.isNone(previous) ||
-              !claudeConnectionsShareAccount(previous.value, connection)
-            ) {
+            if (Option.isNone(previous)) {
               return yield* fail(
                 "This thread's Claude conversation belongs to a different Claude account. Use a Connection signed in to that account, or start a new thread.",
                 "connection_unauthorized",
               );
+            }
+            if (!claudeConnectionsShareAccount(previous.value, connection)) {
+              claudeAccountTransition = {
+                source: {
+                  authenticationMethodId: previous.value.authenticationMethodId,
+                  providerIdentityId: previous.value.providerIdentityId,
+                },
+                target: {
+                  authenticationMethodId: connection.authenticationMethodId,
+                  providerIdentityId: connection.providerIdentityId,
+                },
+              };
             }
           }
           if (recorded === null) {
@@ -561,8 +604,12 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
                   stateDir: config.stateDir,
                   threadId: input.threadId,
                   account: {
-                    authenticationMethodId: connection.authenticationMethodId,
-                    providerIdentityId: connection.providerIdentityId,
+                    authenticationMethodId:
+                      claudeAccountTransition?.source.authenticationMethodId ??
+                      connection.authenticationMethodId,
+                    providerIdentityId:
+                      claudeAccountTransition?.source.providerIdentityId ??
+                      connection.providerIdentityId,
                   },
                 }),
               catch: (cause) =>
@@ -602,6 +649,7 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
         bindingRevision: binding.value.revision,
         changed,
         requiresNativeStateMaterialization,
+        ...(claudeAccountTransition === undefined ? {} : { claudeAccountTransition }),
       };
     });
 

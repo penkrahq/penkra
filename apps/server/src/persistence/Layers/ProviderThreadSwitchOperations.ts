@@ -9,6 +9,7 @@ import { toPersistenceSqlOrDecodeError } from "../Errors.ts";
 import {
   ProviderThreadSwitchOperationRecord,
   ProviderThreadSwitchOperationRepository,
+  RESUME_PROBE_ATTEMPTED_JSON,
   type ProviderThreadSwitchOperationRepositoryShape,
 } from "../Services/ProviderThreadSwitchOperations.ts";
 
@@ -108,6 +109,17 @@ const make = Effect.gen(function* () {
         })(),
       ),
     markInterruptedWithSettledSelection,
+    markResumeProbeAttempted: ({ id, updatedAt }) =>
+      mapped(
+        "ProviderThreadSwitchOperationRepository.markResumeProbeAttempted",
+        sql<{ readonly id: string }>`
+          UPDATE provider_thread_switch_operations
+          SET verification_json = ${RESUME_PROBE_ATTEMPTED_JSON}, updated_at = ${updatedAt}
+          WHERE operation_id = ${id} AND operation_state = 'interrupted'
+            AND verification_json IS NULL
+          RETURNING operation_id AS id
+        `.pipe(Effect.map((rows) => rows.length === 1)),
+      ),
     transition,
     markCommittedInCurrentTransaction: ({ id, updatedAt }) =>
       transition({ id, state: "committed", failureReason: null, updatedAt }),

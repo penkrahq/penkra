@@ -1,0 +1,137 @@
+[
+  {
+    "file": "apps/web/src/lib/composerSend.ts",
+    "line": 58,
+    "column": 18,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "A rejected diagnostic IPC promise is isolated so it cannot delay an attachment operation.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/web/src/lib/composerSend.ts",
+    "line": 59,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "diagnostics-isolated",
+    "reason": "A synchronous diagnostic IPC failure is isolated so it cannot delay an attachment operation.",
+    "reviewer": "diagnostics-0143"
+  },
+  {
+    "file": "apps/web/src/lib/composerSend.ts",
+    "line": 300,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Cancellation transport failure is recorded with a fixed content-free external-call code.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.composer_attachment_cancel"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/composerSend.ts",
+    "line": 345,
+    "column": 24,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "Missing saved attachment reaches the upload catch, which records send preflight failure.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "SEND_PREFLIGHT_REJECTED",
+      "where": "browser.composer_attachment_upload"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/composerSend.ts",
+    "line": 360,
+    "column": 46,
+    "kind": "catch",
+    "disposition": "propagates",
+    "reason": "An invalid JSON response becomes null and reaches the upload rejection and recording catch.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "SEND_PREFLIGHT_REJECTED",
+      "where": "browser.composer_attachment_upload"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/composerSend.ts",
+    "line": 370,
+    "column": 9,
+    "kind": "throw",
+    "disposition": "propagates",
+    "reason": "Invalid upload response reaches the enclosing catch, which records send preflight failure.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "SEND_PREFLIGHT_REJECTED",
+      "where": "browser.composer_attachment_upload"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/composerSend.ts",
+    "line": 375,
+    "column": 5,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The upload catch records every failed preflight before compensating and rethrowing.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "SEND_PREFLIGHT_REJECTED",
+      "where": "browser.composer_attachment_upload"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/composerSend.ts",
+    "line": 382,
+    "column": 5,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The original upload error was recorded by the enclosing catch before this rethrow.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "SEND_PREFLIGHT_REJECTED",
+      "where": "browser.composer_attachment_upload"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/composerSend.ts",
+    "line": 401,
+    "column": 7,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "The dispatch catch records rejection before compensating staged attachments.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "COMMAND_REJECTED",
+      "where": "browser.composer_attachment_dispatch"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/composerSend.ts",
+    "line": 408,
+    "column": 7,
+    "kind": "throw",
+    "disposition": "rethrow",
+    "reason": "The dispatch rejection was recorded by this catch before the original error is rethrown.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "COMMAND_REJECTED",
+      "where": "browser.composer_attachment_dispatch"
+    }
+  },
+  {
+    "file": "apps/web/src/lib/composerSend.ts",
+    "line": 511,
+    "column": 9,
+    "kind": "catch",
+    "disposition": "recorded",
+    "reason": "Asset hydration failure is recorded before the individual asset is skipped.",
+    "reviewer": "diagnostics-0143",
+    "boundary": {
+      "code": "EXTERNAL_CALL_FAILED",
+      "where": "browser.composer_attachment_hydrate"
+    }
+  }
+]
