@@ -90,6 +90,7 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
   public readonly setMaxThinkingTokensCalls: Array<number | null> = [];
   public readonly applyFlagSettingsCalls: Array<Record<string, unknown>> = [];
   public getContextUsageCalls = 0;
+  public onGetContextUsage?: () => void;
   private contextUsageResponse: SDKControlGetContextUsageResponse | undefined;
   private contextUsageNeverResolves = false;
   public closeCalls = 0;
@@ -167,6 +168,7 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
 
   readonly getContextUsage = async (): Promise<SDKControlGetContextUsageResponse> => {
     this.getContextUsageCalls += 1;
+    this.onGetContextUsage?.();
     if (this.contextUsageNeverResolves) {
       return new Promise<SDKControlGetContextUsageResponse>(() => {});
     }
@@ -1355,6 +1357,21 @@ describe("ClaudeAdapterLive", () => {
       const authorityAtDelivery = yield* Effect.promise(() => delivered);
       assert.equal(authorityAtDelivery?.turnId, String(turn.turnId));
       assert.isTrue(registry.verifyWriteAuthority(authorityAtDelivery!));
+      const usageEntered = new Promise<void>((resolve) => {
+        harness.query.onGetContextUsage = resolve;
+      });
+      harness.query.emit({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        errors: [],
+        session_id: "sdk-session-terminal-authority",
+        uuid: "terminal-authority-result",
+      } as unknown as SDKMessage);
+      yield* Effect.promise(() => usageEntered);
+      // Terminal observation clears authority before slow SDK work and without consuming runtime events.
+      assert.isNull(registry.bindWriteAuthority(token!));
+      assert.isFalse(registry.verifyWriteAuthority(authorityAtDelivery!));
     }).pipe(Effect.provide(harness.layer));
   });
 

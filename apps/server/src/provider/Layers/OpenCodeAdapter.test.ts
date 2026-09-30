@@ -4463,6 +4463,10 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
       authority: null,
     };
     const base = makeGatewayCredentials().credentials;
+    let ended!: () => void;
+    const terminalObserved = new Promise<void>((resolve) => {
+      ended = resolve;
+    });
     const credentials: AgentGatewayCredentialsShape = {
       ...base,
       connectionForThread: (threadId, provider, generation) => {
@@ -4470,11 +4474,16 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         return { url: base.mcpEndpointUrl, bearerToken: token };
       },
       beginTurn: registry.beginTurn,
-      endTurn: registry.endTurn,
+      endTurn: (...args) => {
+        registry.endTurn(...args);
+        ended();
+      },
       bindWriteAuthority: registry.bindWriteAuthority,
       verifyWriteAuthority: registry.verifyWriteAuthority,
     };
+    const eventQueue = createSubscribedEventQueue();
     const runtime = createMockOpenCodeRuntime({
+      events: eventQueue.stream,
       promptAsync: async () => {
         promptObservation.authority = token ? registry.bindWriteAuthority(token) : null;
         return { data: null };
@@ -4489,12 +4498,39 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
           threadId,
           runtimeMode: "full-access",
         });
-        return yield* adapter.sendTurn({
+        const turn = yield* adapter.sendTurn({
           threadId,
           input: "Call the host tool immediately",
           attachments: [],
           modelSelection: { provider: "opencode", model: "opencode/claude-opus-4-7" },
         });
+        expect(registry.verifyWriteAuthority(promptObservation.authority!)).toBe(true);
+        eventQueue.push({
+          type: "message.updated",
+          properties: {
+            sessionID: "opencode-session-1",
+            info: { id: "authority-assistant", role: "assistant" },
+          },
+        });
+        eventQueue.push({
+          type: "message.part.updated",
+          properties: {
+            sessionID: "opencode-session-1",
+            part: {
+              id: "authority-text",
+              messageID: "authority-assistant",
+              type: "text",
+              text: "done",
+              time: { start: 1, end: 2 },
+            },
+          },
+        });
+        eventQueue.push({ type: "session.idle", properties: { sessionID: "opencode-session-1" } });
+        yield* Effect.promise(() => terminalObserved);
+        expect(registry.bindWriteAuthority(token!)).toBeNull();
+        expect(registry.verifyWriteAuthority(promptObservation.authority!)).toBe(false);
+        eventQueue.close();
+        return turn;
       }).pipe(
         Effect.provide(
           makeOpenCodeAdapterLive({
@@ -4510,7 +4546,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
       ),
     );
     expect(promptObservation.authority?.turnId).toBe(String(turn.turnId));
-    expect(registry.verifyWriteAuthority(promptObservation.authority!)).toBe(true);
+    expect(registry.verifyWriteAuthority(promptObservation.authority!)).toBe(false);
   });
 
   it("completes an OpenCode turn from the exact parent message when terminal SSE is missed", async () => {
