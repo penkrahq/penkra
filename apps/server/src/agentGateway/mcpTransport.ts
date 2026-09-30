@@ -264,6 +264,17 @@ export function makeAgentGatewayMcpTransport(input: {
               ),
             );
           }
+          const arrivedOriginTurnId = requestInput.originTurnId?.trim();
+          if (arrivedOriginTurnId && arrivedOriginTurnId !== callerWriteAuthority.turnId) {
+            return yield* failCallerTurnInactive(
+              "origin_turn_does_not_own_execution",
+              new GatewayToolError(
+                "caller_turn_inactive",
+                "This Penkra write was rejected because its originating turn is no longer active.",
+                { callerThreadId },
+              ),
+            );
+          }
           if (!input.credentials.verifyWriteAuthority(callerWriteAuthority)) {
             return yield* failCallerTurnInactive(
               "authorized_turn_no_longer_active",

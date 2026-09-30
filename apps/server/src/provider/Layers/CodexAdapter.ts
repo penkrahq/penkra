@@ -1734,6 +1734,13 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
                         PROVIDER,
                         lifecycleGeneration,
                       )!,
+                    beginTurn: (threadId, turnId, lifecycleGeneration) =>
+                      agentGatewayCredentials.beginTurn(
+                        threadId,
+                        PROVIDER,
+                        String(turnId),
+                        lifecycleGeneration,
+                      ),
                     requireNativeSurface: agentGatewayToolBridge!.requireSurface,
                   },
                 }
