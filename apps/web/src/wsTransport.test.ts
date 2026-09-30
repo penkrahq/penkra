@@ -220,6 +220,51 @@ describe("WsTransport", () => {
     await transport.dispose();
   });
 
+  it("suppresses only the exact intentional reconnect cancellation", async () => {
+    const recordDiagnosticIncident = vi.fn().mockResolvedValue(undefined);
+    window.desktopBridge = { recordDiagnosticIncident } as never;
+    const transport = new WsTransport("ws://localhost:3020/ws");
+    const method = ORCHESTRATION_WS_METHODS.dispatchCommand;
+    const client = { [method]: vi.fn(() => ({})) };
+    const runtime = {
+      runPromise: vi
+        .fn()
+        .mockImplementationOnce(() => new Promise(() => {}))
+        .mockResolvedValue(undefined),
+      dispose: vi.fn().mockResolvedValue(undefined),
+    };
+    const internals = transport as unknown as {
+      getClient: () => Promise<typeof client>;
+      getClientRuntime: () => typeof runtime;
+      runtime: typeof runtime;
+      openReconnectSession: () => Promise<typeof client>;
+      reconnect: (intentional: boolean) => Promise<typeof client>;
+      activeRequests: Map<object, Set<AbortController>>;
+    };
+    const originalRuntime = internals.runtime;
+    internals.runtime = runtime;
+    internals.openReconnectSession = vi.fn().mockResolvedValue(client);
+    internals.getClient = vi.fn().mockResolvedValue(client);
+    internals.getClientRuntime = vi.fn(() => runtime);
+    const pending = transport.request(method, { command: {} }, { timeoutMs: null });
+    const cancelled = expect(pending).rejects.toThrow("intentional reconnect");
+    await vi.waitFor(() => expect(internals.activeRequests.get(runtime)?.size).toBe(1));
+    await internals.reconnect(true);
+    await cancelled;
+    expect(recordDiagnosticIncident).not.toHaveBeenCalled();
+    const unrelated = new Error("WebSocket RPC cancelled by intentional reconnect");
+    runtime.runPromise.mockRejectedValueOnce(unrelated as never);
+    await expect(transport.request(method, { command: {} }, { timeoutMs: null })).rejects.toBe(
+      unrelated,
+    );
+    expect(recordDiagnosticIncident).toHaveBeenCalledWith(
+      expect.objectContaining({ where: "browser.socket_rpc" }),
+    );
+    expect(internals.activeRequests.size).toBe(0);
+    internals.runtime = originalRuntime;
+    await transport.dispose();
+  });
+
   it("records consumed transport failures with a fixed privacy-safe payload", () => {
     const recordDiagnosticIncident = vi.fn().mockResolvedValue(undefined);
     window.desktopBridge = { recordDiagnosticIncident } as never;
