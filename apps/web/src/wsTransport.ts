@@ -493,6 +493,8 @@ export class WsTransport {
   private clientScope: Scope.Closeable;
   private clientPromise: Promise<RpcClientInstance>;
   private reconnectPromise: Promise<RpcClientInstance> | null = null;
+  private readonly activeRequests = new Map<object, Set<AbortController>>();
+  private readonly intentionalReconnectErrors = new WeakSet<object>();
   private reconnectFailures = 0;
   private reconnectQaTrace: ReturnType<typeof startDiagnosticTrace> | null = null;
   private readonly qaSocketClientId = startDiagnosticTrace().traceId;
@@ -590,10 +592,17 @@ export class WsTransport {
         )[method];
         if (!call) throw new WsTransportRpcError({ message: `Unknown RPC method: ${method}` });
         const clientRuntime = this.getClientRuntime(client);
+        const controller = new AbortController();
+        const forwardAbort = () => controller.abort(abortScope.signal?.reason);
+        if (abortScope.signal?.aborted) forwardAbort();
+        else abortScope.signal?.addEventListener("abort", forwardAbort, { once: true });
+        const activeRequests = this.activeRequests.get(clientRuntime) ?? new Set<AbortController>();
+        activeRequests.add(controller);
+        this.activeRequests.set(clientRuntime, activeRequests);
         try {
-          const result = await clientRuntime.runPromise(
-            call(normalizedRpcInput),
-            abortScope.signal ? { signal: abortScope.signal } : undefined,
+          const result = await awaitWithAbort(
+            clientRuntime.runPromise(call(normalizedRpcInput), { signal: controller.signal }),
+            controller.signal,
           );
           if (method === ORCHESTRATION_WS_METHODS.acknowledgeSync) {
             const acknowledgement = normalizedRpcInput as {
@@ -613,6 +622,13 @@ export class WsTransport {
           }
           return result as T;
         } catch (error) {
+          if (
+            typeof error === "object" &&
+            error !== null &&
+            this.intentionalReconnectErrors.has(error)
+          ) {
+            throw error;
+          }
           // Orchestration commands carry a durable command ID and fingerprint.
           // Reissuing the identical request after connection loss is therefore
           // safe whether the old server committed before its response or died
@@ -653,6 +669,10 @@ export class WsTransport {
               ),
             };
           }
+        } finally {
+          abortScope.signal?.removeEventListener("abort", forwardAbort);
+          activeRequests.delete(controller);
+          if (activeRequests.size === 0) this.activeRequests.delete(clientRuntime);
         }
       }
     } catch (error) {
@@ -1004,7 +1024,7 @@ export class WsTransport {
     return runtime;
   }
 
-  private reconnect(): Promise<RpcClientInstance> {
+  private reconnect(intentional = false): Promise<RpcClientInstance> {
     if (this.reconnectPromise) return this.reconnectPromise;
 
     this.syncDeliveryId = undefined;
@@ -1016,6 +1036,13 @@ export class WsTransport {
     // stream ownership before invoking cancellations so their exit callbacks
     // cannot independently replace this session.
     const reconnect = Promise.resolve().then(async () => {
+      if (intentional) {
+        const cancellation = new Error("WebSocket RPC cancelled by intentional reconnect");
+        this.intentionalReconnectErrors.add(cancellation);
+        for (const request of this.activeRequests.get(oldRuntime) ?? []) {
+          request.abort(cancellation);
+        }
+      }
       this.resetAllStreamCapacityRetries();
       const cleanups = [...this.streamCleanups.values()];
       this.streamCleanups.clear();
@@ -1042,7 +1069,7 @@ export class WsTransport {
   async reconnectForQa(): Promise<void> {
     if (!import.meta.env.DEV || !window.desktopBridge?.qaOpenWindow)
       throw new Error("Diagnostics QA transport action is unavailable");
-    await this.reconnect();
+    await this.reconnect(true);
   }
 
   private setState(state: WsTransportState): void {
