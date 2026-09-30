@@ -78,10 +78,10 @@ function recordAgentWriteResponse(message) {
   const pending = pendingWriteCalls.get(message.id);
   if (!pending) return;
   pendingWriteCalls.delete(message.id);
-  const proofDir = process.env.PENKRA_DIAGNOSTICS_QA_PROOF_DIR;
+  const proofDir = process.env.CODEX_HOME;
   if (!proofDir) return;
   fs.appendFileSync(
-    path.join(proofDir, "agent-write-steer.jsonl"),
+    path.join(proofDir, "qa-agent-write-steer.jsonl"),
     `${JSON.stringify({ ...pending, success: message.result?.success === true })}\n`,
     { mode: 0o600 },
   );
