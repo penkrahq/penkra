@@ -9325,6 +9325,9 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
                               visualState="stop"
                               onClick={() => void onInterrupt()}
                               aria-label="Stop generation"
+                              data-thread-id={activeThreadId}
+                              data-turn-id={activeLatestTurn?.turnId}
+                              data-turn-state={activeLatestTurn?.state}
                               title="Stop the current response. On Mac, press Ctrl+C to interrupt."
                             />
                           </>
