@@ -18,9 +18,13 @@ describe("scripted provider QA fixture", () => {
     const root = fs.mkdtempSync("/tmp/penkra-diagnostics-qa-title.");
     const output = path.join(root, "title.json");
     try {
-      const child = spawn(process.execPath, [fixture, "exec", "--output-last-message", output, "-"], {
-        stdio: ["pipe", "pipe", "pipe"],
-      });
+      const child = spawn(
+        process.execPath,
+        [fixture, "exec", "--output-last-message", output, "-"],
+        {
+          stdio: ["pipe", "pipe", "pipe"],
+        },
+      );
       let stderr = "";
       child.stderr!.on("data", (chunk: Buffer) => {
         stderr += chunk.toString("utf8");
