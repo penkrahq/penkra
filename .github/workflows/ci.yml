@@ -148,6 +148,9 @@ jobs:
       - name: Build desktop pipeline
         run: bun run build:desktop
 
+      - name: Verify diagnostics QA exclusions in normal bundles
+        run: bun run test:diagnostics-bundles
+
       - name: Verify preload bundle output
         run: |
           test -f apps/desktop/dist-electron/preload.js

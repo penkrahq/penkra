@@ -47,6 +47,7 @@
     "diagnostics:qa:gate": "bun scripts/diagnostics-qa-gate.ts",
     "lint:advisory": "oxlint --report-unused-disable-directives",
     "test": "turbo run test",
+    "test:diagnostics-bundles": "bun run --cwd scripts test:diagnostics-bundles",
     "brand:check": "node scripts/check-brand-identity.ts",
     "migrations:check": "node scripts/check-migration-lineage.ts",
     "plan:check": "node scripts/check-product-plan.ts",
