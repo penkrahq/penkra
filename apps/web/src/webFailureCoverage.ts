@@ -3,7 +3,7 @@ import type { IncidentInput } from "@penkra/shared/diagnostics/store";
 
 type WebIncident = Omit<IncidentInput, "traceId" | "spanId">;
 
-function recordDiagnosticIncident(input: WebIncident): void {
+export function recordDiagnosticIncident(input: WebIncident): void {
   try {
     const pending = window.desktopBridge?.recordDiagnosticIncident?.({
       ...startDiagnosticTrace(),

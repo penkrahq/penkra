@@ -5,6 +5,7 @@
 // Depends on: browser media devices, Web Audio API, and FileReader for base64 encoding.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { recordWebConsumedFailure } from "../webFailureCoverage";
 
 import {
   encodeVoiceChunkWav,
@@ -264,6 +265,7 @@ export function useVoiceRecorder() {
           setDurationMs(Math.max(0, performance.now() - activeRuntime.startedAt));
         }, 200);
       } catch (error) {
+        recordWebConsumedFailure("runtime");
         processorNode?.disconnect();
         sourceNode?.disconnect();
         silentGainNode?.disconnect();
