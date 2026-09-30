@@ -93,6 +93,30 @@ import {
 } from "./provider/computerUseCapability.ts";
 
 const log = createLogger("codex");
+const SESSION_STOPPED_REQUEST_MESSAGE = "Session stopped before request completed.";
+
+export class CodexSessionStoppedRequestError extends Error {
+  constructor() {
+    super(SESSION_STOPPED_REQUEST_MESSAGE);
+  }
+}
+
+export function recordCodexCapabilityPreflightFailure(input: {
+  readonly stopping: boolean;
+  readonly threadId: ThreadId;
+  readonly error: unknown;
+}): void {
+  // stopSession rejects outstanding requests before tearing down the probe.
+  // That rejection is the expected result of disposing a verification session.
+  if (input.stopping && input.error instanceof CodexSessionStoppedRequestError) {
+    return;
+  }
+  recordCodexManagerFailure();
+  log.warn("Computer Use capability preflight failed", {
+    threadId: input.threadId,
+    error: input.error,
+  });
+}
 
 type PendingRequestKey = string;
 
@@ -1432,8 +1456,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         `Connected to thread ${providerThreadId}`,
       );
       void this.refreshComputerUseCapabilityHealth(context, providerThreadId).catch((error) => {
-        recordCodexManagerFailure();
-        log.warn("Computer Use capability preflight failed", {
+        recordCodexCapabilityPreflightFailure({
+          stopping: context?.stopping === true,
           threadId,
           error,
         });
@@ -2408,7 +2432,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       void this.clearTemporaryResources(context);
       context.gatewaySessionLease?.release();
 
-      this.rejectPendingRequests(context, new Error("Session stopped before request completed."));
+      this.rejectPendingRequests(context, new CodexSessionStoppedRequestError());
       if (this.hasPendingHumanRequests(context)) {
         // Answer parked server requests while stdin is still writable, then close.
         // Time-boxed so a child that stopped reading stdin cannot stall teardown.

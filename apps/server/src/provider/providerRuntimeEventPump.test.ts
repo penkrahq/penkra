@@ -182,7 +182,11 @@ describe("providerRuntimeEventPump", () => {
       ),
     );
     const db = openDiagnosticsReader(stateDir)!;
-    expect(db.prepare("SELECT code, context_json FROM incidents").get()).toMatchObject({
+    expect(
+      db
+        .prepare("SELECT code, context_json FROM incidents WHERE code = ?")
+        .get("PROVIDER_EVENT_DECODE_FAILED"),
+    ).toMatchObject({
       code: "PROVIDER_EVENT_DECODE_FAILED",
       context_json: expect.stringContaining('"providerEventType":"turn.completed"'),
     });
