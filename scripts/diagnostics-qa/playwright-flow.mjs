@@ -28,6 +28,17 @@ function threadId(page) {
   return id;
 }
 
+function diagnosticsDetailFrontier(stateDir) {
+  const db = new DatabaseSync(path.join(stateDir, "diagnostics", "diagnostics.sqlite"), {
+    readOnly: true,
+  });
+  try {
+    return db.prepare("SELECT COALESCE(MAX(id), 0) AS id FROM detail").get().id;
+  } finally {
+    db.close();
+  }
+}
+
 async function waitForDetail(stateDir, flow, step, thread, timeoutMs = 12_000, match = {}) {
   const database = path.join(stateDir, "diagnostics", "diagnostics.sqlite");
   const deadline = Date.now() + timeoutMs;
@@ -342,6 +353,7 @@ async function run(flow, page, stateDir) {
     case "reconnect": {
       const id = await newThread(page, stateDir);
       await send(page, stateDir, id, `qa:reconnect-${Date.now()}`);
+      const afterId = diagnosticsDetailFrontier(stateDir);
       const recovered = await page.evaluate(async (targetId) => {
         const { readNativeApi, reconnectNativeApiTransportForQa } =
           await import("/src/nativeApi.ts");
@@ -354,7 +366,18 @@ async function run(flow, page, stateDir) {
         return detail?.thread?.id === targetId;
       }, id);
       if (!recovered) throw new Error("Thread RPC failed after transport recovery");
-      await waitForDetail(stateDir, "socket_connect", "socket.reconnected", null, 20_000);
+      const disconnected = await waitForDetail(
+        stateDir,
+        "socket_connect",
+        "socket.disconnected",
+        null,
+        20_000,
+        { afterId },
+      );
+      await waitForDetail(stateDir, "socket_connect", "socket.reconnected", null, 20_000, {
+        afterId,
+        traceId: disconnected.trace_id,
+      });
       return;
     }
     case "provider-switch": {
