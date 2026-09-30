@@ -157,12 +157,11 @@ async function writeJournal(filePath: string, record: AppUpdateJournalRecord): P
 }
 
 async function syncDirectory(directoryPath: string): Promise<void> {
+  if (!resolveDesktopPlatformAdapter().processLifecycle.syncDirectories) return;
   let handle: FS.promises.FileHandle | null = null;
   try {
     handle = await FS.promises.open(directoryPath, "r");
     await handle.sync();
-  } catch (error) {
-    if (resolveDesktopPlatformAdapter().processLifecycle.syncDirectories) throw error;
   } finally {
     await handle?.close().catch(() => undefined);
   }

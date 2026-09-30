@@ -56,6 +56,10 @@
       "types": "./src/logging.ts",
       "import": "./src/logging.ts"
     },
+    "./fsyncDirectory": {
+      "types": "./src/fsyncDirectory.ts",
+      "import": "./src/fsyncDirectory.ts"
+    },
     "./errorMessages": {
       "types": "./src/errorMessages.ts",
       "import": "./src/errorMessages.ts"
