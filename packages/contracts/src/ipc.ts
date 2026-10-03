@@ -551,6 +551,10 @@ export interface DesktopAppTabPresentation {
 }
 
 export interface DesktopAppTabsBridge {
+  claimActivation: (requestId: string) => Promise<boolean>;
+  onActivationRequested: (
+    listener: (input: { requestId: string; tab: DesktopAppTabDescriptor }) => void,
+  ) => () => void;
   list: (scope?: { deckId: string }) => Promise<ReadonlyArray<DesktopAppTabOpened>>;
   consumeListingRequest: () => Promise<{ appId: string } | null>;
   open: (input: {

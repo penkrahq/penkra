@@ -1110,8 +1110,8 @@ describe("AppTabObserver", () => {
     });
     await observer.snapshot("tab-1");
     await expect(observer.click("tab-1", "d1:e1")).rejects.toMatchObject({
-      code: "CLICK_NOT_DELIVERED",
-      message: expect.stringContaining("Present the tab in a visible window"),
+      code: "TAB_NOT_ACTIVE",
+      message: expect.stringContaining("Activate this tab"),
     });
     expect(sendCommand.mock.calls.some((call) => String(call[1]).includes("target.click"))).toBe(
       false,
@@ -1130,8 +1130,8 @@ describe("AppTabObserver", () => {
     });
     await observer.snapshot("tab-1");
     await expect(observer.click("tab-1", "d1:e1")).rejects.toMatchObject({
-      code: "CLICK_NOT_DELIVERED",
-      message: expect.stringContaining("Present the tab in a window"),
+      code: "TAB_NOT_ACTIVE",
+      message: expect.stringContaining("Activate this tab"),
     });
     expect(sendCommand.mock.calls.some(([method]) => method === "Input.dispatchMouseEvent")).toBe(
       false,
@@ -1219,6 +1219,93 @@ describe("AppTabObserver", () => {
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
+  });
+
+  it("preserves an explicitly unavailable caller surface instead of using another window", async () => {
+    const { contents, sendCommand } = makeContents();
+    const resolve = vi.fn((_tabId: string, _document: string, surfaceId?: number | null) => ({
+      descriptor,
+      webContents: contents,
+      isPresented: () => surfaceId === undefined,
+    }));
+    const observer = new AppTabObserver({ resolve });
+    await expect(
+      observer.runOnSurface(null, () =>
+        observer.act("tab-1", [{ action: "press", document: "d1", key: "Escape" }]),
+      ),
+    ).rejects.toMatchObject({ code: "TAB_NOT_ACTIVE", dispatched: false });
+    expect(resolve).toHaveBeenCalledWith("tab-1", "d1", null);
+    expect(sendCommand).not.toHaveBeenCalled();
+  });
+
+  it("rejects inactive interaction before any protocol call, with no delayed dispatch", async () => {
+    const { contents, sendCommand } = makeContents();
+    let active = true;
+    const observer = new AppTabObserver({
+      resolve: () => ({ descriptor, webContents: contents, isPresented: () => active }),
+    });
+    await observer.snapshot("tab-1");
+    sendCommand.mockClear();
+    active = false;
+    await expect(observer.act("tab-1", [{ action: "click", ref: "d1:e1" }])).rejects.toMatchObject({
+      code: "TAB_NOT_ACTIVE",
+      failedStep: 0,
+      completedSteps: [],
+      dispatched: false,
+      outcome: "not-started",
+    });
+    expect(sendCommand).not.toHaveBeenCalled();
+    active = true;
+    await Promise.resolve();
+    expect(sendCommand).not.toHaveBeenCalled();
+  });
+
+  it("cancels a pending geometry read and never resumes the click after reactivation", async () => {
+    const { contents, sendCommand } = makeContents();
+    let active = true;
+    let changed!: () => void;
+    let resolveGeometry!: (value: unknown) => void;
+    let geometryStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      geometryStarted = resolve;
+    });
+    const observer = new AppTabObserver({
+      resolve: () => ({
+        descriptor,
+        webContents: contents,
+        isPresented: () => active,
+        onPresentationChange: (listener) => {
+          changed = listener;
+          return () => undefined;
+        },
+      }),
+    });
+    await observer.snapshot("tab-1");
+    const original = sendCommand.getMockImplementation()!;
+    sendCommand.mockImplementation(async (method, params) => {
+      if (method === "DOM.getBoxModel") {
+        geometryStarted();
+        return new Promise((resolve) => {
+          resolveGeometry = resolve;
+        });
+      }
+      return original(method, params);
+    });
+    const action = observer.act("tab-1", [{ action: "click", ref: "d1:e1" }]);
+    const rejected = expect(action).rejects.toMatchObject({
+      code: "TAB_NOT_ACTIVE",
+      dispatched: false,
+    });
+    await started;
+    active = false;
+    changed();
+    await rejected;
+    active = true;
+    resolveGeometry({ model: { content: [0, 0, 20, 0, 20, 20, 0, 20] } });
+    await Promise.resolve();
+    expect(sendCommand.mock.calls.some(([method]) => method === "Input.dispatchMouseEvent")).toBe(
+      false,
+    );
   });
 
   it("validates upload files before assigning a file input", async () => {

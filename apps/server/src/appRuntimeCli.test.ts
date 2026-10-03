@@ -560,6 +560,12 @@ describe("penkra_exec_command discovery", () => {
 
     await executePenkraExecCommand(command("penkra", "tabs", "list"), context, {}, bridge);
     await executePenkraExecCommand(
+      command("penkra", "tabs", "activate", "--tab-id", "tab-A"),
+      context,
+      {},
+      bridge,
+    );
+    await executePenkraExecCommand(
       command("penkra", "tabs", "snapshot", "--tab-id", "tab-A", "--document", "d1"),
       context,
       {},
@@ -577,6 +583,7 @@ describe("penkra_exec_command discovery", () => {
 
     expect(calls).toEqual([
       { method: "tabs.list", params: context },
+      { method: "tabs.activate", params: { ...context, tabId: "tab-A" } },
       {
         method: "tabs.snapshot",
         params: { ...context, tabId: "tab-A", document: "d1" },

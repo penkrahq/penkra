@@ -21,6 +21,27 @@ afterEach(async () => {
 });
 
 describe("AppCommandPipeServer", () => {
+  it("preserves failed-step outcomes across the command bridge", () => {
+    const error = Object.assign(new Error("Activate this tab"), {
+      code: "TAB_NOT_ACTIVE",
+      tabId: "tab",
+      failedStep: 1,
+      completedSteps: [{ waited: true }],
+      dispatched: false,
+      outcome: "not-started",
+    });
+    expect(JSON.parse(serializeFailureResponse(error))).toMatchObject({
+      ok: false,
+      error: {
+        code: "TAB_NOT_ACTIVE",
+        tabId: "tab",
+        failedStep: 1,
+        completedSteps: [{ waited: true }],
+        dispatched: false,
+        outcome: "not-started",
+      },
+    });
+  });
   it("rejects agent access to an App whose manifest disables it", () => {
     expect(() => assertAppTabAgentAddressable({ name: "Sales", agentAddressable: false })).toThrow(
       "Sales does not allow agent observation or interaction.",
@@ -135,6 +156,11 @@ describe("AppCommandPipeServer", () => {
     };
     const snapshot = vi.fn(async () => ({ snapshot: "" }));
     const screenshot = vi.fn(async () => ({ kind: "image" }));
+    const activate = vi.fn(async (tab) => ({
+      tabId: tab.id,
+      state: "active",
+      readyForInteraction: true,
+    }));
     const act = vi.fn(async () => ({ steps: [] }));
     const observedSurfaceIds: Array<number | null> = [];
     const presentationThreads: string[] = [];
@@ -161,6 +187,8 @@ describe("AppCommandPipeServer", () => {
         currentFor: (_spaceId, deckId, surfaceId) =>
           deckId === "deck-1" ? (surfaceId === 202 ? secondTab : current) : null,
       },
+      activate,
+      presentation: (tab) => ({ state: tab.id === current.id ? "active" : "background" }),
       runOnThread: async (threadId, operation) => {
         presentationThreads.push(threadId);
         return operation();
@@ -402,7 +430,10 @@ describe("AppCommandPipeServer", () => {
     ).resolves.toEqual({
       ok: true,
       id: "request-tabs",
-      result: [current, secondTab, otherThreadTab, soleSalesTab, soleCanvasTab],
+      result: [current, secondTab, otherThreadTab, soleSalesTab, soleCanvasTab].map((tab) => ({
+        ...tab,
+        presentation: { state: tab.id === current.id ? "active" : "background" },
+      })),
     });
 
     await expect(
@@ -415,7 +446,10 @@ describe("AppCommandPipeServer", () => {
     ).resolves.toEqual({
       ok: true,
       id: "request-tabs-other-thread",
-      result: [current, secondTab, otherThreadTab, soleSalesTab, soleCanvasTab],
+      result: [current, secondTab, otherThreadTab, soleSalesTab, soleCanvasTab].map((tab) => ({
+        ...tab,
+        presentation: { state: tab.id === current.id ? "active" : "background" },
+      })),
     });
 
     await expect(
@@ -481,7 +515,40 @@ describe("AppCommandPipeServer", () => {
       [{ action: "press", document: "d1", key: "Escape" }],
       false,
       "thread-1",
+      expect.any(AbortSignal),
     );
+
+    await expect(
+      send(path, {
+        id: "activate",
+        token: "secret",
+        method: "tabs.activate",
+        params: {
+          spaceId: current.spaceId,
+          deckId: "deck-1",
+          threadId: "thread-1",
+          tabId: current.id,
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: { tabId: current.id, state: "active", readyForInteraction: true },
+    });
+    expect(activate).toHaveBeenCalledWith(current, "thread-1", expect.any(AbortSignal));
+    await expect(
+      send(path, {
+        id: "activate-outside",
+        token: "secret",
+        method: "tabs.activate",
+        params: {
+          spaceId: "space-other",
+          deckId: "deck-1",
+          threadId: "thread-1",
+          tabId: current.id,
+        },
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { code: "TAB_GONE" } });
+    expect(activate).toHaveBeenCalledOnce();
 
     await expect(
       send(path, {

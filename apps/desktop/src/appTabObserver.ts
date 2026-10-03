@@ -139,6 +139,7 @@ export interface AppTabObservationTarget {
   captureBounds?: () => Promise<Rectangle | null> | Rectangle | null;
   /** Whether the live tab is currently presented in a visible window. */
   isPresented?: () => boolean;
+  onPresentationChange?: (listener: () => void) => () => void;
   /** Whether detached pointer input is safe and supported on this platform. */
   canDeliverPointerInput?: () => boolean;
 }
@@ -147,7 +148,7 @@ export interface AppTabObserverResolver {
   resolve(
     tabId: string,
     document: AppTabDocument,
-    surfaceId?: number,
+    surfaceId?: number | null,
   ):
     | Promise<Omit<AppTabObservationTarget, "document"> & { document?: AppTabDocument }>
     | (Omit<AppTabObservationTarget, "document"> & { document?: AppTabDocument });
@@ -174,7 +175,7 @@ export interface AppTabObserverPerformanceSnapshot {
 
 export class AppTabObserver {
   readonly #resolver: AppTabObserverResolver;
-  readonly #surface = new AsyncLocalStorage<number | undefined>();
+  readonly #surface = new AsyncLocalStorage<number | null>();
   readonly #states = new Map<string, TabSnapshotState>();
   readonly #snapshotTails = new Map<string, Promise<void>>();
   readonly #protocolSessions = new Map<
@@ -190,6 +191,11 @@ export class AppTabObserver {
   readonly #cursorPositions = new Map<string, { x: number; y: number }>();
   readonly #activeTurnThreadIds = new Set<string>();
   readonly #cursorOwnerThread = new AsyncLocalStorage<string | undefined>();
+  readonly #interaction = new AsyncLocalStorage<{
+    controller: AbortController;
+    dispatched: boolean;
+    dispose?: () => void;
+  }>();
   #activeCursorKey: string | null = null;
   readonly #perfCounters = {
     snapshotCalls: 0,
@@ -208,7 +214,7 @@ export class AppTabObserver {
   }
 
   runOnSurface<T>(surfaceId: number | null, operation: () => Promise<T>): Promise<T> {
-    return this.#surface.run(surfaceId ?? undefined, operation);
+    return this.#surface.run(surfaceId, operation);
   }
 
   setActiveTurnThreadIds(threadIds: ReadonlyArray<string>): void {
@@ -272,7 +278,7 @@ export class AppTabObserver {
     this.#perfCounters.snapshotCalls += 1;
     try {
       const document = options.document ?? "d1";
-      const target = await this.#target(tabId, document);
+      const target = await this.#target(tabId, document, false, options.boxes === true);
       const loaderId = await this.#loaderId(target);
       const state = this.#state(tabId, target, loaderId);
       const scopedReference =
@@ -505,45 +511,77 @@ export class AppTabObserver {
     steps: ReadonlyArray<AppTabActStep>,
     human = false,
     ownerThreadId?: string,
+    signal?: AbortSignal,
   ): Promise<unknown> {
     return this.#cursorOwnerThread.run(ownerThreadId, async () => {
       const results: unknown[] = [];
-      for (const step of steps) {
-        switch (step.action) {
-          case "click":
-            results.push(await this.click(tabId, step.ref, false, human));
-            break;
-          case "hover":
-            results.push(await this.hover(tabId, step.ref, false, human));
-            break;
-          case "highlight":
-            results.push(await this.highlight(tabId, step.ref));
-            break;
-          case "type":
-            results.push(await this.type(tabId, step.ref, step.text, false, human));
-            break;
-          case "select":
-            results.push(await this.select(tabId, step.ref, step.value));
-            break;
-          case "upload":
-            results.push(await this.upload(tabId, step.ref, step.paths));
-            break;
-          case "press":
-            results.push(await this.press(tabId, step.key, false, step.document));
-            break;
-          case "scroll":
-            results.push(
-              await this.scroll(tabId, step.deltaX ?? 0, step.deltaY ?? 0, false, step.document),
-            );
-            break;
-          case "wait":
-            results.push(
-              await this.wait(tabId, step.text, step.timeoutMs ?? 10_000, step.document),
-            );
-            break;
-          case "dialog":
-            results.push(await this.handleDialog(tabId, step.accept, step.text));
-            break;
+      for (const [index, step] of steps.entries()) {
+        const controller = new AbortController();
+        const abort = () => controller.abort(signal?.reason);
+        signal?.addEventListener("abort", abort, { once: true });
+        if (signal?.aborted) abort();
+        const context = { controller, dispatched: false } as {
+          controller: AbortController;
+          dispatched: boolean;
+          dispose?: () => void;
+        };
+        try {
+          await this.#interaction.run(context, async () => {
+            controller.signal.throwIfAborted();
+            switch (step.action) {
+              case "click":
+                results.push(await this.click(tabId, step.ref, false, human));
+                break;
+              case "hover":
+                results.push(await this.hover(tabId, step.ref, false, human));
+                break;
+              case "highlight":
+                results.push(await this.highlight(tabId, step.ref));
+                break;
+              case "type":
+                results.push(await this.type(tabId, step.ref, step.text, false, human));
+                break;
+              case "select":
+                results.push(await this.select(tabId, step.ref, step.value));
+                break;
+              case "upload":
+                results.push(await this.upload(tabId, step.ref, step.paths));
+                break;
+              case "press":
+                results.push(await this.press(tabId, step.key, false, step.document));
+                break;
+              case "scroll":
+                results.push(
+                  await this.scroll(
+                    tabId,
+                    step.deltaX ?? 0,
+                    step.deltaY ?? 0,
+                    false,
+                    step.document,
+                  ),
+                );
+                break;
+              case "wait":
+                results.push(
+                  await this.wait(tabId, step.text, step.timeoutMs ?? 10_000, step.document),
+                );
+                break;
+              case "dialog":
+                results.push(await this.handleDialog(tabId, step.accept, step.text));
+                break;
+            }
+          });
+        } catch (error) {
+          throw Object.assign(error instanceof Error ? error : new Error(String(error)), {
+            tabId,
+            failedStep: index,
+            completedSteps: results,
+            dispatched: context.dispatched,
+            outcome: context.dispatched ? "unknown" : "not-started",
+          });
+        } finally {
+          signal?.removeEventListener("abort", abort);
+          context.dispose?.();
         }
       }
       return { tabId, inputMode: human ? "human" : "smooth", steps: results };
@@ -930,21 +968,19 @@ export class AppTabObserver {
       }
     } finally {
       contents.debugger.removeListener("message", onMessage);
-      await this.#cdp(
-        contents,
-        "Runtime.evaluate",
-        {
-          contextId: world.contextId,
-          expression: `globalThis[${JSON.stringify(cleanupKey)}]?.(); delete globalThis[${JSON.stringify(cleanupKey)}]; delete globalThis[${JSON.stringify(binding)}]`,
-        },
-        target.cdpSessionId,
-      ).catch(() => undefined);
-      await this.#cdp(
-        contents,
-        "Runtime.removeBinding",
-        { name: binding },
-        target.cdpSessionId,
-      ).catch(() => undefined);
+      void contents.debugger
+        .sendCommand(
+          "Runtime.evaluate",
+          {
+            contextId: world.contextId,
+            expression: `globalThis[${JSON.stringify(cleanupKey)}]?.(); delete globalThis[${JSON.stringify(cleanupKey)}]; delete globalThis[${JSON.stringify(binding)}]`,
+          },
+          target.cdpSessionId,
+        )
+        .catch(() => undefined);
+      void contents.debugger
+        .sendCommand("Runtime.removeBinding", { name: binding }, target.cdpSessionId)
+        .catch(() => undefined);
     }
     return this.#actionResult(
       tabId,
@@ -1031,6 +1067,8 @@ export class AppTabObserver {
   async highlight(tabId: string, reference: string): Promise<unknown> {
     const { target, node } = await this.#referencedTarget(tabId, reference);
     const objectId = await this.#resolveObject(target, node.backendNodeId);
+    const interaction = this.#interaction.getStore();
+    if (interaction) interaction.dispatched = true;
     await this.#cdp(
       target.webContents,
       "Runtime.callFunctionOn",
@@ -1056,7 +1094,7 @@ export class AppTabObserver {
     observe = false,
     document: AppTabDocument = "d1",
   ): Promise<unknown> {
-    const target = await this.#target(tabId, document);
+    const target = await this.#target(tabId, document, false, true);
     const normalized = bounded(key, 100);
     const definition = appTabKeyDefinition(normalized);
     const { text: _text, ...released } = definition;
@@ -1078,6 +1116,8 @@ export class AppTabObserver {
   async select(tabId: string, reference: string, value: string, observe = false): Promise<unknown> {
     const { target, node } = await this.#referencedTarget(tabId, reference);
     const objectId = await this.#resolveObject(target, node.backendNodeId);
+    const interaction = this.#interaction.getStore();
+    if (interaction) interaction.dispatched = true;
     await this.#cdp(
       target.webContents,
       "Runtime.callFunctionOn",
@@ -1110,7 +1150,9 @@ export class AppTabObserver {
     observe = false,
     document: AppTabDocument = "d1",
   ): Promise<unknown> {
-    const target = await this.#target(tabId, document);
+    const target = await this.#target(tabId, document, false, true);
+    const interaction = this.#interaction.getStore();
+    if (interaction) interaction.dispatched = true;
     await this.#execute(
       target,
       `window.scrollBy(${JSON.stringify(deltaX)}, ${JSON.stringify(deltaY)})`,
@@ -1125,6 +1167,7 @@ export class AppTabObserver {
       throw new Error("No browser JavaScript dialog has been reported for this tab.");
     }
     const target = pending.target;
+    this.#requireActive(tabId, target);
     await this.#cdp(
       target.webContents,
       "Page.handleJavaScriptDialog",
@@ -1198,6 +1241,7 @@ export class AppTabObserver {
     tabId: string,
     document: AppTabDocument = "d1",
     allowDialog = false,
+    requireActive = false,
   ): Promise<AppTabObservationTarget> {
     const existingDialog = this.#pendingDialogs.get(tabId);
     if (existingDialog && !allowDialog) {
@@ -1215,6 +1259,7 @@ export class AppTabObserver {
     };
     if (target.webContents.isDestroyed())
       throw observerError("TAB_GONE", `App tab ${tabId} is gone.`);
+    if (requireActive) this.#requireActive(tabId, target);
     if (existingDialog) return target;
     await this.#observeDialogs(tabId, target);
     const pending = this.#pendingDialogs.get(tabId);
@@ -1224,6 +1269,24 @@ export class AppTabObserver {
       );
     }
     return target;
+  }
+
+  #requireActive(tabId: string, target: AppTabObservationTarget): void {
+    const context = this.#interaction.getStore();
+    const error = () =>
+      Object.assign(new Error("Activate this tab, take a fresh snapshot, then retry."), {
+        code: "TAB_NOT_ACTIVE",
+        tabId,
+        dispatched: context?.dispatched ?? false,
+        outcome: context?.dispatched ? "unknown" : "not-started",
+      });
+    if (target.isPresented?.() === false) throw error();
+    if (context && target.onPresentationChange) {
+      context.dispose?.();
+      context.dispose = target.onPresentationChange(() => {
+        if (target.isPresented?.() === false) context.controller.abort(error());
+      });
+    }
   }
 
   async #observeDialogs(tabId: string, target: AppTabObservationTarget): Promise<void> {
@@ -1542,7 +1605,7 @@ export class AppTabObserver {
     node: SnapshotReference;
   }> {
     const document = referenceDocument(reference);
-    const target = await this.#target(tabId, document);
+    const target = await this.#target(tabId, document, false, true);
     const state = this.#states.get(`${tabId}:${document}`);
     const targetKey = observationTargetKey(target);
     const loaderId = await this.#loaderId(target);
@@ -1742,13 +1805,34 @@ export class AppTabObserver {
     params?: Record<string, unknown>,
     sessionId?: string,
   ): Promise<unknown> {
+    const context = this.#interaction.getStore();
+    context?.controller.signal.throwIfAborted();
     const startedAt = performance.now();
     this.#perfCounters.cdpCalls += 1;
     if (!contents.debugger.isAttached()) contents.debugger.attach("1.3");
     try {
-      return sessionId === undefined
-        ? await contents.debugger.sendCommand(method, params)
-        : await contents.debugger.sendCommand(method, params, sessionId);
+      if (
+        context &&
+        /^(Input\.dispatch|DOM\.setFileInputFiles|Page\.handleJavaScriptDialog)/.test(method)
+      )
+        context.dispatched = true;
+      const command =
+        sessionId === undefined
+          ? contents.debugger.sendCommand(method, params)
+          : contents.debugger.sendCommand(method, params, sessionId);
+      if (!context) return await command;
+      const signal = context.controller.signal;
+      let abort!: () => void;
+      const cancelled = new Promise<never>((_, reject) => {
+        abort = () => reject(signal.reason);
+        signal.addEventListener("abort", abort, { once: true });
+        if (signal.aborted) abort();
+      });
+      try {
+        return await Promise.race([command, cancelled]);
+      } finally {
+        signal.removeEventListener("abort", abort);
+      }
     } catch (error) {
       if (sessionId !== undefined) {
         this.#forgetProtocolSessions(contents.id, undefined, sessionId);

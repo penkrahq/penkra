@@ -29,6 +29,11 @@ export type AppRuntimeFailureDto =
     };
 
 export interface AppRuntimeBridgeError {
+  tabId?: string;
+  failedStep?: number;
+  completedSteps?: ReadonlyArray<unknown>;
+  dispatched?: boolean;
+  outcome?: "not-started" | "unknown";
   code: string;
   message: string;
   retryable?: boolean;
