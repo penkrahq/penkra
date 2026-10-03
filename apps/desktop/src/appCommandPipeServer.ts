@@ -53,6 +53,7 @@ type Request = {
     | "thread.home.inherit"
     | "operations.invoke"
     | "tabs.list"
+    | "tabs.activate"
     | "tabs.close"
     | "tabs.snapshot"
     | "tabs.diff"
@@ -122,6 +123,7 @@ interface AppTabObserverBridge {
     steps: ReadonlyArray<import("./appTabObserver").AppTabActStep>,
     human?: boolean,
     ownerThreadId?: string,
+    signal?: AbortSignal,
   ): Promise<unknown>;
   evaluate(tabId: string, document: "d1" | "d2", expression: string): Promise<unknown>;
   screenshot(tabId: string, document?: "d1" | "d2", outputPath?: string): Promise<unknown>;
@@ -172,6 +174,16 @@ export class AppCommandPipeServer {
       surfaceId?: number,
     ): DesktopAppTabDescriptor | null;
   };
+  readonly #observationSurface: ((threadId: string, deckId: string) => number | null) | null;
+  readonly #activate:
+    | ((tab: DesktopAppTabDescriptor, threadId: string, signal: AbortSignal) => Promise<unknown>)
+    | null;
+  readonly #presentation:
+    | ((
+        tab: DesktopAppTabDescriptor,
+        threadId: string,
+      ) => { state: "active" | "background" | "window-hidden" })
+    | null;
   readonly #runOnThread: (<T>(threadId: string, operation: () => Promise<T>) => Promise<T>) | null;
   readonly #inheritThreadHome: ((parentThreadId: string, childThreadId: string) => void) | null;
   readonly #observer: AppTabObserverBridge;
@@ -227,6 +239,16 @@ export class AppCommandPipeServer {
         surfaceId?: number,
       ): DesktopAppTabDescriptor | null;
     };
+    observationSurface?: (threadId: string, deckId: string) => number | null;
+    activate?: (
+      tab: DesktopAppTabDescriptor,
+      threadId: string,
+      signal: AbortSignal,
+    ) => Promise<unknown>;
+    presentation?: (
+      tab: DesktopAppTabDescriptor,
+      threadId: string,
+    ) => { state: "active" | "background" | "window-hidden" };
     runOnThread?: <T>(threadId: string, operation: () => Promise<T>) => Promise<T>;
     inheritThreadHome?: (parentThreadId: string, childThreadId: string) => void;
     observer: AppTabObserverBridge;
@@ -272,6 +294,9 @@ export class AppCommandPipeServer {
     this.#registry = input.registry ?? null;
     this.#sideload = input.sideload ?? null;
     this.#open = input.open ?? null;
+    this.#observationSurface = input.observationSurface ?? null;
+    this.#activate = input.activate ?? null;
+    this.#presentation = input.presentation ?? null;
     this.#providerCredentialVault = input.providerCredentialVault;
     this.#thread =
       input.thread ??
@@ -438,7 +463,25 @@ export class AppCommandPipeServer {
         await this.#providerCredentialVault.remove(requiredString(params.reference, "reference"));
         return { ok: true, id: request.id, result: {} };
       case "tabs.list":
-        return { ok: true, id: request.id, result: this.#scopedTabs(params) };
+        return {
+          ok: true,
+          id: request.id,
+          result: this.#scopedTabs(params).map((tab) => ({
+            ...tab,
+            ...(this.#presentation
+              ? { presentation: this.#presentation(tab, this.#scope(params).threadId) }
+              : {}),
+          })),
+        };
+      case "tabs.activate": {
+        const tab = this.#tab(params);
+        if (!this.#activate) throw new Error("Tab activation is unavailable.");
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#activate(tab, this.#scope(params).threadId, signal),
+        };
+      }
       case "tabs.close": {
         const tab = this.#tab(params);
         await this.#tabs.close(tab.id);
@@ -470,6 +513,7 @@ export class AppCommandPipeServer {
               appTabActSteps(params.steps),
               optionalBoolean(params.human, "human") ?? false,
               this.#scope(params).threadId,
+              signal,
             ),
           ),
         };
@@ -942,7 +986,11 @@ export class AppCommandPipeServer {
     const threadId = this.#context(params).threadId;
     return this.#onThread(
       threadId,
-      () => this.#observer.runOnSurface?.(null, operation) ?? operation(),
+      () =>
+        this.#observer.runOnSurface?.(
+          this.#observationSurface?.(threadId, this.#scope(params).deckId) ?? null,
+          operation,
+        ) ?? operation(),
     );
   }
 
@@ -986,7 +1034,17 @@ export function serializeFailureResponse(error: unknown): string {
     typeof (normalized as Error & { code?: unknown }).code === "string"
       ? (normalized as Error & { code: string }).code
       : "APP_COMMAND_FAILED";
+  const action = (
+    error && (typeof error === "object" || typeof error === "function") ? error : {}
+  ) as Partial<AppRuntimeBridgeError>;
   const bridgeError: AppRuntimeBridgeError = {
+    ...(typeof action.tabId === "string" ? { tabId: action.tabId } : {}),
+    ...(typeof action.failedStep === "number" ? { failedStep: action.failedStep } : {}),
+    ...(Array.isArray(action.completedSteps) ? { completedSteps: action.completedSteps } : {}),
+    ...(typeof action.dispatched === "boolean" ? { dispatched: action.dispatched } : {}),
+    ...(action.outcome === "not-started" || action.outcome === "unknown"
+      ? { outcome: action.outcome }
+      : {}),
     code,
     message: normalized.message,
     ...(retryable === undefined ? {} : { retryable }),

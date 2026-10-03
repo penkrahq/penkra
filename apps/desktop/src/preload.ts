@@ -303,6 +303,13 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     set: (input) => ipcRenderer.invoke(IPC.appOpenWith.set, input),
   },
   appTabs: {
+    claimActivation: (requestId) => ipcRenderer.invoke(IPC.appTabs.claimActivation, requestId),
+    onActivationRequested: (listener) => {
+      const wrapped = (_event: Electron.IpcRendererEvent, input: Parameters<typeof listener>[0]) =>
+        listener(input);
+      ipcRenderer.on(IPC.appTabs.activationRequested, wrapped);
+      return () => ipcRenderer.removeListener(IPC.appTabs.activationRequested, wrapped);
+    },
     list: (scope) => ipcRenderer.invoke(IPC.appTabs.list, scope),
     consumeListingRequest: () => ipcRenderer.invoke(IPC.appTabs.consumeListingRequest),
     open: (input) => ipcRenderer.invoke(IPC.appTabs.open, input),

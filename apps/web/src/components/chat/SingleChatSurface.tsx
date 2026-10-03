@@ -214,6 +214,26 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
   useEffect(() => {
     const bridge = window.desktopBridge?.appTabs;
     if (!bridge) return;
+    let disposed = false;
+    const removeActivation = bridge.onActivationRequested(({ requestId, tab }) => {
+      if (tab.deckId !== deckId || tab.spaceId !== currentSpaceId) return;
+      void bridge
+        .claimActivation(requestId)
+        .then((valid) => {
+          if (!valid || disposed) return;
+          setConfirmedAppPaneIds((current) => new Set(current).add(tab.id));
+          openPane(deckId, { ...appPaneFromTab(tab), preserveSelection: false });
+        })
+        .catch((error: unknown) => {
+          if (disposed) return;
+          toastManager.add({
+            type: "error",
+            title: `Could not activate ${tab.name}`,
+            description:
+              error instanceof Error ? error.message : "The App tab could not be activated.",
+          });
+        });
+    });
     const removeOpened = bridge.onOpened((tab) => {
       if (tab.deckId !== deckId) return;
       if (currentSpaceId && isAppTabOutsideDeckSpace(tab, deckId, currentSpaceId)) {
@@ -250,6 +270,8 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
       closePane(deckId, tab.id);
     });
     return () => {
+      disposed = true;
+      removeActivation();
       removeOpened();
       removeState();
       removeClosed();

@@ -132,8 +132,16 @@ systems that happen to share vocabulary.
 
 `penkra tabs list` shows the App tabs in this Thread Deck and Space. Every observation command takes
 an exact `--tab-id` plus `--document d1|d2`, and can address a retained tab even when its Thread is
-not on screen. `d1` is the App document; `d2` is its hosted page. `penkra tabs act --input` is the
-only interaction command. Run `penkra tabs --help` for the exact forms.
+not on screen for text observation. `d1` is the App document; `d2` is its hosted page. Before
+pointer, keyboard, upload, or other UI interaction, run `penkra tabs activate --tab-id <id>` and
+then take a fresh snapshot. Activation selects the existing tab in this Thread's Penkra window
+without stealing Mac application focus. `presentation.state` in the tab list distinguishes active,
+background, and window-hidden. Hidden/minimized windows need the user to restore them.
+`penkra tabs act --input` performs element interaction; an inactive action returns `TAB_NOT_ACTIVE`
+before dispatch instead of queuing a future click. On sequence failure, inspect completed steps and
+whether the failing step was dispatched before retrying. A timeout leaves the outcome unknown.
+Upload references must identify a file input, not an Upload menu item. Upload accepts explicit local
+file paths; absolute paths need not be inside App storage. Run `penkra tabs --help` for exact forms.
 
 Element references carry their document (`d1:e…` or `d2:e…`) and remain valid for that document's
 current loader. Navigation changes the loader and returns `STALE_REFERENCE` for an old reference.

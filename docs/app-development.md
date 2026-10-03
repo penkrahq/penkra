@@ -1192,6 +1192,7 @@ App document as `d1` and, when present, its hosted page as `d2`:
 ```json
 { "command": "apps open --slug canvas" }
 { "command": "penkra tabs list" }
+{ "command": "penkra tabs activate --tab-id <tab-id>" }
 { "command": "penkra tabs snapshot --tab-id <tab-id> --document d1" }
 { "command": "penkra tabs snapshot --tab-id <tab-id> --document d2 --ref d2:e17 --depth 3 --boxes true" }
 { "command": "penkra tabs diff --tab-id <tab-id> --document d1" }
@@ -1209,9 +1210,18 @@ References are durable for one exact document loader and carry their document pr
 returns a hierarchical accessibility representation and redacts protected control values. Scope a
 large tree with `ref` and `depth`; request `boxes` only when geometry matters. `act --input` is the
 only action command and runs click, hover, type, select, upload, press, scroll, wait, and JavaScript
-dialog steps in order. Upload paths remain restricted to the owning App and Space storage root.
-Screenshot, record, trace, and HAR capture one exact document whether or not its Thread is on
-screen. Artifact filenames resolve in the caller Thread's working directory.
+dialog steps in order. Before UI interaction, activate the tab and take a fresh snapshot.
+`presentation.state` in the tab list reports `active`, `background`, or `window-hidden` in the
+caller's Penkra window. Activation selects the tab without focusing the Mac application; the user
+must restore a hidden or minimized window. Inactive actions fail with `TAB_NOT_ACTIVE` before
+dispatch. Sequence failures report the failing step, completed steps, and whether input was
+dispatched; an unknown outcome must be inspected before retrying.
+
+Upload references must identify file inputs. Upload accepts explicit local regular files, including
+absolute paths outside App storage; relative paths resolve from the owning App and Space storage
+root. Snapshot text, trace, and HAR can observe retained background documents. Geometry snapshots,
+screenshot, and visual recording require presentation. Artifact filenames resolve in the caller
+Thread's working directory.
 
 The host observes the App document's exact main-owned `WebContentsView`. An App granted
 `browser-session` may also expose its hosted page as document `d2`; document `d1` always

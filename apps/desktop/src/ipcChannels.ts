@@ -142,6 +142,8 @@ export const DESKTOP_IPC_CHANNELS = {
     setReview: "desktop:app-registry-set-review",
   },
   appTabs: {
+    activationRequested: "desktop:app-tabs-activation-requested",
+    claimActivation: "desktop:app-tabs-claim-activation",
     listingRequested: "desktop:app-tabs-listing-requested",
     consumeListingRequest: "desktop:app-tabs-consume-listing-request",
     opened: "desktop:app-tabs-opened",

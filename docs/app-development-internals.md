@@ -70,6 +70,29 @@ family, not the current object schema: the JSON contains its own `schemaVersion`
 in place as installation fields evolve. Keeping the filename stable avoids treating a schema
 migration as a second installation database or leaving competing state files behind.
 
+## Tab activation verification
+
+Agent UI actions require native presentation in the caller's exact Penkra window. The activation
+request is claimed once by that window's renderer and completes after the native tab presentation
+acknowledgement. Cancellation, superseding activation, tab closure and window closure remove the
+pending request. An inactive action fails before protocol dispatch. Losing presentation during an
+action cancels its continuation, so a pending geometry read cannot later dispatch input after the
+tab is shown again. Background text observation remains available.
+
+The 2026-10-02 Electron 44.4.1 experiment reproduced a background `DOM.getBoxModel` stall: the
+read began at 3686.272 ms and completed at 5381.443 ms only after native presentation. This is a
+matching reproduction, not an instrumented trace of the historical installed call. The approved
+solution is explicit activation; background throttling remains unchanged.
+
+The same native observer with the activation guard rejected an inactive click in 0.601 ms with
+`dispatched: false`. After native presentation, it delivered exactly one trusted click without
+focusing the test window. A second inactive rejection followed by presentation produced no late
+click. The shared upload resolver and native file-input operation accepted an absolute file outside
+App storage with the expected name and 23-byte size. These measurements use an isolated native
+Chromium harness, not the complete Penkra renderer UI. Regression tests additionally cover a
+pending geometry read canceled by lost presentation, caller-window scope, and delayed activation
+delivery after cancellation.
+
 ## Numbered development launchers
 
 `bun run dev:desktop:install-app` installs `Penkra Dev`, `Penkra Dev 2`, and `Penkra Dev 3` in

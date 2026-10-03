@@ -5,6 +5,7 @@
 
 import * as ChildProcess from "node:child_process";
 import * as Crypto from "node:crypto";
+import { EventEmitter } from "node:events";
 import * as FS from "node:fs";
 import * as OS from "node:os";
 import * as Path from "node:path";
@@ -315,6 +316,7 @@ import {
 } from "./appTheme";
 import { mediatedAppFetch } from "./appNetworkFetch";
 import { AppStorageService } from "./appStorage";
+import { AppTabActivation } from "./appTabActivation";
 import { resolveBrowserUploadFile } from "./browserUploadFile";
 import { requestAppAccountData, subscribeAppAccountData } from "./appAccountData";
 import { APP_STANDARD_PERMISSIONS, isAppStandardPermissionName } from "./appStandardPermissions";
@@ -639,6 +641,65 @@ const MAX_PENDING_APP_TAB_EVENTS = 128;
 const pendingAppTabOpened = new Map<string, DesktopAppTabOpened>();
 const activeAgentPresentationThreads = new Map<string, number>();
 const threadHomeWindow = new ThreadHomeWindow();
+const appTabActivation = new AppTabActivation();
+const appTabPresentationEvents = new EventEmitter();
+
+function appTabAgentWindow(tab: DesktopAppTabDescriptor, threadId: string): BrowserWindow | null {
+  const ready = shellWindows().filter(
+    (window) => !window.isDestroyed() && !window.webContents.isLoadingMainFrame(),
+  );
+  const id = threadHomeWindow.presentingWindow(
+    threadId,
+    tab.deckId,
+    ready.map((window) => window.id),
+  );
+  return ready.find((window) => window.id === id) ?? null;
+}
+
+function appTabAgentPresentation(
+  tab: DesktopAppTabDescriptor,
+  threadId: string,
+): { state: "active" | "background" | "window-hidden" } {
+  const window = appTabAgentWindow(tab, threadId);
+  if (!window || !window.isVisible() || window.isMinimized()) return { state: "window-hidden" };
+  const tabs = desktopAppRuntime!.appTabs;
+  return {
+    state:
+      tabs.ownerWindowId(tab.id) === window.webContents.id && tabs.isVisible(tab.id)
+        ? "active"
+        : "background",
+  };
+}
+
+async function activateAppTabForAgent(
+  tab: DesktopAppTabDescriptor,
+  threadId: string,
+  signal: AbortSignal,
+): Promise<unknown> {
+  const window = appTabAgentWindow(tab, threadId);
+  if (!window || !window.isVisible() || window.isMinimized()) {
+    throw Object.assign(
+      new Error("Restore the caller's Penkra window before activating this tab."),
+      { code: "TAB_WINDOW_HIDDEN", dispatched: false },
+    );
+  }
+  if (appTabAgentPresentation(tab, threadId).state !== "active") {
+    await appTabActivation.request(tab.id, window.webContents.id, signal, (request) => {
+      window.webContents.send(IPC.appTabs.activationRequested, {
+        requestId: request.requestId,
+        tab,
+      });
+    });
+  }
+  signal.throwIfAborted();
+  if (appTabAgentPresentation(tab, threadId).state !== "active") {
+    throw Object.assign(new Error("The tab lost presentation during activation."), {
+      code: "TAB_NOT_ACTIVE",
+      dispatched: false,
+    });
+  }
+  return { tabId: tab.id, state: "active", readyForInteraction: true };
+}
 
 function inheritThreadHome(parentThreadId: string, childThreadId: string): void {
   threadHomeWindow.inherit(parentThreadId, childThreadId);
@@ -798,6 +859,7 @@ function announceAppTabState(descriptor: DesktopAppTabDescriptor): void {
 }
 
 function announceAppTabClosed(descriptor: DesktopAppTabClosed): void {
+  appTabActivation.cancelTab(descriptor.id);
   pendingAppTabOpened.delete(descriptor.id);
   threadHomeWindow.forgetTab(descriptor.id);
   broadcastToShellWindows(IPC.appTabs.closed, descriptor);
@@ -7113,6 +7175,10 @@ function registerIpcHandlers(): void {
       ...(typeof tabId === "string" ? { tabId } : {}),
     });
   });
+  handleDesktopIpc(IPC.appTabs.claimActivation, async (event, requestId: unknown) => {
+    requireShellAppTabs(event.sender.id);
+    return typeof requestId === "string" && appTabActivation.claim(requestId, event.sender.id);
+  });
   handleDesktopIpc(IPC.appTabs.consumeListingRequest, async (event) => {
     requireShellAppTabs(event.sender.id);
     const request = pendingAppListingRequest;
@@ -7204,6 +7270,8 @@ function registerIpcHandlers(): void {
         ? { animationStartedAtEpochMs }
         : {}),
     });
+    if (desktopAppRuntime?.appTabs.isVisible(tabId))
+      appTabActivation.presented(tabId, event.sender.id);
   });
   handleDesktopIpc(IPC.appTabs.hide, async (event, input: unknown) => {
     if (!input || typeof input !== "object" || Array.isArray(input)) return;
@@ -8167,6 +8235,7 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
     qaSocketClientIds.delete(rendererOwnerId);
     panelFocusState.delete(window.id);
     threadHomeWindow.close(window.id);
+    appTabActivation.cancelWindow(rendererOwnerId);
     void releaseAppTabWindow(rendererOwnerId);
     activeWorkPowerBlocker.releaseOwner(rendererOwnerId);
     spacesMenuStateByShellRendererId.delete(rendererOwnerId);
@@ -8645,6 +8714,7 @@ async function bootstrap(): Promise<void> {
       announceAppTabClosed(descriptor);
     },
     onTabPresentation: (windowId, presentation) => {
+      appTabPresentationEvents.emit(presentation.tabId);
       shellWindowRegistry
         .windowForWebContentsId(windowId)
         ?.webContents.send(IPC.appTabs.presentation, presentation);
@@ -8821,7 +8891,7 @@ async function bootstrap(): Promise<void> {
   });
   writeDesktopLogHeader("bootstrap App runtime started");
   appTabObserver = new AppTabObserver({
-    resolve: async (tabId, document) => {
+    resolve: async (tabId, document, surfaceId) => {
       const descriptor = desktopAppRuntime!.appTabs
         .list()
         .find((candidate) => candidate.id === tabId);
@@ -8833,7 +8903,24 @@ async function bootstrap(): Promise<void> {
           descriptor,
           document,
           webContents: desktopAppRuntime!.appTabs.target(tabId, document),
-          isPresented: () => desktopAppRuntime!.appTabs.isVisible(tabId),
+          isPresented: () => {
+            if (surfaceId === undefined)
+              return appTabAgentPresentation(descriptor, descriptor.threadId).state === "active";
+            if (surfaceId === null) return false;
+            const window = shellWindowRegistry.windowForWebContentsId(surfaceId);
+            return (
+              !!window &&
+              !window.isDestroyed() &&
+              window.isVisible() &&
+              !window.isMinimized() &&
+              desktopAppRuntime!.appTabs.ownerWindowId(tabId) === surfaceId &&
+              desktopAppRuntime!.appTabs.isVisible(tabId)
+            );
+          },
+          onPresentationChange: (listener: () => void) => {
+            appTabPresentationEvents.on(tabId, listener);
+            return () => appTabPresentationEvents.off(tabId, listener);
+          },
           canDeliverPointerInput: () => desktopAppRuntime!.appTabs.canDeliverPointerInput(tabId),
         };
       } catch (error) {
@@ -8876,6 +8963,19 @@ async function bootstrap(): Promise<void> {
     runOnThread: runAgentThreadOperation,
     inheritThreadHome,
     observer: appTabObserver,
+    observationSurface: (threadId, deckId) => {
+      const ready = shellWindows().filter(
+        (window) => !window.isDestroyed() && !window.webContents.isLoadingMainFrame(),
+      );
+      const id = threadHomeWindow.presentingWindow(
+        threadId,
+        deckId,
+        ready.map((window) => window.id),
+      );
+      return ready.find((window) => window.id === id)?.webContents.id ?? null;
+    },
+    activate: activateAppTabForAgent,
+    presentation: appTabAgentPresentation,
     providerCredentialVault: desktopAppRuntime.providerCredentialVault,
     thread: async ({ spaceId, deckId, threadId, method, value }) =>
       requestAppThreadOperation(
