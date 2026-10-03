@@ -315,6 +315,7 @@ import {
 } from "./appTheme";
 import { mediatedAppFetch } from "./appNetworkFetch";
 import { AppStorageService } from "./appStorage";
+import { resolveBrowserUploadFile } from "./browserUploadFile";
 import { requestAppAccountData, subscribeAppAccountData } from "./appAccountData";
 import { APP_STANDARD_PERMISSIONS, isAppStandardPermissionName } from "./appStandardPermissions";
 import {
@@ -2034,13 +2035,16 @@ async function uploadAppBrowserFiles(input: {
     record.paths.length > 20 ||
     record.paths.some((path) => typeof path !== "string" || !path)
   ) {
-    throw new Error("Browser upload requires between 1 and 20 App-storage paths.");
+    throw new Error("Browser upload requires between 1 and 20 file paths.");
   }
   if (!appStorage)
     throw recordDesktopServiceUnavailable(new Error("The App storage service is not ready."));
   const paths = await Promise.all(
     record.paths.map((path) =>
-      appStorage!.resolveFile({ appId: input.appId, spaceId: input.spaceId }, path as string),
+      resolveBrowserUploadFile(
+        path as string,
+        appStorage!.root({ appId: input.appId, spaceId: input.spaceId }),
+      ),
     ),
   );
   const tabs = desktopAppRuntime?.appTabs;
@@ -8853,7 +8857,10 @@ async function bootstrap(): Promise<void> {
         throw recordDesktopServiceUnavailable(new Error("App storage is unavailable."));
       return Promise.all(
         paths.map((path) =>
-          appStorage!.resolveFile({ appId: descriptor.appId, spaceId: descriptor.spaceId }, path),
+          resolveBrowserUploadFile(
+            path,
+            appStorage!.root({ appId: descriptor.appId, spaceId: descriptor.spaceId }),
+          ),
         ),
       );
     },

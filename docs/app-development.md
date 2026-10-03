@@ -510,7 +510,8 @@ never accepts license terms automatically, and cancels owned installer processes
 File access is handle-based. A handle authorizes only a user-selected or host-handed-off file or
 directory and its validated descendants for the receiving App and Space in the current desktop
 session. Other Apps and Spaces must obtain their own handles through a picker or trusted handoff.
-Visual tabs never receive ambient filesystem access. A hosted browser session can control only pages
+Browser uploads accept explicitly supplied local file paths, including files outside App storage.
+Other file capabilities remain handle-based or App-storage-scoped. A hosted browser session can control only pages
 created for the calling App and Space. A hosted simulator session can control only saved devices
 and live sessions owned by the calling App and Space.
 
@@ -541,9 +542,11 @@ latest observed document and become invalid after navigation, reload, replacemen
 host checks that every operation targets the active page in this App's own browser session.
 
 Use `browser.upload({ pageId, ref, paths })` when a referenced hosted-page control accepts files.
-Every path is relative to the calling App's scoped storage; the host resolves and validates each
-file, then assigns those files to that exact control. The call accepts one to twenty paths and never
-exposes an absolute filesystem path to the App.
+Absolute paths may name files anywhere the desktop process can read. Relative paths are resolved
+from the calling App's storage directory for compatibility; upload resolution does not enforce that
+directory as a boundary. The host resolves symbolic links, requires existing regular files, then
+assigns those files to that exact file input. The call accepts one to twenty paths. This capability
+allows an App to upload explicitly named local files without a separate picker or file handle.
 
 Open With applies to declared URL, file-extension, and directory handlers. For a validated local
 path, Penkra resolves an explicitly requested App, a saved compatible preference, or one unique

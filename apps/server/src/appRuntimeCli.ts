@@ -140,7 +140,13 @@ const ACT_STEP = {
       properties: {
         action: { const: "upload" },
         ref: REF,
-        paths: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } },
+        paths: {
+          type: "array",
+          minItems: 1,
+          description:
+            "Local file paths. Absolute paths may name files anywhere the desktop can read; relative paths use this App's storage directory.",
+          items: { type: "string", minLength: 1 },
+        },
       },
       required: ["action", "ref", "paths"],
       additionalProperties: false,
@@ -261,7 +267,7 @@ const TAB_OPERATIONS: Readonly<Record<string, HostOperationDeclaration>> = {
     command: "penkra tabs act",
     summary: "Run an ordered sequence of actions against d1 and d2.",
     instructions:
-      "Act accepts steps through --input. Element actions use d1:/d2: references from snapshot; --human true uses an eased visible cursor path.",
+      "Act accepts steps through --input. Element actions use d1:/d2: references from snapshot; --human true uses an eased visible cursor path. Upload targets a file input reference and accepts local file paths; absolute paths use the desktop filesystem and relative paths use the App's storage directory.",
     input: {
       type: "object",
       properties: {

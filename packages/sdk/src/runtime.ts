@@ -532,6 +532,7 @@ export interface PenkraTabRuntimeApi {
     wait(input: { pageId: string; text: string; timeoutMs?: number }): Promise<unknown>;
     capture(pageId: string): Promise<{ dataUrl: string }>;
     evaluate(input: { pageId: string; expression: string }): Promise<unknown>;
+    /** Absolute local files, or paths relative to this App's storage directory. */
     upload(input: { pageId: string; ref: string; paths: ReadonlyArray<string> }): Promise<unknown>;
   };
   /** Visual-tab only. The App owns simulator chrome; Penkra owns native lifecycle. */

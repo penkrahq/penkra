@@ -1221,7 +1221,7 @@ describe("AppTabObserver", () => {
     }
   });
 
-  it("validates App-storage paths before assigning a file input", async () => {
+  it("validates upload files before assigning a file input", async () => {
     const { contents, sendCommand } = makeContents();
     const validateUploadPaths = vi.fn(async () => ["/validated/report.pdf"]);
     const observer = new AppTabObserver({
