@@ -340,7 +340,6 @@ describe("prompt history navigation", () => {
         shiftKey: false,
         menuIsActive: true,
         hasActivePendingProgress: false,
-        isComposerApprovalState: false,
         pendingUserInputCount: 0,
       }),
     ).toBe(false);
@@ -354,7 +353,6 @@ describe("prompt history navigation", () => {
         shiftKey: false,
         menuIsActive: false,
         hasActivePendingProgress: false,
-        isComposerApprovalState: false,
         pendingUserInputCount: 0,
       }),
     ).toBe(true);
@@ -597,30 +595,20 @@ describe("composer pasted text collapse", () => {
   it("is enabled only for regular chat sends", () => {
     expect(
       shouldEnableComposerPastedTextCollapse({
-        isComposerApprovalState: false,
         hasPendingUserInput: false,
         showPlanFollowUpPrompt: false,
       }),
     ).toBe(true);
     expect(
       shouldEnableComposerPastedTextCollapse({
-        isComposerApprovalState: false,
         hasPendingUserInput: true,
         showPlanFollowUpPrompt: false,
       }),
     ).toBe(false);
     expect(
       shouldEnableComposerPastedTextCollapse({
-        isComposerApprovalState: false,
         hasPendingUserInput: false,
         showPlanFollowUpPrompt: true,
-      }),
-    ).toBe(false);
-    expect(
-      shouldEnableComposerPastedTextCollapse({
-        isComposerApprovalState: true,
-        hasPendingUserInput: false,
-        showPlanFollowUpPrompt: false,
       }),
     ).toBe(false);
   });

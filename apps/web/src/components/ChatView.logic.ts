@@ -79,13 +79,10 @@ export function shouldRenderProviderHealthBanner(input: {
 // Big-paste cards are sent only by the normal chat path; non-chat composer flows
 // read plain editor text, so they must let Lexical insert pasted text normally.
 export function shouldEnableComposerPastedTextCollapse(input: {
-  isComposerApprovalState: boolean;
   hasPendingUserInput: boolean;
   showPlanFollowUpPrompt: boolean;
 }): boolean {
-  return (
-    !input.isComposerApprovalState && !input.hasPendingUserInput && !input.showPlanFollowUpPrompt
-  );
+  return !input.hasPendingUserInput && !input.showPlanFollowUpPrompt;
 }
 
 export function buildComposerMenuSelectionKey(input: {
@@ -175,7 +172,6 @@ export function shouldHandlePromptHistoryNavigationKey(input: {
   shiftKey: boolean;
   menuIsActive: boolean;
   hasActivePendingProgress: boolean;
-  isComposerApprovalState: boolean;
   pendingUserInputCount: number;
 }): boolean {
   return (
@@ -186,7 +182,6 @@ export function shouldHandlePromptHistoryNavigationKey(input: {
     !input.shiftKey &&
     !input.menuIsActive &&
     !input.hasActivePendingProgress &&
-    !input.isComposerApprovalState &&
     input.pendingUserInputCount === 0
   );
 }
