@@ -2,7 +2,11 @@ import { assert, it } from "@effect/vitest";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { applyProviderEvent, PROVIDER_CUTOFF_NOTICE } from "./providerStreamConsumer.ts";
+import {
+  applyProviderEvent,
+  PROVIDER_CUTOFF_NOTICE,
+  settleRunningThreadsOnStartup,
+} from "./providerStreamConsumer.ts";
 import { createThread, makeThreadPublisher, upsertThreadItem } from "./threadStore.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
@@ -130,6 +134,41 @@ it.effect("provider exit idles the thread and records one cutoff notice", () =>
         SELECT text FROM thread_items WHERE thread_id = 'thread-1' AND kind = 'notice'
       `;
       assert.deepStrictEqual(notices, [{ text: PROVIDER_CUTOFF_NOTICE }]);
+    }),
+  ),
+);
+
+it.effect("startup cuts off every running thread, idempotently", () =>
+  withDb(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const publisher = makeThreadPublisher();
+      yield* runMigrations();
+      yield* createThread(baseThread);
+      yield* createThread({ ...baseThread, id: "thread-2" });
+      yield* applyProviderEvent(publisher, {
+        type: "turn.started",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        at: "2026-10-09T00:00:01.000Z",
+      });
+
+      yield* settleRunningThreadsOnStartup(publisher, "2026-10-09T00:00:05.000Z");
+      // A second run at the same startup time must add nothing.
+      yield* settleRunningThreadsOnStartup(publisher, "2026-10-09T00:00:05.000Z");
+
+      const threads = yield* sql<{ readonly id: string; readonly state: string }>`
+        SELECT id, state FROM threads ORDER BY id
+      `;
+      assert.deepStrictEqual(threads, [
+        { id: "thread-1", state: "idle" },
+        { id: "thread-2", state: "idle" },
+      ]);
+      const notices = yield* sql<{ readonly threadId: string; readonly count: number }>`
+        SELECT thread_id AS "threadId", COUNT(*) AS count FROM thread_items
+        WHERE kind = 'notice' GROUP BY thread_id ORDER BY thread_id
+      `;
+      assert.deepStrictEqual(notices, [{ threadId: "thread-1", count: 1 }]);
     }),
   ),
 );
