@@ -125,12 +125,6 @@ const PersistedComposerPromptHistorySavedDraft = Schema.Union([
 type PersistedComposerPromptHistorySavedDraft =
   typeof PersistedComposerPromptHistorySavedDraft.Type;
 
-const PersistedPendingMessageEdit = Schema.Struct({
-  messageId: MessageId,
-  text: Schema.String,
-  priorDeliverySequence: Schema.Number,
-});
-
 const PersistedComposerThreadDraftState = Schema.Struct({
   prompt: Schema.String,
   appliedVoiceJobIds: Schema.optionalKey(Schema.Array(Schema.String)),
@@ -154,7 +148,6 @@ const PersistedComposerThreadDraftState = Schema.Struct({
   skills: Schema.optionalKey(Schema.Array(ProviderSkillReference)),
   mentions: Schema.optionalKey(Schema.Array(ProviderMentionReference)),
   pendingStartRecoveriesByMessageId: Schema.optionalKey(Schema.Unknown),
-  pendingMessageEdit: Schema.optionalKey(PersistedPendingMessageEdit),
   modelSelectionByProvider: Schema.optionalKey(
     Schema.Record(ProviderKind, Schema.optionalKey(ModelSelection)),
   ),
@@ -720,11 +713,6 @@ function normalizePersistedDraftsByThreadId(
 
     // The server owns queue admission and recovery. Local snapshots may only
     // contain stale speculative rows; never revive one without server proof.
-    const pendingMessageEdit = Schema.is(PersistedPendingMessageEdit)(
-      draftCandidate.pendingMessageEdit,
-    )
-      ? draftCandidate.pendingMessageEdit
-      : undefined;
     const hasModelData =
       Object.keys(modelSelectionByProvider).length > 0 || activeProvider !== null;
     const hasReferenceData = skills.length > 0 || mentions.length > 0;
@@ -741,7 +729,6 @@ function normalizePersistedDraftsByThreadId(
       (!draftCandidate.pendingStartRecoveriesByMessageId ||
         typeof draftCandidate.pendingStartRecoveriesByMessageId !== "object" ||
         Object.keys(draftCandidate.pendingStartRecoveriesByMessageId).length === 0) &&
-      pendingMessageEdit === undefined &&
       !hasModelData &&
       !runtimeMode
     ) {
@@ -762,7 +749,6 @@ function normalizePersistedDraftsByThreadId(
       typeof draftCandidate.pendingStartRecoveriesByMessageId === "object"
         ? { pendingStartRecoveriesByMessageId: draftCandidate.pendingStartRecoveriesByMessageId }
         : {}),
-      ...(pendingMessageEdit ? { pendingMessageEdit } : {}),
       ...(hasModelData ? { modelSelectionByProvider, activeProvider } : {}),
       ...(runtimeMode ? { runtimeMode } : {}),
     };
@@ -816,7 +802,6 @@ export function partializeComposerDraftStoreState(
       draft.pastedTexts.length === 0 &&
       !hasReferenceData &&
       Object.keys(draft.pendingStartRecoveriesByMessageId ?? {}).length === 0 &&
-      draft.pendingMessageEdit === null &&
       !hasModelData &&
       draft.runtimeMode === null
     ) {
@@ -970,7 +955,6 @@ export function partializeComposerDraftStoreState(
             ),
           }
         : {}),
-      ...(draft.pendingMessageEdit ? { pendingMessageEdit: draft.pendingMessageEdit } : {}),
       ...(hasModelData
         ? {
             modelSelectionByProvider: draft.modelSelectionByProvider,
@@ -1131,7 +1115,6 @@ export function toHydratedThreadDraft(
       threadId,
       persistedDraft.pendingStartRecoveriesByMessageId,
     ),
-    pendingMessageEdit: persistedDraft.pendingMessageEdit ?? null,
     modelSelectionByProvider,
     activeProvider,
     runtimeMode: persistedDraft.runtimeMode ?? null,

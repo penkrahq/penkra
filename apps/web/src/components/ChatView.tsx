@@ -32,7 +32,6 @@ import { matchesPromotedQueuedMessage, matchesRequestedTurnOutcome } from "./qaT
 import { getModelCapabilities, normalizeModelSlug } from "@penkra/shared/model";
 import { startDiagnosticTrace } from "@penkra/shared/traceContext";
 import { createSendDiagnosticLifecycle } from "./sendDiagnosticLifecycle";
-import { resolveTailUserMessageEditTarget } from "@penkra/shared/conversationEdit";
 import { threadExportBlockedReason } from "@penkra/shared/threadExport";
 import { pendingRequestInstanceKey } from "@penkra/shared/threadSummary";
 import {
@@ -306,7 +305,6 @@ import { useComposerFocusRequestStore } from "../composerFocusRequestStore";
 import { useWorkflowRunUiStore, useWorkflowRunUiThreadState } from "../workflowRunUiStore";
 import { appendComposerPromptText } from "../lib/chatReferences";
 import {
-  appendOriginalComposerPromptBlocks,
   appendTerminalContextsToPrompt,
   IMAGE_ONLY_BOOTSTRAP_PROMPT,
   formatTerminalContextLabel,
@@ -881,7 +879,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
   const composerSkills = composerDraft.skills;
   const composerMentions = composerDraft.mentions;
   const composerPendingStartRecoveries = composerDraft.pendingStartRecoveriesByMessageId ?? {};
-  const pendingMessageEdit = composerDraft.pendingMessageEdit;
   const composerSendState = useMemo(
     () =>
       deriveComposerSendState({
@@ -1428,7 +1425,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     threadId,
   ]);
   const [isLocalConnecting, _setIsLocalConnecting] = useState(false);
-  const [isEditingMessageHistory, setIsEditingMessageHistory] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [respondingRequestKeys, setRespondingRequestKeys] = useState<string[]>([]);
   const [respondingUserInputRequestKeys, setRespondingUserInputRequestKeys] = useState<string[]>(
@@ -3079,7 +3075,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     latestTurnLive,
     isSendBusy,
     hasPendingTurnStart,
-    isEditingMessageHistory,
   });
   const isTurnWorking = chatActivity.controllable || hasSendPreflight;
   // One admitted/active-work predicate owns both Stop and transcript status.
@@ -3141,7 +3136,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       isSendBusy,
       hasPendingTurnStart,
       isConnecting,
-      isEditingMessageHistory,
       isTurnWorking,
       isWorking,
       showThinking,
@@ -3178,7 +3172,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     hasLiveTurnTail,
     hasPendingTurnStart,
     isConnecting,
-    isEditingMessageHistory,
     isLocalDraftThread,
     isSendBusy,
     isServerThread,
@@ -5037,15 +5030,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         : (composerMenuItems[0]?.id ?? null),
     );
   }, [composerMenuItems, composerMenuOpen]);
-
-  useEffect(() => {
-    // Async setState (post-paint) keeps this thread-change reset out of the
-    // render->effect->render cascade.
-    const settle = window.setTimeout(() => {
-      setIsEditingMessageHistory(false);
-    }, 0);
-    return () => window.clearTimeout(settle);
-  }, [activeThread?.id]);
 
   useEffect(() => {
     if (!activeThread?.id || terminalState.terminalOpen) return;
@@ -7705,132 +7689,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     setActivePendingUserInputQuestionIndex(Math.max(activePendingProgress.questionIndex - 1, 0));
   }, [activePendingProgress, setActivePendingUserInputQuestionIndex]);
 
-  const onEditUserMessage = useCallback(
-    async (messageId: MessageId, text: string): Promise<boolean> => {
-      const api = readNativeApi();
-      if (!api || !activeThread || !isServerThread || isEditingMessageHistory) {
-        return false;
-      }
-      const editTarget = resolveTailUserMessageEditTarget({
-        messages: activeThread.messages,
-        messageId,
-        activeTurnId:
-          activeThread.session?.orchestrationStatus === "running"
-            ? (activeThread.session.activeTurnId ?? null)
-            : null,
-      });
-      if (!editTarget.editable) {
-        setThreadError(activeThread.id, "Only the latest rollbackable user message can be edited.");
-        return false;
-      }
-      const originalMessage = activeThread.messages[editTarget.messageIndex];
-      if (!originalMessage || originalMessage.role !== "user") {
-        setThreadError(activeThread.id, "Only the latest rollbackable user message can be edited.");
-        return false;
-      }
-      if (isSendBusy || isConnecting || sendInFlightRef.current) {
-        setThreadError(activeThread.id, "Wait for the current send to start before editing.");
-        return false;
-      }
-      if (selectedConnectionId === undefined) {
-        setThreadError(activeThread.id, "Choose a Connection before resending this message.");
-        return false;
-      }
-
-      setIsEditingMessageHistory(true);
-      setThreadError(activeThread.id, null);
-      const messageCreatedAt = new Date().toISOString();
-      const editedTextWithOriginalContext = appendOriginalComposerPromptBlocks({
-        editedPrompt: text,
-        originalPrompt: originalMessage.text,
-      });
-      const outgoingMessageText = formatOutgoingComposerPrompt({
-        provider: selectedProvider,
-        model: selectedModel,
-        effort: selectedPromptEffort,
-        text: editedTextWithOriginalContext,
-      });
-      return await (async () => {
-        await persistThreadSettingsForNextTurn({
-          threadId: activeThread.id,
-          createdAt: messageCreatedAt,
-          runtimeMode,
-        });
-        const bindingRevisionForSend = await resolveThreadBindingRevisionAtAdmission();
-        if (bindingRevisionForSend === undefined) {
-          throw new Error("Could not load the thread's current provider binding.");
-        }
-        await api.orchestration.dispatchCommand({
-          type: "thread.message.edit-and-resend",
-          commandId: newCommandId(),
-          threadId: activeThread.id,
-          messageId,
-          text: outgoingMessageText,
-          modelSelection: selectedModelSelection,
-          connectionId: selectedConnectionId ?? null,
-          bindingRevision: bindingRevisionForSend,
-          ...(providerOptionsForDispatch ? { providerOptions: providerOptionsForDispatch } : {}),
-          assistantDeliveryMode,
-          runtimeMode,
-          createdAt: messageCreatedAt,
-        });
-        useComposerDraftStore.getState().setPendingMessageEdit(activeThread.id, {
-          messageId,
-          text,
-          priorDeliverySequence: originalMessage.delivery?.sequence ?? -1,
-        });
-        return true;
-      })()
-        .catch((err: unknown) => {
-          recordChatSendFailure("COMMAND_REJECTED");
-          setThreadError(
-            activeThread.id,
-            err instanceof Error ? err.message : "Failed to edit message.",
-          );
-          return false;
-        })
-        .finally(() => {
-          setIsEditingMessageHistory(false);
-        });
-    },
-    [
-      activeThread,
-      isConnecting,
-      isEditingMessageHistory,
-      isSendBusy,
-      isServerThread,
-      persistThreadSettingsForNextTurn,
-      providerOptionsForDispatch,
-      runtimeMode,
-      selectedModel,
-      selectedModelSelection,
-      selectedConnectionId,
-      resolveThreadBindingRevisionAtAdmission,
-      selectedPromptEffort,
-      selectedProvider,
-      setThreadError,
-      assistantDeliveryMode,
-    ],
-  );
-  const onEditUserMessageRef = useRef(onEditUserMessage);
-  useLayoutEffect(() => {
-    onEditUserMessageRef.current = onEditUserMessage;
-  }, [onEditUserMessage]);
-  const onEditUserMessageFromTranscript = useCallback(
-    (messageId: MessageId, text: string) => onEditUserMessageRef.current(messageId, text),
-    [],
-  );
-  const onClearPendingEditedUserMessage = useCallback(
-    (messageId: MessageId) => {
-      const pending =
-        useComposerDraftStore.getState().draftsByThreadId[threadId]?.pendingMessageEdit;
-      if (pending?.messageId === messageId) {
-        useComposerDraftStore.getState().setPendingMessageEdit(threadId, null);
-      }
-    },
-    [threadId],
-  );
-
   // Keep event-time sends current with the latest callbacks after each commit.
   useLayoutEffect(() => {
     onSendRef.current = onSend;
@@ -9404,9 +9262,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
                         timelineEntries={visibleTimelineEntries}
                         onOpenThread={onNavigateToThread}
                         subagentToolTraceByThreadId={subagentToolTraceByThreadId}
-                        onEditUserMessage={onEditUserMessageFromTranscript}
-                        pendingEditedUserMessage={pendingMessageEdit}
-                        onClearPendingEditedUserMessage={onClearPendingEditedUserMessage}
                         onExpandTimelineImage={onExpandTimelineImage}
                         onIsAtEndChange={onIsAtEndChange}
                         markdownCwd={threadWorkspaceCwd ?? undefined}

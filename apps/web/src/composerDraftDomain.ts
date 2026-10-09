@@ -143,12 +143,6 @@ export interface UnknownPendingStartRecovery {
 
 export type PendingStartRecoveryRecord = PendingStartRecovery | UnknownPendingStartRecovery;
 
-export interface PendingMessageEdit {
-  messageId: MessageId;
-  text: string;
-  priorDeliverySequence: number;
-}
-
 export interface ComposerThreadDraftState {
   prompt: string;
   appliedVoiceJobIds?: string[] | undefined;
@@ -168,7 +162,6 @@ export interface ComposerThreadDraftState {
   skills: ProviderSkillReference[];
   mentions: ProviderMentionReference[];
   pendingStartRecoveriesByMessageId?: Partial<Record<MessageId, PendingStartRecoveryRecord>>;
-  pendingMessageEdit: PendingMessageEdit | null;
   modelSelectionByProvider: Partial<Record<ProviderKind, ModelSelection>>;
   activeProvider: ProviderKind | null;
   runtimeMode: RuntimeMode | null;
@@ -315,7 +308,6 @@ export interface ComposerDraftStoreState {
     recovery: PendingStartRecovery,
   ) => boolean;
   clearPendingStartRecovery: (threadId: ThreadId, messageId: MessageId) => boolean;
-  setPendingMessageEdit: (threadId: ThreadId, edit: PendingMessageEdit | null) => void;
   addImage: (threadId: ThreadId, image: ComposerImageAttachment) => void;
   addImages: (threadId: ThreadId, images: ComposerImageAttachment[]) => void;
   removeImage: (threadId: ThreadId, imageId: string) => void;
@@ -484,7 +476,6 @@ export function createEmptyThreadDraft(): ComposerThreadDraftState {
     skills: [],
     mentions: [],
     pendingStartRecoveriesByMessageId: {},
-    pendingMessageEdit: null,
     modelSelectionByProvider: {},
     activeProvider: null,
     runtimeMode: null,
@@ -777,7 +768,6 @@ export function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
     draft.skills.length === 0 &&
     draft.mentions.length === 0 &&
     Object.keys(draft.pendingStartRecoveriesByMessageId ?? {}).length === 0 &&
-    draft.pendingMessageEdit === null &&
     Object.keys(draft.modelSelectionByProvider).length === 0 &&
     draft.activeProvider === null &&
     draft.runtimeMode === null
@@ -824,7 +814,6 @@ const EMPTY_THREAD_DRAFT = Object.freeze<ComposerThreadDraftState>({
   skills: EMPTY_SKILLS,
   mentions: EMPTY_MENTIONS,
   pendingStartRecoveriesByMessageId: {},
-  pendingMessageEdit: null,
   modelSelectionByProvider: EMPTY_MODEL_SELECTION_BY_PROVIDER,
   activeProvider: null,
   runtimeMode: null,

@@ -40,7 +40,6 @@ export interface ChatLifecycleDiagnosticState {
   readonly isSendBusy: boolean;
   readonly hasPendingTurnStart: boolean;
   readonly isConnecting: boolean;
-  readonly isEditingMessageHistory: boolean;
   readonly isTurnWorking: boolean;
   readonly isWorking: boolean;
   readonly showThinking: boolean;
