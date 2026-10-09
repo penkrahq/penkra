@@ -101,6 +101,8 @@ import type {
   CleanCoreListThreadItemsPageInput,
   CleanCoreListThreadItemsPageResult,
   CleanCoreSetThreadDraftInput,
+  CleanCoreSubscribeThreadInput,
+  CleanCoreThreadChange,
   CleanCoreThreadDraft,
 } from "./cleanCore";
 import type { EditorId } from "./editor";
@@ -1109,6 +1111,8 @@ export interface NativeApi {
     ) => Promise<CleanCoreListThreadItemsPageResult>;
     getThreadDraft: (input: CleanCoreGetThreadDraftInput) => Promise<CleanCoreThreadDraft>;
     setThreadDraft: (input: CleanCoreSetThreadDraftInput) => Promise<CleanCoreThreadDraft>;
+    subscribeThread: (input: CleanCoreSubscribeThreadInput) => Promise<void>;
+    onThreadChange: (callback: (change: CleanCoreThreadChange) => void) => () => void;
   };
   orchestration: {
     getSnapshot: () => Promise<OrchestrationReadModel>;
