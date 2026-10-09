@@ -178,6 +178,12 @@ import Migration0169 from "./Migrations/169_ProjectionMessageSenderThread.ts";
 import Migration0170 from "./Migrations/170_ProviderIntentOutbox.ts";
 import Migration0171 from "./Migrations/171_ProviderIntentDiagnosticTrace.ts";
 import Migration0172 from "./Migrations/172_ProviderSwitchFailureCleanup.ts";
+// Private Production builds recorded these three identities; keep the IDs and
+// names reserved so an installed database at 175 stays on the canonical lineage
+// instead of being treated as a newer, unsupported schema.
+import Migration0173 from "./Migrations/173_ReservedBoundedRuntimeMaintenanceAndActivityPages.ts";
+import Migration0174 from "./Migrations/174_ReservedIndependentRuntimeWork.ts";
+import Migration0175 from "./Migrations/175_ReservedProviderPurgeOwnershipIndexes.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -355,6 +361,9 @@ export const migrationEntries = [
   [170, "ProviderIntentOutbox", Migration0170],
   [171, "ProviderIntentDiagnosticTrace", Migration0171],
   [172, "ProviderSwitchFailureCleanup", Migration0172],
+  [173, "BoundedRuntimeMaintenanceAndActivityPages", Migration0173],
+  [174, "IndependentRuntimeWork", Migration0174],
+  [175, "ProviderPurgeOwnershipIndexes", Migration0175],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

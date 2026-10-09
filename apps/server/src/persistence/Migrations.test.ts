@@ -125,6 +125,9 @@ layer("removed provider data migration", (it) => {
         [170, "ProviderIntentOutbox"],
         [171, "ProviderIntentDiagnosticTrace"],
         [172, "ProviderSwitchFailureCleanup"],
+        [173, "BoundedRuntimeMaintenanceAndActivityPages"],
+        [174, "IndependentRuntimeWork"],
+        [175, "ProviderPurgeOwnershipIndexes"],
       ]);
 
       const threads = yield* sql<{ readonly threadId: string }>`
@@ -990,6 +993,9 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [170, "ProviderIntentOutbox"],
         [171, "ProviderIntentDiagnosticTrace"],
         [172, "ProviderSwitchFailureCleanup"],
+        [173, "BoundedRuntimeMaintenanceAndActivityPages"],
+        [174, "IndependentRuntimeWork"],
+        [175, "ProviderPurgeOwnershipIndexes"],
       ]);
 
       const tracker = yield* trackerRows(sql);
@@ -1264,6 +1270,29 @@ managedAttachmentsIdempotencyLayer("managed attachment migration idempotency", (
       yield* runMigrations();
       const executed = yield* runMigrations();
       assert.lengthOf(executed, 0);
+    }),
+  );
+});
+
+const reservedProductionIdentitiesLayer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
+
+reservedProductionIdentitiesLayer("reserved Production migration identities", (it) => {
+  it.effect("registers the Production 173-175 identities as no-ops without replaying history", () =>
+    Effect.gen(function* () {
+      yield* runMigrations({ toMigrationInclusive: 172 });
+      const executed = yield* runMigrations();
+      assert.deepStrictEqual(
+        executed.map(([id, name]) => [id, name]),
+        [
+          [173, "BoundedRuntimeMaintenanceAndActivityPages"],
+          [174, "IndependentRuntimeWork"],
+          [175, "ProviderPurgeOwnershipIndexes"],
+        ],
+      );
+      // A database already at the reserved identities is not "too new": the
+      // next startup runs nothing.
+      const rerun = yield* runMigrations();
+      assert.lengthOf(rerun, 0);
     }),
   );
 });

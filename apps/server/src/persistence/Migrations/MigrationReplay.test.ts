@@ -47,6 +47,9 @@ const replayedEntries: ReadonlyArray<readonly [id: number, name: string]> = [
   [170, "ProviderIntentOutbox"],
   [171, "ProviderIntentDiagnosticTrace"],
   [172, "ProviderSwitchFailureCleanup"],
+  [173, "BoundedRuntimeMaintenanceAndActivityPages"],
+  [174, "IndependentRuntimeWork"],
+  [175, "ProviderPurgeOwnershipIndexes"],
 ];
 
 const schemaObjects = (sql: SqlClient.SqlClient) =>
