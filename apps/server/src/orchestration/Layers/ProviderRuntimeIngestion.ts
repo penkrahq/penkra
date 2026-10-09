@@ -48,6 +48,9 @@ import {
 } from "@penkra/shared/subagents";
 
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
+import { applyProviderEvent } from "../../cleanCore/providerStreamConsumer.ts";
+import { toCleanCoreProviderEvents } from "../../cleanCore/providerEventBridge.ts";
+import { ThreadPublisher, ThreadPublisherLive } from "../../cleanCore/ThreadPublisher.ts";
 import { classifyProviderAuthFailure } from "../../provider/providerAuthFailure.ts";
 import { makeProviderAuthCircuitStore } from "../../provider/providerAuthCircuit.ts";
 import {
@@ -555,6 +558,7 @@ const make = Effect.gen(function* () {
   const runtimeEvents = yield* ProviderRuntimeEventRepository;
   const providerSessionRuntimes = yield* ProviderSessionRuntimeRepository;
   const commandReceipts = yield* OrchestrationCommandReceiptRepository;
+  const threadPublisher = yield* ThreadPublisher;
 
   const materializeCanonicalOperation = (
     event: ProviderRuntimeEvent,
@@ -1611,6 +1615,22 @@ const make = Effect.gen(function* () {
           return;
         }
       }
+      // Clean core (0.14.4): apply every provider event to threads/thread_items
+      // through the single consumer. Coexists with the legacy projection path
+      // until step 11 removes it; a clean-core failure is logged and must not
+      // take down the legacy pump.
+      yield* Effect.forEach(
+        toCleanCoreProviderEvents(event),
+        (cleanEvent) =>
+          applyProviderEvent(threadPublisher, cleanEvent).pipe(
+            Effect.provideService(SqlClient.SqlClient, sql),
+          ),
+        { discard: true },
+      ).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("clean-core provider event apply failed", { cause }),
+        ),
+      );
       // Load the full (heavy) detail only when this event's handlers actually read
       // thread.messages; otherwise use the cheap
       // shell so high-frequency streaming events don't re-decode the whole
@@ -3362,6 +3382,7 @@ export const ProviderRuntimeIngestionLive = Layer.effect(
       ProviderRuntimeEventRepositoryLive,
       ProviderSessionRuntimeRepositoryLive,
       OrchestrationCommandReceiptRepositoryLive,
+      ThreadPublisherLive,
     ),
   ),
 );
