@@ -40,6 +40,7 @@ import { OrchestrationProjectionSnapshotQueryLive } from "../orchestration/Layer
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ProviderRuntimeIngestionLive } from "../orchestration/Layers/ProviderRuntimeIngestion.ts";
+import { ThreadPublisherLive } from "../cleanCore/ThreadPublisher.ts";
 import { ProviderRuntimeIngestionService } from "../orchestration/Services/ProviderRuntimeIngestion.ts";
 import { makeProviderCommandReactorLive } from "../orchestration/Layers/ProviderCommandReactor.ts";
 import { ProviderCommandReactor } from "../orchestration/Services/ProviderCommandReactor.ts";
@@ -433,6 +434,7 @@ async function makeProviderRuntime(
     Layer.provideMerge(NodeServices.layer),
   );
   const ingestionLayer = ProviderRuntimeIngestionLive.pipe(
+    Layer.provideMerge(ThreadPublisherLive),
     Layer.provideMerge(orchestrationLayer),
     Layer.provideMerge(OrchestrationProjectionSnapshotQueryLive),
     Layer.provideMerge(providerLayer),
