@@ -31,10 +31,6 @@ import {
   flushStorageBeforePageHide,
   type StateStorage,
 } from "./lib/storage";
-import {
-  awaitDesktopComposerDraftWrites,
-  createDesktopComposerDraftStorage,
-} from "./lib/desktopComposerDraftStorage";
 import { measureChatPerformanceWork } from "./chatPerformanceDiagnostics";
 
 export {
@@ -72,10 +68,7 @@ export { partializeComposerDraftStoreState } from "./composerDraftPersistence";
 const COMPOSER_PERSIST_DEBOUNCE_MS = 250;
 const composerFallbackStorage: StateStorage =
   typeof localStorage !== "undefined" ? localStorage : createMemoryStorage();
-const composerBaseStorage: StateStorage =
-  typeof window !== "undefined"
-    ? createDesktopComposerDraftStorage(composerFallbackStorage)
-    : composerFallbackStorage;
+const composerBaseStorage: StateStorage = composerFallbackStorage;
 const composerPersistStorage = createDeferredPersistStorage<
   ComposerDraftStoreState,
   PersistedComposerDraftStoreState
@@ -139,7 +132,6 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
 
 export async function flushComposerDraftsDurably(): Promise<void> {
   composerPersistStorage.flush();
-  await awaitDesktopComposerDraftWrites();
 }
 
 export function useComposerThreadDraft(threadId: ThreadId): ComposerThreadDraftState {

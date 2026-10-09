@@ -1,5 +1,5 @@
 // FILE: composerDraftJournal.ts
-// Purpose: Owns crash-durable composer snapshots, binary assets, and live voice journals.
+// Purpose: Owns crash-durable composer binary assets and live voice journals.
 // Layer: Electron main-process storage
 
 import * as FS from "node:fs";
@@ -12,9 +12,7 @@ import type {
 import { resolveDesktopPlatformAdapter } from "./desktopPlatform";
 
 const ROOT_DIRECTORY_NAME = "composer-drafts-v1";
-const SNAPSHOT_FILE_NAME = "snapshot.json";
 const VOICE_INDEX_FILE_NAME = "voice-index.json";
-const MAX_SNAPSHOT_BYTES = 32 * 1024 * 1024;
 const MAX_ASSET_BYTES = 256 * 1024 * 1024;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
@@ -93,48 +91,14 @@ export class ComposerDraftJournal {
   readonly #rootPath: string;
   readonly #assetsPath: string;
   readonly #voicesPath: string;
-  readonly #snapshotPath: string;
   readonly #voiceIndexPath: string;
-  #snapshotMutation = Promise.resolve();
   #voiceMutation = Promise.resolve();
 
   constructor(userDataPath: string) {
     this.#rootPath = Path.join(userDataPath, ROOT_DIRECTORY_NAME);
     this.#assetsPath = Path.join(this.#rootPath, "assets");
     this.#voicesPath = Path.join(this.#rootPath, "voice");
-    this.#snapshotPath = Path.join(this.#rootPath, SNAPSHOT_FILE_NAME);
     this.#voiceIndexPath = Path.join(this.#rootPath, VOICE_INDEX_FILE_NAME);
-  }
-
-  async readSnapshot(): Promise<string | null> {
-    try {
-      const stats = await FS.promises.stat(this.#snapshotPath);
-      if (!stats.isFile() || stats.size > MAX_SNAPSHOT_BYTES) return null;
-      return await FS.promises.readFile(this.#snapshotPath, "utf8");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-      throw error;
-    }
-  }
-
-  async writeSnapshot(value: string): Promise<void> {
-    if (Buffer.byteLength(value, "utf8") > MAX_SNAPSHOT_BYTES) {
-      throw new Error("Composer draft snapshot is too large.");
-    }
-    const mutation = this.#snapshotMutation.then(() =>
-      writeFileAtomically(this.#snapshotPath, value),
-    );
-    this.#snapshotMutation = mutation.catch(() => undefined);
-    await mutation;
-  }
-
-  async removeSnapshot(): Promise<void> {
-    const mutation = this.#snapshotMutation.then(async () => {
-      await FS.promises.rm(this.#snapshotPath, { force: true });
-      await syncDirectory(this.#rootPath);
-    });
-    this.#snapshotMutation = mutation.catch(() => undefined);
-    await mutation;
   }
 
   async writeAsset(input: {
