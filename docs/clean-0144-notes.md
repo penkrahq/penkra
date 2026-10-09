@@ -57,12 +57,15 @@ Operator decisions, written into TODO.md 3/4.1/6 in the same commit as the migra
   (that key is absent in the data, so no dedupe). The web grouped rows by
   `data.toolCallId ?? data.toolUseId ?? data.callID ?? data.callId ?? data.item.id`
   (`apps/web/src/workLog.ts:1884`).
-- (b) Rehearsal copy: 88 threads have tool activities only, 434 operations only, 9 both. With the
-  web identity, activities and operations are **disjoint** — 115,868 activity ids, 385,410 operation
-  ids, **0 shared**, no turn contains both. They are different tool calls, so the migration emits
-  both (one item per operation, one item per activity identity). No cross-source dedupe.
-- The operator's original key (`$.operationId`) does not exist; my first coverage count was wrong and
-  was corrected before implementing.
+- (b) The rehearsal copy used for the coverage counts was **corrupt** (`PRAGMA quick_check`: rowid
+  out of order / double page reference) because it was built by copying main+wal+shm from the live
+  Production DB; its counts are not trusted and are not relied on. The implementation does not
+  depend on overlap: tool rows from **both** sources are grouped under one identity (activities by
+  the web identity, operations by `provider_operation_id`), so one item per distinct identity per
+  thread and a call present in both sources collapses to one item (latest wins; operations break a
+  same-time tie). Unit test covers the overlap case.
+- The operator's original key (`$.operationId`) does not exist in the data; my first coverage count
+  was wrong and was corrected before implementing.
 - (1) notice kinds now also include `runtime.error` (text `payload.message`) and
   `provider.turn.start.failed` (text `payload.detail`); `connection-changed`/`model-changed` dropped.
 - (4) model/provider from `model_selection_json`; `thread_runtime_bindings` dropped.

@@ -162,6 +162,26 @@ export default Effect.gen(function* () {
     )
   `;
 
+  // Tool rows from both sources, keyed by one identity so a call present in
+  // both sources collapses to a single item. `priority` breaks a same-time tie
+  // in favour of the canonical `operations` row.
+  yield* sql`DROP TABLE IF EXISTS temp.clean_core_tool_rows`;
+  yield* sql`
+    CREATE TEMP TABLE clean_core_tool_rows (
+      thread_id TEXT NOT NULL,
+      identity TEXT NOT NULL,
+      sort_at TEXT NOT NULL,
+      sort_seq INTEGER NOT NULL,
+      priority INTEGER NOT NULL,
+      turn_id TEXT,
+      status TEXT NOT NULL,
+      text TEXT,
+      data TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `;
+
   // Messages: user -> user, assistant -> text, system -> notice.
   yield* sql`
     INSERT INTO temp.clean_core_items
@@ -198,16 +218,16 @@ export default Effect.gen(function* () {
     FROM projection_thread_messages m
   `;
 
-  // Tool items: one per operation.
+  // Tool rows from operations (identity = provider_operation_id).
   yield* sql`
-    INSERT INTO temp.clean_core_items
+    INSERT INTO temp.clean_core_tool_rows
     SELECT
       o.thread_id,
-      o.started_at,
+      o.provider_operation_id,
+      o.updated_at,
       COALESCE(o.presentation_sequence, 0),
-      o.operation_id,
+      0,
       o.turn_id,
-      'tool',
       CASE o.status
         WHEN 'completed' THEN 'done'
         WHEN 'failed' THEN 'error'
@@ -243,79 +263,81 @@ export default Effect.gen(function* () {
     FROM operations o
   `;
 
-  // Tool items from the tool activities the old read path rendered. The web
-  // grouped them by its tool-call identity (workLog.ts:1884). The rehearsal
-  // proved activities and operations are disjoint tool calls (0 shared ids, no
-  // shared turns), so both are emitted, one item per identity.
+  // Tool rows from the tool activities the old read path rendered. The web
+  // grouped them by its tool-call identity (workLog.ts:1884); the same identity
+  // is used here so an activity and an operation for the same call collapse.
+  yield* sql`
+    INSERT INTO temp.clean_core_tool_rows
+    SELECT
+      a.thread_id,
+      COALESCE(
+        json_extract(a.payload_json, '$.data.toolCallId'),
+        json_extract(a.payload_json, '$.data.toolUseId'),
+        json_extract(a.payload_json, '$.data.callID'),
+        json_extract(a.payload_json, '$.data.callId'),
+        json_extract(a.payload_json, '$.data.item.id'),
+        a.activity_id
+      ),
+      a.created_at,
+      COALESCE(a.sequence, 0),
+      1,
+      a.turn_id,
+      CASE lower(COALESCE(json_extract(a.payload_json, '$.status'), ''))
+        WHEN 'completed' THEN 'done'
+        WHEN 'failed' THEN 'error'
+        WHEN 'error' THEN 'error'
+        WHEN 'cancelled' THEN 'error'
+        WHEN 'aborted' THEN 'error'
+        WHEN 'interrupted' THEN 'error'
+        ELSE 'running'
+      END,
+      CASE
+        WHEN instr(a.payload_json, '<task_result>') > 0
+          AND instr(a.payload_json, '</task_result>') >
+            instr(a.payload_json, '<task_result>') + 13
+        THEN trim(substr(
+          a.payload_json,
+          instr(a.payload_json, '<task_result>') + 13,
+          instr(a.payload_json, '</task_result>') -
+            (instr(a.payload_json, '<task_result>') + 13)
+        ), ' ' || char(9) || char(10) || char(13))
+        ELSE COALESCE(
+          json_extract(a.payload_json, '$.title'),
+          json_extract(a.payload_json, '$.summary'),
+          json_extract(a.payload_json, '$.detail'),
+          a.summary
+        )
+      END,
+      CASE
+        WHEN length(a.payload_json) <= ${THREAD_ITEM_DATA_LIMIT_BYTES} THEN a.payload_json
+        ELSE json_object(
+          'truncated', json('true'),
+          'originalBytes', length(a.payload_json),
+          'preview', substr(a.payload_json, 1, ${THREAD_ITEM_DATA_LIMIT_BYTES})
+        )
+      END,
+      a.created_at,
+      a.created_at
+    FROM projection_thread_activities a
+    WHERE a.kind LIKE 'tool.%'
+      AND NOT EXISTS (SELECT 1 FROM notices n WHERE n.notice_id = a.activity_id)
+  `;
+
+  // One tool item per distinct identity per thread. The latest observation wins;
+  // a same-time tie prefers the canonical operations row (priority 0).
   yield* sql`
     INSERT INTO temp.clean_core_items
     SELECT
-      thread_id, sort_at, sort_seq, source_id, turn_id, 'tool', status, text, data,
+      thread_id, sort_at, sort_seq, identity, turn_id, 'tool', status, text, data,
       created_at, updated_at
     FROM (
       SELECT
-        a.thread_id,
-        a.created_at AS sort_at,
-        COALESCE(a.sequence, 0) AS sort_seq,
-        COALESCE(
-          json_extract(a.payload_json, '$.data.toolCallId'),
-          json_extract(a.payload_json, '$.data.toolUseId'),
-          json_extract(a.payload_json, '$.data.callID'),
-          json_extract(a.payload_json, '$.data.callId'),
-          json_extract(a.payload_json, '$.data.item.id'),
-          a.activity_id
-        ) AS source_id,
-        a.turn_id,
-        CASE lower(COALESCE(json_extract(a.payload_json, '$.status'), ''))
-          WHEN 'completed' THEN 'done'
-          WHEN 'failed' THEN 'error'
-          WHEN 'error' THEN 'error'
-          WHEN 'cancelled' THEN 'error'
-          WHEN 'aborted' THEN 'error'
-          WHEN 'interrupted' THEN 'error'
-          ELSE 'running'
-        END AS status,
-        CASE
-          WHEN instr(a.payload_json, '<task_result>') > 0
-            AND instr(a.payload_json, '</task_result>') >
-              instr(a.payload_json, '<task_result>') + 13
-          THEN trim(substr(
-            a.payload_json,
-            instr(a.payload_json, '<task_result>') + 13,
-            instr(a.payload_json, '</task_result>') -
-              (instr(a.payload_json, '<task_result>') + 13)
-          ), ' ' || char(9) || char(10) || char(13))
-          ELSE COALESCE(
-            json_extract(a.payload_json, '$.title'),
-            json_extract(a.payload_json, '$.summary'),
-            json_extract(a.payload_json, '$.detail'),
-            a.summary
-          )
-        END AS text,
-        CASE
-          WHEN length(a.payload_json) <= ${THREAD_ITEM_DATA_LIMIT_BYTES} THEN a.payload_json
-          ELSE json_object(
-            'truncated', json('true'),
-            'originalBytes', length(a.payload_json),
-            'preview', substr(a.payload_json, 1, ${THREAD_ITEM_DATA_LIMIT_BYTES})
-          )
-        END AS data,
-        a.created_at,
-        a.created_at AS updated_at,
+        *,
         ROW_NUMBER() OVER (
-          PARTITION BY a.thread_id, COALESCE(
-            json_extract(a.payload_json, '$.data.toolCallId'),
-            json_extract(a.payload_json, '$.data.toolUseId'),
-            json_extract(a.payload_json, '$.data.callID'),
-            json_extract(a.payload_json, '$.data.callId'),
-            json_extract(a.payload_json, '$.data.item.id'),
-            a.activity_id
-          )
-          ORDER BY COALESCE(a.sequence, -1) DESC, a.created_at DESC, a.activity_id DESC
+          PARTITION BY thread_id, identity
+          ORDER BY sort_at DESC, priority ASC, sort_seq DESC, created_at DESC
         ) AS rn
-      FROM projection_thread_activities a
-      WHERE a.kind LIKE 'tool.%'
-        AND NOT EXISTS (SELECT 1 FROM notices n WHERE n.notice_id = a.activity_id)
+      FROM temp.clean_core_tool_rows
     ) ranked
     WHERE rn = 1
   `;
@@ -412,4 +434,5 @@ export default Effect.gen(function* () {
   `;
 
   yield* sql`DROP TABLE IF EXISTS temp.clean_core_items`;
+  yield* sql`DROP TABLE IF EXISTS temp.clean_core_tool_rows`;
 });
