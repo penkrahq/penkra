@@ -771,40 +771,6 @@ describe("buildTaskCompletionCopy", () => {
 });
 
 describe("collectInputNeededThreadCandidates", () => {
-  it("returns threads with newly opened approval requests", () => {
-    const previous = [makeThread({ activities: [] })];
-    const next = [
-      makeThread({
-        activities: [
-          {
-            id: EventId.makeUnsafe("activity-approval-1"),
-            tone: "approval",
-            kind: "approval.requested",
-            summary: "Command approval requested",
-            payload: {
-              requestId: "approval-request-1",
-              requestKind: "command",
-            },
-            turnId: TurnId.makeUnsafe("turn-1"),
-            createdAt: "2026-04-05T10:00:04.000Z",
-          },
-        ],
-      }),
-    ];
-
-    expect(collectInputNeededThreadCandidates(previous, next)).toEqual([
-      {
-        kind: "approval",
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        folderId: FolderId.makeUnsafe("project-1"),
-        title: "Polish notifications",
-        createdAt: "2026-04-05T10:00:04.000Z",
-        requestId: ApprovalRequestId.makeUnsafe("approval-request-1"),
-        requestKind: "command",
-      },
-    ]);
-  });
-
   it("returns threads with newly opened user-input requests", () => {
     const previous = [makeThread({ activities: [] })];
     const next = [

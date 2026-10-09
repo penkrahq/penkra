@@ -5,19 +5,10 @@ import {
   type UserInputQuestion,
 } from "@penkra/contracts";
 import {
-  approvalRequestKindFromRequestType,
   isPendingInteractionNotFoundFailure,
   pendingRequestInstanceKey,
 } from "@penkra/shared/threadSummary";
 import { orderedActivities } from "./workLog";
-
-export interface PendingApproval {
-  requestId: ApprovalRequestId;
-  lifecycleGeneration?: string;
-  requestKind: "command" | "file-read" | "file-change";
-  createdAt: string;
-  detail?: string;
-}
 
 export interface PendingUserInput {
   requestId: ApprovalRequestId;
@@ -199,37 +190,6 @@ function parseUserInputQuestions(
     })
     .filter((question): question is UserInputQuestion => question !== null);
   return parsed.length > 0 ? parsed : null;
-}
-
-export function derivePendingApprovals(
-  activities: ReadonlyArray<OrchestrationThreadActivity>,
-  settlements?: ReadonlyArray<OrchestrationPendingInteraction>,
-): PendingApproval[] {
-  return replayPendingInteractions(activities, settlements, {
-    interactionKind: "approval",
-    requestedActivityKind: "approval.requested",
-    resolvedActivityKind: "approval.resolved",
-    responseFailedActivityKind: "provider.approval.respond.failed",
-    parseRequested: ({ activity, payload, requestId, lifecycleGeneration }) => {
-      const requestKind =
-        payload?.requestKind === "command" ||
-        payload?.requestKind === "file-read" ||
-        payload?.requestKind === "file-change"
-          ? payload.requestKind
-          : approvalRequestKindFromRequestType(payload?.requestType);
-      if (!requestKind) {
-        return null;
-      }
-      const detail = typeof payload?.detail === "string" ? payload.detail : undefined;
-      return {
-        requestId,
-        ...(lifecycleGeneration !== undefined ? { lifecycleGeneration } : {}),
-        requestKind,
-        createdAt: activity.createdAt,
-        ...(detail ? { detail } : {}),
-      };
-    },
-  });
 }
 
 export function derivePendingUserInputs(
