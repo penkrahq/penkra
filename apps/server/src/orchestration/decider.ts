@@ -1564,11 +1564,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           threadId: command.threadId,
           turnId: command.turnId ?? TurnId.makeUnsafe(`turn:${command.commandId}`),
           messageId: command.recoveryMessageId,
-          ...(command.interruptedTurnId !== undefined
-            ? { recoveryOfTurnId: command.interruptedTurnId }
-            : {}),
           recoveryReason: command.reason ?? "restart",
-          restartRecovery: true,
           connectionId: command.connectionId,
           bindingRevision: command.bindingRevision,
           assistantDeliveryMode: DEFAULT_ASSISTANT_DELIVERY_MODE,

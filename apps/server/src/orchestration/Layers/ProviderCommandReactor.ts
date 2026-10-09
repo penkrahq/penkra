@@ -196,7 +196,7 @@ import {
   type ProviderIntentEvent,
 } from "../providerIntentClassification.ts";
 import { deriveTurnStartSession } from "../turnStartSession.ts";
-import { PLAY_TURN_RECOVERY_PROMPT, RESTART_TURN_RECOVERY_PROMPT } from "../turnRecoveryPrompts.ts";
+import { PLAY_TURN_RECOVERY_PROMPT } from "../../cleanCore/sendMessage.ts";
 import { resolveProviderSessionThread as resolveProviderSessionThreadFromProjection } from "../providerSessionThread.ts";
 import { userStopPending } from "../userStopPending.ts";
 import { startProviderIntentOutboxWorker } from "../providerIntentOutboxWorker.ts";
@@ -2149,16 +2149,15 @@ const make = Effect.gen(function* () {
         return;
       }
 
-      const isRestartRecovery =
-        event.payload.restartRecovery || event.payload.recoveryOfTurnId !== undefined;
+      // Automatic restart recovery is gone (0.14.4); only the manual play path
+      // remains. It still rides `thread.turn.recover` here until step 8 routes
+      // the play button through the clean send path (cleanCore/sendMessage).
+      const isRestartRecovery = event.payload.recoveryReason === "play";
       const message = isRestartRecovery
         ? {
             id: event.payload.messageId,
             role: "user" as const,
-            text:
-              event.payload.recoveryReason === "play"
-                ? PLAY_TURN_RECOVERY_PROMPT
-                : RESTART_TURN_RECOVERY_PROMPT,
+            text: PLAY_TURN_RECOVERY_PROMPT,
             attachments: [] as ReadonlyArray<ChatAttachment>,
             skills: undefined,
             mentions: undefined,
