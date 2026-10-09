@@ -7,7 +7,6 @@ import {
   COMPOSER_DRAFT_STORAGE_KEY,
   findSupersededComposerImageBlobAttachments,
   isComposerImageBlobReferenced,
-  partializeComposerDraftStoreState,
   useComposerDraftStore,
   type ComposerImageAttachment,
 } from "./composerDraftStore";
@@ -125,34 +124,6 @@ describe("composerDraftStore voice transcript durability", () => {
     const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
     expect(draft?.prompt).toBe("Existing text\n\nRecovered words");
     expect(draft?.appliedVoiceJobIds).toEqual(["voice-job-1"]);
-    expect(
-      partializeComposerDraftStoreState(useComposerDraftStore.getState()).draftsByThreadId[threadId]
-        ?.appliedVoiceJobIds,
-    ).toEqual(["voice-job-1"]);
-  });
-});
-
-describe("composerDraftStore file durability", () => {
-  const threadId = ThreadId.makeUnsafe("thread-file-draft");
-
-  beforeEach(() => resetComposerDraftStore());
-
-  it("persists an asset-backed ordinary file in the composer snapshot", () => {
-    const file = makeFile({ id: "file-1", name: "notes.txt", mimeType: "text/plain" });
-    useComposerDraftStore.getState().addFiles(threadId, [{ ...file, assetKey: "asset-file-1" }]);
-
-    expect(
-      partializeComposerDraftStoreState(useComposerDraftStore.getState()).draftsByThreadId[threadId]
-        ?.files,
-    ).toEqual([
-      {
-        id: "file-1",
-        name: "notes.txt",
-        mimeType: "text/plain",
-        sizeBytes: file.sizeBytes,
-        assetKey: "asset-file-1",
-      },
-    ]);
   });
 });
 

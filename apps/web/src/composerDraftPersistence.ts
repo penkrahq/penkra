@@ -23,7 +23,6 @@ import type { DeepMutable } from "effect/Types";
 import {
   hydrateImagesFromPersisted,
   normalizePersistedAttachment,
-  toStorageSafePersistedAttachment,
 } from "./composerDraftAttachments";
 import {
   hydratePastedTextsFromPersisted,
@@ -33,7 +32,6 @@ import {
   projectDraftThreadEntryPointFromKey,
   folderIdFromDraftThreadMappingKey,
   PersistedComposerImageAttachment,
-  type ComposerDraftStoreState,
   type ComposerPromptHistorySavedDraft,
   type ComposerThreadDraftState,
   type PendingStartRecoveryRecord,
@@ -231,46 +229,6 @@ function normalizePersistedFiles(value: unknown): Array<PersistedComposerFileAtt
   return Array.isArray(value)
     ? value.filter(Schema.is(PersistedComposerFileAttachment)).map((file) => ({ ...file }))
     : [];
-}
-
-function serializePendingStartRecoveries(
-  recoveries: ComposerThreadDraftState["pendingStartRecoveriesByMessageId"],
-): Record<string, unknown> {
-  const serialized: Record<string, unknown> = {};
-  for (const [messageId, recovery] of Object.entries(recoveries ?? {})) {
-    if (!recovery) continue;
-    if ("raw" in recovery) {
-      serialized[messageId] = recovery.raw;
-      continue;
-    }
-    serialized[messageId] = {
-      ...recovery,
-      pendingTurn: {
-        ...recovery.pendingTurn,
-        images: recovery.pendingTurn.images.map((image) => ({
-          id: image.id,
-          name: image.name,
-          mimeType: image.mimeType,
-          sizeBytes: image.sizeBytes,
-          dataUrl: image.previewUrl,
-        })),
-        files: recovery.pendingTurn.files.flatMap((file) =>
-          file.assetKey
-            ? [
-                {
-                  id: file.id,
-                  name: file.name,
-                  mimeType: file.mimeType,
-                  sizeBytes: file.sizeBytes,
-                  assetKey: file.assetKey,
-                },
-              ]
-            : [],
-        ),
-      },
-    };
-  }
-  return serialized;
 }
 
 function hydratePendingStartRecoveries(
@@ -753,207 +711,6 @@ function normalizePersistedDraftsByThreadId(
   }
 
   return nextDraftsByThreadId;
-}
-
-export function partializeComposerDraftStoreState(
-  state: ComposerDraftStoreState,
-): PersistedComposerDraftStoreState {
-  const persistedDraftsByThreadId: DeepMutable<
-    PersistedComposerDraftStoreState["draftsByThreadId"]
-  > = {};
-  for (const [threadId, draft] of Object.entries(state.draftsByThreadId)) {
-    if (typeof threadId !== "string" || threadId.length === 0) {
-      continue;
-    }
-    // Queue rows live in the thread projection. Pending start recovery remains local because it records a command whose server outcome is still unknown.
-    const hasModelData =
-      Object.keys(draft.modelSelectionByProvider).length > 0 || draft.activeProvider !== null;
-    const hasReferenceData = draft.skills.length > 0 || draft.mentions.length > 0;
-    if (
-      draft.prompt.length === 0 &&
-      (draft.appliedVoiceJobIds?.length ?? 0) === 0 &&
-      draft.promptHistorySavedDraft === null &&
-      draft.persistedAttachments.length === 0 &&
-      draft.files.length === 0 &&
-      draft.assistantSelections.length === 0 &&
-      draft.terminalContexts.length === 0 &&
-      draft.fileComments.length === 0 &&
-      draft.pastedTexts.length === 0 &&
-      !hasReferenceData &&
-      Object.keys(draft.pendingStartRecoveriesByMessageId ?? {}).length === 0 &&
-      !hasModelData &&
-      draft.runtimeMode === null
-    ) {
-      continue;
-    }
-    const persistedDraft: DeepMutable<PersistedComposerThreadDraftState> = {
-      // The prompt text lives only in threads.draft (0.14.4 design 2.6); the
-      // local snapshot keeps the unsent attachments/files and recovery state.
-      prompt: "",
-      ...((draft.appliedVoiceJobIds?.length ?? 0) > 0
-        ? { appliedVoiceJobIds: [...(draft.appliedVoiceJobIds ?? [])] }
-        : {}),
-      ...(draft.promptHistorySavedDraft !== null
-        ? {
-            promptHistorySavedDraft: {
-              prompt: "",
-              attachments: draft.promptHistorySavedDraft.persistedAttachments.map(
-                toStorageSafePersistedAttachment,
-              ),
-              files: draft.promptHistorySavedDraft.files.flatMap((file) =>
-                file.assetKey
-                  ? [
-                      {
-                        id: file.id,
-                        name: file.name,
-                        mimeType: file.mimeType,
-                        sizeBytes: file.sizeBytes,
-                        assetKey: file.assetKey,
-                      },
-                    ]
-                  : [],
-              ),
-              ...(draft.promptHistorySavedDraft.assistantSelections.length > 0
-                ? {
-                    assistantSelections: draft.promptHistorySavedDraft.assistantSelections.map(
-                      (selection) => ({
-                        id: selection.id,
-                        assistantMessageId: selection.assistantMessageId,
-                        text: selection.text,
-                      }),
-                    ),
-                  }
-                : {}),
-              ...(draft.promptHistorySavedDraft.terminalContexts.length > 0
-                ? {
-                    terminalContexts: draft.promptHistorySavedDraft.terminalContexts.map(
-                      (context) => ({
-                        id: context.id,
-                        threadId: context.threadId,
-                        createdAt: context.createdAt,
-                        terminalId: context.terminalId,
-                        terminalLabel: context.terminalLabel,
-                        lineStart: context.lineStart,
-                        lineEnd: context.lineEnd,
-                      }),
-                    ),
-                  }
-                : {}),
-              ...(draft.promptHistorySavedDraft.fileComments.length > 0
-                ? {
-                    fileComments: draft.promptHistorySavedDraft.fileComments.map((comment) => ({
-                      id: comment.id,
-                      path: comment.path,
-                      startLine: comment.startLine,
-                      endLine: comment.endLine,
-                      text: comment.text,
-                    })),
-                  }
-                : {}),
-              ...(draft.promptHistorySavedDraft.pastedTexts.length > 0
-                ? {
-                    pastedTexts: draft.promptHistorySavedDraft.pastedTexts.map((pasted) => ({
-                      id: pasted.id,
-                      createdAt: pasted.createdAt,
-                      text: pasted.text,
-                      ...(pasted.title ? { title: pasted.title } : {}),
-                    })),
-                  }
-                : {}),
-              ...(draft.promptHistorySavedDraft.skills.length > 0
-                ? { skills: [...draft.promptHistorySavedDraft.skills] }
-                : {}),
-              ...(draft.promptHistorySavedDraft.mentions.length > 0
-                ? { mentions: [...draft.promptHistorySavedDraft.mentions] }
-                : {}),
-            },
-          }
-        : {}),
-      attachments: draft.persistedAttachments.map(toStorageSafePersistedAttachment),
-      files: draft.files.flatMap((file) =>
-        file.assetKey
-          ? [
-              {
-                id: file.id,
-                name: file.name,
-                mimeType: file.mimeType,
-                sizeBytes: file.sizeBytes,
-                assetKey: file.assetKey,
-              },
-            ]
-          : [],
-      ),
-      ...(draft.assistantSelections.length > 0
-        ? {
-            assistantSelections: draft.assistantSelections.map((selection) => ({
-              id: selection.id,
-              assistantMessageId: selection.assistantMessageId,
-              text: selection.text,
-            })),
-          }
-        : {}),
-      ...(draft.terminalContexts.length > 0
-        ? {
-            terminalContexts: draft.terminalContexts.map((context) => ({
-              id: context.id,
-              threadId: context.threadId,
-              createdAt: context.createdAt,
-              terminalId: context.terminalId,
-              terminalLabel: context.terminalLabel,
-              lineStart: context.lineStart,
-              lineEnd: context.lineEnd,
-            })),
-          }
-        : {}),
-      ...(draft.fileComments.length > 0
-        ? {
-            fileComments: draft.fileComments.map((comment) => ({
-              id: comment.id,
-              path: comment.path,
-              startLine: comment.startLine,
-              endLine: comment.endLine,
-              text: comment.text,
-            })),
-          }
-        : {}),
-      ...(draft.pastedTexts.length > 0
-        ? {
-            pastedTexts: draft.pastedTexts.map((pasted) => ({
-              id: pasted.id,
-              createdAt: pasted.createdAt,
-              text: pasted.text,
-              ...(pasted.title ? { title: pasted.title } : {}),
-            })),
-          }
-        : {}),
-      ...(draft.skills.length > 0 ? { skills: [...draft.skills] } : {}),
-      ...(draft.mentions.length > 0 ? { mentions: [...draft.mentions] } : {}),
-      ...(draft.pendingStartRecoveriesByMessageId &&
-      Object.keys(draft.pendingStartRecoveriesByMessageId).length > 0
-        ? {
-            pendingStartRecoveriesByMessageId: serializePendingStartRecoveries(
-              draft.pendingStartRecoveriesByMessageId,
-            ),
-          }
-        : {}),
-      ...(hasModelData
-        ? {
-            modelSelectionByProvider: draft.modelSelectionByProvider,
-            activeProvider: draft.activeProvider,
-          }
-        : {}),
-      ...(draft.runtimeMode ? { runtimeMode: draft.runtimeMode } : {}),
-    };
-    persistedDraftsByThreadId[threadId as ThreadId] = persistedDraft;
-  }
-  return {
-    draftsByThreadId: persistedDraftsByThreadId,
-    draftThreadsByThreadId: state.draftThreadsByThreadId,
-    projectDraftThreadIdByFolderId: state.projectDraftThreadIdByFolderId,
-    stickyModelSelectionByProvider: state.stickyModelSelectionByProvider,
-    stickyConnectionByProvider: state.stickyConnectionByProvider,
-    stickyActiveProvider: state.stickyActiveProvider,
-  };
 }
 
 export function normalizeCurrentPersistedComposerDraftStoreState(
