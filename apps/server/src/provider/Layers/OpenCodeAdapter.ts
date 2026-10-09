@@ -3974,6 +3974,8 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             model: parsedModel,
             ...(context.activeAgent ? { agent: context.activeAgent } : {}),
             ...(context.activeVariant ? { variant: context.activeVariant } : {}),
+            // 0.14.4: subagents are disabled; agents use `penkra threads` instead.
+            tools: { task: false },
             parts: [
               ...(providerText ? [{ type: "text" as const, text: providerText }] : []),
               ...fileParts,

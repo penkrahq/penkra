@@ -4935,6 +4935,8 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           settingSources: [...CLAUDE_SETTING_SOURCES],
           systemPrompt: PENKRA_SYSTEM_PROMPT,
           ...(Object.keys(claudeSubagents).length > 0 ? { agents: claudeSubagents } : {}),
+          // 0.14.4: subagents are disabled; agents use `penkra threads` instead.
+          disallowedTools: ["Task", "Agent"],
           // Only `max` effort is spawn-fixed; every other level rides in
           // `settings.effortLevel` so it can change live mid-session.
           ...(effectiveEffort === "max" ? { effort: "max" as const } : {}),
