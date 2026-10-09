@@ -99,7 +99,7 @@ CREATE VIRTUAL TABLE thread_items_search USING fts5(text, content='thread_items'
 
 ### 2.6 Composer draft
 
-- One draft per thread: `threads.draft`. Each window saves it debounced (300 ms) and broadcasts it; other windows showing that thread update live. The last write wins by `draft_updated_at`. Remove the per-window/local draft storage.
+- One draft per thread: `threads.draft`. Each window saves it debounced (300 ms) and broadcasts it; other windows showing that thread update live. The last write wins by `draft_updated_at`. Remove the per-window/local draft storage. The draft also carries the ids of unsent attachments (operator decision, 2026-10-09), so every window shows the same text and attachments; the attachment files stay in the one shared local `composer-drafts-v1/assets/` folder, and a live voice recording stays with the window recording it. Then delete the per-window composer-draft localStorage persistence entirely (not blanked).
 
 ### 2.7 Attachments and OpenCode images
 
