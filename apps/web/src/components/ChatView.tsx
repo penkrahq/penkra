@@ -271,7 +271,6 @@ import {
   type QueuedComposerChatTurn,
   type QueuedComposerTurn,
   captureComposerPromptHistorySavedDraft,
-  flushComposerDraftsDurably,
   useComposerDraftStore,
   useComposerThreadDraft,
   useEffectiveComposerModelState,
@@ -909,9 +908,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
   const markPendingStartRecoveryFailed = useComposerDraftStore(
     (store) => store.markPendingStartRecoveryFailed,
   );
-  const retainPendingStartRecoverySettlement = useComposerDraftStore(
-    (store) => store.retainPendingStartRecoverySettlement,
-  );
   const clearPendingStartRecovery = useComposerDraftStore(
     (store) => store.clearPendingStartRecovery,
   );
@@ -1113,7 +1109,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
               throw new Error("Could not prepare the exact pending-start settlement.");
             }
           }
-          await flushComposerDraftsDurably();
           const prepared = draft()?.pendingStartRecoveriesByMessageId?.[input.messageId];
           if (
             !prepared ||
@@ -1121,25 +1116,16 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
             prepared.messageId !== input.messageId ||
             prepared.settlement !== input.settlement
           ) {
-            throw new Error("Pending-start settlement was not retained durably before cleanup.");
+            throw new Error("Pending-start settlement was not retained before cleanup.");
           }
           if (!clearPendingStartRecovery(threadId, input.messageId)) {
             throw new Error("Pending-start settlement receipt is not durable.");
-          }
-          try {
-            await flushComposerDraftsDurably();
-          } catch (cause) {
-            // A rejected clear write leaves the durable result ambiguous. Keep the
-            // exact settled record in memory so the next attempt can rewrite and
-            // clear it; do not interpret absence as an acknowledged clear.
-            retainPendingStartRecoverySettlement(threadId, prepared);
-            throw cause;
           }
         },
         input.sequence,
       );
     },
-    [clearPendingStartRecovery, retainPendingStartRecoverySettlement, threadId],
+    [clearPendingStartRecovery, threadId],
   );
   const reconcileCancelledPendingStart = useCallback(
     async (messageId: MessageId, cancellationSequence?: number) => {
@@ -4027,7 +4013,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       if (!nextPrompt) {
         return;
       }
-      await flushComposerDraftsDurably();
       if (targetThreadId !== threadId) {
         return;
       }
@@ -6761,8 +6746,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         );
       } else {
         capturedDurableRecovery = true;
-        await flushComposerDraftsDurably();
-        pendingStartRecoveryRegistryRef.current.register({
+          pendingStartRecoveryRegistryRef.current.register({
           threadId: threadIdForSend,
           messageId: messageIdForSend,
           previewUrls: durableRecoveryTurn.images.map((image) => image.previewUrl),

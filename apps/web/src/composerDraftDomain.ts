@@ -304,10 +304,6 @@ export interface ComposerDraftStoreState {
   ) => boolean;
   discardPendingStartRecovery: (threadId: ThreadId, messageId: MessageId) => boolean;
   markPendingStartRecoveryFailed: (threadId: ThreadId, messageId: MessageId) => boolean;
-  retainPendingStartRecoverySettlement: (
-    threadId: ThreadId,
-    recovery: PendingStartRecovery,
-  ) => boolean;
   clearPendingStartRecovery: (threadId: ThreadId, messageId: MessageId) => boolean;
   addImage: (threadId: ThreadId, image: ComposerImageAttachment) => void;
   addImages: (threadId: ThreadId, images: ComposerImageAttachment[]) => void;

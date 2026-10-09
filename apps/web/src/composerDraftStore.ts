@@ -56,10 +56,6 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
   createComposerDraftStoreState(() => undefined),
 );
 
-export async function flushComposerDraftsDurably(): Promise<void> {
-  // The draft lives on the server; nothing is buffered locally to flush.
-}
-
 export function useComposerThreadDraft(threadId: ThreadId): ComposerThreadDraftState {
   return useComposerDraftStore((state) => selectComposerThreadDraft(state, threadId));
 }
