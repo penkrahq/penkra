@@ -2,6 +2,7 @@
 export type RuntimeJournalTiming =
   | "sqliteSemaphoreWait"
   | "sqliteTransactionHold"
+  | "sqliteStatement"
   | "journalPageRead"
   | "journalEventProcessing"
   | "journalRetentionScan";
