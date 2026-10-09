@@ -88,6 +88,7 @@ CREATE VIRTUAL TABLE thread_items_search USING fts5(text, content='thread_items'
 - Send without "now": if idle, deliver; otherwise append to the queue. On turn end, deliver the next message.
 - Send with "now": native steer where the provider supports it (Codex, Claude); otherwise interrupt and deliver this message first.
 - Delivery inserts the `user` item (2.1).
+- No editing of sent user messages (operator decision, 2026-10-09): delete the edit-and-rerun feature (`packages/shared/src/conversationEdit.ts`, `resolveTailUserMessageEditTarget` and its ChatView wiring). Stop + returning the message to the composer is the correction path. Editing a *queued* message stays; after the queue moves server-side, check that it does not duplicate the message in the composer (operator-reported bug).
 
 ### 2.5 Questions, approvals, subagents
 
