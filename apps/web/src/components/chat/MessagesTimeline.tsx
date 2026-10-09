@@ -4,7 +4,6 @@
 // Exports: MessagesTimeline
 
 import {
-  type CleanCoreThreadItem,
   type MessageId,
   type ProviderMentionReference,
   ThreadId,
@@ -65,7 +64,6 @@ import {
   TimelineWorkEntryRow,
   workEntryFindText,
 } from "./TimelineWorkEntryRow";
-import { ThreadItemRow } from "./ThreadItemRow";
 import {
   hasLeadingUserMedia,
   resolveUserTurnMarker,
@@ -280,8 +278,6 @@ interface MessagesTimelineProps {
   controllerRef?: RefObject<MessagesTimelineController | null>;
   /** Provenance for a conversation created from another Penkra task. */
   crossTaskOrigin?: CrossTaskOrigin | null;
-  /** Clean-core items keyed by source id, so message rows render through ThreadItemRow. */
-  threadItemsById?: ReadonlyMap<string, CleanCoreThreadItem>;
   timelineEntries: ReturnType<typeof deriveTimelineEntries>;
   nowIso?: string;
   expandedWorkGroups?: Record<string, boolean>;
@@ -325,7 +321,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   listRef,
   controllerRef,
   crossTaskOrigin: crossTaskOriginProp,
-  threadItemsById,
   timelineEntries,
   nowIso,
   expandedWorkGroups,
@@ -959,8 +954,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   );
 
   const renderRowContent = (row: MessagesTimelineRow) => {
-    const threadItem =
-      row.kind === "message" ? threadItemsById?.get(row.message.id) : undefined;
     const content = (
       <div
         className={cn(
@@ -1163,21 +1156,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             );
           })()}
 
-        {threadItem ? (
-          <ThreadItemRow
-            item={threadItem}
-            markdownCwd={markdownCwd}
-            chatMetaFontSizePx={appTypographyScale.chatMetaPx}
-            textFontSizePx={normalizedChatFontSizePx}
-            timestampFormat={timestampFormat}
-            resolvedTheme={resolvedTheme}
-            onImageExpand={onImageExpand}
-            {...(onOpenThread ? { onOpenThread } : {})}
-          />
-        ) : null}
-
-        {!threadItem &&
-          row.kind === "message" &&
+        {row.kind === "message" &&
           row.message.role === "user" &&
           (() => {
             const userImages = (row.message.attachments ?? []).filter(
@@ -1401,8 +1380,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             );
           })()}
 
-        {!threadItem &&
-          row.kind === "message" &&
+        {row.kind === "message" &&
           row.message.role === "assistant" &&
           (() => {
             const messageText = resolveAssistantMessageDisplayText(row);

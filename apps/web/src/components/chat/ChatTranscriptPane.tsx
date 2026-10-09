@@ -73,7 +73,6 @@ interface ChatTranscriptPaneProps {
   resolvedTheme: "light" | "dark";
   scrollButtonVisible: boolean;
   timelineEntries: ComponentProps<typeof MessagesTimeline>["timelineEntries"];
-  threadItemsById?: ComponentProps<typeof MessagesTimeline>["threadItemsById"];
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
 }
@@ -114,7 +113,6 @@ function ChatTranscriptPaneImpl({
   resolvedTheme,
   scrollButtonVisible,
   timelineEntries,
-  threadItemsById,
   timestampFormat,
   workspaceRoot,
 }: ChatTranscriptPaneProps) {
@@ -240,7 +238,6 @@ function ChatTranscriptPaneImpl({
             listRef={listRef}
             {...(crossTaskOrigin ? { crossTaskOrigin } : {})}
             timelineEntries={timelineEntries}
-            {...(threadItemsById ? { threadItemsById } : {})}
             onOpenThread={onOpenThread}
             onImageExpand={onExpandTimelineImage}
             onIsAtEndChange={onIsAtEndChange}
