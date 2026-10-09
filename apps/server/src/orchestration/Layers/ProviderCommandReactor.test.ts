@@ -88,6 +88,7 @@ import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
 import { ProviderRuntimeIngestionLive } from "./ProviderRuntimeIngestion.ts";
+import { ThreadPublisherLive } from "../../cleanCore/ThreadPublisher.ts";
 import {
   classifyProviderAttemptOutcome,
   makeProviderCommandReactorLive,
@@ -624,6 +625,7 @@ describe("ProviderCommandReactor", () => {
       Layer.provideMerge(persistenceLayer),
     );
     const ingestionLayer = ProviderRuntimeIngestionLive.pipe(
+      Layer.provideMerge(ThreadPublisherLive),
       Layer.provideMerge(orchestrationLayer),
       Layer.provideMerge(OrchestrationProjectionSnapshotQueryLive),
       Layer.provideMerge(persistenceLayer),

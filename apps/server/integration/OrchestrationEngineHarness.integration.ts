@@ -52,6 +52,7 @@ import { OrchestrationProjectionSnapshotQueryLive } from "../src/orchestration/L
 import { OrchestrationReactorLive } from "../src/orchestration/Layers/OrchestrationReactor.ts";
 import { makeProviderCommandReactorLive } from "../src/orchestration/Layers/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionLive } from "../src/orchestration/Layers/ProviderRuntimeIngestion.ts";
+import { ThreadPublisherLive } from "../src/cleanCore/ThreadPublisher.ts";
 import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
@@ -283,6 +284,7 @@ export const makeOrchestrationIntegrationHarness = (
       providerLayer,
     );
     const runtimeIngestionLayer = ProviderRuntimeIngestionLive.pipe(
+      Layer.provideMerge(ThreadPublisherLive),
       Layer.provideMerge(runtimeServicesLayer),
     );
     const providerLaunchResolverLayer = Layer.succeed(ProviderLaunchResolver, {

@@ -38,6 +38,7 @@ import { startServerMemoryDiagnostics } from "./memoryDiagnostics";
 import { startServerEventLoopDiagnostics } from "./eventLoopDiagnostics";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ProviderSessionReaperLive } from "./provider/Layers/ProviderSessionReaper";
+import { ThreadPublisherLive } from "./cleanCore/ThreadPublisher.ts";
 import { ProviderHealth } from "./provider/Services/ProviderHealth";
 import { startAutomaticProviderUpdates } from "./provider/providerUpdateCoordinator";
 import { ProviderInstallationRepository } from "./persistence/Services/ProviderInstallations";
@@ -323,6 +324,7 @@ const LayerLive = (input: CliInput) => {
     Layer.provideMerge(runtimeServicesLayer),
     Layer.provideMerge(providerLayer),
     Layer.provideMerge(providerSessionReaperLayer),
+    Layer.provideMerge(ThreadPublisherLive),
     Layer.provideMerge(SqlitePersistence.layerConfig),
     Layer.provideMerge(ServerLoggerLive),
     Layer.provideMerge(AnalyticsServiceLayerLive),

@@ -50,7 +50,7 @@ import {
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { applyProviderEvent } from "../../cleanCore/providerStreamConsumer.ts";
 import { toCleanCoreProviderEvents } from "../../cleanCore/providerEventBridge.ts";
-import { ThreadPublisher, ThreadPublisherLive } from "../../cleanCore/ThreadPublisher.ts";
+import { ThreadPublisher } from "../../cleanCore/ThreadPublisher.ts";
 import { classifyProviderAuthFailure } from "../../provider/providerAuthFailure.ts";
 import { makeProviderAuthCircuitStore } from "../../provider/providerAuthCircuit.ts";
 import {
@@ -3382,7 +3382,6 @@ export const ProviderRuntimeIngestionLive = Layer.effect(
       ProviderRuntimeEventRepositoryLive,
       ProviderSessionRuntimeRepositoryLive,
       OrchestrationCommandReceiptRepositoryLive,
-      ThreadPublisherLive,
     ),
   ),
 );
