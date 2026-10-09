@@ -11,6 +11,7 @@ import {
   ORCHESTRATION_WS_CHANNELS,
   type DiagnosticTraceContext,
   ORCHESTRATION_WS_METHODS,
+  WS_METHODS,
   WS_CHANNELS,
   WS_COMPATIBILITY_QUERY,
   WS_PROTOCOL_EPOCH,
@@ -110,6 +111,8 @@ interface WsTransportInternals {
   readonly streamCapacityRetryTimers: Map<string, number>;
   readonly activeThreadStreamInputs: Map<string, unknown>;
   readonly threadSubscriptions: Map<string, unknown>;
+  readonly cleanCoreThreadSubscriptions: Map<string, unknown>;
+  readonly activeCleanCoreThreadInputs: Map<string, unknown>;
   readonly threadStreamFailureListeners: Set<(failure: WsThreadStreamFailure) => void>;
   startThreadStream(
     client: unknown,
@@ -117,6 +120,7 @@ interface WsTransportInternals {
     input: unknown,
     forceRestart?: boolean,
   ): Promise<void>;
+  startCleanCoreThreadStream(client: unknown, threadId: string, input: unknown): Promise<void>;
   stopStream(key: string, options?: { readonly resetCapacityRetry?: boolean }): Promise<void>;
   startStream(...args: unknown[]): void;
   startChannelStream(channel: string): void;
@@ -139,6 +143,8 @@ function makeBareTransport(): {
     streamCapacityRetryTimers: new Map(),
     activeThreadStreamInputs: new Map(),
     threadSubscriptions: new Map(),
+    cleanCoreThreadSubscriptions: new Map(),
+    activeCleanCoreThreadInputs: new Map(),
     threadStreamFailureListeners: new Set(),
     listeners: new Map(),
     failedPushListeners: new WeakSet(),
@@ -642,6 +648,48 @@ describe("WsTransport", () => {
     await transport.request(ORCHESTRATION_WS_METHODS.subscribeThread, { threadId });
 
     expect(startThreadStream).toHaveBeenCalledWith(client, threadId, input);
+  });
+
+  it("starts a clean-core thread stream for a subscribeThread request", async () => {
+    const { transport, internals } = makeBareTransport();
+    const threadId = "thread-clean-core";
+    const client = {};
+    const startCleanCoreThreadStream = vi.fn(async () => undefined);
+    Object.assign(internals, {
+      disposed: false,
+      getClient: vi.fn(async () => client),
+      startCleanCoreThreadStream,
+    });
+    await transport.request(WS_METHODS.cleanCoreSubscribeThread, { threadId });
+    expect(startCleanCoreThreadStream).toHaveBeenCalledWith(client, threadId, { threadId });
+  });
+
+  it("starts the clean-core stream under its own key and channel", async () => {
+    const { internals } = makeBareTransport();
+    const threadId = "thread-clean-core-key";
+    const key = `cleanCore.thread:${threadId}`;
+    const input = { threadId };
+    const subscribe = vi.fn(() => ({}));
+    const stopStream = vi.fn(async () => {
+      internals.streamCleanups.delete(key);
+      internals.activeCleanCoreThreadInputs.delete(key);
+    });
+    const startStream = vi.fn();
+    Object.assign(internals, { disposed: false, sessionVersion: 7, stopStream, startStream });
+    internals.cleanCoreThreadSubscriptions.set(threadId, input);
+    await internals.startCleanCoreThreadStream(
+      { [WS_METHODS.cleanCoreSubscribeThread]: subscribe },
+      threadId,
+      input,
+    );
+    expect(subscribe).toHaveBeenCalledWith(input);
+    expect(startStream).toHaveBeenCalledWith(
+      expect.anything(),
+      key,
+      {},
+      expect.any(Function),
+      expect.any(Function),
+    );
   });
 
   it("latches terminal compatibility guidance for late UI subscribers", () => {
