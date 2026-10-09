@@ -267,6 +267,7 @@ import {
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { toAttachmentPreviewUrl } from "../lib/wsHttpUrl";
 import { isEditableEventTarget } from "../lib/editableEventTarget";
+import { useComposerDraftSync } from "../composerDraftSync";
 import {
   type ComposerFileAttachment,
   type ComposerImageAttachment,
@@ -905,6 +906,8 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
   const nonPersistedComposerImageIds = composerDraft.nonPersistedImageIds;
   const durablyPersistedComposerImageIds = composerDraft.persistedAttachments;
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
+  // Keep the one per-thread composer draft on the clean core (0.14.4 design 2.6).
+  useComposerDraftSync({ threadId, prompt, setPrompt: setComposerDraftPrompt });
   const setComposerDraftPromptHistorySavedDraft = useComposerDraftStore(
     (store) => store.setPromptHistorySavedDraft,
   );
