@@ -812,9 +812,10 @@ describe("ClaudeAdapterLive", () => {
       const createInput = harness.getLastCreateQueryInput();
       assert.deepEqual(createInput?.options.settingSources, ["user", "project", "local"]);
       assert.equal(createInput?.options.strictMcpConfig, undefined);
-      // 0.14.4: approvals removed, so every mode runs without prompts.
-      assert.equal(createInput?.options.permissionMode, "bypassPermissions");
-      assert.equal(createInput?.options.allowDangerouslySkipPermissions, true);
+      // 0.14.4: approvals removed. Non-full-access denies automatically via the
+      // SDK's `dontAsk`; it never prompts.
+      assert.equal(createInput?.options.permissionMode, "dontAsk");
+      assert.equal(createInput?.options.allowDangerouslySkipPermissions, undefined);
       const systemPrompt = createInput?.options.systemPrompt;
       assert.equal(systemPrompt, PENKRA_SYSTEM_PROMPT);
     }).pipe(

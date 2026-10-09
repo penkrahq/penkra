@@ -4776,9 +4776,12 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         );
         const effectiveEffort = getEffectiveClaudeCodeEffort(effort);
         const ultracode = effort === "ultracode";
-        // 0.14.4: approvals are removed, so Claude always runs without prompts.
+        // 0.14.4: approvals are removed. Full access bypasses; any other mode
+        // denies automatically via the SDK's `dontAsk` ("don't prompt, deny if
+        // not pre-approved"), so no request reaches the UI or waits.
         const permissionMode =
-          toPermissionMode(providerOptions?.permissionMode) ?? "bypassPermissions";
+          toPermissionMode(providerOptions?.permissionMode) ??
+          (input.runtimeMode === "full-access" ? "bypassPermissions" : "dontAsk");
         const settings = {
           // Native 1M models otherwise compact near their full model limit. Keep
           // Penkra's safer 200k budget explicit unless the thread opts into 1M.
