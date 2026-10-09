@@ -3202,10 +3202,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     preflightOptimisticUserMessage,
     serverQueuedMessageIds,
   ]);
-  const threadItemsById = useMemo(
-    () => new Map(threadItems.map((item) => [item.sourceId, item])),
-    [threadItems],
-  );
   const timelineEntries = useMemo(
     () =>
       measureChatPerformanceWork("transcript-timeline", () =>
@@ -8905,7 +8901,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
                         listRef={transcriptListRef}
                         crossTaskOrigin={crossTaskOrigin}
                         timelineEntries={visibleTimelineEntries}
-                        threadItemsById={threadItemsById}
                         onOpenThread={onNavigateToThread}
                         onExpandTimelineImage={onExpandTimelineImage}
                         onIsAtEndChange={onIsAtEndChange}

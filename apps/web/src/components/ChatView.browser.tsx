@@ -126,6 +126,9 @@ let fixtureHasAlternateCodexConnection = false;
 const fixtureSocketClients = new Set<{ close: () => void }>();
 let fixtureSocketConnectionCount = 0;
 let fixtureActiveThreadPageId: ThreadId | null = null;
+// Clean-core change emitters, keyed by thread id, captured from the mock WS
+// subscribe stream so tests can push an item refresh after updating the fixture.
+const cleanCoreThreadChangeEmitters = new Map<ThreadId, () => void>();
 
 function closeFixtureSockets(): void {
   for (const client of [...fixtureSocketClients]) {
@@ -551,10 +554,19 @@ function createThreadItemsPageFromFixtureSnapshot(threadId: ThreadId) {
                 attachments: message.attachments ?? [],
                 skills: message.skills ?? [],
                 mentions: message.mentions ?? [],
+                ...((message as { dispatchMode?: string }).dispatchMode
+                  ? { dispatchMode: (message as { dispatchMode?: string }).dispatchMode }
+                  : {}),
+                ...((message as { dispatchOrigin?: string }).dispatchOrigin
+                  ? { dispatchOrigin: (message as { dispatchOrigin?: string }).dispatchOrigin }
+                  : {}),
               })
             : null,
         createdAt: message.createdAt,
-        updatedAt: message.updatedAt ?? message.createdAt,
+        updatedAt:
+          (message as { updatedAt?: string }).updatedAt ??
+          (message as { completedAt?: string }).completedAt ??
+          message.createdAt,
       },
     });
   }
@@ -588,6 +600,11 @@ function createThreadItemsPageFromFixtureSnapshot(threadId: ThreadId) {
     .toSorted((left, right) => left.at.localeCompare(right.at))
     .map((entry, index) => ({ ...entry.item, seq: index + 1 })) as CleanCoreThreadItem[];
   return { items, nextCursor: null };
+}
+
+/** Push a clean-core thread change so mounted transcripts re-read thread_items. */
+function pushCleanCoreThreadChange(threadId: ThreadId): void {
+  cleanCoreThreadChangeEmitters.get(threadId)?.();
 }
 
 function addThreadToSnapshot(
@@ -1794,8 +1811,14 @@ const worker = setupWorker(
         });
         return;
       }
+      if (method === WS_METHODS.cleanCoreSubscribeThread && "threadId" in requestBody) {
+        const threadId = requestBody.threadId as ThreadId;
+        cleanCoreThreadChangeEmitters.set(threadId, () =>
+          sendEffectRpcChunk(client, parsed.request.id, { threadId }),
+        );
+        return;
+      }
       if (
-        method === WS_METHODS.cleanCoreSubscribeThread ||
         method === WS_METHODS.subscribeServerProviderStatuses ||
         method === WS_METHODS.subscribeServerSettings ||
         method === WS_METHODS.subscribeTerminalEvents ||
