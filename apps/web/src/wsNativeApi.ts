@@ -543,6 +543,10 @@ export function createWsNativeApi(): NativeApi {
       getThreadDraft: (input) => transport.request(WS_METHODS.cleanCoreGetThreadDraft, input),
       setThreadDraft: (input) => transport.request(WS_METHODS.cleanCoreSetThreadDraft, input),
       subscribeThread: (input) => transport.request(WS_METHODS.cleanCoreSubscribeThread, input),
+      unsubscribeThread: (input) => {
+        transport.stopCleanCoreThreadStream(input.threadId);
+        return Promise.resolve();
+      },
       answerThreadQuestion: (input) =>
         transport.request(WS_METHODS.cleanCoreAnswerThreadQuestion, input),
       onThreadChange: cleanCoreThreadChangeListeners.subscribe,

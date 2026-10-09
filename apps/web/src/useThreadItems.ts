@@ -24,6 +24,7 @@ export interface ThreadItemsApi {
     readonly beforeSeq?: number;
   }): Promise<ThreadItemsPage>;
   subscribeThread(input: { readonly threadId: string }): Promise<void>;
+  unsubscribeThread(input: { readonly threadId: string }): Promise<void>;
   onThreadChange(callback: (change: { readonly threadId: string }) => void): () => void;
 }
 
@@ -74,6 +75,7 @@ export function createThreadItemsController(
     dispose: () => {
       disposed = true;
       unsubscribe();
+      void api.unsubscribeThread({ threadId }).catch(() => undefined);
     },
     getState: () => state,
   };

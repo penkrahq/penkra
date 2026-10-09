@@ -1069,6 +1069,10 @@ export class WsTransport {
         this.reconnectPromise = null;
       }
     });
+    // A reconnect triggered by a stream exit during teardown rejects with
+    // "Transport disposed"; every live caller also attaches its own handler, and
+    // this keeps the shared promise from surfacing as an unhandled rejection.
+    void trackedReconnect.catch(() => undefined);
     this.reconnectPromise = trackedReconnect;
 
     return trackedReconnect;
@@ -1456,6 +1460,14 @@ export class WsTransport {
         this.emit(ORCHESTRATION_WS_CHANNELS.threadEvent, event),
       restartThread,
     );
+  }
+
+  /** Stop the clean-core change subscription for one thread (client-owned stream). */
+  stopCleanCoreThreadStream(threadId: string): void {
+    this.cleanCoreThreadSubscriptions.delete(threadId);
+    const key = `cleanCore.thread:${threadId}`;
+    this.activeCleanCoreThreadInputs.delete(key);
+    void this.stopStream(key, { resetCapacityRetry: false }).catch(() => undefined);
   }
 
   private async startCleanCoreThreadStream(

@@ -58,8 +58,8 @@ export type ReadComposerDraftAssetSize = (
   attachment: ComposerDraftServerAttachment,
 ) => Promise<number | null>;
 
-function defaultSerialize(threadId: ThreadId, draft: ComposerThreadDraftState): string | null {
-  const persisted = serializeComposerThreadDraft(threadId, draft);
+function defaultSerialize(_threadId: ThreadId, draft: ComposerThreadDraftState): string | null {
+  const persisted = serializeComposerThreadDraft(draft);
   return persisted === null ? null : JSON.stringify(persisted);
 }
 
