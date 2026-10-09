@@ -193,7 +193,6 @@ import {
   providerSupportsTextNativeReviewCommand,
 } from "../composerSlashCommands";
 import {
-  derivePendingApprovals,
   derivePendingUserInputs,
   derivePhase,
   deriveTimelineEntries,
@@ -384,7 +383,7 @@ import {
   ComposerLocalDirectoryMenu,
   type ComposerLocalDirectoryMenuHandle,
 } from "./chat/ComposerLocalDirectoryMenu";
-import { ComposerPendingApprovalPanel } from "./middle-panel/composer-pending-approval/ComposerPendingApprovalPanel";
+
 import { ComposerExtrasMenu } from "./chat/ComposerExtrasMenu";
 import { ComposerPendingUserInputPanel } from "./middle-panel/composer-user-question/ComposerPendingUserInputPanel";
 import { ButtonSend } from "./middle-panel/button-send/ButtonSend";
@@ -2882,13 +2881,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     }, 0);
     return () => window.clearTimeout(settle);
   }, [agentActivityTimelineState.detailById, openAgentActivityId]);
-  const pendingApprovals = useMemo(
-    () =>
-      measureChatPerformanceWork("transcript-pending-interactions", () =>
-        derivePendingApprovals(threadActivities, activeThread?.pendingInteractions),
-      ),
-    [activeThread?.pendingInteractions, threadActivities],
-  );
   const pendingUserInputs = useMemo(
     () =>
       measureChatPerformanceWork("transcript-pending-interactions", () =>
@@ -3032,7 +3024,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
   );
   const workflowNowMs = useNowMs(workflowRunState !== null && !workflowRunState.settled);
   const showPlanFollowUpPrompt = false;
-  const activePendingApproval = pendingApprovals[0] ?? null;
   const serverAcknowledgedLocalDispatch = useMemo(
     () =>
       hasServerAcknowledgedLocalDispatch({
@@ -3041,13 +3032,12 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         latestTurn: activeLatestTurn,
         session: activeThread?.session ?? null,
         messages: activeThread?.messages ?? EMPTY_MESSAGES,
-        hasPendingApproval: activePendingApproval !== null,
+        hasPendingApproval: false,
         hasPendingUserInput: activePendingUserInput !== null,
         threadError: activeThread?.error,
       }),
     [
       activeLatestTurn,
-      activePendingApproval,
       activePendingUserInput,
       activeThread?.error,
       activeThread?.session,
@@ -3207,7 +3197,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     threadDetailSyncState,
   ]);
   const activeTurnInProgress = activeTurnLayoutLive;
-  const isComposerApprovalState = activePendingApproval !== null;
+  const isComposerApprovalState = false;
   const isComposerEditorDisabled = isLocalConnecting || isComposerApprovalState;
   const canCollapsePastedTextToDraft = shouldEnableComposerPastedTextCollapse({
     isComposerApprovalState,
@@ -7515,48 +7505,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     return turnStartSucceeded;
   };
 
-  const onRespondToApproval = useCallback(
-    async (
-      requestId: ApprovalRequestId,
-      decision: ProviderApprovalDecision,
-      lifecycleGeneration?: string,
-    ) => {
-      const api = readNativeApi();
-      if (!api || !activeThreadId) return;
-      const requestKey = pendingRequestInstanceKey(requestId, lifecycleGeneration);
-
-      setRespondingRequestKeys((existing) =>
-        existing.includes(requestKey) ? existing : [...existing, requestKey],
-      );
-      // Durably persist "always allow" client-side so the next turn (after an
-      // idle-stop or runtime restart) keeps full-access instead of asking again.
-      // The server's session override only covers the current live turn.
-      const durableRuntimeMode = resolveRuntimeModeAfterApprovalDecision(runtimeMode, decision);
-      if (durableRuntimeMode) {
-        setComposerDraftRuntimeMode(activeThreadId, durableRuntimeMode);
-      }
-      await api.orchestration
-        .dispatchCommand({
-          type: "thread.approval.respond",
-          commandId: newCommandId(),
-          threadId: activeThreadId,
-          requestId,
-          decision,
-          ...(lifecycleGeneration !== undefined ? { lifecycleGeneration } : {}),
-          createdAt: new Date().toISOString(),
-        })
-        .catch((err: unknown) => {
-          recordChatSendFailure("COMMAND_REJECTED");
-          setStoreThreadError(
-            activeThreadId,
-            err instanceof Error ? err.message : "Failed to submit approval decision.",
-          );
-        });
-      setRespondingRequestKeys((existing) => existing.filter((key) => key !== requestKey));
-    },
-    [activeThreadId, runtimeMode, setComposerDraftRuntimeMode, setStoreThreadError],
-  );
-
   const onRespondToUserInput = useCallback(
     async (
       requestId: ApprovalRequestId,
@@ -9093,21 +9041,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
                   card floating just above the composer (padding gives the measured gap),
                   instead of a banner fused into the composer surface. An approval takes
                   precedence and suppresses the question card while one is active. */}
-              {activePendingApproval ? (
-                <div className="pb-2">
-                  <ComposerPendingApprovalPanel
-                    approval={activePendingApproval}
-                    pendingCount={pendingApprovals.length}
-                    isResponding={respondingRequestKeys.includes(
-                      pendingRequestInstanceKey(
-                        activePendingApproval.requestId,
-                        activePendingApproval.lifecycleGeneration,
-                      ),
-                    )}
-                    onRespond={onRespondToApproval}
-                  />
-                </div>
-              ) : pendingUserInputs.length > 0 ? (
+              {pendingUserInputs.length > 0 ? (
                 <div className="pb-2">
                   <ComposerPendingUserInputPanel
                     pendingUserInputs={pendingUserInputs}
@@ -9235,10 +9169,8 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
                   disabled={isComposerEditorDisabled}
                 />
               </div>
-              {/* Bottom toolbar — hidden while an approval takes over the composer,
-                    since the approve/decline actions live in the detached approval card
-                    floating above (see ComposerPendingApprovalPanel). */}
-              {activePendingApproval ? null : (
+              {/* Bottom toolbar. */}
+              {
                 <div
                   data-chat-composer-footer="true"
                   className={cn("@container", COMPOSER_FOOTER_ROW_CLASS_NAME)}
@@ -9371,7 +9303,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
                     }
                   />
                 </div>
-              )}
+              }
             </ComposerDefault>
           </ComposerColumnFrame>
         </form>

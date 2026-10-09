@@ -11,11 +11,7 @@ import {
 import type { Thread, ThreadSession } from "../types";
 import type { AppState } from "../storeState";
 import { isPersistedThreadOpenable } from "../storeSelectors";
-import {
-  derivePendingApprovals,
-  derivePendingUserInputs,
-  hasLiveLatestTurn,
-} from "../session-logic";
+import { derivePendingUserInputs, hasLiveLatestTurn } from "../session-logic";
 
 export interface CompletedThreadCandidate {
   threadId: Thread["id"];
@@ -655,31 +651,11 @@ export function collectThreadAttentionCandidates(
       continue;
     }
 
-    const previousApprovalIds = new Set(
-      derivePendingApprovals(previousThread.activities, previousThread.pendingInteractions).map(
-        (approval) => approval.requestId,
-      ),
-    );
     const previousUserInputIds = new Set(
       derivePendingUserInputs(previousThread.activities, previousThread.pendingInteractions).map(
         (request) => request.requestId,
       ),
     );
-
-    for (const approval of derivePendingApprovals(thread.activities, thread.pendingInteractions)) {
-      if (previousApprovalIds.has(approval.requestId)) {
-        continue;
-      }
-      candidates.push({
-        kind: "approval",
-        threadId: thread.id,
-        folderId: thread.folderId,
-        title: thread.title,
-        requestId: approval.requestId,
-        createdAt: approval.createdAt,
-        requestKind: approval.requestKind,
-      });
-    }
 
     for (const request of derivePendingUserInputs(thread.activities, thread.pendingInteractions)) {
       if (previousUserInputIds.has(request.requestId)) {

@@ -10,12 +10,7 @@ import { orderedActivities } from "./workLog";
 
 import type { ChatMessage, SessionPhase, Thread, ThreadSession } from "./types";
 
-export {
-  derivePendingApprovals,
-  derivePendingUserInputs,
-  type PendingApproval,
-  type PendingUserInput,
-} from "./pendingInteractionDerivation";
+export { derivePendingUserInputs, type PendingUserInput } from "./pendingInteractionDerivation";
 export {
   deriveTimelineEntries,
   deriveVisibleWorkLogSequenceFloor,
