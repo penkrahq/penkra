@@ -184,6 +184,7 @@ import Migration0172 from "./Migrations/172_ProviderSwitchFailureCleanup.ts";
 import Migration0173 from "./Migrations/173_ReservedBoundedRuntimeMaintenanceAndActivityPages.ts";
 import Migration0174 from "./Migrations/174_ReservedIndependentRuntimeWork.ts";
 import Migration0175 from "./Migrations/175_ReservedProviderPurgeOwnershipIndexes.ts";
+import Migration0176 from "./Migrations/176_CleanCoreSchemaAndBackfill.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -364,6 +365,7 @@ export const migrationEntries = [
   [173, "BoundedRuntimeMaintenanceAndActivityPages", Migration0173],
   [174, "IndependentRuntimeWork", Migration0174],
   [175, "ProviderPurgeOwnershipIndexes", Migration0175],
+  [176, "CleanCoreSchemaAndBackfill", Migration0176],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>
