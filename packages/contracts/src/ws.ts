@@ -1,6 +1,10 @@
 import { Schema, Struct } from "effect";
 import { NonNegativeInt, FolderId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas";
-import { CleanCoreListThreadItemsPageInput } from "./cleanCore";
+import {
+  CleanCoreGetThreadDraftInput,
+  CleanCoreListThreadItemsPageInput,
+  CleanCoreSetThreadDraftInput,
+} from "./cleanCore";
 
 import {
   ClientOrchestrationCommand,
@@ -121,6 +125,8 @@ export const WS_METHODS = {
 
   // Server meta
   cleanCoreListThreadItemsPage: "cleanCore.listThreadItemsPage",
+  cleanCoreGetThreadDraft: "cleanCore.getThreadDraft",
+  cleanCoreSetThreadDraft: "cleanCore.setThreadDraft",
 
   // Server meta
   serverGetConfig: "server.getConfig",
@@ -258,6 +264,8 @@ const WebSocketRequestBody = Schema.Union([
   // Server meta
   tagRequestBody(WS_METHODS.serverGetConfig, Schema.Struct({})),
   tagRequestBody(WS_METHODS.cleanCoreListThreadItemsPage, CleanCoreListThreadItemsPageInput),
+  tagRequestBody(WS_METHODS.cleanCoreGetThreadDraft, CleanCoreGetThreadDraftInput),
+  tagRequestBody(WS_METHODS.cleanCoreSetThreadDraft, CleanCoreSetThreadDraftInput),
   tagRequestBody(WS_METHODS.serverGetEnvironment, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverGetSettings, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverUpdateSettings, ServerUpdateSettingsInput),

@@ -534,6 +534,8 @@ export function createWsNativeApi(): NativeApi {
     cleanCore: {
       listThreadItemsPage: (input) =>
         transport.request(WS_METHODS.cleanCoreListThreadItemsPage, input),
+      getThreadDraft: (input) => transport.request(WS_METHODS.cleanCoreGetThreadDraft, input),
+      setThreadDraft: (input) => transport.request(WS_METHODS.cleanCoreSetThreadDraft, input),
     },
     orchestration: {
       getSnapshot: () => transport.request(ORCHESTRATION_WS_METHODS.getSnapshot),

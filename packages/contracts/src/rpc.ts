@@ -111,7 +111,13 @@ import {
   TerminalSessionSnapshot,
   TerminalWriteInput,
 } from "./terminal";
-import { CleanCoreListThreadItemsPageInput, CleanCoreListThreadItemsPageResult } from "./cleanCore";
+import {
+  CleanCoreGetThreadDraftInput,
+  CleanCoreListThreadItemsPageInput,
+  CleanCoreListThreadItemsPageResult,
+  CleanCoreSetThreadDraftInput,
+  CleanCoreThreadDraft,
+} from "./cleanCore";
 import { WS_METHODS } from "./ws";
 import {
   WS_BOOTSTRAP_METHOD,
@@ -667,10 +673,24 @@ export const WsCleanCoreListThreadItemsPageRpc = Rpc.make(WS_METHODS.cleanCoreLi
   error: WsRpcError,
 });
 
+export const WsCleanCoreGetThreadDraftRpc = Rpc.make(WS_METHODS.cleanCoreGetThreadDraft, {
+  payload: CleanCoreGetThreadDraftInput,
+  success: CleanCoreThreadDraft,
+  error: WsRpcError,
+});
+
+export const WsCleanCoreSetThreadDraftRpc = Rpc.make(WS_METHODS.cleanCoreSetThreadDraft, {
+  payload: CleanCoreSetThreadDraftInput,
+  success: CleanCoreThreadDraft,
+  error: WsRpcError,
+});
+
 export const WsBootstrapRpcGroup = RpcGroup.make(WsBootstrapNegotiateRpc);
 
 export const WsFeatureRpcGroup = RpcGroup.make(
   WsCleanCoreListThreadItemsPageRpc,
+  WsCleanCoreGetThreadDraftRpc,
+  WsCleanCoreSetThreadDraftRpc,
   WsOrchestrationDispatchCommandRpc,
   WsOrchestrationImportThreadRpc,
   WsOrchestrationGetSnapshotRpc,

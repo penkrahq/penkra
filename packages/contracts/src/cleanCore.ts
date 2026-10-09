@@ -28,3 +28,22 @@ export const CleanCoreListThreadItemsPageResult = Schema.Struct({
   nextCursor: Schema.NullOr(NonNegativeInt),
 });
 export type CleanCoreListThreadItemsPageResult = typeof CleanCoreListThreadItemsPageResult.Type;
+
+/** One composer draft per thread (0.14.4 design 2.6). */
+export const CleanCoreThreadDraft = Schema.Struct({
+  draft: Schema.NullOr(Schema.String),
+  draftUpdatedAt: Schema.NullOr(IsoDateTime),
+});
+export type CleanCoreThreadDraft = typeof CleanCoreThreadDraft.Type;
+
+export const CleanCoreGetThreadDraftInput = Schema.Struct({
+  threadId: ThreadId,
+});
+export type CleanCoreGetThreadDraftInput = typeof CleanCoreGetThreadDraftInput.Type;
+
+export const CleanCoreSetThreadDraftInput = Schema.Struct({
+  threadId: ThreadId,
+  draft: Schema.NullOr(Schema.String),
+  updatedAt: IsoDateTime,
+});
+export type CleanCoreSetThreadDraftInput = typeof CleanCoreSetThreadDraftInput.Type;
