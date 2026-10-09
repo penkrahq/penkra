@@ -888,30 +888,33 @@ export interface ComposerDraftServerAttachment {
 }
 
 /**
- * The server draft payload (TODO 2.6): the draft text and the unsent attachment
- * ids, plus the per-thread model selection and runtime mode, which have no other
- * home once the per-window draft storage is gone. Everything else the composer
- * holds is window-local and not carried.
+ * The server draft payload (TODO 2.6): the whole composer draft travels, not
+ * just text and attachments (operator decision, 2026-10-09). Pasted-text blocks,
+ * file comments, mentions, skills, assistant selections and terminal contexts are
+ * part of what is being composed, so they ride too, along with the pending model
+ * selection and runtime mode. Only a live voice recording and prompt-history
+ * browsing stay with the window.
  */
 export interface ComposerDraftServerPayload {
   readonly prompt: string;
   readonly attachments: ReadonlyArray<ComposerDraftServerAttachment>;
   readonly files: ReadonlyArray<ComposerDraftServerAttachment>;
+  readonly assistantSelections?: PersistedComposerThreadDraftState["assistantSelections"];
+  readonly terminalContexts?: PersistedComposerThreadDraftState["terminalContexts"];
+  readonly fileComments?: PersistedComposerThreadDraftState["fileComments"];
+  readonly pastedTexts?: PersistedComposerThreadDraftState["pastedTexts"];
+  readonly skills?: PersistedComposerThreadDraftState["skills"];
+  readonly mentions?: PersistedComposerThreadDraftState["mentions"];
   readonly modelSelectionByProvider?: PersistedComposerThreadDraftState["modelSelectionByProvider"];
   readonly activeProvider?: PersistedComposerThreadDraftState["activeProvider"];
   readonly runtimeMode?: PersistedComposerThreadDraftState["runtimeMode"];
 }
 
 /**
- * Serialize one thread's composer draft for the server (`threads.draft`, TODO
- * 2.6): the draft text, the unsent attachment/file ids, and the per-thread model
- * selection and runtime mode.
- *
- * The draft's model selection is the user's *pending* choice for this thread's
- * next send; the committed selection lives on `threads.model`. That pending
- * choice has no other home once the per-window draft storage is gone, so it
- * rides in the draft (as does `runtimeMode`); every other composer field is
- * window-local and is not carried.
+ * Serialize one thread's whole composer draft for the server (`threads.draft`,
+ * TODO 2.6). Attachment/file binaries stay in the shared assets store, so the
+ * payload carries the {id, name, mimeType} reference only; voice recordings and
+ * prompt-history browsing stay window-local.
  */
 export function serializeComposerThreadDraft(
   draft: ComposerThreadDraftState,
@@ -923,21 +926,60 @@ export function serializeComposerThreadDraft(
   });
   const attachments = draft.persistedAttachments.map(toReference);
   const files = draft.files.flatMap((file) => (file.assetKey ? [toReference(file)] : []));
+  const terminalContexts = draft.terminalContexts.map((context) => ({
+    id: context.id,
+    threadId: context.threadId,
+    createdAt: context.createdAt,
+    terminalId: context.terminalId,
+    terminalLabel: context.terminalLabel,
+    lineStart: context.lineStart,
+    lineEnd: context.lineEnd,
+  }));
+  const fileComments = draft.fileComments.map((comment) => ({
+    id: comment.id,
+    path: comment.path,
+    startLine: comment.startLine,
+    endLine: comment.endLine,
+    text: comment.text,
+  }));
+  const pastedTexts = draft.pastedTexts.map((pasted) => ({
+    id: pasted.id,
+    createdAt: pasted.createdAt,
+    text: pasted.text,
+    ...(pasted.title ? { title: pasted.title } : {}),
+  }));
+  const assistantSelections = draft.assistantSelections.map((selection) => ({
+    id: selection.id,
+    assistantMessageId: selection.assistantMessageId,
+    text: selection.text,
+  }));
   const hasModelData =
     Object.keys(draft.modelSelectionByProvider).length > 0 || draft.activeProvider !== null;
-  if (
+  const isEmpty =
     draft.prompt.length === 0 &&
     attachments.length === 0 &&
     files.length === 0 &&
+    terminalContexts.length === 0 &&
+    fileComments.length === 0 &&
+    pastedTexts.length === 0 &&
+    assistantSelections.length === 0 &&
+    draft.skills.length === 0 &&
+    draft.mentions.length === 0 &&
     !hasModelData &&
-    draft.runtimeMode === null
-  ) {
+    draft.runtimeMode === null;
+  if (isEmpty) {
     return null;
   }
   return {
     prompt: draft.prompt,
     attachments,
     files,
+    ...(assistantSelections.length > 0 ? { assistantSelections } : {}),
+    ...(terminalContexts.length > 0 ? { terminalContexts } : {}),
+    ...(fileComments.length > 0 ? { fileComments } : {}),
+    ...(pastedTexts.length > 0 ? { pastedTexts } : {}),
+    ...(draft.skills.length > 0 ? { skills: [...draft.skills] } : {}),
+    ...(draft.mentions.length > 0 ? { mentions: [...draft.mentions] } : {}),
     ...(hasModelData
       ? {
           modelSelectionByProvider: draft.modelSelectionByProvider,
@@ -970,6 +1012,12 @@ export async function hydrateComposerThreadDraftFromServer(
     prompt: payload.prompt,
     attachments,
     files,
+    ...(payload.assistantSelections ? { assistantSelections: payload.assistantSelections } : {}),
+    ...(payload.terminalContexts ? { terminalContexts: payload.terminalContexts } : {}),
+    ...(payload.fileComments ? { fileComments: payload.fileComments } : {}),
+    ...(payload.pastedTexts ? { pastedTexts: payload.pastedTexts } : {}),
+    ...(payload.skills ? { skills: payload.skills } : {}),
+    ...(payload.mentions ? { mentions: payload.mentions } : {}),
     ...(payload.modelSelectionByProvider
       ? { modelSelectionByProvider: payload.modelSelectionByProvider }
       : {}),
