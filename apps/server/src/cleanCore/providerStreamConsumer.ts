@@ -6,6 +6,7 @@
 // Exports: CleanCoreProviderEvent, PROVIDER_CUTOFF_NOTICE, applyProviderEvent
 
 import { Effect } from "effect";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import {
   setThreadState,
@@ -94,4 +95,23 @@ export const applyProviderEvent = (publisher: ThreadPublisher, event: CleanCoreP
         return;
       }
     }
+  });
+
+/**
+ * Startup rule (2.3): no runtime survives a restart, so every thread still in
+ * `running` is cut off. Each becomes `idle` and gets the same cut-off notice.
+ * Idempotent: a second run at the same `at` changes nothing and adds no notice.
+ */
+export const settleRunningThreadsOnStartup = (publisher: ThreadPublisher, at: string) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const rows = yield* sql<{ readonly id: string }>`
+      SELECT id FROM threads WHERE state = 'running'
+    `;
+    if (rows.length === 0) return;
+    yield* applyProviderEvent(publisher, {
+      type: "provider.exited",
+      threadIds: rows.map((row) => row.id),
+      at,
+    });
   });
