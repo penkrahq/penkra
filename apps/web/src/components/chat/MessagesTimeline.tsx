@@ -9,7 +9,6 @@ import {
   ThreadId,
   type TurnId,
 } from "@penkra/contracts";
-import { resolveLatestTailUserMessageEditTarget } from "@penkra/shared/conversationEdit";
 import { clampMentionTitle } from "@penkra/shared/threadMentions";
 import {
   memo,
@@ -22,7 +21,6 @@ import {
   useState,
   type CSSProperties,
   type ComponentProps,
-  type KeyboardEvent,
   type RefObject,
   type ReactNode,
 } from "react";
@@ -42,9 +40,7 @@ import { InlineLinkChip } from "../InlineLinkChip";
 import {
   BotIcon,
   type LucideIcon,
-  PencilIcon,
   PinIcon,
-  RotateCcwIcon,
   SteerIcon,
 } from "~/lib/icons";
 import { pinActionLabel } from "~/lib/pin";
@@ -301,13 +297,6 @@ interface MessagesTimelineProps {
   onOpenThread?: (threadId: ThreadId) => void;
   /** Recent child-thread tool calls rendered under subagent rows, keyed by child thread id. */
   subagentToolTraceByThreadId?: ReadonlyMap<string, SubagentToolTrace>;
-  onEditUserMessage?: (messageId: MessageId, text: string) => boolean | Promise<boolean>;
-  pendingEditedUserMessage?: {
-    readonly messageId: MessageId;
-    readonly text: string;
-    readonly priorDeliverySequence: number;
-  } | null;
-  onClearPendingEditedUserMessage?: (messageId: MessageId) => void;
   activeTurnId?: TurnId | null;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onIsAtEndChange?: (isAtEnd: boolean) => void;
@@ -354,9 +343,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onOpenAgentActivity,
   onOpenThread,
   subagentToolTraceByThreadId,
-  onEditUserMessage,
-  pendingEditedUserMessage,
-  onClearPendingEditedUserMessage,
   activeTurnId,
   onImageExpand,
   onIsAtEndChange,
@@ -450,15 +436,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const [expandedUserMessagesById, setExpandedUserMessagesById] = useState<Record<string, boolean>>(
     {},
   );
-  const [editingUserMessageId, setEditingUserMessageId] = useState<MessageId | null>(
-    pendingEditedUserMessage?.messageId ?? null,
-  );
-  const [submittingEditedUserMessageId, setSubmittingEditedUserMessageId] =
-    useState<MessageId | null>(null);
-  const [admittedEditedUserMessage, setAdmittedEditedUserMessage] = useState<{
-    readonly messageId: MessageId;
-    readonly priorDeliverySequence: number;
-  } | null>(null);
   // Transient highlight applied to a message jumped-to from the pinned-message checklist.
   const [highlightedMessageId, setHighlightedMessageId] = useState<MessageId | null>(null);
   const fallbackListRef = useRef<TranscriptVirtualListRef | null>(null);
@@ -966,23 +943,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   }, [clearTailExpansionScrollTimers, resolvedListRef]);
   useEffect(() => clearTailExpansionScrollTimers, [clearTailExpansionScrollTimers]);
   const ignoreTimelineImageLoad = useCallback(() => {}, []);
-  const latestEditableUserMessageId = useMemo(() => {
-    const messages = rows.flatMap((row) => (row.kind === "message" ? [row.message] : []));
-    const editTarget = resolveLatestTailUserMessageEditTarget({
-      messages,
-      activeTurnId,
-    });
-    return editTarget.editable ? (editTarget.messageId as MessageId) : null;
-  }, [activeTurnId, rows]);
-  const latestEditableUserMessageText = useMemo(() => {
-    if (!latestEditableUserMessageId) return null;
-    const row = rows.find(
-      (candidate) =>
-        candidate.kind === "message" && candidate.message.id === latestEditableUserMessageId,
-    );
-    if (!row || row.kind !== "message" || row.message.role !== "user") return null;
-    return deriveDisplayedUserMessageState(row.message.text).copyText.trim() || null;
-  }, [latestEditableUserMessageId, rows]);
   const previousRowCountRef = useRef(rows.length);
   useEffect(() => {
     const previousRowCount = previousRowCountRef.current;
@@ -1008,64 +968,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     },
     [onIsAtEndChange, onMessagesScroll, resolvedListRef],
   );
-  const cancelUserMessageEdit = useCallback(() => {
-    if (editingUserMessageId) onClearPendingEditedUserMessage?.(editingUserMessageId);
-    setEditingUserMessageId(null);
-    setAdmittedEditedUserMessage(null);
-  }, [editingUserMessageId, onClearPendingEditedUserMessage]);
-  const startUserMessageEdit = useCallback((messageId: MessageId) => {
-    setEditingUserMessageId(messageId);
-  }, []);
-  const submitUserMessageEdit = useCallback(
-    (messageId: MessageId, text: string) => {
-      if (!onEditUserMessage) {
-        return Promise.resolve();
-      }
-      const nextText = text.trim();
-      if (!nextText) {
-        return Promise.resolve();
-      }
-      const messageRow = rows.find((row) => row.kind === "message" && row.message.id === messageId);
-      const priorDeliverySequence =
-        messageRow?.kind === "message" ? (messageRow.message.delivery?.sequence ?? -1) : -1;
-      setSubmittingEditedUserMessageId(messageId);
-      // Promise chain instead of async/try-finally: React Compiler does not yet
-      // support try/finally, and it would skip optimizing this whole component.
-      return Promise.resolve(onEditUserMessage(messageId, nextText))
-        .then((admitted) => {
-          if (admitted) {
-            setAdmittedEditedUserMessage({ messageId, priorDeliverySequence });
-          } else {
-            setAdmittedEditedUserMessage(null);
-          }
-        })
-        .finally(() => {
-          setSubmittingEditedUserMessageId(null);
-        });
-    },
-    [onEditUserMessage, rows],
-  );
-
-  useEffect(() => {
-    if (pendingEditedUserMessage) setEditingUserMessageId(pendingEditedUserMessage.messageId);
-  }, [pendingEditedUserMessage]);
-
-  useEffect(() => {
-    const admitted = pendingEditedUserMessage ?? admittedEditedUserMessage;
-    if (!admitted) return;
-    const replacement = rows.find(
-      (row) => row.kind === "message" && row.message.id === admitted.messageId,
-    );
-    if (
-      replacement?.kind !== "message" ||
-      (replacement.message.delivery?.sequence ?? -1) <= admitted.priorDeliverySequence
-    ) {
-      return;
-    }
-    setEditingUserMessageId(null);
-    setAdmittedEditedUserMessage(null);
-    onClearPendingEditedUserMessage?.(admitted.messageId);
-  }, [admittedEditedUserMessage, onClearPendingEditedUserMessage, pendingEditedUserMessage, rows]);
 
   const renderRowContent = (row: MessagesTimelineRow) => {
     const content = (
@@ -1324,12 +1226,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               showUserText &&
               terminalContexts.length === 0 &&
               hasOnlyInlineSkillChips(userMessageText, row.message.mentions ?? []);
-            const isEditingThisMessage = editingUserMessageId === row.message.id;
-            const isSubmittingThisEdit = submittingEditedUserMessageId === row.message.id;
-            const showEditUserMessage =
-              Boolean(onEditUserMessage) &&
-              row.message.id === latestEditableUserMessageId &&
-              displayedUserMessage.copyText.trim().length > 0;
             const hasLeadingMedia = hasLeadingUserMedia({
               imageCount: userImages.length,
               fileCount: userFiles.length,
@@ -1350,10 +1246,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 ) : null}
                 <div className="flex w-full justify-end">
                   <div
-                    className={cn(
-                      "group flex flex-col items-end gap-px",
-                      isEditingThisMessage ? "w-full max-w-full" : "max-w-[80%]",
-                    )}
+                    className={cn("group flex flex-col items-end gap-px", "max-w-[80%]")}
                   >
                     {/* Keep user-message chrome outside the bubble so the message reads as one simple block. */}
                     {/* The cross-task origin label already attributes this turn to another Penkra thread,
@@ -1446,20 +1339,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                         ))}
                       </div>
                     )}
-                    {isEditingThisMessage ? (
-                      <UserMessageEditForm
-                        key={row.message.id}
-                        initialValue={
-                          pendingEditedUserMessage?.messageId === row.message.id
-                            ? pendingEditedUserMessage.text
-                            : displayedUserMessage.copyText
-                        }
-                        disabled={isSubmittingThisEdit}
-                        chatTypographyStyle={userMessageTypographyStyle}
-                        onCancel={cancelUserMessageEdit}
-                        onSubmit={(text) => void submitUserMessageEdit(row.message.id, text)}
-                      />
-                    ) : showUserText ? (
+                    {showUserText ? (
                       <div
                         data-find-primary-text
                         data-find-model-owned
@@ -1493,42 +1373,27 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                         </UserMessageCollapsibleText>
                       </div>
                     ) : null}
-                    {!isEditingThisMessage && (
-                      <div
-                        className="flex h-[26px] items-center justify-end font-system-ui font-normal text-muted-foreground/45"
-                        data-pencil-component="Bx6FM"
-                        style={chatMessageFooterStyle}
-                      >
-                        <p className={cn("px-2 tabular-nums", MESSAGE_HOVER_REVEAL_CLASS_NAME)}>
-                          {formatMessageTimestamp(
-                            row.message.createdAt,
-                            timestampFormat,
-                            messageTimestampReference,
-                          )}
-                        </p>
-                        <div className="flex items-center gap-1">
-                          {displayedUserMessage.copyText && (
-                            <MessageCopyButton
-                              text={displayedUserMessage.copyText}
-                              className={MESSAGE_HOVER_REVEAL_CLASS_NAME}
-                            />
-                          )}
-                          {showEditUserMessage && (
-                            <MessageActionButton
-                              label="Edit message"
-                              tooltip="Edit message"
-                              className={cn(
-                                MESSAGE_HOVER_REVEAL_CLASS_NAME,
-                                "disabled:text-muted-foreground/35",
-                              )}
-                              onClick={() => startUserMessageEdit(row.message.id)}
-                            >
-                              <PencilIcon className={MESSAGE_ACTION_ICON_CLASS_NAME} />
-                            </MessageActionButton>
-                          )}
-                        </div>
+                    <div
+                      className="flex h-[26px] items-center justify-end font-system-ui font-normal text-muted-foreground/45"
+                      data-pencil-component="Bx6FM"
+                      style={chatMessageFooterStyle}
+                    >
+                      <p className={cn("px-2 tabular-nums", MESSAGE_HOVER_REVEAL_CLASS_NAME)}>
+                        {formatMessageTimestamp(
+                          row.message.createdAt,
+                          timestampFormat,
+                          messageTimestampReference,
+                        )}
+                      </p>
+                      <div className="flex items-center gap-1">
+                        {displayedUserMessage.copyText && (
+                          <MessageCopyButton
+                            text={displayedUserMessage.copyText}
+                            className={MESSAGE_HOVER_REVEAL_CLASS_NAME}
+                          />
+                        )}
                       </div>
-                    )}
+                    </div>
                   </div>
                 </div>
               </MessageUser>
@@ -1932,24 +1797,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                             label="Copy response"
                           />
                         ) : null}
-                        {assistantCopyState.visible &&
-                        latestEditableUserMessageId &&
-                        latestEditableUserMessageText &&
-                        onEditUserMessage ? (
-                          <MessageActionButton
-                            label="Retry response"
-                            tooltip="Retry response"
-                            className={MESSAGE_HOVER_REVEAL_CLASS_NAME}
-                            onClick={() =>
-                              void onEditUserMessage(
-                                latestEditableUserMessageId,
-                                latestEditableUserMessageText,
-                              )
-                            }
-                          >
-                            <RotateCcwIcon className={MESSAGE_ACTION_ICON_CLASS_NAME} />
-                          </MessageActionButton>
-                        ) : null}
                         {assistantMeta.length > 0 ? (
                           <p className={cn("px-2 tabular-nums", MESSAGE_HOVER_REVEAL_CLASS_NAME)}>
                             {assistantMeta}
@@ -2211,101 +2058,6 @@ function hasOnlyInlineSkillChips(
 
   return skillCount > 0;
 }
-
-// Inline editor for replaying a user message after the following assistant turn is rolled back.
-const UserMessageEditForm = memo(function UserMessageEditForm(props: {
-  initialValue: string;
-  disabled: boolean;
-  chatTypographyStyle: CSSProperties;
-  onCancel: () => void;
-  onSubmit: (value: string) => void;
-}) {
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const [draft, setDraft] = useState(props.initialValue);
-  const canSubmit = draft.trim().length > 0 && !props.disabled;
-
-  useEffect(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) {
-      return;
-    }
-    textarea.focus();
-    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
-  }, []);
-
-  useEffect(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) {
-      return;
-    }
-    textarea.style.height = "auto";
-    textarea.style.height = `${textarea.scrollHeight}px`;
-  }, [draft]);
-
-  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      props.onCancel();
-      return;
-    }
-    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-      event.preventDefault();
-      if (canSubmit) {
-        props.onSubmit(draft);
-      }
-    }
-  };
-
-  return (
-    <form
-      className={cn(
-        "w-full bg-[var(--app-user-message-background)]",
-        USER_MESSAGE_BUBBLE_RADIUS_CLASS_NAME,
-        USER_MESSAGE_BUBBLE_SHELL_CHROME_CLASS_NAME,
-      )}
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (canSubmit) {
-          props.onSubmit(draft);
-        }
-      }}
-    >
-      <textarea
-        ref={textareaRef}
-        value={draft}
-        disabled={props.disabled}
-        rows={1}
-        aria-label="Edit message"
-        className="max-h-60 min-h-0 w-full resize-none overflow-y-auto border-0 bg-transparent p-0 font-system-ui text-foreground outline-none placeholder:text-muted-foreground/45 disabled:opacity-70"
-        style={props.chatTypographyStyle}
-        onChange={(event) => setDraft(event.target.value)}
-        onKeyDown={handleKeyDown}
-      />
-      <div className="mt-2 flex justify-end gap-2">
-        <Button
-          type="button"
-          size="xs"
-          variant="outline"
-          className="rounded-full px-2.5"
-          style={props.chatTypographyStyle}
-          disabled={props.disabled}
-          onClick={props.onCancel}
-        >
-          Cancel
-        </Button>
-        <Button
-          type="submit"
-          size="xs"
-          className="rounded-full px-2.5"
-          style={props.chatTypographyStyle}
-          disabled={!canSubmit}
-        >
-          Send
-        </Button>
-      </div>
-    </form>
-  );
-});
 
 // Measures the clamped message against its content before paint so the fade mask
 // never flickers. Kept in a module helper (not compiled) so the synchronous

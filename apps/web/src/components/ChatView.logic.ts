@@ -381,12 +381,11 @@ export function deriveChatActivity(input: {
   readonly latestTurnLive: boolean;
   readonly isSendBusy: boolean;
   readonly hasPendingTurnStart: boolean;
-  readonly isEditingMessageHistory: boolean;
 }): { readonly busy: boolean; readonly controllable: boolean } {
   const controllable =
     input.hasLiveTurn || input.latestTurnLive || input.isSendBusy || input.hasPendingTurnStart;
   return {
-    busy: controllable || input.isEditingMessageHistory,
+    busy: controllable,
     controllable,
   };
 }

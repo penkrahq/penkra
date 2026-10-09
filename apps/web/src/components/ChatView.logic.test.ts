@@ -139,7 +139,6 @@ describe("chat activity", () => {
         latestTurnLive: false,
         isSendBusy: true,
         hasPendingTurnStart: false,
-        isEditingMessageHistory: false,
       }),
     ).toEqual({ busy: true, controllable: true });
 
@@ -149,7 +148,6 @@ describe("chat activity", () => {
         latestTurnLive: true,
         isSendBusy: false,
         hasPendingTurnStart: false,
-        isEditingMessageHistory: false,
       }),
     ).toEqual({ busy: true, controllable: true });
   });
@@ -161,7 +159,6 @@ describe("chat activity", () => {
         latestTurnLive: false,
         isSendBusy: false,
         hasPendingTurnStart: false,
-        isEditingMessageHistory: false,
       }),
     ).toEqual({ busy: false, controllable: false });
   });
