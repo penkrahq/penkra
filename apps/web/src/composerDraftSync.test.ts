@@ -38,7 +38,7 @@ function makeApi(initial: { draft: string | null; updatedAt: string | null }) {
 
 const serialize = (_threadId: ThreadId, draft: { prompt: string }) =>
   draft.prompt.length > 0 ? JSON.stringify({ prompt: draft.prompt }) : null;
-const deserialize = (_threadId: ThreadId, payload: string) => ({
+const deserialize = async (_threadId: ThreadId, payload: string) => ({
   ...createEmptyThreadDraft(),
   prompt: (JSON.parse(payload) as { prompt: string }).prompt,
 });
