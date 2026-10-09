@@ -146,6 +146,7 @@ Rehearse on a copy made from the read-only source. Report before/after counts, d
 7. Questions in place; remove approvals; disable subagents (2.5).
 8. Web client: paged transcript by `seq`, draft sync, removal of approval UI (2.1, 2.6).
 9. OpenCode image transform (2.7).
+    9b. Right-panel App tabs: one shared state (operator decision, 2026-10-09). Today the open tabs per Thread Deck live in each window's localStorage (`apps/web/src/rightDockStore.ts:84-110`) with no cross-window sync, so closing a tab in one window leaves it open in another. Store the deck's open tabs and active tab on the server with the deck (`projection_thread_decks`, kept in 4.1), push changes to every window, and delete the localStorage persistence; dock width may stay per window. Also: an agent `penkra open --url` always creates a new tab (`apps/desktop/src/main.ts` `openPenkraResource` calls `appTabs.openInstalled` without `presentExisting`), so repeated opens pile up tabs; reuse the deck's existing tab for the same App (present it and navigate) instead.
 10. Startup never fatal, diagnostics to file (2.9).
 11. Delete the old pipeline and its tables (2.2). The codebase should shrink substantially; report lines removed. Removing the legacy pump also removes the `Effect.catchCause`/`logWarning` swallow around the clean-core apply in `ProviderRuntimeIngestion.processRuntimeEvent` (step 6 part 4): once the clean core is the only transcript writer, a write failure must surface, not be silently logged.
 
