@@ -808,14 +808,16 @@ export function partializeComposerDraftStoreState(
       continue;
     }
     const persistedDraft: DeepMutable<PersistedComposerThreadDraftState> = {
-      prompt: draft.prompt,
+      // The prompt text lives only in threads.draft (0.14.4 design 2.6); the
+      // local snapshot keeps the unsent attachments/files and recovery state.
+      prompt: "",
       ...((draft.appliedVoiceJobIds?.length ?? 0) > 0
         ? { appliedVoiceJobIds: [...(draft.appliedVoiceJobIds ?? [])] }
         : {}),
       ...(draft.promptHistorySavedDraft !== null
         ? {
             promptHistorySavedDraft: {
-              prompt: draft.promptHistorySavedDraft.prompt,
+              prompt: "",
               attachments: draft.promptHistorySavedDraft.persistedAttachments.map(
                 toStorageSafePersistedAttachment,
               ),
