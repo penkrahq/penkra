@@ -97,8 +97,11 @@ import type {
   OrchestrationThreadStreamItem,
 } from "./orchestration";
 import type {
+  CleanCoreGetThreadDraftInput,
   CleanCoreListThreadItemsPageInput,
   CleanCoreListThreadItemsPageResult,
+  CleanCoreSetThreadDraftInput,
+  CleanCoreThreadDraft,
 } from "./cleanCore";
 import type { EditorId } from "./editor";
 import type { ThreadId } from "./baseSchemas";
@@ -1104,6 +1107,8 @@ export interface NativeApi {
     listThreadItemsPage: (
       input: CleanCoreListThreadItemsPageInput,
     ) => Promise<CleanCoreListThreadItemsPageResult>;
+    getThreadDraft: (input: CleanCoreGetThreadDraftInput) => Promise<CleanCoreThreadDraft>;
+    setThreadDraft: (input: CleanCoreSetThreadDraftInput) => Promise<CleanCoreThreadDraft>;
   };
   orchestration: {
     getSnapshot: () => Promise<OrchestrationReadModel>;

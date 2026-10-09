@@ -110,6 +110,7 @@ import { armQaProviderSwitch, clearQaProviderSwitch } from "./diagnostics/qaProv
 import { recordServerQaAction } from "./diagnostics/qaProofBuild";
 import { recordWsRpcFailure } from "./diagnostics/wsRpcFailure";
 import { listThreadItemsPage } from "./cleanCore/threadItemsPage.ts";
+import { getThreadDraft, setThreadDraft } from "./cleanCore/threadDraft.ts";
 import { recoverMissingFile } from "./diagnostics/missingFileRecovery";
 import { WorkspaceWatcher } from "./workspaceWatcher";
 import { makeWsRequestAdmission } from "./wsRequestAdmission";
@@ -1458,6 +1459,13 @@ const makeWsRpcHandlersLayer = () =>
           rpcEffect(loadServerConfig, "Failed to load server config"),
         [WS_METHODS.cleanCoreListThreadItemsPage]: (input) =>
           rpcEffect(listThreadItemsPage(input), "Failed to load a thread items page"),
+        [WS_METHODS.cleanCoreGetThreadDraft]: (input) =>
+          rpcEffect(getThreadDraft(input.threadId), "Failed to load the thread draft"),
+        [WS_METHODS.cleanCoreSetThreadDraft]: (input) =>
+          rpcEffect(
+            setThreadDraft(input.threadId, input.draft, input.updatedAt),
+            "Failed to save the thread draft",
+          ),
         [WS_METHODS.serverGetEnvironment]: () =>
           rpcEffect(serverEnvironment.getDescriptor, "Failed to load server environment"),
         [WS_METHODS.serverGetSettings]: () =>
