@@ -20,6 +20,7 @@ import {
   type OrchestrationEvent,
   type OrchestrationShellStreamItem,
   type OrchestrationSyncStreamItem,
+  type CleanCoreThreadChange,
   type OrchestrationThreadStreamItem,
   type ProjectDevServerEvent,
   type ProjectWorkspaceChangeEvent,
@@ -28,6 +29,7 @@ import {
   type ServerSettingsUpdatedPayload,
   type ServerVoiceTranscriptionResult,
   type TerminalEvent,
+  CLEAN_CORE_WS_CHANNELS,
   ORCHESTRATION_WS_CHANNELS,
   ORCHESTRATION_WS_METHODS,
   type ContextMenuItem,
@@ -124,6 +126,7 @@ const orchestrationDomainEventListeners = createListenerRegistry<OrchestrationEv
 const orchestrationSyncEventListeners = createListenerRegistry<OrchestrationSyncStreamItem>();
 const orchestrationShellEventListeners = createListenerRegistry<OrchestrationShellStreamItem>();
 const orchestrationThreadEventListeners = createListenerRegistry<OrchestrationThreadStreamItem>();
+const cleanCoreThreadChangeListeners = createListenerRegistry<CleanCoreThreadChange>();
 const threadStreamFailureListeners = createListenerRegistry<WsThreadStreamFailure>();
 
 function clearWsNativeApiListeners(): void {
@@ -337,6 +340,9 @@ export function createWsNativeApi(): NativeApi {
   transport.subscribe(ORCHESTRATION_WS_CHANNELS.threadEvent, (message) => {
     orchestrationThreadEventListeners.emit(message.data);
   });
+  transport.subscribe(CLEAN_CORE_WS_CHANNELS.threadChange, (message) => {
+    cleanCoreThreadChangeListeners.emit(message.data);
+  });
   transport.onThreadStreamFailure((failure) => {
     threadStreamFailureListeners.emit(failure);
   });
@@ -536,6 +542,8 @@ export function createWsNativeApi(): NativeApi {
         transport.request(WS_METHODS.cleanCoreListThreadItemsPage, input),
       getThreadDraft: (input) => transport.request(WS_METHODS.cleanCoreGetThreadDraft, input),
       setThreadDraft: (input) => transport.request(WS_METHODS.cleanCoreSetThreadDraft, input),
+      subscribeThread: (input) => transport.request(WS_METHODS.cleanCoreSubscribeThread, input),
+      onThreadChange: cleanCoreThreadChangeListeners.subscribe,
     },
     orchestration: {
       getSnapshot: () => transport.request(ORCHESTRATION_WS_METHODS.getSnapshot),
