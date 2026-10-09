@@ -37,6 +37,14 @@ export { isSqliteCorruptionError, isSqliteIoError } from "./SqliteSafety.ts";
 
 const ATTR_DB_SYSTEM_NAME = "db.system.name";
 
+/**
+ * Bounded-query target from the 0.14.4 clean-core design: every query should
+ * finish under 50 ms on the Production copy. Statements at or above this log a
+ * warning with the query text so the offender can be found and fixed at its
+ * root cause (missing index, unbounded scan, or wrong data shape).
+ */
+const SLOW_STATEMENT_TARGET_MS = 50;
+
 export const TypeId: TypeId = "~local/sqlite-node/SqliteClient";
 
 export type TypeId = "~local/sqlite-node/SqliteClient";
@@ -147,13 +155,20 @@ const makeWithDatabase = (
         phase: "prepare" | "execute" = "execute",
       ): void => {
         const durationMs = Math.round(performance.now() - startedAt);
-        if (durationMs < 2_000) return;
-        console.warn("[sqlite] synchronous operation slow", {
+        if (phase === "execute") {
+          // Every query's duration is recorded so the periodic drain can show
+          // the distribution and any query over the bounded-query target.
+          observeRuntimeJournalTiming("sqliteStatement", durationMs);
+        }
+        if (durationMs < SLOW_STATEMENT_TARGET_MS) return;
+        console.warn("[sqlite] query exceeded the bounded-query target", {
           ownerFiberId: Fiber.getCurrent()?.id ?? null,
           phase,
+          query: sql.replaceAll(/\s+/gu, " ").trim().slice(0, 300),
           queryHash: createHash("sha256").update(sql).digest("hex").slice(0, 16),
           parameterCount,
           durationMs,
+          targetMs: SLOW_STATEMENT_TARGET_MS,
           completedAtUtc: new Date().toISOString(),
         });
       };
