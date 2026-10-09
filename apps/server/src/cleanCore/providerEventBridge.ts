@@ -1,18 +1,70 @@
 // FILE: providerEventBridge.ts
 // Purpose: Translate the adapters' ProviderRuntimeEvent stream into the
-// clean-core consumer events (turn state and provider exit). 0.14.4 design 2.3.
+// clean-core consumer events. The item upsert is the only transcript writer
+// (0.14.4 design 2.1/2.3), so messages, reasoning, tools, questions and notices
+// all map here, keyed by the provider source id.
 // Layer: Server clean core
 // Exports: toCleanCoreProviderEvents
 
 import type { ProviderRuntimeEvent } from "@penkra/contracts";
 
 import type { CleanCoreProviderEvent } from "./providerStreamConsumer.ts";
+import type { ThreadItemKind } from "./threadStore.ts";
+
+const NON_TOOL_NOTICE_TYPES = new Set([
+  "context_compaction",
+  "error",
+  "review_entered",
+  "review_exited",
+  "unknown",
+]);
+
+function itemKind(itemType: string): ThreadItemKind {
+  switch (itemType) {
+    case "user_message":
+      return "user";
+    case "assistant_message":
+      return "text";
+    case "reasoning":
+    case "plan":
+      return "reasoning";
+    default:
+      return NON_TOOL_NOTICE_TYPES.has(itemType) ? "notice" : "tool";
+  }
+}
+
+function itemStatus(kind: ThreadItemKind, status: string | undefined): string {
+  if (kind === "user") return "sent";
+  const failed = status === "failed" || status === "declined";
+  if (kind === "text" || kind === "reasoning") {
+    return status === "completed" ? "done" : failed ? "error" : "streaming";
+  }
+  if (kind === "tool") {
+    return status === "completed" ? "done" : failed ? "error" : "running";
+  }
+  return "done";
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function itemSourceId(event: ProviderRuntimeEvent, data: unknown): string {
+  const itemId = asRecord(asRecord(data)?.item)?.id;
+  return event.itemId ?? (typeof itemId === "string" && itemId.length > 0 ? itemId : event.eventId);
+}
+
+function itemData(payload: { input?: unknown; data?: unknown }): string | null {
+  if (payload.input === undefined && payload.data === undefined) return null;
+  return JSON.stringify({ input: payload.input ?? null, data: payload.data ?? null });
+}
 
 /**
  * Map one adapter runtime event to zero or more clean-core consumer events.
- * Turn state is driven only by the provider's own turn lifecycle events, and a
- * session exit cuts off the thread. Events the clean core does not need (usage,
- * metadata, item detail) return an empty list and are handled elsewhere.
+ * Turn state comes only from the provider's turn lifecycle; a session exit
+ * cuts off the thread. Approvals are not mapped (they are removed).
  */
 export function toCleanCoreProviderEvents(
   event: ProviderRuntimeEvent,
@@ -57,6 +109,104 @@ export function toCleanCoreProviderEvents(
           turnId: event.turnId,
           state: "interrupted",
           at: event.createdAt,
+        },
+      ];
+    }
+    case "item.started":
+    case "item.updated":
+    case "item.completed": {
+      const payload = event.payload;
+      const kind = itemKind(payload.itemType);
+      return [
+        {
+          type: "item",
+          threadId: event.threadId,
+          item: {
+            threadId: event.threadId,
+            sourceId: itemSourceId(event, payload.data),
+            turnId: event.turnId ?? null,
+            kind,
+            status: itemStatus(kind, payload.status),
+            text: payload.detail ?? payload.title ?? null,
+            data: itemData(payload),
+            createdAt: event.createdAt,
+            updatedAt: event.createdAt,
+          },
+        },
+      ];
+    }
+    case "content.delta": {
+      const streamKind = event.payload.streamKind;
+      const kind =
+        streamKind === "assistant_text"
+          ? ("text" as const)
+          : streamKind === "reasoning_text" ||
+              streamKind === "reasoning_summary_text" ||
+              streamKind === "plan_text"
+            ? ("reasoning" as const)
+            : streamKind === "command_output" || streamKind === "file_change_output"
+              ? ("tool" as const)
+              : null;
+      if (kind === null || event.payload.delta.length === 0) return [];
+      return [
+        {
+          type: "delta",
+          threadId: event.threadId,
+          sourceId: event.itemId ?? event.eventId,
+          kind,
+          delta: event.payload.delta,
+          at: event.createdAt,
+        },
+      ];
+    }
+    case "user-input.requested": {
+      const questions = event.payload.questions;
+      return [
+        {
+          type: "item",
+          threadId: event.threadId,
+          item: {
+            threadId: event.threadId,
+            sourceId: event.requestId ?? event.eventId,
+            turnId: event.turnId ?? null,
+            kind: "question",
+            status: "open",
+            text: questions.map((question) => question.question).join("\n") || "Question",
+            data: JSON.stringify({ questions }),
+            createdAt: event.createdAt,
+            updatedAt: event.createdAt,
+          },
+        },
+      ];
+    }
+    case "user-input.resolved": {
+      return [
+        {
+          type: "question.answered",
+          threadId: event.threadId,
+          sourceId: event.requestId ?? event.eventId,
+          answerData: JSON.stringify({ answers: event.payload.answers }),
+          at: event.createdAt,
+        },
+      ];
+    }
+    case "runtime.warning":
+    case "runtime.error": {
+      return [
+        {
+          type: "item",
+          threadId: event.threadId,
+          item: {
+            threadId: event.threadId,
+            sourceId: event.eventId,
+            turnId: event.turnId ?? null,
+            kind: "notice",
+            status: "done",
+            text: event.payload.message,
+            data: null,
+            createdAt: event.createdAt,
+            updatedAt: event.createdAt,
+          },
         },
       ];
     }

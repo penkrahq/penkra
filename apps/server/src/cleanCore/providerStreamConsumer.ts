@@ -9,6 +9,8 @@ import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import {
+  answerQuestion,
+  appendThreadItemText,
   setThreadState,
   upsertThreadItem,
   type ThreadItemInput,
@@ -34,6 +36,21 @@ export type CleanCoreProviderEvent =
       readonly type: "item";
       readonly threadId: string;
       readonly item: ThreadItemInput;
+    }
+  | {
+      readonly type: "delta";
+      readonly threadId: string;
+      readonly sourceId: string;
+      readonly kind: "text" | "reasoning" | "tool";
+      readonly delta: string;
+      readonly at: string;
+    }
+  | {
+      readonly type: "question.answered";
+      readonly threadId: string;
+      readonly sourceId: string;
+      readonly answerData: string;
+      readonly at: string;
     }
   | {
       readonly type: "provider.exited";
@@ -69,6 +86,22 @@ export const applyProviderEvent = (publisher: ThreadPublisher, event: CleanCoreP
       }
       case "item": {
         yield* upsertThreadItem(event.item);
+        publisher.publish({ threadId: event.threadId });
+        return;
+      }
+      case "delta": {
+        yield* appendThreadItemText(
+          event.threadId,
+          event.sourceId,
+          event.kind,
+          event.delta,
+          event.at,
+        );
+        publisher.publish({ threadId: event.threadId });
+        return;
+      }
+      case "question.answered": {
+        yield* answerQuestion(event.threadId, event.sourceId, event.answerData, event.at);
         publisher.publish({ threadId: event.threadId });
         return;
       }
