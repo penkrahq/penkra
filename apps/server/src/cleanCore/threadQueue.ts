@@ -12,6 +12,9 @@ export interface QueuedMessage {
   readonly sourceId: string;
   readonly text: string;
   readonly at: string;
+  /** The thread that sent this message (penkra threads send), for the sender chip. */
+  readonly senderThreadId?: string;
+  readonly dispatchOrigin?: "user" | "automation" | "agent";
 }
 
 export type SendPlan = "deliver" | "queue" | "steer" | "interrupt-deliver";

@@ -163,6 +163,18 @@ describe("threadItemToChatMessage", () => {
     expect(message.streaming).toBe(false);
   });
 
+  it("maps sender attribution from item data for another thread's send", () => {
+    const message = threadItemToChatMessage(
+      item("user", {
+        sourceId: "msg-sender",
+        text: "sent by another thread",
+        data: JSON.stringify({ senderThreadId: "thread-sender", dispatchOrigin: "agent" }),
+      }),
+    );
+    expect(message.senderThreadId).toBe("thread-sender");
+    expect(message.dispatchOrigin).toBe("agent");
+  });
+
   it("maps a text item to an assistant ChatMessage and keeps streaming", () => {
     const message = threadItemToChatMessage(
       item("text", { sourceId: "msg-2", seq: 3, status: "streaming", text: "partial" }),

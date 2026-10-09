@@ -64,6 +64,37 @@ it.effect("delivers while idle and queues while running", () =>
   ),
 );
 
+it.effect("records sender attribution on a delivered user item", () =>
+  withDb(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const publisher = makeThreadPublisher();
+      yield* runMigrations();
+      yield* createThread(baseThread);
+      yield* sendMessage(publisher, {
+        threadId: "thread-1",
+        message: {
+          sourceId: "m-sender",
+          text: "from another thread",
+          at: "2026-10-09T00:00:01.000Z",
+          senderThreadId: "thread-sender",
+          dispatchOrigin: "agent",
+        },
+        dispatchMode: "queue",
+        supportsSteer: false,
+      });
+      const rows = yield* sql<{ readonly data: string }>`
+        SELECT data FROM thread_items
+        WHERE thread_id = 'thread-1' AND source_id = 'm-sender'
+      `;
+      assert.deepStrictEqual(JSON.parse(rows[0]!.data), {
+        senderThreadId: "thread-sender",
+        dispatchOrigin: "agent",
+      });
+    }),
+  ),
+);
+
 it.effect("play on an idle thread with a cut-off notice starts a turn with the prompt", () =>
   withDb(
     Effect.gen(function* () {

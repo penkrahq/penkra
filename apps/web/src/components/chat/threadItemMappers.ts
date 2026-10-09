@@ -19,7 +19,7 @@ import {
   type TurnDispatchMode,
   type UserInputQuestion,
 } from "@penkra/contracts";
-import { EventId, TurnId } from "@penkra/contracts";
+import { EventId, ThreadId, TurnId } from "@penkra/contracts";
 import type { CleanCoreThreadItem } from "@penkra/contracts";
 
 import type { PendingUserInput } from "../../pendingInteractionDerivation";
@@ -110,6 +110,7 @@ export interface ThreadItemUserContent {
   readonly mentions: ReadonlyArray<ProviderMentionReference>;
   readonly dispatchMode?: TurnDispatchMode;
   readonly dispatchOrigin?: MessageDispatchOrigin;
+  readonly senderThreadId?: ThreadId;
 }
 
 export function threadItemToUserContent(item: CleanCoreThreadItem): ThreadItemUserContent {
@@ -133,6 +134,10 @@ export function threadItemToUserContent(item: CleanCoreThreadItem): ThreadItemUs
     data?.dispatchOrigin === "agent"
       ? data.dispatchOrigin
       : undefined;
+  const senderThreadId =
+    typeof data?.senderThreadId === "string" && data.senderThreadId.length > 0
+      ? ThreadId.makeUnsafe(data.senderThreadId)
+      : undefined;
   return {
     text: item.text ?? "",
     attachments,
@@ -140,6 +145,7 @@ export function threadItemToUserContent(item: CleanCoreThreadItem): ThreadItemUs
     mentions,
     ...(dispatchMode ? { dispatchMode } : {}),
     ...(dispatchOrigin ? { dispatchOrigin } : {}),
+    ...(senderThreadId ? { senderThreadId } : {}),
   };
 }
 
@@ -156,6 +162,7 @@ export function threadItemToChatMessage(item: CleanCoreThreadItem): ChatMessage 
     mentions: [...content.mentions],
     ...(content.dispatchMode ? { dispatchMode: content.dispatchMode } : {}),
     ...(content.dispatchOrigin ? { dispatchOrigin: content.dispatchOrigin } : {}),
+    ...(content.senderThreadId ? { senderThreadId: content.senderThreadId } : {}),
     sequence: item.seq,
     turnId: item.turnId === null ? null : TurnId.makeUnsafe(item.turnId),
     createdAt: item.createdAt,
