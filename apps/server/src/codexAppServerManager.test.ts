@@ -1,4 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import {
+  mapCodexRuntimeMode,
+  mapCodexRuntimeModeToTurnOverrides,
+} from "./codexAppServerManager.ts";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import {
@@ -5407,4 +5411,13 @@ describe.skipIf(!process.env.CODEX_BINARY_PATH)("startSession live Codex resume"
       rmSync(workspaceDir, { recursive: true, force: true });
     }
   }, 180_000);
+});
+
+describe("codex approval policy (0.14.4: approvals removed)", () => {
+  it("never prompts in either runtime mode", () => {
+    for (const mode of ["approval-required", "full-access"] as const) {
+      expect(mapCodexRuntimeMode(mode).approvalPolicy).toBe("never");
+      expect(mapCodexRuntimeModeToTurnOverrides(mode).approvalPolicy).toBe("never");
+    }
+  });
 });

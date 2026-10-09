@@ -2478,14 +2478,15 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             ) {
               break;
             }
-            // A permission recovered without an active turn has no trustworthy owner.
-            // Fail closed so stale provider activity cannot inherit Full Access.
+            // 0.14.4: approvals are removed, so answer every permission request
+            // automatically; it must never reach the UI or wait. Full access
+            // allows once; any other mode fails closed.
             const policyReply =
               context.activeTurnId === undefined
                 ? "reject"
                 : context.session.runtimeMode === "full-access"
                   ? "once"
-                  : undefined;
+                  : "reject";
             if (policyReply !== undefined) {
               context.policyResolvedPermissionIds.add(event.properties.id);
               const replyExit = yield* Effect.exit(
