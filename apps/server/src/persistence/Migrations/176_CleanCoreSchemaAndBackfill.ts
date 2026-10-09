@@ -212,7 +212,20 @@ export default Effect.gen(function* () {
         WHEN 'interrupted' THEN 'error'
         ELSE 'running'
       END,
-      COALESCE(o.title, json_extract(o.activity_json, '$.summary'), o.item_type),
+      -- Old OpenCode subagent results wrap the answer in a task/task_result
+      -- element pair; the transcript shows the plain result text, not the wrapper.
+      CASE
+        WHEN instr(o.activity_json, '<task_result>') > 0
+          AND instr(o.activity_json, '</task_result>') >
+            instr(o.activity_json, '<task_result>') + 13
+        THEN trim(substr(
+          o.activity_json,
+          instr(o.activity_json, '<task_result>') + 13,
+          instr(o.activity_json, '</task_result>') -
+            (instr(o.activity_json, '<task_result>') + 13)
+        ), ' ' || char(9) || char(10) || char(13))
+        ELSE COALESCE(o.title, json_extract(o.activity_json, '$.summary'), o.item_type)
+      END,
       CASE
         WHEN length(o.activity_json) <= ${DATA_LIMIT_BYTES} THEN o.activity_json
         ELSE json_object(

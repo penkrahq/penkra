@@ -4,6 +4,17 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { runMigrations } from "./Migrations.ts";
 import * as NodeSqliteClient from "./NodeSqliteClient.ts";
 
+/**
+ * Rehearsal harness for the clean-core backfill (step 4 / step 12).
+ *
+ * Prepare the copy with a consistent snapshot through a read-only,
+ * NON-immutable connection — `immutable=1` ignores the live WAL and yields a
+ * torn database. Under the lifecycle lock with Penkra quit (or on a copy):
+ *   sqlite3 "file:<source>?mode=ro" "VACUUM INTO '<scratch>/state.sqlite';"
+ * (or the SQLite backup API). Check free disk first (a copy is ~source size,
+ * and VACUUM INTO needs room for both); delete old rehearsal copies afterwards.
+ * Then run this harness against the copy.
+ */
 const dbPath = process.argv[2];
 if (!dbPath) throw new Error("usage: bun rehearseCleanCore0144.ts <db-path>");
 

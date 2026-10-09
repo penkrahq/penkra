@@ -137,6 +137,38 @@ it.effect("backfills threads and thread_items from the replaced projection table
   ),
 );
 
+it.effect("unwraps an OpenCode <task_result> into plain result text", () =>
+  withDb(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations({ toMigrationInclusive: 175 });
+      const now = "2026-10-09T00:00:00.000Z";
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id, folder_id, title, created_at, updated_at, model_selection_json
+        ) VALUES ('thread-task', 'folder-x', 'T', ${now}, ${now}, '{"provider":"opencode","model":"m"}')
+      `;
+      yield* sql`
+        INSERT INTO operations (
+          operation_id, provider_operation_id, thread_id, provider, item_type,
+          title, status, activity_json, started_at, last_source_event_id, updated_at,
+          presentation_sequence
+        ) VALUES (
+          'op-task', 'provider-op-task', 'thread-task', 'opencode', 'task',
+          'task', 'completed',
+          '<task id="x"><task_result>\nPlain result\n</task_result></task>',
+          ${now}, 'evt', ${now}, 1
+        )
+      `;
+      yield* runMigrations();
+      const rows = yield* sql<{ readonly text: string }>`
+        SELECT text FROM thread_items WHERE thread_id = 'thread-task'
+      `;
+      assert.deepStrictEqual(rows, [{ text: "Plain result" }]);
+    }),
+  ),
+);
+
 it.effect("rolls the backfill back when it fails, leaving the source intact", () =>
   withDb(
     Effect.gen(function* () {
