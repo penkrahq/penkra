@@ -691,10 +691,15 @@ function spawnCodexAppServer(input: {
   readonly cwd: string;
   readonly env: NodeJS.ProcessEnv;
 }): ChildProcessWithoutNullStreams {
-  const prepared = prepareWindowsSafeProcess(input.binaryPath, ["app-server"], {
-    cwd: input.cwd,
-    env: input.env,
-  });
+  // 0.14.4: subagents are disabled; agents use `penkra threads` instead.
+  const prepared = prepareWindowsSafeProcess(
+    input.binaryPath,
+    ["app-server", "-c", "features.multi_agent=false"],
+    {
+      cwd: input.cwd,
+      env: input.env,
+    },
+  );
   return spawn(prepared.command, prepared.args, {
     cwd: input.cwd,
     env: input.env,
