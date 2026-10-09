@@ -7,8 +7,13 @@
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
+import { PROVIDER_CUTOFF_NOTICE } from "./providerStreamConsumer.ts";
 import { enqueueMessage, planSend, type QueuedMessage, type SendPlan } from "./threadQueue.ts";
 import { upsertThreadItem, type ThreadPublisher } from "./threadStore.ts";
+
+/** The prompt the manual "play" button sends to resume a cut-off thread. */
+export const PLAY_TURN_RECOVERY_PROMPT =
+  "The previous turn did not finish. Continue the existing task from the current state. Verify the current state before repeating any action whose outcome may be uncertain.";
 
 export interface SendMessageInput {
   readonly threadId: string;
@@ -51,4 +56,35 @@ export const sendMessage = (publisher: ThreadPublisher, input: SendMessageInput)
     }
     publisher.publish({ threadId: input.threadId });
     return plan;
+  });
+
+/**
+ * The manual "play" button: resume a cut-off thread by sending the recovery
+ * prompt as a real user message through the normal send path. Only an idle
+ * thread that carries the provider cut-off notice can be resumed; returns the
+ * prompt when it started, or null when there was nothing to resume.
+ */
+export const playThread = (
+  publisher: ThreadPublisher,
+  input: { readonly threadId: string; readonly messageSourceId: string; readonly at: string },
+) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const rows = yield* sql<{ readonly state: string }>`
+      SELECT state FROM threads WHERE id = ${input.threadId}
+    `;
+    if (rows[0]?.state !== "idle") return null;
+    const cutoff = yield* sql<{ readonly present: number }>`
+      SELECT 1 AS present FROM thread_items
+      WHERE thread_id = ${input.threadId} AND kind = 'notice' AND text = ${PROVIDER_CUTOFF_NOTICE}
+      LIMIT 1
+    `;
+    if (cutoff.length === 0) return null;
+    yield* sendMessage(publisher, {
+      threadId: input.threadId,
+      message: { sourceId: input.messageSourceId, text: PLAY_TURN_RECOVERY_PROMPT, at: input.at },
+      dispatchMode: "queue",
+      supportsSteer: false,
+    });
+    return PLAY_TURN_RECOVERY_PROMPT;
   });

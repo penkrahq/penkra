@@ -2,7 +2,7 @@ import { assert, it } from "@effect/vitest";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { sendMessage } from "./sendMessage.ts";
+import { playThread, PLAY_TURN_RECOVERY_PROMPT, sendMessage } from "./sendMessage.ts";
 import { createThread, makeThreadPublisher } from "./threadStore.ts";
 import { applyProviderEvent } from "./providerStreamConsumer.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
@@ -60,6 +60,58 @@ it.effect("delivers while idle and queues while running", () =>
       assert.deepStrictEqual(JSON.parse(queue[0]!.queue), [
         { sourceId: "m2", text: "later", at: "2026-10-09T00:00:03.000Z" },
       ]);
+    }),
+  ),
+);
+
+it.effect("play on an idle thread with a cut-off notice starts a turn with the prompt", () =>
+  withDb(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const publisher = makeThreadPublisher();
+      yield* runMigrations();
+      yield* createThread(baseThread);
+
+      // Nothing to resume before a cut-off notice exists.
+      assert.isNull(
+        yield* playThread(publisher, {
+          threadId: "thread-1",
+          messageSourceId: "play-0",
+          at: "2026-10-09T00:00:01.000Z",
+        }),
+      );
+
+      yield* applyProviderEvent(publisher, {
+        type: "provider.exited",
+        threadIds: ["thread-1"],
+        at: "2026-10-09T00:00:02.000Z",
+      });
+      const started = yield* playThread(publisher, {
+        threadId: "thread-1",
+        messageSourceId: "play-1",
+        at: "2026-10-09T00:00:03.000Z",
+      });
+      assert.equal(started, PLAY_TURN_RECOVERY_PROMPT);
+
+      const rows = yield* sql<{ readonly kind: string; readonly text: string }>`
+        SELECT kind, text FROM thread_items WHERE source_id = 'play-1'
+      `;
+      assert.deepStrictEqual(rows, [{ kind: "user", text: PLAY_TURN_RECOVERY_PROMPT }]);
+
+      // While the resumed turn is running, play is refused.
+      yield* applyProviderEvent(publisher, {
+        type: "turn.started",
+        threadId: "thread-1",
+        turnId: "turn-play",
+        at: "2026-10-09T00:00:04.000Z",
+      });
+      assert.isNull(
+        yield* playThread(publisher, {
+          threadId: "thread-1",
+          messageSourceId: "play-2",
+          at: "2026-10-09T00:00:05.000Z",
+        }),
+      );
     }),
   ),
 );

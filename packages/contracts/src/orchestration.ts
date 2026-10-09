@@ -1780,13 +1780,9 @@ export const ThreadTurnStartRequestedPayload = Schema.Struct({
   /** Optional only when decoding historical events; current writers always populate it. */
   turnId: Schema.optional(TurnId),
   messageId: MessageId,
-  /** Server-only continuation source. No user-visible message exists for this id. */
-  recoveryOfTurnId: Schema.optional(TurnId),
   recoveryReason: Schema.optional(Schema.Literals(["restart", "play"])).pipe(
     Schema.withDecodingDefault(() => "restart" as const),
   ),
-  /** Invisible continuation, including admission before a provider turn id exists. */
-  restartRecovery: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
   modelSelection: Schema.optional(ModelSelection),
   connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
   bindingRevision: Schema.optional(NonNegativeInt),

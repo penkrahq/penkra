@@ -1513,22 +1513,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
 
         case "thread.turn-start-requested": {
           const penkraTurnId = event.payload.turnId ?? TurnId.makeUnsafe(`turn:${event.commandId}`);
-          if (
-            event.payload.restartRecovery &&
-            event.payload.recoveryOfTurnId === penkraTurnId &&
-            Option.isSome(
-              yield* projectionTurnRepository.getByTurnId({
-                threadId: event.payload.threadId,
-                turnId: penkraTurnId,
-              }),
-            )
-          ) {
-            yield* projectionTurnRepository.reopenForRestart({
-              threadId: event.payload.threadId,
-              turnId: penkraTurnId,
-            });
-            return;
-          }
           yield* projectionTurnRepository.upsertByTurnId({
             threadId: event.payload.threadId,
             turnId: penkraTurnId,
