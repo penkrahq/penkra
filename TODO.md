@@ -146,6 +146,9 @@ Rehearse on a copy made from the read-only source. Report before/after counts, d
 9. OpenCode image transform (2.7).
 10. Startup never fatal, diagnostics to file (2.9).
 11. Delete the old pipeline and its tables (2.2). The codebase should shrink substantially; report lines removed. Removing the legacy pump also removes the `Effect.catchCause`/`logWarning` swallow around the clean-core apply in `ProviderRuntimeIngestion.processRuntimeEvent` (step 6 part 4): once the clean core is the only transcript writer, a write failure must surface, not be silently logged.
+
+    Also delete the dead approval symbols here (they live in the projection tables this step drops whole, so a migration now would be wasted work): `ApprovalRequestId` (rename to a neutral request id or remove with the legacy contracts), `hasPendingApprovals`, `pendingApprovals`, `pending_approval_count`, `ProviderApprovalDecision`, `respondToRequest`, `thread.approval.respond`. Done-criterion: `grep` finds 0 of them outside historical migrations (`apps/server/src/persistence/Migrations/**`), and the clean-core code imports none of them.
+
 12. Release docs (section 5).
 
 ### 4.1 Production tables (from `sqlite_master` and row counts, read-only, 2026-10-09; code users from grep)
