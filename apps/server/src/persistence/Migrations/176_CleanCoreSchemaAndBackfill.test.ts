@@ -169,6 +169,63 @@ it.effect("unwraps an OpenCode <task_result> into plain result text", () =>
   ),
 );
 
+it.effect("groups tool activities by the web's tool-call identity, beside operations", () =>
+  withDb(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations({ toMigrationInclusive: 175 });
+      const now = "2026-10-09T00:00:00.000Z";
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id, folder_id, title, created_at, updated_at, model_selection_json
+        ) VALUES ('thread-tools', 'folder-x', 'T', ${now}, ${now}, '{"provider":"claudeAgent","model":"m"}')
+      `;
+      // Two lifecycle rows for one call, plus a second call, plus an operation
+      // whose provider_operation_id is disjoint from the activity identities.
+      yield* sql`
+        INSERT INTO projection_thread_activities (
+          activity_id, thread_id, tone, kind, summary, payload_json, created_at, sequence
+        ) VALUES
+          ('a1', 'thread-tools', 'tool', 'tool.started', 'Bash',
+           '{"title":"Bash","status":"inProgress","data":{"toolCallId":"call_one"}}',
+           '2026-10-09T00:00:01.000Z', 1),
+          ('a2', 'thread-tools', 'tool', 'tool.completed', 'Bash',
+           '{"title":"Bash","status":"completed","data":{"toolCallId":"call_one"}}',
+           '2026-10-09T00:00:02.000Z', 2),
+          ('a3', 'thread-tools', 'tool', 'tool.completed', 'Read',
+           '{"title":"Read","status":"completed","data":{"toolUseId":"toolu_two"}}',
+           '2026-10-09T00:00:03.000Z', 3)
+      `;
+      yield* sql`
+        INSERT INTO operations (
+          operation_id, provider_operation_id, thread_id, provider, item_type,
+          title, status, activity_json, started_at, last_source_event_id, updated_at,
+          presentation_sequence
+        ) VALUES (
+          'op-x', 'exec-x', 'thread-tools', 'codex', 'command_execution',
+          'Ran command', 'completed', '{"summary":"Ran command"}',
+          '2026-10-09T00:00:04.000Z', 'evt-x', '2026-10-09T00:00:04.000Z', 4
+        )
+      `;
+      yield* runMigrations();
+      const rows = yield* sql<{
+        readonly sourceId: string;
+        readonly kind: string;
+        readonly status: string;
+        readonly text: string;
+      }>`
+        SELECT source_id AS "sourceId", kind, status, text FROM thread_items
+        WHERE thread_id = 'thread-tools' ORDER BY seq
+      `;
+      assert.deepStrictEqual(rows, [
+        { sourceId: "call_one", kind: "tool", status: "done", text: "Bash" },
+        { sourceId: "toolu_two", kind: "tool", status: "done", text: "Read" },
+        { sourceId: "op-x", kind: "tool", status: "done", text: "Ran command" },
+      ]);
+    }),
+  ),
+);
+
 it.effect("rolls the backfill back when it fails, leaving the source intact", () =>
   withDb(
     Effect.gen(function* () {
