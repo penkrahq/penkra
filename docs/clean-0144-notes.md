@@ -4,10 +4,13 @@ Companion to `TODO.md` (the approved plan). Factual record only; no planning.
 
 ## Step 1 — git
 
-Decision (operator, 2026-10-09): **leave the 8 non-`main` branches that are checked out
-outside `penkra-worktrees/`**. Those worktrees are separate environments (repo root checkout,
-`penkra-host`, `Penkra_Dev` live workspaces) and may be in use; the rebuild does not need them
-gone. Do not touch them.
+Decision (operator, 2026-10-09): the 8 non-`main` branches were **archived and removed**, not
+left in place. The operator checked all 8 (no file changes since Sep 25), committed any
+uncommitted work as a WIP snapshot, and tagged each `archive/<branch>`. The 6 scratch/dev
+worktrees were removed; the repo-root `penkra` checkout and `penkra-host` are now **detached
+HEADs with their folders kept**. Only local branch left is `main`. The operator also repointed
+`~/Penkra_Dev/.launcher/workspace.json` `desktopRoot` from the removed
+`prod-complete-candidate` to `penkra-worktrees/release-0143`.
 
 State after step 1:
 
@@ -18,18 +21,17 @@ State after step 1:
 - Dropped `6ed13bbc8`, `db2e633f8`, `9e2aa7753`, `5396168e1` (absent from `main`, preserved by
   tag `archive/release/0.14.3` = `5396168e1`).
 - `archive/prod-complete-candidate` = `594921b8f` (WIP snapshot); its worktree removed.
-- 14 `archive/*` tags; 78 branches deleted. 8 branches left checked out (decision above).
+- 14 `archive/*` tags; 78 branches deleted by me, the remaining 8 archived and removed by the
+  operator; only `main` remains.
 
 ## Step 2 — inventory check vs plan 4.1
 
 Confirmed against code (`grep -rlw` over `apps/server/src` + `packages`, excluding
-`/Migrations/` and `*.test.*`). Every Production table is classified, and every classification
-matches the plan **except one**:
-
-- **Difference: `project_pull_request_pins` is listed "Kept" but has zero non-migration code
-  references** — only `069_ProjectPullRequestPins.ts` and `Migrations.test.ts` mention it. There
-  is no repository/reader/writer. It is currently dead data, like `git_thread_environment_operations`.
-  Following the plan as written (Kept); flagging in case it should be dropped.
+`/Migrations/` and `*.test.*`). Every Production table is classified. One correction (operator
+confirmed): **`project_pull_request_pins` moves from Kept to Dropped** — it has 0 rows in
+Production and zero non-migration code references (only `069_ProjectPullRequestPins.ts` and
+`Migrations.test.ts`), like `git_thread_environment_operations`. `TODO.md` 4.1 and this note
+were corrected.
 
 Notes for the step-4 drop migration:
 

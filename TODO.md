@@ -147,7 +147,7 @@ Rehearse on a copy made from the read-only source. Report before/after counts, d
 
 - **Replaced by `threads` / `thread_items`:** projection_threads, projection_thread_sessions, projection_thread_messages (+ `_search*`), projection_thread_activities, operations, notices, projection_pending_interactions, projection_turns, projection_turn_provider_bindings.
 - **Folded into `threads`:** `thread_runtime_bindings` (435 rows: which connection/model a thread uses) becomes `connection_id`/`model`. `provider_session_runtime` (103 rows: `resume_cursor_json`, the provider session to resume) becomes `provider_session_id`. In `provider_native_state_generations` (639 rows: the per-thread folder holding the provider's own conversation files, used for resume; 435 `active`, 204 `retained` after account switches), the `active` row becomes `threads.native_state_id`. `retained` folders are left on disk untouched; the migration writes their paths to `userdata/retained-native-state.txt`. Deleting them is a separate operator decision.
-- **Kept:** projection_spaces, projection_folders, projection_thread_decks, space_navigation_state, auth_sessions, auth_pairing_links, provider_connections, provider_credential_profiles, provider_installations, managed_attachment_blobs, managed_attachment_cleanup_jobs, project_pull_request_pins, connection_usage_daily, connection_usage_turn_events, thread_harness_states, effect_sql_migrations.
+- **Kept:** projection_spaces, projection_folders, projection_thread_decks, space_navigation_state, auth_sessions, auth_pairing_links, provider_connections, provider_credential_profiles, provider_installations, managed_attachment_blobs, managed_attachment_cleanup_jobs, connection_usage_daily, connection_usage_turn_events, thread_harness_states, effect_sql_migrations.
 - **Dropped, bookkeeping journals** (each exists only to make a multi-step operation resumable through the old command pipeline; the replacement is the plain idempotent write in 2.2):
   - orchestration_events, orchestration_command_receipts, orchestration_event_deliveries, orchestration_consumer_state, projection_state
   - provider_intent_outbox, provider_intent_outbox_cutover, provider_intent_outbox_reconciliations, provider_delivery_reconciliations
@@ -160,6 +160,7 @@ Rehearse on a copy made from the read-only source. Report before/after counts, d
   - `provider_auth_circuits` (0 rows; `providerAuthCircuit.ts`, retry backoff after auth failures): held in memory.
   - `connection_rate_limits` (4 rows; `ConnectionUsageFacts.ts`, read by `providerUsage/index.ts:338`): last usage limits per account. They change constantly, so keep them in memory only; on launch the usage panel fetches fresh. Delete `ConnectionUsageFactRepository`.
   - `git_thread_environment_operations` (0 rows): no code references it (only migrations 068/096/097). Dead table.
+  - `project_pull_request_pins` (0 rows): no code outside migration 069 and tests. Dead table.
 
 ## 4.2 Investigate (report only, low priority)
 
