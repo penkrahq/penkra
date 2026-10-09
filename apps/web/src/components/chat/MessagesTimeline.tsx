@@ -121,7 +121,6 @@ import { DisclosureRegion } from "../ui/DisclosureRegion";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { disclosureContentClassName } from "~/lib/disclosureMotion";
 import { getAppTypographyScale } from "../../lib/appTypography";
-import type { SubagentToolTrace } from "./subagentToolTrace.logic";
 import {
   USER_MESSAGE_COLLAPSED_FADE_LINES,
   USER_MESSAGE_COLLAPSED_MAX_LINES,
@@ -286,7 +285,6 @@ interface MessagesTimelineProps {
   onOpenAgentActivity?: (activityId: string) => void;
   onOpenThread?: (threadId: ThreadId) => void;
   /** Recent child-thread tool calls rendered under subagent rows, keyed by child thread id. */
-  subagentToolTraceByThreadId?: ReadonlyMap<string, SubagentToolTrace>;
   activeTurnId?: TurnId | null;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onIsAtEndChange?: (isAtEnd: boolean) => void;
@@ -329,7 +327,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onToggleWorkGroup,
   onOpenAgentActivity,
   onOpenThread,
-  subagentToolTraceByThreadId,
   activeTurnId,
   onImageExpand,
   onIsAtEndChange,
@@ -1024,9 +1021,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                             onImageExpand={onImageExpand}
                             {...(onOpenAgentActivity ? { onOpenAgentActivity } : {})}
                             {...(onOpenThread ? { onOpenThread } : {})}
-                            {...(subagentToolTraceByThreadId
-                              ? { subagentToolTraceByThreadId }
-                              : {})}
                           />
                         ) : (
                           <div
@@ -1079,7 +1073,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 onImageExpand={onImageExpand}
                 {...(onOpenAgentActivity ? { onOpenAgentActivity } : {})}
                 {...(onOpenThread ? { onOpenThread } : {})}
-                {...(subagentToolTraceByThreadId ? { subagentToolTraceByThreadId } : {})}
               />
             );
             const isLiveGroup =
@@ -1503,7 +1496,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   onImageExpand={onImageExpand}
                   {...(onOpenAgentActivity ? { onOpenAgentActivity } : {})}
                   {...(onOpenThread ? { onOpenThread } : {})}
-                  {...(subagentToolTraceByThreadId ? { subagentToolTraceByThreadId } : {})}
                 />
               );
               const isLiveGroup =
@@ -1615,7 +1607,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                           onImageExpand={onImageExpand}
                           {...(onOpenAgentActivity ? { onOpenAgentActivity } : {})}
                           {...(onOpenThread ? { onOpenThread } : {})}
-                          {...(subagentToolTraceByThreadId ? { subagentToolTraceByThreadId } : {})}
                         />
                       ))}
                     </div>
@@ -1635,7 +1626,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   onImageExpand={onImageExpand}
                   {...(onOpenAgentActivity ? { onOpenAgentActivity } : {})}
                   {...(onOpenThread ? { onOpenThread } : {})}
-                  {...(subagentToolTraceByThreadId ? { subagentToolTraceByThreadId } : {})}
                 />
               ) : (
                 <div
