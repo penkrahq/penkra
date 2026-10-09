@@ -11,8 +11,6 @@ import {
   ModelSelection,
   ProviderConnectionId,
   NonNegativeInt,
-  ThreadNotes,
-  ThreadPinnedMessages,
   FolderId,
   RuntimeMode,
   ThreadDeckId,
@@ -57,8 +55,6 @@ export const ProjectionThread = Schema.Struct({
   subagentRole: Schema.optional(Schema.NullOr(Schema.String)),
   forkSourceThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   latestTurnId: Schema.NullOr(TurnId),
-  pinnedMessages: Schema.NullOr(ThreadPinnedMessages),
-  notes: Schema.NullOr(ThreadNotes),
   latestUserMessageAt: Schema.NullOr(IsoDateTime),
   lastVisitedAt: Schema.optional(Schema.NullOr(IsoDateTime)).pipe(
     Schema.withDecodingDefault(() => null),

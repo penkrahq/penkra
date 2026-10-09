@@ -12,7 +12,7 @@ import {
   ProjectionThreadRepository,
   type ProjectionThreadRepositoryShape,
 } from "../Services/ProjectionThreads.ts";
-import { ModelSelection, ThreadPinnedMessages } from "@penkra/contracts";
+import { ModelSelection } from "@penkra/contracts";
 
 const SqliteBoolean = Schema.Number.pipe(
   Schema.decodeTo(Schema.Boolean, {
@@ -25,7 +25,6 @@ const ProjectionThreadDbRow = ProjectionThread.mapFields(
   Struct.assign({
     isPinned: SqliteBoolean,
     connectionSelectionExplicit: SqliteBoolean,
-    pinnedMessages: Schema.NullOr(Schema.fromJsonString(ThreadPinnedMessages)),
     modelSelection: Schema.fromJsonString(ModelSelection),
   }),
 );
@@ -63,8 +62,6 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           subagent_role,
           fork_source_thread_id,
           latest_turn_id,
-          pinned_messages_json,
-          notes,
           latest_user_message_at,
           last_visited_at,
           pending_approval_count,
@@ -102,8 +99,6 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${row.subagentRole ?? null},
           ${row.forkSourceThreadId ?? null},
           ${row.latestTurnId},
-          ${row.pinnedMessages === null ? null : JSON.stringify(row.pinnedMessages)},
-          ${row.notes},
           ${row.latestUserMessageAt},
           ${row.lastVisitedAt ?? null},
           ${row.pendingApprovalCount},
@@ -141,8 +136,6 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           subagent_role = excluded.subagent_role,
           fork_source_thread_id = excluded.fork_source_thread_id,
           latest_turn_id = excluded.latest_turn_id,
-          pinned_messages_json = excluded.pinned_messages_json,
-          notes = excluded.notes,
           latest_user_message_at = excluded.latest_user_message_at,
           last_visited_at = excluded.last_visited_at,
           pending_approval_count = excluded.pending_approval_count,
@@ -183,8 +176,6 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           subagent_role AS "subagentRole",
           fork_source_thread_id AS "forkSourceThreadId",
           latest_turn_id AS "latestTurnId",
-          pinned_messages_json AS "pinnedMessages",
-          notes,
           latest_user_message_at AS "latestUserMessageAt",
           last_visited_at AS "lastVisitedAt",
           pending_approval_count AS "pendingApprovalCount",
@@ -230,8 +221,6 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           subagent_role AS "subagentRole",
           fork_source_thread_id AS "forkSourceThreadId",
           latest_turn_id AS "latestTurnId",
-          pinned_messages_json AS "pinnedMessages",
-          notes,
           latest_user_message_at AS "latestUserMessageAt",
           last_visited_at AS "lastVisitedAt",
           pending_approval_count AS "pendingApprovalCount",

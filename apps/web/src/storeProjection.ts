@@ -201,8 +201,6 @@ function toThreadShell(thread: Thread): ThreadShell {
     subagentNickname: thread.subagentNickname ?? null,
     subagentRole: thread.subagentRole ?? null,
     forkSourceThreadId: thread.forkSourceThreadId ?? null,
-    ...(thread.pinnedMessages !== undefined ? { pinnedMessages: thread.pinnedMessages } : {}),
-    ...(thread.notes !== undefined ? { notes: thread.notes } : {}),
     ...(thread.latestUserMessageAt !== undefined
       ? { latestUserMessageAt: thread.latestUserMessageAt }
       : {}),

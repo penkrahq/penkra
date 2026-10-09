@@ -40,11 +40,8 @@ import { InlineLinkChip } from "../InlineLinkChip";
 import {
   BotIcon,
   type LucideIcon,
-  PinIcon,
   SteerIcon,
 } from "~/lib/icons";
-import { pinActionLabel } from "~/lib/pin";
-import { Button } from "../ui/button";
 import { CrossTaskOriginLabel, type CrossTaskOrigin } from "./CrossTaskOriginLabel";
 import { useStore } from "../../store";
 import { PenkraThreadCreationCard } from "./PenkraThreadCreationCard";
@@ -54,7 +51,6 @@ import { FileEntryIcon } from "./FileEntryIcon";
 import { InlineMentionChip } from "./InlineMentionChip";
 import { InlineSkillChip } from "./InlineSkillChip";
 import { InlineAgentChip } from "./InlineAgentChip";
-import { MessageActionButton, MESSAGE_ACTION_ICON_CLASS_NAME } from "./MessageActionButton";
 import { MessageCopyButton } from "./MessageCopyButton";
 import { MessageAssistant } from "../middle-panel/message-assistant/MessageAssistant";
 import { MessageUser } from "../middle-panel/message-user/MessageUser";
@@ -281,12 +277,6 @@ interface MessagesTimelineProps {
   listRef?: RefObject<TranscriptVirtualListRef | null>;
   /** Optional controller for transcript navigation surfaces and interaction stories. */
   controllerRef?: RefObject<MessagesTimelineController | null>;
-  /** Message ids currently pinned for the active thread (drives the footer pin toggle state). */
-  pinnedMessageIds?: ReadonlySet<MessageId>;
-  /** Excludes transient rows from persistent pin affordances. */
-  canPinMessage?: (messageId: MessageId) => boolean;
-  /** Toggle a message's pinned state from the assistant footer. */
-  onTogglePinMessage?: (messageId: MessageId) => void;
   /** Provenance for a conversation created from another Penkra task. */
   crossTaskOrigin?: CrossTaskOrigin | null;
   timelineEntries: ReturnType<typeof deriveTimelineEntries>;
@@ -332,9 +322,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   activeTurnStartedAt,
   listRef,
   controllerRef,
-  pinnedMessageIds,
-  canPinMessage,
-  onTogglePinMessage,
   crossTaskOrigin: crossTaskOriginProp,
   timelineEntries,
   nowIso,
@@ -1455,14 +1442,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               showCopyButton: row.showAssistantCopyButton,
               streaming: row.assistantCopyStreaming,
             });
-            const messagePinned = pinnedMessageIds?.has(row.message.id) ?? false;
-            const messageCanPin = canPinMessage?.(row.message.id) ?? true;
-            // Offer the pin toggle wherever copy is offered (a complete, terminal answer);
-            // keep it visible for an already-pinned message so it can always be unpinned.
-            const showPinToggle =
-              messageCanPin &&
-              Boolean(onTogglePinMessage) &&
-              (assistantCopyState.visible || messagePinned);
             // Only the turn's final answer carries a timestamp. Intermediate
             // working preambles (and their inline tool calls) stay timestamp-free
             // so a live turn reads as one block, not a stack of timestamped
@@ -1765,31 +1744,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                       </div>
                     ) : null}
                     {renderWorkDisplay(inlineWorkDisplay, "inline")}
-                    {(showPinToggle || assistantCopyState.visible || assistantMeta.length > 0) && (
+                    {(assistantCopyState.visible || assistantMeta.length > 0) && (
                       <div
                         className="mt-0.5 flex h-[26px] items-center gap-1 font-system-ui font-normal text-muted-foreground/45"
                         data-pencil-component="vI265"
                         style={chatMessageFooterStyle}
                       >
-                        {showPinToggle ? (
-                          // Pin sits at the left edge of the footer, before the copy action. It stays
-                          // visible when pinned so it reads as a persistent "this is pinned" marker; an
-                          // unpinned message only reveals it on hover, like the other footer actions.
-                          // Same Central pin glyph in both states — persistence signals the pinned state.
-                          <MessageActionButton
-                            label={pinActionLabel("message", messagePinned)}
-                            tooltip={messagePinned ? "Unpin from panel" : "Pin to panel"}
-                            aria-pressed={messagePinned}
-                            className={
-                              messagePinned
-                                ? "text-muted-foreground/80"
-                                : MESSAGE_HOVER_REVEAL_CLASS_NAME
-                            }
-                            onClick={() => onTogglePinMessage?.(row.message.id)}
-                          >
-                            <PinIcon className={MESSAGE_ACTION_ICON_CLASS_NAME} />
-                          </MessageActionButton>
-                        ) : null}
                         {assistantCopyState.visible ? (
                           <MessageCopyButton
                             text={assistantCopyState.text ?? ""}

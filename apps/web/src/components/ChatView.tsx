@@ -19,7 +19,6 @@ import {
   type ProviderSkillReference,
   type ProviderStartOptions,
   type ProviderUserInputAnswers,
-  type PinnedMessage,
   type ResolvedKeybindingsConfig,
   type ServerProviderStatus,
   ThreadId,
@@ -346,7 +345,6 @@ import {
 } from "./composerFooterLayout";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "./ComposerPromptEditor";
-import { usePinnedMessageActions } from "./chat/usePinnedMessageActions";
 import {
   CHAT_SURFACE_HEADER_DIVIDER_CLASS_NAME,
   CHAT_SURFACE_HEADER_ROW_CLASS_NAME,
@@ -469,8 +467,6 @@ import { buildModelSelection } from "../providerModelOptions";
 const ATTACHMENT_PREVIEW_HANDOFF_TTL_MS = 5000;
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_MESSAGES: ChatMessage[] = [];
-const EMPTY_PINNED_MESSAGES: readonly PinnedMessage[] = [];
-const CAN_PIN_ANY_MESSAGE = () => true;
 const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
 const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
 const EMPTY_PROVIDER_NATIVE_COMMANDS: ProviderNativeCommandDescriptor[] = [];
@@ -3514,17 +3510,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     agentActivityTimelineState.timelineWorkEntries,
     workLogVisibleSequenceFloor,
   ]);
-  // --- Pinned messages & notes (per-thread, server-synced through sidepanel commands) ---
-  const pinnedMessages = activeThread?.pinnedMessages ?? EMPTY_PINNED_MESSAGES;
-  const pinnedMessageIds = useMemo(
-    () => new Set(pinnedMessages.map((pin) => pin.messageId)),
-    [pinnedMessages],
-  );
-  const { handleTogglePinMessage } = usePinnedMessageActions({
-    activeThreadId,
-    pinnedMessages,
-  });
-  const handleTogglePinMessageGuarded = handleTogglePinMessage;
   // Empty top-level threads render the centered landing composer instead of the transcript pane.
   // Every empty top-level draft uses the parent-aware Pencil prompt and folder picker.
   const isCenteredEmptyLanding =
@@ -9255,9 +9240,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
                         activeTurnInProgress={activeTurnInProgress}
                         activeTurnStartedAt={activeWorkStartedAt}
                         listRef={transcriptListRef}
-                        pinnedMessageIds={pinnedMessageIds}
-                        canPinMessage={CAN_PIN_ANY_MESSAGE}
-                        onTogglePinMessage={handleTogglePinMessageGuarded}
                         crossTaskOrigin={crossTaskOrigin}
                         timelineEntries={visibleTimelineEntries}
                         onOpenThread={onNavigateToThread}

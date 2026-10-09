@@ -51,9 +51,6 @@ interface ChatTranscriptPaneProps {
   hasMessages: boolean;
   isWorking: boolean;
   listRef: RefObject<TranscriptVirtualListRef | null>;
-  pinnedMessageIds?: ReadonlySet<MessageId>;
-  canPinMessage?: (messageId: MessageId) => boolean;
-  onTogglePinMessage?: (messageId: MessageId) => void;
   crossTaskOrigin?: ComponentProps<typeof MessagesTimeline>["crossTaskOrigin"];
   markdownCwd: string | undefined;
   onExpandTimelineImage: (preview: ExpandedImagePreview) => void;
@@ -97,9 +94,6 @@ function ChatTranscriptPaneImpl({
   hasMessages,
   isWorking,
   listRef,
-  pinnedMessageIds,
-  canPinMessage,
-  onTogglePinMessage,
   crossTaskOrigin,
   markdownCwd,
   onExpandTimelineImage,
@@ -246,9 +240,6 @@ function ChatTranscriptPaneImpl({
             activeTurnInProgress={activeTurnInProgress}
             activeTurnStartedAt={activeTurnStartedAt}
             listRef={listRef}
-            {...(pinnedMessageIds ? { pinnedMessageIds } : {})}
-            {...(canPinMessage ? { canPinMessage } : {})}
-            {...(onTogglePinMessage ? { onTogglePinMessage } : {})}
             {...(crossTaskOrigin ? { crossTaskOrigin } : {})}
             timelineEntries={timelineEntries}
             onOpenThread={onOpenThread}

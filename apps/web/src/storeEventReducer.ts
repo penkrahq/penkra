@@ -8,12 +8,6 @@ import {
   type OrchestrationPendingInteraction,
   type ThreadId,
 } from "@penkra/contracts";
-import {
-  addPinnedMessage,
-  removePinnedMessage,
-  setPinnedMessageDone,
-  setPinnedMessageLabel,
-} from "@penkra/shared/pinnedMessages";
 import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
 
 import { isSessionRunningTurn, latestTurnMatchesTurnId } from "./session-logic";
@@ -817,9 +811,6 @@ function applyOrchestrationEvent(
               (event.payload.subagentNickname ?? null) === (thread.subagentNickname ?? null)) &&
             (event.payload.subagentRole === undefined ||
               (event.payload.subagentRole ?? null) === (thread.subagentRole ?? null)) &&
-            (event.payload.pinnedMessages === undefined ||
-              deepEqualJson(event.payload.pinnedMessages, thread.pinnedMessages ?? null)) &&
-            (event.payload.notes === undefined || event.payload.notes === (thread.notes ?? "")) &&
             (event.payload.lastVisitedAt === undefined ||
               event.payload.lastVisitedAt === thread.lastVisitedAt) &&
             nextUpdatedAt === thread.updatedAt
@@ -846,14 +837,6 @@ function applyOrchestrationEvent(
             ...(event.payload.subagentRole !== undefined
               ? { subagentRole: event.payload.subagentRole }
               : {}),
-            ...(event.payload.pinnedMessages !== undefined
-              ? {
-                  pinnedMessages: event.payload.pinnedMessages as NonNullable<
-                    Thread["pinnedMessages"]
-                  >,
-                }
-              : {}),
-            ...(event.payload.notes !== undefined ? { notes: event.payload.notes } : {}),
             ...(event.payload.lastVisitedAt !== undefined
               ? { lastVisitedAt: event.payload.lastVisitedAt }
               : {}),
@@ -865,93 +848,6 @@ function applyOrchestrationEvent(
           ...options,
           updateSidebarSummary: true,
         },
-      );
-
-    case "thread.pinned-message-added":
-      return applyThreadUpdate(
-        state,
-        event.payload.threadId,
-        (thread) => {
-          const pinnedMessages = addPinnedMessage(thread.pinnedMessages, event.payload.pin);
-          const updatedAt = resolveEventUpdatedAt(thread, event.payload.updatedAt);
-          if (thread.pinnedMessages === pinnedMessages && thread.updatedAt === updatedAt) {
-            return thread;
-          }
-          return {
-            ...thread,
-            pinnedMessages,
-            updatedAt,
-          };
-        },
-        { ...options, updateSidebarSummary: false },
-      );
-
-    case "thread.pinned-message-removed":
-      return applyThreadUpdate(
-        state,
-        event.payload.threadId,
-        (thread) => {
-          const pinnedMessages = removePinnedMessage(
-            thread.pinnedMessages,
-            event.payload.messageId,
-          );
-          const updatedAt = resolveEventUpdatedAt(thread, event.payload.updatedAt);
-          if (thread.pinnedMessages === pinnedMessages && thread.updatedAt === updatedAt) {
-            return thread;
-          }
-          return {
-            ...thread,
-            pinnedMessages,
-            updatedAt,
-          };
-        },
-        { ...options, updateSidebarSummary: false },
-      );
-
-    case "thread.pinned-message-done-set":
-      return applyThreadUpdate(
-        state,
-        event.payload.threadId,
-        (thread) => {
-          const pinnedMessages = setPinnedMessageDone(
-            thread.pinnedMessages,
-            event.payload.messageId,
-            event.payload.done,
-          );
-          const updatedAt = resolveEventUpdatedAt(thread, event.payload.updatedAt);
-          if (thread.pinnedMessages === pinnedMessages && thread.updatedAt === updatedAt) {
-            return thread;
-          }
-          return {
-            ...thread,
-            pinnedMessages,
-            updatedAt,
-          };
-        },
-        { ...options, updateSidebarSummary: false },
-      );
-
-    case "thread.pinned-message-label-set":
-      return applyThreadUpdate(
-        state,
-        event.payload.threadId,
-        (thread) => {
-          const pinnedMessages = setPinnedMessageLabel(
-            thread.pinnedMessages,
-            event.payload.messageId,
-            event.payload.label,
-          );
-          const updatedAt = resolveEventUpdatedAt(thread, event.payload.updatedAt);
-          if (thread.pinnedMessages === pinnedMessages && thread.updatedAt === updatedAt) {
-            return thread;
-          }
-          return {
-            ...thread,
-            pinnedMessages,
-            updatedAt,
-          };
-        },
-        { ...options, updateSidebarSummary: false },
       );
 
     // Historical marker events remain decodable but no longer affect UI state.

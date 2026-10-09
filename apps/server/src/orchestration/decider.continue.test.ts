@@ -205,10 +205,6 @@ describe("archived thread admission", () => {
 
   it.each([
     "thread.update",
-    "thread.pinned-message.add",
-    "thread.pinned-message.remove",
-    "thread.pinned-message.done.set",
-    "thread.pinned-message.label.set",
     "thread.runtime-mode.set",
     "thread.turn.steer-queued",
     "thread.task.background",

@@ -11,7 +11,6 @@ import {
   OrchestrationGetThreadTurnsPageResult,
   OrchestrationGetPendingStartOutcomeResult,
   OrchestrationThreadDetailSnapshot,
-  ThreadPinnedMessages,
   ThreadDeck,
   ThreadDeckId,
   ProjectScript,
@@ -97,16 +96,11 @@ const ProjectionFolderDbRowSchema = ProjectionFolder.mapFields(
 const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
   Struct.assign({
     isPinned: Schema.Number,
-    pinnedMessages: Schema.NullOr(Schema.fromJsonString(ThreadPinnedMessages)),
     modelSelection: ModelSelectionJsonUnknown,
     connectionSelectionExplicit: Schema.Number,
   }),
 );
-const {
-  pinnedMessages: _projectionThreadPinnedMessagesField,
-  notes: _projectionThreadNotesField,
-  ...ProjectionThreadShellFields
-} = ProjectionThread.fields;
+const ProjectionThreadShellFields = ProjectionThread.fields;
 const ProjectionThreadShellDbRowSchema = Schema.Struct(ProjectionThreadShellFields).mapFields(
   Struct.assign({
     isPinned: Schema.Number,
@@ -670,8 +664,6 @@ function assembleProjectedThread(
     queuedMessageIds: input.queuedMessageIds ?? [],
     activities: input.activities,
     pendingInteractions: input.pendingInteractions,
-    ...(threadRow.pinnedMessages !== null ? { pinnedMessages: threadRow.pinnedMessages } : {}),
-    ...(threadRow.notes !== null ? { notes: threadRow.notes } : {}),
     session: input.session,
   };
 }
@@ -832,8 +824,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           working_directory AS "workingDirectory",
           is_pinned AS "isPinned",
           sidebar_sort_order AS "sidebarSortOrder",
-          pinned_messages_json AS "pinnedMessages",
-          notes,
           parent_thread_id AS "parentThreadId",
           creation_source AS "creationSource",
           source_thread_id AS "sourceThreadId",
@@ -1349,8 +1339,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           working_directory AS "workingDirectory",
           is_pinned AS "isPinned",
           sidebar_sort_order AS "sidebarSortOrder",
-          pinned_messages_json AS "pinnedMessages",
-          notes,
           parent_thread_id AS "parentThreadId",
           creation_source AS "creationSource",
           source_thread_id AS "sourceThreadId",
@@ -1398,8 +1386,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           working_directory AS "workingDirectory",
           is_pinned AS "isPinned",
           sidebar_sort_order AS "sidebarSortOrder",
-          pinned_messages_json AS "pinnedMessages",
-          notes,
           parent_thread_id AS "parentThreadId",
           creation_source AS "creationSource",
           source_thread_id AS "sourceThreadId",
