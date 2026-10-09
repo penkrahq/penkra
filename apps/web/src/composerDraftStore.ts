@@ -16,7 +16,6 @@ import {
   deriveEffectiveComposerModelState,
   type EffectiveComposerModelState,
 } from "./composerDraftModels";
-import { partializeComposerDraftStoreState } from "./composerDraftPersistence";
 
 export {
   findSupersededComposerImageBlobAttachments,
@@ -47,7 +46,6 @@ export {
   resolvePreferredComposerModelSelection,
 } from "./composerDraftModels";
 export type { EffectiveComposerModelState } from "./composerDraftModels";
-export { partializeComposerDraftStoreState } from "./composerDraftPersistence";
 
 // The composer draft is owned by the clean core (`threads.draft`, TODO 2.6):
 // there is no per-window localStorage persistence. `composerDraftSync` loads and
