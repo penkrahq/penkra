@@ -12,6 +12,7 @@
 import {
   ApprovalRequestId,
   type MessageDispatchOrigin,
+  MessageId,
   type OrchestrationThreadActivity,
   type ProviderMentionReference,
   type ProviderSkillReference,
@@ -22,8 +23,9 @@ import { EventId, TurnId } from "@penkra/contracts";
 import type { CleanCoreThreadItem } from "@penkra/contracts";
 
 import type { PendingUserInput } from "../../pendingInteractionDerivation";
+import type { ChatMessage } from "../../types";
 import type { ChatAttachment } from "../../types";
-import { deriveWorkLogEntries, type WorkLogEntry } from "../../workLog";
+import { deriveWorkLogEntries, type TimelineEntry, type WorkLogEntry } from "../../workLog";
 
 type ActivityTone = OrchestrationThreadActivity["tone"];
 
@@ -139,4 +141,60 @@ export function threadItemToUserContent(item: CleanCoreThreadItem): ThreadItemUs
     ...(dispatchMode ? { dispatchMode } : {}),
     ...(dispatchOrigin ? { dispatchOrigin } : {}),
   };
+}
+
+/** A `user`/`text` item as the `ChatMessage` the transcript rows render. */
+export function threadItemToChatMessage(item: CleanCoreThreadItem): ChatMessage {
+  const content = threadItemToUserContent(item);
+  const isUser = item.kind === "user";
+  return {
+    id: MessageId.makeUnsafe(item.sourceId),
+    role: isUser ? "user" : "assistant",
+    text: content.text,
+    attachments: [...content.attachments],
+    skills: [...content.skills],
+    mentions: [...content.mentions],
+    ...(content.dispatchMode ? { dispatchMode: content.dispatchMode } : {}),
+    ...(content.dispatchOrigin ? { dispatchOrigin: content.dispatchOrigin } : {}),
+    sequence: item.seq,
+    turnId: item.turnId === null ? null : TurnId.makeUnsafe(item.turnId),
+    createdAt: item.createdAt,
+    ...(item.status === "done" ? { completedAt: item.updatedAt } : {}),
+    streaming: item.status === "streaming",
+  };
+}
+
+/**
+ * Pure mapper from clean-core items to the `TimelineEntry` rows the transcript
+ * already renders (0.14.4 step 8.5c-iii). `user`/`text` become message rows;
+ * every other kind becomes a work row through the same derivation the old
+ * activities used. Items are already oldest-first, but the result is sorted by
+ * `seq` so ordering never depends on the caller.
+ */
+export function threadItemsToTimelineEntries(
+  items: ReadonlyArray<CleanCoreThreadItem>,
+): TimelineEntry[] {
+  const ordered = [...items].toSorted((left, right) => left.seq - right.seq);
+  const entries: TimelineEntry[] = [];
+  for (const item of ordered) {
+    if (item.kind === "user" || item.kind === "text") {
+      entries.push({
+        id: item.sourceId,
+        kind: "message",
+        createdAt: item.createdAt,
+        message: threadItemToChatMessage(item),
+      });
+      continue;
+    }
+    const entry = threadItemToWorkLogEntry(item);
+    if (entry) {
+      entries.push({
+        id: entry.id,
+        kind: "work",
+        createdAt: entry.createdAt,
+        entry,
+      });
+    }
+  }
+  return entries;
 }

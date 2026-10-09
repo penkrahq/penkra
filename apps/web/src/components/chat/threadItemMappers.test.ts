@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   threadItemToActivity,
+  threadItemToChatMessage,
   threadItemToPendingUserInput,
   threadItemToUserContent,
   threadItemToWorkLogEntry,
+  threadItemsToTimelineEntries,
 } from "./threadItemMappers";
 
 const item = (
@@ -135,6 +137,77 @@ describe("threadItemToPendingUserInput", () => {
     );
     expect(pending.requestId).toBe("req-2");
     expect(pending.questions).toEqual([]);
+  });
+});
+
+describe("threadItemToChatMessage", () => {
+  it("maps a user item to a user ChatMessage with its attachments and seq", () => {
+    const message = threadItemToChatMessage(
+      item("user", {
+        sourceId: "msg-1",
+        seq: 2,
+        text: "please build the thing",
+        data: JSON.stringify({
+          attachments: [
+            { type: "file", id: "f1", name: "notes.txt", mimeType: "text/plain", sizeBytes: 12 },
+          ],
+          dispatchMode: "steer",
+        }),
+      }),
+    );
+    expect(message.id).toBe("msg-1");
+    expect(message.role).toBe("user");
+    expect(message.sequence).toBe(2);
+    expect(message.attachments).toHaveLength(1);
+    expect(message.dispatchMode).toBe("steer");
+    expect(message.streaming).toBe(false);
+  });
+
+  it("maps a text item to an assistant ChatMessage and keeps streaming", () => {
+    const message = threadItemToChatMessage(
+      item("text", { sourceId: "msg-2", seq: 3, status: "streaming", text: "partial" }),
+    );
+    expect(message.role).toBe("assistant");
+    expect(message.streaming).toBe(true);
+    expect(message.completedAt).toBeUndefined();
+  });
+});
+
+describe("threadItemsToTimelineEntries", () => {
+  it("interleaves message and work rows in seq order", () => {
+    const entries = threadItemsToTimelineEntries([
+      item("tool", {
+        sourceId: "call-1",
+        seq: 3,
+        text: "Bash",
+        data: JSON.stringify({
+          tone: "tool",
+          kind: "tool.completed",
+          summary: "Bash",
+          payload: { title: "Bash", status: "completed" },
+        }),
+      }),
+      item("user", { sourceId: "msg-1", seq: 1, text: "hello" }),
+      item("text", { sourceId: "msg-2", seq: 2, text: "hi there" }),
+    ]);
+    expect(entries.map((entry) => [entry.kind, entry.id])).toEqual([
+      ["message", "msg-1"],
+      ["message", "msg-2"],
+      ["work", "call-1"],
+    ]);
+    const first = entries[0];
+    expect(first?.kind).toBe("message");
+    if (first?.kind === "message") {
+      expect(first.message.role).toBe("user");
+    }
+  });
+
+  it("keeps a question item as a work row so it is not lost", () => {
+    const entries = threadItemsToTimelineEntries([
+      item("question", { sourceId: "question:req-1", seq: 1, status: "open", text: "Which db?" }),
+    ]);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.kind).toBe("work");
   });
 });
 
