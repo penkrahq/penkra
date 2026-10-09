@@ -151,7 +151,6 @@ function makeThreadDetail(shell: OrchestrationThreadShell): OrchestrationThread 
   return {
     ...shell,
     deletedAt: null,
-    pinnedMessages: [],
     messages: [],
     activities: [],
   };

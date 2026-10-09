@@ -7,7 +7,6 @@ import type {
 import {
   EventId,
   MAX_PINNED_PROJECTS,
-  PINNED_MESSAGES_MAX_COUNT,
   SPACES_MAX_COUNT,
   TurnId,
 } from "@penkra/contracts";
@@ -1367,120 +1366,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             ? { subagentNickname: command.subagentNickname }
             : {}),
           ...(command.subagentRole !== undefined ? { subagentRole: command.subagentRole } : {}),
-          ...(command.pinnedMessages !== undefined
-            ? { pinnedMessages: command.pinnedMessages }
-            : {}),
-          ...(command.notes !== undefined ? { notes: command.notes } : {}),
           ...(command.lastVisitedAt !== undefined ? { lastVisitedAt: command.lastVisitedAt } : {}),
           ...(command.lastOpenedAt !== undefined ? { lastOpenedAt: command.lastOpenedAt } : {}),
           updatedAt: visitAcknowledgementOnly ? thread.updatedAt : occurredAt,
-        },
-      };
-    }
-
-    case "thread.pinned-message.add": {
-      const thread = yield* requireThreadCanTakeWork({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      const existingPin = thread.pinnedMessages?.find((pin) => pin.messageId === command.messageId);
-      if (!existingPin && (thread.pinnedMessages?.length ?? 0) >= PINNED_MESSAGES_MAX_COUNT) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: `Thread '${command.threadId}' already has the maximum of ${PINNED_MESSAGES_MAX_COUNT} pinned messages.`,
-        });
-      }
-      const occurredAt = nowIso();
-      return {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.pinned-message-added",
-        payload: {
-          threadId: command.threadId,
-          pin: existingPin ?? {
-            messageId: command.messageId,
-            label: null,
-            done: false,
-            pinnedAt: occurredAt,
-          },
-          updatedAt: occurredAt,
-        },
-      };
-    }
-
-    case "thread.pinned-message.remove": {
-      yield* requireThreadCanTakeWork({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      const occurredAt = nowIso();
-      return {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.pinned-message-removed",
-        payload: {
-          threadId: command.threadId,
-          turnId: TurnId.makeUnsafe(`turn:${command.commandId}`),
-          messageId: command.messageId,
-          updatedAt: occurredAt,
-        },
-      };
-    }
-
-    case "thread.pinned-message.done.set": {
-      yield* requireThreadCanTakeWork({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      const occurredAt = nowIso();
-      return {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.pinned-message-done-set",
-        payload: {
-          threadId: command.threadId,
-          messageId: command.messageId,
-          done: command.done,
-          updatedAt: occurredAt,
-        },
-      };
-    }
-
-    case "thread.pinned-message.label.set": {
-      yield* requireThreadCanTakeWork({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      const occurredAt = nowIso();
-      return {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.pinned-message-label-set",
-        payload: {
-          threadId: command.threadId,
-          messageId: command.messageId,
-          label: command.label,
-          updatedAt: occurredAt,
         },
       };
     }

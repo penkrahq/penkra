@@ -1,10 +1,4 @@
 import { ApprovalRequestId, CommandId, TurnId, type OrchestrationEvent } from "@penkra/contracts";
-import {
-  addPinnedMessage,
-  removePinnedMessage,
-  setPinnedMessageDone,
-  setPinnedMessageLabel,
-} from "@penkra/shared/pinnedMessages";
 import { isPendingInteractionNotFoundFailure } from "@penkra/shared/threadSummary";
 import { shouldInterruptProvisionalCompletion } from "@penkra/shared/turnContinuation";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -516,8 +510,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             subagentRole: event.payload.subagentRole ?? null,
             forkSourceThreadId: event.payload.forkSourceThreadId,
             latestTurnId: null,
-            pinnedMessages: null,
-            notes: null,
             latestUserMessageAt: null,
             lastVisitedAt: null,
             pendingApprovalCount: 0,
@@ -560,10 +552,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               ...(event.payload.subagentRole !== undefined
                 ? { subagentRole: event.payload.subagentRole }
                 : {}),
-              ...(event.payload.pinnedMessages !== undefined
-                ? { pinnedMessages: event.payload.pinnedMessages }
-                : {}),
-              ...(event.payload.notes !== undefined ? { notes: event.payload.notes } : {}),
               ...(event.payload.lastVisitedAt !== undefined
                 ? { lastVisitedAt: event.payload.lastVisitedAt }
                 : {}),
@@ -582,42 +570,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           }
           return;
         }
-
-        case "thread.pinned-message-added":
-          return yield* updateThreadProjection(event.payload.threadId, (thread) => ({
-            ...thread,
-            pinnedMessages: addPinnedMessage(thread.pinnedMessages, event.payload.pin),
-            updatedAt: event.payload.updatedAt,
-          }));
-
-        case "thread.pinned-message-removed":
-          return yield* updateThreadProjection(event.payload.threadId, (thread) => ({
-            ...thread,
-            pinnedMessages: removePinnedMessage(thread.pinnedMessages, event.payload.messageId),
-            updatedAt: event.payload.updatedAt,
-          }));
-
-        case "thread.pinned-message-done-set":
-          return yield* updateThreadProjection(event.payload.threadId, (thread) => ({
-            ...thread,
-            pinnedMessages: setPinnedMessageDone(
-              thread.pinnedMessages,
-              event.payload.messageId,
-              event.payload.done,
-            ),
-            updatedAt: event.payload.updatedAt,
-          }));
-
-        case "thread.pinned-message-label-set":
-          return yield* updateThreadProjection(event.payload.threadId, (thread) => ({
-            ...thread,
-            pinnedMessages: setPinnedMessageLabel(
-              thread.pinnedMessages,
-              event.payload.messageId,
-              event.payload.label,
-            ),
-            updatedAt: event.payload.updatedAt,
-          }));
 
         // Historical marker events remain decodable but no longer project state.
         case "thread.marker-added":
