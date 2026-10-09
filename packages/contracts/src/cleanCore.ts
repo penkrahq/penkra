@@ -47,3 +47,10 @@ export const CleanCoreSetThreadDraftInput = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 export type CleanCoreSetThreadDraftInput = typeof CleanCoreSetThreadDraftInput.Type;
+
+/** Live thread change signal for the push channel (0.14.4 design 2.2). */
+export const CleanCoreThreadChange = Schema.Struct({ threadId: ThreadId });
+export type CleanCoreThreadChange = typeof CleanCoreThreadChange.Type;
+
+export const CleanCoreSubscribeThreadInput = Schema.Struct({ threadId: ThreadId });
+export type CleanCoreSubscribeThreadInput = typeof CleanCoreSubscribeThreadInput.Type;
