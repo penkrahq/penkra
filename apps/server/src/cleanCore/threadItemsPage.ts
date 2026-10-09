@@ -3,13 +3,13 @@
 // `WHERE thread_id=? AND seq<? ORDER BY seq DESC LIMIT 50`, newest first, with
 // a seq cursor. No query scans items across threads.
 // Layer: Server clean core
-// Exports: ThreadItemRow, ThreadItemsPage, listThreadItemsPage
+// Exports: ThreadItemRecord, ThreadItemsPage, listThreadItemsPage
 
 import type { ThreadId, TurnId } from "@penkra/contracts";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-export interface ThreadItemRow {
+export interface ThreadItemRecord {
   readonly threadId: ThreadId;
   readonly seq: number;
   readonly sourceId: string;
@@ -24,7 +24,7 @@ export interface ThreadItemRow {
 
 export interface ThreadItemsPage {
   /** Newest first. */
-  readonly items: ReadonlyArray<ThreadItemRow>;
+  readonly items: ReadonlyArray<ThreadItemRecord>;
   /** Pass as `beforeSeq` to read the next older page, or null when exhausted. */
   readonly nextCursor: number | null;
 }
@@ -40,7 +40,7 @@ export const listThreadItemsPage = (input: {
     const sql = yield* SqlClient.SqlClient;
     const limit = input.limit ?? THREAD_ITEMS_PAGE_SIZE;
     const before = input.beforeSeq ?? null;
-    const rows = yield* sql<ThreadItemRow>`
+    const rows = yield* sql<ThreadItemRecord>`
       SELECT
         thread_id AS "threadId",
         seq,

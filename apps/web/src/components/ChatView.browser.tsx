@@ -607,6 +607,34 @@ function pushCleanCoreThreadChange(threadId: ThreadId): void {
   cleanCoreThreadChangeEmitters.get(threadId)?.();
 }
 
+function publishThreadToFixture(): void {
+  const stored = getThreadFromState(useStore.getState(), THREAD_ID);
+  if (!stored) return;
+  fixture = {
+    ...fixture,
+    snapshot: {
+      ...fixture.snapshot,
+      threads: fixture.snapshot.threads.map((thread) =>
+        thread.id === THREAD_ID ? (stored as unknown as typeof thread) : thread,
+      ),
+    },
+  };
+}
+
+/** Read-model sync for item-sourced tests: publish to the fixture, sync, push items. */
+function syncReadModelForTest(snapshot: OrchestrationReadModel): void {
+  fixture = { ...fixture, snapshot };
+  useStore.getState().syncServerReadModel(snapshot);
+  pushCleanCoreThreadChange(THREAD_ID);
+}
+
+/** Apply orchestration events, publish the resulting thread to the fixture, push items. */
+function applyEventsForTest(events: OrchestrationEvent[]): void {
+  useStore.getState().applyOrchestrationEvents(events);
+  publishThreadToFixture();
+  pushCleanCoreThreadChange(THREAD_ID);
+}
+
 function addThreadToSnapshot(
   snapshot: OrchestrationReadModel,
   threadId: ThreadId,
@@ -2429,6 +2457,321 @@ async function mountChatView(options: {
 }
 
 describe("ChatView timeline estimator parity (full app)", () => {
+  it("keeps a 5,500-activity running transcript observable while streaming", async () => {
+    const snapshot = createLongRunningStreamingSnapshot();
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    resetChatPerformanceDiagnostics();
+    enableChatPerformanceDiagnostics();
+    try {
+      for (let revision = 1; revision <= 10; revision += 1) {
+        const next = {
+          ...snapshot,
+          snapshotSequence: snapshot.snapshotSequence + revision,
+          threads: snapshot.threads.map((thread) =>
+            thread.id === THREAD_ID
+              ? {
+                  ...thread,
+                  messages: thread.messages.map((message) =>
+                    message.id === "assistant-long-stream-299"
+                      ? {
+                          ...message,
+                          text: `${message.text} ${revision}`,
+                          updatedAt: isoAt(8_000 + revision),
+                        }
+                      : message,
+                  ),
+                }
+              : thread,
+          ),
+        };
+        syncReadModelForTest(next);
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, 100));
+      const samples = getChatPerformanceWorkSamples();
+      expect(document.body.textContent).toContain("Streaming progress 299 10");
+      for (const kind of [
+        "transcript-commit",
+        "transcript-work-log",
+        "transcript-agent-activity",
+        "transcript-timeline",
+        "transcript-rows",
+      ] as const) {
+        expect(
+          samples.some((sample) => sample.kind === kind),
+          kind,
+        ).toBe(true);
+      }
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("continues the logical turn after a tool outlives two Stop requests", async () => {
+    const previousBridge = window.desktopBridge;
+    const recordDiagnosticCheckpoint = vi.fn().mockResolvedValue(undefined);
+    const turnId = TurnId.makeUnsafe("turn:5e4001b7-a59c-42de-b1dd-20e7d27640be");
+    const providerTurnId = TurnId.makeUnsafe("a3f9d56b-1701-49a9-9787-d529072d9b5f");
+    const messageId = MessageId.makeUnsafe("a810f055-436d-49ad-a1bf-96d4519798de");
+    const requestedAt = "2026-09-26T22:18:03.115Z";
+    const runningAt = "2026-09-26T22:18:03.790Z";
+    const stoppedAt = "2026-09-26T22:18:15.938Z";
+    const snapshot = createSnapshotForTargetUser({
+      targetMessageId: MessageId.makeUnsafe("browser-target-before-play"),
+      targetText: "Run a long tool",
+    });
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    window.desktopBridge = {
+      ...previousBridge,
+      getWsUrl: () => null,
+      setTheme: async () => undefined,
+      setAppTheme: async () => undefined,
+      recordDiagnosticCheckpoint,
+    } as never;
+    let releaseDispatch!: () => void;
+    const dispatchGate = new Promise<void>((resolve) => {
+      releaseDispatch = resolve;
+    });
+    const restoreNativeApi = installDeterministicSendNativeApi({ dispatchGate });
+    const dispatchCommand = vi.spyOn(window.nativeApi!.orchestration, "dispatchCommand");
+    try {
+      const session = (
+        status: "running" | "interrupted",
+        activeTurnId: TurnId | null,
+        updatedAt: string,
+      ) =>
+        makeDomainEvent("thread.session-set", {
+          threadId: THREAD_ID,
+          session: {
+            threadId: THREAD_ID,
+            status,
+            providerName: "claudeAgent",
+            runtimeMode: "full-access",
+            activeTurnId,
+            lastError: null,
+            updatedAt,
+          },
+        });
+      const activity = (kind: string, at: string) =>
+        makeDomainEvent("thread.activity-appended", {
+          threadId: THREAD_ID,
+          activity: {
+            id: EventId.makeUnsafe(`browser-${kind}-${at}`),
+            kind,
+            tone: "info",
+            summary: kind,
+            payload: {},
+            turnId: providerTurnId,
+            createdAt: at,
+          },
+        });
+      applyEventsForTest([
+        makeDomainEvent(
+          "thread.message-sent",
+          {
+            threadId: THREAD_ID,
+            messageId,
+            role: "user",
+            text: "Run a long tool",
+            turnId,
+            streaming: false,
+            source: "native",
+            createdAt: requestedAt,
+            updatedAt: requestedAt,
+            attachments: [],
+          },
+          { sequence: 559913 },
+        ),
+        makeDomainEvent(
+          "thread.turn-start-requested",
+          {
+            threadId: THREAD_ID,
+            turnId,
+            messageId,
+            runtimeMode: "full-access",
+            dispatchMode: "queue",
+            createdAt: requestedAt,
+          },
+          { sequence: 559914 },
+        ),
+        makeDomainEvent(
+          "thread.message-delivery-set",
+          { threadId: THREAD_ID, messageId, turnId, state: "accepted", updatedAt: runningAt },
+          { sequence: 559915 },
+        ),
+        { ...session("running", providerTurnId, runningAt), sequence: 559916 },
+        { ...activity("tool.started", "2026-09-26T22:18:04.000Z"), sequence: 559919 },
+        makeDomainEvent(
+          "thread.turn-interrupt-requested",
+          { threadId: THREAD_ID, turnId, createdAt: "2026-09-26T22:18:06.813Z" },
+          { sequence: 559921 },
+        ),
+        makeDomainEvent(
+          "thread.turn-interrupt-requested",
+          { threadId: THREAD_ID, turnId, createdAt: "2026-09-26T22:18:10.063Z" },
+          { sequence: 559922 },
+        ),
+        { ...activity("tool.completed", "2026-09-26T22:18:15.800Z"), sequence: 559924 },
+        { ...session("interrupted", null, stoppedAt), sequence: 559926 },
+        { ...activity("turn.completed", stoppedAt), sequence: 559927 },
+      ]);
+      const play = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Continue"]'),
+        "Play did not appear after the delayed tool settled.",
+      );
+      play.click();
+      await vi.waitFor(() => {
+        const command = wsRequests
+          .map(readDispatchedCommand)
+          .find((item) => item?.type === "thread.turn.recover");
+        expect(command).toMatchObject({ reason: "play", turnId, interruptedTurnId: turnId });
+        expect(document.body.textContent).toContain("Thinking");
+        expect(
+          getChatLifecycleDiagnosticSamples(THREAD_ID).some(
+            (sample) =>
+              sample.event === "composer-continue-state" &&
+              sample.continueInFlight &&
+              !sample.canShowContinue,
+          ),
+        ).toBe(true);
+      });
+      releaseDispatch();
+      applyEventsForTest([
+        {
+          ...session("running", turnId, "2026-09-26T22:18:24.000Z"),
+          sequence: 559930,
+        },
+        makeDomainEvent(
+          "thread.message-sent",
+          {
+            threadId: THREAD_ID,
+            messageId: MessageId.makeUnsafe("assistant-resumed-after-play"),
+            role: "assistant",
+            text: "Resumed stream after Play",
+            turnId,
+            streaming: true,
+            source: "native",
+            createdAt: "2026-09-26T22:18:24.100Z",
+            updatedAt: "2026-09-26T22:18:24.100Z",
+            attachments: [],
+          },
+          { sequence: 559931 },
+        ),
+      ]);
+      await vi.waitFor(() => {
+        expect(document.body.textContent).toContain("Resumed stream after Play");
+        expect(
+          document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
+        ).not.toBeNull();
+        expect(recordDiagnosticCheckpoint).toHaveBeenCalledWith(
+          expect.objectContaining({ flow: "play", step: "turn.started", outcome: "ok" }),
+        );
+      });
+      const playTrace = dispatchCommand.mock.calls.find(
+        ([command]) => command.type === "thread.turn.recover",
+      )?.[1];
+      expect(playTrace?.traceId).toBe(
+        recordDiagnosticCheckpoint.mock.calls.find(
+          ([checkpoint]) => checkpoint.flow === "play" && checkpoint.step === "turn.started",
+        )?.[0].traceId,
+      );
+    } finally {
+      if (previousBridge) window.desktopBridge = previousBridge;
+      else Reflect.deleteProperty(window, "desktopBridge");
+      releaseDispatch();
+      await mounted.cleanup();
+      restoreNativeApi();
+    }
+  });
+
+
+  it("folds a settled tool run into its terminal assistant without a duplicate transition owner", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotWithInlineToolOverflow({ active: true }),
+    });
+    let paintFrame: number | null = null;
+    let transitionObserver: MutationObserver | null = null;
+
+    try {
+      // The tools already gave way to the assistant's narration block, so even
+      // while the turn is live the run compacts behind its summary row.
+      await vi.waitFor(
+        () => {
+          const summaryTrigger = Array.from(
+            document.querySelectorAll<HTMLButtonElement>("button[aria-expanded]"),
+          ).find((element) => element.textContent?.includes("Used 6 tools"));
+          expect(summaryTrigger).not.toBeUndefined();
+          expect(summaryTrigger!.getAttribute("aria-expanded")).toBe("false");
+          expect(document.body.textContent).not.toContain("Tool 1");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      const settledPaints: Array<{ inlineSummary: boolean; worked: boolean }> = [];
+      const sampleSettledPaint = () => {
+        if (!document.querySelector('button[aria-label="Stop generation"]')) {
+          const text = document.body.textContent ?? "";
+          settledPaints.push({
+            inlineSummary: text.includes("Used 6 tools"),
+            worked: text.includes("Worked for"),
+          });
+        }
+        paintFrame = window.requestAnimationFrame(sampleSettledPaint);
+      };
+      paintFrame = window.requestAnimationFrame(sampleSettledPaint);
+      let duplicateTransitionOwnerObserved = false;
+      transitionObserver = new MutationObserver(() => {
+        if (document.querySelector("[data-settled-turn-collapse-transition='true']")) {
+          duplicateTransitionOwnerObserved = true;
+        }
+      });
+      transitionObserver.observe(document.body, { childList: true, subtree: true });
+
+      useStore
+        .getState()
+        .syncServerReadModel(createSnapshotWithInlineToolOverflow({ active: false }));
+
+      // Settlement has one owner: the terminal assistant row. The live work
+      // rows must not survive as a timed visual clone beside the settled row.
+      await vi.waitFor(
+        () => {
+          expect(document.body.textContent).toContain("Worked for");
+          expect(
+            document.querySelector("[data-settled-turn-collapse-transition='true']"),
+          ).toBeNull();
+          expect(document.body.textContent).not.toContain("Tool 1");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+      transitionObserver.disconnect();
+      transitionObserver = null;
+      if (paintFrame !== null) {
+        window.cancelAnimationFrame(paintFrame);
+        paintFrame = null;
+      }
+      expect(settledPaints.length).toBeGreaterThan(0);
+      expect(settledPaints.filter((paint) => paint.inlineSummary || !paint.worked)).toEqual([]);
+      expect(duplicateTransitionOwnerObserved).toBe(false);
+      const settledTrigger = Array.from(
+        document.querySelectorAll<HTMLButtonElement>("button"),
+      ).find((element) => element.textContent?.includes("Worked for"));
+      expect(settledTrigger?.getAttribute("aria-expanded")).toBe("false");
+    } finally {
+      transitionObserver?.disconnect();
+      if (paintFrame !== null) {
+        window.cancelAnimationFrame(paintFrame);
+      }
+      await mounted.cleanup();
+    }
+  });
+
+
+
+
+
+
   beforeAll(async () => {
     fixture = buildFixture(
       createSnapshotForTargetUser({
