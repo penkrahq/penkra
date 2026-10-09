@@ -12,10 +12,12 @@ import { useEffect, useRef } from "react";
 
 import type { ComposerThreadDraftState } from "./composerDraftDomain";
 import {
+  hydrateComposerThreadDraftFromServer,
   serializeComposerThreadDraft,
-  toHydratedThreadDraft,
-  type PersistedComposerThreadDraftState,
+  type ComposerDraftServerAttachment,
+  type ComposerDraftServerPayload,
 } from "./composerDraftPersistence";
+import { readComposerAsset } from "./lib/composerAssetStore";
 import { readNativeApi } from "./nativeApi";
 
 export interface ComposerDraftSyncApi {
@@ -50,16 +52,37 @@ export type SerializeThreadDraft = (
 export type DeserializeThreadDraft = (
   threadId: ThreadId,
   payload: string,
-) => ComposerThreadDraftState | null;
+) => Promise<ComposerThreadDraftState | null>;
+
+export type ReadComposerDraftAssetSize = (
+  attachment: ComposerDraftServerAttachment,
+) => Promise<number | null>;
 
 function defaultSerialize(threadId: ThreadId, draft: ComposerThreadDraftState): string | null {
   const persisted = serializeComposerThreadDraft(threadId, draft);
   return persisted === null ? null : JSON.stringify(persisted);
 }
 
-function defaultDeserialize(threadId: ThreadId, payload: string): ComposerThreadDraftState | null {
+async function defaultReadAssetSize(attachment: ComposerDraftServerAttachment): Promise<number | null> {
+  const file = await readComposerAsset({
+    assetKey: attachment.id,
+    name: attachment.name,
+    mimeType: attachment.mimeType,
+  }).catch(() => null);
+  return file?.size ?? null;
+}
+
+async function defaultDeserialize(
+  threadId: ThreadId,
+  payload: string,
+  readAssetSize: ReadComposerDraftAssetSize,
+): Promise<ComposerThreadDraftState | null> {
   try {
-    return toHydratedThreadDraft(threadId, JSON.parse(payload) as PersistedComposerThreadDraftState);
+    return await hydrateComposerThreadDraftFromServer(
+      threadId,
+      JSON.parse(payload) as ComposerDraftServerPayload,
+      readAssetSize,
+    );
   } catch {
     return null;
   }
@@ -81,6 +104,7 @@ export function createComposerDraftSync(input: {
   readonly applyServerDraft: (draft: ComposerThreadDraftState) => void;
   readonly serialize?: SerializeThreadDraft;
   readonly deserialize?: DeserializeThreadDraft;
+  readonly readAssetSize?: ReadComposerDraftAssetSize;
   readonly debounceMs?: number;
   readonly now?: () => string;
   readonly setTimer?: (callback: () => void, ms: number) => ReturnType<typeof setTimeout>;
@@ -90,8 +114,10 @@ export function createComposerDraftSync(input: {
   const now = input.now ?? (() => new Date().toISOString());
   const setTimer = input.setTimer ?? ((callback, ms) => setTimeout(callback, ms));
   const clearTimer = input.clearTimer ?? ((handle) => clearTimeout(handle));
+  const readAssetSize = input.readAssetSize ?? defaultReadAssetSize;
   const serialize = input.serialize ?? defaultSerialize;
-  const deserialize = input.deserialize ?? defaultDeserialize;
+  const deserialize =
+    input.deserialize ?? ((threadId, payload) => defaultDeserialize(threadId, payload, readAssetSize));
 
   let disposed = false;
   let appliedUpdatedAt: string | null = null;
@@ -102,12 +128,13 @@ export function createComposerDraftSync(input: {
   let pendingPayload: string | null | undefined;
   let pendingTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const applyRemote = (payload: string | null, updatedAt: string | null) => {
+  const applyRemote = async (payload: string | null, updatedAt: string | null) => {
     appliedUpdatedAt = updatedAt;
     knownPayload = payload;
     pendingPayload = undefined;
-    const draft = payload === null ? null : deserialize(input.threadId, payload);
-    if (draft !== null) input.applyServerDraft(draft);
+    if (payload === null) return;
+    const draft = await deserialize(input.threadId, payload);
+    if (draft !== null && !disposed) input.applyServerDraft(draft);
   };
 
   const flush = async (): Promise<void> => {
@@ -136,7 +163,7 @@ export function createComposerDraftSync(input: {
     const remote = await input.api.getThreadDraft({ threadId: input.threadId });
     if (disposed) return;
     if (shouldApplyRemoteDraft(remote.draftUpdatedAt, appliedUpdatedAt)) {
-      applyRemote(remote.draft, remote.draftUpdatedAt);
+      await applyRemote(remote.draft, remote.draftUpdatedAt);
     } else if (knownPayload === null) {
       knownPayload = remote.draft;
     }

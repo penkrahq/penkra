@@ -1118,16 +1118,36 @@ function hydrateFilesFromPersisted(
 }
 
 /**
+ * The attachment reference the server draft carries: the id plus only the fields
+ * a chip needs that cannot be read back from the shared assets store. The
+ * desktop journal stores `<id>.bin` with no metadata, so `name` and `mimeType`
+ * cannot be resolved from the asset and are kept; `sizeBytes` is read from the
+ * asset bytes and `assetKey` is the id, so neither is copied here.
+ */
+export interface ComposerDraftServerAttachment {
+  readonly id: string;
+  readonly name: string;
+  readonly mimeType: string;
+}
+
+export type ComposerDraftServerPayload = Omit<
+  PersistedComposerThreadDraftState,
+  "attachments" | "files"
+> & {
+  readonly attachments: ReadonlyArray<ComposerDraftServerAttachment>;
+  readonly files: ReadonlyArray<ComposerDraftServerAttachment>;
+};
+
+/**
  * Serialize one thread's composer draft for the server (`threads.draft`, TODO
- * 2.6). The payload is the same `PersistedComposerThreadDraftState` the old
- * per-window checkpoint used, so text and the unsent attachment/file descriptors
- * (id, name, mimeType, sizeBytes, assetKey) travel together and every window
- * renders the same draft.
+ * 2.6): the draft text, the unsent attachment/file ids, and the other draft
+ * content, with pendingStartRecovery stripped (window-local send-recovery state
+ * that goes away with the server queue, TODO 2.4).
  */
 export function serializeComposerThreadDraft(
   threadId: ThreadId,
   draft: ComposerThreadDraftState,
-): PersistedComposerThreadDraftState | null {
+): ComposerDraftServerPayload | null {
   const scopedState = {
     draftsByThreadId: { [threadId]: draft },
     draftThreadsByThreadId: {},
@@ -1138,8 +1158,41 @@ export function serializeComposerThreadDraft(
   } as unknown as ComposerDraftStoreState;
   const persisted = partializeComposerDraftStoreState(scopedState).draftsByThreadId[threadId];
   if (!persisted) return null;
-  // pendingStartRecovery is window-local send-recovery state that goes away with
-  // the server-side queue (TODO 2.4); never put it on the server draft.
-  const { pendingStartRecoveriesByMessageId: _recovery, ...rest } = persisted;
-  return rest;
+  const { pendingStartRecoveriesByMessageId: _recovery, attachments, files, ...rest } = persisted;
+  const toReference = (entry: { id: string; name: string; mimeType: string }) => ({
+    id: entry.id,
+    name: entry.name,
+    mimeType: entry.mimeType,
+  });
+  return {
+    ...rest,
+    attachments: attachments.map(toReference),
+    files: (files ?? []).map(toReference),
+  };
 }
+
+/**
+ * Rebuild a thread draft from the server payload: the id is the asset key, and
+ * the size is read from the shared asset store (the journal keeps bytes only).
+ */
+export async function hydrateComposerThreadDraftFromServer(
+  threadId: ThreadId,
+  payload: ComposerDraftServerPayload,
+  readAssetSize: (attachment: ComposerDraftServerAttachment) => Promise<number | null>,
+): Promise<ComposerThreadDraftState> {
+  const hydrateEntry = async (entry: ComposerDraftServerAttachment) => ({
+    id: entry.id,
+    name: entry.name,
+    mimeType: entry.mimeType,
+    sizeBytes: (await readAssetSize(entry)) ?? 0,
+    assetKey: entry.id,
+  });
+  const attachments = await Promise.all(payload.attachments.map(hydrateEntry));
+  const files = await Promise.all(payload.files.map(hydrateEntry));
+  return toHydratedThreadDraft(threadId, {
+    ...payload,
+    attachments,
+    files,
+  } as PersistedComposerThreadDraftState);
+}
+
