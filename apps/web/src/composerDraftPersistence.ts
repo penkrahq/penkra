@@ -1130,19 +1130,25 @@ export interface ComposerDraftServerAttachment {
   readonly mimeType: string;
 }
 
-export type ComposerDraftServerPayload = Omit<
-  PersistedComposerThreadDraftState,
-  "attachments" | "files"
-> & {
+/**
+ * The server draft payload (TODO 2.6): the draft text and the unsent attachment
+ * ids, plus the per-thread model selection and runtime mode, which have no other
+ * home once the per-window draft storage is gone. Everything else the composer
+ * holds is window-local and not carried.
+ */
+export interface ComposerDraftServerPayload {
+  readonly prompt: string;
   readonly attachments: ReadonlyArray<ComposerDraftServerAttachment>;
   readonly files: ReadonlyArray<ComposerDraftServerAttachment>;
-};
+  readonly modelSelectionByProvider?: PersistedComposerThreadDraftState["modelSelectionByProvider"];
+  readonly activeProvider?: PersistedComposerThreadDraftState["activeProvider"];
+  readonly runtimeMode?: PersistedComposerThreadDraftState["runtimeMode"];
+}
 
 /**
  * Serialize one thread's composer draft for the server (`threads.draft`, TODO
- * 2.6): the draft text, the unsent attachment/file ids, and the other draft
- * content, with pendingStartRecovery stripped (window-local send-recovery state
- * that goes away with the server queue, TODO 2.4).
+ * 2.6): the draft text, the unsent attachment/file ids, and the per-thread model
+ * selection and runtime mode (no other home).
  */
 export function serializeComposerThreadDraft(
   threadId: ThreadId,
@@ -1158,16 +1164,20 @@ export function serializeComposerThreadDraft(
   } as unknown as ComposerDraftStoreState;
   const persisted = partializeComposerDraftStoreState(scopedState).draftsByThreadId[threadId];
   if (!persisted) return null;
-  const { pendingStartRecoveriesByMessageId: _recovery, attachments, files, ...rest } = persisted;
   const toReference = (entry: { id: string; name: string; mimeType: string }) => ({
     id: entry.id,
     name: entry.name,
     mimeType: entry.mimeType,
   });
   return {
-    ...rest,
-    attachments: attachments.map(toReference),
-    files: (files ?? []).map(toReference),
+    prompt: persisted.prompt,
+    attachments: persisted.attachments.map(toReference),
+    files: (persisted.files ?? []).map(toReference),
+    ...(persisted.modelSelectionByProvider
+      ? { modelSelectionByProvider: persisted.modelSelectionByProvider }
+      : {}),
+    ...(persisted.activeProvider !== undefined ? { activeProvider: persisted.activeProvider } : {}),
+    ...(persisted.runtimeMode ? { runtimeMode: persisted.runtimeMode } : {}),
   };
 }
 
@@ -1190,9 +1200,15 @@ export async function hydrateComposerThreadDraftFromServer(
   const attachments = await Promise.all(payload.attachments.map(hydrateEntry));
   const files = await Promise.all(payload.files.map(hydrateEntry));
   return toHydratedThreadDraft(threadId, {
-    ...payload,
+    prompt: payload.prompt,
     attachments,
     files,
+    ...(payload.modelSelectionByProvider
+      ? { modelSelectionByProvider: payload.modelSelectionByProvider }
+      : {}),
+    ...(payload.activeProvider !== undefined ? { activeProvider: payload.activeProvider } : {}),
+    ...(payload.runtimeMode ? { runtimeMode: payload.runtimeMode } : {}),
   } as PersistedComposerThreadDraftState);
 }
+
 

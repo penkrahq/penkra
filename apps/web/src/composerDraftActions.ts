@@ -1328,38 +1328,6 @@ export const createComposerDraftStoreState =
       });
       return markedFailed;
     },
-    retainPendingStartRecoverySettlement: (threadId, recovery) => {
-      if (
-        threadId.length === 0 ||
-        recovery.threadId !== threadId ||
-        recovery.messageId !== recovery.pendingTurn.id
-      ) {
-        return false;
-      }
-      let retained = false;
-      set((state) => {
-        const current = state.draftsByThreadId[threadId] ?? createEmptyThreadDraft();
-        const existing = current.pendingStartRecoveriesByMessageId?.[recovery.messageId];
-        if (existing) {
-          retained = existing === recovery;
-          return state;
-        }
-        retained = true;
-        return {
-          draftsByThreadId: {
-            ...state.draftsByThreadId,
-            [threadId]: {
-              ...current,
-              pendingStartRecoveriesByMessageId: {
-                ...(current.pendingStartRecoveriesByMessageId ?? {}),
-                [recovery.messageId]: recovery,
-              },
-            },
-          },
-        };
-      });
-      return retained;
-    },
     clearPendingStartRecovery: (threadId, messageId: MessageId) => {
       if (threadId.length === 0) return false;
       let cleared = false;
