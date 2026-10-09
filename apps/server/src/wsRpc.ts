@@ -109,6 +109,7 @@ import {
 import { armQaProviderSwitch, clearQaProviderSwitch } from "./diagnostics/qaProviderSwitch";
 import { recordServerQaAction } from "./diagnostics/qaProofBuild";
 import { recordWsRpcFailure } from "./diagnostics/wsRpcFailure";
+import { listThreadItemsPage } from "./cleanCore/threadItemsPage.ts";
 import { recoverMissingFile } from "./diagnostics/missingFileRecovery";
 import { WorkspaceWatcher } from "./workspaceWatcher";
 import { makeWsRequestAdmission } from "./wsRequestAdmission";
@@ -1455,6 +1456,8 @@ const makeWsRpcHandlersLayer = () =>
 
         [WS_METHODS.serverGetConfig]: () =>
           rpcEffect(loadServerConfig, "Failed to load server config"),
+        [WS_METHODS.cleanCoreListThreadItemsPage]: (input) =>
+          rpcEffect(listThreadItemsPage(input), "Failed to load a thread items page"),
         [WS_METHODS.serverGetEnvironment]: () =>
           rpcEffect(serverEnvironment.getDescriptor, "Failed to load server environment"),
         [WS_METHODS.serverGetSettings]: () =>

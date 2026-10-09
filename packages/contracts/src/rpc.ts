@@ -111,6 +111,7 @@ import {
   TerminalSessionSnapshot,
   TerminalWriteInput,
 } from "./terminal";
+import { CleanCoreListThreadItemsPageInput, CleanCoreListThreadItemsPageResult } from "./cleanCore";
 import { WS_METHODS } from "./ws";
 import {
   WS_BOOTSTRAP_METHOD,
@@ -660,9 +661,16 @@ export const WsProviderTerminateConnectionRpc = Rpc.make(WS_METHODS.providerTerm
   success: ProviderConnection,
   error: WsRpcError,
 });
+export const WsCleanCoreListThreadItemsPageRpc = Rpc.make(WS_METHODS.cleanCoreListThreadItemsPage, {
+  payload: CleanCoreListThreadItemsPageInput,
+  success: CleanCoreListThreadItemsPageResult,
+  error: WsRpcError,
+});
+
 export const WsBootstrapRpcGroup = RpcGroup.make(WsBootstrapNegotiateRpc);
 
 export const WsFeatureRpcGroup = RpcGroup.make(
+  WsCleanCoreListThreadItemsPageRpc,
   WsOrchestrationDispatchCommandRpc,
   WsOrchestrationImportThreadRpc,
   WsOrchestrationGetSnapshotRpc,

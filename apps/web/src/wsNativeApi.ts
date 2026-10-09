@@ -531,6 +531,10 @@ export function createWsNativeApi(): NativeApi {
       terminateConnection: (input) =>
         transport.request(WS_METHODS.providerTerminateConnection, input),
     },
+    cleanCore: {
+      listThreadItemsPage: (input) =>
+        transport.request(WS_METHODS.cleanCoreListThreadItemsPage, input),
+    },
     orchestration: {
       getSnapshot: () => transport.request(ORCHESTRATION_WS_METHODS.getSnapshot),
       getShellSnapshot: () => transport.request(ORCHESTRATION_WS_METHODS.getShellSnapshot),
