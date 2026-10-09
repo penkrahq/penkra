@@ -111,6 +111,8 @@ import { recordServerQaAction } from "./diagnostics/qaProofBuild";
 import { recordWsRpcFailure } from "./diagnostics/wsRpcFailure";
 import { listThreadItemsPage } from "./cleanCore/threadItemsPage.ts";
 import { getThreadDraft, setThreadDraft } from "./cleanCore/threadDraft.ts";
+import { ThreadPublisher } from "./cleanCore/ThreadPublisher.ts";
+import { threadChangeStream } from "./cleanCore/threadChangeStream.ts";
 import { recoverMissingFile } from "./diagnostics/missingFileRecovery";
 import { WorkspaceWatcher } from "./workspaceWatcher";
 import { makeWsRequestAdmission } from "./wsRequestAdmission";
@@ -328,6 +330,7 @@ const makeWsRpcHandlersLayer = () =>
       const serverEnvironment = yield* ServerEnvironment;
       const serverSettings = yield* ServerSettingsService;
       const sql = yield* SqlClient.SqlClient;
+      const threadPublisher = yield* ThreadPublisher;
       const terminalManager = yield* TerminalManager;
       const workspaceEntries = yield* WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem;
@@ -1463,9 +1466,12 @@ const makeWsRpcHandlersLayer = () =>
           rpcEffect(getThreadDraft(input.threadId), "Failed to load the thread draft"),
         [WS_METHODS.cleanCoreSetThreadDraft]: (input) =>
           rpcEffect(
-            setThreadDraft(input.threadId, input.draft, input.updatedAt),
+            setThreadDraft(threadPublisher, input.threadId, input.draft, input.updatedAt),
             "Failed to save the thread draft",
           ),
+        [WS_METHODS.cleanCoreSubscribeThread]: (input) =>
+          threadChangeStream(threadPublisher, input.threadId),
+
         [WS_METHODS.serverGetEnvironment]: () =>
           rpcEffect(serverEnvironment.getDescriptor, "Failed to load server environment"),
         [WS_METHODS.serverGetSettings]: () =>

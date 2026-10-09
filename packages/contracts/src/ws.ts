@@ -4,6 +4,7 @@ import {
   CleanCoreGetThreadDraftInput,
   CleanCoreListThreadItemsPageInput,
   CleanCoreSetThreadDraftInput,
+  CleanCoreSubscribeThreadInput,
 } from "./cleanCore";
 
 import {
@@ -127,6 +128,7 @@ export const WS_METHODS = {
   cleanCoreListThreadItemsPage: "cleanCore.listThreadItemsPage",
   cleanCoreGetThreadDraft: "cleanCore.getThreadDraft",
   cleanCoreSetThreadDraft: "cleanCore.setThreadDraft",
+  cleanCoreSubscribeThread: "cleanCore.subscribeThread",
 
   // Server meta
   serverGetConfig: "server.getConfig",
@@ -266,6 +268,7 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.cleanCoreListThreadItemsPage, CleanCoreListThreadItemsPageInput),
   tagRequestBody(WS_METHODS.cleanCoreGetThreadDraft, CleanCoreGetThreadDraftInput),
   tagRequestBody(WS_METHODS.cleanCoreSetThreadDraft, CleanCoreSetThreadDraftInput),
+  tagRequestBody(WS_METHODS.cleanCoreSubscribeThread, CleanCoreSubscribeThreadInput),
   tagRequestBody(WS_METHODS.serverGetEnvironment, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverGetSettings, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverUpdateSettings, ServerUpdateSettingsInput),
