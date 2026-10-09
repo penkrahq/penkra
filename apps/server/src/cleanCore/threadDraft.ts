@@ -7,7 +7,7 @@
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { updateThreadDraft } from "./threadStore.ts";
+import { updateThreadDraft, type ThreadPublisher } from "./threadStore.ts";
 
 export interface ThreadDraft {
   readonly draft: string | null;
@@ -30,8 +30,15 @@ export const getThreadDraft = (threadId: string) =>
  * Saves the draft; a write older than the stored draft_updated_at is ignored
  * (last write wins), so windows cannot clobber each other out of order.
  */
-export const setThreadDraft = (threadId: string, draft: string | null, updatedAt: string) =>
+export const setThreadDraft = (
+  publisher: ThreadPublisher,
+  threadId: string,
+  draft: string | null,
+  updatedAt: string,
+) =>
   Effect.gen(function* () {
     yield* updateThreadDraft(threadId, draft, updatedAt);
+    // Other windows showing this thread update live.
+    publisher.publish({ threadId });
     return yield* getThreadDraft(threadId);
   });
