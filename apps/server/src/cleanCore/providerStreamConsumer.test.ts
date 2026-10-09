@@ -173,6 +173,74 @@ it.effect("startup cuts off every running thread, idempotently", () =>
   ),
 );
 
+it.effect("streaming deltas append to one item; answers update the question in place", () =>
+  withDb(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const publisher = makeThreadPublisher();
+      yield* runMigrations();
+      yield* createThread(baseThread);
+
+      yield* applyProviderEvent(publisher, {
+        type: "delta",
+        threadId: "thread-1",
+        sourceId: "msg-1",
+        kind: "text",
+        delta: "Hello ",
+        at: "2026-10-09T00:00:01.000Z",
+      });
+      yield* applyProviderEvent(publisher, {
+        type: "delta",
+        threadId: "thread-1",
+        sourceId: "msg-1",
+        kind: "text",
+        delta: "world",
+        at: "2026-10-09T00:00:02.000Z",
+      });
+      const streamed = yield* sql<{
+        readonly seq: number;
+        readonly status: string;
+        readonly text: string;
+      }>`
+        SELECT seq, status, text FROM thread_items WHERE source_id = 'msg-1'
+      `;
+      assert.deepStrictEqual(streamed, [{ seq: 1, status: "streaming", text: "Hello world" }]);
+
+      yield* applyProviderEvent(publisher, {
+        type: "item",
+        threadId: "thread-1",
+        item: {
+          threadId: "thread-1",
+          sourceId: "q-1",
+          kind: "question",
+          status: "open",
+          text: "Which?",
+          data: '{"questions":[]}',
+          createdAt: "2026-10-09T00:00:03.000Z",
+          updatedAt: "2026-10-09T00:00:03.000Z",
+        },
+      });
+      yield* applyProviderEvent(publisher, {
+        type: "question.answered",
+        threadId: "thread-1",
+        sourceId: "q-1",
+        answerData: '{"answers":{"q1":"sqlite"}}',
+        at: "2026-10-09T00:00:04.000Z",
+      });
+      const question = yield* sql<{
+        readonly status: string;
+        readonly data: string;
+        readonly text: string;
+      }>`
+        SELECT status, data, text FROM thread_items WHERE source_id = 'q-1'
+      `;
+      assert.deepStrictEqual(question, [
+        { status: "answered", data: '{"answers":{"q1":"sqlite"}}', text: "Which?" },
+      ]);
+    }),
+  ),
+);
+
 it.effect("a replay of the same item event does not create a second row", () =>
   withDb(
     Effect.gen(function* () {

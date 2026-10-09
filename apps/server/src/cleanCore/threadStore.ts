@@ -182,3 +182,31 @@ export const answerQuestion = (
       WHERE thread_id = ${threadId} AND source_id = ${sourceId}
     `;
   });
+
+/**
+ * Streaming delta: append to the item's text, creating it on first delta.
+ * `seq` is assigned once, as for the upsert.
+ */
+export const appendThreadItemText = (
+  threadId: string,
+  sourceId: string,
+  kind: "text" | "reasoning" | "tool",
+  delta: string,
+  at: string,
+) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql`
+      INSERT INTO thread_items (
+        thread_id, seq, source_id, turn_id, kind, status, text, data, created_at, updated_at
+      ) VALUES (
+        ${threadId},
+        (SELECT COALESCE(MAX(seq), 0) + 1 FROM thread_items WHERE thread_id = ${threadId}),
+        ${sourceId}, NULL, ${kind}, 'streaming', ${delta}, NULL, ${at}, ${at}
+      )
+      ON CONFLICT (thread_id, source_id) DO UPDATE SET
+        text = COALESCE(thread_items.text, '') || excluded.text,
+        status = 'streaming',
+        updated_at = excluded.updated_at
+    `;
+  });
