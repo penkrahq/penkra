@@ -4,6 +4,7 @@ import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { getThreadDraft, setThreadDraft } from "./threadDraft.ts";
+import { makeThreadPublisher } from "./threadStore.ts";
 import { createThread } from "./threadStore.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
@@ -26,19 +27,29 @@ it.effect("keeps one draft per thread, last write wins by draft_updated_at", () 
       yield* runMigrations();
       yield* createThread(baseThread);
       const id = ThreadId.makeUnsafe("thread-1");
+      const publisher = makeThreadPublisher();
+      let changes = 0;
+      publisher.subscribe("thread-1", () => changes++);
 
       assert.deepStrictEqual(yield* getThreadDraft(id), { draft: null, draftUpdatedAt: null });
 
-      const first = yield* setThreadDraft(id, "hello", "2026-10-09T00:00:01.000Z");
+      const first = yield* setThreadDraft(publisher, id, "hello", "2026-10-09T00:00:01.000Z");
       assert.deepStrictEqual(first, { draft: "hello", draftUpdatedAt: "2026-10-09T00:00:01.000Z" });
 
       // A newer write wins.
-      const second = yield* setThreadDraft(id, "hello world", "2026-10-09T00:00:02.000Z");
+      const second = yield* setThreadDraft(
+        publisher,
+        id,
+        "hello world",
+        "2026-10-09T00:00:02.000Z",
+      );
       assert.equal(second.draft, "hello world");
 
       // An older write is ignored.
-      const stale = yield* setThreadDraft(id, "stale", "2026-10-09T00:00:00.500Z");
+      const stale = yield* setThreadDraft(publisher, id, "stale", "2026-10-09T00:00:00.500Z");
       assert.equal(stale.draft, "hello world");
+      // Each accepted save publishes so other windows update live.
+      assert.equal(changes, 3);
     }),
   ),
 );
