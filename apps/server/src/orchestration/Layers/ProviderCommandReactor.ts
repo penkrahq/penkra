@@ -196,7 +196,7 @@ import {
   type ProviderIntentEvent,
 } from "../providerIntentClassification.ts";
 import { deriveTurnStartSession } from "../turnStartSession.ts";
-import { PLAY_TURN_RECOVERY_PROMPT, RESTART_TURN_RECOVERY_PROMPT } from "../restartTurnRecovery.ts";
+import { PLAY_TURN_RECOVERY_PROMPT, RESTART_TURN_RECOVERY_PROMPT } from "../turnRecoveryPrompts.ts";
 import { resolveProviderSessionThread as resolveProviderSessionThreadFromProjection } from "../providerSessionThread.ts";
 import { userStopPending } from "../userStopPending.ts";
 import { startProviderIntentOutboxWorker } from "../providerIntentOutboxWorker.ts";

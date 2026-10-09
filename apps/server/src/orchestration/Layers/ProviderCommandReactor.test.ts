@@ -114,7 +114,7 @@ import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderT
 import { ProviderLaunchResolver } from "../../provider/Services/ProviderLaunchResolver.ts";
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { ProviderSessionDirectory } from "../../provider/Services/ProviderSessionDirectory.ts";
-import { PLAY_TURN_RECOVERY_PROMPT, RESTART_TURN_RECOVERY_PROMPT } from "../restartTurnRecovery.ts";
+import { PLAY_TURN_RECOVERY_PROMPT, RESTART_TURN_RECOVERY_PROMPT } from "../turnRecoveryPrompts.ts";
 import { isProviderIntentEvent } from "../providerIntentClassification.ts";
 
 const TEST_CONNECTION_ID = ProviderConnectionId.makeUnsafe("test-managed-connection");
