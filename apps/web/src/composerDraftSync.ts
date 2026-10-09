@@ -1,13 +1,21 @@
 // FILE: composerDraftSync.ts
-// Purpose: Sync one thread's composer prompt draft with the clean core
-// (0.14.4 design 2.6): load threads.draft, save local edits debounced (300 ms)
-// with last-write-wins by draft_updated_at, and apply another window's push.
+// Purpose: Sync one thread's whole composer draft with the clean core (0.14.4
+// design 2.6, operator decision 2026-10-09): load threads.draft, save local
+// edits debounced (300 ms) with last-write-wins by draft_updated_at, and apply
+// another window's push. The payload is the serialized thread draft, so the
+// text and the unsent attachment/file descriptors travel together.
 // Layer: Web composer state
 // Exports: shouldApplyRemoteDraft, createComposerDraftSync, useComposerDraftSync
 
 import type { ThreadId } from "@penkra/contracts";
 import { useEffect, useRef } from "react";
 
+import type { ComposerThreadDraftState } from "./composerDraftDomain";
+import {
+  serializeComposerThreadDraft,
+  toHydratedThreadDraft,
+  type PersistedComposerThreadDraftState,
+} from "./composerDraftPersistence";
 import { readNativeApi } from "./nativeApi";
 
 export interface ComposerDraftSyncApi {
@@ -34,12 +42,35 @@ export function shouldApplyRemoteDraft(
   return remoteUpdatedAt > appliedUpdatedAt;
 }
 
+export type SerializeThreadDraft = (
+  threadId: ThreadId,
+  draft: ComposerThreadDraftState,
+) => string | null;
+
+export type DeserializeThreadDraft = (
+  threadId: ThreadId,
+  payload: string,
+) => ComposerThreadDraftState | null;
+
+function defaultSerialize(threadId: ThreadId, draft: ComposerThreadDraftState): string | null {
+  const persisted = serializeComposerThreadDraft(threadId, draft);
+  return persisted === null ? null : JSON.stringify(persisted);
+}
+
+function defaultDeserialize(threadId: ThreadId, payload: string): ComposerThreadDraftState | null {
+  try {
+    return toHydratedThreadDraft(threadId, JSON.parse(payload) as PersistedComposerThreadDraftState);
+  } catch {
+    return null;
+  }
+}
+
 export interface ComposerDraftSync {
   /** Load the server draft and subscribe to pushes. */
   start(): Promise<void>;
-  /** Apply the current local prompt to the sync (debounced save). */
-  setLocalPrompt(prompt: string): void;
-  /** Save any pending prompt immediately. */
+  /** Apply the current local draft to the sync (debounced save). */
+  setLocalDraft(draft: ComposerThreadDraftState): void;
+  /** Save any pending draft immediately. */
   flush(): Promise<void>;
   stop(): void;
 }
@@ -47,7 +78,9 @@ export interface ComposerDraftSync {
 export function createComposerDraftSync(input: {
   readonly api: ComposerDraftSyncApi;
   readonly threadId: ThreadId;
-  readonly applyRemotePrompt: (prompt: string) => void;
+  readonly applyServerDraft: (draft: ComposerThreadDraftState) => void;
+  readonly serialize?: SerializeThreadDraft;
+  readonly deserialize?: DeserializeThreadDraft;
   readonly debounceMs?: number;
   readonly now?: () => string;
   readonly setTimer?: (callback: () => void, ms: number) => ReturnType<typeof setTimeout>;
@@ -57,18 +90,24 @@ export function createComposerDraftSync(input: {
   const now = input.now ?? (() => new Date().toISOString());
   const setTimer = input.setTimer ?? ((callback, ms) => setTimeout(callback, ms));
   const clearTimer = input.clearTimer ?? ((handle) => clearTimeout(handle));
+  const serialize = input.serialize ?? defaultSerialize;
+  const deserialize = input.deserialize ?? defaultDeserialize;
 
   let disposed = false;
   let appliedUpdatedAt: string | null = null;
-  // The prompt this window last applied or saved; an identical value is skipped
+  // The payload this window last applied or saved; an identical value is skipped
   // so an applied remote draft does not immediately echo back as a local edit.
-  let knownPrompt: string | null = null;
+  let knownPayload: string | null = null;
+  // The latest local payload awaiting a debounced save (`undefined` = nothing).
+  let pendingPayload: string | null | undefined;
   let pendingTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const applyRemote = (draft: string | null, updatedAt: string | null) => {
+  const applyRemote = (payload: string | null, updatedAt: string | null) => {
     appliedUpdatedAt = updatedAt;
-    knownPrompt = draft ?? "";
-    input.applyRemotePrompt(draft ?? "");
+    knownPayload = payload;
+    pendingPayload = undefined;
+    const draft = payload === null ? null : deserialize(input.threadId, payload);
+    if (draft !== null) input.applyServerDraft(draft);
   };
 
   const flush = async (): Promise<void> => {
@@ -76,19 +115,20 @@ export function createComposerDraftSync(input: {
       clearTimer(pendingTimer);
       pendingTimer = null;
     }
-    if (disposed) return;
-    const prompt = knownPrompt;
-    if (prompt === null) return;
+    if (disposed || pendingPayload === undefined) return;
+    const payload = pendingPayload;
+    pendingPayload = undefined;
+    knownPayload = payload;
     const updatedAt = now();
     try {
       const saved = await input.api.setThreadDraft({
         threadId: input.threadId,
-        draft: prompt.length > 0 ? prompt : null,
+        draft: payload,
         updatedAt,
       });
       if (!disposed) appliedUpdatedAt = saved.draftUpdatedAt ?? updatedAt;
     } catch {
-      // A failed save keeps the prompt local; the next edit retries.
+      // A failed save keeps the draft local; the next edit retries.
     }
   };
 
@@ -97,8 +137,8 @@ export function createComposerDraftSync(input: {
     if (disposed) return;
     if (shouldApplyRemoteDraft(remote.draftUpdatedAt, appliedUpdatedAt)) {
       applyRemote(remote.draft, remote.draftUpdatedAt);
-    } else if (knownPrompt === null) {
-      knownPrompt = remote.draft ?? "";
+    } else if (knownPayload === null) {
+      knownPayload = remote.draft;
     }
   };
 
@@ -109,9 +149,11 @@ export function createComposerDraftSync(input: {
 
   return {
     start: load,
-    setLocalPrompt: (prompt) => {
-      if (disposed || prompt === knownPrompt) return;
-      knownPrompt = prompt;
+    setLocalDraft: (draft) => {
+      if (disposed) return;
+      const payload = serialize(input.threadId, draft);
+      if (payload === knownPayload) return;
+      pendingPayload = payload;
       if (pendingTimer !== null) clearTimer(pendingTimer);
       pendingTimer = setTimer(() => {
         pendingTimer = null;
@@ -131,17 +173,17 @@ export function createComposerDraftSync(input: {
 }
 
 /**
- * Syncs one thread's composer prompt with the clean core. `prompt` is the live
- * store value and `setPrompt` writes an applied remote draft back into the store.
+ * Syncs one thread's whole composer draft with the clean core. `draft` is the
+ * live store value and `applyServerDraft` replaces it with an applied remote one.
  */
 export function useComposerDraftSync(input: {
   readonly threadId: ThreadId | null;
-  readonly prompt: string;
-  readonly setPrompt: (threadId: ThreadId, prompt: string) => void;
+  readonly draft: ComposerThreadDraftState;
+  readonly applyServerDraft: (threadId: ThreadId, draft: ComposerThreadDraftState) => void;
 }): void {
   const controllerRef = useRef<ComposerDraftSync | null>(null);
-  const setPromptRef = useRef(input.setPrompt);
-  setPromptRef.current = input.setPrompt;
+  const applyRef = useRef(input.applyServerDraft);
+  applyRef.current = input.applyServerDraft;
   const threadId = input.threadId;
 
   useEffect(() => {
@@ -153,7 +195,7 @@ export function useComposerDraftSync(input: {
     const controller = createComposerDraftSync({
       api: cleanCore,
       threadId,
-      applyRemotePrompt: (prompt) => setPromptRef.current(threadId, prompt),
+      applyServerDraft: (draft) => applyRef.current(threadId, draft),
     });
     controllerRef.current = controller;
     void controller.start();
@@ -161,6 +203,6 @@ export function useComposerDraftSync(input: {
   }, [threadId]);
 
   useEffect(() => {
-    controllerRef.current?.setLocalPrompt(input.prompt);
-  }, [input.prompt]);
+    controllerRef.current?.setLocalDraft(input.draft);
+  }, [input.draft]);
 }

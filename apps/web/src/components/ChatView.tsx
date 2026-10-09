@@ -882,7 +882,8 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
   const durablyPersistedComposerImageIds = composerDraft.persistedAttachments;
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
   // Keep the one per-thread composer draft on the clean core (0.14.4 design 2.6).
-  useComposerDraftSync({ threadId, prompt, setPrompt: setComposerDraftPrompt });
+  const applyServerThreadDraft = useComposerDraftStore((store) => store.applyServerThreadDraft);
+  useComposerDraftSync({ threadId, draft: composerDraft, applyServerDraft: applyServerThreadDraft });
   const setComposerDraftPromptHistorySavedDraft = useComposerDraftStore(
     (store) => store.setPromptHistorySavedDraft,
   );
@@ -2642,7 +2643,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       workLogVisibleTurnIds,
     ],
   );
-  const workLogEntries = rawWorkLogEntries;
   const [openAgentActivityId, setOpenAgentActivityId] = useState<string | null>(null);
   const closeAgentActivityDetail = () => {
     setOpenAgentActivityId(null);
@@ -2650,9 +2650,9 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
   const agentActivityTimelineState = useMemo(
     () =>
       measureChatPerformanceWork("transcript-agent-activity", () =>
-        deriveAgentActivityTimelineState(workLogEntries),
+        deriveAgentActivityTimelineState(rawWorkLogEntries),
       ),
-    [workLogEntries],
+    [rawWorkLogEntries],
   );
   const openAgentActivityDetail = openAgentActivityId
     ? (agentActivityTimelineState.detailById.get(openAgentActivityId) ?? null)
@@ -2727,7 +2727,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
   // Task tool_use_id produced one; agents spawned without a tool call stay unlinked.
   const workflowSubagentThreadsByToolUseId = useMemo(() => {
     const refs = new Map<string, WorkflowSubagentThreadRef>();
-    for (const entry of workLogEntries) {
+    for (const entry of rawWorkLogEntries) {
       for (const subagent of entry.subagents ?? []) {
         if (!subagent.providerThreadId) {
           continue;
@@ -2740,7 +2740,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       }
     }
     return refs;
-  }, [workLogEntries]);
+  }, [rawWorkLogEntries]);
   // Persisted (per-thread) workflow run flags: pausedByUser tells the settled
   // card apart from a plain stop; dismissed retires a settled card the run's
   // activities would otherwise keep visible. Survive reloads via
