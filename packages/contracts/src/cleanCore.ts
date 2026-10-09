@@ -54,3 +54,8 @@ export type CleanCoreThreadChange = typeof CleanCoreThreadChange.Type;
 
 export const CleanCoreSubscribeThreadInput = Schema.Struct({ threadId: ThreadId });
 export type CleanCoreSubscribeThreadInput = typeof CleanCoreSubscribeThreadInput.Type;
+
+/** Push channels for the clean-core live updates. */
+export const CLEAN_CORE_WS_CHANNELS = {
+  threadChange: "cleanCore.threadChange",
+} as const;

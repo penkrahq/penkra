@@ -1,10 +1,12 @@
 import { Schema, Struct } from "effect";
 import { NonNegativeInt, FolderId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas";
 import {
+  CLEAN_CORE_WS_CHANNELS,
   CleanCoreGetThreadDraftInput,
   CleanCoreListThreadItemsPageInput,
   CleanCoreSetThreadDraftInput,
   CleanCoreSubscribeThreadInput,
+  CleanCoreThreadChange,
 } from "./cleanCore";
 
 import {
@@ -351,6 +353,7 @@ export interface WsPushPayloadByChannel {
   readonly [ORCHESTRATION_WS_CHANNELS.syncEvent]: OrchestrationSyncStreamItem;
   readonly [ORCHESTRATION_WS_CHANNELS.shellEvent]: OrchestrationShellStreamItem;
   readonly [ORCHESTRATION_WS_CHANNELS.threadEvent]: OrchestrationThreadStreamItem;
+  readonly [CLEAN_CORE_WS_CHANNELS.threadChange]: CleanCoreThreadChange;
 }
 
 export type WsPushChannel = keyof WsPushPayloadByChannel;
@@ -410,6 +413,11 @@ export const WsPushOrchestrationThreadEvent = makeWsPushSchema(
   OrchestrationThreadStreamItem,
 );
 
+export const WsPushCleanCoreThreadChange = makeWsPushSchema(
+  CLEAN_CORE_WS_CHANNELS.threadChange,
+  CleanCoreThreadChange,
+);
+
 export const WsPushChannelSchema = Schema.Literals([
   WS_CHANNELS.serverWelcome,
   WS_CHANNELS.serverMaintenanceUpdated,
@@ -423,6 +431,7 @@ export const WsPushChannelSchema = Schema.Literals([
   ORCHESTRATION_WS_CHANNELS.syncEvent,
   ORCHESTRATION_WS_CHANNELS.shellEvent,
   ORCHESTRATION_WS_CHANNELS.threadEvent,
+  CLEAN_CORE_WS_CHANNELS.threadChange,
 ]);
 export type WsPushChannelSchema = typeof WsPushChannelSchema.Type;
 
@@ -439,6 +448,7 @@ export const WsPush = Schema.Union([
   WsPushOrchestrationSyncEvent,
   WsPushOrchestrationShellEvent,
   WsPushOrchestrationThreadEvent,
+  WsPushCleanCoreThreadChange,
 ]);
 export type WsPush = typeof WsPush.Type;
 

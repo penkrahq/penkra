@@ -4,6 +4,7 @@
 // Exports: WsTransport plus stream-selection helpers used by tests.
 
 import {
+  CLEAN_CORE_WS_CHANNELS,
   ORCHESTRATION_WS_CHANNELS,
   ORCHESTRATION_WS_METHODS,
   WS_BOOTSTRAP_METHOD,
@@ -509,6 +510,8 @@ export class WsTransport {
   private syncAppliedSequence: number | undefined;
   private syncDeliveryId: string | undefined;
   private readonly threadSubscriptions = new Map<string, unknown>();
+  private readonly cleanCoreThreadSubscriptions = new Map<string, unknown>();
+  private readonly activeCleanCoreThreadInputs = new Map<string, unknown>();
   private compatibility: WsBootstrapNegotiateResult | null = null;
   private compatibilityIssue: WsCompatibilityError | null = null;
 
@@ -573,6 +576,12 @@ export class WsTransport {
         const input = threadStreamInputsEqual(existingInput, params) ? existingInput : params;
         this.threadSubscriptions.set(threadId, input);
         await this.startThreadStream(client, threadId, input as never);
+        return undefined as T;
+      }
+      if (method === WS_METHODS.cleanCoreSubscribeThread) {
+        const threadId = (params as { threadId: string }).threadId;
+        this.cleanCoreThreadSubscriptions.set(threadId, params);
+        await this.startCleanCoreThreadStream(client, threadId, params as never);
         return undefined as T;
       }
 
@@ -1446,6 +1455,50 @@ export class WsTransport {
       (event: OrchestrationThreadStreamItem) =>
         this.emit(ORCHESTRATION_WS_CHANNELS.threadEvent, event),
       restartThread,
+    );
+  }
+
+  private async startCleanCoreThreadStream(
+    client: RpcClientInstance,
+    threadId: string,
+    input: unknown,
+  ): Promise<void> {
+    const key = `cleanCore.thread:${threadId}`;
+    if (this.disposed || this.cleanCoreThreadSubscriptions.get(threadId) !== input) {
+      return;
+    }
+    if (this.streamCleanups.has(key) && this.activeCleanCoreThreadInputs.get(key) === input) {
+      return;
+    }
+    const sessionVersion = this.sessionVersion;
+    await this.stopStream(key, { resetCapacityRetry: false });
+    if (
+      this.disposed ||
+      this.sessionVersion !== sessionVersion ||
+      this.cleanCoreThreadSubscriptions.get(threadId) !== input
+    ) {
+      return;
+    }
+    const restart = () => {
+      const desired = this.cleanCoreThreadSubscriptions.get(threadId);
+      if (desired === undefined) return;
+      void this.getClient()
+        .then((nextClient) => this.startCleanCoreThreadStream(nextClient, threadId, desired))
+        .catch((error) => {
+          recordWsTransportFailure("browser.socket_stream");
+          console.warn("WebSocket RPC clean-core thread stream failed to restart", error);
+        });
+    };
+    this.activeCleanCoreThreadInputs.set(key, input);
+    this.startStream(
+      client,
+      key,
+      (client as unknown as Record<string, (i: unknown) => unknown>)[
+        WS_METHODS.cleanCoreSubscribeThread
+      ]!(input),
+      (change: { readonly threadId: string }) =>
+        this.emit(CLEAN_CORE_WS_CHANNELS.threadChange, change as never),
+      restart,
     );
   }
 
