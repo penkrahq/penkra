@@ -69,7 +69,7 @@ it("maps an assistant message completion to a done text item", () => {
   );
 });
 
-it("maps a tool item to running/done and carries one data copy", () => {
+it("maps a tool item to running/done and carries one canonical activity copy", () => {
   const started = bridge({
     ...base,
     type: "item.started",
@@ -78,15 +78,21 @@ it("maps a tool item to running/done and carries one data copy", () => {
   })[0] as { item: { kind: string; status: string; data: string } };
   assert.equal(started.item.kind, "tool");
   assert.equal(started.item.status, "running");
-  assert.equal(started.item.data, '{"input":{"command":"ls"},"data":null}');
+  assert.deepStrictEqual(JSON.parse(started.item.data), {
+    tone: "tool",
+    kind: "tool.started",
+    summary: "Tool started",
+    payload: { operationId: "call-1", itemType: "command_execution", status: "inProgress" },
+  });
 
   const failed = bridge({
     ...base,
     type: "item.completed",
     itemId: "call-1",
     payload: { itemType: "command_execution", status: "failed" },
-  })[0] as { item: { status: string } };
+  })[0] as { item: { status: string; data: string } };
   assert.equal(failed.item.status, "error");
+  assert.equal((JSON.parse(failed.item.data) as { kind: string }).kind, "tool.completed");
 });
 
 it("maps reasoning and notice items", () => {

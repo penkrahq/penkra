@@ -104,6 +104,7 @@ import type {
   CleanCoreSubscribeThreadInput,
   CleanCoreThreadChange,
   CleanCoreThreadDraft,
+  CleanCoreAnswerThreadQuestionInput,
 } from "./cleanCore";
 import type { EditorId } from "./editor";
 import type { ThreadId } from "./baseSchemas";
@@ -1112,6 +1113,7 @@ export interface NativeApi {
     getThreadDraft: (input: CleanCoreGetThreadDraftInput) => Promise<CleanCoreThreadDraft>;
     setThreadDraft: (input: CleanCoreSetThreadDraftInput) => Promise<CleanCoreThreadDraft>;
     subscribeThread: (input: CleanCoreSubscribeThreadInput) => Promise<void>;
+    answerThreadQuestion: (input: CleanCoreAnswerThreadQuestionInput) => Promise<void>;
     onThreadChange: (callback: (change: CleanCoreThreadChange) => void) => () => void;
   };
   orchestration: {

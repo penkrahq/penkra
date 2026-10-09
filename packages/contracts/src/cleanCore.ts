@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 
-import { IsoDateTime, NonNegativeInt, ThreadId, TurnId } from "./baseSchemas";
+import { IsoDateTime, NonNegativeInt, ThreadId, TurnId, TrimmedNonEmptyString } from "./baseSchemas";
+import { ProviderUserInputAnswers } from "./orchestration";
 
 /** Clean-core bounded transcript read (0.14.4 design 2.1). */
 export const CleanCoreListThreadItemsPageInput = Schema.Struct({
@@ -54,6 +55,19 @@ export type CleanCoreThreadChange = typeof CleanCoreThreadChange.Type;
 
 export const CleanCoreSubscribeThreadInput = Schema.Struct({ threadId: ThreadId });
 export type CleanCoreSubscribeThreadInput = typeof CleanCoreSubscribeThreadInput.Type;
+
+/**
+ * A clean-core answer to an open `question` item (0.14.4 design 2.5). The item
+ * row is updated in place by the provider stream consumer; this call delivers
+ * the answer to the provider so the turn continues.
+ */
+export const CleanCoreAnswerThreadQuestionInput = Schema.Struct({
+  threadId: ThreadId,
+  requestId: Schema.String,
+  lifecycleGeneration: Schema.optional(TrimmedNonEmptyString),
+  answers: ProviderUserInputAnswers,
+});
+export type CleanCoreAnswerThreadQuestionInput = typeof CleanCoreAnswerThreadQuestionInput.Type;
 
 /** Push channels for the clean-core live updates. */
 export const CLEAN_CORE_WS_CHANNELS = {

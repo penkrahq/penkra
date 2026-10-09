@@ -133,6 +133,40 @@ it.effect("backfills threads and thread_items from the replaced projection table
         WHERE thread_items_search MATCH 'building'
       `;
       assert.equal(search[0]?.count, 1);
+
+      // Tool/notice items carry the canonical activity record {tone,kind,summary,payload}
+      // from both sources, so the web mapper can feed TimelineWorkEntryRow.
+      const data = yield* sql<{
+        readonly sourceId: string;
+        readonly data: string;
+      }>`
+        SELECT source_id AS "sourceId", data FROM thread_items
+        WHERE thread_id = 'thread-1' AND kind IN ('tool', 'notice')
+        ORDER BY seq
+      `;
+      assert.deepStrictEqual(
+        data.map((row) => ({ sourceId: row.sourceId, data: JSON.parse(row.data) })),
+        [
+          {
+            sourceId: "provider-op-1",
+            data: {
+              tone: null,
+              kind: null,
+              summary: "Ran command",
+              payload: { command: "ls" },
+            },
+          },
+          {
+            sourceId: "notice-1",
+            data: {
+              tone: "warning",
+              kind: "runtime.warning",
+              summary: "A warning",
+              payload: { detail: "be careful" },
+            },
+          },
+        ],
+      );
     }),
   ),
 );
