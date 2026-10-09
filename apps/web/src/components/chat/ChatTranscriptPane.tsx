@@ -72,9 +72,6 @@ interface ChatTranscriptPaneProps {
   onToggleWorkGroup?: (groupId: string) => void;
   resolvedTheme: "light" | "dark";
   scrollButtonVisible: boolean;
-  subagentToolTraceByThreadId?: ComponentProps<
-    typeof MessagesTimeline
-  >["subagentToolTraceByThreadId"];
   timelineEntries: ComponentProps<typeof MessagesTimeline>["timelineEntries"];
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
@@ -115,7 +112,6 @@ function ChatTranscriptPaneImpl({
   onToggleWorkGroup,
   resolvedTheme,
   scrollButtonVisible,
-  subagentToolTraceByThreadId,
   timelineEntries,
   timestampFormat,
   workspaceRoot,
@@ -243,7 +239,6 @@ function ChatTranscriptPaneImpl({
             {...(crossTaskOrigin ? { crossTaskOrigin } : {})}
             timelineEntries={timelineEntries}
             onOpenThread={onOpenThread}
-            {...(subagentToolTraceByThreadId ? { subagentToolTraceByThreadId } : {})}
             onImageExpand={onExpandTimelineImage}
             onIsAtEndChange={onIsAtEndChange}
             onMessagesScroll={onMessagesScroll}

@@ -60,7 +60,6 @@ import { type ExpandedImagePreview } from "./ExpandedImagePreview";
 import { LinkChipIcon } from "../LinkChipIcon";
 import { normalizeCompactToolLabel } from "./MessagesTimeline.logic";
 import { PenkraMark } from "../foundations/penkra-mark-shared/PenkraMark";
-import type { SubagentToolTrace } from "./subagentToolTrace.logic";
 import { ToolCallDetailsContent } from "./ToolCallDetailsDialog";
 import { DisclosureChevron } from "../ui/DisclosureChevron";
 import { DisclosureRegion } from "../ui/DisclosureRegion";
@@ -584,7 +583,6 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onOpenAgentActivity?: (activityId: string) => void;
   onOpenThread?: (threadId: ThreadId) => void;
-  subagentToolTraceByThreadId?: ReadonlyMap<string, SubagentToolTrace>;
   timestampFormat?: TimestampFormat;
 }) {
   const {
@@ -597,7 +595,6 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
     onImageExpand,
     onOpenAgentActivity,
     onOpenThread,
-    subagentToolTraceByThreadId,
     timestampFormat = "locale",
   } = props;
   const compact = density === "compact";
@@ -837,9 +834,6 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                   subagent.statusLabel ??
                   humanizeSubagentStatus(subagent.rawStatus, subagent.isActive);
                 const canOpenThread = Boolean(onOpenThread);
-                const toolTrace = subagentToolTraceByThreadId?.get(
-                  subagent.resolvedThreadId ?? subagent.threadId,
-                );
                 return (
                   <div
                     key={`${workEntry.id}:${subagent.threadId}`}
@@ -883,39 +877,6 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                         >
                           <span className="shrink-0 text-muted-foreground/30">Latest</span>
                           <span className="truncate">{subagent.latestUpdate}</span>
-                        </div>
-                      ) : null}
-                      {toolTrace ? (
-                        <div className="mt-1.5 space-y-[3px] border-l border-border/35 pl-2">
-                          {toolTrace.entries.map((toolEntry) => {
-                            const ToolEntryIcon = workEntryIcon(toolEntry);
-                            const toolText = combineWorkEntryDisplayText(
-                              toolWorkEntryHeading(toolEntry),
-                              workEntryPreview(toolEntry),
-                            );
-                            return (
-                              <div
-                                key={toolEntry.id}
-                                className="flex min-w-0 items-center gap-1.5 text-muted-foreground/48"
-                                style={{ fontSize: `${Math.max(10, rowFontSizePx - 2)}px` }}
-                                title={toolText}
-                              >
-                                {renderWorkEntryIcon(
-                                  ToolEntryIcon,
-                                  "size-3 shrink-0 text-muted-foreground/32",
-                                )}
-                                <span className="truncate">{toolText}</span>
-                              </div>
-                            );
-                          })}
-                          {toolTrace.overflowCount > 0 ? (
-                            <div
-                              className="pl-[18px] text-muted-foreground/36"
-                              style={{ fontSize: `${Math.max(10, rowFontSizePx - 2)}px` }}
-                            >
-                              +{toolTrace.overflowCount} more tool uses
-                            </div>
-                          ) : null}
                         </div>
                       ) : null}
                     </div>

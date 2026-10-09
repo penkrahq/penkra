@@ -43,7 +43,6 @@ import {
 } from "./chatTypography";
 import { DisclosureChevron } from "../ui/DisclosureChevron";
 import { DisclosureRegion } from "../ui/DisclosureRegion";
-import type { SubagentToolTrace } from "./subagentToolTrace.logic";
 import {
   threadItemToPendingUserInput,
   threadItemToUserContent,
@@ -66,7 +65,6 @@ export interface ThreadItemRowProps {
   readonly onImageExpand?: (preview: ExpandedImagePreview) => void;
   readonly onOpenThread?: (threadId: ThreadId) => void;
   readonly onOpenAgentActivity?: (activityId: string) => void;
-  readonly subagentToolTraceByThreadId?: ReadonlyMap<string, SubagentToolTrace>;
   readonly onAnswerQuestion?: (input: ThreadItemAnswerInput) => void;
   readonly answeringRequestId?: string | null;
 }
@@ -104,9 +102,6 @@ function ToolOrNoticeItem({ item, props }: { item: CleanCoreThreadItem; props: T
         onImageExpand={onImageExpand}
         {...(props.onOpenAgentActivity ? { onOpenAgentActivity: props.onOpenAgentActivity } : {})}
         {...(props.onOpenThread ? { onOpenThread: props.onOpenThread } : {})}
-        {...(props.subagentToolTraceByThreadId
-          ? { subagentToolTraceByThreadId: props.subagentToolTraceByThreadId }
-          : {})}
         {...(props.timestampFormat ? { timestampFormat: props.timestampFormat } : {})}
       />
     </div>
