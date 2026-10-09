@@ -3197,10 +3197,8 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     threadDetailSyncState,
   ]);
   const activeTurnInProgress = activeTurnLayoutLive;
-  const isComposerApprovalState = false;
-  const isComposerEditorDisabled = isLocalConnecting || isComposerApprovalState;
+  const isComposerEditorDisabled = isLocalConnecting;
   const canCollapsePastedTextToDraft = shouldEnableComposerPastedTextCollapse({
-    isComposerApprovalState,
     hasPendingUserInput: pendingUserInputs.length > 0,
     showPlanFollowUpPrompt,
   });
@@ -4860,7 +4858,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     onMessagesWheel,
   } = useTranscriptAssistantSelectionAction({
     threadId,
-    enabled: Boolean(activeThread) && pendingUserInputs.length === 0 && !isComposerApprovalState,
+    enabled: Boolean(activeThread) && pendingUserInputs.length === 0,
     composerImagesRef,
     composerFilesRef,
     composerAssistantSelectionsRef,
@@ -5917,7 +5915,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         !isTerminalFocused() &&
         !isVoiceRecording &&
         !isVoiceTranscribing &&
-        !isComposerApprovalState &&
         canHandleComposerPickerShortcut(event, composerFormRef.current);
       const shortcutContext = {
         terminalFocus: false,
@@ -5934,7 +5931,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       if (!command) return;
 
       if (command === "composer.focus.toggle") {
-        if (isComposerApprovalState || isVoiceRecording || isVoiceTranscribing) return;
+        if (isVoiceRecording || isVoiceTranscribing) return;
         event.preventDefault();
         event.stopPropagation();
         toggleComposerFocus();
@@ -5997,7 +5994,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     hasControllableTurn,
     handleModelPickerOpenChange,
     handleTraitsPickerOpenChange,
-    isComposerApprovalState,
     isVoiceRecording,
     isVoiceTranscribing,
     scheduleComposerFocus,
@@ -8751,7 +8747,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         shiftKey: event.shiftKey,
         menuIsActive,
         hasActivePendingProgress: Boolean(activePendingProgress),
-        isComposerApprovalState,
         pendingUserInputCount: pendingUserInputs.length,
       })
     ) {
@@ -8929,7 +8924,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     !isVoiceTranscribing ? (
       <span className="inline-flex shrink-0 @max-[280px]:hidden" data-pencil-action="voice">
         <ComposerVoiceButton
-          disabled={isComposerApprovalState || isConnecting || isSendBusy}
+          disabled={isConnecting || isSendBusy}
           isRecording={isVoiceRecording}
           isTranscribing={isVoiceTranscribing}
           durationLabel={voiceRecordingDurationLabel}
@@ -9062,22 +9057,20 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
               className={cn(
                 COMPOSER_INPUT_SHELL_CLASS_NAME,
                 composerProviderState.composerFrameClassName,
-                composerMenuOpen && !isComposerApprovalState && "overflow-visible",
+                composerMenuOpen && "overflow-visible",
               )}
               surfaceClassName={cn(
                 composerProviderState.composerSurfaceClassName,
-                composerMenuOpen && !isComposerApprovalState
-                  ? "overflow-visible"
-                  : "overflow-hidden",
+                composerMenuOpen ? "overflow-visible" : "overflow-hidden",
               )}
             >
               <div
                 className={cn(
                   COMPOSER_EDITOR_PADDING_CLASS_NAME,
-                  composerMenuOpen && !isComposerApprovalState && "overflow-visible",
+                  composerMenuOpen && "overflow-visible",
                 )}
               >
-                {composerMenuOpen && !isComposerApprovalState ? (
+                {composerMenuOpen ? (
                   <div className={COMPOSER_COMMAND_MENU_FLOATING_WRAPPER_CLASS_NAME}>
                     {isLocalFolderBrowserOpen ? (
                       <ComposerLocalDirectoryMenu
@@ -9107,8 +9100,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
                     )}
                   </div>
                 ) : null}
-                {!isComposerApprovalState &&
-                  pendingUserInputs.length === 0 &&
+                {pendingUserInputs.length === 0 &&
                   (composerAssistantSelections.length > 0 ||
                     composerFileComments.length > 0 ||
                     composerPastedTexts.length > 0 ||
@@ -9132,19 +9124,9 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
                   )}
                 <ComposerPromptEditor
                   ref={composerEditorRef}
-                  value={
-                    isComposerApprovalState
-                      ? ""
-                      : activePendingProgress
-                        ? activePendingProgress.customAnswer
-                        : prompt
-                  }
+                  value={activePendingProgress ? activePendingProgress.customAnswer : prompt}
                   cursor={composerCursor}
-                  terminalContexts={
-                    !isComposerApprovalState && pendingUserInputs.length === 0
-                      ? composerTerminalContexts
-                      : []
-                  }
+                  terminalContexts={pendingUserInputs.length === 0 ? composerTerminalContexts : []}
                   mentionReferences={selectedComposerMentions}
                   onRemoveTerminalContext={removeComposerTerminalContextFromDraft}
                   onChange={onPromptChange}
@@ -9154,17 +9136,15 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
                     ? { onCollapsePastedText: addPastedTextToDraft }
                     : {})}
                   placeholder={
-                    isComposerApprovalState
-                      ? "Resolve this approval request to continue"
-                      : activePendingProgress
-                        ? activePendingProgress.activeQuestion?.options.length === 0
-                          ? "Type your answer to continue"
-                          : "Type your own answer, or leave this blank to use the selected option"
-                        : activeThread?.parentThreadId
-                          ? "Message this subagent while it works"
-                          : hasLiveTurn
-                            ? "Ask for follow-up changes"
-                            : "Do something"
+                    activePendingProgress
+                      ? activePendingProgress.activeQuestion?.options.length === 0
+                        ? "Type your answer to continue"
+                        : "Type your own answer, or leave this blank to use the selected option"
+                      : activeThread?.parentThreadId
+                        ? "Message this subagent while it works"
+                        : hasLiveTurn
+                          ? "Ask for follow-up changes"
+                          : "Do something"
                   }
                   disabled={isComposerEditorDisabled}
                 />
@@ -9204,7 +9184,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
                         {showVoiceNotesControl && (isVoiceRecording || isVoiceTranscribing) ? (
                           <>
                             <VoiceRecorderShared
-                              disabled={isComposerApprovalState || isConnecting || isSendBusy}
+                              disabled={isConnecting || isSendBusy}
                               isTranscribing={isVoiceTranscribing}
                               durationLabel={voiceRecordingDurationLabel}
                               waveformLevels={voiceWaveformLevels}
@@ -9218,12 +9198,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
                             />
                             <ButtonSend
                               type="button"
-                              disabled={
-                                isComposerApprovalState ||
-                                isConnecting ||
-                                isSendBusy ||
-                                isVoiceTranscribing
-                              }
+                              disabled={isConnecting || isSendBusy || isVoiceTranscribing}
                               aria-label={
                                 isVoiceTranscribing ? "Transcribing voice note" : "Send voice note"
                               }
