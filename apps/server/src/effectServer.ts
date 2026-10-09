@@ -33,10 +33,9 @@ import {
 import { ProviderThreadSwitchCoordinator } from "./orchestration/Services/ProviderThreadSwitchCoordinator";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ThreadDeletionReactor } from "./orchestration/Services/ThreadDeletionReactor";
-import { reconcileRestartStuckTurns } from "./orchestration/startupTurnReconciliation";
-import { recoverRestartInterruptedTurns } from "./orchestration/restartTurnRecovery";
+import { settleRunningThreadsOnStartup } from "./cleanCore/providerStreamConsumer.ts";
+import { ThreadPublisher } from "./cleanCore/ThreadPublisher.ts";
 import { ProviderSessionReaper } from "./provider/Services/ProviderSessionReaper";
-import { ProviderRuntimeReconciler } from "./provider/Services/ProviderRuntimeReconciler";
 import { ProviderService, type ProviderServiceShape } from "./provider/Services/ProviderService";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
@@ -69,7 +68,7 @@ export interface ServerShape {
     | ProviderThreadSwitchCoordinator
     | ProjectionSnapshotQuery
     | ProviderSessionReaper
-    | ProviderRuntimeReconciler
+    | ThreadPublisher
     | ProviderService
     | ServerRuntimeStartup
     | ServerSettingsService
@@ -157,7 +156,7 @@ export const createEffectServer = Effect.fn(function* (
   const providerThreadSwitchCoordinator = yield* ProviderThreadSwitchCoordinator;
   const providerService = yield* ProviderService;
   const providerSessionReaper = yield* ProviderSessionReaper;
-  const providerRuntimeReconciler = yield* ProviderRuntimeReconciler;
+  const threadPublisher = yield* ThreadPublisher;
   const runtimeStartup = yield* ServerRuntimeStartup;
   const serverSettings = yield* ServerSettingsService;
   const threadDeletionReactor = yield* ThreadDeletionReactor;
@@ -234,9 +233,12 @@ export const createEffectServer = Effect.fn(function* (
   // releasing SQLite and provider services. Keep the finalizer as an idempotent
   // fallback for startup failures and abrupt parent disconnects.
   yield* Effect.addFinalizer(() => shutdown);
-  // Settle exact orphaned turns, interactions, and streaming messages through
-  // targeted projection reads before provider replay begins.
-  yield* runStartupStage("restart-stuck-turns.reconcile", reconcileRestartStuckTurns);
+  // Clean core (0.14.4): no runtime survives a restart, so cut off every thread
+  // still marked running and record the notice, before provider replay begins.
+  yield* runStartupStage(
+    "clean-core.startup-cutoff",
+    settleRunningThreadsOnStartup(threadPublisher, new Date().toISOString()),
+  );
   yield* runStartupStage(
     "orchestration-reactor.start",
     Scope.provide(orchestrationReactor.start, subscriptionsScope),
@@ -248,10 +250,6 @@ export const createEffectServer = Effect.fn(function* (
   yield* runStartupStage(
     "provider-session-reaper.start",
     Scope.provide(providerSessionReaper.start(), subscriptionsScope),
-  );
-  yield* runStartupStage(
-    "provider-runtime-reconciler.start",
-    Scope.provide(providerRuntimeReconciler.start(), subscriptionsScope),
   );
   yield* readiness.markOrchestrationSubscriptionsReady;
   yield* readiness.markTerminalSubscriptionsReady;
@@ -278,7 +276,6 @@ export const createEffectServer = Effect.fn(function* (
   yield* Effect.gen(function* () {
     yield* orchestrationReactor.reconcileSettledOpenTurns;
     yield* providerThreadSwitchCoordinator.recoverOpen;
-    yield* recoverRestartInterruptedTurns;
   }).pipe(
     Effect.catchCause((cause) =>
       Effect.logWarning("post-ready restart recovery failed", { cause }),

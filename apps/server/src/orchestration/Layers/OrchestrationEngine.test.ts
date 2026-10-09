@@ -40,7 +40,6 @@ import {
   type OrchestrationProjectionPipelineShape,
 } from "../Services/ProjectionPipeline.ts";
 import { ServerConfig } from "../../config.ts";
-import { recoverRestartInterruptedTurns } from "../restartTurnRecovery.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { canContinueLatestTurn } from "@penkra/shared/turnContinuation";
 import { DiagnosticsStore, openDiagnosticsReader } from "../../diagnostics/store.ts";
@@ -718,97 +717,6 @@ describe("OrchestrationEngine", () => {
     }
   });
 
-  it("refuses archive during a provider turn and quietly skips an archived restart recovery", async () => {
-    const system = await createOrchestrationSystem({ withRuntimeBinding: true });
-    const threadId = ThreadId.makeUnsafe("thread-archive-running-engine");
-    const folderId = asFolderId("folder-archive-running-engine");
-    const turnId = asTurnId("turn-archive-running-engine");
-    const createdAt = now();
-    try {
-      await system.run(
-        system.engine.dispatch({
-          type: "folder.create",
-          commandId: CommandId.makeUnsafe("running-folder"),
-          folderId,
-          spaceId: TEST_SPACE_ID,
-          title: "Running guard",
-          workspaceRoot: null,
-          defaultModelSelection: null,
-          createdAt,
-        }),
-      );
-      await system.run(
-        system.engine.dispatch({
-          type: "thread.create",
-          commandId: CommandId.makeUnsafe("running-thread"),
-          threadId,
-          deckId: singletonThreadDeckId(threadId),
-          folderId,
-          title: "Running guard",
-          modelSelection: { provider: "codex", model: "gpt-5-codex" },
-          runtimeMode: "full-access",
-          createdAt,
-        }),
-      );
-      const session = {
-        threadId,
-        providerName: "codex" as const,
-        runtimeMode: "full-access" as const,
-        activeTurnId: turnId,
-        lastError: null,
-        updatedAt: createdAt,
-      };
-      await system.run(
-        system.engine.dispatch({
-          type: "thread.session.set",
-          commandId: CommandId.makeUnsafe("running-session"),
-          threadId,
-          session: { ...session, status: "running" },
-          createdAt,
-        }),
-      );
-      await expect(
-        system.run(
-          system.engine.dispatch({
-            type: "thread.archive",
-            commandId: CommandId.makeUnsafe("archive-running"),
-            threadId,
-          }),
-        ),
-      ).rejects.toMatchObject({ code: "thread_running" });
-      await system.run(
-        system.engine.dispatch({
-          type: "thread.session.set",
-          commandId: CommandId.makeUnsafe("stopped-session"),
-          threadId,
-          session: { ...session, status: "stopped", activeTurnId: null },
-          createdAt,
-        }),
-      );
-      await system.run(
-        system.engine.dispatch({
-          type: "thread.archive",
-          commandId: CommandId.makeUnsafe("archive-stopped"),
-          threadId,
-        }),
-      );
-      await system.run(
-        system.sql`INSERT OR REPLACE INTO restart_turn_recoveries (thread_id, turn_id, requested_at, updated_at) VALUES (${threadId}, ${turnId}, ${createdAt}, ${createdAt})`,
-      );
-      await system.run(
-        recoverRestartInterruptedTurns.pipe(
-          Effect.provideService(OrchestrationEngineService, system.engine),
-          Effect.provideService(SqlClient.SqlClient, system.sql),
-        ),
-      );
-      const recoveries = await system.run(
-        system.sql`SELECT thread_id FROM restart_turn_recoveries WHERE thread_id = ${threadId}`,
-      );
-      expect(recoveries).toHaveLength(0);
-    } finally {
-      await system.dispose();
-    }
-  });
   it("admits Play after a started turn is interrupted by user Stop", async () => {
     const system = await createOrchestrationSystem({ withRuntimeBinding: true });
     const threadId = ThreadId.makeUnsafe("thread-play-after-user-stop");

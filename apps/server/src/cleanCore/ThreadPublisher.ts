@@ -12,8 +12,8 @@ import {
   type ThreadPublisher as ThreadPublisherValue,
 } from "./threadStore.ts";
 
-export const ThreadPublisher = ServiceMap.Service<ThreadPublisherValue>(
+export class ThreadPublisher extends ServiceMap.Service<ThreadPublisher, ThreadPublisherValue>()(
   "penkra/cleanCore/ThreadPublisher",
-);
+) {}
 
 export const ThreadPublisherLive = Layer.succeed(ThreadPublisher, makeThreadPublisher());

@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import { decideOrchestrationCommand } from "./decider.ts";
 import { createEmptyReadModel } from "./projector.ts";
-import { PLAY_TURN_RECOVERY_PROMPT } from "./restartTurnRecovery.ts";
+import { PLAY_TURN_RECOVERY_PROMPT } from "./turnRecoveryPrompts.ts";
 
 const now = "2026-09-26T00:00:00.000Z";
 const threadId = ThreadId.makeUnsafe("continue-thread");
