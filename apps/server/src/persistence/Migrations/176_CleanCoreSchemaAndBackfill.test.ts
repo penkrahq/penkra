@@ -117,7 +117,7 @@ it.effect("backfills threads and thread_items from the replaced projection table
           status: "done",
           text: "building it now",
         },
-        { seq: 3, sourceId: "op-1", kind: "tool", status: "done", text: "Ran command" },
+        { seq: 3, sourceId: "provider-op-1", kind: "tool", status: "done", text: "Ran command" },
         { seq: 4, sourceId: "notice-1", kind: "notice", status: "done", text: "A warning" },
         {
           seq: 5,
@@ -220,8 +220,50 @@ it.effect("groups tool activities by the web's tool-call identity, beside operat
       assert.deepStrictEqual(rows, [
         { sourceId: "call_one", kind: "tool", status: "done", text: "Bash" },
         { sourceId: "toolu_two", kind: "tool", status: "done", text: "Read" },
-        { sourceId: "op-x", kind: "tool", status: "done", text: "Ran command" },
+        { sourceId: "exec-x", kind: "tool", status: "done", text: "Ran command" },
       ]);
+    }),
+  ),
+);
+
+it.effect("collapses a call present in both sources to one item", () =>
+  withDb(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations({ toMigrationInclusive: 175 });
+      const now = "2026-10-09T00:00:00.000Z";
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id, folder_id, title, created_at, updated_at, model_selection_json
+        ) VALUES ('thread-overlap', 'folder-x', 'T', ${now}, ${now}, '{"provider":"codex","model":"m"}')
+      `;
+      yield* sql`
+        INSERT INTO operations (
+          operation_id, provider_operation_id, thread_id, provider, item_type,
+          title, status, activity_json, started_at, last_source_event_id, updated_at,
+          presentation_sequence
+        ) VALUES (
+          'op-shared', 'shared-id', 'thread-overlap', 'codex', 'command_execution',
+          'From operation', 'completed', '{"summary":"From operation"}',
+          '2026-10-09T00:00:02.000Z', 'evt-s', '2026-10-09T00:00:02.000Z', 2
+        )
+      `;
+      yield* sql`
+        INSERT INTO projection_thread_activities (
+          activity_id, thread_id, tone, kind, summary, payload_json, created_at, sequence
+        ) VALUES (
+          'act-shared', 'thread-overlap', 'tool', 'tool.completed', 'From activity',
+          '{"title":"From activity","status":"completed","data":{"toolCallId":"shared-id"}}',
+          '2026-10-09T00:00:01.000Z', 1
+        )
+      `;
+      yield* runMigrations();
+      const rows = yield* sql<{ readonly sourceId: string; readonly text: string }>`
+        SELECT source_id AS "sourceId", text FROM thread_items
+        WHERE thread_id = 'thread-overlap' AND kind = 'tool'
+      `;
+      // One identity, one item; the later operations row wins the tie-break.
+      assert.deepStrictEqual(rows, [{ sourceId: "shared-id", text: "From operation" }]);
     }),
   ),
 );
