@@ -96,6 +96,10 @@ import type {
   OrchestrationSyncStreamItem,
   OrchestrationThreadStreamItem,
 } from "./orchestration";
+import type {
+  CleanCoreListThreadItemsPageInput,
+  CleanCoreListThreadItemsPageResult,
+} from "./cleanCore";
 import type { EditorId } from "./editor";
 import type { ThreadId } from "./baseSchemas";
 import type {
@@ -1095,6 +1099,11 @@ export interface NativeApi {
       input: GetProviderConnectionLoginInput,
     ) => Promise<ProviderConnectionLoginSnapshot>;
     terminateConnection: (input: TerminateProviderConnectionInput) => Promise<ProviderConnection>;
+  };
+  cleanCore: {
+    listThreadItemsPage: (
+      input: CleanCoreListThreadItemsPageInput,
+    ) => Promise<CleanCoreListThreadItemsPageResult>;
   };
   orchestration: {
     getSnapshot: () => Promise<OrchestrationReadModel>;

@@ -5,14 +5,15 @@
 // Layer: Server clean core
 // Exports: ThreadItemRow, ThreadItemsPage, listThreadItemsPage
 
+import type { ThreadId, TurnId } from "@penkra/contracts";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 export interface ThreadItemRow {
-  readonly threadId: string;
+  readonly threadId: ThreadId;
   readonly seq: number;
   readonly sourceId: string;
-  readonly turnId: string | null;
+  readonly turnId: TurnId | null;
   readonly kind: string;
   readonly status: string;
   readonly text: string | null;
@@ -31,8 +32,8 @@ export interface ThreadItemsPage {
 export const THREAD_ITEMS_PAGE_SIZE = 50;
 
 export const listThreadItemsPage = (input: {
-  readonly threadId: string;
-  readonly beforeSeq?: number;
+  readonly threadId: ThreadId;
+  readonly beforeSeq?: number | undefined;
   readonly limit?: number;
 }) =>
   Effect.gen(function* () {

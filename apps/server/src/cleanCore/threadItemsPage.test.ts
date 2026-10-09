@@ -1,4 +1,5 @@
 import { assert, it } from "@effect/vitest";
+import { ThreadId } from "@penkra/contracts";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
@@ -40,13 +41,16 @@ it.effect("reads the newest 50 items, then pages older by seq cursor", () =>
         { discard: true },
       );
 
-      const first = yield* listThreadItemsPage({ threadId: "thread-1" });
+      const first = yield* listThreadItemsPage({ threadId: ThreadId.makeUnsafe("thread-1") });
       assert.equal(first.items.length, 50);
       assert.equal(first.items[0]?.seq, 60);
       assert.equal(first.items.at(-1)?.seq, 11);
       assert.equal(first.nextCursor, 11);
 
-      const second = yield* listThreadItemsPage({ threadId: "thread-1", beforeSeq: 11 });
+      const second = yield* listThreadItemsPage({
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        beforeSeq: 11,
+      });
       assert.equal(second.items.length, 10);
       assert.equal(second.items[0]?.seq, 10);
       assert.equal(second.items.at(-1)?.seq, 1);
