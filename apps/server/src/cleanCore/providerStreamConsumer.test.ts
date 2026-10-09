@@ -1,0 +1,160 @@
+import { assert, it } from "@effect/vitest";
+import { Effect } from "effect";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
+
+import { applyProviderEvent, PROVIDER_CUTOFF_NOTICE } from "./providerStreamConsumer.ts";
+import { createThread, makeThreadPublisher, upsertThreadItem } from "./threadStore.ts";
+import { runMigrations } from "../persistence/Migrations.ts";
+import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
+
+const withDb = <A, E>(effect: Effect.Effect<A, E, SqlClient.SqlClient>) =>
+  effect.pipe(Effect.provide(NodeSqliteClient.layerMemory()));
+
+const baseThread = {
+  id: "thread-1",
+  spaceId: "space-1",
+  title: "Hello",
+  provider: "codex",
+  model: "gpt-5.5",
+  createdAt: "2026-10-09T00:00:00.000Z",
+};
+
+it.effect("turn start/end drive threads.state; items go through the upsert", () =>
+  withDb(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const publisher = makeThreadPublisher();
+      yield* runMigrations();
+      yield* createThread(baseThread);
+
+      yield* applyProviderEvent(publisher, {
+        type: "turn.started",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        at: "2026-10-09T00:00:01.000Z",
+      });
+      yield* applyProviderEvent(publisher, {
+        type: "item",
+        threadId: "thread-1",
+        item: {
+          threadId: "thread-1",
+          sourceId: "msg-1",
+          kind: "user",
+          status: "sent",
+          text: "hi",
+          createdAt: "2026-10-09T00:00:01.000Z",
+          updatedAt: "2026-10-09T00:00:01.000Z",
+        },
+      });
+
+      const running = yield* sql<{
+        readonly state: string;
+        readonly activeTurnId: string | null;
+      }>`SELECT state, active_turn_id AS "activeTurnId" FROM threads WHERE id = 'thread-1'`;
+      assert.deepStrictEqual(running, [{ state: "running", activeTurnId: "turn-1" }]);
+
+      yield* applyProviderEvent(publisher, {
+        type: "turn.ended",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        state: "completed",
+        at: "2026-10-09T00:00:02.000Z",
+      });
+      const idle = yield* sql<{
+        readonly state: string;
+        readonly activeTurnId: string | null;
+      }>`SELECT state, active_turn_id AS "activeTurnId" FROM threads WHERE id = 'thread-1'`;
+      assert.deepStrictEqual(idle, [{ state: "idle", activeTurnId: null }]);
+
+      const items = yield* sql<{ readonly sourceId: string }>`
+        SELECT source_id AS "sourceId" FROM thread_items WHERE thread_id = 'thread-1'
+      `;
+      assert.deepStrictEqual(items, [{ sourceId: "msg-1" }]);
+    }),
+  ),
+);
+
+it.effect("turn error sets threads.state = error with last_error", () =>
+  withDb(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const publisher = makeThreadPublisher();
+      yield* runMigrations();
+      yield* createThread(baseThread);
+      yield* applyProviderEvent(publisher, {
+        type: "turn.ended",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        state: "error",
+        error: "boom",
+        at: "2026-10-09T00:00:01.000Z",
+      });
+      const rows = yield* sql<{ readonly state: string; readonly lastError: string }>`
+        SELECT state, last_error AS "lastError" FROM threads WHERE id = 'thread-1'
+      `;
+      assert.deepStrictEqual(rows, [{ state: "error", lastError: "boom" }]);
+    }),
+  ),
+);
+
+it.effect("provider exit idles the thread and records one cutoff notice", () =>
+  withDb(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const publisher = makeThreadPublisher();
+      yield* runMigrations();
+      yield* createThread(baseThread);
+      yield* applyProviderEvent(publisher, {
+        type: "turn.started",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        at: "2026-10-09T00:00:01.000Z",
+      });
+      yield* applyProviderEvent(publisher, {
+        type: "provider.exited",
+        threadIds: ["thread-1"],
+        at: "2026-10-09T00:00:02.000Z",
+      });
+      // Idempotent: a second exit adds nothing.
+      yield* applyProviderEvent(publisher, {
+        type: "provider.exited",
+        threadIds: ["thread-1"],
+        at: "2026-10-09T00:00:02.000Z",
+      });
+
+      const threads = yield* sql<{ readonly state: string }>`
+        SELECT state FROM threads WHERE id = 'thread-1'
+      `;
+      assert.deepStrictEqual(threads, [{ state: "idle" }]);
+      const notices = yield* sql<{ readonly text: string }>`
+        SELECT text FROM thread_items WHERE thread_id = 'thread-1' AND kind = 'notice'
+      `;
+      assert.deepStrictEqual(notices, [{ text: PROVIDER_CUTOFF_NOTICE }]);
+    }),
+  ),
+);
+
+it.effect("a replay of the same item event does not create a second row", () =>
+  withDb(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations();
+      yield* createThread(baseThread);
+      const item = {
+        threadId: "thread-1",
+        sourceId: "msg-replay",
+        kind: "text" as const,
+        status: "streaming",
+        text: "partial",
+        createdAt: "2026-10-09T00:00:01.000Z",
+        updatedAt: "2026-10-09T00:00:01.000Z",
+      };
+      yield* upsertThreadItem(item);
+      yield* upsertThreadItem({ ...item, status: "done", text: "complete" });
+      const rows = yield* sql<{ readonly status: string; readonly text: string }>`
+        SELECT status, text FROM thread_items WHERE thread_id = 'thread-1'
+      `;
+      assert.deepStrictEqual(rows, [{ status: "done", text: "complete" }]);
+    }),
+  ),
+);
