@@ -5759,19 +5759,6 @@ function registerIpcHandlers(): void {
     console.info(`[thread-home] send window=${event.sender.id} thread=${threadId}`);
   });
   for (const channel of Object.values(IPC.composerDrafts)) ipcMain.removeHandler(channel);
-  handleDesktopIpc(IPC.composerDrafts.readSnapshot, async (event) => {
-    requireMainRenderer(event);
-    return composerDraftJournal.readSnapshot();
-  });
-  handleDesktopIpc(IPC.composerDrafts.writeSnapshot, async (event, value: unknown) => {
-    requireMainRenderer(event);
-    if (typeof value !== "string") throw new Error("Invalid composer draft snapshot.");
-    await composerDraftJournal.writeSnapshot(value);
-  });
-  handleDesktopIpc(IPC.composerDrafts.removeSnapshot, async (event) => {
-    requireMainRenderer(event);
-    await composerDraftJournal.removeSnapshot();
-  });
   handleDesktopIpc(IPC.composerDrafts.writeAsset, async (event, input: unknown) => {
     requireMainRenderer(event);
     if (!input || typeof input !== "object") throw new Error("Invalid composer asset.");

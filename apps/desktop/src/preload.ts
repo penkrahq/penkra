@@ -225,9 +225,6 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     },
   },
   composerDrafts: {
-    readSnapshot: () => ipcRenderer.invoke(IPC.composerDrafts.readSnapshot),
-    writeSnapshot: (value) => ipcRenderer.invoke(IPC.composerDrafts.writeSnapshot, value),
-    removeSnapshot: () => ipcRenderer.invoke(IPC.composerDrafts.removeSnapshot),
     writeAsset: (input) => ipcRenderer.invoke(IPC.composerDrafts.writeAsset, input),
     readAsset: (id) => ipcRenderer.invoke(IPC.composerDrafts.readAsset, id),
     deleteAsset: (id) => ipcRenderer.invoke(IPC.composerDrafts.deleteAsset, id),

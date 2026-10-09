@@ -48,9 +48,6 @@ export const DESKTOP_IPC_CHANNELS = {
   threadHomeAgentNavigation: "desktop:thread-home-agent-navigation",
   threadHomeSelect: "desktop:thread-home-select",
   composerDrafts: {
-    readSnapshot: "desktop:composer-drafts-read-snapshot",
-    writeSnapshot: "desktop:composer-drafts-write-snapshot",
-    removeSnapshot: "desktop:composer-drafts-remove-snapshot",
     writeAsset: "desktop:composer-drafts-write-asset",
     readAsset: "desktop:composer-drafts-read-asset",
     deleteAsset: "desktop:composer-drafts-delete-asset",

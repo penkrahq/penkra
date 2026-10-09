@@ -93,29 +93,12 @@ import {
 const composerBlobReadHarness = vi.hoisted(() => ({
   override: null as null | ((key: string) => Promise<File | null>),
 }));
-const desktopDraftWriteHarness = vi.hoisted(() => ({
-  gate: null as Promise<void> | null,
-  awaitCalls: 0,
-}));
 vi.mock("../lib/composerImageBlobStore", async (importOriginal) => {
   const original = await importOriginal<typeof import("../lib/composerImageBlobStore")>();
   return {
     ...original,
     readComposerImageBlob: (key: string) =>
       composerBlobReadHarness.override?.(key) ?? original.readComposerImageBlob(key),
-  };
-});
-vi.mock("../lib/desktopComposerDraftStorage", async (importOriginal) => {
-  const original = await importOriginal<typeof import("../lib/desktopComposerDraftStorage")>();
-  return {
-    ...original,
-    awaitDesktopComposerDraftWrites: () => {
-      if (desktopDraftWriteHarness.gate) {
-        desktopDraftWriteHarness.awaitCalls += 1;
-        return desktopDraftWriteHarness.gate;
-      }
-      return original.awaitDesktopComposerDraftWrites();
-    },
   };
 });
 
@@ -4674,83 +4657,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     } finally {
       releaseConnections();
       providerConnectionsResponseGate = null;
-      await mounted.cleanup();
-      restoreNativeApi();
-    }
-  });
-
-  it("preserves a pending newer editor draft while durable capture is held", async () => {
-    let releaseDurable = () => {};
-    let durableReleased = false;
-    const restoreNativeApi = installDeterministicSendNativeApi();
-    const originalPrompt = "original prompt before pending newer input";
-    const newerPrompt = "pending newer editor input must survive durable capture";
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-pending-newer-editor" as MessageId,
-        targetText: "pending newer editor target",
-        sessionStatus: "ready",
-      }),
-    });
-
-    try {
-      desktopDraftWriteHarness.awaitCalls = 0;
-      desktopDraftWriteHarness.gate = new Promise<void>((resolve) => {
-        releaseDurable = () => {
-          if (!durableReleased) {
-            durableReleased = true;
-            resolve();
-          }
-        };
-      });
-      const editor = page.getByTestId("composer-editor");
-      await editor.fill(originalPrompt);
-      expect(editor.element().textContent ?? "").toBe(originalPrompt);
-      expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).not.toBe(
-        originalPrompt,
-      );
-
-      await userEvent.keyboard("{Enter}");
-      await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
-        "Durable-capture submission did not enter preflight.",
-      );
-      await vi.waitFor(() => {
-        expect(desktopDraftWriteHarness.awaitCalls).toBe(1);
-      });
-
-      // This is intentionally actual editor input inside the held durable
-      // write, before the 50ms persistence projection can run. Do not wait
-      // for the store to observe it: that is the separate persisted-newer
-      // control above.
-      await editor.fill(newerPrompt);
-      expect(editor.element().textContent ?? "").toBe(newerPrompt);
-      expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).not.toBe(
-        newerPrompt,
-      );
-      expect(
-        wsRequests
-          .map(readDispatchedCommand)
-          .some((command) => command?.type === "thread.turn.start"),
-      ).toBe(false);
-
-      releaseDurable();
-      desktopDraftWriteHarness.gate = null;
-      await vi.waitFor(() => {
-        const start = wsRequests
-          .map(readDispatchedCommand)
-          .find((command) => command?.type === "thread.turn.start");
-        expect(start).toBeDefined();
-        expect(start?.message).toMatchObject({ text: originalPrompt });
-        expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
-          newerPrompt,
-        );
-        expect(editor.element().textContent ?? "").toBe(newerPrompt);
-      });
-    } finally {
-      releaseDurable();
-      desktopDraftWriteHarness.gate = null;
       await mounted.cleanup();
       restoreNativeApi();
     }

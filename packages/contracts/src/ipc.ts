@@ -722,9 +722,6 @@ export interface DesktopAppleVoiceTranscriptionInput {
 }
 
 export interface DesktopComposerDraftsBridge {
-  readSnapshot: () => Promise<string | null>;
-  writeSnapshot: (value: string) => Promise<void>;
-  removeSnapshot: () => Promise<void>;
   writeAsset: (input: {
     id: string;
     draftId: string;
