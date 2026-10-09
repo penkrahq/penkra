@@ -4,12 +4,10 @@
 
 import { type ModelSelection, type ProviderKind, type ThreadId } from "@penkra/contracts";
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
 
 import { createComposerDraftStoreState } from "./composerDraftActions";
 import {
   COMPOSER_DRAFT_STORAGE_KEY,
-  COMPOSER_DRAFT_STORAGE_VERSION,
   selectComposerThreadDraft,
   type ComposerDraftStoreState,
   type ComposerThreadDraftState,
@@ -18,20 +16,7 @@ import {
   deriveEffectiveComposerModelState,
   type EffectiveComposerModelState,
 } from "./composerDraftModels";
-import {
-  migratePersistedComposerDraftStoreState,
-  normalizeCurrentPersistedComposerDraftStoreState,
-  partializeComposerDraftStoreState,
-  toHydratedThreadDraft,
-  type PersistedComposerDraftStoreState,
-} from "./composerDraftPersistence";
-import {
-  createDeferredPersistStorage,
-  createMemoryStorage,
-  flushStorageBeforePageHide,
-  type StateStorage,
-} from "./lib/storage";
-import { measureChatPerformanceWork } from "./chatPerformanceDiagnostics";
+import { partializeComposerDraftStoreState } from "./composerDraftPersistence";
 
 export {
   findSupersededComposerImageBlobAttachments,
@@ -64,73 +49,15 @@ export {
 export type { EffectiveComposerModelState } from "./composerDraftModels";
 export { partializeComposerDraftStoreState } from "./composerDraftPersistence";
 
-const COMPOSER_PERSIST_DEBOUNCE_MS = 250;
-const composerFallbackStorage: StateStorage =
-  typeof localStorage !== "undefined" ? localStorage : createMemoryStorage();
-const composerBaseStorage: StateStorage = composerFallbackStorage;
-const composerPersistStorage = createDeferredPersistStorage<
-  ComposerDraftStoreState,
-  PersistedComposerDraftStoreState
->({
-  getStorage: () => composerBaseStorage,
-  partialize: (state) =>
-    measureChatPerformanceWork("draft-checkpoint", () => partializeComposerDraftStoreState(state)),
-  debounceMs: COMPOSER_PERSIST_DEBOUNCE_MS,
-});
-let suppressComposerPersistence = false;
-const composerStorePersistStorage: typeof composerPersistStorage = {
-  getItem: (name) => composerPersistStorage.getItem(name),
-  setItem: (name, value) => {
-    if (suppressComposerPersistence) return;
-    return composerPersistStorage.setItem(name, value);
-  },
-  removeItem: (name) => {
-    if (suppressComposerPersistence) return;
-    return composerPersistStorage.removeItem(name);
-  },
-  flush: () => composerPersistStorage.flush(),
-  discardPending: () => composerPersistStorage.discardPending(),
-};
-
-// Flush pending composer draft writes before the page goes away so at most one
-// debounce window of changes can be lost.
-flushStorageBeforePageHide(() => composerPersistStorage.flush());
-
+// The composer draft is owned by the clean core (`threads.draft`, TODO 2.6):
+// there is no per-window localStorage persistence. `composerDraftSync` loads and
+// saves the serialized draft; this store only holds it in memory for the window.
 export const useComposerDraftStore = create<ComposerDraftStoreState>()(
-  persist(
-    createComposerDraftStoreState(() => composerPersistStorage.flush()),
-    {
-      name: COMPOSER_DRAFT_STORAGE_KEY,
-      version: COMPOSER_DRAFT_STORAGE_VERSION,
-      // Partialization is owned by deferred storage so serialization does not run
-      // on each keystroke and instead happens once per 250ms checkpoint window.
-      storage: composerStorePersistStorage,
-      migrate: migratePersistedComposerDraftStoreState,
-      merge: (persistedState, currentState) => {
-        const normalizedPersisted =
-          normalizeCurrentPersistedComposerDraftStoreState(persistedState);
-        const draftsByThreadId = Object.fromEntries(
-          Object.entries(normalizedPersisted.draftsByThreadId).map(([threadId, draft]) => [
-            threadId,
-            toHydratedThreadDraft(threadId as ThreadId, draft),
-          ]),
-        );
-        return {
-          ...currentState,
-          draftsByThreadId,
-          draftThreadsByThreadId: normalizedPersisted.draftThreadsByThreadId,
-          projectDraftThreadIdByFolderId: normalizedPersisted.projectDraftThreadIdByFolderId,
-          stickyModelSelectionByProvider: normalizedPersisted.stickyModelSelectionByProvider ?? {},
-          stickyConnectionByProvider: normalizedPersisted.stickyConnectionByProvider ?? {},
-          stickyActiveProvider: normalizedPersisted.stickyActiveProvider ?? null,
-        };
-      },
-    },
-  ),
+  createComposerDraftStoreState(() => undefined),
 );
 
 export async function flushComposerDraftsDurably(): Promise<void> {
-  composerPersistStorage.flush();
+  // The draft lives on the server; nothing is buffered locally to flush.
 }
 
 export function useComposerThreadDraft(threadId: ThreadId): ComposerThreadDraftState {

@@ -254,6 +254,7 @@ export interface ComposerDraftStoreState {
   clearDraftThread: (threadId: ThreadId) => void;
   setStickyModelSelection: (modelSelection: ModelSelection | null | undefined) => void;
   setPrompt: (threadId: ThreadId, prompt: string) => void;
+  applyServerThreadDraft: (threadId: ThreadId, draft: ComposerThreadDraftState) => void;
   applyVoiceTranscript: (threadId: ThreadId, jobId: string, transcript: string) => string | null;
   setPromptHistorySavedDraft: (
     threadId: ThreadId,

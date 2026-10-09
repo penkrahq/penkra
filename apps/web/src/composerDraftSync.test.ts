@@ -1,6 +1,7 @@
 import type { ThreadId } from "@penkra/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { createEmptyThreadDraft } from "./composerDraftDomain";
 import {
   createComposerDraftSync,
   shouldApplyRemoteDraft,
@@ -35,6 +36,13 @@ function makeApi(initial: { draft: string | null; updatedAt: string | null }) {
   return api;
 }
 
+const serialize = (_threadId: ThreadId, draft: { prompt: string }) =>
+  draft.prompt.length > 0 ? JSON.stringify({ prompt: draft.prompt }) : null;
+const deserialize = (_threadId: ThreadId, payload: string) => ({
+  ...createEmptyThreadDraft(),
+  prompt: (JSON.parse(payload) as { prompt: string }).prompt,
+});
+
 afterEach(() => {
   vi.useRealTimers();
 });
@@ -54,16 +62,23 @@ describe("shouldApplyRemoteDraft", () => {
 
 describe("createComposerDraftSync", () => {
   it("applies a newer server draft on start", async () => {
-    const api = makeApi({ draft: "from the server", updatedAt: "2026-10-09T00:00:05.000Z" });
-    const applyRemotePrompt = vi.fn();
+    const api = makeApi({
+      draft: JSON.stringify({ prompt: "from the server" }),
+      updatedAt: "2026-10-09T00:00:05.000Z",
+    });
+    const applyServerDraft = vi.fn();
     const sync = createComposerDraftSync({
       api,
       threadId: THREAD_ID,
-      applyRemotePrompt,
+      applyServerDraft,
+      serialize,
+      deserialize,
       now: () => "2026-10-09T00:00:06.000Z",
     });
     await sync.start();
-    expect(applyRemotePrompt).toHaveBeenCalledWith("from the server");
+    expect(applyServerDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: "from the server" }),
+    );
     sync.stop();
   });
 
@@ -73,37 +88,43 @@ describe("createComposerDraftSync", () => {
     const sync = createComposerDraftSync({
       api,
       threadId: THREAD_ID,
-      applyRemotePrompt: vi.fn(),
+      applyServerDraft: vi.fn(),
+      serialize,
+      deserialize,
       now: () => "2026-10-09T00:00:07.000Z",
     });
     await sync.start();
-    sync.setLocalPrompt("hel");
-    sync.setLocalPrompt("hello");
+    sync.setLocalDraft({ ...createEmptyThreadDraft(), prompt: "hel" });
+    sync.setLocalDraft({ ...createEmptyThreadDraft(), prompt: "hello" });
     expect(api.setThreadDraft).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(300);
     expect(api.setThreadDraft).toHaveBeenCalledTimes(1);
     expect(api.setThreadDraft).toHaveBeenCalledWith({
       threadId: THREAD_ID,
-      draft: "hello",
+      draft: JSON.stringify({ prompt: "hello" }),
       updatedAt: "2026-10-09T00:00:07.000Z",
     });
-    expect(api.current().draft).toBe("hello");
+    expect(api.current().draft).toBe(JSON.stringify({ prompt: "hello" }));
     sync.stop();
   });
 
   it("does not echo an applied remote draft back to the server", async () => {
     vi.useFakeTimers();
-    const api = makeApi({ draft: "remote", updatedAt: "2026-10-09T00:00:05.000Z" });
-    const applyRemotePrompt = vi.fn();
+    const api = makeApi({
+      draft: JSON.stringify({ prompt: "remote" }),
+      updatedAt: "2026-10-09T00:00:05.000Z",
+    });
+    const applyServerDraft = vi.fn();
     const sync = createComposerDraftSync({
       api,
       threadId: THREAD_ID,
-      applyRemotePrompt,
+      applyServerDraft,
+      serialize,
+      deserialize,
       now: () => "2026-10-09T00:00:08.000Z",
     });
     await sync.start();
-    // The store reports the applied prompt back through setLocalPrompt.
-    sync.setLocalPrompt("remote");
+    sync.setLocalDraft({ ...createEmptyThreadDraft(), prompt: "remote" });
     await vi.advanceTimersByTimeAsync(300);
     expect(api.setThreadDraft).not.toHaveBeenCalled();
     sync.stop();
@@ -111,35 +132,39 @@ describe("createComposerDraftSync", () => {
 
   it("applies another window's push when it is newer", async () => {
     const api = makeApi({ draft: null, updatedAt: null });
-    const applyRemotePrompt = vi.fn();
+    const applyServerDraft = vi.fn();
     const sync = createComposerDraftSync({
       api,
       threadId: THREAD_ID,
-      applyRemotePrompt,
+      applyServerDraft,
+      serialize,
+      deserialize,
       now: () => "2026-10-09T00:00:09.000Z",
     });
     await sync.start();
-    api.setThreadDraft = vi.fn(api.setThreadDraft);
-    // Simulate another window writing a newer draft.
     await api.setThreadDraft({
       threadId: THREAD_ID,
-      draft: "from another window",
+      draft: JSON.stringify({ prompt: "from another window" }),
       updatedAt: "2026-10-09T00:00:20.000Z",
     });
     api.emit(THREAD_ID);
     await vi.waitFor(() => {
-      expect(applyRemotePrompt).toHaveBeenCalledWith("from another window");
+      expect(applyServerDraft).toHaveBeenCalledWith(
+        expect.objectContaining({ prompt: "from another window" }),
+      );
     });
     sync.stop();
   });
 
   it("ignores pushes for other threads and unsubscribes on stop", async () => {
     const api = makeApi({ draft: null, updatedAt: null });
-    const applyRemotePrompt = vi.fn();
+    const applyServerDraft = vi.fn();
     const sync = createComposerDraftSync({
       api,
       threadId: THREAD_ID,
-      applyRemotePrompt,
+      applyServerDraft,
+      serialize,
+      deserialize,
       now: () => "2026-10-09T00:00:09.000Z",
     });
     await sync.start();

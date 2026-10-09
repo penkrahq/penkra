@@ -26,12 +26,10 @@ import {
   toStorageSafePersistedAttachment,
 } from "./composerDraftAttachments";
 import {
-  COMPOSER_DRAFT_STORAGE_VERSION,
   hydratePastedTextsFromPersisted,
   normalizeAssistantSelections,
   normalizeDraftThreadEntryPoint,
   normalizeFileComments,
-  normalizeTerminalContextsForThread,
   projectDraftThreadEntryPointFromKey,
   folderIdFromDraftThreadMappingKey,
   PersistedComposerImageAttachment,
@@ -155,7 +153,7 @@ const PersistedComposerThreadDraftState = Schema.Struct({
   runtimeMode: Schema.optionalKey(RuntimeMode),
 });
 
-type PersistedComposerThreadDraftState = typeof PersistedComposerThreadDraftState.Type;
+export type PersistedComposerThreadDraftState = typeof PersistedComposerThreadDraftState.Type;
 
 const LegacyThreadModelFields = Schema.Struct({
   provider: Schema.optionalKey(ProviderKind),
@@ -757,25 +755,6 @@ function normalizePersistedDraftsByThreadId(
   return nextDraftsByThreadId;
 }
 
-export function migratePersistedComposerDraftStoreState(
-  persistedState: unknown,
-  version?: number,
-): PersistedComposerDraftStoreState {
-  const normalized = normalizeCurrentPersistedComposerDraftStoreState(persistedState);
-  if (version === 6 || (version !== undefined && version > COMPOSER_DRAFT_STORAGE_VERSION)) {
-    return normalized;
-  }
-  // v6 is an intentional clean cut for the composer/thread redesign. Keep only
-  // sticky model preference; every persisted draft and draft-thread mapping is
-  // discarded instead of applying compatibility transforms or field heuristics.
-  return {
-    ...EMPTY_PERSISTED_DRAFT_STORE_STATE,
-    stickyModelSelectionByProvider: normalized.stickyModelSelectionByProvider ?? {},
-    stickyConnectionByProvider: normalized.stickyConnectionByProvider ?? {},
-    stickyActiveProvider: normalized.stickyActiveProvider ?? null,
-  };
-}
-
 export function partializeComposerDraftStoreState(
   state: ComposerDraftStoreState,
 ): PersistedComposerDraftStoreState {
@@ -1136,4 +1115,31 @@ function hydrateFilesFromPersisted(
     // The binary body is hydrated lazily immediately before upload.
     file: new File([], file.name, { type: file.mimeType }),
   }));
+}
+
+/**
+ * Serialize one thread's composer draft for the server (`threads.draft`, TODO
+ * 2.6). The payload is the same `PersistedComposerThreadDraftState` the old
+ * per-window checkpoint used, so text and the unsent attachment/file descriptors
+ * (id, name, mimeType, sizeBytes, assetKey) travel together and every window
+ * renders the same draft.
+ */
+export function serializeComposerThreadDraft(
+  threadId: ThreadId,
+  draft: ComposerThreadDraftState,
+): PersistedComposerThreadDraftState | null {
+  const scopedState = {
+    draftsByThreadId: { [threadId]: draft },
+    draftThreadsByThreadId: {},
+    projectDraftThreadIdByFolderId: {},
+    stickyModelSelectionByProvider: {},
+    stickyConnectionByProvider: {},
+    stickyActiveProvider: null,
+  } as unknown as ComposerDraftStoreState;
+  const persisted = partializeComposerDraftStoreState(scopedState).draftsByThreadId[threadId];
+  if (!persisted) return null;
+  // pendingStartRecovery is window-local send-recovery state that goes away with
+  // the server-side queue (TODO 2.4); never put it on the server draft.
+  const { pendingStartRecoveriesByMessageId: _recovery, ...rest } = persisted;
+  return rest;
 }

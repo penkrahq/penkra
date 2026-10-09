@@ -618,86 +618,6 @@ describe("composerDraftStore sticky composer settings", () => {
     expect(useComposerDraftStore.getState().stickyActiveProvider).toBe("codex");
   });
 
-  it("preserves current sticky model fields during storage-version migration", () => {
-    const persistApi = useComposerDraftStore.persist as unknown as {
-      getOptions: () => {
-        migrate: (persistedState: unknown, version: number) => unknown;
-      };
-    };
-    const migratedState = persistApi.getOptions().migrate(
-      {
-        draftsByThreadId: {},
-        draftThreadsByThreadId: {},
-        projectDraftThreadIdByFolderId: {},
-        stickyModelSelectionByProvider: {
-          claudeAgent: modelSelection("claudeAgent", "claude-opus-4-6", {
-            effort: "max",
-          }),
-        },
-        stickyActiveProvider: "claudeAgent",
-        stickyProvider: "codex",
-        stickyModel: "gpt-5",
-      },
-      4,
-    ) as {
-      stickyModelSelectionByProvider: Partial<Record<ModelSelection["provider"], ModelSelection>>;
-      stickyActiveProvider: ModelSelection["provider"] | null;
-    };
-
-    expect(migratedState.stickyModelSelectionByProvider.claudeAgent).toEqual(
-      modelSelection("claudeAgent", "claude-opus-4-6", {
-        effort: "max",
-      }),
-    );
-    expect(migratedState.stickyActiveProvider).toBe("claudeAgent");
-  });
-
-  it("prunes old drafts and project mappings during the v6 clean-cut migration", () => {
-    const persistApi = useComposerDraftStore.persist as unknown as {
-      getOptions: () => {
-        migrate: (persistedState: unknown, version: number) => unknown;
-      };
-    };
-    const migratedState = persistApi.getOptions().migrate(
-      {
-        draftsByThreadId: {
-          "old-draft": {
-            prompt: "Do not restore this draft",
-            attachments: [],
-          },
-        },
-        draftThreadsByThreadId: {
-          "old-draft": {
-            folderId: "old-project",
-            createdAt: 1,
-          },
-        },
-        projectDraftThreadIdByFolderId: {
-          "old-project::local": "old-draft",
-        },
-        stickyModelSelectionByProvider: {
-          codex: modelSelection("codex", "gpt-5.4"),
-        },
-        stickyActiveProvider: "codex",
-      },
-      5,
-    ) as {
-      draftsByThreadId: Record<string, unknown>;
-      draftThreadsByThreadId: Record<string, unknown>;
-      projectDraftThreadIdByFolderId: Record<string, unknown>;
-      stickyModelSelectionByProvider: Partial<Record<ModelSelection["provider"], ModelSelection>>;
-      stickyActiveProvider: ModelSelection["provider"] | null;
-    };
-
-    expect(migratedState.draftsByThreadId).toEqual({});
-    expect(migratedState.draftThreadsByThreadId).toEqual({});
-    expect(migratedState.projectDraftThreadIdByFolderId).toEqual({});
-    expect(migratedState.stickyModelSelectionByProvider.codex).toEqual(
-      modelSelection("codex", "gpt-5.4"),
-    );
-    expect(migratedState.stickyActiveProvider).toBe("codex");
-  });
-
   it("applies sticky activeProvider to new drafts", () => {
     const store = useComposerDraftStore.getState();
     const threadId = ThreadId.makeUnsafe("thread-sticky-active-provider");
@@ -816,35 +736,6 @@ describe("composerDraftStore sticky composer settings", () => {
     // The sticky snapshot only carries options that are safe to inherit.
     expect(state.stickyModelSelectionByProvider.claudeAgent).toEqual(
       modelSelection("claudeAgent", "claude-opus-4-7", { effort: "xhigh" }),
-    );
-  });
-
-  it("sanitizes a persisted sticky Claude context window during hydration", () => {
-    const persistApi = useComposerDraftStore.persist as unknown as {
-      getOptions: () => {
-        merge: (persistedState: unknown, currentState: unknown) => unknown;
-      };
-    };
-    const merged = persistApi.getOptions().merge(
-      {
-        draftsByThreadId: {},
-        draftThreadsByThreadId: {},
-        projectDraftThreadIdByFolderId: {},
-        stickyModelSelectionByProvider: {
-          claudeAgent: modelSelection("claudeAgent", "claude-opus-4-6", {
-            effort: "max",
-            contextWindow: "1m",
-          }),
-        },
-        stickyActiveProvider: "claudeAgent",
-      },
-      useComposerDraftStore.getState(),
-    ) as {
-      stickyModelSelectionByProvider: Partial<Record<ModelSelection["provider"], ModelSelection>>;
-    };
-
-    expect(merged.stickyModelSelectionByProvider.claudeAgent).toEqual(
-      modelSelection("claudeAgent", "claude-opus-4-6", { effort: "max" }),
     );
   });
 });

@@ -1354,6 +1354,12 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
   if (tag === WS_METHODS.serverGetConfig) {
     return fixture.serverConfig;
   }
+  if (tag === WS_METHODS.cleanCoreGetThreadDraft) {
+    return { draft: null, draftUpdatedAt: null };
+  }
+  if (tag === WS_METHODS.cleanCoreSetThreadDraft) {
+    return { draft: body.draft ?? null, draftUpdatedAt: body.updatedAt ?? null };
+  }
   if (tag === WS_METHODS.providerGetConnections) {
     return {
       connections: [
@@ -2369,7 +2375,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       for (const kind of [
         "transcript-commit",
         "transcript-work-log",
-        "transcript-strip-work-log",
         "transcript-agent-activity",
         "transcript-timeline",
         "transcript-rows",
@@ -5316,131 +5321,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("clears a captured recovery and restores once when staging fails before start RPC", async () => {
-    const base = createSnapshotForTargetUser({
-      targetMessageId: "msg-user-pre-dispatch-attachment-failure" as MessageId,
-      targetText: "unused bootstrap",
-    });
-    const snapshot: OrchestrationReadModel = {
-      ...base,
-      threads: base.threads.map((thread) => ({
-        ...thread,
-        messages: [],
-        activities: [],
-        latestTurn: null,
-        session: null,
-      })),
-    };
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot,
-    });
-    const restoreNativeApi = installDeterministicSendNativeApi();
-    const originalSetItem = Storage.prototype.setItem;
-    let recoveryCheckpointSeen = false;
-    let terminalSettlementSeen: "failed" | "restored" | null = null;
-    let clearCheckpoint: string | null = null;
-    const setItemSpy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
-      this: Storage,
-      name: string,
-      value: string,
-    ) {
-      if (name === COMPOSER_DRAFT_STORAGE_KEY) {
-        try {
-          const parsed = JSON.parse(value) as {
-            state?: {
-              draftsByThreadId?: Record<
-                string,
-                {
-                  pendingStartRecoveriesByMessageId?: Record<string, { settlement?: string }>;
-                }
-              >;
-            };
-          };
-          if (!recoveryCheckpointSeen) {
-            recoveryCheckpointSeen = Object.values(
-              parsed.state?.draftsByThreadId?.[THREAD_ID]?.pendingStartRecoveriesByMessageId ?? {},
-            ).some((record) => record?.settlement === "unresolved");
-          }
-          const recoveries =
-            parsed.state?.draftsByThreadId?.[THREAD_ID]?.pendingStartRecoveriesByMessageId ?? {};
-          const terminalSettlement = Object.values(recoveries).find(
-            (record): record is { settlement: "failed" | "restored" } =>
-              record?.settlement === "failed" || record?.settlement === "restored",
-          )?.settlement;
-          if (terminalSettlement) {
-            terminalSettlementSeen = terminalSettlement;
-          } else if (
-            terminalSettlementSeen &&
-            clearCheckpoint === null &&
-            Object.keys(recoveries).length === 0
-          ) {
-            clearCheckpoint = value;
-          }
-        } catch {
-          // The production storage path owns parsing validation; this spy only observes.
-        }
-      }
-      return originalSetItem.call(this, name, value);
-    });
-    try {
-      const prompt = "restore exactly once after pre-dispatch staging failure";
-      const image = createComposerImage({
-        id: "pre-dispatch-failure-image",
-        previewUrl: "blob:pre-dispatch-failure-image",
-        name: "pre-dispatch-failure.png",
-      });
-      useComposerDraftStore.getState().setPrompt(THREAD_ID, prompt);
-      useComposerDraftStore.getState().addImage(THREAD_ID, image);
-      attachmentUploadFailureStatus = 503;
-      (await waitForSendButton()).click();
-      await vi.waitFor(() =>
-        expect(document.body.textContent).toContain("controlled pre-dispatch attachment failure"),
-      );
-      await vi.waitFor(() => {
-        const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
-        expect(draft?.prompt).toBe(prompt);
-        expect(draft?.images).toEqual([expect.objectContaining({ id: image.id })]);
-        expect(draft?.pendingStartRecoveriesByMessageId).toEqual({});
-      });
-      expect(recoveryCheckpointSeen).toBe(true);
-      expect(terminalSettlementSeen).toBe("restored");
-      expect(clearCheckpoint).not.toBeNull();
-      expect(document.querySelector("[data-message-id]")).toBeNull();
-      const acknowledgedClearState = JSON.parse(clearCheckpoint!) as {
-        state?: {
-          draftsByThreadId?: Record<string, { attachments?: Array<{ id?: string }> }>;
-        };
-      };
-      expect(acknowledgedClearState.state?.draftsByThreadId?.[THREAD_ID]?.attachments).toEqual([
-        expect.objectContaining({ id: image.id }),
-      ]);
-      expect(
-        wsRequests
-          .map(readDispatchedCommand)
-          .filter((command) => command?.type === "thread.turn.start"),
-      ).toHaveLength(0);
-
-      // Replay the exact acknowledged clear checkpoint as a renderer reload.
-      // This is intentionally before any new user action: it models a crash
-      // after clear and before the later in-memory generic restoration.
-      await useComposerDraftStore.persist.clearStorage();
-      localStorage.setItem(COMPOSER_DRAFT_STORAGE_KEY, clearCheckpoint!);
-      useComposerDraftStore.setState((state) => ({
-        ...state,
-        draftsByThreadId: {},
-      }));
-      await useComposerDraftStore.persist.rehydrate();
-      const rehydratedDraft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
-      expect(rehydratedDraft?.prompt).toBe(prompt);
-      expect(rehydratedDraft?.images).toEqual([expect.objectContaining({ id: image.id })]);
-    } finally {
-      attachmentUploadFailureStatus = null;
-      setItemSpy.mockRestore();
-      await mounted.cleanup();
-      restoreNativeApi();
-    }
-  });
 
   it("revalidates an admitted owner after missed push and ChatView remount", async () => {
     const nativeApi = readNativeApi();
@@ -6455,152 +6335,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("retries a failed serialized recovery through ChatView after a rejected journal write", async () => {
-    const nativeApi = readNativeApi();
-    if (!nativeApi) throw new Error("Expected browser native API fixture.");
-    const previousNativeApi = window.nativeApi;
-    const messageId = "message-hydrated-failed-retry" as MessageId;
-    const pendingTurn = {
-      id: messageId,
-      kind: "chat" as const,
-      createdAt: NOW_ISO,
-      previewText: "failed serialized recovery",
-      prompt: "failed serialized recovery",
-      images: [],
-      files: [],
-      assistantSelections: [],
-      terminalContexts: [],
-      fileComments: [],
-      pastedTexts: [],
-      skills: [],
-      mentions: [],
-      selectedProvider: "codex" as const,
-      selectedModel: "gpt-5",
-      selectedPromptEffort: null,
-      modelSelection: { provider: "codex" as const, model: "gpt-5" },
-      connectionId: TEST_CONNECTION_ID,
-      runtimeMode: "full-access" as const,
-      messageId,
-    };
-    useComposerDraftStore.getState().setPrompt(THREAD_ID, "newer failure draft");
-    expect(
-      useComposerDraftStore.getState().capturePendingStartRecovery(THREAD_ID, {
-        schemaVersion: 1,
-        threadId: THREAD_ID,
-        messageId,
-        pendingTurn,
-        settlement: "unresolved",
-      }),
-    ).toBe(true);
-    const serialized = JSON.stringify({
-      state: partializeComposerDraftStoreState(useComposerDraftStore.getState()),
-      version: COMPOSER_DRAFT_STORAGE_VERSION,
-    });
-    // Seed the actual persist boundary, clear the deferred write captured by
-    // the pre-reload setup, then rehydrate the store before ChatView mounts.
-    // This exercises the serialized schema/migration path rather than merely
-    // replacing the in-memory registry or draft object.
-    useComposerDraftStore.setState((state) => ({
-      ...state,
-      draftsByThreadId: {},
-    }));
-    await useComposerDraftStore.persist.clearStorage();
-    localStorage.setItem(COMPOSER_DRAFT_STORAGE_KEY, serialized);
-    await useComposerDraftStore.persist.rehydrate();
-    expect(
-      useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]
-        ?.pendingStartRecoveriesByMessageId?.[messageId],
-    ).toMatchObject({ settlement: "unresolved" });
-
-    let lookupCount = 0;
-    let authoritativeOutcome: "unknown" | "failed" = "unknown";
-    let failNextWrite = false;
-    let recoveryWriteAttempts = 0;
-    let recoveryWriteFailures = 0;
-    const writeFailure = new Error("controlled recovery journal rejection");
-    const originalSetItem = Storage.prototype.setItem;
-    const setItemSpy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
-      this: Storage,
-      name: string,
-      value: string,
-    ) {
-      if (name === COMPOSER_DRAFT_STORAGE_KEY) recoveryWriteAttempts += 1;
-      if (name === COMPOSER_DRAFT_STORAGE_KEY && failNextWrite) {
-        failNextWrite = false;
-        recoveryWriteFailures += 1;
-        throw writeFailure;
-      }
-      return originalSetItem.call(this, name, value);
-    });
-    Object.defineProperty(window, "nativeApi", {
-      configurable: true,
-      value: {
-        ...nativeApi,
-        orchestration: {
-          ...nativeApi.orchestration,
-          getPendingStartOutcome: async ({
-            threadId,
-            messageId: requestedMessageId,
-            minimumSequence,
-          }: Parameters<typeof nativeApi.orchestration.getPendingStartOutcome>[0]) => {
-            lookupCount += 1;
-            return {
-              threadId,
-              messageId: requestedMessageId,
-              snapshotSequence: minimumSequence + 1,
-              threadExists: true,
-              outcome: authoritativeOutcome,
-            };
-          },
-        },
-      },
-    });
-    let mounted: MountedChatView | undefined;
-    try {
-      mounted = await mountChatView({
-        viewport: DEFAULT_VIEWPORT,
-        snapshot: createSnapshotForTargetUser({
-          targetMessageId: "msg-hydrated-failed-retry" as MessageId,
-          targetText: "hydrated failed retry target",
-        }),
-      });
-      await vi.waitFor(() => expect(lookupCount).toBeGreaterThan(0));
-      expect(
-        useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]
-          ?.pendingStartRecoveriesByMessageId?.[messageId],
-      ).toMatchObject({ settlement: "unresolved" });
-      failNextWrite = true;
-      authoritativeOutcome = "failed";
-      useStore.getState().syncServerReadModel({
-        ...fixture.snapshot,
-        snapshotSequence: fixture.snapshot.snapshotSequence + 3,
-      });
-      await vi.waitFor(() => {
-        expect(lookupCount).toBeGreaterThan(1);
-        expect(recoveryWriteFailures).toBeGreaterThan(0);
-        expect(recoveryWriteAttempts).toBeGreaterThan(recoveryWriteFailures);
-        expect(
-          useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]
-            ?.pendingStartRecoveriesByMessageId?.[messageId],
-        ).toBeUndefined();
-        expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
-          "newer failure draft",
-        );
-      });
-      expect(
-        wsRequests
-          .map(readDispatchedCommand)
-          .filter((command) => command?.type === "thread.turn.start"),
-      ).toHaveLength(0);
-    } finally {
-      setItemSpy.mockRestore();
-      await mounted?.cleanup();
-      Object.defineProperty(window, "nativeApi", {
-        configurable: true,
-        value: previousNativeApi,
-      });
-    }
-  });
 
   it.each([
     { provider: "codex", model: "gpt-5" },

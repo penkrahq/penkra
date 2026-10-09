@@ -701,6 +701,18 @@ export const createComposerDraftStoreState =
         return { draftsByThreadId: nextDraftsByThreadId };
       });
     },
+    applyServerThreadDraft: (threadId, draft) => {
+      if (threadId.length === 0) return;
+      set((state) => {
+        const nextDraftsByThreadId = { ...state.draftsByThreadId };
+        if (shouldRemoveDraft(draft)) {
+          delete nextDraftsByThreadId[threadId];
+        } else {
+          nextDraftsByThreadId[threadId] = draft;
+        }
+        return { draftsByThreadId: nextDraftsByThreadId };
+      });
+    },
     applyVoiceTranscript: (threadId, jobId, transcript) => {
       if (threadId.length === 0 || jobId.length === 0) return null;
       const normalizedTranscript = transcript.trim();
