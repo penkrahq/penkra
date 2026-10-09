@@ -46,3 +46,28 @@ Notes for the step-4 drop migration:
 Verified counts (read-only Production, 2026-10-09): 576 `projection_threads`, 42 stuck running
 unbound `projection_turns` across 24 threads (14 not deleted), 820,000 `orchestration_command_receipts`,
 767,001 `orchestration_events`.
+
+## Step 4 addendum — tool coverage and mapping decisions (2026-10-09)
+
+Operator decisions, written into TODO.md 3/4.1/6 in the same commit as the migration change:
+
+- (a) Old read path: `thread_activities_read` (migration 161) rendered
+  `projection_thread_activities` UNION `operations` UNION `notices`, deduping an activity against an
+  operation only when `operations.provider_operation_id = json_extract(payload_json,'$.operationId')`
+  (that key is absent in the data, so no dedupe). The web grouped rows by
+  `data.toolCallId ?? data.toolUseId ?? data.callID ?? data.callId ?? data.item.id`
+  (`apps/web/src/workLog.ts:1884`).
+- (b) Rehearsal copy: 88 threads have tool activities only, 434 operations only, 9 both. With the
+  web identity, activities and operations are **disjoint** — 115,868 activity ids, 385,410 operation
+  ids, **0 shared**, no turn contains both. They are different tool calls, so the migration emits
+  both (one item per operation, one item per activity identity). No cross-source dedupe.
+- The operator's original key (`$.operationId`) does not exist; my first coverage count was wrong and
+  was corrected before implementing.
+- (1) notice kinds now also include `runtime.error` (text `payload.message`) and
+  `provider.turn.start.failed` (text `payload.detail`); `connection-changed`/`model-changed` dropped.
+- (4) model/provider from `model_selection_json`; `thread_runtime_bindings` dropped.
+- (5) `space_id` from the thread's folder.
+- (6) `provider_session_id` = provider-native resume id (codex `$.threadId`, claude `$.resume`,
+  opencode `$.openCodeSessionId`; adapters `CodexAdapter.ts:1904`, `ClaudeAdapter.ts:788,1937`,
+  `OpenCodeAdapter.ts:943`).
+- (7) done criterion: migrated thread count == source count at migration time.
