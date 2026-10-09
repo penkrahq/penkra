@@ -43,13 +43,24 @@ export const sendMessage = (publisher: ThreadPublisher, input: SendMessageInput)
     if (plan === "queue") {
       yield* enqueueMessage(input.threadId, input.message);
     } else {
+      const data =
+        input.message.senderThreadId !== undefined || input.message.dispatchOrigin !== undefined
+          ? JSON.stringify({
+              ...(input.message.senderThreadId !== undefined
+                ? { senderThreadId: input.message.senderThreadId }
+                : {}),
+              ...(input.message.dispatchOrigin !== undefined
+                ? { dispatchOrigin: input.message.dispatchOrigin }
+                : {}),
+            })
+          : null;
       yield* upsertThreadItem({
         threadId: input.threadId,
         sourceId: input.message.sourceId,
         kind: "user",
         status: "sent",
         text: input.message.text,
-        data: null,
+        data,
         createdAt: input.message.at,
         updatedAt: input.message.at,
       });
