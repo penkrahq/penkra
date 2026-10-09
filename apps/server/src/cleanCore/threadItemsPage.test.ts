@@ -1,0 +1,56 @@
+import { assert, it } from "@effect/vitest";
+import { Effect } from "effect";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
+
+import { listThreadItemsPage } from "./threadItemsPage.ts";
+import { createThread, upsertThreadItem } from "./threadStore.ts";
+import { runMigrations } from "../persistence/Migrations.ts";
+import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
+
+const withDb = <A, E>(effect: Effect.Effect<A, E, SqlClient.SqlClient>) =>
+  effect.pipe(Effect.provide(NodeSqliteClient.layerMemory()));
+
+const baseThread = {
+  id: "thread-1",
+  spaceId: "space-1",
+  title: "Hello",
+  provider: "codex",
+  model: "gpt-5.5",
+  createdAt: "2026-10-09T00:00:00.000Z",
+};
+
+it.effect("reads the newest 50 items, then pages older by seq cursor", () =>
+  withDb(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations();
+      yield* createThread(baseThread);
+      yield* Effect.forEach(
+        Array.from({ length: 60 }, (_, i) => i + 1),
+        (n) =>
+          upsertThreadItem({
+            threadId: "thread-1",
+            sourceId: `m-${String(n).padStart(3, "0")}`,
+            kind: "text",
+            status: "done",
+            text: `item ${n}`,
+            createdAt: `2026-10-09T00:00:${String(n % 60).padStart(2, "0")}.000Z`,
+            updatedAt: "2026-10-09T00:00:00.000Z",
+          }),
+        { discard: true },
+      );
+
+      const first = yield* listThreadItemsPage({ threadId: "thread-1" });
+      assert.equal(first.items.length, 50);
+      assert.equal(first.items[0]?.seq, 60);
+      assert.equal(first.items.at(-1)?.seq, 11);
+      assert.equal(first.nextCursor, 11);
+
+      const second = yield* listThreadItemsPage({ threadId: "thread-1", beforeSeq: 11 });
+      assert.equal(second.items.length, 10);
+      assert.equal(second.items[0]?.seq, 10);
+      assert.equal(second.items.at(-1)?.seq, 1);
+      assert.isNull(second.nextCursor);
+    }),
+  ),
+);
