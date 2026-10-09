@@ -9,6 +9,7 @@ import {
   setThreadArchived,
   upsertThreadItem,
 } from "./threadStore.ts";
+import { THREAD_ITEM_DATA_LIMIT_BYTES } from "./threadItemData.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
 
@@ -122,6 +123,37 @@ it.effect("archive and answer are plain idempotent updates", () =>
         SELECT status, data FROM thread_items WHERE source_id = 'question:req-1'
       `;
       assert.deepStrictEqual(items, [{ status: "answered", data: '{"answer":"A"}' }]);
+    }),
+  ),
+);
+
+it.effect("caps oversized item data at the shared 64 KB limit", () =>
+  withDb(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations();
+      yield* createThread(baseThread);
+      const big = "y".repeat(THREAD_ITEM_DATA_LIMIT_BYTES + 5);
+      yield* upsertThreadItem({
+        threadId: "thread-1",
+        sourceId: "tool-big",
+        kind: "tool",
+        status: "done",
+        data: big,
+        createdAt: "2026-10-09T00:00:01.000Z",
+        updatedAt: "2026-10-09T00:00:01.000Z",
+      });
+      const rows = yield* sql<{ readonly data: string }>`
+        SELECT data FROM thread_items WHERE source_id = 'tool-big'
+      `;
+      const parsed = JSON.parse(rows[0]!.data) as {
+        readonly truncated: boolean;
+        readonly originalBytes: number;
+        readonly preview: string;
+      };
+      assert.equal(parsed.truncated, true);
+      assert.equal(parsed.originalBytes, big.length);
+      assert.equal(parsed.preview.length, THREAD_ITEM_DATA_LIMIT_BYTES);
     }),
   ),
 );

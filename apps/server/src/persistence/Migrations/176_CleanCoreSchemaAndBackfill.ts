@@ -1,6 +1,8 @@
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
+import { THREAD_ITEM_DATA_LIMIT_BYTES } from "../../cleanCore/threadItemData.ts";
+
 /**
  * Clean-core schema and Production backfill (0.14.4).
  *
@@ -24,8 +26,6 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
  *   activities (context window, rate limits, reconciliation, turn task
  *   summaries) and every approval are not transcript items and are dropped.
  */
-const DATA_LIMIT_BYTES = 64 * 1024;
-
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
 
@@ -227,11 +227,11 @@ export default Effect.gen(function* () {
         ELSE COALESCE(o.title, json_extract(o.activity_json, '$.summary'), o.item_type)
       END,
       CASE
-        WHEN length(o.activity_json) <= ${DATA_LIMIT_BYTES} THEN o.activity_json
+        WHEN length(o.activity_json) <= ${THREAD_ITEM_DATA_LIMIT_BYTES} THEN o.activity_json
         ELSE json_object(
           'truncated', json('true'),
           'originalBytes', length(o.activity_json),
-          'preview', substr(o.activity_json, 1, ${DATA_LIMIT_BYTES})
+          'preview', substr(o.activity_json, 1, ${THREAD_ITEM_DATA_LIMIT_BYTES})
         )
       END,
       o.started_at,

@@ -8,6 +8,8 @@
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
+import { capThreadItemData } from "./threadItemData.ts";
+
 export type ThreadItemKind = "user" | "text" | "reasoning" | "tool" | "question" | "notice";
 
 export interface ThreadItemInput {
@@ -66,6 +68,7 @@ export const makeThreadPublisher = (): ThreadPublisher => {
 export const upsertThreadItem = (input: ThreadItemInput) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
+    const data = capThreadItemData(input.data ?? null);
     yield* sql`
       INSERT INTO thread_items (
         thread_id, seq, source_id, turn_id, kind, status, text, data, created_at, updated_at
@@ -73,7 +76,7 @@ export const upsertThreadItem = (input: ThreadItemInput) =>
         ${input.threadId},
         (SELECT COALESCE(MAX(seq), 0) + 1 FROM thread_items WHERE thread_id = ${input.threadId}),
         ${input.sourceId}, ${input.turnId ?? null}, ${input.kind}, ${input.status},
-        ${input.text ?? null}, ${input.data ?? null}, ${input.createdAt}, ${input.updatedAt}
+        ${input.text ?? null}, ${data}, ${input.createdAt}, ${input.updatedAt}
       )
       ON CONFLICT (thread_id, source_id) DO UPDATE SET
         status = excluded.status,
