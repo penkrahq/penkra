@@ -2,6 +2,7 @@ import { Schema, Struct } from "effect";
 import { NonNegativeInt, FolderId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas";
 import {
   CLEAN_CORE_WS_CHANNELS,
+  CleanCoreAnswerThreadQuestionInput,
   CleanCoreGetThreadDraftInput,
   CleanCoreListThreadItemsPageInput,
   CleanCoreSetThreadDraftInput,
@@ -131,6 +132,7 @@ export const WS_METHODS = {
   cleanCoreGetThreadDraft: "cleanCore.getThreadDraft",
   cleanCoreSetThreadDraft: "cleanCore.setThreadDraft",
   cleanCoreSubscribeThread: "cleanCore.subscribeThread",
+  cleanCoreAnswerThreadQuestion: "cleanCore.answerThreadQuestion",
 
   // Server meta
   serverGetConfig: "server.getConfig",
@@ -271,6 +273,7 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.cleanCoreGetThreadDraft, CleanCoreGetThreadDraftInput),
   tagRequestBody(WS_METHODS.cleanCoreSetThreadDraft, CleanCoreSetThreadDraftInput),
   tagRequestBody(WS_METHODS.cleanCoreSubscribeThread, CleanCoreSubscribeThreadInput),
+  tagRequestBody(WS_METHODS.cleanCoreAnswerThreadQuestion, CleanCoreAnswerThreadQuestionInput),
   tagRequestBody(WS_METHODS.serverGetEnvironment, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverGetSettings, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverUpdateSettings, ServerUpdateSettingsInput),

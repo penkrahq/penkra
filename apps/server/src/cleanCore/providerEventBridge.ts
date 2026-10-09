@@ -8,7 +8,9 @@
 
 import type { ProviderRuntimeEvent } from "@penkra/contracts";
 
+import { projectProviderRuntimeActivities } from "../orchestration/providerRuntimeActivityProjection.ts";
 import type { CleanCoreProviderEvent } from "./providerStreamConsumer.ts";
+import { threadItemActivityData } from "./threadItemData.ts";
 import type { ThreadItemKind } from "./threadStore.ts";
 
 const NON_TOOL_NOTICE_TYPES = new Set([
@@ -56,9 +58,25 @@ function itemSourceId(event: ProviderRuntimeEvent, data: unknown): string {
   return event.itemId ?? (typeof itemId === "string" && itemId.length > 0 ? itemId : event.eventId);
 }
 
-function itemData(payload: { input?: unknown; data?: unknown }): string | null {
-  if (payload.input === undefined && payload.data === undefined) return null;
-  return JSON.stringify({ input: payload.input ?? null, data: payload.data ?? null });
+/**
+ * One bounded copy of the canonical activity record for a tool/notice item.
+ * Reuses the same projection the orchestration read model rendered, so the
+ * clean-core transcript shows exactly what the old timeline showed. Notices the
+ * projection does not cover fall back to a synthesized record.
+ */
+function activityItemData(
+  event: ProviderRuntimeEvent,
+  fallback: { readonly kind: string; readonly summary: string; readonly payload: unknown },
+): string {
+  const activity = projectProviderRuntimeActivities(event)[0];
+  return threadItemActivityData(
+    activity ?? {
+      tone: "info",
+      kind: fallback.kind,
+      summary: fallback.summary,
+      payload: fallback.payload,
+    },
+  );
 }
 
 /**
@@ -128,7 +146,14 @@ export function toCleanCoreProviderEvents(
             kind,
             status: itemStatus(kind, payload.status),
             text: payload.detail ?? payload.title ?? null,
-            data: itemData(payload),
+            data:
+              kind === "tool" || kind === "notice"
+                ? activityItemData(event, {
+                    kind: payload.itemType,
+                    summary: payload.title ?? payload.detail ?? payload.itemType,
+                    payload: { detail: payload.detail ?? null },
+                  })
+                : null,
             createdAt: event.createdAt,
             updatedAt: event.createdAt,
           },
@@ -203,7 +228,11 @@ export function toCleanCoreProviderEvents(
             kind: "notice",
             status: "done",
             text: event.payload.message,
-            data: null,
+            data: activityItemData(event, {
+              kind: event.type,
+              summary: event.payload.message,
+              payload: { message: event.payload.message },
+            }),
             createdAt: event.createdAt,
             updatedAt: event.createdAt,
           },

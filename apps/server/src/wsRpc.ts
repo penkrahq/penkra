@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { childDiagnosticSpan, startDiagnosticTrace } from "@penkra/shared/traceContext";
 
 import {
+  ApprovalRequestId,
   CommandId,
   DEFAULT_TERMINAL_ID,
   ORCHESTRATION_WS_METHODS,
@@ -1471,6 +1472,18 @@ const makeWsRpcHandlersLayer = () =>
           ),
         [WS_METHODS.cleanCoreSubscribeThread]: (input) =>
           threadChangeStream(threadPublisher, input.threadId),
+        [WS_METHODS.cleanCoreAnswerThreadQuestion]: (input) =>
+          rpcEffect(
+            providerService.respondToUserInput({
+              threadId: input.threadId,
+              requestId: ApprovalRequestId.makeUnsafe(input.requestId),
+              ...(input.lifecycleGeneration !== undefined
+                ? { lifecycleGeneration: input.lifecycleGeneration }
+                : {}),
+              answers: input.answers,
+            }),
+            "Failed to answer the thread question",
+          ),
 
         [WS_METHODS.serverGetEnvironment]: () =>
           rpcEffect(serverEnvironment.getDescriptor, "Failed to load server environment"),

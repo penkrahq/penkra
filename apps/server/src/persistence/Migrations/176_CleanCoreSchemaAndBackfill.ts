@@ -164,7 +164,9 @@ export default Effect.gen(function* () {
 
   // Tool rows from both sources, keyed by one identity so a call present in
   // both sources collapses to a single item. `priority` breaks a same-time tie
-  // in favour of the canonical `operations` row.
+  // in favour of the canonical `operations` row. Every row's `data` is the one
+  // canonical activity record {tone,kind,summary,payload} that the live bridge
+  // (threadItemData.threadItemActivityData) also writes, so the two cannot drift.
   yield* sql`DROP TABLE IF EXISTS temp.clean_core_tool_rows`;
   yield* sql`
     CREATE TEMP TABLE clean_core_tool_rows (
@@ -251,6 +253,12 @@ export default Effect.gen(function* () {
         ELSE COALESCE(o.title, json_extract(o.activity_json, '$.summary'), o.item_type)
       END,
       CASE
+        WHEN json_valid(o.activity_json) THEN json_object(
+          'tone', json_extract(o.activity_json, '$.tone'),
+          'kind', json_extract(o.activity_json, '$.kind'),
+          'summary', json_extract(o.activity_json, '$.summary'),
+          'payload', json(COALESCE(json_extract(o.activity_json, '$.payload'), 'null'))
+        )
         WHEN length(o.activity_json) <= ${THREAD_ITEM_DATA_LIMIT_BYTES} THEN o.activity_json
         ELSE json_object(
           'truncated', json('true'),
@@ -308,14 +316,19 @@ export default Effect.gen(function* () {
           a.summary
         )
       END,
-      CASE
-        WHEN length(a.payload_json) <= ${THREAD_ITEM_DATA_LIMIT_BYTES} THEN a.payload_json
-        ELSE json_object(
-          'truncated', json('true'),
-          'originalBytes', length(a.payload_json),
-          'preview', substr(a.payload_json, 1, ${THREAD_ITEM_DATA_LIMIT_BYTES})
-        )
-      END,
+      json_object(
+        'tone', a.tone,
+        'kind', a.kind,
+        'summary', a.summary,
+        'payload', json(CASE
+          WHEN length(a.payload_json) <= ${THREAD_ITEM_DATA_LIMIT_BYTES} THEN a.payload_json
+          ELSE json_object(
+            'truncated', json('true'),
+            'originalBytes', length(a.payload_json),
+            'preview', substr(a.payload_json, 1, ${THREAD_ITEM_DATA_LIMIT_BYTES})
+          )
+        END)
+      ),
       a.created_at,
       a.created_at
     FROM projection_thread_activities a
@@ -363,7 +376,12 @@ export default Effect.gen(function* () {
           COALESCE(json_extract(a.payload_json, '$.detail'), a.summary)
         ELSE a.summary
       END,
-      a.payload_json,
+      json_object(
+        'tone', a.tone,
+        'kind', a.kind,
+        'summary', a.summary,
+        'payload', json(a.payload_json)
+      ),
       a.created_at,
       a.created_at
     FROM projection_thread_activities a
@@ -386,7 +404,12 @@ export default Effect.gen(function* () {
       'notice',
       'done',
       n.summary,
-      n.detail_json,
+      json_object(
+        'tone', n.tone,
+        'kind', n.kind,
+        'summary', n.summary,
+        'payload', json(n.detail_json)
+      ),
       n.created_at,
       n.created_at
     FROM notices n
@@ -411,7 +434,18 @@ export default Effect.gen(function* () {
           ORDER BY a.created_at DESC, a.activity_id DESC LIMIT 1),
         'Question'
       ),
-      json_object('requestId', p.request_id, 'decision', p.decision),
+      json_object(
+        'requestId', p.request_id,
+        'decision', p.decision,
+        'questions', json(COALESCE(
+          (SELECT json_extract(a.payload_json, '$.questions')
+            FROM projection_thread_activities a
+            WHERE a.thread_id = p.thread_id
+              AND json_extract(a.payload_json, '$.requestId') = p.request_id
+            ORDER BY a.created_at DESC, a.activity_id DESC LIMIT 1),
+          '[]'
+        ))
+      ),
       p.created_at,
       COALESCE(p.resolved_at, p.created_at)
     FROM projection_pending_interactions p
