@@ -623,14 +623,16 @@ export function readCodexAccountSnapshot(response: unknown): CodexAccountSnapsho
 export const CODEX_DEVELOPER_INSTRUCTIONS = PENKRA_HOST_POLICY;
 
 // Maps Penkra's simple runtime toggle to Codex thread-level permission overrides.
-function mapCodexRuntimeMode(runtimeMode: RuntimeMode): {
+export function mapCodexRuntimeMode(runtimeMode: RuntimeMode): {
   readonly approvalPolicy: CodexApprovalPolicy;
   readonly sandbox: CodexSandboxMode;
 } {
   switch (runtimeMode) {
     case "approval-required":
       return {
-        approvalPolicy: "untrusted",
+        // 0.14.4: approvals are removed, so never prompt. The mode still
+        // restricts the sandbox.
+        approvalPolicy: "never",
         sandbox: "read-only",
       };
     case "full-access":
@@ -643,14 +645,15 @@ function mapCodexRuntimeMode(runtimeMode: RuntimeMode): {
 }
 
 // turn/start uses sandboxPolicy objects, so keep this separate from thread/start.
-function mapCodexRuntimeModeToTurnOverrides(runtimeMode: RuntimeMode): {
+export function mapCodexRuntimeModeToTurnOverrides(runtimeMode: RuntimeMode): {
   readonly approvalPolicy: CodexApprovalPolicy;
   readonly sandboxPolicy: CodexTurnSandboxPolicy;
 } {
   switch (runtimeMode) {
     case "approval-required":
       return {
-        approvalPolicy: "untrusted",
+        // 0.14.4: approvals are removed, so never prompt.
+        approvalPolicy: "never",
         sandboxPolicy: { type: "readOnly" },
       };
     case "full-access":
