@@ -1148,36 +1148,46 @@ export interface ComposerDraftServerPayload {
 /**
  * Serialize one thread's composer draft for the server (`threads.draft`, TODO
  * 2.6): the draft text, the unsent attachment/file ids, and the per-thread model
- * selection and runtime mode (no other home).
+ * selection and runtime mode.
+ *
+ * The draft's model selection is the user's *pending* choice for this thread's
+ * next send; the committed selection lives on `threads.model`. That pending
+ * choice has no other home once the per-window draft storage is gone, so it
+ * rides in the draft (as does `runtimeMode`); every other composer field is
+ * window-local and is not carried.
  */
 export function serializeComposerThreadDraft(
-  threadId: ThreadId,
   draft: ComposerThreadDraftState,
 ): ComposerDraftServerPayload | null {
-  const scopedState = {
-    draftsByThreadId: { [threadId]: draft },
-    draftThreadsByThreadId: {},
-    projectDraftThreadIdByFolderId: {},
-    stickyModelSelectionByProvider: {},
-    stickyConnectionByProvider: {},
-    stickyActiveProvider: null,
-  } as unknown as ComposerDraftStoreState;
-  const persisted = partializeComposerDraftStoreState(scopedState).draftsByThreadId[threadId];
-  if (!persisted) return null;
   const toReference = (entry: { id: string; name: string; mimeType: string }) => ({
     id: entry.id,
     name: entry.name,
     mimeType: entry.mimeType,
   });
+  const attachments = draft.persistedAttachments.map(toReference);
+  const files = draft.files.flatMap((file) => (file.assetKey ? [toReference(file)] : []));
+  const hasModelData =
+    Object.keys(draft.modelSelectionByProvider).length > 0 || draft.activeProvider !== null;
+  if (
+    draft.prompt.length === 0 &&
+    attachments.length === 0 &&
+    files.length === 0 &&
+    !hasModelData &&
+    draft.runtimeMode === null
+  ) {
+    return null;
+  }
   return {
-    prompt: persisted.prompt,
-    attachments: persisted.attachments.map(toReference),
-    files: (persisted.files ?? []).map(toReference),
-    ...(persisted.modelSelectionByProvider
-      ? { modelSelectionByProvider: persisted.modelSelectionByProvider }
+    prompt: draft.prompt,
+    attachments,
+    files,
+    ...(hasModelData
+      ? {
+          modelSelectionByProvider: draft.modelSelectionByProvider,
+          activeProvider: draft.activeProvider,
+        }
       : {}),
-    ...(persisted.activeProvider !== undefined ? { activeProvider: persisted.activeProvider } : {}),
-    ...(persisted.runtimeMode ? { runtimeMode: persisted.runtimeMode } : {}),
+    ...(draft.runtimeMode ? { runtimeMode: draft.runtimeMode } : {}),
   };
 }
 

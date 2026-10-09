@@ -260,6 +260,8 @@ import { isTerminalFocused } from "../lib/terminalFocus";
 import { toAttachmentPreviewUrl } from "../lib/wsHttpUrl";
 import { isEditableEventTarget } from "../lib/editableEventTarget";
 import { useComposerDraftSync } from "../composerDraftSync";
+import { useThreadItems } from "../useThreadItems";
+import { threadItemsToTimelineEntries } from "./chat/threadItemMappers";
 import {
   type ComposerFileAttachment,
   type ComposerImageAttachment,
@@ -1937,6 +1939,10 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     composerEditorRef.current?.clear();
   }, [cancelPendingPromptPersistence, isServerThread, prompt]);
   const activeThreadId = activeThread?.id ?? null;
+  // Clean-core transcript source (0.14.4 design 2.1): the transcript renders
+  // strictly from thread_items, paged by seq.
+  const { state: threadItemsState } = useThreadItems(activeThreadId);
+  const threadItems = threadItemsState.items;
   const activeLatestTurn = activeThread?.latestTurn ?? null;
   const activeLatestTurnId = activeLatestTurn?.turnId ?? null;
   const activeSessionTurnId = activeThread?.session?.activeTurnId ?? null;
@@ -3196,12 +3202,16 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     preflightOptimisticUserMessage,
     serverQueuedMessageIds,
   ]);
+  const threadItemsById = useMemo(
+    () => new Map(threadItems.map((item) => [item.sourceId, item])),
+    [threadItems],
+  );
   const timelineEntries = useMemo(
     () =>
       measureChatPerformanceWork("transcript-timeline", () =>
-        deriveTimelineEntries(timelineMessages, agentActivityTimelineState.timelineWorkEntries),
+        threadItemsToTimelineEntries(threadItems),
       ),
-    [agentActivityTimelineState.timelineWorkEntries, timelineMessages],
+    [threadItems],
   );
   const shouldRenderTranscriptSurface = shouldRenderTranscriptDuringHydration({
     hydration: threadDetailHydration,
@@ -8895,6 +8905,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
                         listRef={transcriptListRef}
                         crossTaskOrigin={crossTaskOrigin}
                         timelineEntries={visibleTimelineEntries}
+                        threadItemsById={threadItemsById}
                         onOpenThread={onNavigateToThread}
                         onExpandTimelineImage={onExpandTimelineImage}
                         onIsAtEndChange={onIsAtEndChange}

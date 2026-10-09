@@ -31,6 +31,7 @@ function makeApi(
         },
     ),
     subscribeThread: vi.fn(async () => undefined),
+    unsubscribeThread: vi.fn(async () => undefined),
     onThreadChange: vi.fn((listener) => {
       pushListener = listener;
       return unsubscribe;

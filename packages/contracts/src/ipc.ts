@@ -1110,6 +1110,7 @@ export interface NativeApi {
     getThreadDraft: (input: CleanCoreGetThreadDraftInput) => Promise<CleanCoreThreadDraft>;
     setThreadDraft: (input: CleanCoreSetThreadDraftInput) => Promise<CleanCoreThreadDraft>;
     subscribeThread: (input: CleanCoreSubscribeThreadInput) => Promise<void>;
+    unsubscribeThread: (input: CleanCoreSubscribeThreadInput) => Promise<void>;
     answerThreadQuestion: (input: CleanCoreAnswerThreadQuestionInput) => Promise<void>;
     onThreadChange: (callback: (change: CleanCoreThreadChange) => void) => () => void;
   };
