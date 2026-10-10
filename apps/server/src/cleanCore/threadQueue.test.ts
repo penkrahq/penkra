@@ -16,6 +16,8 @@ const baseThread = {
   title: "Hello",
   provider: "codex",
   model: "gpt-5.5",
+  runtimeMode: "full-access",
+  createdBy: "user" as const,
   createdAt: "2026-10-09T00:00:00.000Z",
 };
 

@@ -145,7 +145,7 @@ export default Effect.gen(function* () {
       COALESCE(t.connection_id, b.connection_id),
       COALESCE(json_extract(t.model_selection_json, '$.model'), 'unknown'),
       NULL,
-      COALESCE(t.runtime_mode, 'full-access'),
+      t.runtime_mode,
       t.working_directory,
       (SELECT CASE r.provider_name
          WHEN 'codex' THEN json_extract(r.resume_cursor_json, '$.threadId')
@@ -165,9 +165,9 @@ export default Effect.gen(function* () {
       t.source_thread_id,
       t.parent_thread_id,
       t.deck_id,
-      COALESCE(t.deck_sort_order, 0),
+      t.deck_sort_order,
       t.sidebar_sort_order,
-      COALESCE(t.is_pinned, 0),
+      t.is_pinned,
       t.last_activity_at,
       t.last_message_preview,
       t.latest_user_message_at,

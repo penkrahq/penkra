@@ -70,24 +70,46 @@ export const upsertThreadItem = (input: ThreadItemInput) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const data = capThreadItemData(input.data ?? null);
-    yield* sql`
-      INSERT INTO thread_items (
-        thread_id, seq, source_id, turn_id, kind, status, text, data, created_at, updated_at
-      ) VALUES (
-        ${input.threadId},
-        (SELECT COALESCE(MAX(seq), 0) + 1 FROM thread_items WHERE thread_id = ${input.threadId}),
-        ${input.sourceId}, ${input.turnId ?? null}, ${input.kind}, ${input.status},
-        ${input.text ?? null}, ${data}, ${input.createdAt}, ${input.updatedAt}
-      )
-      ON CONFLICT (thread_id, source_id) DO UPDATE SET
-        status = excluded.status,
-        text = excluded.text,
-        data = excluded.data,
-        updated_at = excluded.updated_at
-    `;
+    yield* sql.withTransaction(
+      Effect.gen(function* () {
+        yield* sql`
+          INSERT INTO thread_items (
+            thread_id, seq, source_id, turn_id, kind, status, text, data, created_at, updated_at
+          ) VALUES (
+            ${input.threadId},
+            (SELECT COALESCE(MAX(seq), 0) + 1 FROM thread_items WHERE thread_id = ${input.threadId}),
+            ${input.sourceId}, ${input.turnId ?? null}, ${input.kind}, ${input.status},
+            ${input.text ?? null}, ${data}, ${input.createdAt}, ${input.updatedAt}
+          )
+          ON CONFLICT (thread_id, source_id) DO UPDATE SET
+            status = excluded.status,
+            text = excluded.text,
+            data = excluded.data,
+            updated_at = excluded.updated_at
+        `;
+        // 2.1 write rule: the thread's rollup columns move in the same write.
+        yield* sql`
+          UPDATE threads SET
+            last_activity_at = ${input.updatedAt},
+            last_message_preview = CASE
+              WHEN ${input.kind} IN ('user', 'text') THEN substr(${input.text ?? ""}, 1, 200)
+              ELSE last_message_preview END,
+            last_user_message_at = CASE
+              WHEN ${input.kind} = 'user' THEN ${input.updatedAt}
+              ELSE last_user_message_at END,
+            open_question_count = CASE
+              WHEN ${input.kind} = 'question' THEN (
+                SELECT COUNT(*) FROM thread_items
+                WHERE thread_id = ${input.threadId} AND kind = 'question' AND status = 'open'
+              )
+              ELSE open_question_count END
+          WHERE id = ${input.threadId}
+        `;
+      }),
+    );
   });
 
-export interface CreateThreadInput {
+interface CreateThreadFields {
   readonly id: string;
   readonly spaceId: string;
   readonly folderId?: string | null;
@@ -96,12 +118,10 @@ export interface CreateThreadInput {
   readonly connectionId?: string | null;
   readonly model: string;
   readonly modelOptions?: string | null;
-  readonly runtimeMode?: string;
+  readonly runtimeMode: string;
   readonly workingDirectory?: string | null;
   readonly providerSessionId?: string | null;
   readonly nativeStateId?: string | null;
-  readonly createdBy?: string;
-  readonly createdByThreadId?: string | null;
   readonly parentThreadId?: string | null;
   readonly deckId?: string | null;
   readonly deckSortOrder?: number;
@@ -109,6 +129,16 @@ export interface CreateThreadInput {
   readonly isPinned?: number;
   readonly createdAt: string;
 }
+
+/**
+ * `runtimeMode` and `createdBy` are required: neither has a safe default.
+ * `createdByThreadId` is required exactly when `createdBy` is `agent`.
+ */
+export type CreateThreadInput = CreateThreadFields &
+  (
+    | { readonly createdBy: "agent"; readonly createdByThreadId: string }
+    | { readonly createdBy: "user" | "provider_native"; readonly createdByThreadId?: string | null }
+  );
 
 /** Client-chosen id; a resend after a dropped connection changes nothing. */
 export const createThread = (input: CreateThreadInput) =>
@@ -123,9 +153,9 @@ export const createThread = (input: CreateThreadInput) =>
       ) VALUES (
         ${input.id}, ${input.spaceId}, ${input.folderId ?? null}, ${input.title},
         ${input.provider}, ${input.connectionId ?? null}, ${input.model},
-        ${input.modelOptions ?? null}, ${input.runtimeMode ?? "full-access"},
+        ${input.modelOptions ?? null}, ${input.runtimeMode},
         ${input.workingDirectory ?? null}, ${input.providerSessionId ?? null},
-        ${input.nativeStateId ?? null}, 'idle', '[]', ${input.createdBy ?? "user"},
+        ${input.nativeStateId ?? null}, 'idle', '[]', ${input.createdBy},
         ${input.createdByThreadId ?? null}, ${input.parentThreadId ?? null},
         ${input.deckId ?? null}, ${input.deckSortOrder ?? 0},
         ${input.sidebarSortOrder ?? null}, ${input.isPinned ?? 0},
