@@ -87,7 +87,7 @@ import {
   humanizeSubagentStatus,
   normalizeSubagentStatusKind,
   resolveSubagentPresentation,
-} from "../../lib/subagentPresentation";
+} from "./WorkflowRunCard.logic";
 
 const WORK_ROW_MUTED_HOVER_TONE: Record<"tool-row" | "file-row", string> = {
   "tool-row":

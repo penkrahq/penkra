@@ -6,11 +6,11 @@ import type { ProjectionSnapshotQueryShape } from "./Services/ProjectionSnapshot
 import { resolveProviderSessionThread } from "./providerSessionThread.ts";
 
 describe("resolveProviderSessionThread", () => {
-  it("propagates lookup failure, then resolves the parent provider thread", async () => {
+  it("propagates lookup failure, then resolves the requested provider thread", async () => {
     const parentId = "thread-parent" as ThreadId;
     const childId = "subagent:thread-parent:child" as ThreadId;
-    const parent = { id: parentId, parentThreadId: null } as OrchestrationThread;
-    const child = { id: childId, parentThreadId: parentId } as OrchestrationThread;
+    const parent = { id: parentId } as OrchestrationThread;
+    const child = { id: childId } as OrchestrationThread;
     let childLookups = 0;
     const getThreadDetailById = vi.fn((threadId: ThreadId) => {
       if (threadId === childId && childLookups++ === 0) {
@@ -20,7 +20,6 @@ describe("resolveProviderSessionThread", () => {
     });
     const projectionSnapshotQuery = {
       getThreadDetailById,
-      findSyntheticSubagentParentThread: () => Effect.succeed(Option.none()),
     } as unknown as ProjectionSnapshotQueryShape;
 
     await expect(
@@ -32,7 +31,7 @@ describe("resolveProviderSessionThread", () => {
     const resolved = await Effect.runPromise(
       resolveProviderSessionThread(projectionSnapshotQuery, childId),
     );
-    expect(resolved?.id).toBe(parentId);
-    expect(getThreadDetailById).toHaveBeenCalledWith(parentId);
+    expect(resolved?.id).toBe(childId);
+    expect(getThreadDetailById).not.toHaveBeenCalledWith(parentId);
   });
 });

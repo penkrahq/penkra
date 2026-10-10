@@ -204,9 +204,7 @@ const ThreadMessagePositionRowSchema = Schema.Struct({
   presentationSequence: Schema.NullOr(NonNegativeInt),
   createdAt: IsoDateTime,
 });
-const SyntheticSubagentParentLookupInput = Schema.Struct({
-  threadId: ThreadId,
-});
+
 const ProjectionFolderLookupRowSchema = ProjectionFolderDbRowSchema;
 const ProjectionThreadIdLookupRowSchema = Schema.Struct({
   threadId: ThreadId,
@@ -579,7 +577,6 @@ function toProjectedThreadShellFromStoredSummary(input: {
       : {}),
     runtimeMode: threadRow.runtimeMode,
     workingDirectory: threadRow.workingDirectory,
-    parentThreadId: threadRow.parentThreadId ?? null,
     creationSource: threadRow.creationSource ?? null,
     sourceThreadId: threadRow.sourceThreadId ?? null,
     sourceTurnId: threadRow.sourceTurnId ?? null,
@@ -631,7 +628,6 @@ function assembleProjectedThread(
       : {}),
     runtimeMode: threadRow.runtimeMode,
     workingDirectory: threadRow.workingDirectory,
-    parentThreadId: threadRow.parentThreadId ?? null,
     creationSource: threadRow.creationSource ?? null,
     sourceThreadId: threadRow.sourceThreadId ?? null,
     sourceTurnId: threadRow.sourceTurnId ?? null,
@@ -726,7 +722,6 @@ const THREAD_SHELL_COLUMNS = `
           t.runtime_mode AS "runtimeMode",
           t.working_directory AS "workingDirectory",
           COALESCE(t.sidebar_sort_order, 0) AS "sidebarSortOrder",
-          t.parent_thread_id AS "parentThreadId",
           CASE t.created_by WHEN 'agent' THEN 'penkra_mcp' WHEN 'provider_native' THEN 'provider_native' ELSE NULL END AS "creationSource",
           t.created_by_thread_id AS "sourceThreadId",
           NULL AS "sourceTurnId",
@@ -807,7 +802,6 @@ export function buildThreadShellPageQuery(input: ProjectionThreadShellPageInput)
         AND (? = 1 OR t.archived_at IS NULL)
         AND (? = 0 OR t.id IN (SELECT value FROM json_each(?)))
         AND (? IS NULL OR t.folder_id = ?)
-        AND (? IS NULL OR t.parent_thread_id = ?)
         AND (? IS NULL OR t.provider = ?)
         AND (? IS NULL OR t.model = ?)
         AND (? IS NULL OR CASE t.created_by WHEN 'user' THEN 'human' WHEN 'agent' THEN 'penkra-mcp' WHEN 'provider_native' THEN 'provider-native' END = ?)
@@ -825,8 +819,6 @@ export function buildThreadShellPageQuery(input: ProjectionThreadShellPageInput)
       JSON.stringify(input.threadIds),
       input.folderId,
       input.folderId,
-      input.parentThreadId,
-      input.parentThreadId,
       input.provider,
       input.provider,
       input.model,
@@ -1082,7 +1074,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           runtime_mode AS "runtimeMode",
           working_directory AS "workingDirectory",
           COALESCE(sidebar_sort_order, 0) AS "sidebarSortOrder",
-          parent_thread_id AS "parentThreadId",
           CASE created_by WHEN 'agent' THEN 'penkra_mcp' WHEN 'provider_native' THEN 'provider_native' ELSE NULL END AS "creationSource",
           created_by_thread_id AS "sourceThreadId",
           NULL AS "sourceTurnId",
@@ -1586,7 +1577,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           runtime_mode AS "runtimeMode",
           working_directory AS "workingDirectory",
           COALESCE(sidebar_sort_order, 0) AS "sidebarSortOrder",
-          parent_thread_id AS "parentThreadId",
           CASE created_by WHEN 'agent' THEN 'penkra_mcp' WHEN 'provider_native' THEN 'provider_native' ELSE NULL END AS "creationSource",
           created_by_thread_id AS "sourceThreadId",
           NULL AS "sourceTurnId",
@@ -1610,52 +1600,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         FROM threads
         WHERE id = ${threadId}
           AND deleted_at IS NULL
-        LIMIT 1
-      `,
-  });
-
-  const getSyntheticSubagentParentThreadRow = SqlSchema.findOneOption({
-    Request: SyntheticSubagentParentLookupInput,
-    Result: ProjectionThreadDbRowSchema,
-    execute: ({ threadId }) =>
-      sql`
-        SELECT
-          id AS "threadId",
-          deck_id AS "deckId",
-          deck_sort_order AS "deckSortOrder",
-          folder_id AS "folderId",
-          title,
-          json_patch(json_object('provider', provider, 'model', model), CASE WHEN model_options IS NULL THEN '{}' ELSE json_object('options', json(model_options)) END) AS "modelSelection",
-          connection_id AS "connectionId",
-          1 AS "connectionSelectionExplicit",
-          runtime_mode AS "runtimeMode",
-          working_directory AS "workingDirectory",
-          COALESCE(sidebar_sort_order, 0) AS "sidebarSortOrder",
-          parent_thread_id AS "parentThreadId",
-          CASE created_by WHEN 'agent' THEN 'penkra_mcp' WHEN 'provider_native' THEN 'provider_native' ELSE NULL END AS "creationSource",
-          created_by_thread_id AS "sourceThreadId",
-          NULL AS "sourceTurnId",
-          NULL AS "gatewayOperationId",
-          NULL AS "gatewayOperationIndex",
-          NULL AS "subagentAgentId",
-          NULL AS "subagentNickname",
-          NULL AS "subagentRole",
-          active_turn_id AS "latestTurnId",
-          last_user_message_at AS "latestUserMessageAt",
-          last_visited_at AS "lastVisitedAt",
-          0 AS "pendingApprovalCount",
-          open_question_count AS "pendingUserInputCount",
-          CASE WHEN state = 'running' THEN 'running' WHEN state = 'error' OR open_question_count > 0 THEN 'attention' WHEN last_activity_at > COALESCE(last_visited_at, '') THEN 'done' ELSE 'idle' END AS "workStatus",
-          last_message_preview AS "lastMessagePreview",
-          last_activity_at AS "lastActivityAt",
-          created_at AS "createdAt",
-          updated_at AS "updatedAt",
-          archived_at AS "archivedAt",
-          deleted_at AS "deletedAt"
-        FROM threads
-        WHERE ${threadId} LIKE ('subagent:' || id || ':%')
-          AND deleted_at IS NULL
-        ORDER BY length(id) DESC, created_at ASC, id ASC
         LIMIT 1
       `,
   });
@@ -3028,42 +2972,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         ),
       );
 
-  const findSyntheticSubagentParentThread: ProjectionSnapshotQueryShape["findSyntheticSubagentParentThread"] =
-    (threadId) =>
-      sql
-        .withTransaction(
-          Effect.gen(function* () {
-            const parentRow = yield* getSyntheticSubagentParentThreadRow({ threadId }).pipe(
-              Effect.mapError(
-                toPersistenceSqlOrDecodeError(
-                  "ProjectionSnapshotQuery.findSyntheticSubagentParentThread:getThread:query",
-                  "ProjectionSnapshotQuery.findSyntheticSubagentParentThread:getThread:decodeRow",
-                ),
-              ),
-              Effect.flatMap((option) =>
-                decodeProjectionThreadOption(
-                  option,
-                  "ProjectionSnapshotQuery.findSyntheticSubagentParentThread:getThread:decodeModelSelection",
-                ),
-              ),
-            );
-            if (Option.isNone(parentRow)) {
-              return Option.none<OrchestrationThread>();
-            }
-            return yield* loadThreadDetail(parentRow.value.threadId);
-          }),
-        )
-        .pipe(
-          Effect.mapError((error) => {
-            if (isPersistenceError(error)) {
-              return error;
-            }
-            return toPersistenceSqlError(
-              "ProjectionSnapshotQuery.findSyntheticSubagentParentThread:query",
-            )(error);
-          }),
-        );
-
   // Hydrate a full thread detail projection without opening its own transaction.
   const loadThreadDetail = (
     threadId: ThreadId,
@@ -3659,7 +3567,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getSpaceShellById,
     getFirstActiveThreadIdByFolderId,
     getThreadShellById,
-    findSyntheticSubagentParentThread,
     getThreadDetailById,
     getThreadDetailForExportById,
     getThreadDetailSnapshotById,

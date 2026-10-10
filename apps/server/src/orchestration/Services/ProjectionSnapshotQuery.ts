@@ -106,7 +106,6 @@ export interface ProjectionThreadShellPageInput {
   readonly spaceId: SpaceId;
   readonly threadIds: ReadonlyArray<string> | null;
   readonly folderId: string | null;
-  readonly parentThreadId: string | null;
   readonly provider: string | null;
   readonly model: string | null;
   readonly createdBy: string | null;
@@ -258,13 +257,6 @@ export interface ProjectionSnapshotQueryShape {
   readonly getThreadShellById: (
     threadId: ThreadId,
   ) => Effect.Effect<Option.Option<OrchestrationThreadShell>, ProjectionRepositoryError>;
-
-  /**
-   * Recover the parent thread for legacy synthetic subagent IDs.
-   */
-  readonly findSyntheticSubagentParentThread: (
-    threadId: ThreadId,
-  ) => Effect.Effect<Option.Option<OrchestrationThread>, ProjectionRepositoryError>;
 
   /**
    * Read a single active thread detail snapshot by id.

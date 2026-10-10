@@ -65,18 +65,6 @@ export const awaitProviderRuntimeEventsDrained = (
       ),
     ),
   );
-
-/**
- * Structured payload for steering a running subagent. Mirrors the turn-input
- * context fields so adapters can project attachments/skills/mentions into the
- * provider-native steering channel (which is typically text-only).
- */
-export interface ProviderSteerSubagentPayload {
-  readonly input: string;
-  readonly attachments?: ProviderSendTurnInput["attachments"];
-  readonly skills?: ProviderSendTurnInput["skills"];
-  readonly mentions?: ProviderSendTurnInput["mentions"];
-}
 export type ProviderConversationRollbackMode = "native" | "unsupported";
 
 export interface ProviderAdapterCapabilities {
@@ -194,11 +182,7 @@ export interface ProviderAdapterShape<TError> {
   /**
    * Interrupt an active turn.
    */
-  readonly interruptTurn: (
-    threadId: ThreadId,
-    turnId?: TurnId,
-    providerThreadId?: string,
-  ) => Effect.Effect<void, TError>;
+  readonly interruptTurn: (threadId: ThreadId, turnId?: TurnId) => Effect.Effect<void, TError>;
 
   /**
    * Stop one provider-native background task when the adapter supports it.
@@ -209,15 +193,6 @@ export interface ProviderAdapterShape<TError> {
    * Move one in-flight foreground task to the background when the adapter supports it.
    */
   readonly backgroundTask?: (threadId: ThreadId, toolUseId: string) => Effect.Effect<void, TError>;
-
-  /**
-   * Deliver a mid-task user message to a running subagent when the adapter supports it.
-   */
-  readonly steerSubagent?: (
-    threadId: ThreadId,
-    providerThreadId: string,
-    input: ProviderSteerSubagentPayload,
-  ) => Effect.Effect<void, TError>;
 
   /**
    * Respond to an interactive approval request.

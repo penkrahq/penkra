@@ -58,7 +58,6 @@ const input = (
   spaceId,
   threadIds: null,
   folderId: null,
-  parentThreadId: null,
   provider: null,
   model: null,
   createdBy: null,
@@ -152,12 +151,11 @@ it.effect(
           yield* thread("thread-" + String(i).padStart(2, "0"));
         yield* thread("specific");
         yield* sql`UPDATE threads SET title = 'NeedLE chosen', provider = 'claudeAgent', model = 'claude-sonnet-4-6',
-    parent_thread_id = 'parent', created_by = 'agent', updated_at = '2026-10-10T00:00:01.000Z' WHERE id = 'specific'`;
+    created_by = 'agent', updated_at = '2026-10-10T00:00:01.000Z' WHERE id = 'specific'`;
         const rows = yield* query.listThreadShellPage(
           input({
             threadIds: ["specific"],
             folderId: "folder",
-            parentThreadId: "parent",
             provider: "claudeAgent",
             model: "claude-sonnet-4-6",
             createdBy: "penkra-mcp",
@@ -177,7 +175,6 @@ it.effect(
           { threadIds: [] },
           { spaceId: SpaceId.makeUnsafe("elsewhere") },
           { folderId: "other-folder" },
-          { parentThreadId: "other" },
           { provider: "codex" },
           { model: "other" },
           { createdBy: "human" },

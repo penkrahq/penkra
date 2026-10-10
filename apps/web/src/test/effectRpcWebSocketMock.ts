@@ -156,7 +156,6 @@ export function createShellSnapshotFromReadModel(
         modelSelection: thread.modelSelection,
         runtimeMode: thread.runtimeMode,
         workingDirectory: thread.workingDirectory ?? null,
-        parentThreadId: thread.parentThreadId ?? null,
         subagentAgentId: thread.subagentAgentId ?? null,
         subagentNickname: thread.subagentNickname ?? null,
         subagentRole: thread.subagentRole ?? null,

@@ -5,9 +5,8 @@ import {
   humanizeSubagentStatus,
   normalizeSubagentStatusKind,
   resolveSubagentPresentation,
-  resolveSubagentPresentationForThread,
   subagentAccentColor,
-} from "./subagentPresentation";
+} from "./WorkflowRunCard.logic";
 
 describe("resolveSubagentPresentation", () => {
   it("prefers explicit nickname and role over generic thread titles", () => {
@@ -88,136 +87,6 @@ describe("resolveSubagentPresentation", () => {
     });
 
     expect(presentation.primaryLabel).toBe("019d8cae-0628-7bf1-bf86-5cbc31cd582c");
-  });
-});
-
-describe("resolveSubagentPresentationForThread", () => {
-  it("derives the nickname from the parent collab activity when thread metadata is still a placeholder", () => {
-    const presentation = resolveSubagentPresentationForThread({
-      thread: {
-        id: "subagent:thread-1:child-provider-1",
-        title: "Subagent 019d8cae-0628-7bf1-bf86-5cbc31cd582c",
-        parentThreadId: "thread-1",
-        subagentNickname: null,
-        subagentRole: null,
-      },
-      threads: [
-        {
-          id: "thread-1",
-          activities: [
-            {
-              payload: {
-                data: {
-                  item: {
-                    receiverThreadIds: ["child-provider-1"],
-                    receiverAgents: [
-                      {
-                        threadId: "child-provider-1",
-                        agentNickname: "Locke",
-                        agentRole: "explorer",
-                      },
-                    ],
-                  },
-                },
-              },
-            },
-          ],
-        },
-      ],
-    });
-
-    expect(presentation.nickname).toBe("Locke");
-    expect(presentation.role).toBe("explorer");
-    expect(presentation.fullLabel).toBe("Locke [explorer]");
-  });
-
-  it("matches parent activity identity by agent id when the child thread id is namespaced locally", () => {
-    const presentation = resolveSubagentPresentationForThread({
-      thread: {
-        id: "subagent:thread-1:child-provider-1",
-        title: "Subagent child-provider-1",
-        parentThreadId: "thread-1",
-        subagentAgentId: "agent-1",
-        subagentNickname: null,
-        subagentRole: null,
-      },
-      threads: [
-        {
-          id: "thread-1",
-          activities: [
-            {
-              payload: {
-                data: {
-                  item: {
-                    agentStatuses: [
-                      {
-                        threadId: "child-provider-2",
-                        agentId: "agent-1",
-                        agentNickname: "Harper",
-                        agentRole: "reviewer",
-                      },
-                    ],
-                  },
-                },
-              },
-            },
-          ],
-        },
-      ],
-    });
-
-    expect(presentation.fullLabel).toBe("Harper [reviewer]");
-  });
-
-  it("keeps the earlier nickname when a later parent activity only carries sparse agent state", () => {
-    const presentation = resolveSubagentPresentationForThread({
-      thread: {
-        id: "subagent:thread-1:child-provider-1",
-        title: "Subagent child-provider-1",
-        parentThreadId: "thread-1",
-        subagentAgentId: "agent-1",
-        subagentNickname: null,
-        subagentRole: null,
-      },
-      threads: [
-        {
-          id: "thread-1",
-          activities: [
-            {
-              payload: {
-                data: {
-                  item: {
-                    receiverAgents: [
-                      {
-                        threadId: "child-provider-1",
-                        agentId: "agent-1",
-                        agentNickname: "Locke",
-                        agentRole: "explorer",
-                      },
-                    ],
-                  },
-                },
-              },
-            },
-            {
-              payload: {
-                data: {
-                  item: {
-                    agentStates: {
-                      "child-provider-1": {
-                        status: "completed",
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          ],
-        },
-      ],
-    });
-
-    expect(presentation.fullLabel).toBe("Locke [explorer]");
   });
 });
 

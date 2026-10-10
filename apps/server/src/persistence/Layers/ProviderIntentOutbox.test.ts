@@ -229,7 +229,6 @@ layer("ProviderIntentOutbox", (it) => {
           createdAt: now,
         });
       }
-      yield* sql`UPDATE threads SET parent_thread_id = 'lane-parent' WHERE id = 'lane-child'`;
 
       const appendIntent = (id: string, threadId: string) =>
         Effect.gen(function* () {
@@ -260,8 +259,8 @@ layer("ProviderIntentOutbox", (it) => {
       assert.deepStrictEqual(
         jobs.map((job) => [job.eventSequence, job.laneKey, job.event.eventId]),
         [
-          [child.sequence, "lane-parent", child.eventId],
-          [childNext.sequence, "lane-parent", childNext.eventId],
+          [child.sequence, "lane-child", child.eventId],
+          [childNext.sequence, "lane-child", childNext.eventId],
           [fork.sequence, "lane-fork", fork.eventId],
         ],
       );
@@ -272,7 +271,7 @@ layer("ProviderIntentOutbox", (it) => {
       );
       const childClaim = yield* outbox.claimLaneHead({
         eventSequence: child.sequence,
-        laneKey: "lane-parent",
+        laneKey: "lane-child",
         owner: "owner-a",
         now,
         expiresAt: "2026-09-28T00:01:00.000Z",

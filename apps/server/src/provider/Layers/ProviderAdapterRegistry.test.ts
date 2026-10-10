@@ -39,7 +39,6 @@ const fakeClaudeAdapter: ClaudeAdapterShape = {
   steerTurn: vi.fn(),
   stopTask: vi.fn(),
   backgroundTask: vi.fn(),
-  steerSubagent: vi.fn(),
 };
 const fakeOpenCodeAdapter: OpenCodeAdapterShape = {
   ...baseAdapter,

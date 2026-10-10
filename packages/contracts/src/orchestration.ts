@@ -532,9 +532,6 @@ export const OrchestrationThread = Schema.Struct({
   workingDirectory: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
     Schema.withDecodingDefault(() => null),
   ),
-  parentThreadId: Schema.optional(Schema.NullOr(ThreadId)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
   creationSource: Schema.optional(Schema.NullOr(ThreadCreationSource)).pipe(
     Schema.withDecodingDefault(() => null),
   ),
@@ -595,9 +592,6 @@ export const OrchestrationThreadShell = Schema.Struct({
   connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
   runtimeMode: RuntimeMode,
   workingDirectory: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
-  parentThreadId: Schema.optional(Schema.NullOr(ThreadId)).pipe(
     Schema.withDecodingDefault(() => null),
   ),
   creationSource: Schema.optional(Schema.NullOr(ThreadCreationSource)).pipe(

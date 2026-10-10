@@ -89,7 +89,6 @@ it.effect("preserves thread activity payloads through the RPC JSON codec", () =>
           associatedWorktreeBranch: null,
           associatedWorktreeRef: null,
           createBranchFlowCompleted: false,
-          parentThreadId: null,
           subagentAgentId: null,
           subagentNickname: null,
           subagentRole: null,

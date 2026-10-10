@@ -652,10 +652,6 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
             type: "string",
             description: "Only threads in this exact Space; defaults to the caller's Space.",
           },
-          parentThreadId: {
-            type: "string",
-            description: "Only direct child threads of this exact Penkra parent thread id.",
-          },
           provider: {
             type: "string",
             enum: [...PROVIDER_KINDS],
@@ -705,7 +701,6 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
         const exactThreadIds = readStringArrayArg(args, "threadId");
         const folderId = readStringArg(args, "folderId");
         const requestedSpaceId = readStringArg(args, "spaceId");
-        const parentThreadId = readStringArg(args, "parentThreadId");
         const provider = readStringArg(args, "provider");
         const model = readStringArg(args, "model");
         const status = readStringArg(args, "status");
@@ -723,7 +718,6 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
             spaceId,
             threadIds: exactThreadIds ?? null,
             folderId: folderId ?? null,
-            parentThreadId: parentThreadId ?? null,
             provider: provider ?? null,
             model: model ?? null,
             createdBy: createdBy ?? null,
@@ -1410,7 +1404,6 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           status: deriveAgentThreadStatus(shell),
           sessionStatus: shell.session?.status ?? null,
           latestTurnState: shell.latestTurn?.state ?? null,
-          parentThreadId: shell.parentThreadId ?? null,
           createdBy:
             shell.creationSource === "penkra_mcp"
               ? "penkra-mcp"

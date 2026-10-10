@@ -118,7 +118,6 @@ function makeThreadShell(
     modelSelection: { provider: "codex", model: "gpt-5.5" },
     runtimeMode: "approval-required",
     workingDirectory: null,
-    parentThreadId: null,
     subagentAgentId: null,
     subagentNickname: null,
     subagentRole: null,
@@ -410,7 +409,6 @@ function makeHarnessLayer(
     queue: "[]",
     createdBy: thread.creationSource === "penkra_mcp" ? "agent" : "user",
     createdByThreadId: thread.sourceThreadId === undefined ? null : thread.sourceThreadId,
-    parentThreadId: null,
     deckId: thread.deckId,
     deckSortOrder: thread.deckSortOrder,
     sidebarSortOrder: null,
@@ -535,10 +533,6 @@ function makeHarnessLayer(
           )
           .filter((thread) => input.threadIds === null || input.threadIds.includes(thread.id))
           .filter((thread) => input.folderId === null || thread.folderId === input.folderId)
-          .filter(
-            (thread) =>
-              input.parentThreadId === null || thread.parentThreadId === input.parentThreadId,
-          )
           .filter(
             (thread) =>
               input.provider === null || thread.modelSelection.provider === input.provider,
@@ -1335,9 +1329,7 @@ function toolErrorText(result: Record<string, unknown> | undefined): string {
 describe("AgentGateway", () => {
   const baseThreads = [
     makeThreadShell("thread-parent"),
-    makeThreadShell("thread-child", {
-      parentThreadId: ThreadId.makeUnsafe("thread-parent"),
-    }),
+    makeThreadShell("thread-child"),
     makeThreadShell("thread-archived", { archivedAt: NOW }),
   ];
 
@@ -3521,12 +3513,10 @@ describe("AgentGateway", () => {
       assert.equal(payload.provider, "opencode");
       assert.equal(typeof payload.messageId, "string");
       assert.equal(typeof payload.turnId, "string");
-      assert.strictEqual("parentThreadId" in payload, false);
 
       assert.equal(harness.dispatched.length, 0);
       assert.equal(harness.sent.length, 1);
       const created = harness.getThread(payload.threadId as string)!;
-      assert.isNull(created.parentThreadId);
       assert.equal(created.modelSelection.provider, "opencode");
       assert.equal(created.folderId, PROJECT_ID);
       assert.equal(created.runtimeMode, "approval-required");
@@ -3778,7 +3768,6 @@ describe("AgentGateway", () => {
     const { gatewayLayer, makeHarness } = makeHarnessLayer([
       ...baseThreads.filter((thread) => thread.id !== "thread-child"),
       makeThreadShell("thread-child", {
-        parentThreadId: ThreadId.makeUnsafe("thread-parent"),
         session: {
           threadId: ThreadId.makeUnsafe("thread-child"),
           status: "running",

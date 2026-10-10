@@ -35,7 +35,6 @@ const shellFixture = {
       title: "Inbox cleanup",
       modelSelection: { provider: "codex" as const, model: "gpt-5" },
       runtimeMode: "full-access" as const,
-      parentThreadId: null,
       subagentAgentId: null,
       subagentNickname: null,
       subagentRole: null,

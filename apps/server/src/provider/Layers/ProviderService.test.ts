@@ -200,11 +200,8 @@ function makeFakeCodexAdapter(
   );
 
   const interruptTurn = vi.fn(
-    (
-      _threadId: ThreadId,
-      _turnId?: TurnId,
-      _providerThreadId?: string,
-    ): Effect.Effect<void, ProviderAdapterError> => Effect.void,
+    (_threadId: ThreadId, _turnId?: TurnId): Effect.Effect<void, ProviderAdapterError> =>
+      Effect.void,
   );
 
   const respondToRequest = vi.fn(
@@ -1386,7 +1383,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
 
       yield* provider.interruptTurn({ threadId: session.threadId });
       assert.deepEqual(routing.codex.interruptTurn.mock.calls, [
-        [session.threadId, asTurnId("turn-thread-1"), undefined],
+        [session.threadId, asTurnId("turn-thread-1")],
       ]);
 
       yield* provider.respondToRequest({
@@ -1459,7 +1456,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
         turnId: asTurnId("turn-stale"),
       });
       assert.deepEqual(routing.codex.interruptTurn.mock.calls, [
-        [threadId, asTurnId("turn-thread-exact-interrupt"), undefined],
+        [threadId, asTurnId("turn-thread-exact-interrupt")],
       ]);
     }),
   );

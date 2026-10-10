@@ -168,7 +168,6 @@ export function threadShellsEqual(left: ThreadShell | undefined, right: ThreadSh
     (left.archivedAt ?? null) === (right.archivedAt ?? null) &&
     left.updatedAt === right.updatedAt &&
     (left.workingDirectory ?? null) === (right.workingDirectory ?? null) &&
-    (left.parentThreadId ?? null) === (right.parentThreadId ?? null) &&
     (left.creationSource ?? null) === (right.creationSource ?? null) &&
     (left.sourceThreadId ?? null) === (right.sourceThreadId ?? null) &&
     (left.subagentAgentId ?? null) === (right.subagentAgentId ?? null) &&
@@ -1599,7 +1598,6 @@ export function normalizeThreadFromReadModel(
     previous.latestTurn === latestTurn &&
     (previous.pendingTurnStartMessageId ?? null) === pendingTurnStartMessageId &&
     previous.lastVisitedAt === lastVisitedAt &&
-    (previous.parentThreadId ?? null) === (incoming.parentThreadId ?? null) &&
     (previous.creationSource ?? null) === (incoming.creationSource ?? null) &&
     (previous.sourceThreadId ?? null) === (incoming.sourceThreadId ?? null) &&
     (previous.subagentAgentId ?? null) === (incoming.subagentAgentId ?? null) &&
@@ -1641,7 +1639,6 @@ export function normalizeThreadFromReadModel(
     latestTurn,
     pendingTurnStartMessageId,
     lastVisitedAt,
-    parentThreadId: incoming.parentThreadId ?? null,
     creationSource: incoming.creationSource ?? null,
     sourceThreadId: incoming.sourceThreadId ?? null,
     subagentAgentId: incoming.subagentAgentId ?? null,
@@ -1698,7 +1695,6 @@ export function normalizeThreadShellSnapshot(
     archivedAt: incoming.archivedAt ?? null,
     updatedAt: incoming.updatedAt,
     workingDirectory: nextWorkingDirectory,
-    parentThreadId: incoming.parentThreadId ?? null,
     creationSource: incoming.creationSource ?? null,
     sourceThreadId: incoming.sourceThreadId ?? null,
     subagentAgentId: incoming.subagentAgentId ?? null,

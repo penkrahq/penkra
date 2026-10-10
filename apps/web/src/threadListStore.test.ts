@@ -37,7 +37,6 @@ function row(queue: string, updatedAt: string): CleanCoreThreadSummary {
     queue,
     createdBy: "user",
     createdByThreadId: null,
-    parentThreadId: null,
     deckId: null,
     deckSortOrder: 0,
     sidebarSortOrder: null,

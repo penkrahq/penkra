@@ -41,13 +41,12 @@ export const updateThreadFixture = (
   return write.pipe(Effect.provideService(SqlClient.SqlClient, sql));
 };
 
-import { OrchestrationThread, type OrchestrationReadModel, type ThreadId } from "@penkra/contracts";
+import { OrchestrationThread, type OrchestrationReadModel } from "@penkra/contracts";
 import { Schema } from "effect";
 
 export const seedThreadReadModelFixture = (
   model: OrchestrationReadModel,
   input: CleanCoreCreateThreadInput & {
-    parentThreadId: ThreadId | null;
     sidebarSortOrder: number;
     deckSortOrder: number;
   },
@@ -62,7 +61,6 @@ export const seedThreadReadModelFixture = (
       runtimeMode: input.runtimeMode,
       workingDirectory: input.workingDirectory,
       connectionId: input.connection.kind === "selected" ? input.connection.connectionId : null,
-      parentThreadId: input.parentThreadId,
       sidebarSortOrder: input.sidebarSortOrder,
       deckSortOrder: input.deckSortOrder,
       createdAt: input.createdAt,
@@ -78,11 +76,3 @@ export const seedThreadReadModelFixture = (
     });
     return { ...model, threads: [...model.threads, thread] };
   });
-
-/** A migrated provider-native child may retain its original parent; new creation never writes it. */
-export const seedLegacyThreadParentFixture = (
-  sql: SqlClient.SqlClient,
-  threadId: ThreadId,
-  parentThreadId: ThreadId,
-) =>
-  sql`UPDATE threads SET parent_thread_id = ${parentThreadId}, created_by = 'provider_native' WHERE id = ${threadId}`;

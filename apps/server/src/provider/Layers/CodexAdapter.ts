@@ -2038,13 +2038,9 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
         })),
       );
 
-    const interruptTurn: CodexAdapterShape["interruptTurn"] = (
-      threadId,
-      turnId,
-      providerThreadId,
-    ) =>
+    const interruptTurn: CodexAdapterShape["interruptTurn"] = (threadId, turnId) =>
       Effect.tryPromise({
-        try: () => manager.interruptTurn(threadId, turnId, providerThreadId),
+        try: () => manager.interruptTurn(threadId, turnId),
         catch: (cause) => toRequestError(threadId, "turn/interrupt", cause),
       });
 

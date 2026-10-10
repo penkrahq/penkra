@@ -32,7 +32,6 @@ function threadShell(overrides: Partial<OrchestrationThreadShell> = {}): Orchest
     title: "Runtime reconciliation",
     modelSelection: { provider: "codex", model: "gpt-5.6" },
     runtimeMode: "full-access",
-    parentThreadId: null,
     creationSource: null,
     sourceThreadId: null,
     sourceTurnId: null,
@@ -270,7 +269,7 @@ describe("planProviderRuntimeReconciliation", () => {
       staleAfterMs: 10_000,
     });
     const childWithoutBinding = planProviderRuntimeReconciliation({
-      threads: [threadShell({ parentThreadId: ThreadId.makeUnsafe("parent") })],
+      threads: [threadShell({})],
       bindings: [],
       liveSessions: [],
       pumpHealth: [],

@@ -67,12 +67,7 @@ async function addNamedFolder(readModel: ReadModel, id: string, title: string, s
   });
 }
 
-async function addThread(input: {
-  readModel: ReadModel;
-  id: string;
-  folderId: FolderId;
-  parentThreadId?: ThreadId;
-}) {
+async function addThread(input: { readModel: ReadModel; id: string; folderId: FolderId }) {
   const event = {
     sequence: input.readModel.snapshotSequence + 1,
     eventId: EventId.makeUnsafe(`fixture-${input.id}`),
@@ -93,7 +88,6 @@ async function addThread(input: {
       modelSelection: { provider: "codex" as const, model: "gpt-5-codex" },
       runtimeMode: "full-access" as const,
       workingDirectory: null,
-      parentThreadId: input.parentThreadId === undefined ? null : input.parentThreadId,
       subagentAgentId: null,
       subagentNickname: null,
       subagentRole: null,

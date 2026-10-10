@@ -41,7 +41,7 @@ interface CreationCoordinatorDependencies {
     threadId: string,
   ) => Effect.Effect<OrchestrationThreadShell, ToolInputError>;
   readonly onThreadCreated?: (
-    parentThreadId: string,
+    creatorThreadId: string,
     childThreadId: string,
   ) => Effect.Effect<void, unknown>;
 }

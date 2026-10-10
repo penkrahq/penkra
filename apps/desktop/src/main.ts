@@ -701,9 +701,9 @@ async function activateAppTabForAgent(
   return { tabId: tab.id, state: "active", readyForInteraction: true };
 }
 
-function inheritThreadHome(parentThreadId: string, childThreadId: string): void {
-  threadHomeWindow.inherit(parentThreadId, childThreadId);
-  console.info(`[thread-home] inherit parent=${parentThreadId} child=${childThreadId}`);
+function inheritThreadHome(creatorThreadId: string, childThreadId: string): void {
+  threadHomeWindow.inherit(creatorThreadId, childThreadId);
+  console.info(`[thread-home] inherit creator=${creatorThreadId} child=${childThreadId}`);
 }
 
 async function runAgentThreadOperation<T>(
