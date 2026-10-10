@@ -8,6 +8,7 @@ import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import {
   buildFolderShellPageQuery,
   buildThreadShellPageQuery,
+  buildTranscriptSearchQuery,
   OrchestrationProjectionSnapshotQueryLive,
 } from "./ProjectionSnapshotQuery.ts";
 import {
@@ -294,7 +295,6 @@ it.effect("searches messages by Space, folder and thread with joined title/provi
         queries: ["needle"],
         queryMode: "any" as const,
         order: "recent" as const,
-        limit: THREADS_PAGE_SIZE,
       };
       const all = yield* query.searchThreadMessages(base);
       assert.deepStrictEqual(
@@ -324,4 +324,112 @@ it.effect("searches messages by Space, folder and thread with joined title/provi
       );
     }),
   ),
+);
+
+it.effect("titleContains folds ASCII case without folding Unicode letters", () =>
+  run(
+    Effect.gen(function* () {
+      yield* seedSpace;
+      yield* folder("folder");
+      yield* thread("unicode-title");
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`UPDATE threads SET title = 'Élan MIXED' WHERE id = 'unicode-title'`;
+      const query = yield* ProjectionSnapshotQuery;
+      assert.lengthOf((yield* query.listThreadShellPage(input({ titleContains: "é" }))).threads, 0);
+      assert.lengthOf((yield* query.listThreadShellPage(input({ titleContains: "É" }))).threads, 1);
+      assert.lengthOf(
+        (yield* query.listThreadShellPage(input({ titleContains: "mixed" }))).threads,
+        1,
+      );
+    }),
+  ),
+);
+
+it.effect(
+  "pages matching messages without duplicates and matches short, mixed-case, all/any queries",
+  () =>
+    run(
+      Effect.gen(function* () {
+        yield* seedSpace;
+        yield* folder("folder");
+        yield* thread("search-page");
+        const sql = yield* SqlClient.SqlClient;
+        const query = yield* ProjectionSnapshotQuery;
+        for (let i = 0; i < THREADS_PAGE_SIZE + 3; i++) {
+          const id = "message-" + String(i).padStart(2, "0");
+          yield* sql`INSERT INTO projection_thread_messages(message_id, thread_id, role, text, is_streaming, source, created_at, updated_at)
+        VALUES (${id}, 'search-page', 'user', 'Mixed NEEDLE and XY text', 0, 'native', ${now}, ${now})`;
+        }
+        const base = {
+          spaceId,
+          folderId: null,
+          threadId: null,
+          queries: ["needle"],
+          queryMode: "any" as const,
+          order: "recent" as const,
+        };
+        const first = yield* query.searchThreadMessages(base);
+        assert.lengthOf(first.messages, THREADS_PAGE_SIZE);
+        assert.isTrue(first.hasMore);
+        const last = first.messages.at(-1)!;
+        const second = yield* query.searchThreadMessages({
+          ...base,
+          anchor: {
+            createdAt: last.createdAt,
+            threadId: last.threadId,
+            messageId: last.messageId,
+          },
+        });
+        assert.lengthOf(second.messages, 3);
+        assert.isFalse(second.hasMore);
+        assert.equal(
+          new Set([...first.messages, ...second.messages].map((row) => row.messageId)).size,
+          THREADS_PAGE_SIZE + 3,
+        );
+        const short = yield* query.searchThreadMessages({ ...base, queries: ["xy"] });
+        assert.equal(short.path, "short-query-fallback");
+        assert.lengthOf(short.messages, THREADS_PAGE_SIZE);
+        const mixedCase = yield* query.searchThreadMessages({ ...base, queries: ["nEeDlE"] });
+        assert.deepStrictEqual(mixedCase.messages, first.messages);
+        const all = yield* query.searchThreadMessages({
+          ...base,
+          queries: ["needle", "absent"],
+          queryMode: "all",
+        });
+        assert.lengthOf(all.messages, 0);
+        const any = yield* query.searchThreadMessages({ ...base, queries: ["needle", "absent"] });
+        assert.deepStrictEqual(any.messages, first.messages);
+        const shortAll = yield* query.searchThreadMessages({
+          ...base,
+          queries: ["xy", "zz"],
+          queryMode: "all",
+        });
+        assert.lengthOf(shortAll.messages, 0);
+        const shortAny = yield* query.searchThreadMessages({ ...base, queries: ["xy", "zz"] });
+        assert.deepStrictEqual(shortAny.messages, short.messages);
+        const indexedStatement = buildTranscriptSearchQuery(base);
+        const indexedPlan = yield* sql.unsafe<{ detail: string }>(
+          `EXPLAIN QUERY PLAN ${indexedStatement.text}`,
+          indexedStatement.parameters,
+        );
+        assert.isTrue(
+          indexedPlan.some(
+            (row) =>
+              row.detail.includes("projection_thread_messages_search") &&
+              row.detail.includes("VIRTUAL TABLE INDEX"),
+          ),
+          JSON.stringify(indexedPlan),
+        );
+        const shortStatement = buildTranscriptSearchQuery({ ...base, queries: ["xy"] });
+        assert.include(shortStatement.text, "instr(lower(messages.text), lower(?)) > 0");
+        const shortPlan = yield* sql.unsafe<{ detail: string }>(
+          `EXPLAIN QUERY PLAN ${shortStatement.text}`,
+          shortStatement.parameters,
+        );
+        assert.isTrue(
+          shortPlan.some((row) => row.detail.includes("idx_threads_space_updated_live")),
+          JSON.stringify(shortPlan),
+        );
+      }),
+    ),
 );

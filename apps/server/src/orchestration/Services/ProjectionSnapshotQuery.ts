@@ -51,7 +51,6 @@ export interface ProjectionTranscriptSearchInput {
   readonly createdBefore?: string;
   readonly order: ProjectionTranscriptSearchOrder;
   readonly anchor?: ProjectionTranscriptSearchAnchor;
-  readonly limit: number;
 }
 
 export interface ProjectionTranscriptSearchMessage {

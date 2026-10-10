@@ -711,7 +711,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
         const provider = readStringArg(args, "provider");
         const model = readStringArg(args, "model");
         const status = readStringArg(args, "status");
-        const titleContains = readStringArg(args, "titleContains")?.toLocaleLowerCase();
+        const titleContains = readStringArg(args, "titleContains");
         const createdBy = readStringArg(args, "createdBy");
         const updatedAfter = readIsoTimestampArg(args, "updatedAfter");
         const updatedBefore = readIsoTimestampArg(args, "updatedBefore");
@@ -861,7 +861,8 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           },
           limit: {
             type: "number",
-            description: "Items per page (default 20, max 100).",
+            description:
+              "Items per page for transcript reads (default 20, max 100). Search results always page at 50.",
           },
         },
         additionalProperties: false,
@@ -889,7 +890,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
         const queries = [
           ...new Set(
             (multipleQueries ?? (singleQuery ? [singleQuery] : [])).map((value) =>
-              value.toLocaleLowerCase(),
+              value.replace(/[A-Z]/gu, (letter) => letter.toLowerCase()),
             ),
           ),
         ];
@@ -1118,50 +1119,32 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
               ...(createdBefore ? { createdBefore } : {}),
               order,
               ...(searchCursor ? { anchor: searchCursor.anchor } : {}),
-              limit,
             })
             .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
           const providerByThread = new Map(
             result.messages.map((message) => [message.threadId as string, message.threadProvider]),
           );
-          const matches = result.messages.flatMap((message) => {
+          const selected = result.messages.map((message) => {
             const ranges = findLiteralRanges(message.text, queries);
-            const matchingQueryCount = new Set(ranges.map((range) => range.queryIndex)).size;
-            if (
-              ranges.length === 0 ||
-              (queryMode === "all" && matchingQueryCount !== queries.length)
-            ) {
-              return [];
-            }
             const first = ranges[0]!;
             const start = Math.max(0, first.start - 600);
             const end = Math.min(message.text.length, first.end + 600);
-            return [
-              {
-                type: "message" as const,
-                threadId: message.threadId,
-                threadTitle: message.threadTitle,
-                messageId: message.messageId,
-                turnId: message.turnId,
-                role: message.role,
-                text: message.text.slice(start, end),
-                textRange: { start, end, total: message.text.length },
-                matches: ranges,
-                createdAt: message.createdAt,
-              },
-            ];
+            return {
+              type: "message" as const,
+              threadId: message.threadId,
+              threadTitle: message.threadTitle,
+              messageId: message.messageId,
+              turnId: message.turnId,
+              role: message.role,
+              text: message.text.slice(start, end),
+              textRange: { start, end, total: message.text.length },
+              matches: ranges,
+              createdAt: message.createdAt,
+            };
           });
-          const selected: typeof matches = [];
-          let remainingBudget = 20_000;
-          for (const match of matches) {
-            if (selected.length >= limit) break;
-            if (match.text.length > remainingBudget && selected.length > 0) break;
-            selected.push(match);
-            remainingBudget -= match.text.length;
-          }
           const last = selected.at(-1);
           const nextCursor =
-            last && (result.hasMore || matches.length > selected.length)
+            last && result.hasMore
               ? encodeThreadSearchCursor({
                   version: 2,
                   mode: "search",
