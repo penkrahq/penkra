@@ -2,7 +2,7 @@
 // Purpose: Verify bounded agent discovery pages, SQL filters and transcript scope.
 import { assert, it } from "@effect/vitest";
 import { FolderId, SpaceId } from "@penkra/contracts";
-import { Effect, Layer } from "effect";
+import { Effect, Exit, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import {
@@ -15,7 +15,7 @@ import {
   type ProjectionThreadShellPageInput,
 } from "../Services/ProjectionSnapshotQuery.ts";
 import { createThread } from "../../cleanCore/threadStore.ts";
-import { THREADS_PAGE_SIZE } from "../../cleanCore/threadList.ts";
+import { THREADS_PAGE_SIZE } from "@penkra/contracts";
 import { deriveAgentThreadStatus } from "../../agentGateway/threadSummary.ts";
 
 const spaceId = SpaceId.makeUnsafe("pages-space");
@@ -69,6 +69,28 @@ const input = (
   status: null,
   ...patch,
 });
+
+it.effect("reads only requested active folders and rejects batches larger than one page", () =>
+  run(
+    Effect.gen(function* () {
+      yield* seedSpace;
+      const ids = Array.from({ length: THREADS_PAGE_SIZE + 1 }, (_, i) =>
+        FolderId.makeUnsafe("batch-" + i),
+      );
+      for (const id of ids) yield* folder(id);
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`UPDATE projection_folders SET archived_at = ${now} WHERE folder_id = ${ids[0]!}`;
+      yield* sql`UPDATE projection_folders SET deleted_at = ${now} WHERE folder_id = ${ids[1]!}`;
+      const query = yield* ProjectionSnapshotQuery;
+      const rows = yield* query.getFolderShellsByIds(ids.slice(0, THREADS_PAGE_SIZE));
+      assert.lengthOf(rows, THREADS_PAGE_SIZE - 2);
+      assert.isTrue(rows.every((row) => row.workspaceRoot === "/repo" && row.spaceId === spaceId));
+      assert.isFalse(rows.some((row) => row.id === ids.at(-1)));
+      assert.lengthOf(yield* query.getFolderShellsByIds([FolderId.makeUnsafe("missing")]), 0);
+      assert.isTrue(Exit.isFailure(yield* Effect.exit(query.getFolderShellsByIds(ids))));
+    }),
+  ),
+);
 
 it.effect(
   "pages more than 50 folders in creation/id order with full metadata and Space names",

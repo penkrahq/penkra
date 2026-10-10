@@ -34,7 +34,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { OrchestrationCommandInvariantError } from "../../orchestration/Errors.ts";
 import { deriveAgentThreadStatus } from "../threadSummary.ts";
-import { THREADS_PAGE_SIZE } from "../../cleanCore/threadList.ts";
+import { THREADS_PAGE_SIZE } from "@penkra/contracts";
 import type {
   ProjectionThreadShellPageInput,
   ProjectionFolderPageCursor,

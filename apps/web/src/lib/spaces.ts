@@ -3,6 +3,7 @@
 //          durable commands that move them around.
 // Layer: Web domain helper
 
+import { THREADS_PAGE_SIZE } from "@penkra/contracts";
 import {
   FOLDER_MOVE_MAX_COUNT,
   type NativeApi,
@@ -154,8 +155,16 @@ export async function moveFoldersToSpace(input: {
       // A transport error can race a committed command. Re-read the authoritative shell
       // before offering a retry so we do not report folders that already reached the target.
       try {
-        const snapshot = await input.api.orchestration.getShellSnapshot();
-        const projectById = new Map(snapshot.folders.map((project) => [project.id, project]));
+        const projectById = new Map<
+          FolderId,
+          Awaited<ReturnType<NativeApi["cleanCore"]["getFolders"]>>[number]
+        >();
+        for (let index = 0; index < remainingFolderIds.length; index += THREADS_PAGE_SIZE) {
+          const folders = await input.api.cleanCore.getFolders({
+            folderIds: remainingFolderIds.slice(index, index + THREADS_PAGE_SIZE),
+          });
+          for (const folder of folders) projectById.set(folder.id, folder);
+        }
         return {
           failedFolderIds: remainingFolderIds.filter((folderId) => {
             const project = projectById.get(folderId);

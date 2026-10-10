@@ -108,6 +108,8 @@ import type {
   CleanCoreQueuedMessageResult,
   CleanCoreEditQueuedMessageInput,
   CleanCoreGetThreadShellInput,
+  CleanCoreGetFoldersInput,
+  CleanCoreGetFoldersResult,
   CleanCoreListThreadsInput,
   CleanCoreSearchThreadsInput,
   CleanCoreListDeckThreadsInput,
@@ -1124,6 +1126,7 @@ export interface NativeApi {
     terminateConnection: (input: TerminateProviderConnectionInput) => Promise<ProviderConnection>;
   };
   cleanCore: {
+    getFolders: (input: CleanCoreGetFoldersInput) => Promise<CleanCoreGetFoldersResult>;
     getThread: (input: CleanCoreGetThreadShellInput) => Promise<CleanCoreThreadSummary | null>;
     sendMessage: (input: CleanCoreSendMessageInput) => Promise<CleanCoreSendResult>;
     cancelQueuedMessage: (

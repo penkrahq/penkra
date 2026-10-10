@@ -235,6 +235,9 @@ export interface ProjectionSnapshotQueryShape {
   /**
    * Read a single active folder shell row by id.
    */
+  readonly getFolderShellsByIds: (
+    folderIds: ReadonlyArray<FolderId>,
+  ) => Effect.Effect<ReadonlyArray<OrchestrationFolderShell>, ProjectionRepositoryError>;
   readonly getFolderShellById: (
     folderId: FolderId,
   ) => Effect.Effect<Option.Option<OrchestrationFolderShell>, ProjectionRepositoryError>;

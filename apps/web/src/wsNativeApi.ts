@@ -544,6 +544,7 @@ export function createWsNativeApi(): NativeApi {
         transport.request(WS_METHODS.providerTerminateConnection, input),
     },
     cleanCore: {
+      getFolders: (input) => transport.request(WS_METHODS.cleanCoreGetFolders, input),
       getThread: (input) => transport.request(WS_METHODS.cleanCoreGetThread, input),
       sendMessage: (input) => transport.request(WS_METHODS.cleanCoreSendMessage, input),
       cancelQueuedMessage: (input) =>

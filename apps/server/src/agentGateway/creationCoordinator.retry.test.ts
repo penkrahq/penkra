@@ -108,6 +108,7 @@ function makeHarness() {
     hasActiveProviderThread: () => Effect.die("unused provider admission method"),
     getShellSnapshot: () => Effect.die("unused snapshot method"),
     getActiveFolderByWorkspaceRoot: () => Effect.die("unused snapshot method"),
+    getFolderShellsByIds: () => Effect.die("unused"),
     getFolderShellById: () => Effect.succeed(Option.some(FOLDER)),
     getSpaceShellById: () => Effect.die("unused snapshot method"),
     getFirstActiveThreadIdByFolderId: () => Effect.die("unused snapshot method"),
