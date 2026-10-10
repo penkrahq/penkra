@@ -3,20 +3,10 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { isProviderIntentEventType } from "./orchestration/providerIntentClassification";
 import { PROVIDER_COMMAND_REACTOR_CONSUMER } from "./persistence/Services/OrchestrationEventDeliveries";
-import { THREAD_RETENTION_COMMAND_ID_PREFIX } from "./threadRetention";
 
 export interface ThreadPurgeShape {
   readonly hasPurgeFence: (threadId: string) => Effect.Effect<boolean, unknown>;
   readonly purge: (threadId: string) => Effect.Effect<boolean, unknown>;
-  readonly listRetentionArchives: () => Effect.Effect<
-    ReadonlyArray<{ readonly threadId: string; readonly archivedAt: string }>,
-    unknown
-  >;
-  readonly listRetentionActiveDays: () => Effect.Effect<ReadonlyArray<string>, unknown>;
-  readonly listLegacyRetentionHidden: () => Effect.Effect<
-    ReadonlyArray<{ readonly threadId: string; readonly deletedAt: string }>,
-    unknown
-  >;
   readonly purgeSoftDeletedManualThreads: (input?: {
     readonly beforePurge?: (threadId: string) => Effect.Effect<boolean, unknown>;
   }) => Effect.Effect<number, unknown>;
@@ -28,43 +18,6 @@ export class ThreadPurge extends ServiceMap.Service<ThreadPurge, ThreadPurgeShap
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
-
-  const listRetentionArchives: ThreadPurgeShape["listRetentionArchives"] = () =>
-    sql<{ readonly threadId: string; readonly archivedAt: string }>`
-        SELECT t.thread_id AS "threadId", t.archived_at AS "archivedAt"
-        FROM projection_threads t
-        WHERE t.deleted_at IS NULL
-          AND t.archived_at IS NOT NULL
-          AND t.is_pinned = 0
-          AND (
-            SELECT e.command_id
-            FROM orchestration_events e
-            WHERE e.event_type = 'thread.archived'
-              AND e.stream_id = t.thread_id
-            ORDER BY e.sequence DESC
-            LIMIT 1
-          ) LIKE ${`${THREAD_RETENTION_COMMAND_ID_PREFIX}%`}
-      `;
-
-  const listRetentionActiveDays: ThreadPurgeShape["listRetentionActiveDays"] = () =>
-    sql<{ readonly dayUtc: string }>`
-      SELECT day_utc AS "dayUtc" FROM retention_active_days ORDER BY day_utc
-    `.pipe(Effect.map((rows) => rows.map((row) => row.dayUtc)));
-
-  const listLegacyRetentionHidden: ThreadPurgeShape["listLegacyRetentionHidden"] = () =>
-    sql<{ readonly threadId: string; readonly deletedAt: string }>`
-      SELECT t.thread_id AS "threadId", t.deleted_at AS "deletedAt"
-      FROM projection_threads t
-      WHERE t.deleted_at IS NOT NULL
-        AND (
-          SELECT e.command_id
-          FROM orchestration_events e
-          WHERE e.event_type = 'thread.deleted'
-            AND e.stream_id = t.thread_id
-          ORDER BY e.sequence DESC
-          LIMIT 1
-        ) LIKE ${`${THREAD_RETENTION_COMMAND_ID_PREFIX}%`}
-    `;
 
   const hasPurgeFence: ThreadPurgeShape["hasPurgeFence"] = (threadId) =>
     Effect.gen(function* () {
@@ -161,14 +114,7 @@ const make = Effect.gen(function* () {
         SELECT t.thread_id AS "threadId"
         FROM projection_threads t
         WHERE t.deleted_at IS NOT NULL
-          AND (
-            SELECT td.command_id
-            FROM orchestration_events td
-            WHERE td.event_type = 'thread.deleted'
-              AND td.stream_id = t.thread_id
-            ORDER BY td.sequence DESC
-            LIMIT 1
-          ) NOT LIKE ${`${THREAD_RETENTION_COMMAND_ID_PREFIX}%`}
+
       `;
       let purgedCount = 0;
       yield* Effect.forEach(
@@ -193,9 +139,6 @@ const make = Effect.gen(function* () {
   return {
     hasPurgeFence,
     purge,
-    listRetentionArchives,
-    listRetentionActiveDays,
-    listLegacyRetentionHidden,
     purgeSoftDeletedManualThreads,
   } satisfies ThreadPurgeShape;
 });

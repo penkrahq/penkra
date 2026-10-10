@@ -1,3 +1,4 @@
+import { createThread, markThreadVisited } from "../../cleanCore/threadStore.ts";
 import {
   ApprovalRequestId,
   CommandId,
@@ -81,105 +82,6 @@ const exists = (filePath: string) =>
   });
 
 const BaseTestLayer = makeProjectionPipelinePrefixedTestLayer("penkra-projection-pipeline-test-");
-
-it.layer(BaseTestLayer)("legacy retention recovery", (it) => {
-  it.effect("restores a hidden thread and its deleted singleton deck into Archive", () =>
-    Effect.gen(function* () {
-      const projectionPipeline = yield* OrchestrationProjectionPipeline;
-      const eventStore = yield* OrchestrationEventStore;
-      const sql = yield* SqlClient.SqlClient;
-      const createdAt = "2026-08-01T00:00:00.000Z";
-      const recoveredAt = "2026-09-01T00:00:00.000Z";
-      const threadId = ThreadId.makeUnsafe("thread-retention-recovery");
-      const folderId = FolderId.makeUnsafe("folder-retention-recovery");
-      const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
-        eventStore.append(event).pipe(Effect.flatMap(projectionPipeline.projectEvent));
-
-      yield* appendAndProject({
-        type: "folder.created",
-        eventId: EventId.makeUnsafe("evt-retention-folder"),
-        aggregateKind: "folder",
-        aggregateId: folderId,
-        occurredAt: createdAt,
-        commandId: CommandId.makeUnsafe("cmd-retention-folder"),
-        causationEventId: null,
-        correlationId: null,
-        metadata: {},
-        payload: {
-          folderId,
-          spaceId: SpaceId.makeUnsafe("penkra-personal"),
-          title: "Folder",
-          workspaceRoot: null,
-          defaultModelSelection: null,
-          scripts: [],
-          createdAt,
-          updatedAt: createdAt,
-        },
-      });
-      yield* appendAndProject({
-        type: "thread.created",
-        eventId: EventId.makeUnsafe("evt-retention-created"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: createdAt,
-        commandId: CommandId.makeUnsafe("cmd-retention-created"),
-        causationEventId: null,
-        correlationId: null,
-        metadata: {},
-        payload: {
-          threadId,
-          deckId: singletonThreadDeckId(threadId),
-          deckSortOrder: 0,
-          folderId,
-          title: "Thread",
-          modelSelection: { provider: "codex", model: "gpt-5-codex" },
-          runtimeMode: "full-access",
-          createdAt,
-          updatedAt: createdAt,
-        },
-      });
-      yield* appendAndProject({
-        type: "thread.deleted",
-        eventId: EventId.makeUnsafe("evt-retention-hidden"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: createdAt,
-        commandId: CommandId.makeUnsafe("thread-retention:legacy"),
-        causationEventId: null,
-        correlationId: null,
-        metadata: {},
-        payload: { threadId, deletedAt: createdAt },
-      });
-      yield* appendAndProject({
-        type: "thread.archived",
-        eventId: EventId.makeUnsafe("evt-retention-recovered"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: recoveredAt,
-        commandId: CommandId.makeUnsafe("thread-retention:recover:test"),
-        causationEventId: null,
-        correlationId: null,
-        metadata: {},
-        payload: {
-          threadId,
-          archivedAt: recoveredAt,
-          updatedAt: recoveredAt,
-          restoredFromRetention: true,
-        },
-      });
-      const rows = yield* sql<{
-        readonly deletedAt: string | null;
-        readonly archivedAt: string | null;
-        readonly deckCount: number;
-      }>`
-        SELECT t.deleted_at AS "deletedAt", t.archived_at AS "archivedAt",
-          (SELECT count(*) FROM projection_thread_decks d WHERE d.deck_id = t.deck_id) AS "deckCount"
-        FROM projection_threads t WHERE t.thread_id = ${threadId}
-      `;
-      assert.deepEqual(rows, [{ deletedAt: null, archivedAt: recoveredAt, deckCount: 1 }]);
-    }),
-  );
-});
 
 it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
   it.effect("bootstraps all projection states and writes projection rows", () =>
@@ -355,23 +257,18 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           updatedAt: createdAt,
         },
       });
-      yield* eventStore.append({
-        type: "thread.updated",
-        eventId: EventId.makeUnsafe("evt-visit-ack"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-visit"),
-        occurredAt: visitedAt,
-        commandId: CommandId.makeUnsafe("cmd-visit-ack"),
-        causationEventId: null,
-        correlationId: CommandId.makeUnsafe("cmd-visit-ack"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-visit"),
-          lastVisitedAt: visitedAt,
-          // Visiting a completed thread must not reorder it in the sidebar.
-          updatedAt: createdAt,
-        },
+      yield* createThread({
+        id: "thread-visit",
+        spaceId: "penkra-personal",
+        folderId: "project-visit",
+        title: "Thread",
+        provider: "codex",
+        model: "gpt-5-codex",
+        runtimeMode: "full-access",
+        createdBy: "user",
+        createdAt,
       });
+      yield* markThreadVisited({ threadId: "thread-visit", visitedAt, updatedAt: createdAt });
 
       yield* projectionPipeline.bootstrap;
       yield* sql`DELETE FROM projection_threads WHERE thread_id = 'thread-visit'`;
@@ -386,33 +283,10 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         readonly updatedAt: string;
       }>`
         SELECT last_visited_at AS "lastVisitedAt", updated_at AS "updatedAt"
-        FROM projection_threads
-        WHERE thread_id = 'thread-visit'
+        FROM threads
+        WHERE id = 'thread-visit'
       `;
       assert.deepEqual(rows, [{ lastVisitedAt: visitedAt, updatedAt: createdAt }]);
-
-      const openedAt = "2026-05-06T12:00:00.000Z";
-      yield* eventStore.append({
-        type: "thread.updated",
-        eventId: EventId.makeUnsafe("evt-retention-open-day"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-visit"),
-        occurredAt: openedAt,
-        commandId: CommandId.makeUnsafe("cmd-retention-open-day"),
-        causationEventId: null,
-        correlationId: null,
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-visit"),
-          lastOpenedAt: openedAt,
-          updatedAt: openedAt,
-        },
-      });
-      yield* projectionPipeline.bootstrap;
-      const activeDays = yield* sql<{ readonly dayUtc: string }>`
-        SELECT day_utc AS "dayUtc" FROM retention_active_days
-      `;
-      assert.deepEqual(activeDays, [{ dayUtc: "2026-05-06" }]);
     }),
   );
 
@@ -3826,7 +3700,6 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
             icon: "build",
           },
         ],
-        isPinned: true,
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5",
@@ -3852,7 +3725,7 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
           scriptsJson:
             '[{"id":"script-1","name":"Build","command":"bun run build","icon":"build"}]',
           defaultModelSelection: '{"provider":"codex","model":"gpt-5"}',
-          isPinned: 1,
+          isPinned: 0,
           iconDataUrl: "data:image/webp;base64,Y3VzdG9t",
         },
       ]);

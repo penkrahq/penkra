@@ -908,13 +908,6 @@ const ThreadArchiveCommand = Schema.Struct({
   expectedLastVisitedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
 });
 
-const ThreadRetentionRecoverCommand = Schema.Struct({
-  type: Schema.Literal("thread.retention-recover"),
-  commandId: CommandId,
-  threadId: ThreadId,
-  expectedDeletedAt: IsoDateTime,
-});
-
 const ThreadUnarchiveCommand = Schema.Struct({
   type: Schema.Literal("thread.unarchive"),
   commandId: CommandId,
@@ -940,7 +933,6 @@ const ThreadUpdateCommand = Schema.Struct({
   subagentAgentId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   subagentNickname: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   subagentRole: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  lastOpenedAt: Schema.optional(IsoDateTime),
 });
 
 export const ThreadTurnStartCommand = Schema.Struct({
@@ -1312,7 +1304,6 @@ const ThreadMessageDeliverySetCommand = Schema.Struct({
 });
 
 const InternalOrchestrationCommand = Schema.Union([
-  ThreadRetentionRecoverCommand,
   ThreadSessionSetCommand,
   ThreadMessagesImportCommand,
   ThreadMessageAssistantDeltaCommand,
@@ -1495,7 +1486,6 @@ export const ThreadDeletedPayload = Schema.Struct({
 
 export const ThreadArchivedPayload = Schema.Struct({
   threadId: ThreadId,
-  restoredFromRetention: Schema.optional(Schema.Boolean),
   // Required for new events, optional for legacy events
   archivedAt: Schema.optional(IsoDateTime),
   updatedAt: Schema.optional(IsoDateTime),
@@ -1518,7 +1508,6 @@ export const ThreadUpdatedPayload = Schema.Struct({
   subagentAgentId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   subagentNickname: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   subagentRole: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  lastOpenedAt: Schema.optional(IsoDateTime),
   updatedAt: IsoDateTime,
 });
 
