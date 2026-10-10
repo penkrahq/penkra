@@ -214,46 +214,199 @@ export const updateThreadDraft = (id: string, draft: string | null, updatedAt: s
     `;
   });
 
-/**
- * Idempotent set-state for the sidebar/deck writers (2.2): move/reorder
- * (sidebar_sort_order, deck_id, deck_sort_order), pin, mark visited, runtime
- * mode and working directory. Only the provided fields change; repeating the
- * same value changes nothing.
- */
-export interface UpdateThreadFieldsInput {
-  readonly threadId: string;
-  readonly updatedAt: string;
-  readonly sidebarSortOrder?: number | undefined;
-  readonly deckId?: string | null | undefined;
-  readonly deckSortOrder?: number | undefined;
-  readonly isPinned?: number | undefined;
-  readonly lastVisitedAt?: string | null | undefined;
-  readonly runtimeMode?: string | undefined;
-  readonly workingDirectory?: string | null | undefined;
+/** A sidebar/deck drop position: after a sibling, or the pinned boundary. */
+export interface ThreadMovePosition {
+  readonly type: "after" | "pinned-boundary";
+  readonly itemId?: string | undefined;
 }
 
-export const updateThreadFields = (input: UpdateThreadFieldsInput) =>
+interface ThreadSiblingRow {
+  readonly id: string;
+  readonly isPinned: number;
+  readonly sidebarSortOrder: number;
+  readonly createdAt: string;
+}
+
+function orderThreadSiblings(rows: readonly ThreadSiblingRow[]): ThreadSiblingRow[] {
+  return [...rows].sort((left, right) => {
+    const byPinned = right.isPinned - left.isPinned;
+    if (byPinned !== 0) return byPinned;
+    const byManual = left.sidebarSortOrder - right.sidebarSortOrder;
+    if (byManual !== 0) return byManual;
+    const byCreated = right.createdAt.localeCompare(left.createdAt);
+    return byCreated || left.id.localeCompare(right.id);
+  });
+}
+
+/** Inserts the moved row into the ordered siblings, or null if the drop is stale. */
+function resolveThreadMoveOrder(
+  destination: readonly ThreadSiblingRow[],
+  moved: ThreadSiblingRow,
+  position: ThreadMovePosition,
+): ThreadSiblingRow[] | null {
+  const others = orderThreadSiblings(destination);
+  let insertionIndex = others.filter((row) => row.isPinned === 1).length;
+  if (position.type === "after") {
+    const anchorIndex = others.findIndex((row) => row.id === position.itemId);
+    if (anchorIndex < 0) return null;
+    if (others[anchorIndex]!.isPinned !== moved.isPinned) return null;
+    insertionIndex = anchorIndex + 1;
+  }
+  const ordered = [...others];
+  ordered.splice(insertionIndex, 0, moved);
+  return ordered;
+}
+
+/** Pin/unpin. Returns true when the row changed (so the caller broadcasts). */
+export const setThreadPinned = (input: {
+  readonly threadId: string;
+  readonly isPinned: boolean;
+  readonly updatedAt: string;
+}) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    const hasSidebarSortOrder = input.sidebarSortOrder !== undefined ? 1 : 0;
-    const hasDeckId = input.deckId !== undefined ? 1 : 0;
-    const hasDeckSortOrder = input.deckSortOrder !== undefined ? 1 : 0;
-    const hasIsPinned = input.isPinned !== undefined ? 1 : 0;
-    const hasLastVisitedAt = input.lastVisitedAt !== undefined ? 1 : 0;
-    const hasRuntimeMode = input.runtimeMode !== undefined ? 1 : 0;
-    const hasWorkingDirectory = input.workingDirectory !== undefined ? 1 : 0;
-    yield* sql`
-      UPDATE threads SET
-        sidebar_sort_order = CASE WHEN ${hasSidebarSortOrder} THEN ${input.sidebarSortOrder ?? 0} ELSE sidebar_sort_order END,
-        deck_id = CASE WHEN ${hasDeckId} THEN ${input.deckId ?? null} ELSE deck_id END,
-        deck_sort_order = CASE WHEN ${hasDeckSortOrder} THEN ${input.deckSortOrder ?? 0} ELSE deck_sort_order END,
-        is_pinned = CASE WHEN ${hasIsPinned} THEN ${input.isPinned ?? 0} ELSE is_pinned END,
-        last_visited_at = CASE WHEN ${hasLastVisitedAt} THEN ${input.lastVisitedAt ?? null} ELSE last_visited_at END,
-        runtime_mode = CASE WHEN ${hasRuntimeMode} THEN ${input.runtimeMode ?? "full-access"} ELSE runtime_mode END,
-        working_directory = CASE WHEN ${hasWorkingDirectory} THEN ${input.workingDirectory ?? null} ELSE working_directory END,
-        updated_at = ${input.updatedAt}
-      WHERE id = ${input.threadId}
+    const next = input.isPinned ? 1 : 0;
+    const rows = yield* sql<{ readonly isPinned: number }>`
+      SELECT is_pinned AS "isPinned" FROM threads WHERE id = ${input.threadId}
     `;
+    if (rows[0] === undefined || rows[0].isPinned === next) return false;
+    yield* sql`UPDATE threads SET is_pinned = ${next}, updated_at = ${input.updatedAt} WHERE id = ${input.threadId}`;
+    return true;
+  });
+
+/** Mark visited. Returns true when the row changed. */
+export const markThreadVisited = (input: {
+  readonly threadId: string;
+  readonly visitedAt: string;
+  readonly updatedAt: string;
+}) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const rows = yield* sql<{ readonly lastVisitedAt: string | null }>`
+      SELECT last_visited_at AS "lastVisitedAt" FROM threads WHERE id = ${input.threadId}
+    `;
+    if (rows[0] === undefined || rows[0].lastVisitedAt === input.visitedAt) return false;
+    yield* sql`UPDATE threads SET last_visited_at = ${input.visitedAt}, updated_at = ${input.updatedAt} WHERE id = ${input.threadId}`;
+    return true;
+  });
+
+/** Set runtime mode. Returns true when the row changed. */
+export const setThreadRuntimeMode = (input: {
+  readonly threadId: string;
+  readonly runtimeMode: string;
+  readonly updatedAt: string;
+}) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const rows = yield* sql<{ readonly runtimeMode: string }>`
+      SELECT runtime_mode AS "runtimeMode" FROM threads WHERE id = ${input.threadId}
+    `;
+    if (rows[0] === undefined || rows[0].runtimeMode === input.runtimeMode) return false;
+    yield* sql`UPDATE threads SET runtime_mode = ${input.runtimeMode}, updated_at = ${input.updatedAt} WHERE id = ${input.threadId}`;
+    return true;
+  });
+
+/** Set working directory. Returns true when the row changed. */
+export const setThreadWorkingDirectory = (input: {
+  readonly threadId: string;
+  readonly workingDirectory: string | null;
+  readonly updatedAt: string;
+}) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const rows = yield* sql<{ readonly workingDirectory: string | null }>`
+      SELECT working_directory AS "workingDirectory" FROM threads WHERE id = ${input.threadId}
+    `;
+    if (rows[0] === undefined || rows[0].workingDirectory === input.workingDirectory) return false;
+    yield* sql`UPDATE threads SET working_directory = ${input.workingDirectory}, updated_at = ${input.updatedAt} WHERE id = ${input.threadId}`;
+    return true;
+  });
+
+/**
+ * Move/reorder a thread in a folder's sidebar. Renumbers every sibling's
+ * `sidebar_sort_order` (and the moved thread's `folder_id`) in one transaction
+ * and returns the changed thread ids for the caller to broadcast. Repeating the
+ * same layout writes nothing.
+ */
+export const moveSidebarItem = (input: {
+  readonly threadId: string;
+  readonly folderId: string;
+  readonly position: ThreadMovePosition;
+  readonly updatedAt: string;
+}) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const movedRows = yield* sql<ThreadSiblingRow & { readonly folderId: string }>`
+      SELECT id, folder_id AS "folderId", is_pinned AS "isPinned",
+             COALESCE(sidebar_sort_order, 0) AS "sidebarSortOrder", created_at AS "createdAt"
+      FROM threads WHERE id = ${input.threadId} AND deleted_at IS NULL
+    `;
+    const moved = movedRows[0];
+    if (moved === undefined) return [] as string[];
+    const destination = yield* sql<ThreadSiblingRow>`
+      SELECT id, is_pinned AS "isPinned",
+             COALESCE(sidebar_sort_order, 0) AS "sidebarSortOrder", created_at AS "createdAt"
+      FROM threads
+      WHERE folder_id = ${input.folderId} AND id != ${input.threadId}
+        AND deleted_at IS NULL AND parent_thread_id IS NULL
+    `;
+    const ordered = resolveThreadMoveOrder(destination, moved, input.position);
+    if (ordered === null) return [] as string[];
+    const changed: string[] = [];
+    for (let index = 0; index < ordered.length; index += 1) {
+      const row = ordered[index]!;
+      const folderChanged = row.id === input.threadId && moved.folderId !== input.folderId;
+      const orderChanged = row.sidebarSortOrder !== index;
+      if (!folderChanged && !orderChanged) continue;
+      yield* sql`
+        UPDATE threads SET sidebar_sort_order = ${index}, folder_id = ${input.folderId}, updated_at = ${input.updatedAt}
+        WHERE id = ${row.id}
+      `;
+      changed.push(row.id);
+    }
+    return changed;
+  });
+
+/**
+ * Reorder a thread within its deck. Renumbers `deck_sort_order` for the deck's
+ * threads in one transaction and returns the changed thread ids.
+ */
+export const moveDeckThread = (input: {
+  readonly threadId: string;
+  readonly deckId: string;
+  readonly position: ThreadMovePosition;
+  readonly updatedAt: string;
+}) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const movedRows = yield* sql<ThreadSiblingRow & { readonly deckId: string | null }>`
+      SELECT id, deck_id AS "deckId", is_pinned AS "isPinned",
+             COALESCE(deck_sort_order, 0) AS "sidebarSortOrder", created_at AS "createdAt"
+      FROM threads WHERE id = ${input.threadId} AND deleted_at IS NULL
+    `;
+    const moved = movedRows[0];
+    if (moved === undefined) return [] as string[];
+    const destination = yield* sql<ThreadSiblingRow>`
+      SELECT id, is_pinned AS "isPinned",
+             COALESCE(deck_sort_order, 0) AS "sidebarSortOrder", created_at AS "createdAt"
+      FROM threads
+      WHERE deck_id = ${input.deckId} AND id != ${input.threadId} AND deleted_at IS NULL
+    `;
+    const ordered = resolveThreadMoveOrder(destination, moved, input.position);
+    if (ordered === null) return [] as string[];
+    const changed: string[] = [];
+    for (let index = 0; index < ordered.length; index += 1) {
+      const row = ordered[index]!;
+      const deckChanged = row.id === input.threadId && moved.deckId !== input.deckId;
+      const orderChanged = row.sidebarSortOrder !== index;
+      if (!deckChanged && !orderChanged) continue;
+      yield* sql`
+        UPDATE threads SET deck_sort_order = ${index}, deck_id = ${input.deckId}, updated_at = ${input.updatedAt}
+        WHERE id = ${row.id}
+      `;
+      changed.push(row.id);
+    }
+    return changed;
   });
 
 /** Answering a question updates the same row in place. */

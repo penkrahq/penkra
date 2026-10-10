@@ -6,8 +6,9 @@ import {
   answerQuestion,
   createThread,
   makeThreadPublisher,
+  moveSidebarItem,
   setThreadArchived,
-  updateThreadFields,
+  setThreadPinned,
   upsertThreadItem,
 } from "./threadStore.ts";
 import { THREAD_ITEM_DATA_LIMIT_BYTES } from "./threadItemData.ts";
@@ -184,40 +185,72 @@ it.effect("stores last_message_preview unchanged (no fixed truncation)", () =>
   ),
 );
 
-it.effect("updateThreadFields sets only the provided fields", () =>
+it.effect("setThreadPinned is idempotent and reports whether it changed", () =>
   withDb(
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations();
       yield* createThread(baseThread);
-      yield* updateThreadFields({
-        threadId: "thread-1",
-        updatedAt: "2026-10-09T00:00:05.000Z",
-        sidebarSortOrder: 7,
-        isPinned: 1,
-        runtimeMode: "read-only",
+      assert.equal(
+        yield* setThreadPinned({
+          threadId: "thread-1",
+          isPinned: true,
+          updatedAt: "2026-10-09T00:00:05.000Z",
+        }),
+        true,
+      );
+      assert.equal(
+        yield* setThreadPinned({
+          threadId: "thread-1",
+          isPinned: true,
+          updatedAt: "2026-10-09T00:00:06.000Z",
+        }),
+        false,
+      );
+      const rows = yield* sql<{ readonly isPinned: number }>`
+        SELECT is_pinned AS "isPinned" FROM threads WHERE id = 'thread-1'
+      `;
+      assert.deepStrictEqual(rows, [{ isPinned: 1 }]);
+    }),
+  ),
+);
+
+it.effect("moveSidebarItem renumbers its folder siblings in one transaction", () =>
+  withDb(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations();
+      for (const [id, createdAt] of [
+        ["a", "2026-10-09T00:00:03.000Z"],
+        ["b", "2026-10-09T00:00:02.000Z"],
+        ["c", "2026-10-09T00:00:01.000Z"],
+      ] as const) {
+        yield* createThread({ ...baseThread, id, createdAt, folderId: "folder-1" });
+      }
+      // Default order is newest first: a, b, c. Move a after c.
+      const changed = yield* moveSidebarItem({
+        threadId: "a",
+        folderId: "folder-1",
+        position: { type: "after", itemId: "c" },
+        updatedAt: "2026-10-09T00:00:09.000Z",
       });
-      const rows = yield* sql<{
-        readonly sidebarSortOrder: number;
-        readonly isPinned: number;
-        readonly runtimeMode: string;
-        readonly deckId: string | null;
-        readonly lastVisitedAt: string | null;
-      }>`
-        SELECT sidebar_sort_order AS "sidebarSortOrder", is_pinned AS "isPinned",
-               runtime_mode AS "runtimeMode", deck_id AS "deckId",
-               last_visited_at AS "lastVisitedAt"
-        FROM threads WHERE id = 'thread-1'
+      assert.deepStrictEqual(changed.toSorted(), ["a", "c"]);
+      const rows = yield* sql<{ readonly id: string; readonly order: number }>`
+        SELECT id, COALESCE(sidebar_sort_order, 0) AS "order" FROM threads ORDER BY "order"
       `;
       assert.deepStrictEqual(rows, [
-        {
-          sidebarSortOrder: 7,
-          isPinned: 1,
-          runtimeMode: "read-only",
-          deckId: null,
-          lastVisitedAt: null,
-        },
+        { id: "b", order: 0 },
+        { id: "c", order: 1 },
+        { id: "a", order: 2 },
       ]);
+      // Repeating the same layout writes nothing.
+      const again = yield* moveSidebarItem({
+        threadId: "a",
+        folderId: "folder-1",
+        position: { type: "after", itemId: "c" },
+        updatedAt: "2026-10-09T00:00:10.000Z",
+      });
+      assert.deepStrictEqual(again, []);
     }),
   ),
 );
