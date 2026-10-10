@@ -12,6 +12,7 @@ import {
 import {
   parseOperationInput,
   parsePenkraCommand,
+  rejectUnacceptedArguments,
   structuredArguments,
   type PenkraExecCommandInput,
 } from "../appRuntimeCli.ts";
@@ -110,11 +111,7 @@ export function resolveAgentGatewayCommand(
   }
 
   const parsed = structuredArguments(commandTokens.slice(exact.words.length), parsedInput);
-  if (parsed.positionals.length > 0 || parsed.tabId !== undefined) {
-    throw new Error(
-      `Invalid arguments for ${commandText(exact)}. Run ${commandText(exact)} --help.`,
-    );
-  }
+  rejectUnacceptedArguments(commandText(exact), parsed, { acceptsTabId: false });
   if (parsed.help) {
     return { kind: "result", result: commandHelp(exact) };
   }
