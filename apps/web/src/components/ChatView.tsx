@@ -4375,22 +4375,20 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     animateNextAutoFollowScrollRef.current = false;
   }, []);
   const transcriptMessageCount = useMemo(() => timelineMessages.length, [timelineMessages]);
-  const latestTranscriptMessage = useMemo(() => {
-    return timelineMessages.at(-1) ?? null;
-  }, [timelineMessages]);
-  const transcriptTailKey = latestTranscriptMessage
-    ? [
-        latestTranscriptMessage.id,
-        latestTranscriptMessage.role,
-        latestTranscriptMessage.streaming ? "streaming" : "settled",
-        latestTranscriptMessage.text.length,
-        latestTranscriptMessage.completedAt ?? "",
-      ].join(":")
-    : "empty";
-  const transcriptAutoFollowSignal = buildTranscriptAutoFollowSignal({
-    messageCount: transcriptMessageCount,
-    tailKey: transcriptTailKey,
-  });
+  // Auto-follow keys on the clean-core message items (user/text seq/updated rows),
+  // the transcript's only source; work rows must not re-stick the transcript.
+  const transcriptAutoFollowSignal = useMemo(() => {
+    const messageItems = threadItems.filter(
+      (item) => item.kind === "user" || item.kind === "text",
+    );
+    const tail = messageItems.at(-1);
+    return buildTranscriptAutoFollowSignal({
+      messageCount: messageItems.length,
+      tailKey: tail
+        ? [tail.sourceId, tail.kind, tail.status, tail.text?.length ?? 0, tail.updatedAt].join(":")
+        : "empty",
+    });
+  }, [threadItems]);
   const recordTranscriptControllerDiagnostic = useCallback(
     (event: string, detail?: Readonly<Record<string, unknown>>) => {
       const element = transcriptListRef.current?.getScrollableNode?.();
