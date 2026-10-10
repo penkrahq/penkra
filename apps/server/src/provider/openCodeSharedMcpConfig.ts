@@ -1,10 +1,13 @@
 // FILE: openCodeSharedMcpConfig.ts
-// Purpose: Project only user MCP definitions into isolated OpenCode processes.
+// Purpose: Build the OPENCODE_CONFIG_CONTENT for isolated OpenCode processes:
+// project only user MCP definitions, and install Penkra's image-transform plugin.
 
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
+
+import { ensureOpenCodeImageTransformPlugin } from "./openCodeImageTransformPlugin.ts";
 
 const GLOBAL_CONFIG_FILES = ["config.json", "opencode.json", "opencode.jsonc"] as const;
 const RESERVED_MCP_SERVER_NAME = "penkra";
@@ -32,7 +35,7 @@ async function readJsoncObject(filePath: string): Promise<Record<string, unknown
   return value;
 }
 
-export async function loadOpenCodeSharedMcpConfig(homeDir: string): Promise<string | undefined> {
+export async function loadOpenCodeConfigContent(homeDir: string): Promise<string> {
   const configDir = path.join(homeDir, ".config", "opencode");
   const shared: Record<string, unknown> = {};
   for (const fileName of GLOBAL_CONFIG_FILES) {
@@ -42,5 +45,9 @@ export async function loadOpenCodeSharedMcpConfig(homeDir: string): Promise<stri
     Object.assign(shared, config.mcp);
   }
   delete shared[RESERVED_MCP_SERVER_NAME];
-  return Object.keys(shared).length > 0 ? JSON.stringify({ mcp: shared }) : undefined;
+  const pluginPath = await ensureOpenCodeImageTransformPlugin(homeDir);
+  return JSON.stringify({
+    ...(Object.keys(shared).length > 0 ? { mcp: shared } : {}),
+    plugin: [pluginPath],
+  });
 }
