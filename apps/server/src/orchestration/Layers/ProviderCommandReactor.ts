@@ -638,9 +638,7 @@ const make = Effect.gen(function* () {
   // The reservation survives provider startup and binds to the exact turn that
   // must settle before another queue can drain, preventing late terminal events
   // from promoting overlapping work.
-  // Keyed by the session-owning thread id (child subagent threads share the
-  // parent session, so per-child keys would allow overlapping promotions on
-  // one session); the queued thread + message pair identifies the promoted
+  // Keyed by thread id; the queued thread + message pair identifies the promoted
   // command, while object identity protects a replacement reservation for a
   // retry of that same command.
   type PendingQueuedDispatch = {
@@ -726,8 +724,7 @@ const make = Effect.gen(function* () {
     });
   // OpenCode steering interrupts the active turn, then promotes the steered
   // message after that exact turn's terminal event. Binding the barrier to a
-  // turn prevents late parent or child events on the shared session from
-  // releasing it early.
+  // turn prevents late events from a different turn from releasing it early.
   const openCodeSteerInterruptBarriers = new Map<string, TurnId>();
   const queuedTurnPromotionOwner = `provider-queued-turn:${crypto.randomUUID()}`;
   // A pending-start interrupt is also delivered as its own durable intent.
@@ -933,19 +930,6 @@ const make = Effect.gen(function* () {
   const withProviderSessionLease = <A, E, R>(_threadId: ThreadId, effect: Effect.Effect<A, E, R>) =>
     effect;
 
-  const resolveSubagentProviderThreadId = (
-    threadId: ThreadId,
-    parentThreadId: ThreadId | null | undefined,
-  ): string | undefined => {
-    if (!parentThreadId) {
-      return undefined;
-    }
-
-    const prefix = `subagent:${parentThreadId}:`;
-    const rawThreadId = threadId as string;
-    return rawThreadId.startsWith(prefix) ? rawThreadId.slice(prefix.length) : undefined;
-  };
-
   const enqueueQueuedTurnStart = (event: QueuedTurnSourceEvent) =>
     queuedTurnPromotions.enqueue({
       queuedEventSequence: event.sequence,
@@ -963,9 +947,6 @@ const make = Effect.gen(function* () {
   // directions (queueing after the turn already settled, or dispatching while
   // a turn is still live). Adapters clear `activeTurnId` synchronously with
   // emitting `turn.completed`/`turn.aborted`, so this check is authoritative.
-  // Child subagent threads share their parent's provider session, so the
-  // lookup must resolve to the session-owning thread — a raw child-id lookup
-  // would always miss and drain queued child messages into a live turn.
   const resolveLiveProviderTurnId = Effect.fnUntraced(function* (threadId: ThreadId) {
     const providerThread = yield* resolveProviderSessionThread(threadId);
     const sessionThreadId = providerThread?.id ?? threadId;
@@ -1497,81 +1478,6 @@ const make = Effect.gen(function* () {
             "",
           ].join("\n")
         : "";
-    // Subagent threads have no provider session of their own: their messages
-    // steer the running child task through the parent session (mirrors the
-    // interrupt seam), never the session-bootstrap path below. Parent metadata
-    // may be absent on older/local-only rows, so synthetic ids use the same
-    // projection-backed parent inference as interrupt routing.
-    const providerThread = yield* resolveProviderSessionThread(input.threadId);
-    const subagentProviderThreadId = providerThread
-      ? resolveSubagentProviderThreadId(thread.id, providerThread.id)
-      : undefined;
-    if (providerThread && subagentProviderThreadId) {
-      // Parity with the steerTurn path below: inline portable skill
-      // instructions, normalize skill/agent mentions, and forward the
-      // structured context so the adapter can project attachments into the
-      // text-only subagent steering channel.
-      const steerProvider = (providerThread.session?.providerName ??
-        providerThread.modelSelection.provider) as ProviderKind;
-      const steerSkillInlineText =
-        input.skills !== undefined && input.skills.length > 0
-          ? yield* Effect.tryPromise(() =>
-              buildInlineSkillInstructions({
-                provider: steerProvider,
-                skills: input.skills ?? [],
-                maxChars: Math.max(
-                  0,
-                  PROVIDER_SEND_TURN_MAX_INPUT_CHARS -
-                    senderContext.length -
-                    messageText.length -
-                    PROVIDER_INPUT_SAFETY_MARGIN_CHARS,
-                ),
-              }),
-            ).pipe(
-              Effect.catch((error) =>
-                reportProviderReactorFailure("skill-inline", input.threadId).pipe(
-                  Effect.andThen(
-                    Effect.logWarning("failed to inline portable skill instructions", {
-                      threadId: input.threadId,
-                      error,
-                    }),
-                  ),
-                  Effect.as(""),
-                ),
-              ),
-            )
-          : "";
-      const steerMessageWithSkills = steerSkillInlineText
-        ? `${senderContext}${messageText}\n\n${steerSkillInlineText}`
-        : `${senderContext}${messageText}`;
-      const normalizedSteerInput = toNonEmptyProviderInput(
-        normalizeSkillMentionTextForProvider({
-          provider: steerProvider,
-          messageText: steerMessageWithSkills,
-          ...(input.skills !== undefined ? { skills: input.skills } : {}),
-        }),
-      );
-      const normalizedSteerAttachments = yield* resolveProviderDispatchAttachments({
-        attachments: input.attachments,
-        attachmentsDir: serverConfig.attachmentsDir,
-        repository: managedAttachments,
-        threadId: input.threadId,
-        messageId: input.messageId,
-        provider: steerProvider,
-        operation: "thread.turn.start",
-      });
-      yield* providerService.steerSubagent({
-        threadId: providerThread.id,
-        providerThreadId: subagentProviderThreadId,
-        ...(normalizedSteerInput ? { input: normalizedSteerInput } : {}),
-        ...(normalizedSteerAttachments.length > 0
-          ? { attachments: normalizedSteerAttachments }
-          : {}),
-        ...(input.skills !== undefined ? { skills: input.skills } : {}),
-        ...(providerMentions !== undefined ? { mentions: providerMentions } : {}),
-      });
-      return;
-    }
     const managedRuntime = yield* resolveManagedTurnRuntime({
       threadId: input.threadId,
       ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
@@ -2014,7 +1920,7 @@ const make = Effect.gen(function* () {
       delete reservation.pendingTerminalTurnIds;
       if (completedBeforeBinding) {
         pendingQueuedDispatchBySessionThread.delete(sessionThreadId);
-        yield* drainQueuedTurnsForSession(event.payload.threadId);
+        yield* drainQueuedTurnsForThread(event.payload.threadId);
       }
     });
     // Safety net for a promoted queued dispatch that never reaches a turn. While
@@ -2049,7 +1955,7 @@ const make = Effect.gen(function* () {
         }
         yield* clearPendingQueuedDispatch;
         if (redrain) {
-          yield* drainQueuedTurnsForSession(event.payload.threadId);
+          yield* drainQueuedTurnsForThread(event.payload.threadId);
         }
       });
     yield* Effect.gen(function* () {
@@ -2372,14 +2278,12 @@ const make = Effect.gen(function* () {
                   });
                 }
                 // A direct start has no provider turn and therefore cannot emit a
-                // terminal runtime event. Recover every queue sharing this
-                // provider session now; otherwise follow-ups queued before the
-                // failure remain stranded indefinitely (including child threads
-                // multiplexed onto their parent's provider session).
+                // terminal runtime event. Recover this thread's queue now;
+                // otherwise follow-ups queued before the failure remain stranded.
                 if (isPendingQueuedDispatch) {
                   yield* clearPendingQueuedDispatch;
                 }
-                yield* drainQueuedTurnsForSession(event.payload.threadId);
+                yield* drainQueuedTurnsForThread(event.payload.threadId);
                 if (!failedBeforeProviderDispatch) {
                   return yield* Effect.failCause(cause);
                 }
@@ -3047,25 +2951,6 @@ const make = Effect.gen(function* () {
     }).pipe(Effect.ensuring(Effect.sync(() => drainingQueuedTurns.delete(threadId))));
   });
 
-  const drainQueuedTurnsForSession = Effect.fnUntraced(function* (
-    threadId: ThreadId,
-    options?: { readonly allowStartingSession?: boolean },
-  ) {
-    const sessionThreadId = (yield* resolveProviderSessionThread(threadId))?.id ?? threadId;
-    const queuedThreadIds = new Set<ThreadId>([threadId]);
-    for (const queuedThreadId of yield* queuedTurnPromotions.listPendingThreadIds) {
-      const queuedThread = ThreadId.makeUnsafe(queuedThreadId);
-      const providerThread = yield* resolveProviderSessionThread(queuedThread);
-      const queuedSessionThreadId = providerThread?.id ?? queuedThread;
-      if (queuedSessionThreadId === sessionThreadId) {
-        queuedThreadIds.add(queuedThread);
-      }
-    }
-    for (const queuedThreadId of queuedThreadIds) {
-      yield* drainQueuedTurnsForThread(queuedThreadId, options);
-    }
-  });
-
   const processQueueDrainEvent = Effect.fnUntraced(function* (event: ProviderQueueDrainEvent) {
     if (event.type === "turn.completed" && event.payload.state === "completed") {
       const connection = (yield* authCircuits.connectionForThread(event.threadId))[0];
@@ -3153,10 +3038,7 @@ const make = Effect.gen(function* () {
         pendingQueuedDispatchBySessionThread.delete(sessionThreadId);
       }
     }
-    // Child subagent threads queue under their own id but share the parent's
-    // provider session, and terminal runtime events carry the session-owning
-    // thread id — drain every queue bound to this session.
-    yield* drainQueuedTurnsForSession(event.threadId, { allowStartingSession: true });
+    yield* drainQueuedTurnsForThread(event.threadId, { allowStartingSession: true });
   });
 
   const recoverQueuedTurnPromotions = Effect.gen(function* () {
@@ -3294,7 +3176,6 @@ const make = Effect.gen(function* () {
 
     // Forward the observed turn only as an expectation. ProviderService owns the
     // exact generation-scoped provider turn and rejects a stale mismatch.
-    const providerThreadId = resolveSubagentProviderThreadId(thread.id, providerThread.id);
     const turnId = input.turnId ?? thread.session?.activeTurnId ?? undefined;
     const result = yield* runBoundedProviderCall({
       label: "The provider interrupt",
@@ -3302,7 +3183,6 @@ const make = Effect.gen(function* () {
       call: providerService.interruptTurn({
         threadId: providerThread.id,
         ...(turnId ? { turnId } : {}),
-        ...(providerThreadId ? { providerThreadId } : {}),
       }),
     });
     if (result._tag === "ok") {
@@ -3622,11 +3502,9 @@ const make = Effect.gen(function* () {
         providerThread?.session?.status === "running" &&
         providerThread.session.activeTurnId !== null
       ) {
-        const providerThreadId = resolveSubagentProviderThreadId(thread.id, providerThread.id);
         yield* providerService.interruptTurn({
           threadId: providerThread.id,
           turnId: providerThread.session.activeTurnId,
-          ...(providerThreadId ? { providerThreadId } : {}),
         });
       }
 
@@ -3916,18 +3794,8 @@ const make = Effect.gen(function* () {
     }
 
     const stoppedSessionThreadId = providerThread?.id ?? thread.id;
-    const stopsProviderSession = providerThread === null || providerThread.id === thread.id;
     const clearedQueuedThreadIds = new Set<ThreadId>([thread.id]);
     openCodeSteerInterruptBarriers.delete(stoppedSessionThreadId);
-    if (stopsProviderSession) {
-      for (const queuedThreadId of yield* queuedTurnPromotions.listPendingThreadIds) {
-        const queuedThread = ThreadId.makeUnsafe(queuedThreadId);
-        const queuedProviderThread = yield* resolveProviderSessionThread(queuedThread);
-        if ((queuedProviderThread?.id ?? queuedThread) === stoppedSessionThreadId) {
-          clearedQueuedThreadIds.add(queuedThread);
-        }
-      }
-    }
     for (const queuedThreadId of clearedQueuedThreadIds) {
       const cancelledPromotions = yield* queuedTurnPromotions.cancelThread({
         threadId: queuedThreadId,
@@ -3959,81 +3827,7 @@ const make = Effect.gen(function* () {
       yield* clearEditResendTurnStartKeysForThread(queuedThreadId);
       drainingQueuedTurns.delete(queuedThreadId);
     }
-    // Reservations are keyed by session-owning thread but may belong to a
-    // stopping child's queued message. A provider-session stop clears every
-    // reservation for that session; a child-only interrupt clears its own.
-    for (const [sessionThreadId, reservation] of pendingQueuedDispatchBySessionThread) {
-      if (
-        (stopsProviderSession && sessionThreadId === stoppedSessionThreadId) ||
-        clearedQueuedThreadIds.has(ThreadId.makeUnsafe(reservation.queuedThreadId))
-      ) {
-        pendingQueuedDispatchBySessionThread.delete(sessionThreadId);
-      }
-    }
-    const providerThreadId =
-      providerThread !== null
-        ? resolveSubagentProviderThreadId(thread.id, providerThread.id)
-        : undefined;
-    const isChildProviderRuntime =
-      providerThread !== null && providerThread.id !== thread.id && providerThreadId !== undefined;
-
-    // Child subagents share the parent provider session, so stop requests need
-    // to interrupt the child turn rather than terminate the whole session.
-    if (
-      isChildProviderRuntime &&
-      thread.session &&
-      thread.session.status === "running" &&
-      thread.session.activeTurnId !== null &&
-      providerThread.session &&
-      providerThread.session.status !== "stopped"
-    ) {
-      const childInterrupt = yield* runBoundedProviderCall({
-        label: "The provider interrupt",
-        timeout: PROVIDER_COMMAND_INTERRUPT_TIMEOUT,
-        call: providerService.interruptTurn({
-          threadId: providerThread.id,
-          turnId: thread.session.activeTurnId,
-          providerThreadId,
-        }),
-      });
-      if (childInterrupt._tag !== "ok") {
-        const detail =
-          childInterrupt._tag === "timeout" ? childInterrupt.detail : childInterrupt.outcome.detail;
-        yield* appendProviderFailureActivity({
-          threadId: thread.id,
-          kind: "provider.turn.interrupt.failed",
-          summary: "Provider turn interrupt failed",
-          detail,
-          turnId: thread.session.activeTurnId,
-          createdAt: input.createdAt,
-          settlementStatus: "uncertain",
-        });
-        // The parent session was never told to end this child turn, so no
-        // terminal child event is coming: settle instead of waiting for one.
-        yield* settleInterruptedProviderTurn({
-          threadId: thread.id,
-          createdAt: input.createdAt,
-        });
-        return;
-      }
-
-      yield* setThreadSession({
-        threadId: thread.id,
-        session: {
-          threadId: thread.id,
-          status: "interrupted",
-          providerName: thread.session.providerName ?? null,
-          runtimeMode: thread.session.runtimeMode ?? DEFAULT_RUNTIME_MODE,
-          // Preserve the active turn until the provider emits the terminal child event.
-          activeTurnId: thread.session.activeTurnId,
-          lastError: null,
-          updatedAt: input.createdAt,
-        },
-        createdAt: input.createdAt,
-      });
-      return;
-    }
-
+    pendingQueuedDispatchBySessionThread.delete(stoppedSessionThreadId);
     const ownsProviderSession = providerThread !== null && providerThread.id === thread.id;
     if (thread.session && thread.session.status !== "stopped" && ownsProviderSession) {
       // A stop that cannot finish must still settle the projection: the session

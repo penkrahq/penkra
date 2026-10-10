@@ -182,7 +182,6 @@ interface CreateThreadFields {
   readonly workingDirectory?: string | null;
   readonly providerSessionId?: string | null;
   readonly nativeStateId?: string | null;
-  readonly parentThreadId?: string | null;
   readonly deckId?: string | null;
   readonly deckSortOrder?: number;
   readonly sidebarSortOrder?: number | null;
@@ -207,7 +206,7 @@ export const createThread = (input: CreateThreadInput) =>
       INSERT OR IGNORE INTO threads (
         id, space_id, folder_id, title, provider, connection_id, model, model_options,
         runtime_mode, working_directory, provider_session_id, native_state_id, state,
-        queue, created_by, created_by_thread_id, parent_thread_id, deck_id,
+        queue, created_by, created_by_thread_id, deck_id,
         deck_sort_order, sidebar_sort_order, created_at, updated_at
       ) VALUES (
         ${input.id}, ${input.spaceId}, ${input.folderId ?? null}, ${input.title},
@@ -215,7 +214,7 @@ export const createThread = (input: CreateThreadInput) =>
         ${input.modelOptions ?? null}, ${input.runtimeMode},
         ${input.workingDirectory ?? null}, ${input.providerSessionId ?? null},
         ${input.nativeStateId ?? null}, 'idle', '[]', ${input.createdBy},
-        ${input.createdByThreadId ?? null}, ${input.parentThreadId ?? null},
+        ${input.createdByThreadId ?? null},
         ${input.deckId ?? null}, ${input.deckSortOrder ?? 0},
         ${input.sidebarSortOrder ?? null},
         ${input.createdAt}, ${input.createdAt}
@@ -477,7 +476,7 @@ export const moveSidebarItem = (input: {
         const movedRows = yield* sql<ThreadSiblingRow & { readonly folderId: string }>`
       SELECT id, folder_id AS "folderId",
              COALESCE(sidebar_sort_order, 0) AS "sidebarSortOrder", created_at AS "createdAt"
-      FROM threads WHERE id = ${input.threadId} AND deleted_at IS NULL AND archived_at IS NULL AND parent_thread_id IS NULL
+      FROM threads WHERE id = ${input.threadId} AND deleted_at IS NULL AND archived_at IS NULL
     `;
         const moved = movedRows[0];
         if (moved === undefined) return [] as string[];
@@ -487,7 +486,7 @@ export const moveSidebarItem = (input: {
           const page: readonly ThreadSiblingRow[] = yield* sql<ThreadSiblingRow>`
             SELECT id, COALESCE(sidebar_sort_order, 0) AS "sidebarSortOrder", created_at AS "createdAt"
             FROM threads WHERE folder_id = ${input.folderId} AND id != ${input.threadId}
-              AND deleted_at IS NULL AND archived_at IS NULL AND parent_thread_id IS NULL
+              AND deleted_at IS NULL AND archived_at IS NULL
               AND (${after} IS NULL OR id > ${after}) ORDER BY id LIMIT 50`;
           destination.push(...page);
           if (page.length < 50) break;
@@ -514,34 +513,6 @@ export const moveSidebarItem = (input: {
         WHERE id = ${row.id}
       `;
           changed.push(row.id);
-        }
-        if (moved.folderId !== input.folderId) {
-          const treeIds = [input.threadId];
-          for (const parentId of treeIds) {
-            let afterChild: string | null = null;
-            while (true) {
-              const children: readonly { readonly id: string }[] = yield* sql<{
-                readonly id: string;
-              }>`
-                SELECT id FROM threads WHERE parent_thread_id = ${parentId} AND deleted_at IS NULL
-                  AND (${afterChild} IS NULL OR id > ${afterChild}) ORDER BY id LIMIT 50`;
-              for (const child of children) {
-                if (treeIds.includes(child.id)) continue;
-                treeIds.push(child.id);
-                if (
-                  yield* relocateThread({
-                    threadId: child.id,
-                    folderId: input.folderId,
-                    spaceId: folder.spaceId,
-                    updatedAt: input.updatedAt,
-                  })
-                )
-                  changed.push(child.id);
-              }
-              if (children.length < 50) break;
-              afterChild = children[children.length - 1]!.id;
-            }
-          }
         }
         return changed;
       }),

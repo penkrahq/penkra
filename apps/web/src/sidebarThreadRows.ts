@@ -4,7 +4,6 @@ import {
   RuntimeMode,
   type CleanCoreThreadSummary,
   type ThreadDeckId,
-  type ThreadId,
 } from "@penkra/contracts";
 import { Schema } from "effect";
 import { useStore } from "./store";
@@ -16,7 +15,6 @@ export interface SidebarThreadRow extends SidebarThreadSummary {
   deckSortOrder: number;
   workingDirectory: string | null;
   sidebarSortOrder: number | undefined;
-  parentThreadId: ThreadId | null;
   lastVisitedAt: string | undefined;
   lastMessagePreview: string | null;
   lastActivityAt: string | null;
@@ -51,7 +49,6 @@ export function buildSidebarThreadRows(
         deckSortOrder: row.deckSortOrder,
         workingDirectory: row.workingDirectory,
         sidebarSortOrder: row.sidebarSortOrder === null ? undefined : row.sidebarSortOrder,
-        parentThreadId: row.parentThreadId,
         lastVisitedAt: row.lastVisitedAt === null ? undefined : row.lastVisitedAt,
         lastMessagePreview: row.lastMessagePreview,
         lastActivityAt: row.lastActivityAt,

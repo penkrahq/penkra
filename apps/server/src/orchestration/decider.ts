@@ -661,11 +661,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       // must join the existing FIFO instead of briefly presenting as a direct
       // start and relying on the provider reactor to repair it later.
       const hasQueuedWork = (targetThread.queuedMessageIds?.length ?? 0) > 0;
-      // Subagent threads never queue: their messages steer the running child task
-      // through the parent session, so deferring until the turn settles would
-      // deliver the message only after the subagent already finished.
       const shouldQueue =
-        targetThread.parentThreadId === null &&
         (hasTurnInFlight || hasQueuedWork) &&
         (dispatchMode === "queue" || !providerSupportsNativeTurnSteering(activeProvider));
       const userMessageEvent: Omit<OrchestrationEvent, "sequence"> = {

@@ -48,7 +48,6 @@ function result(id: string): CleanCoreThreadSearchMatch {
     queue: "[]",
     createdBy: "user",
     createdByThreadId: null,
-    parentThreadId: null,
     deckId: null,
     deckSortOrder: 0,
     sidebarSortOrder: null,

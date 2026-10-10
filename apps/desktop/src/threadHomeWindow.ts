@@ -80,8 +80,8 @@ export class ThreadHomeWindow {
     this.#home.set(threadId, windowId);
   }
 
-  inherit(parentThreadId: string, childThreadId: string): void {
-    const home = this.#home.get(parentThreadId);
+  inherit(creatorThreadId: string, childThreadId: string): void {
+    const home = this.#home.get(creatorThreadId);
     if (home !== undefined) this.#home.set(childThreadId, home);
   }
 

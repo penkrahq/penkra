@@ -122,32 +122,7 @@ export const ProviderIntentOutboxLive = Layer.effect(
       diagnosticTrace,
     ) =>
       Effect.gen(function* () {
-        const startThreadId = event.payload.threadId;
-        const ancestors = yield* sql<{
-          readonly laneKey: string;
-          readonly parentThreadId: string | null;
-          readonly depth: number;
-        }>`
-            WITH RECURSIVE ancestry(thread_id, parent_thread_id, depth) AS (
-              SELECT id, parent_thread_id, 0
-              FROM threads
-              WHERE id = ${startThreadId}
-              UNION ALL
-              SELECT parent.id, parent.parent_thread_id, ancestry.depth + 1
-              FROM threads AS parent
-              JOIN ancestry ON parent.id = ancestry.parent_thread_id
-              WHERE ancestry.depth < 32
-            )
-            SELECT thread_id AS "laneKey", parent_thread_id AS "parentThreadId", depth
-            FROM ancestry ORDER BY depth DESC LIMIT 1
-          `;
-        const ancestor = ancestors[0];
-        if (ancestor && ancestor.depth === 32 && ancestor.parentThreadId !== null) {
-          return yield* Effect.die(
-            new Error(`Provider lane ancestry exceeds 32 threads for ${event.payload.threadId}`),
-          );
-        }
-        const laneKey = ancestor?.laneKey ?? startThreadId;
+        const laneKey = event.payload.threadId;
         const binding = yield* sql<{ readonly revision: number }>`
           SELECT binding_revision AS revision FROM thread_runtime_bindings
           WHERE thread_id = ${laneKey}

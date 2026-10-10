@@ -1406,7 +1406,6 @@ describe("store event reducer", () => {
           runtimeMode: DEFAULT_RUNTIME_MODE,
           sidebarSortOrder: 1,
           workingDirectory: null,
-          parentThreadId: null,
           creationSource: null,
           sourceThreadId: null,
           subagentAgentId: null,

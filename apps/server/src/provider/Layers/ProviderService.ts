@@ -18,7 +18,6 @@ import {
   ProviderInterruptTurnInput,
   ProviderStopTaskInput,
   ProviderBackgroundTaskInput,
-  ProviderSteerSubagentInput,
   ProviderRespondToRequestInput,
   ProviderRespondToUserInputInput,
   ProviderSendTurnInput,
@@ -1867,20 +1866,14 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
               );
             }
 
-            const boundActiveTurnId = runtimeActiveTurnId(binding.runtimePayload);
-            const providerTurnId =
-              input.providerThreadId !== undefined ? input.turnId : boundActiveTurnId;
+            const providerTurnId = runtimeActiveTurnId(binding.runtimePayload);
             if (providerTurnId === undefined) {
               return yield* toValidationError(
                 "ProviderService.interruptTurn",
                 `Cannot interrupt thread '${input.threadId}' because no exact active provider turn is bound.`,
               );
             }
-            if (
-              input.providerThreadId === undefined &&
-              input.turnId !== undefined &&
-              input.turnId !== providerTurnId
-            ) {
+            if (input.turnId !== undefined && input.turnId !== providerTurnId) {
               yield* Effect.logWarning(
                 "provider interrupt received stale projection turn; using authoritative active turn",
                 {
@@ -1892,11 +1885,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
               );
             }
 
-            yield* routed.adapter.interruptTurn(
-              input.threadId,
-              TurnId.makeUnsafe(providerTurnId),
-              input.providerThreadId,
-            );
+            yield* routed.adapter.interruptTurn(input.threadId, TurnId.makeUnsafe(providerTurnId));
             yield* analytics.record("provider.turn.interrupted", {
               provider: routed.adapter.provider,
             });
@@ -1967,47 +1956,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
               }
               yield* routed.adapter.backgroundTask(input.threadId, input.toolUseId);
               yield* analytics.record("provider.task.backgrounded", {
-                provider: routed.adapter.provider,
-              });
-            }),
-          ),
-        ),
-      );
-
-    const steerSubagent: ProviderServiceShape["steerSubagent"] = (rawInput) =>
-      decodeInputOrValidationError({
-        operation: "ProviderService.steerSubagent",
-        schema: ProviderSteerSubagentInput,
-        payload: rawInput,
-      }).pipe(
-        Effect.flatMap((input) =>
-          lifecycle.runCurrent(input.threadId, () =>
-            Effect.gen(function* () {
-              const routed = yield* resolveRoutableSession({
-                threadId: input.threadId,
-                operation: "ProviderService.steerSubagent",
-                allowRecovery: false,
-              });
-              if (!routed.isActive) {
-                return yield* toValidationError(
-                  "ProviderService.steerSubagent",
-                  `Cannot message subagent '${input.providerThreadId}' because the provider runtime is not active.`,
-                );
-              }
-              if (!routed.adapter.steerSubagent) {
-                return yield* toValidationError(
-                  "ProviderService.steerSubagent",
-                  `Provider '${routed.adapter.provider}' does not support messaging a running subagent.`,
-                );
-              }
-              const attachments = carryProviderAttachmentPaths(rawInput, input.attachments ?? []);
-              yield* routed.adapter.steerSubagent(input.threadId, input.providerThreadId, {
-                input: input.input ?? "",
-                ...(attachments.length > 0 ? { attachments } : {}),
-                ...(input.skills !== undefined ? { skills: input.skills } : {}),
-                ...(input.mentions !== undefined ? { mentions: input.mentions } : {}),
-              });
-              yield* analytics.record("provider.subagent.steered", {
                 provider: routed.adapter.provider,
               });
             }),
@@ -2602,7 +2550,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       interruptTurn,
       stopTask,
       backgroundTask,
-      steerSubagent,
       respondToRequest,
       respondToUserInput,
       stopSession,

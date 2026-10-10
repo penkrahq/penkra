@@ -174,7 +174,6 @@ export interface Thread extends ThreadWorkspaceState {
   latestTurn: OrchestrationLatestTurn | null;
   pendingTurnStartMessageId?: MessageId | null;
   lastVisitedAt?: string | undefined;
-  parentThreadId?: ThreadId | null;
   creationSource?: ThreadCreationSource | null;
   sourceThreadId?: ThreadId | null;
   subagentAgentId?: string | null;
@@ -207,7 +206,6 @@ export interface ThreadShell extends ThreadWorkspaceState {
   createdAt: string;
   archivedAt?: string | null;
   updatedAt?: string | undefined;
-  parentThreadId?: ThreadId | null;
   creationSource?: ThreadCreationSource | null;
   sourceThreadId?: ThreadId | null;
   subagentAgentId?: string | null;

@@ -99,9 +99,7 @@ export function shouldShowDebugFeatureFlagsMenu(input: {
 export type SidebarProjectEntry = {
   kind: "thread";
   rowId: ThreadId;
-  rootRowId: ThreadId;
   thread: SidebarThreadRow;
-  depth: number;
 };
 
 export type SidebarThreadHoverAnchorScope = "chat" | "folder";
@@ -647,88 +645,9 @@ export function getVisibleThreadsForProject<T extends Pick<SidebarThreadRow, "id
   };
 }
 
-export interface SidebarThreadTreeRow<
-  T extends { id: ThreadId; parentThreadId?: ThreadId | null },
-> {
-  thread: T;
-  depth: number;
-  rootThreadId: T["id"];
-}
-
-function collectActiveThreadAncestorIds<
-  T extends { id: ThreadId; parentThreadId?: ThreadId | null },
->(threadById: Map<T["id"], T>, forceVisibleThreadId: T["id"] | undefined): Set<T["id"]> {
-  const ancestorIds = new Set<T["id"]>();
-  let currentThreadId = forceVisibleThreadId;
-
-  while (currentThreadId) {
-    const parentThreadId = threadById.get(currentThreadId)?.parentThreadId ?? undefined;
-    if (!parentThreadId) {
-      break;
-    }
-    ancestorIds.add(parentThreadId);
-    currentThreadId = parentThreadId;
-  }
-
-  return ancestorIds;
-}
-
-// Build the project-local parent/child thread tree while preserving sort order from the input list.
-export function buildProjectThreadTree<
-  T extends { id: ThreadId; parentThreadId?: ThreadId | null },
->(input: {
-  threads: readonly T[];
-  forceVisibleThreadId?: T["id"] | undefined;
-}): SidebarThreadTreeRow<T>[] {
-  const { forceVisibleThreadId, threads } = input;
-  const threadById = new Map(threads.map((thread) => [thread.id, thread] as const));
-  const childrenByParentId = new Map<T["id"], T[]>();
-  const roots: T[] = [];
-
-  for (const thread of threads) {
-    const parentThreadId = thread.parentThreadId ?? null;
-    if (!parentThreadId || !threadById.has(parentThreadId)) {
-      roots.push(thread);
-      continue;
-    }
-    const siblings = childrenByParentId.get(parentThreadId) ?? [];
-    siblings.push(thread);
-    childrenByParentId.set(parentThreadId, siblings);
-  }
-
-  const activeThreadAncestorIds = collectActiveThreadAncestorIds(threadById, forceVisibleThreadId);
-  const orderedRows: SidebarThreadTreeRow<T>[] = [];
-
-  const visit = (thread: T, depth: number, rootThreadId: T["id"]) => {
-    const childThreads = childrenByParentId.get(thread.id) ?? [];
-    const revealsActiveDescendant =
-      childThreads.length > 0 && activeThreadAncestorIds.has(thread.id);
-
-    orderedRows.push({
-      thread,
-      depth,
-      rootThreadId,
-    });
-
-    if (!revealsActiveDescendant) {
-      return;
-    }
-
-    for (const child of childThreads) {
-      visit(child, depth + 1, rootThreadId);
-    }
-  };
-  for (const root of roots) {
-    visit(root, 0, root.id);
-  }
-
-  return orderedRows;
-}
-
 export function getVisibleSidebarEntriesForPreview<
   T extends {
     rowId: Thread["id"];
-    rootRowId: Thread["id"];
   },
 >(input: {
   entries: readonly T[];
@@ -774,13 +693,7 @@ export function getVisibleSidebarEntriesForPreview<
     };
   }
 
-  const rootEntryIndex = entries.findIndex((entry) => entry.rowId === activeEntry.rootRowId);
-  const forcedVisibleEntries =
-    rootEntryIndex === -1 ? [activeEntry] : entries.slice(rootEntryIndex, activeEntryIndex + 1);
-
-  for (const entry of forcedVisibleEntries) {
-    visibleEntryIds.add(entry.rowId);
-  }
+  visibleEntryIds.add(activeEntry.rowId);
 
   return {
     hasHiddenEntries: true,
@@ -835,7 +748,7 @@ export function getRenderedThreadsForSidebarProject<
 // Flatten the sidebar's current project/thread visibility into the same order the user sees.
 export function getVisibleSidebarThreadIds(input: {
   folders: readonly Pick<Project, "id" | "expanded">[];
-  threads: readonly (Pick<Thread, "id" | "folderId" | "parentThreadId"> & SidebarThreadSortInput)[];
+  threads: readonly (Pick<Thread, "id" | "folderId"> & SidebarThreadSortInput)[];
   activeThreadId: Thread["id"] | undefined;
   threadListExtraPagesByFolderId: ReadonlyMap<Project["id"], number>;
   previewLimit: number;
@@ -868,21 +781,16 @@ export function getVisibleSidebarThreadIds(input: {
       threadsByFolderId.get(project.id) ?? [],
       threadSortOrder,
     );
-    const projectThreadTree = buildProjectThreadTree({
-      threads: projectThreads,
-      forceVisibleThreadId: activeThreadId,
-    });
     const paging = resolveSidebarThreadListPaging({
-      totalCount: projectThreadTree.length,
+      totalCount: projectThreads.length,
       baseLimit: previewLimit,
       pageSize: previewPageSize,
       requestedExtraPages: threadListExtraPagesByFolderId.get(project.id) ?? 0,
     });
     const { visibleEntries } = getVisibleSidebarEntriesForPreview({
-      entries: projectThreadTree.map((row) => ({
-        rowId: row.thread.id,
-        rootRowId: row.rootThreadId,
-        threadId: row.thread.id,
+      entries: projectThreads.map((thread) => ({
+        rowId: thread.id,
+        threadId: thread.id,
       })),
       activeEntryId: activeThreadId,
       previewLimit: paging.previewLimit,
@@ -1166,8 +1074,8 @@ export function deriveSidebarProjectData(input: {
       ? input.getProjectPagingKey(project)
       : input.normalizeProjectCwd(project.cwd);
     const requestedExtraPages = input.threadListExtraPagesByProjectCwd.get(projectPagingKey) ?? 0;
-    let orderedProjectThreadIds = projectThreads.map((thread) => thread.id);
-    // Collapsed folders should not build or render their full tree; large folders can
+    const orderedProjectThreadIds = projectThreads.map((thread) => thread.id);
+    // Collapsed folders should not build or render their full list; large folders can
     // contain hundreds of rows and folder toggles are on the sidebar hot path.
     if (!project.expanded) {
       const activeThread =
@@ -1181,9 +1089,7 @@ export function deriveSidebarProjectData(input: {
               {
                 kind: "thread" as const,
                 rowId: activeThread.id,
-                rootRowId: activeThread.id,
                 thread: activeThread,
-                depth: 0,
               },
             ];
 
@@ -1202,20 +1108,11 @@ export function deriveSidebarProjectData(input: {
       continue;
     }
 
-    const projectThreadTree = buildProjectThreadTree({
-      threads: projectThreads,
-      forceVisibleThreadId: input.activeSidebarThreadId,
-    });
-    orderedProjectThreadIds = projectThreadTree.map(({ thread }) => thread.id);
-    const orderedEntries: SidebarProjectEntry[] = projectThreadTree.map(
-      ({ thread, depth, rootThreadId }) => ({
-        kind: "thread",
-        rowId: thread.id,
-        rootRowId: rootThreadId,
-        thread,
-        depth,
-      }),
-    );
+    const orderedEntries: SidebarProjectEntry[] = projectThreads.map((thread) => ({
+      kind: "thread",
+      rowId: thread.id,
+      thread,
+    }));
 
     const activeEntry =
       input.activeSidebarThreadId === undefined

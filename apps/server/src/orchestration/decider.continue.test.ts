@@ -85,10 +85,8 @@ describe("Play continuation admission", () => {
     },
   );
 
-  it("allows a child thread whose latest turn is unfinished", async () => {
-    const event = await Effect.runPromise(
-      play(threadWith({ parentThreadId: ThreadId.makeUnsafe("parent-thread") })),
-    );
+  it("allows an ordinary thread whose latest turn is unfinished", async () => {
+    const event = await Effect.runPromise(play(threadWith()));
     expect(event).toMatchObject({ type: "thread.turn-start-requested" });
   });
 
@@ -272,10 +270,10 @@ describe("archived thread admission", () => {
     });
   });
 
-  it("applies the guard to the target child independently of its parent", async () => {
+  it("applies the guard to the target independently of another archived thread", async () => {
     const parentId = ThreadId.makeUnsafe("parent-thread");
     const parent = threadWith({ id: parentId, archivedAt: now });
-    const child = threadWith({ parentThreadId: parentId });
+    const child = threadWith();
     const readModel = { ...createEmptyReadModel(now), threads: [parent, child] };
     await expect(
       Effect.runPromise(decideOrchestrationCommand({ readModel, command: start("queue") })),

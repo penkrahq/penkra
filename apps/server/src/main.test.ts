@@ -817,7 +817,6 @@ it.layer(testLayer)("server CLI command", (it) => {
           getSpaceShellById: () => Effect.die("unused"),
           getFirstActiveThreadIdByFolderId: () => Effect.die("unused"),
           getThreadShellById: () => Effect.die("unused"),
-          findSyntheticSubagentParentThread: () => Effect.die("unused"),
           getThreadDetailById: () => Effect.die("unused"),
           getThreadDetailForExportById: () => Effect.die("unused"),
           getThreadDetailSnapshotById: () => Effect.die("unused"),

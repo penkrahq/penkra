@@ -142,7 +142,6 @@ export const CleanCoreThreadSummary = Schema.Struct({
   queue: Schema.String,
   createdBy: Schema.String,
   createdByThreadId: Schema.NullOr(ThreadId),
-  parentThreadId: Schema.NullOr(ThreadId),
   deckId: Schema.NullOr(ThreadDeckId),
   deckSortOrder: Schema.Number,
   sidebarSortOrder: Schema.NullOr(Schema.Number),

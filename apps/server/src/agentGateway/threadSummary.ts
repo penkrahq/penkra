@@ -79,7 +79,6 @@ export interface AgentThreadListItem {
   readonly model: string;
   readonly status: AgentThreadStatus;
   readonly lastError: string | null;
-  readonly parentThreadId: string | null;
   readonly creationSource: string | null;
   readonly archived: boolean;
   readonly isSelf: boolean;
@@ -105,7 +104,6 @@ export function summarizeThreadShell(
     model: thread.modelSelection.model,
     status: deriveAgentThreadStatus(thread),
     lastError: thread.session?.lastError ?? null,
-    parentThreadId: thread.parentThreadId ?? null,
     creationSource: thread.creationSource ?? null,
     archived: (thread.archivedAt ?? null) !== null,
     isSelf: thread.id === callerThreadId,
@@ -522,7 +520,6 @@ export interface AgentThreadDetail {
   readonly status: AgentThreadStatus;
   readonly sessionStatus: string | null;
   readonly latestTurnState: string | null;
-  readonly parentThreadId: string | null;
   readonly creationSource: string | null;
   readonly archived: boolean;
   readonly lastError: string | null;
@@ -556,7 +553,6 @@ export function summarizeThreadDetail(input: {
     status: deriveAgentThreadStatus(thread),
     sessionStatus: thread.session?.status ?? null,
     latestTurnState: thread.latestTurn?.state ?? null,
-    parentThreadId: thread.parentThreadId ?? null,
     creationSource: thread.creationSource ?? null,
     archived: (thread.archivedAt ?? null) !== null,
     lastError: thread.session?.lastError ?? null,

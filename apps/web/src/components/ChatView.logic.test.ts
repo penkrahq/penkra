@@ -601,7 +601,6 @@ describe("voice helpers", () => {
     expect(
       resolveActiveThreadTitle({
         title: "Roadmap scratchpad",
-        subagentTitle: null,
         isHomeChat: true,
         isEmpty: true,
       }),
@@ -612,22 +611,10 @@ describe("voice helpers", () => {
     expect(
       resolveActiveThreadTitle({
         title: "New thread",
-        subagentTitle: null,
         isHomeChat: true,
         isEmpty: true,
       }),
     ).toBe("New Chat");
-  });
-
-  it("prefers the resolved subagent label when present", () => {
-    expect(
-      resolveActiveThreadTitle({
-        title: "Ignored raw title",
-        subagentTitle: "Reviewer / Fix follow-up",
-        isHomeChat: false,
-        isEmpty: false,
-      }),
-    ).toBe("Reviewer / Fix follow-up");
   });
 
   it("appends a transcript to the existing prompt without disturbing spacing", () => {

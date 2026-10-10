@@ -107,7 +107,6 @@ describe("message delivery decisions", () => {
       ...shellOnlyReadModel,
       threads: shellOnlyReadModel.threads.map((thread) => ({
         ...thread,
-        parentThreadId: null,
         queuedMessageIds: [queuedHeadId],
       })),
     };

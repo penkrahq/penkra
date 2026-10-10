@@ -120,7 +120,6 @@ import {
   recordChatLifecycleUiDiagnostic,
 } from "../chatLifecycleDiagnostics";
 import { openThreadUrlReference, useThreadResourceOpener } from "../lib/threadResourceOpener";
-import { resolveSubagentPresentationForThread } from "../lib/subagentPresentation";
 import { readActiveSpaceId, useSpacesUiStore } from "../spacesUiStore";
 import { registerDesktopThreadLiveHandlers } from "../desktopThreadApiBroker";
 import {
@@ -157,8 +156,6 @@ import {
   shouldEnableComposerPastedTextCollapse,
   shouldConsumePendingCustomBinaryConfirmation,
 } from "./ChatView.logic";
-import { createThreadLineageSelector } from "./ChatView.selectors";
-import { useLoadThreadAncestors } from "../hooks/useLoadThreadAncestors";
 import {
   clampCollapsedComposerCursor,
   type ComposerTrigger,
@@ -1689,13 +1686,6 @@ function ChatViewContent({
   const activeFolderName = activeProject?.name.trim() || null;
   const emptyLandingParentName = activeFolderName || emptyLandingSpaceName || "this space";
   const isChatProject = isContainerLandingProject;
-  useLoadThreadAncestors(activeThread?.id ?? null, canonicalRows);
-  const threadLineageThreads = useStore(
-    useMemo(
-      () => createThreadLineageSelector(activeThread?.id ?? null, canonicalRows),
-      [activeThread?.id, canonicalRows],
-    ),
-  );
   const resolvedThreadWorkingDirectory = isServerThread
     ? (canonicalThread?.workingDirectory ?? null)
     : (draftThread?.workingDirectory ?? null);
@@ -2835,11 +2825,8 @@ function ChatViewContent({
     workLogVisibleSequenceFloor,
   ]);
   // Empty top-level threads render the centered landing composer instead of the transcript pane.
-  // Every empty top-level draft uses the parent-aware Pencil prompt and folder picker.
-  const isCenteredEmptyLanding =
-    threadDetailHydration === "ready" &&
-    timelineEntries.length === 0 &&
-    !canonicalThread?.parentThreadId;
+  // Every empty draft uses the Pencil prompt and folder picker.
+  const isCenteredEmptyLanding = threadDetailHydration === "ready" && timelineEntries.length === 0;
   const isEmptyChatLanding =
     isCenteredEmptyLanding && Boolean(homeDir) && isContainerLandingProject;
 
@@ -7334,19 +7321,6 @@ function ChatViewContent({
 
   const activeThreadDisplayTitle = resolveActiveThreadTitle({
     title: activeThread.title,
-    subagentTitle: canonicalThread?.parentThreadId
-      ? resolveSubagentPresentationForThread({
-          thread: {
-            id: activeThread.id,
-            title: activeThread.title,
-            parentThreadId: canonicalThread.parentThreadId,
-            subagentAgentId: activeThread.subagentAgentId,
-            subagentNickname: activeThread.subagentNickname,
-            subagentRole: activeThread.subagentRole,
-          },
-          threads: threadLineageThreads,
-        }).fullLabel
-      : null,
     isHomeChat: isChatProject,
     isEmpty: timelineEntries.length === 0,
   });
@@ -7570,11 +7544,9 @@ function ChatViewContent({
                       ? activePendingProgress.activeQuestion?.options.length === 0
                         ? "Type your answer to continue"
                         : "Type your own answer, or leave this blank to use the selected option"
-                      : canonicalThread?.parentThreadId
-                        ? "Message this subagent while it works"
-                        : hasLiveTurn
-                          ? "Ask for follow-up changes"
-                          : "Do something"
+                      : hasLiveTurn
+                        ? "Ask for follow-up changes"
+                        : "Do something"
                   }
                   disabled={isComposerEditorDisabled}
                 />

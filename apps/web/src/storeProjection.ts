@@ -90,7 +90,6 @@ function toThreadShell(thread: Thread): ThreadShell {
     archivedAt: thread.archivedAt ?? null,
     updatedAt: thread.updatedAt,
     workingDirectory: thread.workingDirectory ?? null,
-    parentThreadId: thread.parentThreadId ?? null,
     creationSource: thread.creationSource ?? null,
     sourceThreadId: thread.sourceThreadId ?? null,
     subagentAgentId: thread.subagentAgentId ?? null,

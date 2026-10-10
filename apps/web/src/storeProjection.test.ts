@@ -3013,7 +3013,6 @@ describe("deletion tombstone retirement", () => {
           model: "gpt-5.3-codex",
         },
         runtimeMode: DEFAULT_RUNTIME_MODE,
-        parentThreadId: null,
         subagentAgentId: null,
         subagentNickname: null,
         subagentRole: null,

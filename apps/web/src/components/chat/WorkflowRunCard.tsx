@@ -19,7 +19,7 @@ import { formatContextWindowTokens } from "~/lib/contextWindow";
 import {
   subagentStatusDotClassName,
   subagentStatusTextToneClassName,
-} from "~/lib/subagentPresentation";
+} from "./WorkflowRunCard.logic";
 import {
   CheckIcon,
   CopyIcon,

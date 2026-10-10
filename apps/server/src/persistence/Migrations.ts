@@ -189,6 +189,7 @@ import Migration0178 from "./Migrations/178_ThreadDeckOrderIndex.ts";
 import Migration0179 from "./Migrations/179_RemoveFolderPinning.ts";
 import Migration0180 from "./Migrations/180_ThreadProviderLookupIndex.ts";
 import Migration0181 from "./Migrations/181_AgentThreadReadIndexes.ts";
+import Migration0182 from "./Migrations/182_RemoveParentThreads.ts";
 import Migration0177 from "./Migrations/177_ThreadHarnessCanonicalForeignKey.ts";
 
 /**
@@ -376,6 +377,7 @@ export const migrationEntries = [
   [179, "RemoveFolderPinning", Migration0179],
   [180, "ThreadProviderLookupIndex", Migration0180],
   [181, "AgentThreadReadIndexes", Migration0181],
+  [182, "RemoveParentThreads", Migration0182],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

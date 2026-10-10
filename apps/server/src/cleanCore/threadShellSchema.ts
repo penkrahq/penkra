@@ -24,7 +24,6 @@ export const ProjectionThread = Schema.Struct({
     Schema.withDecodingDefault(() => null),
   ),
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
-  parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   creationSource: Schema.optional(
     Schema.NullOr(Schema.Literals(["penkra_mcp", "provider_native"])),
   ).pipe(Schema.withDecodingDefault(() => null)),

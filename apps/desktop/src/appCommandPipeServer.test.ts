@@ -226,7 +226,7 @@ describe("AppCommandPipeServer", () => {
         id: "inherit-agent-denied",
         token: "secret",
         method: "thread.home.inherit",
-        params: { parentThreadId: "parent", childThreadId: "child" },
+        params: { creatorThreadId: "parent", childThreadId: "child" },
       }),
     ).resolves.toMatchObject({ ok: false, error: { code: "APP_COMMAND_FORBIDDEN" } });
     expect(inheritThreadHome).not.toHaveBeenCalled();
@@ -236,7 +236,7 @@ describe("AppCommandPipeServer", () => {
         token: "secret",
         adminToken: "admin-secret",
         method: "thread.home.inherit",
-        params: { parentThreadId: "parent", childThreadId: "child" },
+        params: { creatorThreadId: "parent", childThreadId: "child" },
       }),
     ).resolves.toMatchObject({ ok: true });
     expect(inheritThreadHome).toHaveBeenCalledWith("parent", "child");
@@ -249,7 +249,7 @@ describe("AppCommandPipeServer", () => {
         token: "secret",
         adminToken: "admin-secret",
         method: "thread.home.inherit",
-        params: { parentThreadId: "parent", childThreadId: "child" },
+        params: { creatorThreadId: "parent", childThreadId: "child" },
       }),
     ).resolves.toMatchObject({ ok: false, error: { message: "inherit failed" } });
 

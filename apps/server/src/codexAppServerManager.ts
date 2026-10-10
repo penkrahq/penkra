@@ -1829,11 +1829,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     };
   }
 
-  async interruptTurn(
-    threadId: ThreadId,
-    turnId?: TurnId,
-    providerThreadIdOverride?: string,
-  ): Promise<void> {
+  async interruptTurn(threadId: ThreadId, turnId?: TurnId): Promise<void> {
     const context = this.requireSession(threadId);
     const effectiveTurnId = turnId ?? context.session.activeTurnId;
 
@@ -1841,13 +1837,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     // turn/interrupt alone does not settle server-initiated requests.
     await this.settlePendingHumanRequests(context, "turn interrupted");
 
-    const providerThreadId =
-      providerThreadIdOverride ??
-      readResumeThreadId({
-        threadId: context.session.threadId,
-        runtimeMode: context.session.runtimeMode,
-        resumeCursor: context.session.resumeCursor,
-      });
+    const providerThreadId = readResumeThreadId({
+      threadId: context.session.threadId,
+      runtimeMode: context.session.runtimeMode,
+      resumeCursor: context.session.resumeCursor,
+    });
     if (!effectiveTurnId || !providerThreadId) {
       log.info("[codex-review] turn/interrupt skipped", {
         threadId,

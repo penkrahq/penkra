@@ -1529,7 +1529,6 @@ function summarizeFixtureThread(thread: OrchestrationThread) {
     ),
     createdBy: "user",
     createdByThreadId: null,
-    parentThreadId: thread.parentThreadId ?? null,
     deckId: thread.deckId,
     deckSortOrder: thread.deckSortOrder,
     sidebarSortOrder: thread.sidebarSortOrder ?? null,

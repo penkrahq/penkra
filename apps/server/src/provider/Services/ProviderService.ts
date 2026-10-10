@@ -23,7 +23,6 @@ import type {
   ProviderSteerTurnInput,
   ProviderSession,
   ProviderSessionStartInput,
-  ProviderSteerSubagentInput,
   ProviderStopSessionInput,
   ProviderStopTaskInput,
   ThreadId,
@@ -115,13 +114,6 @@ export interface ProviderServiceShape {
    */
   readonly backgroundTask: (
     input: ProviderBackgroundTaskInput,
-  ) => Effect.Effect<void, ProviderServiceError>;
-
-  /**
-   * Deliver a mid-task user message to a running subagent of an active session.
-   */
-  readonly steerSubagent: (
-    input: ProviderSteerSubagentInput,
   ) => Effect.Effect<void, ProviderServiceError>;
 
   /**

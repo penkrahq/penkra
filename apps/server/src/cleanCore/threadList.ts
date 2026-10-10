@@ -36,7 +36,6 @@ export interface ThreadSummaryRecord {
   readonly queue: string;
   readonly createdBy: string;
   readonly createdByThreadId: ThreadId | null;
-  readonly parentThreadId: ThreadId | null;
   readonly deckId: ThreadDeckId | null;
   readonly deckSortOrder: number;
   readonly sidebarSortOrder: number | null;
@@ -68,7 +67,6 @@ const THREAD_SUMMARY_COLUMNS = `
         queue,
         created_by AS "createdBy",
         created_by_thread_id AS "createdByThreadId",
-        parent_thread_id AS "parentThreadId",
         deck_id AS "deckId",
         deck_sort_order AS "deckSortOrder",
         sidebar_sort_order AS "sidebarSortOrder",

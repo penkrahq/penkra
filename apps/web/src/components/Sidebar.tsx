@@ -6,7 +6,6 @@ import { SidebarSearchPaletteController } from "./SidebarSearchPaletteController
 import { SidebarThreadPageEnd } from "./SidebarThreadPageEnd";
 import { useSidebarThreadRows, type SidebarThreadRow } from "../sidebarThreadRows";
 import {
-  loadThread,
   loadThreadPage,
   loadNextThreadPage,
   threadListScopeKey,
@@ -117,7 +116,6 @@ import { shouldRenderTerminalWorkspace } from "./ChatView.logic";
 import {
   DEBUG_FEATURE_FLAGS_MENU_STORAGE_KEY,
   beginInlineFolderCreation,
-  buildProjectThreadTree,
   canArchiveSidebarFolder,
   canArchiveSidebarThreads,
   deriveSidebarProjectData,
@@ -356,30 +354,6 @@ export default function Sidebar() {
     () => Object.fromEntries(canonicalSidebarRows.map((row) => [row.id, row])),
     [canonicalSidebarRows],
   );
-  const missingAncestorKey = useMemo(() => {
-    const known = new Set(canonicalSidebarRows.map((row) => row.id));
-    return JSON.stringify(
-      [
-        ...new Set(
-          canonicalSidebarRows.flatMap((row) =>
-            row.parentThreadId !== null && !known.has(row.parentThreadId)
-              ? [row.parentThreadId]
-              : [],
-          ),
-        ),
-      ].sort(),
-    );
-  }, [canonicalSidebarRows]);
-  useEffect(() => {
-    for (const parentId of JSON.parse(missingAncestorKey) as string[])
-      void loadThread(ThreadId.makeUnsafe(parentId)).catch((error: unknown) =>
-        toastManager.add({
-          type: "error",
-          title: "Could not load thread",
-          description: error instanceof Error ? error.message : String(error),
-        }),
-      );
-  }, [missingAncestorKey]);
   useEffect(() => {
     const report = (error: unknown) =>
       toastManager.add({
@@ -571,8 +545,7 @@ export default function Sidebar() {
   const activeSidebarThreadId = optimisticActiveThreadId ?? routeActiveSidebarThreadId;
   const visualActiveSidebarThreadId = activeSidebarThreadId;
   const sidebarThreads = useMemo(
-    () =>
-      canonicalSidebarRows.filter((row) => row.archivedAt === null && row.parentThreadId === null),
+    () => canonicalSidebarRows.filter((row) => row.archivedAt === null),
     [canonicalSidebarRows],
   );
   const sidebarTreeThreads = useMemo(
@@ -1747,7 +1720,7 @@ export default function Sidebar() {
     (parent: SidebarItemParent): SidebarItemReference[] => {
       if (parent.kind === "folder") {
         return (sortedSidebarThreadsByFolderId.get(parent.folderId) ?? [])
-          .filter((thread) => thread.parentThreadId == null && thread.archivedAt == null)
+          .filter((thread) => thread.archivedAt == null)
           .map((thread) => ({ kind: "thread" as const, id: thread.id }));
       }
 
@@ -2184,11 +2157,6 @@ export default function Sidebar() {
       threadListExtraPages,
       canShowMoreThreads,
     } = projectSidebarData;
-    const visibleRootIndexByThreadId = new Map(
-      visibleEntries
-        .filter((entry) => entry.thread.id === entry.rootRowId)
-        .map((entry, index) => [entry.rootRowId, index] as const),
-    );
     const hasProjectContent = projectThreads.length > 0 || canShowMoreThreads;
     const pagingKey = projectThreadListPagingKey(project);
     const projectWorkStatus: ThreadWorkStatus = resolveSidebarWorkStatus(
@@ -2288,20 +2256,11 @@ export default function Sidebar() {
             workStatus={projectWorkStatus}
           >
             <div className="flex flex-col gap-0.5" data-pencil-project-id={project.id}>
-              {visibleEntries.map((entry) =>
-                renderPencilThreadRow(
-                  entry.thread,
-                  orderedProjectThreadIds,
-                  entry.depth,
-                  "nested",
-                  entry.rootRowId,
-                  entry.thread.id === entry.rootRowId
-                    ? {
-                        index: visibleRootIndexByThreadId.get(entry.rootRowId) ?? 0,
-                        parent: { kind: "folder", folderId: project.id },
-                      }
-                    : undefined,
-                ),
+              {visibleEntries.map((entry, index) =>
+                renderPencilThreadRow(entry.thread, orderedProjectThreadIds, {
+                  index,
+                  parent: { kind: "folder", folderId: project.id },
+                }),
               )}
               {!canShowMoreThreads ? (
                 <SidebarFolderPaging spaceId={project.spaceId} folderId={project.id} />
@@ -2327,10 +2286,7 @@ export default function Sidebar() {
   function renderPencilThreadRow(
     thread: SidebarThreadRow,
     orderedProjectThreadIds: readonly ThreadId[],
-    depth = 0,
-    levelOverride?: "root" | "nested",
-    dragRootThreadId: ThreadId = thread.id,
-    sortablePosition?: { index: number; parent: SidebarItemParent },
+    sortablePosition: { index: number; parent: SidebarItemParent },
   ) {
     const isActive = visualActiveSidebarThreadId === thread.id;
     const isSelected = selectedThreadIds.has(thread.id);
@@ -2348,14 +2304,13 @@ export default function Sidebar() {
       thread.title.trim().toLowerCase() === "main"
         ? ("github" as const)
         : thread.modelSelection.provider;
-    const level = levelOverride ?? (depth > 0 ? "nested" : "root");
     const renamingThisThread =
       inlineRenameEditor?.kind === "thread" && inlineRenameEditor.threadId === thread.id;
     const row = renamingThisThread ? (
       <ThreadRowInlineEdit
         defaultValue={thread.title}
         harness={harness}
-        level={level}
+        level="nested"
         onCancel={cancelInlineRename}
         onSubmit={async (title) => {
           await commitRename(thread.id, title, thread.title);
@@ -2394,7 +2349,7 @@ export default function Sidebar() {
         }}
         onPointerDown={(event) => primeThreadActivation(event, thread.id)}
         harness={harness}
-        level={level}
+        level="nested"
         state={isActive ? "active" : "default"}
         workStatus={workStatus}
       >
@@ -2402,24 +2357,22 @@ export default function Sidebar() {
       </ThreadRowShared>
     );
 
-    if (!sortablePosition) return row;
-
     return (
       <SortableSidebarNode
         key={thread.id}
-        id={sidebarItemDndId({ kind: "thread", id: dragRootThreadId })}
+        id={sidebarItemDndId({ kind: "thread", id: thread.id })}
         group={sidebarParentDndGroup(sortablePosition.parent)}
         index={sortablePosition.index}
         data={{
           type: "item",
-          item: { kind: "thread", id: dragRootThreadId },
+          item: { kind: "thread", id: thread.id },
           parent: sortablePosition.parent,
           label: thread.title,
           preview: {
             kind: "thread",
             label: thread.title,
             harness,
-            level,
+            level: "nested",
             workStatus,
           },
         }}

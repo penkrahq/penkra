@@ -1,8 +1,5 @@
 import { updateThreadFixture } from "../../cleanCore/threadFixtures.ts";
-import {
-  createThreadFixture,
-  seedLegacyThreadParentFixture,
-} from "../../cleanCore/threadFixtures.ts";
+import { createThreadFixture } from "../../cleanCore/threadFixtures.ts";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -99,7 +96,6 @@ function createProviderServiceHarness() {
     interruptTurn: () => unsupported(),
     stopTask: () => unsupported(),
     backgroundTask: () => unsupported(),
-    steerSubagent: () => unsupported(),
     respondToRequest: () => unsupported(),
     respondToUserInput: () => unsupported(),
     stopSession: () => unsupported(),
@@ -7554,7 +7550,7 @@ describe("ProviderRuntimeIngestion", () => {
     expect(thread.runtimeMode).toBe("approval-required");
   });
 
-  it("routes migrated child events without polluting the parent projection", async () => {
+  it("routes migrated thread events without polluting another thread projection", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
     const childThreadId = asThreadId("subagent:thread-1:child-provider-unmapped");
@@ -7578,7 +7574,7 @@ describe("ProviderRuntimeIngestion", () => {
           creator: { kind: "user" },
           connection: { kind: "selected", connectionId: null },
         });
-        yield* seedLegacyThreadParentFixture(harness.sql, childThreadId, asThreadId("thread-1"));
+        yield* harness.sql`UPDATE threads SET created_by = 'provider_native' WHERE id = ${childThreadId}`;
       }),
     );
     const before = await Effect.runPromise(harness.engine.getReadModel());
@@ -7772,7 +7768,6 @@ describe("ProviderRuntimeIngestion", () => {
     );
 
     expect(childThread.folderId).toBe(asFolderId("project-1"));
-    expect(childThread.parentThreadId).toBe(asThreadId("thread-1"));
 
     const after = await Effect.runPromise(harness.engine.getReadModel());
     const parentAfter = after.threads.find((thread) => thread.id === asThreadId("thread-1"));

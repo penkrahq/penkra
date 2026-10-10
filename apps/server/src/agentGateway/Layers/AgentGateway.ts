@@ -270,9 +270,9 @@ export const makeAgentGateway = Effect.gen(function* () {
     providerTurnSelectionResolver,
     loadProviderAvailabilities,
     requireThreadShell,
-    onThreadCreated: (parentThreadId, childThreadId) =>
+    onThreadCreated: (creatorThreadId, childThreadId) =>
       Effect.tryPromise(() =>
-        requestAppRuntimeBridge("thread.home.inherit", { parentThreadId, childThreadId }),
+        requestAppRuntimeBridge("thread.home.inherit", { creatorThreadId, childThreadId }),
       ).pipe(Effect.asVoid),
   });
 

@@ -42,7 +42,6 @@ function thread(input: { id: string; folderId: string }): SidebarThreadRow {
     deckSortOrder: 0,
     workingDirectory: null,
     sidebarSortOrder: undefined,
-    parentThreadId: null,
     lastVisitedAt: undefined,
     lastMessagePreview: null,
     lastActivityAt: null,

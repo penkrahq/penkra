@@ -185,7 +185,7 @@ export class AppCommandPipeServer {
       ) => { state: "active" | "background" | "window-hidden" })
     | null;
   readonly #runOnThread: (<T>(threadId: string, operation: () => Promise<T>) => Promise<T>) | null;
-  readonly #inheritThreadHome: ((parentThreadId: string, childThreadId: string) => void) | null;
+  readonly #inheritThreadHome: ((creatorThreadId: string, childThreadId: string) => void) | null;
   readonly #observer: AppTabObserverBridge;
   readonly #registry: AppRegistryClient | null;
   readonly #sideload:
@@ -250,7 +250,7 @@ export class AppCommandPipeServer {
       threadId: string,
     ) => { state: "active" | "background" | "window-hidden" };
     runOnThread?: <T>(threadId: string, operation: () => Promise<T>) => Promise<T>;
-    inheritThreadHome?: (parentThreadId: string, childThreadId: string) => void;
+    inheritThreadHome?: (creatorThreadId: string, childThreadId: string) => void;
     observer: AppTabObserverBridge;
     registry?: AppRegistryClient | null;
     sideload?: (input: { sourcePath: string; spaceId?: string }) => Promise<unknown>;
@@ -662,7 +662,7 @@ export class AppCommandPipeServer {
         }
         if (!this.#inheritThreadHome) throw new Error("Thread home inheritance is unavailable.");
         this.#inheritThreadHome(
-          requiredString(params.parentThreadId, "parentThreadId"),
+          requiredString(params.creatorThreadId, "creatorThreadId"),
           requiredString(params.childThreadId, "childThreadId"),
         );
         return { ok: true, id: request.id, result: { inherited: true } };
