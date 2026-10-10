@@ -63,6 +63,8 @@ import {
   type ProjectionSnapshotSequence,
   type ProjectionSnapshotQueryShape,
   type ProjectionThreadMessageContextInput,
+  type ProjectionFolderPageCursor,
+  type ProjectionThreadShellPageInput,
   type ProjectionTranscriptSearchResult,
 } from "../Services/ProjectionSnapshotQuery.ts";
 
@@ -772,6 +774,79 @@ const THREAD_AGENT_STATUS = `CASE
   WHEN lt.state = 'error' OR s.status = 'error' THEN 'error'
   WHEN lt.state = 'interrupted' THEN 'interrupted'
   ELSE 'idle' END`;
+export function buildFolderShellPageQuery(after: ProjectionFolderPageCursor | null) {
+  return {
+    text: `SELECT f.folder_id AS "folderId", f.title, f.workspace_root AS "workspaceRoot",
+      f.default_model_selection_json AS "defaultModelSelection", f.scripts_json AS scripts,
+      f.icon_data_url AS "iconDataUrl", f.space_id AS "spaceId", f.sidebar_sort_order AS "sidebarSortOrder",
+      f.created_at AS "createdAt", f.updated_at AS "updatedAt", f.archived_at AS "archivedAt", f.deleted_at AS "deletedAt",
+      s.name AS "spaceTitle"
+      FROM projection_folders f LEFT JOIN projection_spaces s ON s.space_id = f.space_id
+        AND s.deleted_at IS NULL AND s.archived_at IS NULL
+      WHERE f.deleted_at IS NULL AND f.archived_at IS NULL
+        AND (? = 0 OR f.created_at > ? OR (f.created_at = ? AND f.folder_id > ?))
+      ORDER BY f.created_at, f.folder_id LIMIT ?`,
+    parameters: [
+      after === null ? 0 : 1,
+      after?.createdAt ?? null,
+      after?.createdAt ?? null,
+      after?.folderId ?? null,
+      THREADS_PAGE_SIZE + 1,
+    ],
+  };
+}
+export function buildThreadShellPageQuery(input: ProjectionThreadShellPageInput) {
+  return {
+    text: `SELECT ${THREAD_SHELL_COLUMNS}, ${THREAD_SHELL_CONTEXT_COLUMNS}
+      FROM threads t JOIN projection_folders f ON f.folder_id = t.folder_id
+      ${THREAD_SHELL_JOINS}
+      WHERE t.space_id = ? AND f.space_id = ?
+        AND t.deleted_at IS NULL AND f.deleted_at IS NULL AND f.archived_at IS NULL
+        AND (? = 1 OR t.archived_at IS NULL)
+        AND (? = 0 OR t.id IN (SELECT value FROM json_each(?)))
+        AND (? IS NULL OR t.folder_id = ?)
+        AND (? IS NULL OR t.parent_thread_id = ?)
+        AND (? IS NULL OR t.provider = ?)
+        AND (? IS NULL OR t.model = ?)
+        AND (? IS NULL OR CASE t.created_by WHEN 'user' THEN 'human' WHEN 'agent' THEN 'penkra-mcp' WHEN 'provider_native' THEN 'provider-native' END = ?)
+        AND (? IS NULL OR t.updated_at >= ?)
+        AND (? IS NULL OR t.updated_at <= ?)
+        AND (? IS NULL OR instr(lower(t.title), lower(?)) > 0)
+        AND (? IS NULL OR ${THREAD_AGENT_STATUS} = ?)
+        AND (? = 0 OR t.updated_at < ? OR (t.updated_at = ? AND t.id < ?))
+      ORDER BY t.updated_at DESC, t.id DESC LIMIT ?`,
+    parameters: [
+      input.spaceId,
+      input.spaceId,
+      input.includeArchived ? 1 : 0,
+      input.threadIds === null ? 0 : 1,
+      JSON.stringify(input.threadIds),
+      input.folderId,
+      input.folderId,
+      input.parentThreadId,
+      input.parentThreadId,
+      input.provider,
+      input.provider,
+      input.model,
+      input.model,
+      input.createdBy,
+      input.createdBy,
+      input.updatedAfter,
+      input.updatedAfter,
+      input.updatedBefore,
+      input.updatedBefore,
+      input.titleContains,
+      input.titleContains,
+      input.status,
+      input.status,
+      input.after === null ? 0 : 1,
+      input.after?.updatedAt ?? null,
+      input.after?.updatedAt ?? null,
+      input.after?.threadId ?? null,
+      THREADS_PAGE_SIZE + 1,
+    ],
+  };
+}
 const ThreadPageRowSchema = Schema.Struct({
   ...ProjectionThreadShellDbRowSchema.fields,
   sessionJson: Schema.NullOr(Schema.fromJsonString(ProjectionThreadSessionDbRowSchema)),
@@ -2736,18 +2811,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
 
   const listFolderShellPage: ProjectionSnapshotQueryShape["listFolderShellPage"] = (after) =>
     Effect.gen(function* () {
-      const rows =
-        yield* sql`SELECT f.folder_id AS "folderId", f.title, f.workspace_root AS "workspaceRoot",
-        f.default_model_selection_json AS "defaultModelSelection", f.scripts_json AS scripts,
-        f.icon_data_url AS "iconDataUrl", f.space_id AS "spaceId", f.sidebar_sort_order AS "sidebarSortOrder",
-        f.created_at AS "createdAt", f.updated_at AS "updatedAt", f.archived_at AS "archivedAt", f.deleted_at AS "deletedAt",
-        s.name AS "spaceTitle"
-        FROM projection_folders f LEFT JOIN projection_spaces s ON s.space_id = f.space_id
-          AND s.deleted_at IS NULL AND s.archived_at IS NULL
-        WHERE f.deleted_at IS NULL AND f.archived_at IS NULL
-          AND (${after === null ? 0 : 1} = 0 OR f.created_at > ${after?.createdAt ?? null}
-            OR (f.created_at = ${after?.createdAt ?? null} AND f.folder_id > ${after?.folderId ?? null}))
-        ORDER BY f.created_at, f.folder_id LIMIT ${THREADS_PAGE_SIZE + 1}`;
+      const query = buildFolderShellPageQuery(after);
+      const rows = yield* sql.unsafe(query.text, query.parameters);
       const decoded = yield* Schema.decodeUnknownEffect(
         Schema.Array(
           Schema.Struct({
@@ -2782,26 +2847,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
 
   const listThreadShellPage: ProjectionSnapshotQueryShape["listThreadShellPage"] = (input) =>
     Effect.gen(function* () {
-      const rows =
-        yield* sql`SELECT ${sql.literal(THREAD_SHELL_COLUMNS)}, ${sql.literal(THREAD_SHELL_CONTEXT_COLUMNS)}
-        FROM threads t JOIN projection_folders f ON f.folder_id = t.folder_id
-        ${sql.literal(THREAD_SHELL_JOINS)}
-        WHERE t.space_id = ${input.spaceId} AND f.space_id = ${input.spaceId}
-          AND t.deleted_at IS NULL AND f.deleted_at IS NULL AND f.archived_at IS NULL
-          AND (${input.includeArchived ? 1 : 0} = 1 OR t.archived_at IS NULL)
-          AND (${input.threadIds === null ? 0 : 1} = 0 OR t.id IN (SELECT value FROM json_each(${JSON.stringify(input.threadIds)})))
-          AND (${input.folderId} IS NULL OR t.folder_id = ${input.folderId})
-          AND (${input.parentThreadId} IS NULL OR t.parent_thread_id = ${input.parentThreadId})
-          AND (${input.provider} IS NULL OR t.provider = ${input.provider})
-          AND (${input.model} IS NULL OR t.model = ${input.model})
-          AND (${input.createdBy} IS NULL OR CASE t.created_by WHEN 'user' THEN 'human' WHEN 'agent' THEN 'penkra-mcp' WHEN 'provider_native' THEN 'provider-native' END = ${input.createdBy})
-          AND (${input.updatedAfter} IS NULL OR t.updated_at >= ${input.updatedAfter})
-          AND (${input.updatedBefore} IS NULL OR t.updated_at <= ${input.updatedBefore})
-          AND (${input.titleContains} IS NULL OR instr(lower(t.title), lower(${input.titleContains})) > 0)
-          AND (${input.status} IS NULL OR ${sql.literal(THREAD_AGENT_STATUS)} = ${input.status})
-          AND (${input.after === null ? 0 : 1} = 0 OR t.updated_at < ${input.after?.updatedAt ?? null}
-            OR (t.updated_at = ${input.after?.updatedAt ?? null} AND t.id < ${input.after?.threadId ?? null}))
-        ORDER BY t.updated_at DESC, t.id DESC LIMIT ${THREADS_PAGE_SIZE + 1}`;
+      const query = buildThreadShellPageQuery(input);
+      const rows = yield* sql.unsafe(query.text, query.parameters);
       const threads = yield* decodeThreadPageRows(rows.slice(0, THREADS_PAGE_SIZE));
       const last = threads.at(-1);
       return {

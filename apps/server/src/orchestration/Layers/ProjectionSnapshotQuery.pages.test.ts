@@ -5,7 +5,11 @@ import { FolderId, SpaceId } from "@penkra/contracts";
 import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
-import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
+import {
+  buildFolderShellPageQuery,
+  buildThreadShellPageQuery,
+  OrchestrationProjectionSnapshotQueryLive,
+} from "./ProjectionSnapshotQuery.ts";
 import {
   ProjectionSnapshotQuery,
   type ProjectionThreadShellPageInput,
@@ -97,11 +101,11 @@ it.effect(
             (_, i) => "folder-" + String(i).padStart(2, "0"),
           ),
         );
-        const plan = yield* sql<{
-          detail: string;
-        }>`EXPLAIN QUERY PLAN SELECT f.folder_id FROM projection_folders f
-    LEFT JOIN projection_spaces s ON s.space_id = f.space_id AND s.deleted_at IS NULL AND s.archived_at IS NULL
-    WHERE f.deleted_at IS NULL AND f.archived_at IS NULL ORDER BY f.created_at, f.folder_id LIMIT ${THREADS_PAGE_SIZE}`;
+        const statement = buildFolderShellPageQuery(null);
+        const plan = yield* sql.unsafe<{ detail: string }>(
+          `EXPLAIN QUERY PLAN ${statement.text}`,
+          statement.parameters,
+        );
         assert.isTrue(
           plan.some((row) => row.detail.includes("idx_folders_created_live")),
           JSON.stringify(plan),
@@ -189,12 +193,13 @@ it.effect(
           (yield* query.listThreadShellPage(input({ includeArchived: true }))).threads,
           0,
         );
-        const plan = yield* sql<{ detail: string }>`EXPLAIN QUERY PLAN SELECT t.id FROM threads t
-    JOIN projection_folders f ON f.folder_id = t.folder_id
-    WHERE t.space_id = ${spaceId} AND t.deleted_at IS NULL AND f.deleted_at IS NULL AND f.archived_at IS NULL
-    ORDER BY t.updated_at DESC, t.id DESC LIMIT ${THREADS_PAGE_SIZE}`;
+        const statement = buildThreadShellPageQuery(input());
+        const plan = yield* sql.unsafe<{ parent: number; detail: string }>(
+          `EXPLAIN QUERY PLAN ${statement.text}`,
+          statement.parameters,
+        );
         assert.isTrue(plan.some((row) => row.detail.includes("idx_threads_space_updated_live")));
-        assert.isFalse(plan.some((row) => row.detail.includes("TEMP B-TREE")));
+        assert.isFalse(plan.some((row) => row.parent === 0 && row.detail.includes("TEMP B-TREE")));
       }),
     ),
 );
