@@ -22,6 +22,8 @@ const baseThread = {
   title: "Hello",
   provider: "codex",
   model: "gpt-5.5",
+  runtimeMode: "full-access",
+  createdBy: "user" as const,
   createdAt: "2026-10-09T00:00:00.000Z",
 };
 
@@ -86,6 +88,73 @@ it.effect("upsertThreadItem assigns seq once and updates in place", () =>
         { seq: 1, sourceId: "msg-1", status: "sent", text: "first" },
         { seq: 2, sourceId: "msg-2", status: "done", text: "complete" },
       ]);
+
+      // 2.1 write rule: the thread rollups move in the same write as the item.
+      const rollups = yield* sql<{
+        readonly lastActivityAt: string;
+        readonly lastMessagePreview: string;
+        readonly lastUserMessageAt: string;
+        readonly openQuestionCount: number;
+      }>`
+        SELECT last_activity_at AS "lastActivityAt",
+               last_message_preview AS "lastMessagePreview",
+               last_user_message_at AS "lastUserMessageAt",
+               open_question_count AS "openQuestionCount"
+        FROM threads WHERE id = 'thread-1'
+      `;
+      assert.deepStrictEqual(rollups, [
+        {
+          lastActivityAt: "2026-10-09T00:00:03.000Z",
+          lastMessagePreview: "complete",
+          lastUserMessageAt: "2026-10-09T00:00:01.000Z",
+          openQuestionCount: 0,
+        },
+      ]);
+    }),
+  ),
+);
+
+it.effect("upsertThreadItem maintains open_question_count from question items", () =>
+  withDb(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations();
+      yield* createThread(baseThread);
+      yield* upsertThreadItem({
+        threadId: "thread-1",
+        sourceId: "q-1",
+        kind: "question",
+        status: "open",
+        text: "Which database?",
+        createdAt: "2026-10-09T00:00:01.000Z",
+        updatedAt: "2026-10-09T00:00:01.000Z",
+      });
+      yield* upsertThreadItem({
+        threadId: "thread-1",
+        sourceId: "q-2",
+        kind: "question",
+        status: "open",
+        text: "Which port?",
+        createdAt: "2026-10-09T00:00:02.000Z",
+        updatedAt: "2026-10-09T00:00:02.000Z",
+      });
+      const open = yield* sql<{ readonly count: number }>`
+        SELECT open_question_count AS count FROM threads WHERE id = 'thread-1'
+      `;
+      assert.deepStrictEqual(open, [{ count: 2 }]);
+      yield* upsertThreadItem({
+        threadId: "thread-1",
+        sourceId: "q-1",
+        kind: "question",
+        status: "answered",
+        text: "Which database?",
+        createdAt: "2026-10-09T00:00:01.000Z",
+        updatedAt: "2026-10-09T00:00:03.000Z",
+      });
+      const afterAnswer = yield* sql<{ readonly count: number }>`
+        SELECT open_question_count AS count FROM threads WHERE id = 'thread-1'
+      `;
+      assert.deepStrictEqual(afterAnswer, [{ count: 1 }]);
     }),
   ),
 );
