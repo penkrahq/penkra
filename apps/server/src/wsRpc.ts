@@ -116,6 +116,9 @@ import { getThreadDraft, setThreadDraft } from "./cleanCore/threadDraft.ts";
 import {
   markThreadVisited,
   moveDeckThread,
+  moveFolder,
+  moveSpace,
+  publishSidebarRows,
   moveSidebarItem,
   setThreadPinned,
   setThreadRuntimeMode,
@@ -1474,6 +1477,14 @@ const makeWsRpcHandlersLayer = () =>
               const update = input.update;
               const publish = (threadId: string) => threadPublisher.publish({ threadId });
               switch (update.action) {
+                case "moveFolder": {
+                  yield* publishSidebarRows(threadPublisher, "folder", yield* moveFolder(update));
+                  return;
+                }
+                case "moveSpace": {
+                  yield* publishSidebarRows(threadPublisher, "space", yield* moveSpace(update));
+                  return;
+                }
                 case "pin": {
                   if (yield* setThreadPinned(update)) publish(update.threadId);
                   return;

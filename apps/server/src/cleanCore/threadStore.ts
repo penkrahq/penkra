@@ -6,6 +6,7 @@
 //   renameThread, setThreadDeleted, setThreadState, updateThreadDraft, answerQuestion,
 //   settleRunningItems
 
+import { FolderId, SpaceId, ThreadId, type CleanCoreSidebarChange } from "@penkra/contracts";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
@@ -35,12 +36,24 @@ export interface ThreadPublisher {
   /** Subscribe to every thread's changes. Returns an unsubscribe function. */
   readonly subscribeAll: (listener: (change: ThreadChange) => void) => () => void;
   readonly publish: (change: ThreadChange) => void;
+  readonly subscribeSidebar: (listener: (change: CleanCoreSidebarChange) => void) => () => void;
+  readonly publishSidebar: (change: CleanCoreSidebarChange) => void;
 }
 
 export const makeThreadPublisher = (): ThreadPublisher => {
   const byThread = new Map<string, Set<(change: ThreadChange) => void>>();
   const all = new Set<(change: ThreadChange) => void>();
+  const sidebar = new Set<(change: CleanCoreSidebarChange) => void>();
   return {
+    subscribeSidebar: (listener) => {
+      sidebar.add(listener);
+      return () => {
+        sidebar.delete(listener);
+      };
+    },
+    publishSidebar: (change) => {
+      for (const listener of sidebar) listener(change);
+    },
     subscribe: (threadId, listener) => {
       const listeners = byThread.get(threadId) ?? new Set();
       listeners.add(listener);
@@ -57,6 +70,8 @@ export const makeThreadPublisher = (): ThreadPublisher => {
     publish: (change) => {
       for (const listener of byThread.get(change.threadId) ?? []) listener(change);
       for (const listener of all) listener(change);
+      for (const listener of sidebar)
+        listener({ kind: "thread", threadId: ThreadId.makeUnsafe(change.threadId) });
     },
   };
 };
@@ -215,10 +230,9 @@ export const updateThreadDraft = (id: string, draft: string | null, updatedAt: s
   });
 
 /** A sidebar/deck drop position: after a sibling, or the pinned boundary. */
-export interface ThreadMovePosition {
-  readonly type: "after" | "pinned-boundary";
-  readonly itemId?: string | undefined;
-}
+export type ThreadMovePosition =
+  | { readonly type: "before" | "after"; readonly itemId: string }
+  | { readonly type: "pinned-boundary" };
 
 interface ThreadSiblingRow {
   readonly id: string;
@@ -246,11 +260,11 @@ function resolveThreadMoveOrder(
 ): ThreadSiblingRow[] | null {
   const others = orderThreadSiblings(destination);
   let insertionIndex = others.filter((row) => row.isPinned === 1).length;
-  if (position.type === "after") {
+  if (position.type !== "pinned-boundary") {
     const anchorIndex = others.findIndex((row) => row.id === position.itemId);
     if (anchorIndex < 0) return null;
     if (others[anchorIndex]!.isPinned !== moved.isPinned) return null;
-    insertionIndex = anchorIndex + 1;
+    insertionIndex = anchorIndex + (position.type === "after" ? 1 : 0);
   }
   const ordered = [...others];
   ordered.splice(insertionIndex, 0, moved);
@@ -336,35 +350,39 @@ export const moveSidebarItem = (input: {
 }) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    const movedRows = yield* sql<ThreadSiblingRow & { readonly folderId: string }>`
+    return yield* sql.withTransaction(
+      Effect.gen(function* () {
+        const movedRows = yield* sql<ThreadSiblingRow & { readonly folderId: string }>`
       SELECT id, folder_id AS "folderId", is_pinned AS "isPinned",
              COALESCE(sidebar_sort_order, 0) AS "sidebarSortOrder", created_at AS "createdAt"
       FROM threads WHERE id = ${input.threadId} AND deleted_at IS NULL
     `;
-    const moved = movedRows[0];
-    if (moved === undefined) return [] as string[];
-    const destination = yield* sql<ThreadSiblingRow>`
+        const moved = movedRows[0];
+        if (moved === undefined) return [] as string[];
+        const destination = yield* sql<ThreadSiblingRow>`
       SELECT id, is_pinned AS "isPinned",
              COALESCE(sidebar_sort_order, 0) AS "sidebarSortOrder", created_at AS "createdAt"
       FROM threads
       WHERE folder_id = ${input.folderId} AND id != ${input.threadId}
         AND deleted_at IS NULL AND parent_thread_id IS NULL
     `;
-    const ordered = resolveThreadMoveOrder(destination, moved, input.position);
-    if (ordered === null) return [] as string[];
-    const changed: string[] = [];
-    for (let index = 0; index < ordered.length; index += 1) {
-      const row = ordered[index]!;
-      const folderChanged = row.id === input.threadId && moved.folderId !== input.folderId;
-      const orderChanged = row.sidebarSortOrder !== index;
-      if (!folderChanged && !orderChanged) continue;
-      yield* sql`
+        const ordered = resolveThreadMoveOrder(destination, moved, input.position);
+        if (ordered === null) return [] as string[];
+        const changed: string[] = [];
+        for (let index = 0; index < ordered.length; index += 1) {
+          const row = ordered[index]!;
+          const folderChanged = row.id === input.threadId && moved.folderId !== input.folderId;
+          const orderChanged = row.sidebarSortOrder !== index;
+          if (!folderChanged && !orderChanged) continue;
+          yield* sql`
         UPDATE threads SET sidebar_sort_order = ${index}, folder_id = ${input.folderId}, updated_at = ${input.updatedAt}
         WHERE id = ${row.id}
       `;
-      changed.push(row.id);
-    }
-    return changed;
+          changed.push(row.id);
+        }
+        return changed;
+      }),
+    );
   });
 
 /**
@@ -379,34 +397,38 @@ export const moveDeckThread = (input: {
 }) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    const movedRows = yield* sql<ThreadSiblingRow & { readonly deckId: string | null }>`
+    return yield* sql.withTransaction(
+      Effect.gen(function* () {
+        const movedRows = yield* sql<ThreadSiblingRow & { readonly deckId: string | null }>`
       SELECT id, deck_id AS "deckId", is_pinned AS "isPinned",
              COALESCE(deck_sort_order, 0) AS "sidebarSortOrder", created_at AS "createdAt"
       FROM threads WHERE id = ${input.threadId} AND deleted_at IS NULL
     `;
-    const moved = movedRows[0];
-    if (moved === undefined) return [] as string[];
-    const destination = yield* sql<ThreadSiblingRow>`
+        const moved = movedRows[0];
+        if (moved === undefined) return [] as string[];
+        const destination = yield* sql<ThreadSiblingRow>`
       SELECT id, is_pinned AS "isPinned",
              COALESCE(deck_sort_order, 0) AS "sidebarSortOrder", created_at AS "createdAt"
       FROM threads
       WHERE deck_id = ${input.deckId} AND id != ${input.threadId} AND deleted_at IS NULL
     `;
-    const ordered = resolveThreadMoveOrder(destination, moved, input.position);
-    if (ordered === null) return [] as string[];
-    const changed: string[] = [];
-    for (let index = 0; index < ordered.length; index += 1) {
-      const row = ordered[index]!;
-      const deckChanged = row.id === input.threadId && moved.deckId !== input.deckId;
-      const orderChanged = row.sidebarSortOrder !== index;
-      if (!deckChanged && !orderChanged) continue;
-      yield* sql`
+        const ordered = resolveThreadMoveOrder(destination, moved, input.position);
+        if (ordered === null) return [] as string[];
+        const changed: string[] = [];
+        for (let index = 0; index < ordered.length; index += 1) {
+          const row = ordered[index]!;
+          const deckChanged = row.id === input.threadId && moved.deckId !== input.deckId;
+          const orderChanged = row.sidebarSortOrder !== index;
+          if (!deckChanged && !orderChanged) continue;
+          yield* sql`
         UPDATE threads SET deck_sort_order = ${index}, deck_id = ${input.deckId}, updated_at = ${input.updatedAt}
         WHERE id = ${row.id}
       `;
-      changed.push(row.id);
-    }
-    return changed;
+          changed.push(row.id);
+        }
+        return changed;
+      }),
+    );
   });
 
 /** Answering a question updates the same row in place. */
@@ -480,4 +502,154 @@ export const appendThreadItemText = (
         status = 'streaming',
         updated_at = excluded.updated_at
     `;
+  });
+
+/** Move a folder into a space and renumber the destination in one transaction. */
+export const moveFolder = (input: {
+  readonly folderId: string;
+  readonly spaceId: string;
+  readonly position: ThreadMovePosition;
+  readonly updatedAt: string;
+}) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    return yield* sql.withTransaction(
+      Effect.gen(function* () {
+        const movedRows = yield* sql<ThreadSiblingRow & { readonly spaceId: string }>`
+      SELECT folder_id AS id, space_id AS "spaceId", is_pinned AS "isPinned",
+        sidebar_sort_order AS "sidebarSortOrder", created_at AS "createdAt"
+      FROM projection_folders WHERE folder_id = ${input.folderId} AND deleted_at IS NULL
+    `;
+        const moved = movedRows[0];
+        if (moved === undefined) return [] as string[];
+        const destination: ThreadSiblingRow[] = [];
+        let after: string | null = null;
+        while (true) {
+          const page: readonly ThreadSiblingRow[] = yield* sql<ThreadSiblingRow>`
+        SELECT folder_id AS id, is_pinned AS "isPinned", sidebar_sort_order AS "sidebarSortOrder",
+          created_at AS "createdAt" FROM projection_folders
+        WHERE space_id = ${input.spaceId} AND folder_id != ${input.folderId} AND deleted_at IS NULL
+          AND (${after} IS NULL OR folder_id > ${after}) ORDER BY folder_id LIMIT 50
+      `;
+          destination.push(...page);
+          if (page.length < 50) break;
+          after = page[page.length - 1]!.id;
+        }
+        const ordered = resolveThreadMoveOrder(destination, moved, input.position);
+        if (ordered === null) return [] as string[];
+        const changed: string[] = [];
+        for (let index = 0; index < ordered.length; index += 1) {
+          const row = ordered[index]!;
+          if (
+            row.sidebarSortOrder === index &&
+            (row.id !== input.folderId || moved.spaceId === input.spaceId)
+          )
+            continue;
+          yield* sql`UPDATE projection_folders SET sidebar_sort_order = ${index}, space_id = ${input.spaceId},
+        updated_at = ${input.updatedAt} WHERE folder_id = ${row.id}`;
+          changed.push(row.id);
+        }
+        return changed;
+      }),
+    );
+  });
+
+/** Reorder active spaces in one transaction. Spaces have no pin partition. */
+export const moveSpace = (input: {
+  readonly spaceId: string;
+  readonly position: ThreadMovePosition;
+  readonly updatedAt: string;
+}) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    return yield* sql.withTransaction(
+      Effect.gen(function* () {
+        const rows: {
+          readonly id: string;
+          readonly sortOrder: number;
+          readonly createdAt: string;
+        }[] = [];
+        let after: string | null = null;
+        while (true) {
+          const page: readonly {
+            readonly id: string;
+            readonly sortOrder: number;
+            readonly createdAt: string;
+          }[] = yield* sql<{
+            readonly id: string;
+            readonly sortOrder: number;
+            readonly createdAt: string;
+          }>`
+        SELECT space_id AS id, sort_order AS "sortOrder", created_at AS "createdAt" FROM projection_spaces
+        WHERE deleted_at IS NULL AND archived_at IS NULL AND (${after} IS NULL OR space_id > ${after})
+        ORDER BY space_id LIMIT 50
+      `;
+          rows.push(...page);
+          if (page.length < 50) break;
+          after = page[page.length - 1]!.id;
+        }
+        rows.sort(
+          (left, right) =>
+            left.sortOrder - right.sortOrder ||
+            left.createdAt.localeCompare(right.createdAt) ||
+            left.id.localeCompare(right.id),
+        );
+        const moved = rows.find((row) => row.id === input.spaceId);
+        if (moved === undefined) return [] as string[];
+        const ordered = rows.filter((row) => row.id !== input.spaceId);
+        let insertionIndex = 0;
+        if (input.position.type !== "pinned-boundary") {
+          const anchorId = input.position.itemId;
+          const anchor = ordered.findIndex((row) => row.id === anchorId);
+          if (anchor < 0) return [] as string[];
+          insertionIndex = anchor + (input.position.type === "after" ? 1 : 0);
+        }
+        ordered.splice(insertionIndex, 0, moved);
+        const changed: string[] = [];
+        for (let index = 0; index < ordered.length; index += 1) {
+          const row = ordered[index]!;
+          if (row.sortOrder === index) continue;
+          yield* sql`UPDATE projection_spaces SET sort_order = ${index}, updated_at = ${input.updatedAt}
+        WHERE space_id = ${row.id}`;
+          changed.push(row.id);
+        }
+        return changed;
+      }),
+    );
+  });
+
+/** Publish committed folder and space rows; no event journal or projection replay. */
+export const publishSidebarRows = (
+  publisher: ThreadPublisher,
+  kind: "folder" | "space",
+  ids: readonly string[],
+) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    for (const id of ids) {
+      if (kind === "folder") {
+        const rows = yield* sql<{
+          readonly spaceId: string;
+          readonly sidebarSortOrder: number;
+          readonly updatedAt: string;
+        }>`
+          SELECT space_id AS "spaceId", sidebar_sort_order AS "sidebarSortOrder", updated_at AS "updatedAt"
+          FROM projection_folders WHERE folder_id = ${id}`;
+        const row = rows[0];
+        if (row !== undefined)
+          publisher.publishSidebar({
+            kind,
+            folderId: FolderId.makeUnsafe(id),
+            spaceId: SpaceId.makeUnsafe(row.spaceId),
+            sidebarSortOrder: row.sidebarSortOrder,
+            updatedAt: row.updatedAt,
+          });
+      } else {
+        const rows = yield* sql<{ readonly sortOrder: number; readonly updatedAt: string }>`
+          SELECT sort_order AS "sortOrder", updated_at AS "updatedAt" FROM projection_spaces WHERE space_id = ${id}`;
+        const row = rows[0];
+        if (row !== undefined)
+          publisher.publishSidebar({ kind, spaceId: SpaceId.makeUnsafe(id), ...row });
+      }
+    }
   });

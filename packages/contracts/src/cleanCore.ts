@@ -121,13 +121,44 @@ export const CleanCoreListThreadsResult = Schema.Struct({
 });
 export type CleanCoreListThreadsResult = typeof CleanCoreListThreadsResult.Type;
 
-export const CleanCoreThreadMovePosition = Schema.Struct({
-  type: Schema.Literals(["after", "pinned-boundary"]),
-  itemId: Schema.optional(ThreadId),
-});
+export const CleanCoreThreadMovePosition = Schema.Union([
+  Schema.Struct({ type: Schema.Literals(["before", "after"]), itemId: Schema.String }),
+  Schema.Struct({ type: Schema.Literal("pinned-boundary") }),
+]);
 export type CleanCoreThreadMovePosition = typeof CleanCoreThreadMovePosition.Type;
 
+export const CleanCoreSidebarChange = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("thread"), threadId: ThreadId }),
+  Schema.Struct({
+    kind: Schema.Literal("folder"),
+    folderId: FolderId,
+    spaceId: SpaceId,
+    sidebarSortOrder: Schema.Number,
+    updatedAt: IsoDateTime,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("space"),
+    spaceId: SpaceId,
+    sortOrder: Schema.Number,
+    updatedAt: IsoDateTime,
+  }),
+]);
+export type CleanCoreSidebarChange = typeof CleanCoreSidebarChange.Type;
+
 export const CleanCoreThreadUpdate = Schema.Union([
+  Schema.Struct({
+    action: Schema.Literal("moveFolder"),
+    folderId: FolderId,
+    spaceId: SpaceId,
+    position: CleanCoreThreadMovePosition,
+    updatedAt: IsoDateTime,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("moveSpace"),
+    spaceId: SpaceId,
+    position: CleanCoreThreadMovePosition,
+    updatedAt: IsoDateTime,
+  }),
   Schema.Struct({
     action: Schema.Literal("pin"),
     threadId: ThreadId,
@@ -188,4 +219,5 @@ export type CleanCoreAnswerThreadQuestionInput = typeof CleanCoreAnswerThreadQue
 /** Push channels for the clean-core live updates. */
 export const CLEAN_CORE_WS_CHANNELS = {
   threadChange: "cleanCore.threadChange",
+  sidebarChange: "cleanCore.sidebarChange",
 } as const;
