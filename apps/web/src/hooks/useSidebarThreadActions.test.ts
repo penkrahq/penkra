@@ -1,3 +1,4 @@
+import type { SidebarThreadRow } from "../sidebarThreadRows";
 // FILE: useSidebarThreadActions.test.ts
 // Purpose: Characterizes Sidebar pin races, archive serialization/undo, and batch deletion.
 // Layer: Web hook tests
@@ -77,10 +78,6 @@ const reactHarness = vi.hoisted(() => {
 });
 
 const harness = vi.hoisted(() => ({
-  pinnedThreadIds: [] as string[],
-  pinThread: vi.fn(),
-  unpinThread: vi.fn(),
-  prunePinnedThreads: vi.fn(),
   dispatchCommand: vi.fn(),
   confirm: vi.fn(),
   archiveThread: vi.fn(),
@@ -118,16 +115,6 @@ vi.mock("../composerDraftStore", () => ({
       clearProjectDraftThreadById: harness.clearProjectDraftThreadById,
     }),
 }));
-vi.mock("../pinnedThreadsStore", () => ({
-  usePinnedThreadsStore: (selector: (state: unknown) => unknown) =>
-    selector({
-      pinnedThreadIds: harness.pinnedThreadIds,
-      pinThread: harness.pinThread,
-      unpinThread: harness.unpinThread,
-      prunePinnedThreads: harness.prunePinnedThreads,
-    }),
-}));
-
 vi.mock("../threadSelectionStore", () => ({
   useThreadSelectionStore: (selector: (state: unknown) => unknown) =>
     selector({ removeFromSelection: harness.removeFromSelection }),
@@ -171,7 +158,7 @@ vi.mock("../threadDerivation", () => ({
   }),
 }));
 
-import type { Project, SidebarThreadSummary } from "../types";
+import type { Project } from "../types";
 import { useSidebarThreadActions } from "./useSidebarThreadActions";
 
 const PROJECT_ID = FolderId.makeUnsafe("project-actions");
@@ -190,7 +177,7 @@ const PROJECT = {
   scripts: [],
 } satisfies Project;
 
-function makeThread(id: ThreadId, overrides: Partial<SidebarThreadSummary> = {}) {
+function makeThread(id: ThreadId, overrides: Partial<SidebarThreadRow> = {}) {
   return {
     id,
     deckId: ThreadDeckId.makeUnsafe("deck-actions"),
@@ -205,10 +192,10 @@ function makeThread(id: ThreadId, overrides: Partial<SidebarThreadSummary> = {})
     hasPendingUserInput: false,
     hasLiveTailWork: false,
     ...overrides,
-  } as SidebarThreadSummary;
+  } as SidebarThreadRow;
 }
 
-let sidebarThreads: SidebarThreadSummary[];
+let sidebarThreads: SidebarThreadRow[];
 
 function render(
   overrides: {
@@ -238,11 +225,7 @@ function render(
 beforeEach(() => {
   reactHarness.reset();
   sidebarThreads = [makeThread(THREAD_ID), makeThread(FALLBACK_ID)];
-  harness.pinnedThreadIds = [];
   for (const mock of [
-    harness.pinThread,
-    harness.unpinThread,
-    harness.prunePinnedThreads,
     harness.dispatchCommand,
     harness.confirm,
     harness.archiveThread,
@@ -259,12 +242,6 @@ beforeEach(() => {
   ]) {
     mock.mockReset();
   }
-  harness.pinThread.mockImplementation((threadId: ThreadId) => {
-    if (!harness.pinnedThreadIds.includes(threadId)) harness.pinnedThreadIds.unshift(threadId);
-  });
-  harness.unpinThread.mockImplementation((threadId: ThreadId) => {
-    harness.pinnedThreadIds = harness.pinnedThreadIds.filter((id) => id !== threadId);
-  });
   harness.dispatchCommand.mockResolvedValue(undefined);
   harness.archiveThread.mockResolvedValue(undefined);
   harness.unarchiveThread.mockResolvedValue(undefined);
@@ -291,14 +268,13 @@ beforeEach(() => {
 });
 
 describe("useSidebarThreadActions", () => {
-  it("pins optimistically and dispatches thread metadata", async () => {
+  it("shows pins only after canonical rows confirm the write", async () => {
     let controller = render();
 
     controller.toggleThreadPinned(THREAD_ID);
     await vi.waitFor(() => expect(harness.dispatchCommand).toHaveBeenCalled());
     controller = render();
 
-    expect(harness.pinThread).toHaveBeenCalledWith(THREAD_ID);
     expect(harness.dispatchCommand).toHaveBeenCalledWith(
       expect.objectContaining({
         update: {
@@ -309,41 +285,24 @@ describe("useSidebarThreadActions", () => {
         },
       }),
     );
+    expect(controller.pinnedThreadIdSet.has(THREAD_ID)).toBe(false);
+    sidebarThreads = sidebarThreads.map((thread) => ({
+      ...thread,
+      isPinned: thread.id === THREAD_ID,
+    }));
+    controller = render();
     expect(controller.pinnedThreadIdSet.has(THREAD_ID)).toBe(true);
   });
 
-  it("rolls the latest failed pin back to confirmed server state", async () => {
+  it("surfaces failed pin writes and leaves canonical state unchanged", async () => {
     harness.dispatchCommand.mockRejectedValue(new Error("pin rejected"));
 
     render().toggleThreadPinned(THREAD_ID);
     await vi.waitFor(() => expect(harness.toast).toHaveBeenCalled());
 
-    expect(harness.pinThread).toHaveBeenCalledWith(THREAD_ID);
-    expect(harness.unpinThread).toHaveBeenCalledWith(THREAD_ID);
     expect(harness.toast).toHaveBeenCalledWith(
       expect.objectContaining({ title: "Unable to pin thread" }),
     );
-  });
-
-  it("does not let an older failed pin roll back a newer click", async () => {
-    let rejectFirst!: (error: Error) => void;
-    let resolveSecond!: () => void;
-    harness.dispatchCommand
-      .mockImplementationOnce(() => new Promise((_, reject) => (rejectFirst = reject)))
-      .mockImplementationOnce(() => new Promise<void>((resolve) => (resolveSecond = resolve)));
-    let controller = render();
-
-    controller.toggleThreadPinned(THREAD_ID);
-    await vi.waitFor(() => expect(harness.dispatchCommand).toHaveBeenCalledTimes(1));
-    controller = render();
-    controller.toggleThreadPinned(THREAD_ID);
-    await vi.waitFor(() => expect(harness.dispatchCommand).toHaveBeenCalledTimes(2));
-    resolveSecond();
-    rejectFirst(new Error("stale failure"));
-    await vi.waitFor(() => expect(harness.unpinThread).toHaveBeenCalledTimes(1));
-
-    expect(harness.pinThread).toHaveBeenCalledTimes(1);
-    expect(harness.toast).not.toHaveBeenCalled();
   });
 
   it("keeps archive available while server-side runtime cleanup is pending", async () => {

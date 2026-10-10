@@ -1,4 +1,5 @@
 import "../index.css";
+import { resetThreadListForTests } from "../threadListStore";
 
 import {
   type CleanCoreThreadItem,
@@ -327,7 +328,72 @@ function createThreadItemsPageFromFixtureSnapshot(threadId: ThreadId) {
 }
 
 /** Push a clean-core thread change so mounted transcripts re-read thread_items. */
+function summarizeFixtureThread(thread: OrchestrationThread) {
+  return {
+    id: thread.id,
+    spaceId: TEST_SPACE_ID,
+    folderId: thread.folderId,
+    title: thread.title,
+    provider: thread.modelSelection.provider,
+    connectionId: thread.connectionId ?? null,
+    model: thread.modelSelection.model,
+    modelOptions: thread.modelSelection.options
+      ? JSON.stringify(thread.modelSelection.options)
+      : null,
+    runtimeMode: thread.runtimeMode,
+    workingDirectory: thread.workingDirectory ?? null,
+    state: thread.session?.status === "running" ? "running" : "idle",
+    activeTurnId: thread.session?.activeTurnId ?? null,
+    lastError: thread.session?.lastError ?? null,
+    queue: JSON.stringify(
+      (thread.messages ?? [])
+        .filter((message) => thread.queuedMessageIds?.includes(message.id))
+        .map((message) => ({
+          messageId: message.id,
+          text: message.text,
+          attachments: message.attachments ?? [],
+          senderThreadId: message.senderThreadId ?? null,
+          dispatchOrigin: "user",
+          queuedAt: message.createdAt,
+        })),
+    ),
+    createdBy: "user",
+    createdByThreadId: null,
+    parentThreadId: thread.parentThreadId ?? null,
+    deckId: thread.deckId,
+    deckSortOrder: thread.deckSortOrder,
+    sidebarSortOrder: thread.sidebarSortOrder ?? null,
+    isPinned: thread.isPinned ? 1 : 0,
+    lastActivityAt: thread.lastActivityAt ?? null,
+    lastMessagePreview: thread.lastMessagePreview ?? null,
+    lastUserMessageAt: thread.latestUserMessageAt ?? null,
+    lastVisitedAt: thread.lastVisitedAt ?? null,
+    openQuestionCount: 0,
+    archivedAt: thread.archivedAt ?? null,
+    deletedAt: thread.deletedAt,
+    createdAt: thread.createdAt,
+    updatedAt: thread.updatedAt,
+  };
+}
+
 function resolveUnaryRequest(method: string, body: Record<string, unknown>): unknown {
+  if (method === WS_METHODS.cleanCoreGetThread) {
+    const thread = fixture.snapshot.threads.find((thread) => thread.id === body.threadId);
+    return thread === undefined ? null : summarizeFixtureThread(thread);
+  }
+  if (method === WS_METHODS.cleanCoreListThreads)
+    return {
+      threads: fixture.snapshot.threads
+        .filter(
+          (thread) =>
+            summarizeFixtureThread(thread).spaceId === body.spaceId &&
+            thread.folderId === body.folderId &&
+            thread.deletedAt === null,
+        )
+        .map(summarizeFixtureThread),
+      nextCursor: null,
+    };
+
   if (method === ORCHESTRATION_WS_METHODS.dispatchCommand) {
     return { sequence: fixture.snapshot.snapshotSequence + 1 };
   }

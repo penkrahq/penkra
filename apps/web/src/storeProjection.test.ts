@@ -900,7 +900,6 @@ describe("store projection", () => {
       hasPendingUserInput: true,
     });
     expect(next.sidebarThreadSummaryById["thread-1"]).toMatchObject({
-      latestUserMessageAt: "2026-02-27T00:03:00.000Z",
       hasPendingApprovals: true,
       hasPendingUserInput: true,
     });
@@ -928,9 +927,7 @@ describe("store projection", () => {
     );
 
     expect(threadsOf(next)[0]?.latestUserMessageAt).toBeUndefined();
-    expect(next.sidebarThreadSummaryById["thread-1"]?.latestUserMessageAt).toBe(
-      "2026-02-27T00:03:00.000Z",
-    );
+    expect(next.sidebarThreadSummaryById["thread-1"]).not.toHaveProperty("latestUserMessageAt");
   });
 
   it("keeps a confirmed project deletion hidden from stale snapshots", () => {
@@ -2181,8 +2178,6 @@ describe("store projection", () => {
     });
     expect(initial.sidebarThreadSummaryById[threadId]).toMatchObject({
       workStatus: "running",
-      lastMessagePreview: "Working on the hotfix",
-      lastActivityAt: runningAt,
     });
 
     const completedAt = "2026-02-27T00:00:03.000Z";
@@ -2206,8 +2201,6 @@ describe("store projection", () => {
     });
     expect(next.sidebarThreadSummaryById[threadId]).toMatchObject({
       workStatus: "done",
-      lastMessagePreview: "Hotfix complete",
-      lastActivityAt: completedAt,
     });
   });
 

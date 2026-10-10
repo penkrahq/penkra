@@ -1,3 +1,4 @@
+import type { SidebarThreadRow } from "../sidebarThreadRows";
 // FILE: Sidebar.logic.ts
 // Purpose: Shared sidebar sorting and status helpers used by the thread list UI.
 // Exports: Sidebar row state derivation, sort utilities, and visibility helpers.
@@ -12,7 +13,7 @@ import {
 import { isWorkspaceRootWithin } from "@penkra/shared/threadWorkspace";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "../appSettings";
 import { resolveRestorableThreadRoute, type LastThreadRoute } from "../chatRouteRestore";
-import type { Project, SidebarThreadSummary, Thread } from "../types";
+import type { Project, Thread } from "../types";
 import { cn } from "../lib/utils";
 import { derivePinnedIds, isLatestPinMutation, orderPinnedItemsFirst } from "../pinning.logic";
 import {
@@ -103,7 +104,7 @@ export type SidebarProjectEntry = {
   kind: "thread";
   rowId: ThreadId;
   rootRowId: ThreadId;
-  thread: SidebarThreadSummary;
+  thread: SidebarThreadRow;
   depth: number;
 };
 
@@ -118,7 +119,7 @@ export function createSidebarThreadHoverAnchorId(input: {
 
 export type SidebarDerivedProjectData = {
   allProjectThreadCount: number;
-  projectThreads: SidebarThreadSummary[];
+  projectThreads: SidebarThreadRow[];
   orderedProjectThreadIds: ThreadId[];
   visibleEntries: SidebarProjectEntry[];
   /** Extra "Show more" pages currently applied, clamped to the real row count. */
@@ -201,7 +202,7 @@ export function resolveSidebarWorkStatus(
 export function resolveVisibleThreadWorkStatus(input: {
   status: ThreadStatusPill | null;
   isRecording?: boolean;
-  projectedWorkStatus?: SidebarThreadSummary["workStatus"];
+  projectedWorkStatus?: SidebarThreadRow["workStatus"];
 }): SidebarWorkStatus {
   // `projectedWorkStatus` remains useful for sorting and compact shell state,
   // but it is not visit-aware enough to drive the visible row icon.
@@ -507,7 +508,8 @@ export function resolveThreadStatusPill(input: {
  * rollup directly.
  */
 export function resolveSidebarThreadSummaryStatus(input: {
-  readonly thread: SidebarThreadSummary;
+  readonly thread: import("../types").SidebarThreadSummary;
+  readonly lastVisitedAt: string | undefined;
   readonly dismissedStatusKey?: string | undefined;
   readonly isPromotedDraftPending?: boolean;
   readonly hasLocalSendOwner?: boolean;
@@ -515,6 +517,7 @@ export function resolveSidebarThreadSummaryStatus(input: {
   return resolveThreadStatusPill({
     thread: {
       ...input.thread,
+      lastVisitedAt: input.lastVisitedAt,
       dismissedStatusKey: input.dismissedStatusKey,
     },
     hasPendingApprovals: input.thread.hasPendingApprovals,
@@ -606,7 +609,7 @@ export function resolveSidebarThreadListPaging(input: {
   };
 }
 
-export function getVisibleThreadsForProject<T extends Pick<SidebarThreadSummary, "id">>(input: {
+export function getVisibleThreadsForProject<T extends Pick<SidebarThreadRow, "id">>(input: {
   threads: readonly T[];
   activeThreadId: Thread["id"] | undefined;
   previewLimit: number;
@@ -649,7 +652,7 @@ export function getVisibleThreadsForProject<T extends Pick<SidebarThreadSummary,
 }
 
 export interface SidebarThreadTreeRow<
-  T extends Pick<SidebarThreadSummary, "id" | "parentThreadId">,
+  T extends { id: ThreadId; parentThreadId?: ThreadId | null },
 > {
   thread: T;
   depth: number;
@@ -657,7 +660,7 @@ export interface SidebarThreadTreeRow<
 }
 
 function collectActiveThreadAncestorIds<
-  T extends Pick<SidebarThreadSummary, "id" | "parentThreadId">,
+  T extends { id: ThreadId; parentThreadId?: ThreadId | null },
 >(threadById: Map<T["id"], T>, forceVisibleThreadId: T["id"] | undefined): Set<T["id"]> {
   const ancestorIds = new Set<T["id"]>();
   let currentThreadId = forceVisibleThreadId;
@@ -676,7 +679,7 @@ function collectActiveThreadAncestorIds<
 
 // Build the project-local parent/child thread tree while preserving sort order from the input list.
 export function buildProjectThreadTree<
-  T extends Pick<SidebarThreadSummary, "id" | "parentThreadId">,
+  T extends { id: ThreadId; parentThreadId?: ThreadId | null },
 >(input: {
   threads: readonly T[];
   forceVisibleThreadId?: T["id"] | undefined;
@@ -794,32 +797,6 @@ export function getVisibleSidebarEntriesForPreview<
   };
 }
 
-// Resolve the visible pinned ids from server state, local legacy pins, and pending user clicks.
-export function derivePinnedThreadIdsForSidebar<T extends Pick<Thread, "id" | "isPinned">>(input: {
-  readonly threads: readonly T[];
-  readonly persistedPinnedThreadIds: readonly T["id"][];
-  readonly optimisticPinnedStateByThreadId: ReadonlyMap<T["id"], boolean>;
-}): T["id"][] {
-  return derivePinnedIds({
-    items: input.threads,
-    persistedPinnedIds: input.persistedPinnedThreadIds,
-    optimisticPinnedStateById: input.optimisticPinnedStateByThreadId,
-  });
-}
-
-// Only the newest pin mutation may roll back optimistic state after rapid clicks.
-export function isLatestPinnedThreadMutation<T>(input: {
-  readonly threadId: T;
-  readonly requestVersion: number;
-  readonly latestMutationVersionByThreadId: ReadonlyMap<T, number>;
-}): boolean {
-  return isLatestPinMutation({
-    id: input.threadId,
-    requestVersion: input.requestVersion,
-    latestMutationVersionById: input.latestMutationVersionByThreadId,
-  });
-}
-
 export function isLatestPinnedProjectMutation<T>(input: {
   readonly folderId: T;
   readonly requestVersion: number;
@@ -852,8 +829,7 @@ export function orderPinnedFoldersForSidebar<T extends Pick<Project, "id">>(
   return orderPinnedItemsFirst(folders, pinnedFolderIds);
 }
 
-// Only prune persisted pins after the thread snapshot has hydrated.
-export function shouldPrunePinnedThreads(input: { threadsHydrated: boolean }): boolean {
+export function shouldPrunePinnedFolders(input: { threadsHydrated: boolean }): boolean {
   return input.threadsHydrated;
 }
 
@@ -874,7 +850,7 @@ export function resolveProjectEmptyState(input: {
 
 // Match the exact rows the sidebar renders for one project, including folded previews.
 export function getRenderedThreadsForSidebarProject<
-  T extends Pick<SidebarThreadSummary, "id"> & SidebarThreadSortInput,
+  T extends Pick<SidebarThreadRow, "id"> & SidebarThreadSortInput,
 >(input: {
   project: Pick<Project, "expanded">;
   threads: readonly T[];
@@ -904,8 +880,7 @@ export function getRenderedThreadsForSidebarProject<
 // Flatten the sidebar's current project/thread visibility into the same order the user sees.
 export function getVisibleSidebarThreadIds(input: {
   folders: readonly Pick<Project, "id" | "expanded">[];
-  threads: readonly (Pick<SidebarThreadSummary, "id" | "folderId" | "parentThreadId"> &
-    SidebarThreadSortInput)[];
+  threads: readonly (Pick<Thread, "id" | "folderId" | "parentThreadId"> & SidebarThreadSortInput)[];
   activeThreadId: Thread["id"] | undefined;
   threadListExtraPagesByFolderId: ReadonlyMap<Project["id"], number>;
   previewLimit: number;
@@ -1197,9 +1172,9 @@ export function sortFoldersForSidebar<
 
 // Groups thread summaries once so project-specific sidebar derivations can reuse the same slices.
 export function groupSidebarThreadsByFolderId(
-  threads: readonly SidebarThreadSummary[],
-): ReadonlyMap<FolderId, SidebarThreadSummary[]> {
-  const byFolderId = new Map<FolderId, SidebarThreadSummary[]>();
+  threads: readonly SidebarThreadRow[],
+): ReadonlyMap<FolderId, SidebarThreadRow[]> {
+  const byFolderId = new Map<FolderId, SidebarThreadRow[]>();
   for (const thread of threads) {
     const existing = byFolderId.get(thread.folderId);
     if (existing) {
@@ -1214,7 +1189,7 @@ export function groupSidebarThreadsByFolderId(
 // Centralizes the expensive per-project row derivation so Sidebar.tsx can mostly orchestrate UI state.
 export function deriveSidebarProjectData(input: {
   folders: readonly Pick<Project, "id" | "cwd" | "expanded">[];
-  sortedSidebarThreadsByFolderId: ReadonlyMap<FolderId, SidebarThreadSummary[]>;
+  sortedSidebarThreadsByFolderId: ReadonlyMap<FolderId, SidebarThreadRow[]>;
   pinnedThreadIds: readonly ThreadId[];
   threadListExtraPagesByProjectCwd: ReadonlyMap<string, number>;
   normalizeProjectCwd: (cwd: string) => string;
@@ -1222,9 +1197,7 @@ export function deriveSidebarProjectData(input: {
   activeSidebarThreadId: ThreadId | undefined;
   previewLimit: number;
   previewPageSize: number;
-  resolveThreadStatus?: (
-    thread: SidebarThreadSummary,
-  ) => ReturnType<typeof resolveThreadStatusPill>;
+  resolveThreadStatus?: (thread: SidebarThreadRow) => ReturnType<typeof resolveThreadStatusPill>;
 }): ReadonlyMap<FolderId, SidebarDerivedProjectData> {
   const byFolderId = new Map<FolderId, SidebarDerivedProjectData>();
 

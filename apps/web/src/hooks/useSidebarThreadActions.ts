@@ -1,3 +1,4 @@
+import type { SidebarThreadRow } from "../sidebarThreadRows";
 // FILE: useSidebarThreadActions.ts
 // Purpose: Owns Sidebar thread pinning, archive/undo, deletion, and project-batch actions.
 // Layer: Web Sidebar controller hook
@@ -6,16 +7,12 @@
 import { type FolderId, ThreadId } from "@penkra/contracts";
 import { pluralize } from "@penkra/shared/text";
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import type { AppSettings } from "../appSettings";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { showConfirmDialogFallback } from "../confirmDialogFallback";
-import {
-  getFallbackThreadIdAfterDelete,
-  derivePinnedThreadIdsForSidebar,
-  isLatestPinnedThreadMutation,
-} from "../components/Sidebar.logic";
+import { getFallbackThreadIdAfterDelete, sortThreadsForSidebar } from "../components/Sidebar.logic";
 import { toastManager } from "../components/ui/toast";
 import { findNearestVisibleDeckThread } from "../lib/threadDeckNavigation";
 import {
@@ -27,12 +24,10 @@ import { reconcileDeletedThreadsFromClient } from "../lib/deletedThreadClientRec
 import { archiveThreadFromClient, unarchiveThreadFromClient } from "../lib/threadArchive";
 import { newCommandId, randomUUID } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
-import { usePinnedThreadsStore } from "../pinnedThreadsStore";
-import { reconcileOptimisticPinState } from "../pinning.logic";
 import { useStore } from "../store";
 import { getThreadFromState } from "../threadDerivation";
 import { useThreadSelectionStore } from "../threadSelectionStore";
-import type { Project, SidebarThreadSummary } from "../types";
+import type { Project } from "../types";
 
 const ARCHIVE_UNDO_TOAST_DURATION_MS = 8000;
 
@@ -54,9 +49,9 @@ export function useSidebarThreadActions(input: {
   readonly handleNewChat: (options?: { fresh?: boolean }) => Promise<unknown>;
   readonly projectById: ReadonlyMap<FolderId, Project>;
   readonly routeThreadId: ThreadId | null;
-  readonly sidebarThreads: readonly SidebarThreadSummary[];
-  readonly sidebarTreeThreads: readonly SidebarThreadSummary[];
-  readonly sidebarThreadSummaryById: Readonly<Record<string, SidebarThreadSummary>>;
+  readonly sidebarThreads: readonly SidebarThreadRow[];
+  readonly sidebarTreeThreads: readonly SidebarThreadRow[];
+  readonly sidebarThreadSummaryById: Readonly<Record<string, SidebarThreadRow>>;
   readonly threadsHydrated: boolean;
 }) {
   const {
@@ -68,113 +63,36 @@ export function useSidebarThreadActions(input: {
     sidebarThreads,
     sidebarTreeThreads,
     sidebarThreadSummaryById,
-    threadsHydrated,
   } = input;
   const navigate = useNavigate();
   const clearComposerDraftForThread = useComposerDraftStore((store) => store.clearDraftThread);
   const clearProjectDraftThreadById = useComposerDraftStore(
     (store) => store.clearProjectDraftThreadById,
   );
-  const persistedPinnedThreadIds = usePinnedThreadsStore((store) => store.pinnedThreadIds);
-  const pinThreadLocally = usePinnedThreadsStore((store) => store.pinThread);
-  const unpinThread = usePinnedThreadsStore((store) => store.unpinThread);
-  const prunePinnedThreads = usePinnedThreadsStore((store) => store.prunePinnedThreads);
   const removeFromSelection = useThreadSelectionStore((store) => store.removeFromSelection);
 
   const archivePendingThreadIdsRef = useRef<Set<ThreadId>>(new Set());
   const archiveUndoPendingThreadIdsRef = useRef<Set<ThreadId>>(new Set());
-  const optimisticPinnedStateByThreadIdRef = useRef(new Map<ThreadId, boolean>());
-  const latestPinnedMutationVersionByThreadIdRef = useRef(new Map<ThreadId, number>());
   const sidebarThreadSummaryByIdRef = useRef(sidebarThreadSummaryById);
-  const [optimisticPinnedStateByThreadId, setOptimisticPinnedStateByThreadId] = useState<
-    ReadonlyMap<ThreadId, boolean>
-  >(() => new Map());
-
   useEffect(() => {
     sidebarThreadSummaryByIdRef.current = sidebarThreadSummaryById;
   }, [sidebarThreadSummaryById]);
 
   const pinnedThreadIds = useMemo(
     () =>
-      derivePinnedThreadIdsForSidebar({
-        threads: sidebarTreeThreads,
-        persistedPinnedThreadIds,
-        optimisticPinnedStateByThreadId,
-      }),
-    [optimisticPinnedStateByThreadId, persistedPinnedThreadIds, sidebarTreeThreads],
+      sortThreadsForSidebar(sidebarTreeThreads, appSettings.sidebarThreadSortOrder)
+        .filter((thread) => thread.isPinned)
+        .map((thread) => thread.id),
+    [sidebarTreeThreads, appSettings.sidebarThreadSortOrder],
   );
   const pinnedThreadIdSet = useMemo(() => new Set(pinnedThreadIds), [pinnedThreadIds]);
-
-  const setOptimisticThreadPinned = useCallback((threadId: ThreadId, isPinned: boolean) => {
-    optimisticPinnedStateByThreadIdRef.current.set(threadId, isPinned);
-    setOptimisticPinnedStateByThreadId((current) => {
-      if (current.get(threadId) === isPinned) return current;
-      const next = new Map(current);
-      next.set(threadId, isPinned);
-      return next;
-    });
-  }, []);
-  const clearOptimisticThreadPinned = useCallback((threadId: ThreadId) => {
-    optimisticPinnedStateByThreadIdRef.current.delete(threadId);
-    setOptimisticPinnedStateByThreadId((current) => {
-      if (!current.has(threadId)) return current;
-      const next = new Map(current);
-      next.delete(threadId);
-      return next;
-    });
-  }, []);
-  const dispatchThreadPinnedState = useCallback(async (threadId: ThreadId, isPinned: boolean) => {
+  const setThreadPinned = useCallback(async (threadId: ThreadId, isPinned: boolean) => {
     const api = readNativeApi();
-    if (!api) return;
+    if (!api) throw new Error("Unable to connect to the app server.");
     await api.cleanCore.updateThread({
       update: { action: "pin", threadId, isPinned, updatedAt: new Date().toISOString() },
     });
   }, []);
-  const setThreadPinned = useCallback(
-    async (threadId: ThreadId, isPinned: boolean) => {
-      const api = readNativeApi();
-      if (!api) return;
-      const requestVersion =
-        (latestPinnedMutationVersionByThreadIdRef.current.get(threadId) ?? 0) + 1;
-      latestPinnedMutationVersionByThreadIdRef.current.set(threadId, requestVersion);
-
-      setOptimisticThreadPinned(threadId, isPinned);
-      if (isPinned) {
-        pinThreadLocally(threadId);
-      } else {
-        unpinThread(threadId);
-      }
-
-      try {
-        await dispatchThreadPinnedState(threadId, isPinned);
-      } catch (error) {
-        if (
-          !isLatestPinnedThreadMutation({
-            threadId,
-            requestVersion,
-            latestMutationVersionByThreadId: latestPinnedMutationVersionByThreadIdRef.current,
-          })
-        ) {
-          return;
-        }
-        const confirmedPinned = sidebarThreadSummaryByIdRef.current[threadId]?.isPinned === true;
-        if (confirmedPinned) {
-          pinThreadLocally(threadId);
-        } else {
-          unpinThread(threadId);
-        }
-        clearOptimisticThreadPinned(threadId);
-        throw error;
-      }
-    },
-    [
-      clearOptimisticThreadPinned,
-      dispatchThreadPinnedState,
-      pinThreadLocally,
-      setOptimisticThreadPinned,
-      unpinThread,
-    ],
-  );
   const toggleThreadPinned = useCallback(
     (threadId: ThreadId) => {
       const isPinned = pinnedThreadIdSet.has(threadId);
@@ -188,31 +106,6 @@ export function useSidebarThreadActions(input: {
     },
     [pinnedThreadIdSet, setThreadPinned],
   );
-
-  useEffect(() => {
-    if (optimisticPinnedStateByThreadId.size === 0) return;
-    const serverPinnedStateByThreadId = new Map(
-      sidebarThreads.map((thread) => [thread.id, thread.isPinned === true] as const),
-    );
-    const settle = window.setTimeout(() => {
-      setOptimisticPinnedStateByThreadId((current) => {
-        const reconciled = reconcileOptimisticPinState({
-          optimisticPinnedStateById: current,
-          serverPinnedStateById: serverPinnedStateByThreadId,
-        });
-        for (const threadId of reconciled.settledIds) {
-          optimisticPinnedStateByThreadIdRef.current.delete(threadId);
-        }
-        return reconciled.optimisticPinnedStateById;
-      });
-    }, 0);
-    return () => window.clearTimeout(settle);
-  }, [sidebarThreads, optimisticPinnedStateByThreadId]);
-
-  useEffect(() => {
-    if (!threadsHydrated) return;
-    prunePinnedThreads(sidebarThreads.map((thread) => thread.id));
-  }, [sidebarThreads, threadsHydrated, prunePinnedThreads]);
 
   const deleteThread = useCallback(
     async (
@@ -237,7 +130,6 @@ export function useSidebarThreadActions(input: {
           }),
         }),
         onDeleted: ({ thread, prepared }) => {
-          unpinThread(threadId);
           clearComposerDraftForThread(threadId);
           clearProjectDraftThreadById(thread.folderId, thread.id);
           clearTerminalState(threadId);
@@ -265,7 +157,6 @@ export function useSidebarThreadActions(input: {
       navigate,
       routeThreadId,
       sidebarThreads,
-      unpinThread,
     ],
   );
 
@@ -293,7 +184,7 @@ export function useSidebarThreadActions(input: {
     async (threadId: ThreadId): Promise<boolean> => {
       const api = readNativeApi();
       if (!api) return false;
-      const thread = getThreadFromState(useStore.getState(), threadId);
+      const thread = sidebarThreadSummaryByIdRef.current[threadId];
       if (!thread) return false;
       const stateBeforeArchive = useStore.getState();
       const deck = stateBeforeArchive.decks.find((candidate) => candidate.id === thread.deckId);

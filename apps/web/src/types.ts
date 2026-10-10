@@ -234,32 +234,22 @@ export interface ThreadTurnState {
 
 export interface SidebarThreadSummary {
   id: ThreadId;
-  deckId: ThreadDeckId;
-  deckSortOrder: number;
   folderId: FolderId;
   spaceId?: SpaceId | null;
-  sidebarSortOrder?: number;
   title: string;
   modelSelection: ModelSelection;
-  workingDirectory?: string | null;
   session: ThreadSession | null;
   createdAt: string;
   archivedAt?: string | null;
   updatedAt?: string | undefined;
-  isPinned?: boolean;
   latestTurn: OrchestrationLatestTurn | null;
   pendingTurnStartMessageId?: MessageId | null;
-  lastVisitedAt?: string | undefined;
-  parentThreadId?: ThreadId | null;
   subagentAgentId?: string | null;
   subagentNickname?: string | null;
   subagentRole?: string | null;
-  latestUserMessageAt: string | null;
   hasPendingApprovals: boolean;
   hasPendingUserInput: boolean;
   workStatus?: "idle" | "running" | "done" | "attention";
-  lastMessagePreview?: string | null;
-  lastActivityAt?: string | null;
 }
 
 /** Lightweight composer identity that ignores live turn/status churn. */

@@ -1,3 +1,4 @@
+import type { SidebarThreadRow } from "../sidebarThreadRows";
 import { FolderId, SpaceId, ThreadId, singletonThreadDeckId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
@@ -8,7 +9,7 @@ import {
   resolveSpaceSelectionTarget,
   type SpaceSelectionTarget,
 } from "./spaceNavigation";
-import type { Project, SidebarThreadSummary } from "../types";
+import type { Project } from "../types";
 
 const paths: ServerWorkspacePaths = {
   homeDir: null,
@@ -33,12 +34,20 @@ function project(input: { id: string; spaceId?: SpaceId }): Project {
   };
 }
 
-function thread(input: { id: string; folderId: string }): SidebarThreadSummary {
+function thread(input: { id: string; folderId: string }): SidebarThreadRow {
   const id = ThreadId.makeUnsafe(input.id);
   return {
     id,
     deckId: singletonThreadDeckId(id),
     deckSortOrder: 0,
+    workingDirectory: null,
+    sidebarSortOrder: undefined,
+    isPinned: false,
+    parentThreadId: null,
+    lastVisitedAt: undefined,
+    lastMessagePreview: null,
+    lastActivityAt: null,
+    runtimeMode: "full-access",
     folderId: FolderId.makeUnsafe(input.folderId),
     title: input.id,
     modelSelection: { provider: "codex", model: "gpt-5" },
@@ -130,7 +139,7 @@ describe("selecting an empty Space", () => {
       projectById: byId,
       threads: [personalThread, older, newer],
       paths,
-      sortThreads: (threads: readonly SidebarThreadSummary[]) =>
+      sortThreads: (threads: readonly SidebarThreadRow[]) =>
         threads.toSorted((left, right) => right.id.localeCompare(left.id)),
     };
 

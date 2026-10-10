@@ -131,7 +131,6 @@ describe("recent view MRU logic", () => {
       currentView: null,
       threadsById: { [terminalThreadId]: threadSummary },
       folders: [project],
-      pinnedThreadIds: [],
     });
 
     expect(entries[0]).toMatchObject({

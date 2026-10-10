@@ -329,6 +329,7 @@ export function ThreadDeckBar(props: {
         const status = summary
           ? resolveSidebarThreadSummaryStatus({
               thread: summary,
+              lastVisitedAt: thread.lastVisitedAt,
               dismissedStatusKey: readSidebarUiState().dismissedThreadStatusKeyByThreadId[threadId],
               isPromotedDraftPending: draftThreadsByThreadId[threadId]?.promotedTo !== undefined,
               hasLocalSendOwner: localSendOwnerThreadIds.has(threadId),

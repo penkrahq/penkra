@@ -1,0 +1,120 @@
+import { expect, it } from "vitest";
+import { FolderId, ThreadId, type CleanCoreThreadSummary } from "@penkra/contracts";
+import { buildSidebarThreadRows } from "./sidebarThreadRows";
+import {
+  sortThreadsForSidebar,
+  resolveSidebarThreadSummaryStatus,
+} from "./components/Sidebar.logic";
+import type { SidebarThreadSummary } from "./types";
+function row(queue: string, updatedAt: string): CleanCoreThreadSummary {
+  return {
+    id: ThreadId.makeUnsafe("thread-51"),
+    spaceId: "space" as CleanCoreThreadSummary["spaceId"],
+    folderId: null,
+    title: "Outside the first page",
+    provider: "codex",
+    connectionId: null,
+    model: "gpt-5.5",
+    modelOptions: null,
+    runtimeMode: "full-access",
+    workingDirectory: null,
+    state: "running",
+    activeTurnId: null,
+    lastError: null,
+    queue,
+    createdBy: "user",
+    createdByThreadId: null,
+    parentThreadId: null,
+    deckId: null,
+    deckSortOrder: 0,
+    sidebarSortOrder: null,
+    isPinned: 0,
+    lastActivityAt: null,
+    lastMessagePreview: null,
+    lastUserMessageAt: null,
+    lastVisitedAt: null,
+    openQuestionCount: 0,
+    archivedAt: null,
+    deletedAt: null,
+    createdAt: "2026-10-10T00:00:00.000Z",
+    updatedAt,
+  };
+}
+
+it("takes sidebar ordering, pins, workspace and rollups exclusively from canonical rows", () => {
+  const core = {
+    ...row("[]", "2026-10-10T00:00:01.000Z"),
+    folderId: FolderId.makeUnsafe("folder"),
+    isPinned: 1,
+    sidebarSortOrder: 3,
+    workingDirectory: "/canonical",
+    lastMessagePreview: "canonical preview",
+    lastActivityAt: "2026-10-10T00:00:01.000Z",
+    lastUserMessageAt: "2026-10-10T00:00:01.000Z",
+  };
+  const detail = {
+    id: core.id,
+    folderId: core.folderId,
+    title: "stale title",
+    modelSelection: { provider: "codex" as const, model: "stale" },
+    session: null,
+    createdAt: core.createdAt,
+    latestTurn: null,
+    hasPendingApprovals: false,
+    hasPendingUserInput: false,
+  };
+  const rows = buildSidebarThreadRows([core], { [core.id]: detail });
+  expect(rows[0]).toMatchObject({
+    title: core.title,
+    isPinned: true,
+    sidebarSortOrder: 3,
+    workingDirectory: "/canonical",
+    lastMessagePreview: "canonical preview",
+    lastActivityAt: core.lastActivityAt,
+    latestUserMessageAt: core.lastUserMessageAt,
+  });
+  const unpinned = { ...core, id: ThreadId.makeUnsafe("unpin"), isPinned: 0, sidebarSortOrder: 0 };
+  expect(
+    sortThreadsForSidebar(buildSidebarThreadRows([unpinned, core], {}), "created_at").map(
+      (row) => row.id,
+    ),
+  ).toEqual([core.id, unpinned.id]);
+});
+it("uses the canonical visit for unread completion even when the projection detail is older", () => {
+  const completedAt = "2026-10-10T00:00:01.000Z";
+  const core = {
+    ...row("[]", completedAt),
+    folderId: FolderId.makeUnsafe("folder"),
+    state: "idle",
+    lastActivityAt: completedAt,
+  };
+  const detail: SidebarThreadSummary = {
+    id: core.id,
+    folderId: core.folderId,
+    title: core.title,
+    modelSelection: { provider: "codex", model: core.model },
+    session: null,
+    createdAt: core.createdAt,
+    latestTurn: {
+      turnId: "turn" as NonNullable<SidebarThreadSummary["latestTurn"]>["turnId"],
+      state: "completed",
+      assistantMessageId: null,
+      requestedAt: core.createdAt,
+      startedAt: core.createdAt,
+      completedAt,
+    },
+    hasPendingApprovals: false,
+    hasPendingUserInput: false,
+  };
+  const unread = buildSidebarThreadRows([core], { [core.id]: detail })[0]!;
+  expect(
+    resolveSidebarThreadSummaryStatus({ thread: unread, lastVisitedAt: unread.lastVisitedAt })
+      ?.label,
+  ).toBe("Completed");
+  const visited = buildSidebarThreadRows([{ ...core, lastVisitedAt: completedAt }], {
+    [core.id]: detail,
+  })[0]!;
+  expect(
+    resolveSidebarThreadSummaryStatus({ thread: visited, lastVisitedAt: visited.lastVisitedAt }),
+  ).toBeNull();
+});

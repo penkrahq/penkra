@@ -7,15 +7,14 @@ import { deriveUnmountedThreadLiveState } from "./desktopThreadState";
 function thread(overrides: Partial<SidebarThreadSummary> = {}): SidebarThreadSummary {
   return {
     id: ThreadId.makeUnsafe("thread-background"),
-    deckId: ThreadDeckId.makeUnsafe("deck-background"),
-    deckSortOrder: 0,
+
     folderId: FolderId.makeUnsafe("folder-1"),
     title: "Background thread",
     modelSelection: { provider: "codex", model: "gpt-5.5" },
     session: null,
     createdAt: "2026-09-14T00:00:00.000Z",
     latestTurn: null,
-    latestUserMessageAt: null,
+
     hasPendingApprovals: false,
     hasPendingUserInput: false,
     ...overrides,

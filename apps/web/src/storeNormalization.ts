@@ -1804,12 +1804,11 @@ function attachmentPreviewRoutePath(attachmentId: string): string {
   return `/attachments/${encodeURIComponent(attachmentId)}`;
 }
 
-export function resolveThreadSidebarMetadata(
-  thread: Thread,
-): Pick<
-  SidebarThreadSummary,
-  "latestUserMessageAt" | "hasPendingApprovals" | "hasPendingUserInput"
-> {
+export function resolveThreadSidebarMetadata(thread: Thread): {
+  latestUserMessageAt: string | null;
+  hasPendingApprovals: boolean;
+  hasPendingUserInput: boolean;
+} {
   const needsDerivedMetadata =
     thread.latestUserMessageAt === undefined ||
     thread.hasPendingApprovals === undefined ||

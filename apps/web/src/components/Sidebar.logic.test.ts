@@ -1,3 +1,4 @@
+import type { SidebarThreadRow } from "../sidebarThreadRows";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -7,7 +8,6 @@ import {
   canArchiveSidebarThreads,
   createSidebarThreadHoverAnchorId,
   derivePinnedFolderIdsForSidebar,
-  derivePinnedThreadIdsForSidebar,
   deriveSidebarProjectData,
   findDeepestWorkspaceRootMatch,
   getFallbackThreadIdAfterDelete,
@@ -25,7 +25,6 @@ import {
   getVisibleSidebarThreadIds,
   getVisibleThreadsForProject,
   getProjectSortTimestamp,
-  isLatestPinnedThreadMutation,
   isLoopbackHostname,
   pruneProjectThreadListPagingForCollapsedFolders,
   resolveSidebarThreadListPaging,
@@ -38,19 +37,13 @@ import {
   resolveThreadRowClassName,
   resolveThreadStatusPill,
   shouldShowDebugFeatureFlagsMenu,
-  shouldPrunePinnedThreads,
   shouldClearThreadSelectionOnMouseDown,
   sortFoldersForSidebar,
   sortThreadsForSidebar,
 } from "./Sidebar.logic";
 import { hasUnseenThreadCompletion } from "../threadCompletion";
 import { FolderId, MessageId, SpaceId, ThreadId, singletonThreadDeckId } from "@penkra/contracts";
-import {
-  DEFAULT_RUNTIME_MODE,
-  type Project,
-  type SidebarThreadSummary,
-  type Thread,
-} from "../types";
+import { DEFAULT_RUNTIME_MODE, type Project, type Thread } from "../types";
 
 describe("canArchiveSidebarFolder", () => {
   it("allows empty and completed folders but blocks live or attention work", () => {
@@ -457,56 +450,6 @@ describe("pin helpers", () => {
       scripts: [],
     }) satisfies Project;
 
-  const makeThread = (id: string): Thread =>
-    ({
-      id: id as ThreadId,
-      deckId: singletonThreadDeckId(id as ThreadId),
-      deckSortOrder: 0,
-      codexThreadId: null,
-      folderId: "project-1" as FolderId,
-      title: id,
-      modelSelection: {
-        provider: "codex",
-        model: "gpt-5-codex",
-      },
-      runtimeMode: DEFAULT_RUNTIME_MODE,
-      session: null,
-      messages: [],
-      error: null,
-      createdAt: "2026-03-09T10:00:00.000Z",
-      latestTurn: null,
-      activities: [],
-    }) satisfies Thread;
-
-  it("lets an optimistic unpin override server and persisted pinned state", () => {
-    const threads = [
-      {
-        ...makeThread("thread-1"),
-        isPinned: true,
-      },
-    ];
-
-    expect(
-      derivePinnedThreadIdsForSidebar({
-        threads,
-        persistedPinnedThreadIds: ["thread-1" as ThreadId],
-        optimisticPinnedStateByThreadId: new Map([["thread-1" as ThreadId, false]]),
-      }),
-    ).toEqual([]);
-  });
-
-  it("shows an optimistic pin before the server snapshot confirms it", () => {
-    const threads = [makeThread("thread-1")];
-
-    expect(
-      derivePinnedThreadIdsForSidebar({
-        threads,
-        persistedPinnedThreadIds: [],
-        optimisticPinnedStateByThreadId: new Map([["thread-1" as ThreadId, true]]),
-      }),
-    ).toEqual(["thread-1"]);
-  });
-
   it("derives at most three pinned folders and keeps persisted order first", () => {
     const folders = [
       { ...makeProject("project-1"), isPinned: true },
@@ -533,26 +476,10 @@ describe("pin helpers", () => {
   });
 
   it("rejects stale pin mutation versions so old failures cannot roll back newer clicks", () => {
-    const threadId = "thread-1" as ThreadId;
-    const latestMutationVersionByThreadId = new Map<ThreadId, number>([[threadId, 2]]);
     const folderId = "project-1" as FolderId;
     const latestMutationVersionByFolderId = new Map<FolderId, number>([[folderId, 2]]);
 
     expect(
-      isLatestPinnedThreadMutation({
-        threadId,
-        requestVersion: 1,
-        latestMutationVersionByThreadId,
-      }),
-    ).toBe(false);
-    expect(
-      isLatestPinnedThreadMutation({
-        threadId,
-        requestVersion: 2,
-        latestMutationVersionByThreadId,
-      }),
-    ).toBe(true);
-    expect(
       isLatestPinnedProjectMutation({
         folderId,
         requestVersion: 1,
@@ -566,11 +493,6 @@ describe("pin helpers", () => {
         latestMutationVersionByFolderId,
       }),
     ).toBe(true);
-  });
-
-  it("waits for thread hydration before pruning persisted pins", () => {
-    expect(shouldPrunePinnedThreads({ threadsHydrated: false })).toBe(false);
-    expect(shouldPrunePinnedThreads({ threadsHydrated: true })).toBe(true);
   });
 
   it("shows loading before the first project snapshot can prove the list is empty", () => {
@@ -1560,9 +1482,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
   }) as Thread;
 }
 
-function makeSidebarThreadSummary(
-  overrides: Partial<SidebarThreadSummary> = {},
-): SidebarThreadSummary {
+function makeSidebarThreadRow(overrides: Partial<SidebarThreadRow> = {}): SidebarThreadRow {
   const id = overrides.id ?? ThreadId.makeUnsafe("thread-1");
   const summary = {
     id,
@@ -1587,17 +1507,17 @@ function makeSidebarThreadSummary(
     id,
     deckId: overrides.deckId ?? singletonThreadDeckId(id),
     deckSortOrder: overrides.deckSortOrder ?? 0,
-  }) as SidebarThreadSummary;
+  }) as SidebarThreadRow;
 }
 
 describe("deriveSidebarProjectData", () => {
   it("keeps a pinned thread in its folder and orders it first", () => {
     const project = makeProject();
-    const pinnedThread = makeSidebarThreadSummary({
+    const pinnedThread = makeSidebarThreadRow({
       id: ThreadId.makeUnsafe("thread-pinned"),
       title: "Pinned",
     });
-    const unpinnedThread = makeSidebarThreadSummary({
+    const unpinnedThread = makeSidebarThreadRow({
       id: ThreadId.makeUnsafe("thread-unpinned"),
       title: "Unpinned",
       createdAt: "2026-03-09T10:05:00.000Z",
@@ -1627,17 +1547,17 @@ describe("deriveSidebarProjectData", () => {
 
   it("shows split member threads as normal project rows", () => {
     const project = makeProject();
-    const sourceThread = makeSidebarThreadSummary({
+    const sourceThread = makeSidebarThreadRow({
       id: ThreadId.makeUnsafe("thread-source"),
       title: "Source",
     });
-    const droppedThread = makeSidebarThreadSummary({
+    const droppedThread = makeSidebarThreadRow({
       id: ThreadId.makeUnsafe("thread-dropped"),
       title: "Dropped",
       createdAt: "2026-03-09T10:05:00.000Z",
       updatedAt: "2026-03-09T10:05:00.000Z",
     });
-    const standaloneThread = makeSidebarThreadSummary({
+    const standaloneThread = makeSidebarThreadRow({
       id: ThreadId.makeUnsafe("thread-standalone"),
       title: "Standalone",
       createdAt: "2026-03-09T10:10:00.000Z",
@@ -1668,17 +1588,17 @@ describe("deriveSidebarProjectData", () => {
 
   it("keeps the active thread visible when its project is collapsed", () => {
     const project = makeProject({ expanded: false });
-    const threadOne = makeSidebarThreadSummary({
+    const threadOne = makeSidebarThreadRow({
       id: ThreadId.makeUnsafe("thread-1"),
       title: "One",
     });
-    const threadTwo = makeSidebarThreadSummary({
+    const threadTwo = makeSidebarThreadRow({
       id: ThreadId.makeUnsafe("thread-2"),
       title: "Two",
       createdAt: "2026-03-09T10:01:00.000Z",
       updatedAt: "2026-03-09T10:01:00.000Z",
     });
-    const threadThree = makeSidebarThreadSummary({
+    const threadThree = makeSidebarThreadRow({
       id: ThreadId.makeUnsafe("thread-3"),
       title: "Three",
       createdAt: "2026-03-09T10:02:00.000Z",
@@ -1713,7 +1633,7 @@ describe("deriveSidebarProjectData", () => {
 
   it("uses the provided thread-status resolver for project status", () => {
     const project = makeProject();
-    const threadOne = makeSidebarThreadSummary({
+    const threadOne = makeSidebarThreadRow({
       id: ThreadId.makeUnsafe("thread-1"),
       title: "One",
       hasPendingApprovals: true,
@@ -1737,7 +1657,7 @@ describe("deriveSidebarProjectData", () => {
   it("pages the thread preview five rows at a time and clamps stale paging", () => {
     const project = makeProject({ cwd: "/Users/tester/Code/demo" });
     const threads = Array.from({ length: 12 }, (_, index) =>
-      makeSidebarThreadSummary({
+      makeSidebarThreadRow({
         id: ThreadId.makeUnsafe(`thread-${index + 1}`),
         title: `Thread ${index + 1}`,
         createdAt: `2026-03-09T10:${String(index).padStart(2, "0")}:00.000Z`,
@@ -1783,7 +1703,7 @@ describe("deriveSidebarProjectData", () => {
     const project = makeProject({ cwd: "" });
     const pagingKey = `project:${project.id}`;
     const threads = Array.from({ length: 8 }, (_, index) =>
-      makeSidebarThreadSummary({
+      makeSidebarThreadRow({
         id: ThreadId.makeUnsafe(`pathless-thread-${index + 1}`),
         title: `Pathless thread ${index + 1}`,
       }),

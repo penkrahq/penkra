@@ -1,17 +1,15 @@
+import { useSidebarThreadRows, type SidebarThreadRow } from "../sidebarThreadRows";
 // FILE: SidebarThreadRowContent.tsx
 // Purpose: Owns the shared identity and status content rendered by every Sidebar thread row.
 // Exports: SidebarThreadRowContent and its terminal-status presentation type.
 
-import { useMemo, type ReactNode } from "react";
+import { type ReactNode } from "react";
 
 import { isGenericChatThreadTitle } from "@penkra/shared/chatThreads";
 import { pluralize } from "@penkra/shared/text";
 
-import { createThreadSelector } from "../storeSelectors";
-import { useStore } from "../store";
 import { resolveSubagentPresentationForThread } from "../lib/subagentPresentation";
 import { SIDEBAR_ROW_LABEL_TEXT_CLASS_NAME } from "../sidebarRowStyles";
-import type { SidebarThreadSummary } from "../types";
 import { TerminalIcon } from "../lib/icons";
 import { cn } from "../lib/utils";
 import { ProviderIcon } from "./ProviderIcon";
@@ -29,7 +27,7 @@ function ProviderAvatarWithTerminal({
   terminalStatus,
   terminalCount,
 }: {
-  thread: SidebarThreadSummary;
+  thread: SidebarThreadRow;
   terminalStatus: SidebarThreadTerminalStatus | null;
   terminalCount: number;
 }) {
@@ -81,7 +79,7 @@ function ProviderAvatarWithTerminal({
 }
 
 function renderSubagentLabel(input: {
-  thread: SidebarThreadSummary;
+  thread: SidebarThreadRow;
   threads?: Parameters<typeof resolveSubagentPresentationForThread>[0]["threads"];
   roleClassName?: string | undefined;
 }) {
@@ -120,14 +118,10 @@ function SidebarSubagentLabel({
   thread,
   roleClassName,
 }: {
-  thread: SidebarThreadSummary;
+  thread: SidebarThreadRow;
   roleClassName?: string | undefined;
 }) {
-  const selectParentThread = useMemo(
-    () => createThreadSelector(thread.parentThreadId ?? null),
-    [thread.parentThreadId],
-  );
-  const parentThread = useStore(selectParentThread);
+  const parentThread = useSidebarThreadRows().find((row) => row.id === thread.parentThreadId);
 
   return renderSubagentLabel({
     thread,
@@ -147,7 +141,7 @@ export function SidebarThreadRowContent({
   pendingStatusColorClass,
   suffix,
 }: {
-  thread: SidebarThreadSummary;
+  thread: SidebarThreadRow;
   terminalEntryPoint: boolean;
   terminalStatus: SidebarThreadTerminalStatus | null;
   terminalCount: number;

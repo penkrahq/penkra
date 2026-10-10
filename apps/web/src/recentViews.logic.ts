@@ -173,14 +173,14 @@ export function resolveRecentViewNavigationIndex(input: {
 export function buildRecentViewDisplayEntries(input: {
   recentViews: readonly RecentView[];
   currentView: RecentView | null;
-  threadsById: Readonly<Record<string, SidebarThreadSummary | undefined>>;
+  threadsById: Readonly<
+    Record<string, (SidebarThreadSummary & { isPinned?: boolean }) | undefined>
+  >;
   draftThreadsById?: Readonly<Record<string, RecentViewThreadDraftSummary | undefined>>;
   folders: readonly Project[];
-  pinnedThreadIds: readonly ThreadId[];
 }): RecentViewDisplayEntry[] {
   const currentKey = input.currentView ? recentViewKey(input.currentView) : null;
   const projectNameById = new Map(input.folders.map((project) => [project.id, project.name]));
-  const pinnedThreadIds = new Set(input.pinnedThreadIds);
 
   return input.recentViews.map((view) => {
     const key = recentViewKey(view);
@@ -208,7 +208,7 @@ export function buildRecentViewDisplayEntries(input: {
           provider,
           title,
           subtitle: subtitleParts.join(" · "),
-          isPinned: pinnedThreadIds.has(view.threadId) || Boolean(thread?.isPinned),
+          isPinned: summary?.isPinned === true,
         };
       }
       case "settings":

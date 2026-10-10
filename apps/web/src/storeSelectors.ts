@@ -216,12 +216,12 @@ export function createComposerThreadMentionSourcesSelector(): (
   state: AppState,
 ) => readonly ComposerThreadMentionSource[] {
   let previousThreadIds: AppState["threadIds"] | undefined;
-  let previousSummaryById: AppState["sidebarThreadSummaryById"] | undefined;
+  let previousSummaryById: AppState["threadShellById"] | undefined;
   let previousSources: readonly ComposerThreadMentionSource[] = [];
 
   return (state) => {
     const threadIds = state.threadIds;
-    const summaryById = state.sidebarThreadSummaryById;
+    const summaryById = state.threadShellById;
     if (threadIds === previousThreadIds && summaryById === previousSummaryById) {
       return previousSources;
     }
@@ -229,7 +229,7 @@ export function createComposerThreadMentionSourcesSelector(): (
     previousSummaryById = summaryById;
 
     const nextSources = (threadIds ?? []).flatMap((threadId) => {
-      const thread = summaryById[threadId];
+      const thread = summaryById?.[threadId];
       return thread
         ? [
             {
@@ -238,7 +238,7 @@ export function createComposerThreadMentionSourcesSelector(): (
               title: thread.title,
               provider: resolveThreadDisplayProvider(thread),
               createdAt: thread.createdAt,
-              latestUserMessageAt: thread.latestUserMessageAt,
+              latestUserMessageAt: thread.latestUserMessageAt ?? null,
               ...(thread.archivedAt !== undefined ? { archivedAt: thread.archivedAt } : {}),
               ...(thread.lastVisitedAt !== undefined
                 ? { lastVisitedAt: thread.lastVisitedAt }
@@ -270,31 +270,8 @@ export function createComposerThreadMentionSourcesSelector(): (
   };
 }
 
-export function createSidebarDisplayThreadsSelector(): (
-  state: AppState,
-) => readonly SidebarThreadSummary[] {
-  const selectSidebarSummaries = createSidebarThreadSummariesSelector();
-  let previousSummaries: readonly SidebarThreadSummary[] | undefined;
-  let previousDisplaySummaries: readonly SidebarThreadSummary[] = [];
-
-  return (state) => {
-    const sidebarSummaries = selectSidebarSummaries(state);
-    if (sidebarSummaries === previousSummaries) {
-      return previousDisplaySummaries;
-    }
-
-    previousSummaries = sidebarSummaries;
-    previousDisplaySummaries = sidebarSummaries.filter(
-      (thread) => !thread.parentThreadId && thread.archivedAt == null,
-    );
-    return previousDisplaySummaries;
-  };
-}
-
-// Sidebar tree source: unlike the flat display selector above, this keeps
-// child (subagent) threads so buildProjectThreadTree can nest them under
-// their parent row behind the "N subagents" expand toggle. Flat consumers
-// (pinned rows, search palette) should keep using the display selector.
+// Projection metadata selector retained for projection reducer coverage.
+// Visible sidebar rows come from threadListStore.
 export function createSidebarTreeThreadsSelector(): (
   state: AppState,
 ) => readonly SidebarThreadSummary[] {
