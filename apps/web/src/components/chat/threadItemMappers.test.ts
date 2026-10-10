@@ -59,7 +59,7 @@ describe("threadItemToActivity", () => {
       item("tool", { text: "Plain result", data: "<task_result>Plain result</task_result>" }),
     );
     expect(activity.kind).toBe("tool.completed");
-    expect(activity.payload).toEqual({ detail: "Plain result" });
+    expect(activity.payload).toEqual({ detail: "Plain result", status: "completed" });
   });
 
   it("coerces a warning notice tone and defaults the notice kind", () => {
