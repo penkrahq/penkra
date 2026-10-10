@@ -159,7 +159,12 @@ describe("OpenCode image transform plugin", () => {
       {
         info: { role: "user" },
         parts: [
-          { id: "no-url", type: "image", mime: "image/webp" },
+          {
+            id: "no-filename",
+            type: "file",
+            mime: "image/webp",
+            url: "data:image/webp;base64,AAAA",
+          },
           { id: "remote", type: "file", mime: "image/gif", url: "https://example.com/x.gif" },
         ],
       },
@@ -169,7 +174,7 @@ describe("OpenCode image transform plugin", () => {
     await hooks["experimental.chat.messages.transform"]({}, { messages });
 
     expect(messages[0]!.parts).toEqual([
-      { id: "no-url", type: "text", text: "[image: image/webp]" },
+      { id: "no-filename", type: "text", text: "[image: image/webp]" },
       { id: "remote", type: "text", text: "[image: image/gif]" },
     ]);
   });
