@@ -16,8 +16,7 @@ import type { SpaceMetadataOrchestrationEvent } from "../spaceMetadataProjection
 
 export type ShellMetadataOrchestrationEvent =
   | FolderMetadataOrchestrationEvent
-  | SpaceMetadataOrchestrationEvent
-  | Extract<OrchestrationEvent, { type: "sidebar.layout-updated" }>;
+  | SpaceMetadataOrchestrationEvent;
 
 /**
  * OrchestrationProjectionPipelineShape - Service API for projection execution.

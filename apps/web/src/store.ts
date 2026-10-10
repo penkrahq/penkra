@@ -1,3 +1,4 @@
+import { ensureNativeApi } from "./nativeApi";
 // FILE: store.ts
 // Purpose: Public Zustand facade for normalized orchestration state and local UI actions.
 // Exports: Stable store API plus pure transitions re-exported from focused modules.
@@ -10,8 +11,6 @@ import {
   type OrchestrationShellSnapshot,
   type OrchestrationShellStreamEvent,
   type OrchestrationGetThreadTurnsPageResult,
-  type SidebarItemParent,
-  type SidebarItemReference,
   type SpaceId,
   type ThreadDeckId,
   type ThreadId,
@@ -27,10 +26,8 @@ import {
   evictThreadDetailFromClientState,
   markThreadDetailKnownEmptyInClientState,
   markThreadDetailSyncFailedInClientState,
-  moveSidebarItemLocally,
   removeDeletedProjectFromClientState,
   removeDeletedThreadFromClientState,
-  reorderDeckLocally,
   syncServerReadModel,
   syncServerShellSnapshot,
   syncServerThreadDetail,
@@ -45,7 +42,7 @@ import {
   rememberProjectUiState,
 } from "./storePersistence";
 import { initialState, type AppState } from "./storeState";
-import type { Project, ThreadWorkspacePatch } from "./types";
+import type { Project } from "./types";
 
 type ReadModelThread = OrchestrationReadModel["threads"][number];
 
@@ -58,10 +55,8 @@ export {
   evictThreadDetailFromClientState,
   markThreadDetailKnownEmptyInClientState,
   markThreadDetailSyncFailedInClientState,
-  moveSidebarItemLocally,
   removeDeletedProjectFromClientState,
   removeDeletedThreadFromClientState,
-  reorderDeckLocally,
   syncServerReadModel,
   syncServerShellSnapshot,
   syncServerThreadDetail,
@@ -76,23 +71,9 @@ export function persistAppStateNow(state: AppState = useStore.getState()): void 
   persistState(state);
 }
 
-export function markThreadVisited(
-  state: AppState,
-  threadId: ThreadId,
-  visitedAt?: string,
-): AppState {
-  const at = visitedAt ?? new Date().toISOString();
-  const visitedAtMs = Date.parse(at);
-  return applyThreadUpdate(state, threadId, (thread) => {
-    const previousVisitedAtMs = thread.lastVisitedAt ? Date.parse(thread.lastVisitedAt) : NaN;
-    if (
-      Number.isFinite(previousVisitedAtMs) &&
-      Number.isFinite(visitedAtMs) &&
-      previousVisitedAtMs >= visitedAtMs
-    ) {
-      return thread;
-    }
-    return { ...thread, lastVisitedAt: at };
+export async function markThreadVisited(threadId: ThreadId, visitedAt: string): Promise<void> {
+  await ensureNativeApi().cleanCore.updateThread({
+    update: { action: "visit", threadId, visitedAt, updatedAt: visitedAt },
   });
 }
 
@@ -201,25 +182,6 @@ export function setError(state: AppState, threadId: ThreadId, error: string | nu
   });
 }
 
-export function setThreadWorkspace(
-  state: AppState,
-  threadId: ThreadId,
-  patch: ThreadWorkspacePatch,
-): AppState {
-  return applyThreadUpdate(state, threadId, (t) => {
-    const nextWorkingDirectory =
-      patch.workingDirectory !== undefined ? patch.workingDirectory : (t.workingDirectory ?? null);
-    if ((t.workingDirectory ?? null) === nextWorkingDirectory) {
-      return t;
-    }
-    return {
-      ...t,
-      workingDirectory: nextWorkingDirectory,
-      session: null,
-    };
-  });
-}
-
 // ── Zustand store ────────────────────────────────────────────────────
 
 interface AppStore extends AppState {
@@ -239,23 +201,15 @@ interface AppStore extends AppState {
   clearThreadDetailSyncFailure: (threadId: ThreadId) => void;
   removeDeletedProjectFromClientState: (folderId: Project["id"]) => void;
   removeDeletedThreadFromClientState: (threadId: ThreadId) => void;
-  markThreadVisited: (threadId: ThreadId, visitedAt?: string) => void;
+  markThreadVisited: (threadId: ThreadId, visitedAt: string) => void;
   markThreadUnread: (threadId: ThreadId) => void;
   toggleProject: (folderId: Project["id"]) => void;
   setProjectExpanded: (folderId: Project["id"], expanded: boolean) => void;
   setAllFoldersExpanded: (expanded: boolean) => void;
   collapseFoldersExcept: (activeFolderId: Project["id"] | null) => void;
   reorderFolders: (draggedFolderId: Project["id"], targetFolderId: Project["id"]) => void;
-  reorderSpacesLocally: (orderedSpaceIds: ReadonlyArray<SpaceId>) => void;
-  reorderDeckLocally: (deckId: ThreadDeckId, orderedThreadIds: ReadonlyArray<ThreadId>) => void;
-  moveSidebarItemLocally: (
-    item: SidebarItemReference,
-    target: SidebarItemParent,
-    orderedDestinationItems: ReadonlyArray<SidebarItemReference>,
-  ) => void;
   renameProjectLocally: (folderId: Project["id"], name: string | null) => void;
   setError: (threadId: ThreadId, error: string | null) => void;
-  setThreadWorkspace: (threadId: ThreadId, patch: ThreadWorkspacePatch) => void;
 }
 
 export const useStore = create<AppStore>((set) => ({
@@ -305,8 +259,9 @@ export const useStore = create<AppStore>((set) => ({
     set((state) => removeDeletedProjectFromClientState(state, folderId)),
   removeDeletedThreadFromClientState: (threadId) =>
     set((state) => removeDeletedThreadFromClientState(state, threadId)),
-  markThreadVisited: (threadId, visitedAt) =>
-    set((state) => markThreadVisited(state, threadId, visitedAt)),
+  markThreadVisited: (threadId, visitedAt) => {
+    void markThreadVisited(threadId, visitedAt).catch(console.error);
+  },
   markThreadUnread: (threadId) => set((state) => markThreadUnread(state, threadId)),
   toggleProject: (folderId) => set((state) => toggleProject(state, folderId)),
   setProjectExpanded: (folderId, expanded) =>
@@ -316,19 +271,11 @@ export const useStore = create<AppStore>((set) => ({
     set((state) => collapseFoldersExcept(state, activeFolderId)),
   reorderFolders: (draggedFolderId, targetFolderId) =>
     set((state) => reorderFolders(state, draggedFolderId, targetFolderId)),
-  reorderSpacesLocally: (orderedSpaceIds) =>
-    set((state) => applySpaceOrder(state, orderedSpaceIds)),
-  reorderDeckLocally: (deckId, orderedThreadIds) =>
-    set((state) => reorderDeckLocally(state, deckId, orderedThreadIds)),
-  moveSidebarItemLocally: (item, target, orderedDestinationItems) =>
-    set((state) => moveSidebarItemLocally(state, item, target, orderedDestinationItems)),
   renameProjectLocally: (folderId, name) => {
     set((state) => renameProjectLocally(state, folderId, name));
     persistAppStateNow();
   },
   setError: (threadId, error) => set((state) => setError(state, threadId, error)),
-  setThreadWorkspace: (threadId, patch) =>
-    set((state) => setThreadWorkspace(state, threadId, patch)),
 }));
 
 // Persist state changes with debouncing to avoid localStorage thrashing

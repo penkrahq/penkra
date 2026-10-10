@@ -262,26 +262,20 @@ export function ThreadDeckBar(props: {
           const [movedThreadId] = orderedThreadIds.splice(sourceIndex, 1);
           if (!movedThreadId) return;
           orderedThreadIds.splice(targetIndex, 0, movedThreadId);
-          useStore.getState().reorderDeckLocally(deckId, orderedThreadIds);
-          void api.orchestration
-            .dispatchCommand({
-              type: "thread.deck.move",
-              commandId: newCommandId(),
-              threadId: deckSource.threadId,
-              deckId,
-              position: {
-                type: sourceIndex < targetIndex ? "after" : "before",
-                threadId: deckTarget.threadId,
+          void api.cleanCore
+            .updateThread({
+              update: {
+                action: "moveDeckThread",
+                threadId: deckSource.threadId,
+                deckId,
+                position: {
+                  type: sourceIndex < targetIndex ? "after" : "before",
+                  itemId: deckTarget.threadId,
+                },
+                updatedAt: new Date().toISOString(),
               },
             })
             .catch(async (error) => {
-              try {
-                const snapshot = await api.orchestration.getShellSnapshot();
-                useStore.getState().syncServerShellSnapshot(snapshot);
-              } catch {
-                // Keep the proposed order until the shell stream/snapshot can
-                // reconcile it; a blind rollback can undo a committed command.
-              }
               toastManager.add({
                 type: "error",
                 title: "Unable to confirm thread order",
@@ -313,12 +307,14 @@ export function ThreadDeckBar(props: {
       ) {
         return;
       }
-      void readNativeApi()?.orchestration.dispatchCommand({
-        type: "thread.deck.move",
-        commandId: newCommandId(),
-        threadId: thread.id,
-        deckId,
-        position: { type: "end" },
+      void readNativeApi()?.cleanCore.updateThread({
+        update: {
+          action: "moveDeckThread",
+          threadId: thread.id,
+          deckId,
+          position: { type: "end" },
+          updatedAt: new Date().toISOString(),
+        },
       });
     },
   });

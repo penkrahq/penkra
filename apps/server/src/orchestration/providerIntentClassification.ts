@@ -9,7 +9,6 @@ export type ProviderIntentEvent = Extract<
       | "thread.archived"
       | "thread.updated"
       | "thread.session-set"
-      | "thread.runtime-mode-set"
       | "thread.turn-queued"
       | "thread.turn-start-requested"
       | "thread.turn-interrupt-requested"
@@ -31,7 +30,6 @@ const PROVIDER_INTENT_EVENT_TYPES = new Set<ProviderIntentEvent["type"]>([
   "thread.archived",
   "thread.updated",
   "thread.session-set",
-  "thread.runtime-mode-set",
   "thread.turn-queued",
   "thread.turn-start-requested",
   "thread.turn-interrupt-requested",

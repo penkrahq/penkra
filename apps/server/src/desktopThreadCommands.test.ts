@@ -33,6 +33,7 @@ const snapshot = {
 
 function harness() {
   const dispatch = vi.fn(async () => ({ sequence: 1 }));
+  const updateThread = vi.fn(async () => undefined);
   const dispatchTurn = vi.fn(async () => ({ sequence: 1 }));
   const bindingRevision = vi.fn(async () => 7);
   const stageAttachment = vi.fn(async () => ({
@@ -53,12 +54,14 @@ function harness() {
     bindingRevision,
     dispatch,
     dispatchTurn,
+    updateThread,
     stageAttachment,
   });
   return {
     commands,
     dispatch,
     dispatchTurn,
+    updateThread,
     bindingRevision,
     stageAttachment,
     setGate: (value: Promise<void>) => {
@@ -111,14 +114,11 @@ for (const windows of ["zero windows", "one window", "window closes mid-operatio
         release!();
       }
       const value = await result;
-      if (
-        method === "create" ||
-        method === "add" ||
-        method === "reorder" ||
-        method === "leave" ||
-        method === "archive"
-      )
-        expect(h.dispatch).toHaveBeenCalledOnce();
+      if (method === "create" || method === "archive") expect(h.dispatch).toHaveBeenCalledOnce();
+      if (method === "add" || method === "reorder" || method === "leave") {
+        expect(h.updateThread).toHaveBeenCalledOnce();
+        expect(h.dispatch).not.toHaveBeenCalled();
+      }
       if (method === "send") expect(h.dispatchTurn).toHaveBeenCalledOnce();
       if (method === "compose") expect(value).toHaveProperty("composeId");
       if (method === "send") expect(h.bindingRevision).toHaveBeenCalledWith("target");

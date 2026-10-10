@@ -4,7 +4,11 @@
 // Layer: Server clean core
 // Exports: threadChangeStream
 
-import { ThreadId, type CleanCoreThreadChange } from "@penkra/contracts";
+import {
+  ThreadId,
+  type CleanCoreSidebarChange,
+  type CleanCoreThreadChange,
+} from "@penkra/contracts";
 import { Effect, Queue, Stream } from "effect";
 
 import type { ThreadPublisher } from "./threadStore.ts";
@@ -19,6 +23,16 @@ export const threadChangeStream = (publisher: ThreadPublisher, threadId: string)
             Effect.asVoid,
           ),
         );
+      });
+      yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
+    }),
+  );
+
+export const sidebarChangeStream = (publisher: ThreadPublisher) =>
+  Stream.callback<CleanCoreSidebarChange>((queue) =>
+    Effect.gen(function* () {
+      const unsubscribe = publisher.subscribeSidebar((change) => {
+        Effect.runFork(Queue.offer(queue, change).pipe(Effect.asVoid));
       });
       yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
     }),

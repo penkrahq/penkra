@@ -129,7 +129,6 @@ const PROJECT_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
   "space.archived",
   "space.restored",
   "space.deleted",
-  "sidebar.layout-updated",
   "folder.created",
   "folder.updated",
   "folder.deleted",
@@ -407,22 +406,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           event,
           projectionSpaceRepository,
         }).pipe(Effect.asVoid);
-      case "sidebar.layout-updated":
-        return Effect.forEach(event.payload.folderUpdates, (update) =>
-          projectionFolderRepository.getById({ folderId: update.folderId }).pipe(
-            Effect.flatMap((existing) =>
-              Option.isSome(existing)
-                ? projectionFolderRepository.upsert({
-                    ...existing.value,
-                    ...(update.sidebarSortOrder !== undefined
-                      ? { sidebarSortOrder: update.sidebarSortOrder }
-                      : {}),
-                    updatedAt: event.payload.updatedAt,
-                  })
-                : Effect.void,
-            ),
-          ),
-        ).pipe(Effect.asVoid);
       default:
         return Effect.void;
     }
@@ -441,43 +424,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
   const applyThreadsProjection: ProjectorDefinition["apply"] = (event, attachmentSideEffects) =>
     Effect.gen(function* () {
       switch (event.type) {
-        case "sidebar.layout-updated":
-          yield* Effect.forEach(event.payload.threadUpdates, (update) =>
-            updateThreadProjection(update.threadId, (thread) => ({
-              ...thread,
-              ...(update.folderId !== undefined ? { folderId: update.folderId } : {}),
-              ...(update.sidebarSortOrder !== undefined
-                ? { sidebarSortOrder: update.sidebarSortOrder }
-                : {}),
-              updatedAt: event.payload.updatedAt,
-            })).pipe(
-              Effect.andThen(
-                update.folderId === undefined
-                  ? Effect.void
-                  : sql`
-                      UPDATE projection_thread_decks AS deck
-                      SET
-                        space_id = folder.space_id,
-                        updated_at = ${event.payload.updatedAt}
-                      FROM projection_threads AS thread
-                      JOIN projection_folders AS folder ON folder.folder_id = thread.folder_id
-                      WHERE thread.thread_id = ${update.threadId}
-                        AND thread.deck_id = deck.deck_id
-                        AND (
-                          SELECT COUNT(*)
-                          FROM projection_threads AS member
-                          WHERE member.deck_id = deck.deck_id
-                            AND member.deleted_at IS NULL
-                        ) = 1
-                    `.pipe(
-                      Effect.mapError(
-                        toPersistenceSqlError("ProjectionPipeline.moveSingletonThreadDeck:query"),
-                      ),
-                    ),
-              ),
-            ),
-          );
-          return;
         case "thread.created": {
           yield* sql`
             INSERT INTO projection_thread_decks (deck_id, space_id, created_at, updated_at)
@@ -533,13 +479,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               ...(event.payload.connectionId !== undefined
                 ? { connectionId: event.payload.connectionId }
                 : {}),
-              ...(event.payload.workingDirectory !== undefined
-                ? { workingDirectory: event.payload.workingDirectory }
-                : {}),
-              ...(event.payload.isPinned !== undefined ? { isPinned: event.payload.isPinned } : {}),
-              ...(event.payload.sidebarSortOrder !== undefined
-                ? { sidebarSortOrder: event.payload.sidebarSortOrder }
-                : {}),
               ...(event.payload.parentThreadId !== undefined
                 ? { parentThreadId: event.payload.parentThreadId }
                 : {}),
@@ -551,9 +490,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
                 : {}),
               ...(event.payload.subagentRole !== undefined
                 ? { subagentRole: event.payload.subagentRole }
-                : {}),
-              ...(event.payload.lastVisitedAt !== undefined
-                ? { lastVisitedAt: event.payload.lastVisitedAt }
                 : {}),
               updatedAt: event.payload.updatedAt,
             };
@@ -577,13 +513,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
         case "thread.marker-done-set":
         case "thread.marker-label-set":
           return;
-
-        case "thread.runtime-mode-set":
-          return yield* updateThreadProjection(event.payload.threadId, (thread) => ({
-            ...thread,
-            runtimeMode: event.payload.runtimeMode,
-            updatedAt: event.payload.updatedAt,
-          }));
 
         case "thread.turn-start-requested": {
           const existingRow = yield* projectionThreadRepository.getById({
@@ -649,95 +578,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           }
           return;
         }
-
-        case "thread.deck-moved": {
-          yield* sql`
-            INSERT INTO projection_thread_decks (deck_id, space_id, created_at, updated_at)
-            VALUES (
-              ${event.payload.destinationDeckId},
-              ${event.payload.spaceId},
-              ${event.payload.updatedAt},
-              ${event.payload.updatedAt}
-            )
-            ON CONFLICT(deck_id) DO UPDATE SET updated_at = excluded.updated_at
-          `.pipe(
-            Effect.mapError(
-              toPersistenceSqlError("ProjectionPipeline.upsertDestinationThreadDeck:query"),
-            ),
-          );
-          yield* sql`
-            UPDATE projection_threads
-            SET deck_sort_order = deck_sort_order + 1000000
-            WHERE deleted_at IS NULL
-              AND deck_id IN (${event.payload.sourceDeckId}, ${event.payload.destinationDeckId})
-          `.pipe(
-            Effect.mapError(
-              toPersistenceSqlError("ProjectionPipeline.stageMovedThreadDeckOrder:query"),
-            ),
-          );
-          yield* Effect.forEach(event.payload.sourceThreadIds, (threadId, order) =>
-            updateThreadProjection(threadId, (thread) => ({
-              ...thread,
-              deckId: event.payload.sourceDeckId,
-              deckSortOrder: order,
-            })),
-          );
-          yield* Effect.forEach(event.payload.destinationThreadIds, (threadId, order) =>
-            updateThreadProjection(threadId, (thread) => ({
-              ...thread,
-              deckId: event.payload.destinationDeckId,
-              deckSortOrder: order,
-            })),
-          );
-          if (event.payload.sourceThreadIds.length === 0) {
-            yield* sql`
-              DELETE FROM projection_thread_decks
-              WHERE deck_id = ${event.payload.sourceDeckId}
-            `.pipe(
-              Effect.mapError(
-                toPersistenceSqlError("ProjectionPipeline.deleteSourceThreadDeck:query"),
-              ),
-            );
-          } else {
-            yield* sql`
-              UPDATE projection_thread_decks
-              SET updated_at = ${event.payload.updatedAt}
-              WHERE deck_id = ${event.payload.sourceDeckId}
-            `.pipe(
-              Effect.mapError(
-                toPersistenceSqlError("ProjectionPipeline.touchSourceThreadDeck:query"),
-              ),
-            );
-          }
-          return;
-        }
-
-        case "thread.deck-reordered":
-          yield* sql`
-            UPDATE projection_threads
-            SET deck_sort_order = deck_sort_order + 1000000
-            WHERE deleted_at IS NULL AND deck_id = ${event.payload.deckId}
-          `.pipe(
-            Effect.mapError(
-              toPersistenceSqlError("ProjectionPipeline.stageReorderedThreadDeck:query"),
-            ),
-          );
-          yield* Effect.forEach(event.payload.threadIds, (threadId, order) =>
-            updateThreadProjection(threadId, (thread) => ({
-              ...thread,
-              deckSortOrder: order,
-            })),
-          );
-          yield* sql`
-            UPDATE projection_thread_decks
-            SET updated_at = ${event.payload.updatedAt}
-            WHERE deck_id = ${event.payload.deckId}
-          `.pipe(
-            Effect.mapError(
-              toPersistenceSqlError("ProjectionPipeline.touchReorderedThreadDeck:query"),
-            ),
-          );
-          return;
 
         case "thread.archived": {
           const archivedAt =
@@ -2076,11 +1916,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
       );
 
     return filterProjectors(
-      PROJECT_EVENT_TYPES.has(event.type) &&
-        event.type !== "sidebar.layout-updated" &&
-        projectsProjector
-        ? [projectsProjector]
-        : projectors,
+      PROJECT_EVENT_TYPES.has(event.type) && projectsProjector ? [projectsProjector] : projectors,
     );
   };
 
@@ -2331,18 +2167,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
 
   const applyShellMetadataProjection = (event: ShellMetadataOrchestrationEvent) => {
     switch (event.type) {
-      case "sidebar.layout-updated":
-        return applyFoldersProjection(event, {
-          deletedThreadIds: new Set(),
-          prunedThreadRelativePaths: new Map(),
-        }).pipe(
-          Effect.andThen(
-            applyThreadsProjection(event, {
-              deletedThreadIds: new Set(),
-              prunedThreadRelativePaths: new Map(),
-            }),
-          ),
-        );
       case "space.created":
       case "space.updated":
       case "space.archived":

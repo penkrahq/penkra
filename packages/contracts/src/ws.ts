@@ -10,6 +10,7 @@ import {
   CleanCoreSetThreadDraftInput,
   CleanCoreSubscribeThreadInput,
   CleanCoreThreadChange,
+  CleanCoreSidebarChange,
 } from "./cleanCore";
 
 import {
@@ -132,6 +133,7 @@ export const WS_METHODS = {
   // Server meta
   cleanCoreListThreads: "cleanCore.listThreads",
   cleanCoreUpdateThread: "cleanCore.updateThread",
+  cleanCoreSubscribeSidebar: "cleanCore.subscribeSidebar",
   cleanCoreListThreadItemsPage: "cleanCore.listThreadItemsPage",
   cleanCoreGetThreadDraft: "cleanCore.getThreadDraft",
   cleanCoreSetThreadDraft: "cleanCore.setThreadDraft",
@@ -275,6 +277,7 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.serverGetConfig, Schema.Struct({})),
   tagRequestBody(WS_METHODS.cleanCoreListThreads, CleanCoreListThreadsInput),
   tagRequestBody(WS_METHODS.cleanCoreUpdateThread, CleanCoreUpdateThreadInput),
+  tagRequestBody(WS_METHODS.cleanCoreSubscribeSidebar, Schema.Struct({})),
   tagRequestBody(WS_METHODS.cleanCoreListThreadItemsPage, CleanCoreListThreadItemsPageInput),
   tagRequestBody(WS_METHODS.cleanCoreGetThreadDraft, CleanCoreGetThreadDraftInput),
   tagRequestBody(WS_METHODS.cleanCoreSetThreadDraft, CleanCoreSetThreadDraftInput),
@@ -363,6 +366,7 @@ export interface WsPushPayloadByChannel {
   readonly [ORCHESTRATION_WS_CHANNELS.shellEvent]: OrchestrationShellStreamItem;
   readonly [ORCHESTRATION_WS_CHANNELS.threadEvent]: OrchestrationThreadStreamItem;
   readonly [CLEAN_CORE_WS_CHANNELS.threadChange]: CleanCoreThreadChange;
+  readonly [CLEAN_CORE_WS_CHANNELS.sidebarChange]: CleanCoreSidebarChange;
 }
 
 export type WsPushChannel = keyof WsPushPayloadByChannel;
@@ -422,6 +426,10 @@ export const WsPushOrchestrationThreadEvent = makeWsPushSchema(
   OrchestrationThreadStreamItem,
 );
 
+export const WsPushCleanCoreSidebarChange = makeWsPushSchema(
+  CLEAN_CORE_WS_CHANNELS.sidebarChange,
+  CleanCoreSidebarChange,
+);
 export const WsPushCleanCoreThreadChange = makeWsPushSchema(
   CLEAN_CORE_WS_CHANNELS.threadChange,
   CleanCoreThreadChange,
@@ -441,6 +449,7 @@ export const WsPushChannelSchema = Schema.Literals([
   ORCHESTRATION_WS_CHANNELS.shellEvent,
   ORCHESTRATION_WS_CHANNELS.threadEvent,
   CLEAN_CORE_WS_CHANNELS.threadChange,
+  CLEAN_CORE_WS_CHANNELS.sidebarChange,
 ]);
 export type WsPushChannelSchema = typeof WsPushChannelSchema.Type;
 
@@ -458,6 +467,7 @@ export const WsPush = Schema.Union([
   WsPushOrchestrationShellEvent,
   WsPushOrchestrationThreadEvent,
   WsPushCleanCoreThreadChange,
+  WsPushCleanCoreSidebarChange,
 ]);
 export type WsPush = typeof WsPush.Type;
 

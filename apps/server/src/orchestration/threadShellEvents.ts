@@ -10,16 +10,12 @@ const THREAD_SHELL_SUMMARY_ACTIVITY_KINDS = new Set([
 ]);
 
 const THREAD_PROJECTION_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
-  "sidebar.layout-updated",
   "thread.created",
   "thread.updated",
-  "thread.runtime-mode-set",
   "thread.turn-start-requested",
   "thread.deleted",
   "thread.archived",
   "thread.unarchived",
-  "thread.deck-moved",
-  "thread.deck-reordered",
 ]);
 
 const OTHER_THREAD_SHELL_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([

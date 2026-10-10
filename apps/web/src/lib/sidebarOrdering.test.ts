@@ -1,10 +1,14 @@
 // FILE: sidebarOrdering.test.ts
 // Purpose: Covers stable anchor intent and the pinned sidebar boundary.
 
-import type { SidebarItemReference } from "@penkra/contracts";
-import { describe, expect, it } from "vitest";
+import type { NativeApi, SidebarItemReference } from "@penkra/contracts";
+import { describe, expect, it, vi } from "vitest";
 
-import { resolveSidebarInsertionIndex, resolveSidebarMovePosition } from "./sidebarOrdering";
+import {
+  moveSidebarItem,
+  resolveSidebarInsertionIndex,
+  resolveSidebarMovePosition,
+} from "./sidebarOrdering";
 
 const project = (id: string): SidebarItemReference => ({ kind: "folder", id: id as never });
 
@@ -75,5 +79,40 @@ describe("resolveSidebarMovePosition", () => {
         isPinned: (item) => item.id.startsWith("pin-"),
       }),
     ).toEqual({ type: "pinned-boundary" });
+  });
+});
+
+it("writes each sidebar action through its clean-core input", async () => {
+  const updateThread = vi.fn().mockResolvedValue(undefined);
+  const api = { cleanCore: { updateThread } } as unknown as NativeApi;
+  await moveSidebarItem({
+    api,
+    item: { kind: "folder", id: "folder" as never },
+    target: { kind: "space", spaceId: "space" as never },
+    position: { type: "pinned-boundary" },
+  });
+  expect(updateThread).toHaveBeenLastCalledWith({
+    update: {
+      action: "moveFolder",
+      folderId: "folder",
+      spaceId: "space",
+      position: { type: "pinned-boundary" },
+      updatedAt: expect.any(String),
+    },
+  });
+  await moveSidebarItem({
+    api,
+    item: { kind: "thread", id: "thread" as never },
+    target: { kind: "folder", folderId: "folder" as never },
+    position: { type: "before", item: { kind: "thread", id: "anchor" as never } },
+  });
+  expect(updateThread).toHaveBeenLastCalledWith({
+    update: {
+      action: "moveSidebarItem",
+      threadId: "thread",
+      folderId: "folder",
+      position: { type: "before", itemId: "anchor" },
+      updatedAt: expect.any(String),
+    },
   });
 });

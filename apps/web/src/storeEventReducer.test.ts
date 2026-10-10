@@ -43,6 +43,94 @@ import { resolveThreadStatusPill } from "./components/Sidebar.logic";
 import { shouldShowComposerContinue } from "./components/ChatView.logic";
 
 describe("store event reducer", () => {
+  it("registers six external creations in the sidebar without a snapshot or opened detail", () => {
+    const initial = makeState(makeThread());
+    const folderId = FolderId.makeUnsafe("project-1");
+    const events = Array.from({ length: 6 }, (_, index) => {
+      const threadId = ThreadId.makeUnsafe(`agent-worker-${index}`);
+      return makeDomainEvent(
+        "thread.created",
+        {
+          threadId,
+          deckId: singletonThreadDeckId(threadId),
+          deckSortOrder: 0,
+          folderId,
+          title: `Worker ${index}`,
+          modelSelection: { provider: "codex", model: "gpt-5.6-sol" },
+          runtimeMode: DEFAULT_RUNTIME_MODE,
+          sidebarSortOrder: index,
+          workingDirectory: null,
+          isPinned: false,
+          parentThreadId: null,
+          creationSource: "penkra_mcp",
+          sourceThreadId: ThreadId.makeUnsafe("thread-1"),
+          subagentAgentId: null,
+          subagentNickname: null,
+          subagentRole: null,
+          forkSourceThreadId: null,
+          createdAt: "2026-09-06T00:10:00.000Z",
+          updatedAt: "2026-09-06T00:10:00.000Z",
+        },
+        { sequence: index + 1 },
+      );
+    });
+    const next = applyOrchestrationEvents(initial, events);
+    const rows = createSidebarTreeThreadsSelector()(next);
+    expect(rows.filter((row) => row.id.startsWith("agent-worker-"))).toHaveLength(6);
+    for (const event of events) {
+      expect(rows.find((row) => row.id === event.payload.threadId)?.folderId).toBe(folderId);
+      expect(next.threadShellById?.[event.payload.threadId]?.creationSource).toBe("penkra_mcp");
+    }
+    expect(applyOrchestrationEvents(next, events)).toBe(next);
+    const workerId = events[0]!.payload.threadId;
+    const archived = applyOrchestrationEvents(next, [
+      makeDomainEvent(
+        "thread.archived",
+        {
+          threadId: workerId,
+          archivedAt: "2026-09-06T00:10:02.000Z",
+          updatedAt: "2026-09-06T00:10:02.000Z",
+        },
+        { sequence: 8 },
+      ),
+    ]);
+    expect(createSidebarTreeThreadsSelector()(archived).some((row) => row.id === workerId)).toBe(
+      false,
+    );
+    const restored = applyOrchestrationEvents(archived, [
+      makeDomainEvent(
+        "thread.unarchived",
+        {
+          threadId: workerId,
+          updatedAt: "2026-09-06T00:10:03.000Z",
+        },
+        { sequence: 9 },
+      ),
+    ]);
+    expect(createSidebarTreeThreadsSelector()(restored).some((row) => row.id === workerId)).toBe(
+      true,
+    );
+    expect(
+      applyOrchestrationEvents(restored, events).sidebarThreadSummaryById[workerId]?.folderId,
+    ).toBe("project-1");
+    const deleted = applyOrchestrationEvents(next, [
+      makeDomainEvent(
+        "thread.deleted",
+        {
+          threadId: events[0]!.payload.threadId,
+          deletedAt: "2026-09-06T00:11:00.000Z",
+        },
+        { sequence: 10 },
+      ),
+    ]);
+    const replayed = applyOrchestrationEvents(deleted, [events[0]!]);
+    expect(
+      createSidebarTreeThreadsSelector()(replayed).some(
+        (row) => row.id === events[0]!.payload.threadId,
+      ),
+    ).toBe(false);
+  });
+
   it("keeps a session error ahead of a live queued delivery failure", () => {
     const threadId = ThreadId.makeUnsafe("thread-1");
     const messageId = MessageId.makeUnsafe("queued-session-error");
@@ -577,217 +665,6 @@ describe("store event reducer", () => {
     expect(threadsOf(rendererB.getState())[0]?.messages).toEqual(
       threadsOf(rendererA.getState())[0]?.messages,
     );
-  });
-
-  it("projects raw deck reorder and cross-deck move events into deck and thread shell order", () => {
-    const spaceId = SpaceId.makeUnsafe("space-test");
-    const sourceDeckId = ThreadDeckId.makeUnsafe("deck-source");
-    const destinationDeckId = ThreadDeckId.makeUnsafe("deck-destination");
-    const firstId = ThreadId.makeUnsafe("deck-first");
-    const secondId = ThreadId.makeUnsafe("deck-second");
-    const thirdId = ThreadId.makeUnsafe("deck-third");
-    const first = makeThread({ id: firstId, deckId: sourceDeckId, deckSortOrder: 0 });
-    const second = makeThread({ id: secondId, deckId: sourceDeckId, deckSortOrder: 1 });
-    const third = makeThread({ id: thirdId, deckId: destinationDeckId, deckSortOrder: 0 });
-    const firstState = makeState(first);
-    const secondState = makeState(second);
-    const thirdState = makeState(third);
-    const initial: AppState = {
-      ...firstState,
-      decks: [
-        {
-          id: sourceDeckId,
-          spaceId,
-          threadIds: [firstId, secondId],
-          createdAt: "2026-09-17T00:00:00.000Z",
-          updatedAt: "2026-09-17T00:00:00.000Z",
-        },
-        {
-          id: destinationDeckId,
-          spaceId,
-          threadIds: [thirdId],
-          createdAt: "2026-09-17T00:00:00.000Z",
-          updatedAt: "2026-09-17T00:00:00.000Z",
-        },
-      ],
-      threadIds: [firstId, secondId, thirdId],
-      threadShellById: {
-        [firstId]: firstState.threadShellById?.[firstId]!,
-        [secondId]: secondState.threadShellById?.[secondId]!,
-        [thirdId]: thirdState.threadShellById?.[thirdId]!,
-      },
-    };
-
-    const reordered = applyOrchestrationEvents(initial, [
-      makeDomainEvent(
-        "thread.deck-reordered",
-        {
-          deckId: sourceDeckId,
-          spaceId,
-          threadIds: [secondId, firstId],
-          updatedAt: "2026-09-17T00:00:01.000Z",
-        },
-        { sequence: 1, aggregateKind: "deck", aggregateId: sourceDeckId },
-      ),
-    ]);
-    expect(reordered.decks.find((deck) => deck.id === sourceDeckId)?.threadIds).toEqual([
-      secondId,
-      firstId,
-    ]);
-    expect(reordered.threadShellById?.[secondId]).toMatchObject({
-      deckId: sourceDeckId,
-      deckSortOrder: 0,
-    });
-    expect(reordered.threadShellById?.[firstId]).toMatchObject({
-      deckId: sourceDeckId,
-      deckSortOrder: 1,
-    });
-
-    const moved = applyOrchestrationEvents(reordered, [
-      makeDomainEvent(
-        "thread.deck-moved",
-        {
-          threadId: firstId,
-          sourceDeckId,
-          destinationDeckId,
-          spaceId,
-          sourceThreadIds: [secondId],
-          destinationThreadIds: [thirdId, firstId],
-          updatedAt: "2026-09-17T00:00:02.000Z",
-        },
-        { sequence: 2, aggregateKind: "deck", aggregateId: destinationDeckId },
-      ),
-    ]);
-    expect(moved.decks.find((deck) => deck.id === sourceDeckId)?.threadIds).toEqual([secondId]);
-    expect(moved.decks.find((deck) => deck.id === destinationDeckId)?.threadIds).toEqual([
-      thirdId,
-      firstId,
-    ]);
-    expect(moved.threadShellById?.[firstId]).toMatchObject({
-      deckId: destinationDeckId,
-      deckSortOrder: 1,
-    });
-  });
-
-  it("registers six external creations in the sidebar without a snapshot or opened detail", () => {
-    const initial = makeState(makeThread());
-    const folderId = FolderId.makeUnsafe("project-1");
-    const events = Array.from({ length: 6 }, (_, index) => {
-      const threadId = ThreadId.makeUnsafe(`agent-worker-${index}`);
-      return makeDomainEvent(
-        "thread.created",
-        {
-          threadId,
-          deckId: singletonThreadDeckId(threadId),
-          deckSortOrder: 0,
-          folderId,
-          title: `Worker ${index}`,
-          modelSelection: { provider: "codex", model: "gpt-5.6-sol" },
-          runtimeMode: DEFAULT_RUNTIME_MODE,
-          sidebarSortOrder: index,
-          workingDirectory: null,
-          isPinned: false,
-          parentThreadId: null,
-          creationSource: "penkra_mcp",
-          sourceThreadId: ThreadId.makeUnsafe("thread-1"),
-          subagentAgentId: null,
-          subagentNickname: null,
-          subagentRole: null,
-          forkSourceThreadId: null,
-          createdAt: "2026-09-06T00:10:00.000Z",
-          updatedAt: "2026-09-06T00:10:00.000Z",
-        },
-        { sequence: index + 1 },
-      );
-    });
-    const next = applyOrchestrationEvents(initial, events);
-    const rows = createSidebarTreeThreadsSelector()(next);
-    expect(rows.filter((row) => row.id.startsWith("agent-worker-"))).toHaveLength(6);
-    for (const event of events) {
-      expect(rows.find((row) => row.id === event.payload.threadId)?.folderId).toBe(folderId);
-      expect(next.threadShellById?.[event.payload.threadId]?.creationSource).toBe("penkra_mcp");
-    }
-    expect(applyOrchestrationEvents(next, events)).toBe(next);
-    const workerId = events[0]!.payload.threadId;
-    const permissionsChanged = applyOrchestrationEvents(next, [
-      makeDomainEvent(
-        "thread.runtime-mode-set",
-        {
-          threadId: workerId,
-          runtimeMode: "approval-required",
-          updatedAt: "2026-09-06T00:10:01.000Z",
-        },
-        { sequence: 7 },
-      ),
-    ]);
-    expect(permissionsChanged.threadShellById?.[workerId]?.runtimeMode).toBe("approval-required");
-    const moved = applyOrchestrationEvents(next, [
-      makeDomainEvent(
-        "sidebar.layout-updated",
-        {
-          folderUpdates: [],
-          threadUpdates: [
-            {
-              threadId: workerId,
-              folderId: FolderId.makeUnsafe("project-2"),
-              sidebarSortOrder: 12,
-            },
-          ],
-          updatedAt: "2026-09-06T00:10:01.000Z",
-        },
-        { sequence: 7 },
-      ),
-    ]);
-    expect(moved.sidebarThreadSummaryById[workerId]).toMatchObject({
-      folderId: "project-2",
-      sidebarSortOrder: 12,
-    });
-    const archived = applyOrchestrationEvents(moved, [
-      makeDomainEvent(
-        "thread.archived",
-        {
-          threadId: workerId,
-          archivedAt: "2026-09-06T00:10:02.000Z",
-          updatedAt: "2026-09-06T00:10:02.000Z",
-        },
-        { sequence: 8 },
-      ),
-    ]);
-    expect(createSidebarTreeThreadsSelector()(archived).some((row) => row.id === workerId)).toBe(
-      false,
-    );
-    const restored = applyOrchestrationEvents(archived, [
-      makeDomainEvent(
-        "thread.unarchived",
-        {
-          threadId: workerId,
-          updatedAt: "2026-09-06T00:10:03.000Z",
-        },
-        { sequence: 9 },
-      ),
-    ]);
-    expect(createSidebarTreeThreadsSelector()(restored).some((row) => row.id === workerId)).toBe(
-      true,
-    );
-    expect(
-      applyOrchestrationEvents(restored, events).sidebarThreadSummaryById[workerId]?.folderId,
-    ).toBe("project-2");
-    const deleted = applyOrchestrationEvents(next, [
-      makeDomainEvent(
-        "thread.deleted",
-        {
-          threadId: events[0]!.payload.threadId,
-          deletedAt: "2026-09-06T00:11:00.000Z",
-        },
-        { sequence: 10 },
-      ),
-    ]);
-    const replayed = applyOrchestrationEvents(deleted, [events[0]!]);
-    expect(
-      createSidebarTreeThreadsSelector()(replayed).some(
-        (row) => row.id === events[0]!.payload.threadId,
-      ),
-    ).toBe(false);
   });
 
   it("hydrates and removes empty Spaces without manufacturing null folder assignments", () => {
@@ -2552,14 +2429,12 @@ describe("store event reducer", () => {
       makeDomainEvent("thread.updated", {
         threadId: ThreadId.makeUnsafe("thread-1"),
         title: "New title",
-        lastVisitedAt: "2026-02-27T00:00:45.000Z",
         updatedAt: "2026-02-27T00:01:00.000Z",
       }),
     ]);
 
     expect(threadsOf(next)[0]).toMatchObject({
       title: "New title",
-      lastVisitedAt: "2026-02-27T00:00:45.000Z",
       updatedAt: "2026-02-27T00:01:00.000Z",
     });
   });
@@ -2575,30 +2450,6 @@ describe("store event reducer", () => {
     ]);
 
     expect(threadsOf(next)[0]?.connectionId).toBeUndefined();
-  });
-
-  it("propagates a live read acknowledgement into the sidebar summary", () => {
-    const threadId = ThreadId.makeUnsafe("thread-1");
-    const initialState = syncServerReadModel(
-      makeState(makeThread({ lastVisitedAt: "2026-02-27T00:00:00.000Z" })),
-      makeReadModel(
-        makeReadModelThread({
-          lastVisitedAt: "2026-02-27T00:00:00.000Z",
-          updatedAt: "2026-02-27T00:00:30.000Z",
-        }),
-      ),
-    );
-
-    const next = applyOrchestrationEvents(initialState, [
-      makeDomainEvent("thread.updated", {
-        threadId,
-        lastVisitedAt: "2026-02-27T00:01:00.000Z",
-        updatedAt: "2026-02-27T00:01:00.000Z",
-      }),
-    ]);
-
-    expect(next.sidebarThreadSummaryById[threadId]?.lastVisitedAt).toBe("2026-02-27T00:01:00.000Z");
-    expect(threadsOf(next)[0]?.lastVisitedAt).toBe("2026-02-27T00:01:00.000Z");
   });
 
   it("rolls back conversation state from an edited user message", () => {

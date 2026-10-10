@@ -371,18 +371,19 @@ export default function Sidebar() {
   const threadsHydrated = useStore((store) => store.threadsHydrated);
   const sidebarThreadSummaryById = useStore((store) => store.sidebarThreadSummaryById);
   const syncServerShellSnapshot = useStore((store) => store.syncServerShellSnapshot);
-  const moveSidebarItemLocally = useStore((store) => store.moveSidebarItemLocally);
   const markThreadVisited = useStore((store) => store.markThreadVisited);
   const markThreadUnread = useStore((store) => store.markThreadUnread);
   const persistThreadVisit = useCallback((threadId: ThreadId, lastVisitedAt: string) => {
     const api = readNativeApi();
     if (!api) return;
-    void api.orchestration
-      .dispatchCommand({
-        type: "thread.update",
-        commandId: newCommandId(),
-        threadId,
-        lastVisitedAt,
+    void api.cleanCore
+      .updateThread({
+        update: {
+          action: "visit",
+          threadId,
+          visitedAt: lastVisitedAt,
+          updatedAt: new Date().toISOString(),
+        },
       })
       .catch(() => undefined);
   }, []);
@@ -1349,11 +1350,14 @@ export default function Sidebar() {
         return;
       }
       if (clicked === "leave-deck") {
-        await api.orchestration.dispatchCommand({
-          type: "thread.deck.leave",
-          commandId: newCommandId(),
-          threadId,
-          deckId: singletonThreadDeckId(threadId),
+        await api.cleanCore.updateThread({
+          update: {
+            action: "moveDeckThread",
+            threadId,
+            deckId: singletonThreadDeckId(threadId),
+            position: { type: "end" },
+            updatedAt: new Date().toISOString(),
+          },
         });
         return;
       }
@@ -1976,7 +1980,6 @@ export default function Sidebar() {
     }) => {
       const api = readNativeApi();
       if (!api) return false;
-      moveSidebarItemLocally(input.item, input.target, input.orderedDestinationItems);
       try {
         await moveSidebarItem({
           api,
@@ -1986,13 +1989,6 @@ export default function Sidebar() {
         });
         return true;
       } catch (error) {
-        try {
-          const snapshot = await api.orchestration.getShellSnapshot();
-          syncServerShellSnapshot(snapshot);
-        } catch {
-          // Keep the proposed order until a later authoritative shell update;
-          // a blind rollback can undo a command that committed remotely.
-        }
         toastManager.add({
           type: "error",
           title: "Unable to move sidebar item",
@@ -2001,7 +1997,7 @@ export default function Sidebar() {
         return false;
       }
     },
-    [moveSidebarItemLocally, syncServerShellSnapshot],
+    [],
   );
   const sidebarDropIntentRef = useRef<SidebarDropIntent | null>(null);
   const handleSidebarDragOver = useCallback(

@@ -11,6 +11,7 @@ function makeApi(
   getShellSnapshot: ReturnType<typeof vi.fn> = vi.fn().mockRejectedValue(new Error("offline")),
 ): NativeApi {
   return {
+    cleanCore: { updateThread: dispatchCommand },
     orchestration: {
       dispatchCommand,
       getShellSnapshot,
@@ -108,9 +109,12 @@ describe("reorderSpaces", () => {
 
     expect(dispatchCommand).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: "space.update",
-        spaceId: third,
-        sortOrder: 0,
+        update: {
+          action: "moveSpace",
+          spaceId: third,
+          position: { type: "pinned-boundary" },
+          updatedAt: expect.any(String),
+        },
       }),
     );
     expect(dispatchCommand.mock.calls[0]?.[0]).not.toHaveProperty("orderedSpaceIds");

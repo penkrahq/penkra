@@ -122,6 +122,7 @@ import {
   CleanCoreSetThreadDraftInput,
   CleanCoreSubscribeThreadInput,
   CleanCoreThreadChange,
+  CleanCoreSidebarChange,
   CleanCoreThreadDraft,
 } from "./cleanCore";
 import { WS_METHODS } from "./ws";
@@ -679,6 +680,12 @@ export const WsCleanCoreListThreadsRpc = Rpc.make(WS_METHODS.cleanCoreListThread
   error: WsRpcError,
 });
 
+export const WsCleanCoreSubscribeSidebarRpc = Rpc.make(WS_METHODS.cleanCoreSubscribeSidebar, {
+  payload: Schema.Struct({}),
+  success: CleanCoreSidebarChange,
+  error: WsRpcError,
+  stream: true,
+});
 export const WsCleanCoreUpdateThreadRpc = Rpc.make(WS_METHODS.cleanCoreUpdateThread, {
   payload: CleanCoreUpdateThreadInput,
   success: Schema.Void,
@@ -724,6 +731,7 @@ export const WsBootstrapRpcGroup = RpcGroup.make(WsBootstrapNegotiateRpc);
 export const WsFeatureRpcGroup = RpcGroup.make(
   WsCleanCoreListThreadsRpc,
   WsCleanCoreUpdateThreadRpc,
+  WsCleanCoreSubscribeSidebarRpc,
   WsCleanCoreListThreadItemsPageRpc,
   WsCleanCoreGetThreadDraftRpc,
   WsCleanCoreSetThreadDraftRpc,

@@ -50,6 +50,7 @@ import {
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { applyProviderEvent } from "../../cleanCore/providerStreamConsumer.ts";
 import { toCleanCoreProviderEvents } from "../../cleanCore/providerEventBridge.ts";
+import { setThreadRuntimeMode } from "../../cleanCore/threadStore.ts";
 import { ThreadPublisher } from "../../cleanCore/ThreadPublisher.ts";
 import { classifyProviderAuthFailure } from "../../provider/providerAuthFailure.ts";
 import { makeProviderAuthCircuitStore } from "../../provider/providerAuthCircuit.ts";
@@ -2035,13 +2036,15 @@ const make = Effect.gen(function* () {
       if (event.type === "user-input.resolved") {
         const inferredRuntimeMode = inferRuntimeModeFromUserInputAnswers(event.payload.answers);
         if (inferredRuntimeMode && inferredRuntimeMode !== thread.runtimeMode) {
-          yield* dispatchProviderCommandOnce({
-            type: "thread.runtime-mode.set",
-            commandId: providerCommandId(event, "thread-runtime-mode-set", thread.id),
-            threadId: thread.id,
-            runtimeMode: inferredRuntimeMode,
-            createdAt: now,
-          });
+          if (
+            yield* setThreadRuntimeMode({
+              threadId: thread.id,
+              runtimeMode: inferredRuntimeMode,
+              updatedAt: now,
+            }).pipe(Effect.provideService(SqlClient.SqlClient, sql))
+          ) {
+            threadPublisher.publish({ threadId: thread.id });
+          }
         }
       }
 

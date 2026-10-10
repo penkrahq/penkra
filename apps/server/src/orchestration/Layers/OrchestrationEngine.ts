@@ -199,28 +199,12 @@ function commandToAggregateRef(command: OrchestrationCommand): {
         aggregateKind: "space",
         aggregateId: command.spaceId,
       };
-    case "sidebar.item.move":
-      return command.target.kind === "space"
-        ? {
-            aggregateKind: "space",
-            aggregateId: command.target.spaceId,
-          }
-        : {
-            aggregateKind: "folder",
-            aggregateId: command.target.folderId,
-          };
     case "folder.create":
     case "folder.update":
     case "folder.delete":
       return {
         aggregateKind: "folder",
         aggregateId: command.folderId,
-      };
-    case "thread.deck.move":
-    case "thread.deck.leave":
-      return {
-        aggregateKind: "deck",
-        aggregateId: command.deckId,
       };
     default:
       return {
@@ -239,7 +223,6 @@ function isShellMetadataEvent(event: OrchestrationEvent): event is ShellMetadata
     event.type === "space.archived" ||
     event.type === "space.restored" ||
     event.type === "space.deleted" ||
-    event.type === "sidebar.layout-updated" ||
     event.type === "folder.created" ||
     event.type === "folder.updated" ||
     event.type === "folder.moved" ||

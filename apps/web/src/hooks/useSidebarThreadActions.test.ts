@@ -135,6 +135,7 @@ vi.mock("../threadSelectionStore", () => ({
 }));
 vi.mock("../nativeApi", () => ({
   readNativeApi: () => ({
+    cleanCore: { updateThread: harness.dispatchCommand },
     orchestration: { dispatchCommand: harness.dispatchCommand },
     dialogs: { confirm: harness.confirm },
   }),
@@ -303,9 +304,12 @@ describe("useSidebarThreadActions", () => {
     expect(harness.pinThread).toHaveBeenCalledWith(THREAD_ID);
     expect(harness.dispatchCommand).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: "thread.update",
-        threadId: THREAD_ID,
-        isPinned: true,
+        update: {
+          action: "pin",
+          threadId: THREAD_ID,
+          isPinned: true,
+          updatedAt: expect.any(String),
+        },
       }),
     );
     expect(controller.pinnedThreadIdSet.has(THREAD_ID)).toBe(true);
@@ -343,22 +347,6 @@ describe("useSidebarThreadActions", () => {
 
     expect(harness.pinThread).toHaveBeenCalledTimes(1);
     expect(harness.toast).not.toHaveBeenCalled();
-  });
-
-  it("waits for hydration and deduplicates an in-flight legacy pin migration", async () => {
-    harness.pinnedThreadIds = [THREAD_ID];
-    let resolveMigration!: () => void;
-    harness.dispatchCommand.mockImplementation(
-      () => new Promise<void>((resolve) => (resolveMigration = resolve)),
-    );
-
-    render({ threadsHydrated: false });
-    expect(harness.dispatchCommand).not.toHaveBeenCalled();
-    render({ threadsHydrated: true });
-    sidebarThreads = [...sidebarThreads];
-    render({ threadsHydrated: true });
-    expect(harness.dispatchCommand).toHaveBeenCalledTimes(1);
-    resolveMigration();
   });
 
   it("keeps archive available while server-side runtime cleanup is pending", async () => {

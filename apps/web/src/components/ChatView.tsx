@@ -884,7 +884,11 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
   // Keep the one per-thread composer draft on the clean core (0.14.4 design 2.6).
   const applyServerThreadDraft = useComposerDraftStore((store) => store.applyServerThreadDraft);
-  useComposerDraftSync({ threadId, draft: composerDraft, applyServerDraft: applyServerThreadDraft });
+  useComposerDraftSync({
+    threadId,
+    draft: composerDraft,
+    applyServerDraft: applyServerThreadDraft,
+  });
   const setComposerDraftPromptHistorySavedDraft = useComposerDraftStore(
     (store) => store.setPromptHistorySavedDraft,
   );
@@ -2109,16 +2113,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
 
     const visitedAt = new Date().toISOString();
     markThreadVisited(activeThread.id, visitedAt);
-    const api = readNativeApi();
-    if (!api) return;
-    void api.orchestration
-      .dispatchCommand({
-        type: "thread.update",
-        commandId: newCommandId(),
-        threadId: activeThread.id,
-        lastVisitedAt: visitedAt,
-      })
-      .catch(() => undefined);
   }, [
     activeThread?.id,
     activeThread?.lastVisitedAt,
@@ -4340,12 +4334,13 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       }
 
       if (input.runtimeMode !== serverThread.runtimeMode) {
-        await api.orchestration.dispatchCommand({
-          type: "thread.runtime-mode.set",
-          commandId: newCommandId(),
-          threadId: input.threadId,
-          runtimeMode: input.runtimeMode,
-          createdAt: input.createdAt,
+        await api.cleanCore.updateThread({
+          update: {
+            action: "runtimeMode",
+            threadId: input.threadId,
+            runtimeMode: input.runtimeMode,
+            updatedAt: input.createdAt,
+          },
         });
       }
     },
@@ -4378,9 +4373,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
   // Auto-follow keys on the clean-core message items (user/text seq/updated rows),
   // the transcript's only source; work rows must not re-stick the transcript.
   const transcriptAutoFollowSignal = useMemo(() => {
-    const messageItems = threadItems.filter(
-      (item) => item.kind === "user" || item.kind === "text",
-    );
+    const messageItems = threadItems.filter((item) => item.kind === "user" || item.kind === "text");
     const tail = messageItems.at(-1);
     return buildTranscriptAutoFollowSignal({
       messageCount: messageItems.length,
@@ -6750,7 +6743,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         );
       } else {
         capturedDurableRecovery = true;
-          pendingStartRecoveryRegistryRef.current.register({
+        pendingStartRecoveryRegistryRef.current.register({
           threadId: threadIdForSend,
           messageId: messageIdForSend,
           previewUrls: durableRecoveryTurn.images.map((image) => image.previewUrl),

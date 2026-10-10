@@ -43,26 +43,6 @@ export const applySpaceMetadataProjection = (input: {
             updatedAt,
           });
         }
-        if (input.event.payload.orderedSpaceIds !== undefined) {
-          const rows = yield* input.projectionSpaceRepository.listAll();
-          const orderBySpaceId = new Map(
-            input.event.payload.orderedSpaceIds.map((spaceId, index) => [spaceId, index] as const),
-          );
-          yield* Effect.forEach(
-            rows,
-            (row) => {
-              const sortOrder = orderBySpaceId.get(row.spaceId);
-              return sortOrder === undefined || sortOrder === row.sortOrder
-                ? Effect.void
-                : input.projectionSpaceRepository.upsert({
-                    ...row,
-                    sortOrder,
-                    updatedAt,
-                  });
-            },
-            { concurrency: 1 },
-          );
-        }
         return;
       }
 

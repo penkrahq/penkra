@@ -30,10 +30,7 @@ import { page, userEvent } from "vitest/browser";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
-import {
-  type ComposerImageAttachment,
-  useComposerDraftStore,
-} from "../composerDraftStore";
+import { type ComposerImageAttachment, useComposerDraftStore } from "../composerDraftStore";
 import {
   advanceComposerSendPreflightAppliedSequence,
   getComposerSendPreflight,
@@ -2150,6 +2147,14 @@ function readDispatchedCommand(request: WsRequestEnvelope["body"]): Record<strin
   return request.command as Record<string, unknown>;
 }
 
+function readCleanCoreUpdate(request: WsRequestEnvelope["body"]): Record<string, unknown> | null {
+  if (request._tag !== WS_METHODS.cleanCoreUpdateThread) return null;
+  return request.update as Record<string, unknown>;
+}
+function hasCleanCoreAction(action: string): boolean {
+  return wsRequests.some((request) => readCleanCoreUpdate(request)?.action === action);
+}
+
 function hasDispatchedCommandType(type: string): boolean {
   return wsRequests.some((request) => readDispatchedCommand(request)?.type === type);
 }
@@ -2700,7 +2705,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-
   it("folds a settled tool run into its terminal assistant without a duplicate transition owner", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
@@ -2783,14 +2787,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-
-
-
-
-
-
-
-
   it("settles an orphaned running command when its turn was interrupted", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
@@ -2824,9 +2820,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await mounted.cleanup();
     }
   });
-
-
-
 
   it("auto-follows a new message item and does not re-stick on activity-only changes", async () => {
     let currentSnapshot = createSnapshotForTargetUser({
@@ -3035,7 +3028,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await mounted.cleanup();
     }
   });
-
 
   it("warns when sending text while omitting expired terminal pills", async () => {
     const expiredLabel = "Terminal 1 line 4";
@@ -3418,13 +3410,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
             ).map((button) => button.title),
           ).toEqual([otherTitle, THREAD_TITLE]);
           const moveCommands = wsRequests
-            .map(readDispatchedCommand)
-            .filter((command) => command?.type === "thread.deck.move");
+            .map(readCleanCoreUpdate)
+            .filter((command) => command?.action === "moveDeckThread");
           expect(moveCommands).toHaveLength(1);
           expect(moveCommands[0]).toMatchObject({
             threadId: OTHER_THREAD_ID,
             deckId: DECK_ID,
-            position: { type: "before", threadId: THREAD_ID },
+            position: { type: "before", itemId: THREAD_ID },
           });
         },
         { timeout: 8_000, interval: 16 },
@@ -3664,8 +3656,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await mounted.cleanup();
     }
   });
-
-
 
   it("switches Stop, Play, Send, and disabled Send as the latest turn changes", async () => {
     let snapshot = createSnapshotForTargetUser({
@@ -3982,7 +3972,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       restoreNativeApi();
     }
   });
-
 
   it("records a queued follow-up only after queue and promotion are observed", async () => {
     const previousBridge = window.desktopBridge;
@@ -4352,7 +4341,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-
   it("sends the protocol's exact binding revision zero for an unstarted server thread", async () => {
     const restoreNativeApi = installDeterministicSendNativeApi();
     const withEmptyThread = addThreadToSnapshot(createDraftOnlySnapshot(), OTHER_THREAD_ID);
@@ -4395,7 +4383,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       restoreNativeApi();
     }
   });
-
 
   it("names the parent folder on an empty thread", async () => {
     const mounted = await mountChatView({
@@ -4598,7 +4585,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       restoreNativeApi();
     }
   });
-
 
   it("preserves a genuinely newer editor draft while the submitted send is awaiting admission", async () => {
     let releaseConnections!: () => void;
@@ -5005,7 +4991,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-
   it("dispatches the held submission snapshot once without clearing a newer draft", async () => {
     let releaseConnections!: () => void;
     providerConnectionsResponseGate = new Promise<void>((resolve) => {
@@ -5247,7 +5232,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await mounted.cleanup();
     }
   });
-
 
   it("revalidates an admitted owner after missed push and ChatView remount", async () => {
     const nativeApi = readNativeApi();
@@ -5588,7 +5572,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-
   it("keeps voice input beside the running stop button", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
@@ -5740,8 +5723,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-
-
   it("coalesces bulk editor input without corrupting text or nesting React updates", async () => {
     const consoleError = vi.spyOn(console, "error");
     const mounted = await mountChatView({
@@ -5780,8 +5761,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await mounted.cleanup();
     }
   });
-
-
 
   it("restores a server-authoritative queued row without duplicating it in the transcript", async () => {
     const queuedMessageId = "msg-server-authoritative-queue" as MessageId;
@@ -6367,8 +6346,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
         expect(document.querySelector("[data-sidebar-drop-preview]")).toBeNull();
         expect(
           wsRequests
-            .map(readDispatchedCommand)
-            .filter((command) => command?.type === "sidebar.item.move"),
+            .map(readCleanCoreUpdate)
+            .filter((command) => command?.action === "moveSidebarItem"),
         ).toHaveLength(0);
       });
       await waitForLayout();
@@ -6397,16 +6376,16 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(document.querySelector("[data-sidebar-drop-preview]")).toBeNull();
           expect(document.body.textContent).not.toContain("Something went wrong");
           const moveCommands = wsRequests
-            .map(readDispatchedCommand)
-            .filter((command) => command?.type === "sidebar.item.move");
+            .map(readCleanCoreUpdate)
+            .filter((command) => command?.action === "moveSidebarItem");
           expect(moveCommands).toHaveLength(1);
           expect(moveCommands[0]).toMatchObject({
-            item: { kind: "thread", id: OTHER_THREAD_ID },
+            threadId: OTHER_THREAD_ID,
             position: {
               type: "before",
-              item: { kind: "thread", id: THREAD_ID },
+              itemId: THREAD_ID,
             },
-            target: { kind: "folder", folderId: PROJECT_ID },
+            folderId: PROJECT_ID,
           });
         },
         { timeout: 8_000, interval: 16 },
@@ -6503,12 +6482,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await vi.waitFor(
         () => {
           const moveCommands = wsRequests
-            .map(readDispatchedCommand)
-            .filter((command) => command?.type === "sidebar.item.move");
+            .map(readCleanCoreUpdate)
+            .filter((command) => command?.action === "moveSidebarItem");
           expect(moveCommands).toHaveLength(1);
           expect(moveCommands[0]).toMatchObject({
-            item: { kind: "thread", id: OTHER_THREAD_ID },
-            target: { kind: "folder", folderId: OTHER_PROJECT_ID },
+            threadId: OTHER_THREAD_ID,
+            folderId: OTHER_PROJECT_ID,
           });
           expect(
             page
@@ -6567,16 +6546,16 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await vi.waitFor(
         () => {
           const moveCommands = wsRequests
-            .map(readDispatchedCommand)
-            .filter((command) => command?.type === "sidebar.item.move");
+            .map(readCleanCoreUpdate)
+            .filter((command) => command?.action === "moveSidebarItem");
           expect(moveCommands).toHaveLength(2);
           expect(moveCommands[1]).toMatchObject({
-            item: { kind: "thread", id: OTHER_THREAD_ID },
+            threadId: OTHER_THREAD_ID,
             position: {
               type: "before",
-              item: { kind: "thread", id: THREAD_ID },
+              itemId: THREAD_ID,
             },
-            target: { kind: "folder", folderId: PROJECT_ID },
+            folderId: PROJECT_ID,
           });
         },
         { timeout: 8_000, interval: 16 },
@@ -6621,23 +6600,16 @@ describe("ChatView timeline estimator parity (full app)", () => {
       configurable: true,
       value: {
         ...nativeApi,
-        orchestration: {
-          ...nativeApi.orchestration,
-          dispatchCommand: async (
-            command: Parameters<typeof nativeApi.orchestration.dispatchCommand>[0],
-          ) => {
-            if (command.type !== "sidebar.item.move") {
-              return nativeApi.orchestration.dispatchCommand(command);
-            }
+        cleanCore: {
+          ...nativeApi.cleanCore,
+          updateThread: async (input: Parameters<typeof nativeApi.cleanCore.updateThread>[0]) => {
+            if (input.update.action !== "moveSidebarItem")
+              return nativeApi.cleanCore.updateThread(input);
             overlayPresentWhenMoveDispatched = Boolean(
               document.querySelector('[data-sidebar-drag-overlay="true"]'),
             );
-            wsRequests.push({
-              _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
-              command,
-            });
+            wsRequests.push({ _tag: WS_METHODS.cleanCoreUpdateThread, ...input });
             await moveGate;
-            return { sequence: fixture.snapshot.snapshotSequence + 1 };
           },
         },
       },
@@ -6668,7 +6640,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await vi.waitFor(
         () => {
-          expect(hasDispatchedCommandType("sidebar.item.move")).toBe(true);
+          expect(hasCleanCoreAction("moveSidebarItem")).toBe(true);
           expect(overlayPresentWhenMoveDispatched).toBe(false);
           expect(document.querySelector('[data-sidebar-drag-overlay="true"]')).toBeNull();
           expect(document.body.textContent).not.toContain("Something went wrong");
@@ -6736,8 +6708,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(document.body.textContent).not.toContain("Something went wrong");
           expect(
             wsRequests
-              .map(readDispatchedCommand)
-              .filter((command) => command?.type === "sidebar.item.move"),
+              .map(readCleanCoreUpdate)
+              .filter((command) => command?.action === "moveSidebarItem"),
           ).toHaveLength(1);
         },
         { timeout: 8_000, interval: 16 },
@@ -7851,7 +7823,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-
   it("does not expose plan mode or runtime permission selection in the composer", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
@@ -7928,7 +7899,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await mounted.cleanup();
     }
   });
-
 
   it("renders historical proposed plans as ordinary transcript content", async () => {
     const mounted = await mountChatView({
@@ -8117,6 +8087,4 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await mounted.cleanup();
     }
   });
-
-
 });

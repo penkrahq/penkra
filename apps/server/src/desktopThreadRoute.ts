@@ -8,6 +8,9 @@ import { Effect, FileSystem, Option } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
 import { ServerConfig } from "./config";
+import { moveDeckThread } from "./cleanCore/threadStore.ts";
+import { ThreadPublisher } from "./cleanCore/ThreadPublisher.ts";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { DesktopThreadCommands } from "./desktopThreadCommands";
 import {
   persistReservedManagedAttachment,
@@ -46,7 +49,15 @@ export const desktopThreadRouteLayer = HttpRouter.add(
     const attachments = yield* ManagedAttachmentRepository;
     const runtimeStartup = yield* ServerRuntimeStartup;
     const providerBindings = yield* ThreadProviderBindingRepository;
+    const sql = yield* SqlClient.SqlClient;
+    const publisher = yield* ThreadPublisher;
     commands ??= new DesktopThreadCommands({
+      updateThread: (update) =>
+        Effect.runPromise(
+          Effect.gen(function* () {
+            for (const threadId of yield* moveDeckThread(update)) publisher.publish({ threadId });
+          }).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
+        ),
       snapshot: () => Effect.runPromise(snapshotQuery.getShellSnapshot()),
       readModel: () => Effect.runPromise(snapshotQuery.getSnapshot()),
       bindingRevision: async (threadId) => {

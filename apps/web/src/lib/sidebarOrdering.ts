@@ -8,9 +8,6 @@ import type {
   SidebarItemReference,
 } from "@penkra/contracts";
 
-import { newCommandId } from "~/lib/utils";
-import { dispatchShellCommand } from "~/lib/shellMutation";
-
 export function resolveSidebarInsertionIndex(input: {
   item: SidebarItemReference;
   destinationItems: ReadonlyArray<SidebarItemReference>;
@@ -55,11 +52,32 @@ export async function moveSidebarItem(input: {
   target: SidebarItemParent;
   position: SidebarItemMovePosition;
 }): Promise<void> {
-  await dispatchShellCommand(input.api, {
-    type: "sidebar.item.move",
-    commandId: newCommandId(),
-    item: input.item,
-    target: input.target,
-    position: input.position,
-  });
+  const position =
+    input.position.type === "pinned-boundary"
+      ? { type: "pinned-boundary" as const }
+      : { type: input.position.type, itemId: input.position.item.id };
+  const updatedAt = new Date().toISOString();
+  if (input.item.kind === "folder" && input.target.kind === "space") {
+    await input.api.cleanCore.updateThread({
+      update: {
+        action: "moveFolder",
+        folderId: input.item.id,
+        spaceId: input.target.spaceId,
+        position,
+        updatedAt,
+      },
+    });
+  } else if (input.item.kind === "thread" && input.target.kind === "folder") {
+    await input.api.cleanCore.updateThread({
+      update: {
+        action: "moveSidebarItem",
+        threadId: input.item.id,
+        folderId: input.target.folderId,
+        position,
+        updatedAt,
+      },
+    });
+  } else {
+    throw new Error("Folders belong to spaces and threads belong to folders.");
+  }
 }

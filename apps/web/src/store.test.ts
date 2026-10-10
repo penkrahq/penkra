@@ -16,7 +16,6 @@ import {
   markThreadUnread,
   renameProjectLocally,
   reorderFolders,
-  setThreadWorkspace,
   setAllFoldersExpanded,
   syncServerReadModel,
   useStore,
