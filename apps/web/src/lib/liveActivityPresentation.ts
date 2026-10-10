@@ -119,7 +119,7 @@ export function friendlyLiveCommandTarget(rawCommand: string): string {
     return "Command Prompt";
   }
 
-  const target = deriveReadableCommandDisplay(rawCommand, true).target.trim();
+  const target = deriveReadableCommandDisplay(rawCommand, "running").target.trim();
   return target.length <= 72 ? target : `${target.slice(0, 69).trimEnd()}…`;
 }
 

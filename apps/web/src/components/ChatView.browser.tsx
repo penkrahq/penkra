@@ -576,6 +576,28 @@ function createThreadItemsPageFromFixtureSnapshot(threadId: ThreadId) {
       : activity.kind === "reasoning"
         ? "reasoning"
         : "notice";
+    const payload = (activity.payload ?? null) as Record<string, unknown> | null;
+    const payloadStatus =
+      typeof payload?.status === "string" ? payload.status.toLowerCase() : undefined;
+    const toolRunning =
+      activity.kind !== "tool.completed" &&
+      (payloadStatus === undefined ||
+        payloadStatus === "inprogress" ||
+        payloadStatus === "running" ||
+        payloadStatus === "started");
+    const turnState = thread.latestTurn?.state;
+    // Mirror the clean core: a running tool item settles when its turn ends.
+    const toolStatus = !toolRunning
+      ? payloadStatus === "failed" || payloadStatus === "error"
+        ? "error"
+        : "done"
+      : turnState === "interrupted"
+        ? "interrupted"
+        : turnState === "error"
+          ? "error"
+          : turnState === "completed"
+            ? "done"
+            : "running";
     pending.push({
       at: activity.createdAt,
       item: {
@@ -583,7 +605,7 @@ function createThreadItemsPageFromFixtureSnapshot(threadId: ThreadId) {
         sourceId: activity.id,
         turnId: activity.turnId ?? null,
         kind,
-        status: "done",
+        status: kind === "tool" ? toolStatus : "done",
         text: activity.summary,
         data: JSON.stringify({
           tone: activity.tone,
@@ -2771,6 +2793,43 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
 
 
+
+
+
+
+  it("settles an orphaned running command when its turn was interrupted", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotWithInterruptedCommand(),
+    });
+
+    try {
+      await vi.waitFor(
+        () => {
+          expect(document.body.textContent).not.toContain("Running sleep 45");
+          expect(
+            document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
+          ).toBeNull();
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      const settledTrigger = Array.from(
+        document.querySelectorAll<HTMLButtonElement>("button"),
+      ).find((element) => element.textContent?.includes("Worked for"));
+      expect(settledTrigger).not.toBeUndefined();
+      settledTrigger!.click();
+      await vi.waitFor(
+        () => {
+          expect(document.body.textContent).toContain("Cancelled sleep 45");
+          expect(document.body.textContent).not.toContain("Running sleep 45");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
 
 
 

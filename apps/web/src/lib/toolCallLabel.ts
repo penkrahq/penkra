@@ -105,7 +105,7 @@ export interface ReadableToolTitleInput {
   readonly requestKind?: "command" | "file-read" | "file-change" | undefined;
   readonly command?: string | null;
   readonly payload?: Record<string, unknown> | null;
-  readonly isRunning?: boolean;
+  readonly status?: PenkraMcpToolStatus;
 }
 
 interface PenkraMcpToolPresentation {
@@ -369,7 +369,7 @@ export function deriveReadableToolTitle(input: ReadableToolTitleInput): string |
   const normalizedTitle = normalizeCompactToolLabel(input.title ?? "");
   const normalizedFallback = normalizeCompactToolLabel(input.fallbackLabel);
   const commandLabel = input.command
-    ? deriveReadableCommandDisplay(input.command, input.isRunning).verb
+    ? deriveReadableCommandDisplay(input.command, input.status).verb
     : null;
   const commandLike = input.itemType === "command_execution" || input.requestKind === "command";
 
@@ -629,7 +629,21 @@ function isInspectCommandTool(tool: string): boolean {
 }
 
 // Derives the compact command sentence shown inline while preserving the full command for hover/detail UI.
+/**
+ * Generic command verb follows the tool's status the way Penkra/MCP tools do:
+ * Running / Ran / Failed / Cancelled.
+ */
 export function deriveReadableCommandDisplay(
+  rawCommand: string,
+  status: PenkraMcpToolStatus = "completed",
+): ReadableCommandDisplay {
+  const display = deriveReadableCommandDisplayVerb(rawCommand, status === "running");
+  if (status === "failed") return { ...display, verb: "Failed" };
+  if (status === "cancelled") return { ...display, verb: "Cancelled" };
+  return display;
+}
+
+function deriveReadableCommandDisplayVerb(
   rawCommand: string,
   isRunning = false,
 ): ReadableCommandDisplay {

@@ -387,7 +387,7 @@ describe("deriveReadableCommandDisplay", () => {
     expect(
       deriveReadableCommandDisplay(
         "env -u PENKRA_AUTH_TOKEN PENKRA_PORT_OFFSET=3158 timeout 180s bun run dev",
-        true,
+        "running",
       ),
     ).toEqual({
       verb: "Running",
@@ -398,14 +398,14 @@ describe("deriveReadableCommandDisplay", () => {
 
   it("summarizes inline script commands without leaking the script body", () => {
     expect(
-      deriveReadableCommandDisplay(`node -e "const fs = require('fs'); console.log(fs.cwd)"`, true),
+      deriveReadableCommandDisplay(`node -e "const fs = require('fs'); console.log(fs.cwd)"`, "running"),
     ).toEqual({
       verb: "Running",
       target: "node script",
       fullCommand: `node -e "const fs = require('fs'); console.log(fs.cwd)"`,
     });
 
-    expect(deriveReadableCommandDisplay("python3 - <<'PY'\nprint('hi')\nPY", true)).toEqual({
+    expect(deriveReadableCommandDisplay("python3 - <<'PY'\nprint('hi')\nPY", "running")).toEqual({
       verb: "Running",
       target: "python script",
       fullCommand: "python3 - <<'PY'\nprint('hi')\nPY",
