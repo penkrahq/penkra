@@ -53,7 +53,6 @@ CREATE TABLE threads (
   parent_thread_id TEXT,                -- only on old provider-native subagent threads; never written by new code
   deck_id TEXT, deck_sort_order INTEGER NOT NULL DEFAULT 0,
   sidebar_sort_order INTEGER,
-  is_pinned INTEGER NOT NULL DEFAULT 0, -- pinned in the sidebar
   last_activity_at TEXT,                -- updated in the same write as every item insert/update
   last_message_preview TEXT,            -- text of the latest user/text item, first 200 characters
   last_user_message_at TEXT,            -- updated when a user item is inserted
@@ -95,7 +94,7 @@ Item statuses (the complete set; nothing else is ever written):
 
 Sidebar work status is derived in the read, never stored: `running` if `state='running'`; else `attention` if `open_question_count > 0`; else `done` if `last_activity_at > COALESCE(last_visited_at, '')`; else `idle`. `state='error'` shows as `attention`.
 
-Old `projection_threads` columns that are NOT carried over, with the reason: `latest_turn_id` (= `active_turn_id`), `fork_source_thread_id` (0 rows use it; the `/fork` slash command is removed, operator 2026-10-10), `subagent_agent_id/nickname/role` (subagents disabled, 2.5), `pending_approval_count` (approvals removed), `pending_user_input_count` (replaced by `open_question_count`), `pinned_messages_json`, `notes` (feature deleted, 2.4), `thread_markers_json` (no code reads it), `source_turn_id`, `gateway_operation_id`, `gateway_operation_index` (replay bookkeeping, 2.2), `work_status` (derived, above), `connection_id_selected` (no client reads it). Old `projection_thread_sessions` columns are replaced by `provider_session_id`, `state`, `active_turn_id`, `last_error`.
+Old `projection_threads` columns that are NOT carried over, with the reason: `latest_turn_id` (= `active_turn_id`), `fork_source_thread_id` (0 rows use it; the `/fork` slash command is removed, operator 2026-10-10), `subagent_agent_id/nickname/role` (subagents disabled, 2.5), `pending_approval_count` (approvals removed), `pending_user_input_count` (replaced by `open_question_count`), `pinned_messages_json`, `notes` (feature deleted, 2.4), `thread_markers_json` (no code reads it), `source_turn_id`, `gateway_operation_id`, `gateway_operation_index` (replay bookkeeping, 2.2), `work_status` (derived, above), `is_pinned` (pin feature removed, operator 2026-10-10), `connection_id_selected` (no client reads it). Old `projection_thread_sessions` columns are replaced by `provider_session_id`, `state`, `active_turn_id`, `last_error`.
 
 Write and read rules:
 - The only item write: `INSERT ... VALUES (..., (SELECT COALESCE(MAX(seq),0)+1 FROM thread_items WHERE thread_id=?), ...) ON CONFLICT(thread_id, source_id) DO UPDATE SET status=excluded.status, text=excluded.text, data=excluded.data, updated_at=excluded.updated_at`. The same transaction updates the thread's `last_activity_at`, `last_message_preview`, `last_user_message_at`, `open_question_count` as they apply.
@@ -144,11 +143,23 @@ Send result. The call returns only when exactly one of these is true; there is n
 
 Interrupt (`penkra threads interrupt`): `--thread-id` alone interrupts the thread's running turn (no effect if none). `--message-id <id>` removes that message from `threads.queue` (no effect if not queued). There is no `--turn-id`. Evidence for removing it (2026-10-10 04:10Z): interrupting a stale `turn_id` interrupted the thread's real running turn and left the stale row `running`.
 
-Editing a queued message: in the composer's queue list, "Edit" removes the message from `threads.queue` and puts its text and attachments into the thread draft, in one write. The composer then shows it once. Test: queue one message, press Edit, assert the queue is empty and the composer contains the text exactly once (operator-reported duplicate bug).
+Editing a queued message (operator, 2026-10-10): in the composer's queue list, "Edit" works only when the composer is empty, meaning no text, no attachments and no files.
+- Composer empty: Edit removes the message from `threads.queue` and writes its text and attachments into the thread draft, in one write. The composer then shows it exactly once.
+- Composer not empty: Edit changes nothing (the queue and the draft stay as they are) and shows the existing toast (the one at the top middle of the chat), with the exact title "Clear or send your message before editing a queued one."
+- The server operation enforces the same rule: inside its transaction, if the stored draft is not empty it fails with that same message and writes nothing.
+- Tests:
+  - empty composer: Edit leaves the queue empty and the composer holding the text exactly once (operator-reported duplicate bug);
+  - composer with text: Edit leaves the queue and the draft unchanged and shows the toast;
+  - server: a non-empty draft fails, rolls back and publishes nothing.
 
 Removed features:
 - Editing sent user messages (operator, 2026-10-09): delete `packages/shared/src/conversationEdit.ts`, `resolveTailUserMessageEditTarget` and its ChatView wiring. Stop and resend is the correction path.
-- Pinned messages and thread notes (operator, 2026-10-09): delete `pinnedMessages.ts`, `usePinnedMessageActions.ts`, `@penkra/shared/pinnedMessages`, the `PinnedMessage` contracts and pin/notes commands, and the `onTogglePinMessage`/`pinnedMessageIds` wiring. Pinned chats in the sidebar (`threads.is_pinned`) stay.
+- Pinned messages and thread notes (operator, 2026-10-09): delete `pinnedMessages.ts`, `usePinnedMessageActions.ts`, `@penkra/shared/pinnedMessages`, the `PinnedMessage` contracts and pin/notes commands, and the `onTogglePinMessage`/`pinnedMessageIds` wiring.
+- Pinning in the sidebar, for threads and folders (operator, 2026-10-10):
+  - Delete the `is_pinned` column from migration 176. That migration has not shipped, so edit it in place; remove the column from the table, the backfill and `idx_threads_sidebar_order`.
+  - Delete the clean-core `pin` update action, `pinnedFoldersStore.ts`, `pinning.logic.ts`, the pin and unpin menu items, pin icons on rows and deck tabs, the `isPinned` fields in contracts and web types, the folder pin code in `decider.ts`, and every pin test.
+  - Sidebar order becomes `sidebar_sort_order`, then `created_at DESC`, then `id`.
+  - Done when `git grep -n -i "pin" -- apps packages` shows no sidebar or deck pin code outside old migrations.
 
 ### 2.5 Questions, approvals, subagents
 
@@ -239,7 +250,7 @@ App tab ops:
 5. Keep `state.pre-0.14.4.sqlite` until the operator deletes it.
 
 Mapping:
-- `threads` from `projection_threads` + `projection_thread_sessions`: all `state='idle'`; `space_id` from the thread's folder; `provider`/`model`/`model_options` from `model_selection_json`; `connection_id` from `projection_threads.connection_id`, else `thread_runtime_bindings.connection_id`; `provider_session_id` = codex `$.threadId`, claude `$.resume`, opencode `$.openCodeSessionId` from `provider_session_runtime.resume_cursor_json`; `native_state_id` from the `active` row of `provider_native_state_generations`; `created_by` = `agent` when `creation_source='penkra_mcp'`, `provider_native` when `'provider_native'`, else `user`; `created_by_thread_id` = `source_thread_id`; `runtime_mode`, `working_directory`, `parent_thread_id`, `deck_id`, `deck_sort_order`, `sidebar_sort_order`, `is_pinned`, `last_visited_at`, `last_activity_at`, `last_message_preview`, `last_user_message_at` (from `latest_user_message_at`), `archived_at`, `deleted_at`, `created_at`, `updated_at` copied; `open_question_count` = number of open questions written; `queue='[]'`; `draft=NULL`.
+- `threads` from `projection_threads` + `projection_thread_sessions`: all `state='idle'`; `space_id` from the thread's folder; `provider`/`model`/`model_options` from `model_selection_json`; `connection_id` from `projection_threads.connection_id`, else `thread_runtime_bindings.connection_id`; `provider_session_id` = codex `$.threadId`, claude `$.resume`, opencode `$.openCodeSessionId` from `provider_session_runtime.resume_cursor_json`; `native_state_id` from the `active` row of `provider_native_state_generations`; `created_by` = `agent` when `creation_source='penkra_mcp'`, `provider_native` when `'provider_native'`, else `user`; `created_by_thread_id` = `source_thread_id`; `runtime_mode`, `working_directory`, `parent_thread_id`, `deck_id`, `deck_sort_order`, `sidebar_sort_order`, `last_visited_at`, `last_activity_at`, `last_message_preview`, `last_user_message_at` (from `latest_user_message_at`), `archived_at`, `deleted_at`, `created_at`, `updated_at` copied; `open_question_count` = number of open questions written; `queue='[]'`; `draft=NULL`.
 - `thread_items` per thread in time order from messages, activities, operations, notices and pending interactions. Tool rows from activities and operations are grouped under one identity (activities: `data.toolCallId ?? data.toolUseId ?? data.callID ?? data.callId ?? data.item.id`, as `apps/web/src/workLog.ts:1884`; operations: `provider_operation_id`): one item per identity per thread, latest observation wins, the `operations` row wins a same-time tie. Old tool status `inProgress`/running in a migrated thread becomes `interrupted` (every migrated thread is idle).
 - Notices: `runtime.warning`, `context-compaction`, `media.presented`, `runtime.error` (text = `payload.message`), `provider.turn.start.failed` (text = `payload.detail`). `reasoning` activities → `reasoning` items. Every other activity kind is dropped. Questions come only from `projection_pending_interactions`.
 - Old OpenCode subagent results stored as `<task><task_result>…</task_result></task>` become the plain result text.
