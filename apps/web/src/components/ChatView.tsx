@@ -2112,7 +2112,13 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     }
 
     const visitedAt = new Date().toISOString();
-    markThreadVisited(activeThread.id, visitedAt);
+    void markThreadVisited(activeThread.id, visitedAt).catch((error: unknown) => {
+      toastManager.add({
+        type: "error",
+        title: "Unable to mark thread as read",
+        description: error instanceof Error ? error.message : String(error),
+      });
+    });
   }, [
     activeThread?.id,
     activeThread?.lastVisitedAt,

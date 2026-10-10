@@ -201,7 +201,7 @@ interface AppStore extends AppState {
   clearThreadDetailSyncFailure: (threadId: ThreadId) => void;
   removeDeletedProjectFromClientState: (folderId: Project["id"]) => void;
   removeDeletedThreadFromClientState: (threadId: ThreadId) => void;
-  markThreadVisited: (threadId: ThreadId, visitedAt: string) => void;
+  markThreadVisited: (threadId: ThreadId, visitedAt: string) => Promise<void>;
   markThreadUnread: (threadId: ThreadId) => void;
   toggleProject: (folderId: Project["id"]) => void;
   setProjectExpanded: (folderId: Project["id"], expanded: boolean) => void;
@@ -259,9 +259,7 @@ export const useStore = create<AppStore>((set) => ({
     set((state) => removeDeletedProjectFromClientState(state, folderId)),
   removeDeletedThreadFromClientState: (threadId) =>
     set((state) => removeDeletedThreadFromClientState(state, threadId)),
-  markThreadVisited: (threadId, visitedAt) => {
-    void markThreadVisited(threadId, visitedAt).catch(console.error);
-  },
+  markThreadVisited,
   markThreadUnread: (threadId) => set((state) => markThreadUnread(state, threadId)),
   toggleProject: (folderId) => set((state) => toggleProject(state, folderId)),
   setProjectExpanded: (folderId, expanded) =>
