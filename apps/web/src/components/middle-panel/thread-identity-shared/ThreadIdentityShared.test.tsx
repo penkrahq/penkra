@@ -11,10 +11,4 @@ describe("ThreadIdentityShared", () => {
     expect(markup).toContain("opencode");
     expect(markup).not.toContain("tabler-icon-folder");
   });
-
-  it("overlays the shared pin badge when the thread is pinned", () => {
-    const markup = renderToStaticMarkup(<ThreadIdentityShared harness="claudeAgent" pinned />);
-
-    expect(markup).toContain('data-slot="pin-badge"');
-  });
 });

@@ -16,7 +16,6 @@ export interface SidebarThreadRow extends SidebarThreadSummary {
   deckSortOrder: number;
   workingDirectory: string | null;
   sidebarSortOrder: number | undefined;
-  isPinned: boolean;
   parentThreadId: ThreadId | null;
   lastVisitedAt: string | undefined;
   lastMessagePreview: string | null;
@@ -52,7 +51,6 @@ export function buildSidebarThreadRows(
         deckSortOrder: row.deckSortOrder,
         workingDirectory: row.workingDirectory,
         sidebarSortOrder: row.sidebarSortOrder === null ? undefined : row.sidebarSortOrder,
-        isPinned: row.isPinned === 1,
         parentThreadId: row.parentThreadId,
         lastVisitedAt: row.lastVisitedAt === null ? undefined : row.lastVisitedAt,
         lastMessagePreview: row.lastMessagePreview,

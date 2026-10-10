@@ -614,32 +614,6 @@ describe("Pencil left rail", () => {
       expect(getComputedStyle(showMoreLabel).opacity).not.toBe(defaultLabelOpacity);
     });
   });
-
-  it("overlays reusable pin badges without changing thread or folder row geometry", async () => {
-    await render(
-      <div className="w-56">
-        <ThreadRowShared pinned>Pinned thread</ThreadRowShared>
-        <FolderGroupShared label="Pinned folder" pinned />
-      </div>,
-    );
-
-    const thread = page.getByRole("button", { name: "Pinned thread" }).element();
-    const folder = page.getByRole("button", { name: "Pinned folder" }).element();
-
-    for (const row of [thread, folder]) {
-      const leading = row.querySelector<HTMLElement>("[data-slot='left-rail-leading']")!;
-      const badge = row.querySelector<HTMLElement>("[data-slot='pin-badge']")!;
-      const leadingRect = leading.getBoundingClientRect();
-      const badgeRect = badge.getBoundingClientRect();
-
-      expect(row.dataset.pinned).toBe("true");
-      expect(row.getBoundingClientRect().height).toBe(27);
-      expect(leadingRect.width).toBe(14);
-      expect(badgeRect.left).toBeGreaterThan(leadingRect.left + leadingRect.width / 2);
-      expect(badgeRect.top).toBeGreaterThan(leadingRect.top + leadingRect.height / 2);
-    }
-  });
-
   it("reveals space affordances and shifts its title from the default edge", async () => {
     const onAction = vi.fn();
     await render(

@@ -2569,13 +2569,11 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
       const projectRows = yield* sql<{
         readonly scriptsJson: string;
         readonly defaultModelSelection: string;
-        readonly isPinned: number;
         readonly iconDataUrl: string | null;
       }>`
         SELECT
           scripts_json AS "scriptsJson",
           default_model_selection_json AS "defaultModelSelection",
-          is_pinned AS "isPinned",
           icon_data_url AS "iconDataUrl"
         FROM projection_folders
         WHERE folder_id = 'project-scripts'
@@ -2585,7 +2583,6 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
           scriptsJson:
             '[{"id":"script-1","name":"Build","command":"bun run build","icon":"build"}]',
           defaultModelSelection: '{"provider":"codex","model":"gpt-5"}',
-          isPinned: 0,
           iconDataUrl: "data:image/webp;base64,Y3VzdG9t",
         },
       ]);

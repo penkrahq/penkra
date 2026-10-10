@@ -16,7 +16,6 @@ export interface DeckThreadDndData {
   readonly preview: {
     readonly title: string;
     readonly harness: ProviderKind;
-    readonly pinned: boolean;
     readonly workStatus: WorkStatus;
   };
 }
@@ -39,7 +38,7 @@ export function ThreadDeckDragPreview(props: { preview: DeckThreadDndData["previ
       className="shadow-xl"
       icon={
         props.preview.workStatus === "idle" ? (
-          <ThreadIdentityShared harness={props.preview.harness} pinned={props.preview.pinned} />
+          <ThreadIdentityShared harness={props.preview.harness} />
         ) : (
           <WorkStatusShared status={props.preview.workStatus} />
         )

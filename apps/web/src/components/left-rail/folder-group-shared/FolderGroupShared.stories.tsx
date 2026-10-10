@@ -39,14 +39,6 @@ export const ClosedNeedsAttention: Story = {
 export const ClosedRecording: Story = {
   args: { defaultExpanded: false, workStatus: "recording" },
 };
-export const Pinned: Story = {
-  args: {
-    label: "Pinned folder",
-    pinned: true,
-    threads: threads.map((thread, index) => (index === 0 ? { ...thread, pinned: true } : thread)),
-  },
-  parameters: { pencil: { componentId: "D2SV3", pinBadgeComponentId: "dTHsB" } },
-};
 export const Running: Story = {
   args: {
     threads: threads.map((thread, index) =>

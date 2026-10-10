@@ -14,7 +14,6 @@ export interface FolderGroupThread {
   id: string;
   label: string;
   provider?: ProviderKind | "github";
-  pinned?: boolean;
   state?: LeftRailRowState;
   workStatus?: ThreadWorkStatus;
 }
@@ -33,7 +32,6 @@ export interface FolderGroupSharedProps {
   onHeaderContextMenu?: (event: MouseEvent<HTMLButtonElement>) => void;
   onShowMore?: () => void;
   onThreadSelect?: (id: string) => void;
-  pinned?: boolean;
   showMore?: boolean;
   threads?: FolderGroupThread[];
   workStatus?: ThreadWorkStatus;
@@ -53,7 +51,6 @@ export function FolderGroupShared({
   onHeaderContextMenu,
   onShowMore,
   onThreadSelect,
-  pinned = false,
   showMore = false,
   threads = [],
   workStatus = "idle",
@@ -80,7 +77,6 @@ export function FolderGroupShared({
           <FolderRowShared
             actionLabel={`Create thread in ${label}`}
             expanded={expanded}
-            pinned={pinned}
             state={headerState}
             workStatus={workStatus}
             {...(iconDataUrl === undefined ? {} : { iconDataUrl })}
@@ -102,7 +98,6 @@ export function FolderGroupShared({
             level="nested"
             onClick={() => onThreadSelect?.(thread.id)}
             {...(thread.provider === undefined ? {} : { harness: thread.provider })}
-            {...(thread.pinned === undefined ? {} : { pinned: thread.pinned })}
             {...(thread.state === undefined ? {} : { state: thread.state })}
             {...(thread.workStatus === undefined ? {} : { workStatus: thread.workStatus })}
           >

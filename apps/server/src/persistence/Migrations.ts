@@ -186,6 +186,7 @@ import Migration0174 from "./Migrations/174_ReservedIndependentRuntimeWork.ts";
 import Migration0175 from "./Migrations/175_ReservedProviderPurgeOwnershipIndexes.ts";
 import Migration0176 from "./Migrations/176_CleanCoreSchemaAndBackfill.ts";
 import Migration0178 from "./Migrations/178_ThreadDeckOrderIndex.ts";
+import Migration0179 from "./Migrations/179_RemoveFolderPinning.ts";
 import Migration0177 from "./Migrations/177_ThreadHarnessCanonicalForeignKey.ts";
 
 /**
@@ -370,6 +371,7 @@ export const migrationEntries = [
   [176, "CleanCoreSchemaAndBackfill", Migration0176],
   [177, "ThreadHarnessCanonicalForeignKey", Migration0177],
   [178, "ThreadDeckOrderIndex", Migration0178],
+  [179, "RemoveFolderPinning", Migration0179],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

@@ -26,7 +26,6 @@ export interface RecentViewDisplayEntry {
   title: string;
   subtitle: string;
   isCurrent: boolean;
-  isPinned: boolean;
   provider?: ProviderKind | undefined;
 }
 
@@ -39,7 +38,6 @@ export interface RecentViewThreadDraftSummary {
   id: ThreadId;
   folderId: FolderId;
   title?: string | undefined;
-  isPinned?: boolean | undefined;
 }
 
 export interface RecentViewAvailability {
@@ -173,9 +171,7 @@ export function resolveRecentViewNavigationIndex(input: {
 export function buildRecentViewDisplayEntries(input: {
   recentViews: readonly RecentView[];
   currentView: RecentView | null;
-  threadsById: Readonly<
-    Record<string, (SidebarThreadSummary & { isPinned?: boolean }) | undefined>
-  >;
+  threadsById: Readonly<Record<string, SidebarThreadSummary | undefined>>;
   draftThreadsById?: Readonly<Record<string, RecentViewThreadDraftSummary | undefined>>;
   folders: readonly Project[];
 }): RecentViewDisplayEntry[] {
@@ -189,7 +185,6 @@ export function buildRecentViewDisplayEntries(input: {
       view,
       kind: view.kind,
       isCurrent: key === currentKey,
-      isPinned: false,
     };
 
     switch (view.kind) {
@@ -208,7 +203,6 @@ export function buildRecentViewDisplayEntries(input: {
           provider,
           title,
           subtitle: subtitleParts.join(" · "),
-          isPinned: summary?.isPinned === true,
         };
       }
       case "settings":

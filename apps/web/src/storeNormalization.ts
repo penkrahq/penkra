@@ -48,7 +48,6 @@ export type ProjectNormalizationInput = Pick<
   | "defaultModelSelection"
   | "scripts"
   | "iconDataUrl"
-  | "isPinned"
   | "spaceId"
   | "sidebarSortOrder"
   | "createdAt"
@@ -168,7 +167,6 @@ export function threadShellsEqual(left: ThreadShell | undefined, right: ThreadSh
     left.createdAt === right.createdAt &&
     (left.archivedAt ?? null) === (right.archivedAt ?? null) &&
     left.updatedAt === right.updatedAt &&
-    (left.isPinned ?? false) === (right.isPinned ?? false) &&
     (left.workingDirectory ?? null) === (right.workingDirectory ?? null) &&
     (left.parentThreadId ?? null) === (right.parentThreadId ?? null) &&
     (left.creationSource ?? null) === (right.creationSource ?? null) &&
@@ -371,7 +369,6 @@ export function normalizeProject(
     previous.defaultModelSelection === defaultModelSelection &&
     previous.iconDataUrl === (incoming.iconDataUrl ?? null) &&
     previous.expanded === expanded &&
-    (previous.isPinned ?? false) === (incoming.isPinned ?? false) &&
     previous.spaceId === incoming.spaceId &&
     (previous.sidebarSortOrder ?? 0) === (incoming.sidebarSortOrder ?? 0) &&
     previous.createdAt === incoming.createdAt &&
@@ -392,7 +389,6 @@ export function normalizeProject(
     defaultModelSelection,
     iconDataUrl: incoming.iconDataUrl ?? null,
     expanded,
-    isPinned: incoming.isPinned ?? false,
     spaceId: incoming.spaceId,
     sidebarSortOrder: incoming.sidebarSortOrder ?? 0,
     createdAt: incoming.createdAt,
@@ -1600,7 +1596,6 @@ export function normalizeThreadFromReadModel(
     previous.createdAt === incoming.createdAt &&
     (previous.archivedAt ?? null) === (incoming.archivedAt ?? null) &&
     previous.updatedAt === incoming.updatedAt &&
-    (previous.isPinned ?? false) === (incoming.isPinned ?? false) &&
     previous.latestTurn === latestTurn &&
     (previous.pendingTurnStartMessageId ?? null) === pendingTurnStartMessageId &&
     previous.lastVisitedAt === lastVisitedAt &&
@@ -1643,7 +1638,6 @@ export function normalizeThreadFromReadModel(
     createdAt: incoming.createdAt,
     archivedAt: incoming.archivedAt ?? null,
     updatedAt: incoming.updatedAt,
-    isPinned: incoming.isPinned ?? false,
     latestTurn,
     pendingTurnStartMessageId,
     lastVisitedAt,
@@ -1703,7 +1697,6 @@ export function normalizeThreadShellSnapshot(
     createdAt: incoming.createdAt,
     archivedAt: incoming.archivedAt ?? null,
     updatedAt: incoming.updatedAt,
-    isPinned: incoming.isPinned ?? false,
     workingDirectory: nextWorkingDirectory,
     parentThreadId: incoming.parentThreadId ?? null,
     creationSource: incoming.creationSource ?? null,

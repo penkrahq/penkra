@@ -214,7 +214,6 @@ export const ORCHESTRATION_THREAD_HYDRATION_LIMITS = {
   summaryActivities: 500,
   detailActivities: 2_000,
 } as const;
-export const MAX_PINNED_PROJECTS = 3;
 const CHAT_ATTACHMENT_ID_MAX_CHARS = 128;
 export const CHAT_ASSISTANT_SELECTION_TEXT_MAX_CHARS = 4_000;
 // Correlation id is command id by design in this model.
@@ -373,7 +372,6 @@ export const OrchestrationFolder = Schema.Struct({
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
   iconDataUrl: Schema.optional(Schema.NullOr(FolderIconDataUrl)),
-  isPinned: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
   spaceId: SpaceId,
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   createdAt: IsoDateTime,
@@ -392,7 +390,6 @@ export const OrchestrationFolderShell = Schema.Struct({
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
   iconDataUrl: Schema.optional(Schema.NullOr(FolderIconDataUrl)),
-  isPinned: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
   spaceId: SpaceId,
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   createdAt: IsoDateTime,
@@ -536,7 +533,6 @@ export const OrchestrationThread = Schema.Struct({
   workingDirectory: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
     Schema.withDecodingDefault(() => null),
   ),
-  isPinned: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)).pipe(
     Schema.withDecodingDefault(() => null),
   ),
@@ -602,7 +598,6 @@ export const OrchestrationThreadShell = Schema.Struct({
   workingDirectory: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
     Schema.withDecodingDefault(() => null),
   ),
-  isPinned: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)).pipe(
     Schema.withDecodingDefault(() => null),
   ),
@@ -790,7 +785,7 @@ export type SidebarItemParent = typeof SidebarItemParent.Type;
 export const SidebarItemMovePosition = Schema.Union([
   Schema.Struct({ type: Schema.Literal("before"), item: SidebarItemReference }),
   Schema.Struct({ type: Schema.Literal("after"), item: SidebarItemReference }),
-  Schema.Struct({ type: Schema.Literal("pinned-boundary") }),
+  Schema.Struct({ type: Schema.Literal("start") }),
 ]);
 export type SidebarItemMovePosition = typeof SidebarItemMovePosition.Type;
 
@@ -806,7 +801,6 @@ export const FolderCreateCommand = Schema.Struct({
     Schema.withDecodingDefault(() => false),
   ),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
-  isPinned: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
   spaceId: SpaceId,
   createdAt: IsoDateTime,
 });
@@ -819,7 +813,6 @@ const FolderUpdateCommand = Schema.Struct({
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
   iconDataUrl: Schema.optional(Schema.NullOr(FolderIconDataUrl)),
-  isPinned: Schema.optional(Schema.Boolean),
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
 });
 
@@ -1305,7 +1298,6 @@ export const FolderCreatedPayload = Schema.Struct({
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
   iconDataUrl: Schema.optional(Schema.NullOr(FolderIconDataUrl)),
-  isPinned: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
   spaceId: SpaceId,
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   createdAt: IsoDateTime,
@@ -1319,7 +1311,6 @@ export const FolderUpdatedPayload = Schema.Struct({
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
   iconDataUrl: Schema.optional(Schema.NullOr(FolderIconDataUrl)),
-  isPinned: Schema.optional(Schema.Boolean),
   sidebarSortOrder: Schema.optional(NonNegativeInt),
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   updatedAt: IsoDateTime,

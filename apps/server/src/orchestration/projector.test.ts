@@ -26,7 +26,6 @@ function createEmptyReadModel(now: string): OrchestrationReadModel {
         workspaceRoot: null,
         defaultModelSelection: null,
         scripts: [],
-        isPinned: false,
         spaceId: SpaceId.makeUnsafe("space-1"),
         sidebarSortOrder: 0,
         createdAt: now,
@@ -120,7 +119,6 @@ async function projectThreadWithRunningTurn(input: { createdAt: string; startedA
       parentThreadId: null,
       sidebarSortOrder: 0,
       deckSortOrder: 0,
-      isPinned: false,
     }),
   );
 
@@ -409,7 +407,6 @@ describe("orchestration projector", () => {
         parentThreadId: null,
         sidebarSortOrder: 0,
         deckSortOrder: 0,
-        isPinned: false,
       }),
     );
 
@@ -551,7 +548,6 @@ describe("orchestration projector", () => {
         parentThreadId: null,
         sidebarSortOrder: 0,
         deckSortOrder: 0,
-        isPinned: false,
       }),
     );
 
@@ -629,7 +625,6 @@ describe("orchestration projector", () => {
         parentThreadId: null,
         sidebarSortOrder: 0,
         deckSortOrder: 0,
-        isPinned: false,
       }),
     );
     const originalMessage = await Effect.runPromise(
@@ -733,7 +728,6 @@ describe("orchestration projector", () => {
         parentThreadId: null,
         sidebarSortOrder: 0,
         deckSortOrder: 0,
-        isPinned: false,
       }),
     );
     const activityEvent = (input: { id: string; sequence: number; summary: string }) =>
@@ -807,7 +801,6 @@ describe("orchestration projector", () => {
         parentThreadId: null,
         sidebarSortOrder: 0,
         deckSortOrder: 0,
-        isPinned: false,
       }),
     );
 
@@ -865,7 +858,6 @@ describe("orchestration projector", () => {
         parentThreadId: null,
         sidebarSortOrder: 0,
         deckSortOrder: 0,
-        isPinned: false,
       }),
     );
 

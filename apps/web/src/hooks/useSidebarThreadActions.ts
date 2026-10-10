@@ -1,5 +1,5 @@
 // FILE: useSidebarThreadActions.ts
-// Purpose: Owns Sidebar thread pinning, archive/undo, deletion, and project-batch actions.
+// Purpose: Owns Sidebar thread archive/undo, deletion, and project-batch actions.
 // Layer: Web Sidebar controller hook
 // Exports: useSidebarThreadActions
 
@@ -77,35 +77,6 @@ export function useSidebarThreadActions(input: {
   useEffect(() => {
     sidebarThreadSummaryByIdRef.current = sidebarThreadSummaryById;
   }, [sidebarThreadSummaryById]);
-
-  const pinnedThreadIds = useMemo(
-    () =>
-      sortThreadsForSidebar(sidebarTreeThreads, appSettings.sidebarThreadSortOrder)
-        .filter((thread) => thread.isPinned)
-        .map((thread) => thread.id),
-    [sidebarTreeThreads, appSettings.sidebarThreadSortOrder],
-  );
-  const pinnedThreadIdSet = useMemo(() => new Set(pinnedThreadIds), [pinnedThreadIds]);
-  const setThreadPinned = useCallback(async (threadId: ThreadId, isPinned: boolean) => {
-    const api = readNativeApi();
-    if (!api) throw new Error("Unable to connect to the app server.");
-    await api.cleanCore.updateThread({
-      update: { action: "pin", threadId, isPinned, updatedAt: new Date().toISOString() },
-    });
-  }, []);
-  const toggleThreadPinned = useCallback(
-    (threadId: ThreadId) => {
-      const isPinned = pinnedThreadIdSet.has(threadId);
-      void setThreadPinned(threadId, !isPinned).catch((error) => {
-        console.error("Failed to update pinned thread state", { threadId, error });
-        toastManager.add({
-          type: "error",
-          title: isPinned ? "Unable to unpin thread" : "Unable to pin thread",
-        });
-      });
-    },
-    [pinnedThreadIdSet, setThreadPinned],
-  );
 
   const deleteThread = useCallback(
     async (
@@ -480,9 +451,6 @@ export function useSidebarThreadActions(input: {
   );
 
   return {
-    pinnedThreadIds,
-    pinnedThreadIdSet,
-    toggleThreadPinned,
     deleteThread,
     confirmAndDeleteThread,
     archiveThread,

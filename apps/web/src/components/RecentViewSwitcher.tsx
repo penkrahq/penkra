@@ -6,7 +6,7 @@
 import type { KeybindingShortcut } from "@penkra/contracts";
 
 import { formatShortcutLabel } from "../keybindings";
-import { MessageCircleIcon, PinFilledIcon, SettingsIcon } from "../lib/icons";
+import { MessageCircleIcon, SettingsIcon } from "../lib/icons";
 import { cn } from "../lib/utils";
 import type { RecentViewDisplayEntry } from "../recentViews.logic";
 import { ProviderIcon } from "./ProviderIcon";
@@ -124,11 +124,6 @@ export function RecentViewSwitcher(props: {
                   <div className="truncate text-[length:var(--app-font-size-ui,12px)] leading-4 text-muted-foreground">
                     {entry.subtitle}
                   </div>
-                </div>
-                <div className="flex shrink-0 items-center gap-1.5 text-muted-foreground">
-                  {entry.isPinned ? (
-                    <PinFilledIcon className="size-3.5" aria-label="Pinned" />
-                  ) : null}
                 </div>
               </div>
             );

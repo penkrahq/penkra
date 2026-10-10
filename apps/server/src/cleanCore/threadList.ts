@@ -37,7 +37,6 @@ export interface ThreadSummaryRecord {
   readonly deckId: ThreadDeckId | null;
   readonly deckSortOrder: number;
   readonly sidebarSortOrder: number | null;
-  readonly isPinned: number;
   readonly lastActivityAt: string | null;
   readonly lastMessagePreview: string | null;
   readonly lastUserMessageAt: string | null;
@@ -70,7 +69,6 @@ const THREAD_SUMMARY_COLUMNS = `
         deck_id AS "deckId",
         deck_sort_order AS "deckSortOrder",
         sidebar_sort_order AS "sidebarSortOrder",
-        is_pinned AS "isPinned",
         last_activity_at AS "lastActivityAt",
         last_message_preview AS "lastMessagePreview",
         last_user_message_at AS "lastUserMessageAt",
@@ -81,10 +79,8 @@ const THREAD_SUMMARY_COLUMNS = `
         created_at AS "createdAt",
         updated_at AS "updatedAt"
 `;
-
-/** The sidebar order key: pinned first, then manual order, then newest. */
+/** The sidebar order key: manual order, then newest. */
 export interface ThreadListCursor {
-  readonly isPinned: number;
   readonly sidebarSortOrder: number;
   readonly createdAt: string;
   readonly id: ThreadId;
@@ -114,7 +110,6 @@ export const listThreads = (input: {
     const limit = input.limit ?? THREADS_PAGE_SIZE;
     const after = input.after ?? null;
     const hasAfter = after === null ? 0 : 1;
-    const afterPinned = after?.isPinned ?? null;
     const afterOrder = after?.sidebarSortOrder ?? null;
     const afterCreatedAt = after?.createdAt ?? null;
     const afterId = after?.id ?? null;
@@ -126,24 +121,18 @@ export const listThreads = (input: {
         AND deleted_at IS NULL
         AND (
           ${hasAfter} = 0
-          OR is_pinned < ${afterPinned}
+          OR COALESCE(sidebar_sort_order, 0) > ${afterOrder}
           OR (
-            is_pinned = ${afterPinned}
-            AND COALESCE(sidebar_sort_order, 0) > ${afterOrder}
-          )
-          OR (
-            is_pinned = ${afterPinned}
-            AND COALESCE(sidebar_sort_order, 0) = ${afterOrder}
+            COALESCE(sidebar_sort_order, 0) = ${afterOrder}
             AND created_at < ${afterCreatedAt}
           )
           OR (
-            is_pinned = ${afterPinned}
-            AND COALESCE(sidebar_sort_order, 0) = ${afterOrder}
+            COALESCE(sidebar_sort_order, 0) = ${afterOrder}
             AND created_at = ${afterCreatedAt}
             AND id > ${afterId}
           )
         )
-      ORDER BY is_pinned DESC, COALESCE(sidebar_sort_order, 0) ASC, created_at DESC, id ASC
+      ORDER BY COALESCE(sidebar_sort_order, 0) ASC, created_at DESC, id ASC
       LIMIT ${limit + 1}
     `;
     const pageRows = rows.length > limit ? rows.slice(0, limit) : rows;
@@ -153,7 +142,6 @@ export const listThreads = (input: {
       nextCursor:
         rows.length > limit && last !== undefined
           ? {
-              isPinned: last.isPinned,
               sidebarSortOrder: last.sidebarSortOrder ?? 0,
               createdAt: last.createdAt,
               id: last.id,

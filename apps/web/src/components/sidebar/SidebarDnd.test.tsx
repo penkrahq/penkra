@@ -14,10 +14,10 @@ import {
 } from "./SidebarDnd";
 import type { DragOverEvent } from "@dnd-kit/react";
 
-function itemData(kind: "folder" | "thread", pinned: boolean): SidebarDndData {
+function itemData(kind: "folder" | "thread"): SidebarDndData {
   return {
     type: "item",
-    item: { kind, id: `${kind}-${pinned}` as never },
+    item: { kind, id: kind as never },
     parent:
       kind === "folder"
         ? { kind: "space", spaceId: "space" as never }
@@ -25,13 +25,12 @@ function itemData(kind: "folder" | "thread", pinned: boolean): SidebarDndData {
     label: kind,
     preview:
       kind === "folder"
-        ? { kind, label: kind, expanded: false, pinned, workStatus: "idle" }
+        ? { kind, label: kind, expanded: false, workStatus: "idle" }
         : {
             kind,
             label: kind,
             harness: "codex",
             level: "root",
-            pinned,
             workStatus: "idle",
           },
   };
@@ -45,7 +44,6 @@ describe("SidebarDragPreview", () => {
           kind: "folder",
           label: "Release planning",
           expanded: true,
-          pinned: true,
           workStatus: "running",
         }}
       />,
@@ -53,11 +51,10 @@ describe("SidebarDragPreview", () => {
 
     expect(markup).toContain('data-slot="left-rail-leading"');
     expect(markup).toContain('data-slot="folder-state-icon"');
-    expect(markup).toContain('data-pinned="true"');
     expect(markup).toContain("Release planning");
   });
 
-  it("preserves a thread's leading icon, nesting, pin, and status", () => {
+  it("preserves a thread's leading icon, nesting, and status", () => {
     const markup = renderToStaticMarkup(
       <SidebarDragPreview
         preview={{
@@ -65,7 +62,6 @@ describe("SidebarDragPreview", () => {
           label: "Fix drag preview",
           harness: "github",
           level: "nested",
-          pinned: true,
           workStatus: "attention",
         }}
       />,
@@ -73,32 +69,21 @@ describe("SidebarDragPreview", () => {
 
     expect(markup).toContain('data-slot="left-rail-leading"');
     expect(markup).toContain('data-thread-level="nested"');
-    expect(markup).toContain('data-pinned="true"');
     expect(markup).toContain('data-work-status="attention"');
     expect(markup).toContain("Fix drag preview");
   });
 
-  it("keeps sortable targets inside the same item kind and pin partition", () => {
-    const unpinnedTarget = itemData("folder", false);
+  it("keeps sortable targets inside the same item kind", () => {
+    const folderTarget = itemData("folder");
 
-    expect(acceptedTypesForData(unpinnedTarget)).toContain(
-      dragTypeForData(itemData("folder", false)),
-    );
-    expect(acceptedTypesForData(unpinnedTarget)).not.toContain(
-      dragTypeForData(itemData("thread", false)),
-    );
-    expect(acceptedTypesForData(unpinnedTarget)).not.toContain(
-      dragTypeForData(itemData("thread", true)),
-    );
-    expect(acceptedTypesForData(unpinnedTarget)).not.toContain(
-      dragTypeForData(itemData("folder", true)),
-    );
+    expect(acceptedTypesForData(folderTarget)).toContain(dragTypeForData(itemData("folder")));
+    expect(acceptedTypesForData(folderTarget)).not.toContain(dragTypeForData(itemData("thread")));
   });
 
   it("allows compatible row anchors across React-owned parents", () => {
-    const source = itemData("thread", false);
-    const sameFolder = itemData("thread", false);
-    const otherFolder = itemData("thread", false);
+    const source = itemData("thread");
+    const sameFolder = itemData("thread");
+    const otherFolder = itemData("thread");
     if (source.type !== "item" || sameFolder.type !== "item" || otherFolder.type !== "item") {
       throw new Error("Expected items");
     }
@@ -113,21 +98,15 @@ describe("SidebarDragPreview", () => {
     expect(areSidebarItemParentsEqual(source.parent, otherFolder.parent)).toBe(false);
   });
 
-  it("keeps explicit space containers available only to folders in both pin partitions", () => {
+  it("keeps explicit space containers available only to folders", () => {
     const container: SidebarDndData = {
       type: "container",
       parent: { kind: "space", spaceId: "space" as never },
       label: "Space",
     };
 
-    expect(acceptedTypesForData(container)).toContain(dragTypeForData(itemData("folder", true)));
-    expect(acceptedTypesForData(container)).toContain(dragTypeForData(itemData("folder", false)));
-    expect(acceptedTypesForData(container)).not.toContain(
-      dragTypeForData(itemData("thread", true)),
-    );
-    expect(acceptedTypesForData(container)).not.toContain(
-      dragTypeForData(itemData("thread", false)),
-    );
+    expect(acceptedTypesForData(container)).toContain(dragTypeForData(itemData("folder")));
+    expect(acceptedTypesForData(container)).not.toContain(dragTypeForData(itemData("thread")));
   });
 
   it("keeps explicit folder containers available only to threads", () => {
@@ -137,11 +116,8 @@ describe("SidebarDragPreview", () => {
       label: "Project",
     };
 
-    expect(acceptedTypesForData(container)).toContain(dragTypeForData(itemData("thread", true)));
-    expect(acceptedTypesForData(container)).toContain(dragTypeForData(itemData("thread", false)));
-    expect(acceptedTypesForData(container)).not.toContain(
-      dragTypeForData(itemData("folder", false)),
-    );
+    expect(acceptedTypesForData(container)).toContain(dragTypeForData(itemData("thread")));
+    expect(acceptedTypesForData(container)).not.toContain(dragTypeForData(itemData("folder")));
   });
 
   it("allows folders only in Spaces and threads only in folders", () => {
@@ -172,8 +148,8 @@ describe("SidebarDragPreview", () => {
   });
 
   it("resolves only compatible semantic drop targets", () => {
-    const thread = itemData("thread", false);
-    const project = itemData("folder", false);
+    const thread = itemData("thread");
+    const project = itemData("folder");
     if (thread.type !== "item" || project.type !== "item") throw new Error("Expected items");
 
     expect(
@@ -189,7 +165,7 @@ describe("SidebarDragPreview", () => {
     expect(resolveSidebarItemDropTarget(thread.item, project)).toBeNull();
     expect(resolveSidebarItemDropTarget(thread.item, thread)).toBeNull();
 
-    const siblingThread = itemData("thread", false);
+    const siblingThread = itemData("thread");
     if (siblingThread.type !== "item") throw new Error("Expected item");
     siblingThread.item = { kind: "thread", id: "sibling" as never };
     expect(resolveSidebarItemDropTarget(thread.item, siblingThread)).toEqual({

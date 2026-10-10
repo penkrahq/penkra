@@ -3,7 +3,6 @@ import type { ComponentProps, MouseEvent } from "react";
 import { NewThreadIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { FolderStateIcon } from "../folder-state-icon/FolderStateIcon";
-import { PinBadgeShared } from "../pin-badge-shared/PinBadgeShared";
 import { LeftRailRow } from "../row-shared/LeftRailRow";
 import { WorkStatusShared, type WorkStatus } from "../work-status-shared/WorkStatusShared";
 
@@ -13,24 +12,17 @@ export interface FolderRowSharedProps extends Omit<
 > {
   expanded?: boolean;
   iconDataUrl?: string | null;
-  pinned?: boolean;
   actionLabel?: string;
   onAction?: (event: MouseEvent<HTMLButtonElement>) => void;
   workStatus?: WorkStatus;
 }
-
-export function FolderRowLeading(props: {
-  expanded?: boolean;
-  iconDataUrl?: string | null;
-  pinned?: boolean;
-}) {
+export function FolderRowLeading(props: { expanded?: boolean; iconDataUrl?: string | null }) {
   return (
     <span className="relative inline-flex size-3.5 items-center justify-center">
       <FolderStateIcon
         open={props.expanded ?? false}
         {...(props.iconDataUrl === undefined ? {} : { iconDataUrl: props.iconDataUrl })}
       />
-      {props.pinned ? <PinBadgeShared /> : null}
     </span>
   );
 }
@@ -42,7 +34,6 @@ export function FolderRowShared({
   expanded = false,
   iconDataUrl,
   onAction,
-  pinned = false,
   state = "default",
   workStatus = "idle",
   ...props
@@ -68,12 +59,10 @@ export function FolderRowShared({
         leading={
           <FolderRowLeading
             expanded={expanded}
-            pinned={pinned}
             {...(iconDataUrl === undefined ? {} : { iconDataUrl })}
           />
         }
         leadingClassName="size-3.5"
-        data-pinned={pinned ? "true" : undefined}
         data-work-status={workStatus}
         {...(disabled === undefined ? {} : { disabled })}
         state={state}

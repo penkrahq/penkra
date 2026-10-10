@@ -123,7 +123,6 @@ import {
   moveSpace,
   publishSidebarRows,
   moveSidebarItem,
-  setThreadPinned,
   setThreadRuntimeMode,
   setThreadWorkingDirectory,
 } from "./cleanCore/threadStore.ts";
@@ -1485,10 +1484,6 @@ const makeWsRpcHandlersLayer = () =>
                 }
                 case "moveSpace": {
                   yield* publishSidebarRows(threadPublisher, "space", yield* moveSpace(update));
-                  return;
-                }
-                case "pin": {
-                  if (yield* setThreadPinned(update)) publish(update.threadId);
                   return;
                 }
                 case "visit": {

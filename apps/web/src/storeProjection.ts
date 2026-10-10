@@ -89,7 +89,6 @@ function toThreadShell(thread: Thread): ThreadShell {
     createdAt: thread.createdAt,
     archivedAt: thread.archivedAt ?? null,
     updatedAt: thread.updatedAt,
-    isPinned: thread.isPinned ?? false,
     workingDirectory: thread.workingDirectory ?? null,
     parentThreadId: thread.parentThreadId ?? null,
     creationSource: thread.creationSource ?? null,

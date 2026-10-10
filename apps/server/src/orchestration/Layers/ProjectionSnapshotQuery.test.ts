@@ -390,7 +390,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           updatedAt: "2026-02-24T00:00:01.000Z",
           archivedAt: null,
           deletedAt: null,
-          isPinned: false,
           sidebarSortOrder: 0,
         },
       ]);
@@ -408,7 +407,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           },
           runtimeMode: "full-access",
           workingDirectory: null,
-          isPinned: false,
           sidebarSortOrder: 0,
           parentThreadId: null,
           creationSource: null,
@@ -1483,7 +1481,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           },
           runtimeMode: "full-access",
           workingDirectory: null,
-          isPinned: false,
           sidebarSortOrder: 0,
           parentThreadId: null,
           creationSource: null,

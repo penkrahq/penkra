@@ -10,7 +10,6 @@ export interface TopBarThreadProps extends HTMLAttributes<HTMLElement> {
   harness?: ProviderKind;
   leftRailCollapsed?: boolean;
   onRestoreLeftRail?: () => void;
-  pinned?: boolean;
   title?: string;
 }
 
@@ -20,7 +19,6 @@ export function TopBarThread({
   harness = "codex",
   leftRailCollapsed = false,
   onRestoreLeftRail,
-  pinned = false,
   title = "Audit HIPAA compliance",
   ...props
 }: TopBarThreadProps) {
@@ -48,7 +46,7 @@ export function TopBarThread({
               <CentralIcon className="size-4" name="sidebar-simple-left-wide" />
             </button>
           ) : (
-            <ThreadIdentityShared harness={harness} pinned={pinned} />
+            <ThreadIdentityShared harness={harness} />
           )}
           <span
             className={cn(

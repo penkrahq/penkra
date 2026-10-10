@@ -350,7 +350,6 @@ export function projectEvent(
             defaultModelSelection: payload.defaultModelSelection,
             scripts: payload.scripts,
             iconDataUrl: payload.iconDataUrl ?? null,
-            isPinned: payload.isPinned ?? false,
             spaceId: payload.spaceId,
             sidebarSortOrder: payload.sidebarSortOrder ?? 0,
             createdAt: payload.createdAt,
@@ -389,7 +388,6 @@ export function projectEvent(
                   ...(payload.iconDataUrl !== undefined
                     ? { iconDataUrl: payload.iconDataUrl }
                     : {}),
-                  ...(payload.isPinned !== undefined ? { isPinned: payload.isPinned } : {}),
                   ...(payload.sidebarSortOrder !== undefined
                     ? { sidebarSortOrder: payload.sidebarSortOrder }
                     : {}),

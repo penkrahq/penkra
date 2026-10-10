@@ -13,7 +13,6 @@ import {
   moveSpace,
   publishSidebarRows,
   setThreadArchived,
-  setThreadPinned,
   upsertThreadItem,
 } from "./threadStore.ts";
 import { THREAD_ITEM_DATA_LIMIT_BYTES } from "./threadItemData.ts";
@@ -189,37 +188,6 @@ it.effect("stores last_message_preview unchanged (no fixed truncation)", () =>
     }),
   ),
 );
-
-it.effect("setThreadPinned is idempotent and reports whether it changed", () =>
-  withDb(
-    Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations();
-      yield* createThread(baseThread);
-      assert.equal(
-        yield* setThreadPinned({
-          threadId: "thread-1",
-          isPinned: true,
-          updatedAt: "2026-10-09T00:00:05.000Z",
-        }),
-        true,
-      );
-      assert.equal(
-        yield* setThreadPinned({
-          threadId: "thread-1",
-          isPinned: true,
-          updatedAt: "2026-10-09T00:00:06.000Z",
-        }),
-        false,
-      );
-      const rows = yield* sql<{ readonly isPinned: number }>`
-        SELECT is_pinned AS "isPinned" FROM threads WHERE id = 'thread-1'
-      `;
-      assert.deepStrictEqual(rows, [{ isPinned: 1 }]);
-    }),
-  ),
-);
-
 it.effect("moveSidebarItem renumbers its folder siblings in one transaction", () =>
   withDb(
     Effect.gen(function* () {
@@ -456,18 +424,17 @@ it.effect("moveSpace renumbers active siblings and repeats without writes or bro
     }),
   ),
 );
-
-it.effect("deck moves ignore sidebar pins, renumber both decks and repeat without writes", () =>
+it.effect("deck moves renumber both decks and repeat without writes", () =>
   withDb(
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations();
-      for (const [id, deckId, order, pinned] of [
-        ["a", "one", 0, 0],
-        ["b", "one", 1, 1],
-        ["c", "two", 0, 1],
+      for (const [id, deckId, order] of [
+        ["a", "one", 0],
+        ["b", "one", 1],
+        ["c", "two", 0],
       ] as const) {
-        yield* createThread({ ...baseThread, id, deckId, deckSortOrder: order, isPinned: pinned });
+        yield* createThread({ ...baseThread, id, deckId, deckSortOrder: order });
       }
       for (const id of ["one", "two"])
         yield* sql`INSERT INTO projection_thread_decks

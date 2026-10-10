@@ -32,7 +32,6 @@ function threadShell(overrides: Partial<OrchestrationThreadShell> = {}): Orchest
     title: "Runtime reconciliation",
     modelSelection: { provider: "codex", model: "gpt-5.6" },
     runtimeMode: "full-access",
-    isPinned: false,
     parentThreadId: null,
     creationSource: null,
     sourceThreadId: null,

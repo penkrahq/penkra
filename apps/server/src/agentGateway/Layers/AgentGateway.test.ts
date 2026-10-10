@@ -93,7 +93,6 @@ function makeProjectShell(
     workspaceRoot: "/tmp/demo",
     defaultModelSelection: null,
     scripts,
-    isPinned: false,
     createdAt: NOW,
     updatedAt: NOW,
   };
@@ -112,7 +111,6 @@ function makeThreadShell(
     modelSelection: { provider: "codex", model: "gpt-5.5" },
     runtimeMode: "approval-required",
     workingDirectory: null,
-    isPinned: false,
     parentThreadId: null,
     subagentAgentId: null,
     subagentNickname: null,
@@ -409,7 +407,6 @@ function makeHarnessLayer(
     deckId: thread.deckId,
     deckSortOrder: thread.deckSortOrder,
     sidebarSortOrder: null,
-    isPinned: thread.isPinned ? 1 : 0,
     lastActivityAt: null,
     lastMessagePreview: null,
     lastUserMessageAt: null,

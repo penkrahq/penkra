@@ -56,7 +56,6 @@ export const createThreadFromClient = (input: CleanCoreCreateThreadInput) =>
           deckId: input.deckId,
           deckSortOrder: order[0]!.nextOrder,
           sidebarSortOrder: null,
-          isPinned: 0,
           title: input.title,
           provider: input.modelSelection.provider,
           model: input.modelSelection.model,

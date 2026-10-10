@@ -1,15 +1,14 @@
 // FILE: ProjectHoverCardContent.tsx
 // Purpose: Interactive hover-card body for sidebar project/folder rows — project
-//          name + pin toggle on the header line, then the chat count, the project
+//          name on the header line, then the chat count, the project
 //          path, and a clickable "Edit project" action.
 // Layer: Sidebar UI component
 // Exports: ProjectHoverCardContent
 // Why: Rendered inside a Base UI PreviewCard (hover-open + interactive), so the
-//      pin and "Edit project" rows are real controls. Spacing/type mirror the
+//      "Edit project" row is a real control. Spacing/type mirror the
 //      app's menu rows (12px UI font, compact padding) so it reads as native.
 
 import { MessageCircleIcon, SettingsIcon } from "~/lib/icons";
-import { PinStatusIcon, pinActionLabel } from "~/lib/pin";
 import { cn } from "~/lib/utils";
 import { FolderClosed, FolderOpen } from "./FolderClosed";
 import {
@@ -19,11 +18,9 @@ import {
 
 export type ProjectHoverCardContentProps = {
   name: string;
-  isPinned: boolean;
   chatCount: number;
   /** Display path (already home-abbreviated, e.g. ~/Developer/penkra). */
   path: string;
-  onTogglePin: () => void;
   onEditProject: () => void;
 };
 
@@ -43,10 +40,8 @@ function formatChatCount(count: number): string {
 
 export function ProjectHoverCardContent({
   name,
-  isPinned,
   chatCount,
   path,
-  onTogglePin,
   onEditProject,
 }: ProjectHoverCardContentProps) {
   return (
@@ -56,18 +51,6 @@ export function ProjectHoverCardContent({
       <div className={cn(ROW_CLASS_NAME, "gap-2.5")}>
         <FolderOpen className={ICON_CLASS_NAME} aria-hidden />
         <span className="min-w-0 flex-1 truncate font-medium text-foreground">{name}</span>
-        <button
-          type="button"
-          aria-label={pinActionLabel(name, isPinned)}
-          aria-pressed={isPinned}
-          onClick={onTogglePin}
-          className={cn(
-            "-mr-1 shrink-0 cursor-pointer rounded-sm p-1 transition-colors",
-            isPinned ? "text-foreground" : "text-muted-foreground/55 hover:text-foreground",
-          )}
-        >
-          <PinStatusIcon pinned={isPinned} className="size-3" aria-hidden />
-        </button>
       </div>
       <div className={cn(ROW_CLASS_NAME, "text-foreground/80")}>
         <MessageCircleIcon className={ICON_CLASS_NAME} aria-hidden />

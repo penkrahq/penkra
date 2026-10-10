@@ -363,7 +363,6 @@ function summarizeFixtureThread(thread: OrchestrationThread) {
     deckId: thread.deckId,
     deckSortOrder: thread.deckSortOrder,
     sidebarSortOrder: thread.sidebarSortOrder ?? null,
-    isPinned: thread.isPinned ? 1 : 0,
     lastActivityAt: thread.lastActivityAt ?? null,
     lastMessagePreview: thread.lastMessagePreview ?? null,
     lastUserMessageAt: thread.latestUserMessageAt ?? null,

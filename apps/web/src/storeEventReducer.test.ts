@@ -47,7 +47,6 @@ describe("store event reducer", () => {
     const oldRow = makeReadModelThread({
       title: "Older reply",
       updatedAt: "2026-02-27T00:01:00.000Z",
-      isPinned: false,
       lastVisitedAt: null,
     });
     const initial = syncServerReadModel(makeState(makeThread()), makeReadModel(oldRow));
@@ -58,7 +57,6 @@ describe("store event reducer", () => {
     const newRow = {
       ...oldRow,
       title: "Newer broadcast",
-      isPinned: true,
       lastVisitedAt: "2026-02-27T00:02:00.000Z",
       updatedAt: "2026-02-27T00:02:00.000Z",
     };
@@ -67,7 +65,6 @@ describe("store event reducer", () => {
     const afterReply = syncServerShellSnapshot(broadcast, await inFlight);
     expect(threadsOf(afterReply)[0]).toMatchObject({
       title: newRow.title,
-      isPinned: true,
       updatedAt: newRow.updatedAt,
       lastVisitedAt: newRow.lastVisitedAt,
     });
@@ -1409,7 +1406,6 @@ describe("store event reducer", () => {
           runtimeMode: DEFAULT_RUNTIME_MODE,
           sidebarSortOrder: 1,
           workingDirectory: null,
-          isPinned: false,
           parentThreadId: null,
           creationSource: null,
           sourceThreadId: null,

@@ -136,7 +136,6 @@ export const CleanCoreThreadSummary = Schema.Struct({
   deckId: Schema.NullOr(ThreadDeckId),
   deckSortOrder: Schema.Number,
   sidebarSortOrder: Schema.NullOr(Schema.Number),
-  isPinned: Schema.Number,
   lastActivityAt: Schema.NullOr(IsoDateTime),
   lastMessagePreview: Schema.NullOr(Schema.String),
   lastUserMessageAt: Schema.NullOr(IsoDateTime),
@@ -150,7 +149,6 @@ export const CleanCoreThreadSummary = Schema.Struct({
 export type CleanCoreThreadSummary = typeof CleanCoreThreadSummary.Type;
 
 export const CleanCoreThreadListCursor = Schema.Struct({
-  isPinned: Schema.Number,
   sidebarSortOrder: Schema.Number,
   createdAt: IsoDateTime,
   id: ThreadId,
@@ -225,7 +223,7 @@ export type CleanCoreCreateThreadResponse = typeof CleanCoreCreateThreadResponse
 
 export const CleanCoreThreadMovePosition = Schema.Union([
   Schema.Struct({ type: Schema.Literals(["before", "after"]), itemId: Schema.String }),
-  Schema.Struct({ type: Schema.Literal("pinned-boundary") }),
+  Schema.Struct({ type: Schema.Literal("start") }),
 ]);
 export type CleanCoreThreadMovePosition = typeof CleanCoreThreadMovePosition.Type;
 
@@ -302,12 +300,6 @@ export const CleanCoreThreadUpdate = Schema.Union([
     action: Schema.Literal("moveSpace"),
     spaceId: SpaceId,
     position: CleanCoreThreadMovePosition,
-    updatedAt: IsoDateTime,
-  }),
-  Schema.Struct({
-    action: Schema.Literal("pin"),
-    threadId: ThreadId,
-    isPinned: Schema.Boolean,
     updatedAt: IsoDateTime,
   }),
   Schema.Struct({

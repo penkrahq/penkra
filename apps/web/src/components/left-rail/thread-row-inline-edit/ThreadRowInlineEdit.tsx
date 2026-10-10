@@ -10,7 +10,6 @@ export interface ThreadRowInlineEditProps {
   onCancel: () => void;
   onSubmit: (name: string) => Promise<void> | void;
   onValueChange?: (value: string) => void;
-  pinned?: boolean;
   value?: string;
 }
 
@@ -21,7 +20,6 @@ export function ThreadRowInlineEdit({
   onCancel,
   onSubmit,
   onValueChange,
-  pinned = false,
   value,
 }: ThreadRowInlineEditProps) {
   return (
@@ -29,7 +27,7 @@ export function ThreadRowInlineEdit({
       ariaLabel="Rename thread"
       className={level === "nested" ? "pl-6" : "pl-2.5"}
       defaultValue={defaultValue}
-      leading={<ThreadRowLeading harness={harness} pinned={pinned} />}
+      leading={<ThreadRowLeading harness={harness} />}
       onCancel={onCancel}
       onSubmit={onSubmit}
       {...(onValueChange === undefined ? {} : { onValueChange })}

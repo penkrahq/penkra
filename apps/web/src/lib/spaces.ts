@@ -108,8 +108,7 @@ export async function reorderSpaces(input: {
     update: {
       action: "moveSpace",
       spaceId: input.movedSpaceId,
-      position:
-        previous === undefined ? { type: "pinned-boundary" } : { type: "after", itemId: previous },
+      position: previous === undefined ? { type: "start" } : { type: "after", itemId: previous },
       updatedAt: new Date().toISOString(),
     },
   });

@@ -601,7 +601,6 @@ function applyOrchestrationEvent(
           defaultModelSelection: event.payload.defaultModelSelection,
           scripts: event.payload.scripts,
           iconDataUrl: event.payload.iconDataUrl ?? null,
-          isPinned: event.payload.isPinned ?? false,
           spaceId: event.payload.spaceId,
           createdAt: event.payload.createdAt,
           updatedAt: event.payload.updatedAt,
@@ -634,7 +633,6 @@ function applyOrchestrationEvent(
             event.payload.iconDataUrl !== undefined
               ? event.payload.iconDataUrl
               : existingProject.iconDataUrl,
-          isPinned: event.payload.isPinned ?? existingProject.isPinned ?? false,
           spaceId: existingProject.spaceId,
           createdAt: existingProject.createdAt ?? event.payload.updatedAt,
           updatedAt: event.payload.updatedAt,
@@ -655,7 +653,6 @@ function applyOrchestrationEvent(
               defaultModelSelection: existingFolder.defaultModelSelection,
               scripts: existingFolder.scripts,
               iconDataUrl: existingFolder.iconDataUrl,
-              isPinned: existingFolder.isPinned ?? false,
               spaceId: event.payload.spaceId,
               sidebarSortOrder: existingFolder.sidebarSortOrder,
               createdAt: existingFolder.createdAt ?? event.payload.updatedAt,

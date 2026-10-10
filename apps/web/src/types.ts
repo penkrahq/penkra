@@ -126,7 +126,6 @@ export interface Project {
   defaultModelSelection: ModelSelection | null;
   iconDataUrl?: string | null;
   expanded: boolean;
-  isPinned?: boolean;
   spaceId: SpaceId;
   sidebarSortOrder?: number;
   createdAt?: string | undefined;
@@ -172,7 +171,6 @@ export interface Thread extends ThreadWorkspaceState {
   createdAt: string;
   archivedAt?: string | null;
   updatedAt?: string | undefined;
-  isPinned?: boolean;
   latestTurn: OrchestrationLatestTurn | null;
   pendingTurnStartMessageId?: MessageId | null;
   lastVisitedAt?: string | undefined;
@@ -209,7 +207,6 @@ export interface ThreadShell extends ThreadWorkspaceState {
   createdAt: string;
   archivedAt?: string | null;
   updatedAt?: string | undefined;
-  isPinned?: boolean;
   parentThreadId?: ThreadId | null;
   creationSource?: ThreadCreationSource | null;
   sourceThreadId?: ThreadId | null;

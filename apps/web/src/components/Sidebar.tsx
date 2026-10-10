@@ -6,7 +6,6 @@ import { SidebarThreadPageEnd } from "./SidebarThreadPageEnd";
 import { useSidebarThreadRows, type SidebarThreadRow } from "../sidebarThreadRows";
 import { loadThread, loadThreadPage } from "../threadListStore";
 import {
-  MAX_PINNED_PROJECTS,
   FolderId,
   SpaceId,
   ThreadId,
@@ -44,7 +43,6 @@ import { DESKTOP_TOP_BAR_TRAFFIC_LIGHT_GUTTER_CLASS } from "~/hooks/useDesktopTo
 import { useDesktopWindowState } from "~/hooks/useDesktopWindowState";
 import { createCentralIconComponent } from "~/lib/central-icons";
 import { PlayIcon, TriangleAlertIcon } from "~/lib/icons";
-import { pinActionLabel } from "~/lib/pin";
 import { cn } from "~/lib/utils";
 import { useAppSettings } from "../appSettings";
 import type { LastThreadRoute } from "../chatRouteRestore";
@@ -101,8 +99,6 @@ import { isTerminalFocused } from "../lib/terminalFocus";
 import { dispatchThreadRename } from "../lib/threadRename";
 import { isMacPlatform, newCommandId, newFolderId, newThreadId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
-import { usePinnedFoldersStore } from "../pinnedFoldersStore";
-import { reconcileOptimisticPinState } from "../pinning.logic";
 import { useSpacesUiStore } from "../spacesUiStore";
 import { useSidebarInlineRenameStore } from "../sidebarInlineRenameStore";
 import { persistAppStateNow, useStore } from "../store";
@@ -122,16 +118,13 @@ import {
   buildProjectThreadTree,
   canArchiveSidebarFolder,
   canArchiveSidebarThreads,
-  derivePinnedFolderIdsForSidebar,
   deriveSidebarProjectData,
   getNextVisibleSidebarThreadId,
   getSidebarThreadLifecycleMenuItems,
   getSidebarThreadIdsToPrewarm,
   getVisibleSidebarEntriesForPreview,
   groupSidebarThreadsByFolderId,
-  isLatestPinnedProjectMutation,
   isFoldersSidebarSurface,
-  orderPinnedFoldersForSidebar,
   orderSidebarSpaceItems,
   pruneProjectThreadListPagingForCollapsedFolders,
   resolveProjectHeaderState,
@@ -141,7 +134,6 @@ import {
   resolveSidebarThreadSummaryStatus,
   resolveVisibleThreadWorkStatus,
   shouldClearThreadSelectionOnMouseDown,
-  shouldPrunePinnedFolders,
   shouldShowDebugFeatureFlagsMenu,
   sortFoldersForSidebar,
   sortThreadsForSidebar,
@@ -267,7 +259,6 @@ type ProjectContextMenuId =
   | "rename"
   | "set-icon"
   | "remove-icon"
-  | "toggle-pin"
   | "archive";
 
 type ProjectNativeContextMenuId = ProjectContextMenuId | "new-space" | `move-to-space:${string}`;
@@ -433,10 +424,6 @@ export default function Sidebar() {
   const openTerminalThreadPage = useTerminalStateStore((state) => state.openTerminalThreadPage);
   const draftThreadsByThreadId = useComposerDraftStore((store) => store.draftThreadsByThreadId);
   const localSendOwnerThreadIds = useComposerSendActivityThreadIds();
-  const persistedPinnedFolderIds = usePinnedFoldersStore((store) => store.pinnedFolderIds);
-  const pinProjectLocally = usePinnedFoldersStore((store) => store.pinProject);
-  const unpinProject = usePinnedFoldersStore((store) => store.unpinProject);
-  const prunePinnedFolders = usePinnedFoldersStore((store) => store.prunePinnedFolders);
   const homeDir = useWorkspacePathsStore((store) => store.homeDir);
   const { authState: desktopAccountAuthState } = useDesktopAccountAuthState();
   const accountName = resolveDesktopAccountName(desktopAccountAuthState);
@@ -578,13 +565,8 @@ export default function Sidebar() {
     () => readSidebarUiState().lastThreadRoute,
   );
   const [optimisticActiveThreadId, setOptimisticActiveThreadId] = useState<ThreadId | null>(null);
-  const optimisticPinnedStateByFolderIdRef = useRef(new Map<FolderId, boolean>());
-  const latestPinnedMutationVersionByFolderIdRef = useRef(new Map<FolderId, number>());
   const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
   const [installingDesktopUpdate, setInstallingDesktopUpdate] = useState(false);
-  const [optimisticPinnedStateByFolderId, setOptimisticPinnedStateByFolderId] = useState<
-    ReadonlyMap<FolderId, boolean>
-  >(() => new Map());
   // Dedupes the manual-download fallback toast so a single failure surfaced by
   // both the click handler and the install-watchdog push only notifies once.
   const lastDesktopUpdateErrorToastSignatureRef = useRef<string | null>(null);
@@ -788,24 +770,18 @@ export default function Sidebar() {
     () => new Map(folders.map((project) => [project.id, project] as const)),
     [folders],
   );
-  const {
-    pinnedThreadIds,
-    pinnedThreadIdSet,
-    toggleThreadPinned,
-    confirmAndDeleteThread,
-    archiveThread,
-    confirmAndArchiveThread,
-  } = useSidebarThreadActions({
-    appSettings,
-    clearTerminalState,
-    handleNewChat,
-    projectById,
-    routeThreadId,
-    sidebarThreads,
-    sidebarTreeThreads,
-    sidebarThreadSummaryById,
-    threadsHydrated,
-  });
+  const { confirmAndDeleteThread, archiveThread, confirmAndArchiveThread } =
+    useSidebarThreadActions({
+      appSettings,
+      clearTerminalState,
+      handleNewChat,
+      projectById,
+      routeThreadId,
+      sidebarThreads,
+      sidebarTreeThreads,
+      sidebarThreadSummaryById,
+      threadsHydrated,
+    });
   const {
     projectRunsByFolderId,
     projectRunServerByFolderId,
@@ -860,146 +836,7 @@ export default function Sidebar() {
     () => new Map(folders.map((project) => [project.id, project.cwd] as const)),
     [folders],
   );
-  const projectByIdRef = useRef(projectById);
-  useEffect(() => {
-    projectByIdRef.current = projectById;
-  }, [projectById]);
-  const setOptimisticProjectPinned = useCallback((folderId: FolderId, isPinned: boolean) => {
-    optimisticPinnedStateByFolderIdRef.current.set(folderId, isPinned);
-    setOptimisticPinnedStateByFolderId((current) => {
-      if (current.get(folderId) === isPinned) {
-        return current;
-      }
-      const next = new Map(current);
-      next.set(folderId, isPinned);
-      return next;
-    });
-  }, []);
-  const clearOptimisticProjectPinned = useCallback((folderId: FolderId) => {
-    optimisticPinnedStateByFolderIdRef.current.delete(folderId);
-    setOptimisticPinnedStateByFolderId((current) => {
-      if (!current.has(folderId)) {
-        return current;
-      }
-      const next = new Map(current);
-      next.delete(folderId);
-      return next;
-    });
-  }, []);
-  const dispatchProjectPinnedState = useCallback(async (folderId: FolderId, isPinned: boolean) => {
-    const api = readNativeApi();
-    if (!api) return;
-    await api.orchestration.dispatchCommand({
-      type: "folder.update",
-      commandId: newCommandId(),
-      folderId,
-      isPinned,
-    });
-  }, []);
-  const setProjectPinned = useCallback(
-    async (folderId: FolderId, isPinned: boolean) => {
-      const api = readNativeApi();
-      if (!api) return;
-      const project = projectByIdRef.current.get(folderId);
-      if (!project) {
-        return;
-      }
-      const requestVersion =
-        (latestPinnedMutationVersionByFolderIdRef.current.get(folderId) ?? 0) + 1;
-      latestPinnedMutationVersionByFolderIdRef.current.set(folderId, requestVersion);
 
-      setOptimisticProjectPinned(folderId, isPinned);
-      if (isPinned) {
-        const accepted = pinProjectLocally(folderId);
-        if (!accepted) {
-          clearOptimisticProjectPinned(folderId);
-          toastManager.add({
-            type: "warning",
-            title: "Folder pin limit reached",
-            description: `You can pin up to ${MAX_PINNED_PROJECTS} folders.`,
-          });
-          return;
-        }
-      } else {
-        unpinProject(folderId);
-      }
-
-      try {
-        await dispatchProjectPinnedState(folderId, isPinned);
-      } catch (error) {
-        if (
-          !isLatestPinnedProjectMutation({
-            folderId,
-            requestVersion,
-            latestMutationVersionByFolderId: latestPinnedMutationVersionByFolderIdRef.current,
-          })
-        ) {
-          return;
-        }
-
-        const confirmedPinned = projectByIdRef.current.get(folderId)?.isPinned === true;
-        if (confirmedPinned) {
-          pinProjectLocally(folderId);
-        } else {
-          unpinProject(folderId);
-        }
-        clearOptimisticProjectPinned(folderId);
-        throw error;
-      }
-    },
-    [
-      clearOptimisticProjectPinned,
-      dispatchProjectPinnedState,
-      pinProjectLocally,
-      setOptimisticProjectPinned,
-      unpinProject,
-    ],
-  );
-  const toggleProjectPinned = useCallback(
-    (folderId: FolderId) => {
-      const optimisticPinned = optimisticPinnedStateByFolderIdRef.current.get(folderId);
-      const locallyPinned = usePinnedFoldersStore.getState().pinnedFolderIds.includes(folderId);
-      const serverPinned = projectByIdRef.current.get(folderId)?.isPinned === true;
-      const isPinned = optimisticPinned ?? (locallyPinned || serverPinned);
-      void setProjectPinned(folderId, !isPinned).catch((error) => {
-        console.error("Failed to update pinned project state", {
-          folderId,
-          error,
-        });
-        toastManager.add({
-          type: "error",
-          title: isPinned ? "Unable to unpin folder" : "Unable to pin folder",
-          description: error instanceof Error ? error.message : undefined,
-        });
-      });
-    },
-    [setProjectPinned],
-  );
-  useEffect(() => {
-    if (optimisticPinnedStateByFolderId.size === 0) {
-      return;
-    }
-
-    const serverPinnedStateByFolderId = new Map(
-      folders.map((project) => [project.id, project.isPinned === true] as const),
-    );
-    // Reconciliation drops optimistic entries the server has confirmed while syncing
-    // the mirror ref. Deferring the setState off render (async is allowed) leaves the
-    // derived pinned lists unchanged, since a confirmed entry is redundant either way.
-    const settle = window.setTimeout(() => {
-      setOptimisticPinnedStateByFolderId((current) => {
-        const reconciled = reconcileOptimisticPinState({
-          optimisticPinnedStateById: current,
-          serverPinnedStateById: serverPinnedStateByFolderId,
-        });
-        for (const folderId of reconciled.settledIds) {
-          optimisticPinnedStateByFolderIdRef.current.delete(folderId);
-        }
-        return reconciled.optimisticPinnedStateById;
-      });
-    }, 0);
-    return () => window.clearTimeout(settle);
-  }, [optimisticPinnedStateByFolderId, folders]);
   const focusMostRecentThreadForProject = useCallback(
     (folderId: FolderId) => {
       const latestThread = sortThreadsForSidebar(
@@ -1315,7 +1152,6 @@ export default function Sidebar() {
       const thread = sidebarThreadSummaryById[threadId];
       if (!thread) return;
       const threadSummary = sidebarThreadSummaryById[threadId];
-      const isPinned = pinnedThreadIdSet.has(threadId);
       const threadStatus = threadSummary ? resolveThreadStatusForSidebar(threadSummary) : null;
       const threadDeck = decks.find((deck) => deck.id === thread.deckId);
       const canLeaveDeck = (threadDeck?.threadIds.length ?? 0) > 1;
@@ -1335,7 +1171,6 @@ export default function Sidebar() {
       const clicked = await api.contextMenu.show(
         [
           { id: "rename", label: "Rename thread" },
-          { id: "toggle-pin", label: pinActionLabel("thread", isPinned) },
           ...(threadStatus?.dismissible
             ? [{ id: "clear-notification", label: "Clear notification" }]
             : []),
@@ -1358,11 +1193,6 @@ export default function Sidebar() {
         openThreadInlineRename(threadId);
         return;
       }
-      if (clicked === "toggle-pin") {
-        toggleThreadPinned(threadId);
-        return;
-      }
-
       if (clicked === "mark-unread") {
         clearDismissedThreadStatus(threadId);
         const completedAtMs = Date.parse(thread.latestTurn?.completedAt ?? "");
@@ -1430,11 +1260,9 @@ export default function Sidebar() {
       activeSidebarThreadId,
       persistThreadVisit,
       openThreadInlineRename,
-      pinnedThreadIdSet,
       projectCwdById,
       resolveThreadStatusForSidebar,
       sidebarThreadSummaryById,
-      toggleThreadPinned,
       voiceRecordingThreadId,
     ],
   );
@@ -1772,10 +1600,6 @@ export default function Sidebar() {
         await updateFolderIcon(folderId, null);
         return;
       }
-      if (clicked === "toggle-pin") {
-        toggleProjectPinned(folderId);
-        return;
-      }
       if (clicked === "archive") {
         try {
           await archiveProject(api, folderId);
@@ -1797,7 +1621,6 @@ export default function Sidebar() {
       projectById,
       sidebarThreads,
       startFolderInlineRename,
-      toggleProjectPinned,
       updateFolderIcon,
     ],
   );
@@ -1815,7 +1638,6 @@ export default function Sidebar() {
         ?.workingDirectory?.trim() ||
       project.cwd ||
       null;
-    const isPinned = pinnedFolderIdSet.has(folderId);
     const isRunning = Boolean(projectRunsByFolderId[folderId]);
     const projectRunServer = projectRunServerByFolderId.get(folderId) ?? null;
     const hasOpenServer =
@@ -1872,7 +1694,6 @@ export default function Sidebar() {
         label: project.iconDataUrl ? "Change icon…" : "Add icon…",
       },
       ...(project.iconDataUrl ? [{ id: "remove-icon" as const, label: "Remove icon" }] : []),
-      { id: "toggle-pin", label: pinActionLabel("folder", isPinned) },
     );
     if (canArchive) {
       items.push({
@@ -1899,7 +1720,7 @@ export default function Sidebar() {
   }
 
   // Trees need child (subagent) threads too; the flat display list stays
-  // root-only for pinned rows and other non-tree consumers.
+  // root-only for non-tree consumers.
   const sidebarThreadsByFolderId = useMemo(
     () => groupSidebarThreadsByFolderId(sidebarTreeThreads),
     [sidebarTreeThreads],
@@ -1918,7 +1739,7 @@ export default function Sidebar() {
     () => sortFoldersForSidebar(folders, sidebarThreads, appSettings.sidebarProjectSortOrder),
     [appSettings.sidebarProjectSortOrder, folders, sidebarThreads],
   );
-  const allStandardFoldersBase = useMemo(
+  const standardFolders = useMemo(
     () =>
       sortedFolders.filter((project) =>
         isOrdinarySpaceProject(project, {
@@ -1927,21 +1748,6 @@ export default function Sidebar() {
         }),
       ),
     [chatWorkspaceRoot, homeDir, sortedFolders],
-  );
-  const standardFoldersBase = useMemo(() => allStandardFoldersBase, [allStandardFoldersBase]);
-  const pinnedFolderIds = useMemo(
-    () =>
-      derivePinnedFolderIdsForSidebar({
-        folders: standardFoldersBase,
-        persistedPinnedFolderIds,
-        optimisticPinnedStateByFolderId,
-      }),
-    [optimisticPinnedStateByFolderId, persistedPinnedFolderIds, standardFoldersBase],
-  );
-  const pinnedFolderIdSet = useMemo(() => new Set(pinnedFolderIds), [pinnedFolderIds]);
-  const standardFolders = useMemo(
-    () => orderPinnedFoldersForSidebar(standardFoldersBase, pinnedFolderIds),
-    [pinnedFolderIds, standardFoldersBase],
   );
   const sidebarSpaceSections = useMemo(() => {
     const sections = spaces.map((space) => {
@@ -1955,7 +1761,6 @@ export default function Sidebar() {
         threadItems: [],
         projectItems: projectItems.map((item) => ({
           id: item.id,
-          pinned: pinnedFolderIdSet.has(item.id),
           sidebarSortOrder: item.project.sidebarSortOrder ?? 0,
           threads: sortedSidebarThreadsByFolderId.get(item.id) ?? [],
           fallbackCreatedAt: item.project.createdAt,
@@ -1973,18 +1778,7 @@ export default function Sidebar() {
       };
     });
     return sections;
-  }, [
-    appSettings.sidebarThreadSortOrder,
-    pinnedFolderIdSet,
-    sortedSidebarThreadsByFolderId,
-    spaces,
-    standardFolders,
-  ]);
-  const isSidebarItemPinned = useCallback(
-    (item: SidebarItemReference) =>
-      item.kind === "folder" ? pinnedFolderIdSet.has(item.id) : pinnedThreadIdSet.has(item.id),
-    [pinnedFolderIdSet, pinnedThreadIdSet],
-  );
+  }, [appSettings.sidebarThreadSortOrder, sortedSidebarThreadsByFolderId, spaces, standardFolders]);
   const getOrderedSidebarItems = useCallback(
     (parent: SidebarItemParent): SidebarItemReference[] => {
       if (parent.kind === "folder") {
@@ -1997,7 +1791,6 @@ export default function Sidebar() {
         .filter((project) => project.spaceId === parent.spaceId)
         .map((project) => ({
           id: project.id,
-          pinned: pinnedFolderIdSet.has(project.id),
           sidebarSortOrder: project.sidebarSortOrder ?? 0,
           threads: sortedSidebarThreadsByFolderId.get(project.id) ?? [],
           fallbackCreatedAt: project.createdAt,
@@ -2010,12 +1803,7 @@ export default function Sidebar() {
         sortOrder: appSettings.sidebarThreadSortOrder,
       });
     },
-    [
-      appSettings.sidebarThreadSortOrder,
-      pinnedFolderIdSet,
-      sortedSidebarThreadsByFolderId,
-      standardFolders,
-    ],
+    [appSettings.sidebarThreadSortOrder, sortedSidebarThreadsByFolderId, standardFolders],
   );
   const commitSidebarItemMove = useCallback(
     async (input: {
@@ -2116,8 +1904,7 @@ export default function Sidebar() {
         const insertionIndex = resolveSidebarInsertionIndex({
           item: sourceData.item,
           destinationItems,
-          requestedIndex: destinationItems.filter(isSidebarItemPinned).length,
-          isPinned: isSidebarItemPinned,
+          requestedIndex: 0,
         });
         const nextItem = destinationItems[insertionIndex];
         const previousItem = destinationItems[insertionIndex - 1];
@@ -2142,7 +1929,7 @@ export default function Sidebar() {
       sidebarDropIntentRef.current = null;
       return null;
     },
-    [getOrderedSidebarItems, isSidebarItemPinned],
+    [getOrderedSidebarItems],
   );
   const handleSidebarDragEnd = useCallback(
     (event: DragEndEvent) => {
@@ -2201,20 +1988,16 @@ export default function Sidebar() {
             )
           : -1;
       const requestedIndex =
-        targetIndex >= 0
-          ? targetIndex + (intendedDrop.placement === "after" ? 1 : 0)
-          : destinationItems.filter(isSidebarItemPinned).length;
+        targetIndex >= 0 ? targetIndex + (intendedDrop.placement === "after" ? 1 : 0) : 0;
       const position = resolveSidebarMovePosition({
         item: sourceData.item,
         destinationItems,
         requestedIndex,
-        isPinned: isSidebarItemPinned,
       });
       const insertionIndex = resolveSidebarInsertionIndex({
         item: sourceData.item,
         destinationItems,
         requestedIndex,
-        isPinned: isSidebarItemPinned,
       });
       const orderedDestinationItems = [...destinationItems];
       orderedDestinationItems.splice(insertionIndex, 0, sourceData.item);
@@ -2232,20 +2015,13 @@ export default function Sidebar() {
         orderedDestinationItems,
       });
     },
-    [
-      commitSidebarItemMove,
-      getOrderedSidebarItems,
-      handleReorderSpaces,
-      isSidebarItemPinned,
-      spaces,
-    ],
+    [commitSidebarItemMove, getOrderedSidebarItems, handleReorderSpaces, spaces],
   );
   const standardProjectSidebarDataById = useMemo<ReadonlyMap<FolderId, SidebarDerivedProjectData>>(
     () =>
       deriveSidebarProjectData({
         folders: standardFolders,
         sortedSidebarThreadsByFolderId,
-        pinnedThreadIds,
         threadListExtraPagesByProjectCwd,
         normalizeProjectCwd: normalizeSidebarProjectThreadListCwd,
         getProjectPagingKey: projectThreadListPagingKey,
@@ -2257,7 +2033,6 @@ export default function Sidebar() {
     [
       activeSidebarThreadId,
       threadListExtraPagesByProjectCwd,
-      pinnedThreadIds,
       sortedSidebarThreadsByFolderId,
       standardFolders,
       resolveThreadStatusForSidebar,
@@ -2277,14 +2052,6 @@ export default function Sidebar() {
     }, 0);
     return () => window.clearTimeout(settle);
   }, [standardFolders]);
-
-  useEffect(() => {
-    if (!shouldPrunePinnedFolders({ threadsHydrated })) {
-      return;
-    }
-    prunePinnedFolders(allStandardFoldersBase.map((project) => project.id));
-  }, [allStandardFoldersBase, prunePinnedFolders, threadsHydrated]);
-
   useEffect(() => {
     const retainedThreadIds = new Set(sidebarThreads.map((thread) => thread.id));
     const settle = window.setTimeout(() => {
@@ -2503,7 +2270,6 @@ export default function Sidebar() {
             kind: "folder",
             label: project.name,
             expanded: project.expanded,
-            pinned: pinnedFolderIdSet.has(project.id),
             workStatus: projectWorkStatus,
           },
         }}
@@ -2543,7 +2309,6 @@ export default function Sidebar() {
                     });
                   }}
                   onValueChange={updateInlineRenameValue}
-                  pinned={pinnedFolderIdSet.has(project.id)}
                   value={inlineRenameEditor.value}
                 />
               ) : undefined
@@ -2556,7 +2321,6 @@ export default function Sidebar() {
             }}
             onHeaderAction={createProjectThread}
             onHeaderContextMenu={openProjectContextMenu}
-            pinned={pinnedFolderIdSet.has(project.id)}
             workStatus={projectWorkStatus}
           >
             <div className="flex flex-col gap-0.5" data-pencil-project-id={project.id}>
@@ -2634,7 +2398,6 @@ export default function Sidebar() {
           finishInlineRename({ kind: "thread", threadId: thread.id });
         }}
         onValueChange={updateInlineRenameValue}
-        pinned={pinnedThreadIdSet.has(thread.id)}
         value={inlineRenameEditor.value}
       />
     ) : (
@@ -2668,7 +2431,6 @@ export default function Sidebar() {
         onPointerDown={(event) => primeThreadActivation(event, thread.id)}
         harness={harness}
         level={level}
-        pinned={pinnedThreadIdSet.has(thread.id)}
         state={isActive ? "active" : "default"}
         workStatus={workStatus}
       >
@@ -2694,7 +2456,6 @@ export default function Sidebar() {
             label: thread.title,
             harness,
             level,
-            pinned: pinnedThreadIdSet.has(thread.id),
             workStatus,
           },
         }}
