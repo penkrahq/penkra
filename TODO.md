@@ -247,7 +247,7 @@ App tab ops:
 - Server: one clean-core read, `searchThreads({ spaceId, query, limit, cursor })`, in `apps/server/src/cleanCore/threadList.ts`, exposed as one WS RPC.
   - Title match: `threads.title` contains the query, case-insensitive.
   - Message match: the existing trigram FTS table `thread_items_search` (migration 176) over `thread_items.text`.
-  - One result per thread: the thread summary row (the existing `THREAD_SUMMARY_COLUMNS`), plus `matchKind` ("title" or "message") and, for a message match, that message's id and text.
+  - One result per thread: the thread summary row (the existing `THREAD_SUMMARY_COLUMNS`), plus `matchKind` ("title" or "message") and, for a message match, the id and text of the thread's LATEST matching message (highest transcript position). A thread that matches by title is a title result, and no message is attached.
   - Order: title matches before message matches; within each kind, `last_activity_at DESC`, then `id`.
   - Keyset pages of 50, the same page size and cursor style as `listThreads`.
 - Web: `SidebarSearchPaletteController` sends the query on each change and shows only the latest response; a stale response for an older query is dropped.
