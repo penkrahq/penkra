@@ -359,6 +359,12 @@ it.effect("provider exit settles every running item to interrupted", () =>
       const publisher = makeThreadPublisher();
       yield* runMigrations();
       yield* createThread(baseThread);
+      yield* applyProviderEvent(publisher, {
+        type: "turn.started",
+        threadId: "thread-1",
+        turnId: "turn-open",
+        at: baseThread.createdAt,
+      });
       yield* upsertThreadItem({
         threadId: "thread-1",
         sourceId: "tool-open",
@@ -378,6 +384,32 @@ it.effect("provider exit settles every running item to interrupted", () =>
         WHERE thread_id = 'thread-1' AND kind = 'tool'
       `;
       assert.deepStrictEqual(rows, [{ sourceId: "tool-open", status: "interrupted" }]);
+    }),
+  ),
+);
+
+it.effect("an exit before turn start preserves an error state and inserts no cut-off notice", () =>
+  withDb(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const publisher = makeThreadPublisher();
+      yield* runMigrations();
+      yield* createThread(baseThread);
+      yield* sql`UPDATE threads SET state = 'error', last_error = 'Previous provider error' WHERE id = 'thread-1'`;
+      yield* applyProviderEvent(publisher, {
+        type: "provider.exited",
+        threadIds: ["thread-1"],
+        reason: "Launch rejected",
+        at: baseThread.createdAt,
+      });
+      assert.deepStrictEqual(
+        yield* sql`SELECT state, last_error FROM threads WHERE id = 'thread-1'`,
+        [{ state: "error", last_error: "Previous provider error" }],
+      );
+      assert.deepStrictEqual(
+        yield* sql`SELECT seq FROM thread_items WHERE thread_id = 'thread-1'`,
+        [],
+      );
     }),
   ),
 );

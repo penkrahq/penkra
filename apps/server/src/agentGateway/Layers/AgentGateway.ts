@@ -21,7 +21,6 @@ import {
   TurnId,
   type ProviderKind,
   type ServerProviderStatus,
-  type TurnDispatchMode,
 } from "@penkra/contracts";
 import { Effect, Layer, Option } from "effect";
 
@@ -106,8 +105,7 @@ import {
 import { renderPenkraMcpServerInstructions } from "../harnessPolicy.ts";
 import { resolveAuthoritativeActiveTurn } from "../activeExecution.ts";
 import { presentFile, resolvePresentFileWorkingDirectory } from "../presentFile.ts";
-import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
-import type { AgentThreadSendResult } from "@penkra/sdk";
+import { ThreadSender } from "../../cleanCore/ThreadSender.ts";
 
 import {
   gatewayMcpToolErrorResult,
@@ -161,6 +159,7 @@ function sendMessageErrorResult(error: unknown) {
 }
 
 export const makeAgentGateway = Effect.gen(function* () {
+  const sender = yield* ThreadSender;
   const credentials = yield* AgentGatewayCredentials;
   const toolBridge = yield* AgentGatewayToolBridge;
   const snapshotQuery = yield* ProjectionSnapshotQuery;
@@ -389,7 +388,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     definition: {
       name: "penkra_send_message",
       description:
-        "Post an agent-authored follow-up into another existing Penkra thread. Never target the caller thread. By default the message waits behind the thread's running and queued work, in order. Pass now only when it must take effect right away; Penkra chooses the provider-specific way to deliver it. To switch the target thread's Connection or model, pass connectionId, modelSelection, or both. The switch takes effect when this message's turn starts and stays for later turns. The provider cannot change: to use another provider, create a new thread. Penkra never falls back to another account. The returned turnId is a Penkra handle accepted by --turn-id; provider-native ids, when known, appear separately as providerTurnId in thread reads. The delivery field describes routing, not provider completion: queued means not yet delivered, started means a new turn was requested, and steered/interrupted describe how an active turn was handled. Check `penkra threads read` for actual state.",
+        "Post an agent-authored follow-up into another existing Penkra thread. Never target the caller thread. By default the message waits behind the thread's running and queued work, in order. Pass now only when it must take effect right away; Penkra chooses the provider-specific way to deliver it. To switch the target thread's Connection or model, pass connectionId, modelSelection, or both. The switch takes effect when this message's turn starts and stays for later turns. The provider cannot change: to use another provider, create a new thread. Penkra never falls back to another account. The returned turnId is a Penkra handle accepted by --turn-id; provider-native ids, when known, appear separately as providerTurnId in thread reads. The delivery result confirms provider acceptance: started and interrupted return the new native turnId, steered returns the running turnId, queued returns position, queueLength and runningTurnId, and failed returns the unchanged provider error. Queued messages have no turnId.",
       inputSchema: {
         type: "object",
         properties: {
@@ -440,106 +439,20 @@ export const makeAgentGateway = Effect.gen(function* () {
         const caller = yield* requireThreadShell(context.callerThreadId);
         const target = yield* requireThreadShell(threadId);
         yield* assertCallerMayDriveThread(caller, target);
-        const runtimeBinding = yield* threadBindings
-          .getRuntimeBinding(target.id)
-          .pipe(
-            Effect.mapError(
-              () =>
-                new GatewayToolError(
-                  "selection_failed",
-                  "Could not read the thread's runtime binding.",
-                ),
-            ),
-          );
-        const turnsBefore = yield* projectionTurns.listByThreadId({ threadId: target.id });
-        const queuedBefore = turnsBefore.filter((turn) => turn.state === "queued");
-        const blockingTurn =
-          turnsBefore.find((turn) => turn.state === "running") ??
-          (target.latestTurn?.state === "running" ? target.latestTurn : undefined);
-        // Pass the requested mode through unchanged: the reactor checks live
-        // provider state (authoritative, unlike this projection snapshot) and
-        // already downgrades steers whose turn is not actually live.
-        const dispatchMode: TurnDispatchMode = now ? "steer" : "queue";
-        const suffix = randomUUID();
-        const commandId = CommandId.makeUnsafe(`agent:${suffix}:send`);
-        const messageId = MessageId.makeUnsafe(`agent:${suffix}:message`);
-        const turnId = TurnId.makeUnsafe(`turn:${commandId}`);
-        const cwd = target.workingDirectory;
-        yield* providerThreadSwitchCoordinator.dispatchTurnStart({
-          command: {
-            type: "thread.turn.start",
-            commandId,
-            threadId: target.id,
-            turnId,
-            message: {
-              messageId,
-              role: "user",
-              text: message,
-              attachments: [],
-            },
-            dispatchMode,
-            dispatchOrigin: "agent",
+        const result = yield* sender.send({
+          threadId: target.id,
+          message: {
+            messageId: MessageId.makeUnsafe(randomUUID()),
+            text: message,
+            attachments: [],
             senderThreadId: ThreadId.makeUnsafe(context.callerThreadId),
-            runtimeMode: target.runtimeMode,
-            ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
-            ...(input.modelSelection !== undefined
-              ? { modelSelection: input.modelSelection }
-              : Option.isNone(runtimeBinding)
-                ? { modelSelection: target.modelSelection }
-                : {}),
-            bindingRevision: Option.isSome(runtimeBinding) ? runtimeBinding.value.revision : 0,
-            createdAt: isoNow(),
+            dispatchOrigin: "agent",
+            queuedAt: isoNow(),
           },
-          attachmentPrincipal: attachmentPrincipalForSession(context.callerSessionKey),
-          ...(cwd ? { cwd } : {}),
+          dispatchMode: now ? "steer" : "queue",
+          ...(input.connectionId === undefined ? {} : { connectionId: input.connectionId }),
+          ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
         });
-        const admittedTurn = Option.getOrUndefined(
-          yield* projectionTurns.getByTurnId({ threadId: target.id, turnId }),
-        );
-        const queued =
-          (admittedTurn?.state === "queued" && (!now || !blockingTurn)) ||
-          (admittedTurn === undefined &&
-            !now &&
-            target.parentThreadId === null &&
-            (blockingTurn !== undefined || queuedBefore.length > 0));
-        const provider = target.session?.providerName ?? target.modelSelection.provider;
-        const queuedAfter =
-          queued && admittedTurn
-            ? (yield* projectionTurns.listByThreadId({ threadId: target.id })).filter(
-                (turn) => turn.state === "queued",
-              )
-            : undefined;
-        const projectedPosition = queuedAfter?.findIndex((turn) => turn.turnId === turnId);
-        const queuePosition = queued
-          ? projectedPosition !== undefined && projectedPosition >= 0
-            ? projectedPosition + 1
-            : queuedBefore.length + 1
-          : undefined;
-        const result: AgentThreadSendResult = queued
-          ? {
-              threadId: target.id,
-              messageId,
-              turnId,
-              delivery: "queued",
-              queuePosition: queuePosition!,
-              ...(blockingTurn
-                ? {
-                    blockingTurnId: blockingTurn.turnId,
-                    blockingTurnStartedAt: blockingTurn.startedAt,
-                  }
-                : {}),
-            }
-          : {
-              threadId: target.id,
-              messageId,
-              turnId,
-              delivery:
-                now && blockingTurn
-                  ? providerSupportsNativeTurnSteering(provider)
-                    ? "steered"
-                    : "interrupted"
-                  : "started",
-            };
         return mcpToolResultJson(result);
       }).pipe(Effect.catch((error) => Effect.succeed(sendMessageErrorResult(error)))),
   };

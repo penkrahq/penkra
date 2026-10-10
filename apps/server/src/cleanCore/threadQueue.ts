@@ -4,18 +4,19 @@
 // Layer: Server clean core
 // Exports: QueuedMessage, planSend, readThreadQueue, enqueueMessage, dequeueNextMessage
 
-import { Effect } from "effect";
+import { Schema, Effect } from "effect";
+import { ChatAttachment, MessageId, ThreadId } from "@penkra/contracts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-export interface QueuedMessage {
-  /** The client-chosen id of the user message; also the future item source id. */
-  readonly sourceId: string;
-  readonly text: string;
-  readonly at: string;
-  /** The thread that sent this message (penkra threads send), for the sender chip. */
-  readonly senderThreadId?: string;
-  readonly dispatchOrigin?: "user" | "automation" | "agent";
-}
+export const QueuedMessage = Schema.Struct({
+  messageId: MessageId,
+  text: Schema.String,
+  attachments: Schema.Array(ChatAttachment),
+  senderThreadId: Schema.NullOr(ThreadId),
+  dispatchOrigin: Schema.Literals(["user", "automation", "agent"]),
+  queuedAt: Schema.String,
+});
+export type QueuedMessage = typeof QueuedMessage.Type;
 
 export type SendPlan = "deliver" | "queue" | "steer" | "interrupt-deliver";
 
@@ -28,22 +29,15 @@ export function planSend(input: {
   readonly state: "idle" | "running" | "error";
   readonly dispatchMode: "queue" | "steer";
   readonly supportsSteer: boolean;
+  readonly queueLength: number;
 }): SendPlan {
-  if (input.dispatchMode === "steer") {
+  if (input.dispatchMode === "steer" && input.state === "running") {
     return input.supportsSteer ? "steer" : "interrupt-deliver";
   }
-  return input.state === "running" ? "queue" : "deliver";
+  return input.state === "running" || input.queueLength > 0 ? "queue" : "deliver";
 }
 
-const decodeQueue = (value: string | null): ReadonlyArray<QueuedMessage> => {
-  if (value === null) return [];
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return Array.isArray(parsed) ? (parsed as ReadonlyArray<QueuedMessage>) : [];
-  } catch {
-    return [];
-  }
-};
+const decodeQueue = Schema.decodeUnknownSync(Schema.Array(QueuedMessage));
 
 export const readThreadQueue = (threadId: string) =>
   Effect.gen(function* () {
@@ -51,7 +45,8 @@ export const readThreadQueue = (threadId: string) =>
     const rows = yield* sql<{ readonly queue: string | null }>`
       SELECT queue FROM threads WHERE id = ${threadId}
     `;
-    return decodeQueue(rows[0]?.queue ?? null);
+    if (rows[0] === undefined) return yield* Effect.fail(new Error("The thread does not exist."));
+    return decodeQueue(JSON.parse(rows[0].queue!));
   });
 
 export const enqueueMessage = (threadId: string, message: QueuedMessage) =>
@@ -60,7 +55,7 @@ export const enqueueMessage = (threadId: string, message: QueuedMessage) =>
     const rows = yield* sql<{ readonly queue: string | null }>`
       SELECT queue FROM threads WHERE id = ${threadId}
     `;
-    const queue = [...decodeQueue(rows[0]?.queue ?? null), message];
+    const queue = [...decodeQueue(JSON.parse(rows[0]!.queue!)), message];
     yield* sql`UPDATE threads SET queue = ${JSON.stringify(queue)} WHERE id = ${threadId}`;
     return queue;
   });
@@ -72,7 +67,7 @@ export const dequeueNextMessage = (threadId: string) =>
     const rows = yield* sql<{ readonly queue: string | null }>`
       SELECT queue FROM threads WHERE id = ${threadId}
     `;
-    const queue = decodeQueue(rows[0]?.queue ?? null);
+    const queue = decodeQueue(JSON.parse(rows[0]!.queue!));
     const head = queue[0];
     if (head === undefined) return null;
     yield* sql`UPDATE threads SET queue = ${JSON.stringify(queue.slice(1))} WHERE id = ${threadId}`;

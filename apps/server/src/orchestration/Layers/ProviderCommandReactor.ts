@@ -119,6 +119,7 @@ import { resolveThreadWorkspaceCwd } from "@penkra/shared/threadEnvironment";
 
 import {
   ProviderAdapterRequestError,
+  ProviderAdapterProcessError,
   ProviderValidationError,
   ProviderAdapterValidationError,
   ProviderServiceError,
@@ -196,6 +197,7 @@ import {
   type ProviderIntentEvent,
 } from "../providerIntentClassification.ts";
 import { deriveTurnStartSession } from "../turnStartSession.ts";
+import { ThreadPublisher } from "../../cleanCore/ThreadPublisher.ts";
 import { PLAY_TURN_RECOVERY_PROMPT } from "../../cleanCore/sendMessage.ts";
 import { resolveProviderSessionThread as resolveProviderSessionThreadFromProjection } from "../providerSessionThread.ts";
 import { userStopPending } from "../userStopPending.ts";
@@ -547,6 +549,7 @@ class ProviderCommandReactorConfig extends ServiceMap.Service<
 const make = Effect.gen(function* () {
   const { commandEventTimeout, queuedTurnRecoveryInterval } = yield* ProviderCommandReactorConfig;
   const sql = yield* SqlClient.SqlClient;
+  const threadPublisher = yield* ThreadPublisher;
   const authCircuits = makeProviderAuthCircuitStore(sql);
   const providerDiscovery = yield* ProviderDiscoveryService;
   const orchestrationEngine = yield* OrchestrationEngineService;
@@ -2200,7 +2203,22 @@ const make = Effect.gen(function* () {
         ? (yield* authCircuits.get(selectedConnectionId))[0]
         : undefined;
       if (openCircuit) {
-        yield* requeueTurnStart();
+        threadPublisher.publishDispatch({
+          type: "failed",
+          threadId: event.payload.threadId,
+          messageId: event.payload.messageId,
+          error: openCircuit.detail,
+        });
+        yield* orchestrationEngine.dispatch({
+          type: "thread.message.delivery.set",
+          commandId: replaySafeServerCommandId("message-auth-rejected", event.eventId),
+          threadId: event.payload.threadId,
+          messageId: event.payload.messageId,
+          state: "failed",
+          failurePhase: "before-provider-dispatch",
+          failureDetail: openCircuit.detail,
+          createdAt: new Date().toISOString(),
+        });
         if (!(yield* hasLiveProviderTurn(event.payload.threadId))) {
           yield* setThreadSessionError({
             threadId: event.payload.threadId,
@@ -2385,8 +2403,24 @@ const make = Effect.gen(function* () {
                   event.payload.threadId,
                   event.commandId ?? undefined,
                 );
-                const detail = Cause.pretty(cause);
                 const failure = Option.getOrUndefined(Cause.findErrorOption(cause));
+                const detail = Cause.pretty(cause);
+                const providerFailure =
+                  failure instanceof ProviderSessionStartupBeforeDispatchError
+                    ? failure.cause
+                    : failure;
+                threadPublisher.publishDispatch({
+                  type: "failed",
+                  threadId: event.payload.threadId,
+                  messageId: event.payload.messageId,
+                  error:
+                    Schema.is(ProviderAdapterRequestError)(providerFailure) ||
+                    Schema.is(ProviderAdapterProcessError)(providerFailure)
+                      ? providerFailure.detail
+                      : providerFailure instanceof Error
+                        ? providerFailure.message
+                        : detail,
+                });
                 const failedBeforeProviderDispatch =
                   failure instanceof ProviderSessionStartupBeforeDispatchError;
                 const failedAt = new Date().toISOString();
@@ -2442,6 +2476,13 @@ const make = Effect.gen(function* () {
         ),
         Effect.ensuring(Effect.sync(() => editResendTurnStartKeys.delete(editResendKey))),
       );
+      if (startedTurn !== undefined)
+        threadPublisher.publishDispatch({
+          type: "acknowledged",
+          threadId: event.payload.threadId,
+          messageId: event.payload.messageId,
+          turnId: startedTurn.turnId,
+        });
       const terminalBeforeResult = startedTurn
         ? (terminalTurnsObservedBeforeSettlement.get(startedTurn.turnId) ??
           (yield* readDurableTerminalTurn(

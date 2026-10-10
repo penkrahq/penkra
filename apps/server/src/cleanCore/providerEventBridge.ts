@@ -240,7 +240,14 @@ export function toCleanCoreProviderEvents(
       ];
     }
     case "session.exited": {
-      return [{ type: "provider.exited", threadIds: [event.threadId], at: event.createdAt }];
+      return [
+        {
+          type: "provider.exited",
+          threadIds: [event.threadId],
+          at: event.createdAt,
+          ...(event.payload.reason === undefined ? {} : { reason: event.payload.reason }),
+        },
+      ];
     }
     default:
       return [];

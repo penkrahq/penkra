@@ -1,3 +1,4 @@
+import { MessageId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -22,11 +23,20 @@ const baseThread = {
 };
 
 it("decides deliver/queue/steer from state and steer support", () => {
-  assert.equal(planSend({ state: "idle", dispatchMode: "queue", supportsSteer: true }), "deliver");
-  assert.equal(planSend({ state: "running", dispatchMode: "queue", supportsSteer: true }), "queue");
-  assert.equal(planSend({ state: "running", dispatchMode: "steer", supportsSteer: true }), "steer");
   assert.equal(
-    planSend({ state: "running", dispatchMode: "steer", supportsSteer: false }),
+    planSend({ state: "idle", dispatchMode: "queue", supportsSteer: true, queueLength: 0 }),
+    "deliver",
+  );
+  assert.equal(
+    planSend({ state: "running", dispatchMode: "queue", supportsSteer: true, queueLength: 0 }),
+    "queue",
+  );
+  assert.equal(
+    planSend({ state: "running", dispatchMode: "steer", supportsSteer: true, queueLength: 0 }),
+    "steer",
+  );
+  assert.equal(
+    planSend({ state: "running", dispatchMode: "steer", supportsSteer: false, queueLength: 0 }),
     "interrupt-deliver",
   );
 });
@@ -38,22 +48,28 @@ it.effect("queue is a FIFO persisted on threads.queue", () =>
       yield* runMigrations();
       yield* createThread(baseThread);
       yield* enqueueMessage("thread-1", {
-        sourceId: "m1",
+        messageId: MessageId.makeUnsafe("m1"),
+        attachments: [],
+        senderThreadId: null,
+        dispatchOrigin: "user",
         text: "first",
-        at: "2026-10-09T00:00:01.000Z",
+        queuedAt: "2026-10-09T00:00:01.000Z",
       });
       yield* enqueueMessage("thread-1", {
-        sourceId: "m2",
+        messageId: MessageId.makeUnsafe("m2"),
+        attachments: [],
+        senderThreadId: null,
+        dispatchOrigin: "user",
         text: "second",
-        at: "2026-10-09T00:00:02.000Z",
+        queuedAt: "2026-10-09T00:00:02.000Z",
       });
 
       assert.deepStrictEqual(
-        (yield* readThreadQueue("thread-1")).map((m) => m.sourceId),
+        (yield* readThreadQueue("thread-1")).map((m) => m.messageId),
         ["m1", "m2"],
       );
-      assert.equal((yield* dequeueNextMessage("thread-1"))?.sourceId, "m1");
-      assert.equal((yield* dequeueNextMessage("thread-1"))?.sourceId, "m2");
+      assert.equal((yield* dequeueNextMessage("thread-1"))?.messageId, "m1");
+      assert.equal((yield* dequeueNextMessage("thread-1"))?.messageId, "m2");
       assert.isNull(yield* dequeueNextMessage("thread-1"));
       assert.deepStrictEqual(yield* readThreadQueue("thread-1"), []);
 

@@ -214,22 +214,15 @@ is why it must never target the Thread you are running in — doing so would put
 mouth and stack a second turn on the one already executing. The command rejects that target. In the
 UI these messages are marked "Sent by agent," so the user can tell them apart.
 
-Send returns `threadId`, `messageId`, `turnId`, and an immediate routing result in `delivery`:
+Send returns `threadId`, `messageId`, and exactly one provider-confirmed `delivery`:
 
-- `queued`: undelivered. The result also gives `queuePosition` and, when a running turn blocks it,
-  `blockingTurnId` and `blockingTurnStartedAt`. Without `--now`, this message waits in FIFO order;
-  it is **not seen until the running turn ends**, which may take hours.
-- `started`: a new turn was requested.
-- `steered`: native steering of a running turn was requested with `--now`.
-- `interrupted`: interruption of the running turn was requested with `--now`; this message follows
-  that turn. It may still be waiting when send returns.
+- `started`: this message's provider turn started; includes `turnId`.
+- `steered`: the provider acknowledged native steering; includes the running `turnId`.
+- `interrupted`: the old turn ended and this message's new turn started; includes `turnId`.
+- `queued`: persisted but not delivered; includes `position` (1 = next), `queueLength`, and `runningTurnId` (null when blocked by an error). It has no `turnId`.
+- `failed`: not delivered and not in the transcript; includes the provider's unchanged `error`.
 
-For example, `{"threadId":"thread-b","messageId":"message-2","turnId":"turn-2","delivery":"queued","queuePosition":45,"blockingTurnId":"turn-1","blockingTurnStartedAt":"2026-09-25T12:00:00.000Z"}` means message 2 is recorded but has not reached the provider. No elapsed-time estimate or warning is inferred from these fields.
-
-These values describe routing, not proof that the provider accepted or completed the message. Use
-`penkra threads read --thread-id <id> --turn-id <turn-id>` to track the exact turn. Transcript
-messages distinguish `queued`, `pending`, `delivered`, and `failed`. To retract one exact queued or
-running request, use `penkra threads interrupt --thread-id <id> --turn-id <turn-id>`.
+The response waits for the relevant provider event or acknowledgement. There is no time estimate. Use `penkra threads read --thread-id <id>` for output.
 
 Read ordinary conversational history with `penkra threads read`: it returns messages and selected
 conversational activity as typed transcript items. For discovery, pass one literal `query` or a

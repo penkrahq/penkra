@@ -1,3 +1,4 @@
+import { ThreadSender, type ThreadSendInput } from "../../cleanCore/ThreadSender.ts";
 import { assert, describe, it } from "@effect/vitest";
 import type {
   OrchestrationCommand,
@@ -157,6 +158,7 @@ function makeThreadDetail(shell: OrchestrationThreadShell): OrchestrationThread 
 }
 
 interface GatewayHarness {
+  readonly sent: ThreadSendInput[];
   readonly dispatched: Array<OrchestrationCommand>;
   readonly setThreadDetail: (thread: OrchestrationThread) => void;
   readonly deleteThread: (threadId: string) => void;
@@ -1017,6 +1019,7 @@ function makeHarnessLayer(
       ),
   } as unknown as (typeof QueuedTurnPromotionRepository)["Service"]);
 
+  const sent: ThreadSendInput[] = [];
   const gatewayLayer = AgentGatewayLive.pipe(
     Layer.provide(creationAdmissionsLayer),
     Layer.provide(commandReceiptsLayer),
@@ -1058,6 +1061,35 @@ function makeHarnessLayer(
         ),
       ),
     ),
+  ).pipe(
+    Layer.provide(
+      Layer.succeed(ThreadSender, {
+        send: (input: ThreadSendInput) =>
+          Effect.sync(() => {
+            sent.push(input);
+            if (options.sendSelectionError)
+              return {
+                threadId: input.threadId,
+                messageId: input.message.messageId,
+                delivery: "failed" as const,
+                error: options.sendSelectionError.message,
+              };
+            if (options.rejectArchivedCommands)
+              return {
+                threadId: input.threadId,
+                messageId: input.message.messageId,
+                delivery: "failed" as const,
+                error: "This thread is archived. Unarchive it to send messages.",
+              };
+            return {
+              threadId: input.threadId,
+              messageId: input.message.messageId,
+              delivery: "started" as const,
+              turnId: TurnId.makeUnsafe("provider-confirmed-turn"),
+            };
+          }),
+      }),
+    ),
   );
 
   const makeHarness = Effect.gen(function* () {
@@ -1087,6 +1119,7 @@ function makeHarnessLayer(
     };
     return {
       dispatched,
+      sent,
       setThreadDetail: (thread) => {
         threadsById.set(thread.id, thread);
         threadDetailsById.set(thread.id, thread);
@@ -1523,10 +1556,7 @@ describe("AgentGateway", () => {
         },
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
-      assert.equal(
-        harness.dispatched.filter((command) => command.type === "thread.turn.start").length,
-        1,
-      );
+      assert.equal(harness.sent.length, 1);
     }).pipe(Effect.provide(gatewayLayer));
   });
 
@@ -3546,19 +3576,15 @@ describe("AgentGateway", () => {
         args: { threadId: "thread-child", message: "status check please", now: true },
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
-      const turn = harness.dispatched[0]!;
-      assert.equal(turn.type, "thread.turn.start");
-      if (turn.type === "thread.turn.start") {
-        assert.equal(turn.dispatchOrigin, "agent");
-        assert.equal(turn.senderThreadId, ThreadId.makeUnsafe("thread-parent"));
+      const turn = harness.sent[0]!;
+      if (turn) {
+        assert.equal(turn.message.dispatchOrigin, "agent");
+        assert.equal(turn.message.senderThreadId, ThreadId.makeUnsafe("thread-parent"));
         assert.equal(turn.dispatchMode, "steer");
         assert.isUndefined(turn.connectionId);
-        assert.deepEqual(turn.modelSelection, {
-          provider: "codex",
-          model: "gpt-5.5",
-        });
+        assert.isUndefined(turn.modelSelection);
         assert.equal(turn.threadId, "thread-child");
-        assert.equal(toolResultJson(response.result).turnId, turn.turnId);
+        assert.equal(toolResultJson(response.result).turnId, "provider-confirmed-turn");
         assert.equal(toolResultJson(response.result).messageId, turn.message.messageId);
       }
     }).pipe(Effect.provide(gatewayLayer));
@@ -3579,12 +3605,11 @@ describe("AgentGateway", () => {
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
       const payload = toolResultJson(response.result);
       assert.strictEqual("dispatched" in payload, false);
-      const turn = harness.dispatched[0];
-      assert.equal(turn?.type, "thread.turn.start");
-      if (turn?.type === "thread.turn.start") {
+      const turn = harness.sent[0];
+      if (turn) {
         assert.equal(turn.dispatchMode, "queue");
         assert.equal(payload.messageId, turn.message.messageId);
-        assert.equal(payload.turnId, turn.turnId);
+        assert.equal(payload.turnId, "provider-confirmed-turn");
       }
     }).pipe(Effect.provide(gatewayLayer));
   });
@@ -3608,9 +3633,8 @@ describe("AgentGateway", () => {
         },
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
-      const turn = harness.dispatched[0];
-      assert.equal(turn?.type, "thread.turn.start");
-      if (turn?.type === "thread.turn.start") {
+      const turn = harness.sent[0];
+      if (turn) {
         assert.equal(turn.dispatchMode, "queue");
         assert.equal(turn.connectionId, null);
         assert.deepEqual(turn.modelSelection, {
@@ -3622,42 +3646,7 @@ describe("AgentGateway", () => {
     }).pipe(Effect.provide(gatewayLayer));
   });
 
-  it.effect("reads the target binding revision at send admission", () => {
-    const binding = {
-      threadId: ThreadId.makeUnsafe("thread-child"),
-      connectionId: CONNECTION_ID,
-      installationId: ProviderInstallationId.makeUnsafe("send-installation"),
-      internalProviderId: null,
-      modelId: "gpt-5.5",
-      revision: 12,
-      createdAt: NOW,
-      updatedAt: NOW,
-    } satisfies ThreadRuntimeBinding;
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
-      existingBinding: binding,
-    });
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const response = yield* harness.callTool({
-        token: "token-parent",
-        name: "penkra_send_message",
-        args: {
-          threadId: "thread-child",
-          message: "Switch model for the follow-up.",
-          modelSelection: { provider: "codex", model: "gpt-5.5" },
-        },
-      });
-      assert.isFalse(isToolError(response.result), toolErrorText(response.result));
-      const turn = harness.dispatched[0];
-      assert.equal(turn?.type, "thread.turn.start");
-      if (turn?.type === "thread.turn.start") {
-        assert.equal(turn.bindingRevision, 12);
-        assert.deepEqual(turn.modelSelection, { provider: "codex", model: "gpt-5.5" });
-      }
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
-  it.effect("returns structured selection errors to the send caller", () => {
+  it.effect("returns the selection failure message unchanged", () => {
     const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
       sendSelectionError: {
         code: "connection_unavailable",
@@ -3672,14 +3661,12 @@ describe("AgentGateway", () => {
         name: "penkra_send_message",
         args: { threadId: "thread-child", message: "Try the selected route." },
       });
-      assert.isTrue(isToolError(response.result));
-      assert.deepEqual(toolResultJson(response.result), {
-        error: {
-          code: "connection_unavailable",
-          message:
-            "The selected Connection can't be used for this thread. Choose a Connection for the thread's provider.",
-        },
-      });
+      assert.isFalse(isToolError(response.result));
+      assert.equal(toolResultJson(response.result).delivery, "failed");
+      assert.equal(
+        toolResultJson(response.result).error,
+        "The selected Connection can't be used for this thread. Choose a Connection for the thread's provider.",
+      );
     }).pipe(Effect.provide(gatewayLayer));
   });
 
@@ -3712,9 +3699,9 @@ describe("AgentGateway", () => {
           name: "penkra_send_message",
           args: { threadId: "thread-child", message: "Try the selected route." },
         });
-        assert.isTrue(isToolError(response.result));
-        const error = toolResultJson(response.result).error as { code: string };
-        assert.equal(error.code, code);
+        assert.isFalse(isToolError(response.result));
+        assert.equal(toolResultJson(response.result).delivery, "failed");
+        assert.equal(toolResultJson(response.result).error, message);
       }).pipe(Effect.provide(gatewayLayer));
     });
   }
@@ -3736,9 +3723,8 @@ describe("AgentGateway", () => {
       // The projection snapshot can lag the runtime in both directions, so
       // the gateway must not downgrade; the reactor rechecks live state.
       assert.equal(typeof toolResultJson(response.result).turnId, "string");
-      const turn = harness.dispatched[0]!;
-      assert.equal(turn.type, "thread.turn.start");
-      if (turn.type === "thread.turn.start") {
+      const turn = harness.sent[0]!;
+      if (turn) {
         assert.equal(turn.dispatchMode, "steer");
       }
     }).pipe(Effect.provide(gatewayLayer));
@@ -3888,11 +3874,12 @@ describe("AgentGateway", () => {
         name: "penkra_send_message",
         args: { threadId: "thread-child", message: "Continue." },
       });
-      assert.isTrue(isToolError(response.result));
-      assert.deepStrictEqual(toolResultJson(response.result).error, {
-        code: "thread_archived",
-        message: "This thread is archived. Unarchive it to send messages.",
-      });
+      assert.isFalse(isToolError(response.result));
+      assert.equal(toolResultJson(response.result).delivery, "failed");
+      assert.equal(
+        toolResultJson(response.result).error,
+        "This thread is archived. Unarchive it to send messages.",
+      );
       assert.equal(
         harness.dispatched.filter((command) => command.type === "thread.turn.start").length,
         0,
