@@ -5,6 +5,8 @@ import {
   ModelSelection,
   RuntimeMode,
   ThreadId,
+  CleanCoreThreadRuntime,
+  type CleanCoreInterruptResult,
   type CleanCoreSendResult,
   type ProviderConnectionId,
 } from "@penkra/contracts";
@@ -42,9 +44,8 @@ export class ThreadSender extends ServiceMap.Service<
       threadId: ThreadId;
       messageId: string;
     }) => Effect.Effect<{ threadId: ThreadId; messageId: string; removed: boolean }, Error>;
-    readonly interrupt: (
-      threadId: ThreadId,
-    ) => Effect.Effect<{ threadId: ThreadId; interruptRequested: boolean }, Error>;
+    readonly getRuntime: (threadId: ThreadId) => Effect.Effect<CleanCoreThreadRuntime, Error>;
+    readonly interrupt: (threadId: ThreadId) => Effect.Effect<CleanCoreInterruptResult, Error>;
   }
 >()("penkra/cleanCore/ThreadSender") {}
 
@@ -258,6 +259,15 @@ export const makeThreadSender = Effect.gen(function* () {
         return { ...input, removed: changed !== null };
       }).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
     );
+  const getRuntime = (threadId: ThreadId) =>
+    Effect.gen(function* () {
+      const rows = yield* sql<{
+        state: string;
+        activeTurnId: string | null;
+      }>`SELECT state, active_turn_id AS "activeTurnId" FROM threads WHERE id = ${threadId}`;
+      if (rows[0] === undefined) return yield* Effect.fail(new Error("The thread does not exist."));
+      return Schema.decodeUnknownSync(CleanCoreThreadRuntime)(rows[0]);
+    });
   return {
     queuedThread: (messageId: string) =>
       Effect.sync(() => {
@@ -278,18 +288,18 @@ export const makeThreadSender = Effect.gen(function* () {
         { threadId: input.threadId, messageId: input.messageId },
         { value: input.draft, updatedAt: input.updatedAt },
       ),
+    getRuntime,
     interrupt: (threadId: ThreadId) =>
       withLane(
         threadId,
         Effect.gen(function* () {
-          const rows = yield* sql<{
-            state: string;
-          }>`SELECT state FROM threads WHERE id = ${threadId}`;
-          if (rows[0] === undefined)
-            return yield* Effect.fail(new Error("The thread does not exist."));
-          if (rows[0].state !== "running") return { threadId, interruptRequested: false };
+          const runtime = yield* getRuntime(threadId);
+          if (runtime.state !== "running")
+            return { threadId, interruptRequested: false, interruptedTurnId: null };
+          if (runtime.activeTurnId === null)
+            return yield* Effect.fail(new Error("The running thread has no active provider turn."));
           yield* provider.interruptTurn({ threadId });
-          return { threadId, interruptRequested: true };
+          return { threadId, interruptRequested: true, interruptedTurnId: runtime.activeTurnId };
         }),
       ),
     send: (input: ThreadSendInput) =>

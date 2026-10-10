@@ -1,3 +1,4 @@
+import { ThreadSender } from "./cleanCore/ThreadSender.ts";
 import { execFile } from "node:child_process";
 import { childDiagnosticSpan, startDiagnosticTrace } from "@penkra/shared/traceContext";
 
@@ -1407,6 +1408,20 @@ const makeWsRpcHandlersLayer = () =>
         [WS_METHODS.serverGetConfig]: () =>
           rpcEffect(loadServerConfig, "Failed to load server config"),
         [WS_METHODS.cleanCoreSubscribeSidebar]: () => sidebarChangeStream(threadPublisher),
+        [WS_METHODS.cleanCoreGetThreadRuntime]: (input) =>
+          rpcEffect(
+            Effect.flatMap(Effect.service(ThreadSender), (sender) =>
+              sender.getRuntime(input.threadId),
+            ),
+            "Failed to read the provider turn",
+          ),
+        [WS_METHODS.cleanCoreInterruptThread]: (input) =>
+          rpcEffect(
+            Effect.flatMap(Effect.service(ThreadSender), (sender) =>
+              sender.interrupt(input.threadId),
+            ),
+            "Failed to interrupt the provider turn",
+          ),
         [WS_METHODS.cleanCoreListThreads]: (input) =>
           rpcEffect(listThreads(input), "Failed to load the thread list"),
         [WS_METHODS.cleanCoreUpdateThread]: (input) =>
