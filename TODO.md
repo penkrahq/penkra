@@ -84,6 +84,7 @@ Item statuses (the complete set; nothing else is ever written):
 
 | kind | statuses | terminal |
 |---|---|---|
+| 1, 2, 3, 5 | Done and reviewed: git setup; 4.1 inventory (`25d528d39`); bounded queries + timing (`436876bf9`); write path + publisher (`680e1da77`) | done |
 | user | `sent`, `failed` | both |
 | text, reasoning | `streaming`, `done`, `interrupted` | `done`, `interrupted` |
 | tool | `running`, `done`, `error`, `interrupted` | `done`, `error`, `interrupted` |
@@ -212,6 +213,22 @@ Rule, in order:
 
 The same rule applies to agent opening (`appTabOpenedRouting.ts`) and agent activation (`activateAppTabForAgent` in `main.ts`, which today checks only visibility). Main decides and sends the request to exactly one window; the renderer never filters requests (delete the deck/Space check at `SingleChatSurface.tsx:219`). The request resolves when that window reports the tab visible and rejects when it reports it cannot show it; no timer. Tests: one window idle → acts; one window busy → busy message; two windows, home on another deck and the other on the deck → acts in the other; two windows both busy → busy message; no window on the deck → not-open message.
 
+### 2.13 Agent tool results and App tab ops (operator, 2026-10-10)
+
+Large results. Provider limits (Codex report, 2026-10-10, sources in thread agent-0a4afe1ae0f5297feef26e43025c7358): Claude Code 25,000 tokens by default (`MAX_MCP_OUTPUT_TOKENS`) and it saves larger results to a file itself; Codex 10,000 tokens for the listed GPT models (`tool_output_token_limit`), cutting off the excess with no file; OpenCode 2,000 lines or 50 KiB (`tool_output`), saving larger results to a file itself.
+- One constant, `INLINE_TOOL_RESULT_BYTES = 10000`, in one module. Penkra passes it to every provider at launch: Claude `MAX_MCP_OUTPUT_TOKENS`, Codex `tool_output_token_limit`, OpenCode `tool_output` max bytes and max lines. A token is at least one UTF-8 byte, so a result of N bytes is at most N tokens and at most N lines. A result under the constant therefore always reaches the model whole.
+- Every Penkra and App op result: if its UTF-8 size is at most the constant, return it inline. Otherwise Penkra writes the full result to `~/Penkra/.penkra/userdata/tool-results/<threadId>/<opId>.txt` and returns `{ "resultFile": "<absolute path>", "bytes": <n> }`. The agent reads that file with its own file tools. Providers never spill or truncate, so the Claude project-dir symlink problem no longer matters.
+- No `--max-chars`, no automatic pruning. A snapshot is returned whole, inline or as a file.
+
+App tab ops:
+- `tabs list` returns per tab only `tabId`, `appId`, `appName`, `title`, `status`, `visible`, plus `url` only when the tab shows a web page. Remove `rendererId`, `agentAddressable`, `iconDataUrl`, `state`, `spaceId`, `deckId`, `threadId` (`appCommandPipeServer.ts:465`).
+- Delete `tabs diff`: the op, its help text and its tests.
+- `tabs screenshot` captures the tab as the person sees it. Remove the `document` option. It picks its window by the 2.12 rule, with the same failure codes.
+- The agent cursor shows only agent input. Drive it from the CDP mouse events Penkra sends (`appTabObserver.ts`, `Input.dispatchMouseEvent`) and delete the trusted `pointermove`/`pointerdown`/`pointerup` listeners in `AGENT_CURSOR_SOURCE` (`appTabAgentSurface.ts`).
+- Resize cursor: in `sidebar.tsx`, make the resize cleanup idempotent and also run it on the rail's `lostpointercapture` and on window `blur`. Delete the unused overlay cursor helpers in `panelResize.ts` if they have no caller.
+- `--input` errors: when `--input` is not valid JSON, the error says so and shows a quoted example: `--input '{"key":"value"}'`. The parser stays shell-like; it gets no lenient fallback.
+- Tests: inline and file result on each side of the constant; `tabs list` fields; screenshot with no `document` option; the cursor ignores a real mouse move; the cursor resets after `lostpointercapture`; the `--input` error text.
+
 ## 3. Migration of Production (in place, keep every chat)
 
 0. **Rehearsal copies:** made only with `sqlite3 'file:<Production>?mode=ro' "VACUUM INTO '<dest>'"` (never by copying `state.sqlite`, `-wal`, `-shm` files; that produced a corrupt copy on 2026-10-09 whose counts must not be used). If it fails with "database is locked", ask the operator to quit Penkra for the copy. Every copy must return `ok` from `PRAGMA integrity_check` before use.
@@ -234,20 +251,17 @@ Rehearsal (part of step 4, repeated in step 11 after the drop is added): on a co
 
 | step | content | status |
 |---|---|---|
-| 1 | Git setup | done |
-| 2 | Inventory check of 4.1 against code | done (`25d528d39`) |
-| 3 | Bounded queries + per-query timing (2.8) | done (`436876bf9`) |
 | 4 | Schema + backfill (3) | committed (`cb85c5280`); **open:** the rehearsal ran on a corrupt copy (`docs/clean-0144-notes.md`, Step 4 addendum (b)). Redo it on a copy made per 3.0 and report the numbers before step 11. Add the columns 2.1 lists that `176_CleanCoreSchemaAndBackfill.ts` lacks (`runtime_mode`, `working_directory`, `created_by`, `created_by_thread_id`, `parent_thread_id`, `deck_id`, `deck_sort_order`, `sidebar_sort_order`, `is_pinned`, `last_activity_at`, `last_message_preview`, `last_user_message_at`, `last_visited_at`, `open_question_count`) (done, `d616dac97`, `53e9f675c`). **Open:** move every reader of those fields to `threads` in this step: add one clean-core thread-list read (server query on `threads`, one web store) that the sidebar, deck and `ChatView` read; remove those fields from `ProjectionSnapshotQuery` and from `threadPurge.ts`. Do not point `ProjectionSnapshotQuery` at `threads` as a stopgap. |
-| 5 | Write path, idempotent operations, publisher (2.2) | done (`680e1da77`) |
 | 6 | Stream consumer, turn state, queue/steer; delete reconciler (2.3, 2.4) | committed (parts 1-5); **open:** the send result table, interrupt by message id, queue-head failure rule (2.4), Stop shows "Stopping…" (2.3). |
 | 7 | Questions, approvals removed, subagents disabled (2.5) | committed (parts 1-5b) |
 | 8 | Web client: transcript from items, draft sync, approval UI removed (2.1, 2.6) | in progress. **Open:** ResizeObserver tail-follow correction (review of `18b0c50da`); expired-terminal-pills warning (2.6); queued-message edit (2.4). |
-| 9 | OpenCode image transform (2.7) | Contract: the SDK type `FilePartInput` plus the parts Penkra itself sends (`file:` URLs, `opencodeRuntime.ts`). Prove the transform with unit tests on those shapes. The real 25-image run needs an authenticated vision model; it moves to the operator check in 6. |
+| 9 | OpenCode image transform (2.7) | committed (`8ef20ddcb`). **Open:** match only `FilePartInput` (`type:"file"`, `mime` starts with `image/`); delete the `mediaType`/`media_type`/`mimeType`/`type:"image"` guesses. The real 25-image run is in the operator check in 6. |
 | 10 | Right-panel App tabs (2.12) | |
 | 11 | Startup and logging; delete diagnostics (2.9); credentials at launch (2.10) | |
 | 12 | Delete the old pipeline and its tables (2.2, 4.1); repeat the rehearsal with the drop | |
 | 13 | Release documentation and the Production updater (5) | |
 | 14 | Agent-facing text (2.11) | |
+| 15 | Agent tool results and App tab ops (2.13) | |
 
 Step 12 details: the codebase should shrink substantially; report lines removed. Removing the legacy pump also removes the `Effect.catchCause`/`logWarning` swallow around the clean-core apply in `ProviderRuntimeIngestion.processRuntimeEvent`: a write failure must surface. Delete these symbols (remove, do not rename): `ApprovalRequestId`, `hasPendingApprovals`, `pendingApprovals`, `pending_approval_count`, `ProviderApprovalDecision`, `respondToRequest`, `thread.approval.respond`. Done when `grep` finds none of them outside `apps/server/src/persistence/Migrations/**`.
 
