@@ -1,18 +1,18 @@
-import {
-  DEFAULT_SERVER_SETTINGS,
-  type OrchestrationThreadShell,
-  type ServerProviderStatus,
-} from "@penkra/contracts";
+import { DEFAULT_SERVER_SETTINGS, type ServerProviderStatus } from "@penkra/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { Effect, FileSystem, Stream } from "effect";
+import { Effect, FileSystem, Stream, Layer } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
+import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery";
+import { OrchestrationProjectionSnapshotQueryLive } from "../orchestration/Layers/ProjectionSnapshotQuery";
+import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { createThread } from "../cleanCore/threadStore";
+import { SpaceId } from "@penkra/contracts";
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery";
 import type { ServerSettingsShape } from "../serverSettings";
 import type { ProviderHealthShape } from "./Services/ProviderHealth";
 import {
-  hasActiveProviderThread,
-  isProviderUpdateBlockedByActiveThread,
   runAutomaticProviderUpdateCycle,
   runManagedProviderBootstrapCycle,
 } from "./providerUpdateCoordinator";
@@ -24,34 +24,33 @@ const installationRepository = {
   reactivate: () => Effect.die("not expected"),
 };
 
-function thread(overrides: Partial<OrchestrationThreadShell> = {}): OrchestrationThreadShell {
-  return {
-    id: "thread-1",
-    folderId: "project-1",
-    title: "Thread",
-    modelSelection: { provider: "codex", model: "gpt-5" },
-    runtimeMode: "full-access",
-    parentThreadId: null,
-    creationSource: null,
-    sourceThreadId: null,
-    sourceTurnId: null,
-    gatewayOperationId: null,
-    gatewayOperationIndex: null,
-    latestTurn: null,
-    createdAt: "2026-07-30T00:00:00.000Z",
-    updatedAt: "2026-07-30T00:00:00.000Z",
-    archivedAt: null,
-    session: {
-      threadId: "thread-1",
-      status: "running",
-      providerName: "codex",
-      runtimeMode: "native",
-      activeTurnId: "turn-1",
-      lastError: null,
-      updatedAt: "2026-07-30T00:00:00.000Z",
-    },
-    ...overrides,
-  } as unknown as OrchestrationThreadShell;
+function withSession<A, E>(
+  status: string,
+  activeTurnId: string | null,
+  effect: Effect.Effect<A, E, ProjectionSnapshotQuery | SqlClient.SqlClient>,
+) {
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* createThread({
+        id: "active-thread",
+        spaceId: SpaceId.makeUnsafe("space"),
+        title: "Active",
+        provider: "codex",
+        model: "gpt-5.5",
+        runtimeMode: "full-access",
+        createdBy: "user",
+        createdAt: "2026-10-10T00:00:00.000Z",
+      });
+      yield* sql`INSERT INTO projection_thread_sessions(thread_id, status, provider_name, active_turn_id, updated_at)
+      VALUES ('active-thread', ${status}, 'codex', ${activeTurnId}, '2026-10-10T00:00:00.000Z')`;
+      return yield* effect;
+    }).pipe(
+      Effect.provide(
+        OrchestrationProjectionSnapshotQueryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
+      ),
+    ),
+  );
 }
 
 function outdatedCodex(): ServerProviderStatus {
@@ -89,22 +88,63 @@ function outdatedOpenCode(): ServerProviderStatus {
 }
 
 describe("provider update coordinator", () => {
-  it("blocks only the active provider", () => {
-    const active = thread();
-    expect(isProviderUpdateBlockedByActiveThread("codex", active)).toBe(true);
-    expect(isProviderUpdateBlockedByActiveThread("claudeAgent", active)).toBe(false);
-    expect(hasActiveProviderThread("codex", [active])).toBe(true);
+  it("blocks only the active provider", async () => {
+    await withSession(
+      "running",
+      "turn-1",
+      Effect.gen(function* () {
+        const query = yield* ProjectionSnapshotQuery;
+        expect(yield* query.hasActiveProviderThread("codex")).toBe(true);
+        expect(yield* query.hasActiveProviderThread("claudeAgent")).toBe(false);
+      }),
+    );
   });
 
-  it("does not treat a ready session without a turn as active", () => {
-    const ready = thread({
-      session: {
-        ...thread().session!,
-        status: "ready",
-        activeTurnId: null,
-      },
-    });
-    expect(isProviderUpdateBlockedByActiveThread("codex", ready)).toBe(false);
+  it("does not treat a ready session without a turn as active", async () => {
+    await withSession(
+      "ready",
+      null,
+      Effect.gen(function* () {
+        const query = yield* ProjectionSnapshotQuery;
+        expect(yield* query.hasActiveProviderThread("codex")).toBe(false);
+      }),
+    );
+  });
+
+  it.each([
+    ["starting", null],
+    ["running", null],
+    ["ready", "turn-1"],
+  ])("blocks a %s session with active turn %s", async (status, activeTurnId) => {
+    await withSession(
+      status,
+      activeTurnId,
+      Effect.gen(function* () {
+        const query = yield* ProjectionSnapshotQuery;
+        expect(yield* query.hasActiveProviderThread("codex")).toBe(true);
+      }),
+    );
+  });
+
+  it("uses the provider index and ignores deleted threads while retaining archived session admission", async () => {
+    await withSession(
+      "running",
+      "turn-1",
+      Effect.gen(function* () {
+        const query = yield* ProjectionSnapshotQuery;
+        const sql = yield* SqlClient.SqlClient;
+        const plan = yield* sql<{ detail: string }>`EXPLAIN QUERY PLAN SELECT EXISTS(
+        SELECT 1 FROM threads t JOIN projection_thread_sessions s ON s.thread_id = t.id
+        WHERE t.provider = 'codex' AND t.deleted_at IS NULL
+          AND (s.active_turn_id IS NOT NULL OR s.status IN ('starting', 'running')) LIMIT 1
+      )`;
+        expect(plan.some((row) => row.detail.includes("idx_threads_provider_live"))).toBe(true);
+        yield* sql`UPDATE threads SET archived_at = '2026-10-10T00:00:01.000Z' WHERE id = 'active-thread'`;
+        expect(yield* query.hasActiveProviderThread("codex")).toBe(true);
+        yield* sql`UPDATE threads SET deleted_at = '2026-10-10T00:00:02.000Z' WHERE id = 'active-thread'`;
+        expect(yield* query.hasActiveProviderThread("codex")).toBe(false);
+      }),
+    );
   });
 
   it("bootstraps missing managed runtimes even in notify mode", async () => {
@@ -262,14 +302,7 @@ describe("provider update coordinator", () => {
           streamChanges: Stream.empty,
         } as unknown as ProviderHealthShape,
         projectionSnapshotQuery: {
-          getShellSnapshot: () =>
-            Effect.succeed({
-              snapshotSequence: 1,
-              spaces: [],
-              folders: [],
-              threads: [thread()],
-              updatedAt: "2026-07-30T00:00:00.000Z",
-            }),
+          hasActiveProviderThread: () => Effect.succeed(true),
         } as unknown as ProjectionSnapshotQueryShape,
         serverSettings: {
           getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
@@ -283,15 +316,7 @@ describe("provider update coordinator", () => {
 
   it("does not let legacy thread-continuation rejection block a later update attempt", async () => {
     const resolveManagedArtifact = vi.fn(() => Effect.fail(new Error("expected update attempt")));
-    const getShellSnapshot = vi.fn(() =>
-      Effect.succeed({
-        snapshotSequence: 1,
-        spaces: [],
-        folders: [],
-        threads: [],
-        updatedAt: "2026-08-08T00:00:00.000Z",
-      }),
-    );
+    const hasActiveProviderThread = vi.fn(() => Effect.succeed(false));
     await Effect.runPromise(
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;
@@ -306,7 +331,7 @@ describe("provider update coordinator", () => {
             streamChanges: Stream.empty,
           } as unknown as ProviderHealthShape,
           projectionSnapshotQuery: {
-            getShellSnapshot,
+            hasActiveProviderThread,
           } as unknown as ProjectionSnapshotQueryShape,
           serverSettings: {
             getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
@@ -336,7 +361,7 @@ describe("provider update coordinator", () => {
       }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
     );
 
-    expect(getShellSnapshot).toHaveBeenCalledOnce();
+    expect(hasActiveProviderThread).toHaveBeenCalledExactlyOnceWith("codex");
     expect(resolveManagedArtifact).toHaveBeenCalledWith({ provider: "codex", version: "1.1.0" });
   });
 
@@ -377,14 +402,7 @@ describe("provider update coordinator", () => {
             streamChanges: Stream.empty,
           } as unknown as ProviderHealthShape,
           projectionSnapshotQuery: {
-            getShellSnapshot: () =>
-              Effect.succeed({
-                snapshotSequence: 1,
-                spaces: [],
-                folders: [],
-                threads: [],
-                updatedAt: "2026-07-30T00:00:00.000Z",
-              }),
+            hasActiveProviderThread: () => Effect.succeed(false),
           } as unknown as ProjectionSnapshotQueryShape,
           serverSettings: {
             getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
@@ -450,14 +468,7 @@ describe("provider update coordinator", () => {
             streamChanges: Stream.empty,
           } as unknown as ProviderHealthShape,
           projectionSnapshotQuery: {
-            getShellSnapshot: () =>
-              Effect.succeed({
-                snapshotSequence: 1,
-                spaces: [],
-                folders: [],
-                threads: [],
-                updatedAt: "2026-07-30T00:00:00.000Z",
-              }),
+            hasActiveProviderThread: () => Effect.succeed(false),
           } as unknown as ProjectionSnapshotQueryShape,
           serverSettings: {
             getSettings: Effect.succeed({
@@ -518,14 +529,7 @@ describe("provider update coordinator", () => {
             streamChanges: Stream.empty,
           } as unknown as ProviderHealthShape,
           projectionSnapshotQuery: {
-            getShellSnapshot: () =>
-              Effect.succeed({
-                snapshotSequence: 1,
-                spaces: [],
-                folders: [],
-                threads: [],
-                updatedAt: "2026-07-30T00:00:00.000Z",
-              }),
+            hasActiveProviderThread: () => Effect.succeed(false),
           } as unknown as ProjectionSnapshotQueryShape,
           serverSettings: {
             getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),

@@ -19,6 +19,7 @@ import type {
   OrchestrationGetPendingStartOutcomeResult,
   OrchestrationThread,
   OrchestrationThreadShell,
+  ProviderKind,
   FolderId,
   MessageId,
   SpaceId,
@@ -114,9 +115,12 @@ export interface ProjectionSnapshotQueryShape {
    */
   readonly getSnapshot: () => Effect.Effect<OrchestrationReadModel, ProjectionRepositoryError>;
 
-  /**
-   * Read aggregate projection counts without hydrating the full read model.
-   */
+  /** Indexed existence check retaining provider-update session admission rules. */
+  readonly hasActiveProviderThread: (
+    provider: ProviderKind,
+  ) => Effect.Effect<boolean, ProjectionRepositoryError>;
+
+  /** Read aggregate projection counts without hydrating the full read model. */
   readonly getCounts: () => Effect.Effect<ProjectionSnapshotCounts, ProjectionRepositoryError>;
 
   /**

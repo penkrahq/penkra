@@ -2334,6 +2334,21 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         }),
       );
 
+  const hasActiveProviderThread: ProjectionSnapshotQueryShape["hasActiveProviderThread"] = (
+    provider,
+  ) =>
+    sql<{ active: number }>`SELECT EXISTS(
+      SELECT 1 FROM threads t JOIN projection_thread_sessions s ON s.thread_id = t.id
+      WHERE t.provider = ${provider} AND t.deleted_at IS NULL
+        AND (s.active_turn_id IS NOT NULL OR s.status IN ('starting', 'running'))
+      LIMIT 1
+    ) AS active`.pipe(
+      Effect.map((rows) => rows[0]!.active === 1),
+      Effect.mapError(
+        toPersistenceSqlError("ProjectionSnapshotQuery.hasActiveProviderThread:query"),
+      ),
+    );
+
   const getShellSnapshot: ProjectionSnapshotQueryShape["getShellSnapshot"] = () =>
     sql
       .withTransaction(
@@ -3405,6 +3420,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getCommandReadModel,
     getSnapshot,
     getShellSnapshot,
+    hasActiveProviderThread,
     getCounts,
     getSnapshotSequence,
     listStaleInFlightThreadIds,
