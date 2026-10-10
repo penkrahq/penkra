@@ -25,17 +25,14 @@ export const OPENCODE_IMAGE_TRANSFORM_PLUGIN_FILE_NAME = "penkra-image-transform
  */
 export const OPENCODE_IMAGE_TRANSFORM_PLUGIN_SOURCE = `const IMAGE_MIME_PREFIX = "image/";
 
-const readMime = (part) =>
-  part.mime ?? part.mediaType ?? part.media_type ?? part.mimeType;
-
-const isImagePart = (value) => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const mime = readMime(value);
-  if (typeof mime === "string" && mime.startsWith(IMAGE_MIME_PREFIX)) return true;
-  if (value.type === "image") return true;
-  const url = value.url;
-  return typeof url === "string" && url.startsWith("data:" + IMAGE_MIME_PREFIX);
-};
+// Match only the SDK FilePartInput shape: type "file" with an image/ mime.
+const isImagePart = (value) =>
+  value !== null &&
+  typeof value === "object" &&
+  !Array.isArray(value) &&
+  value.type === "file" &&
+  typeof value.mime === "string" &&
+  value.mime.startsWith(IMAGE_MIME_PREFIX);
 
 const imageLabel = (part) => {
   const url = part.url;
@@ -47,22 +44,11 @@ const imageLabel = (part) => {
     }
   }
   if (typeof part.filename === "string" && part.filename.length > 0) return part.filename;
-  const mime = readMime(part);
-  return typeof mime === "string" && mime.length > 0 ? mime : "image";
+  return typeof part.mime === "string" && part.mime.length > 0 ? part.mime : "image";
 };
 
 const toTextPart = (part) => {
-  const {
-    url: _url,
-    data: _data,
-    mime: _mime,
-    mediaType: _mediaType,
-    media_type: _mediaTypeSnake,
-    mimeType: _mimeType,
-    filename: _filename,
-    type: _type,
-    ...rest
-  } = part;
+  const { url: _url, mime: _mime, filename: _filename, source: _source, type: _type, ...rest } = part;
   return { ...rest, type: "text", text: "[image: " + imageLabel(part) + "]" };
 };
 
