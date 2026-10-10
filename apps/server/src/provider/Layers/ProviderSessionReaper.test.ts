@@ -62,6 +62,7 @@ function makeLayer(input: {
         hasActiveProviderThread: () => unsupported(),
         getShellSnapshot: () => unsupported(),
         getActiveFolderByWorkspaceRoot: () => unsupported(),
+        getFolderShellsByIds: () => Effect.die("unused"),
         getFolderShellById: () => unsupported(),
         getSpaceShellById: () => unsupported(),
         getFirstActiveThreadIdByFolderId: () => unsupported(),

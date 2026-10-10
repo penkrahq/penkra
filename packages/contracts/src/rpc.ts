@@ -129,6 +129,8 @@ import {
   CleanCoreEditQueuedMessageInput,
   QueuedEditDraftNotEmptyError,
   CleanCoreGetThreadShellInput,
+  CleanCoreGetFoldersInput,
+  CleanCoreGetFoldersResult,
   CleanCoreListThreadsInput,
   CleanCoreSearchThreadsInput,
   CleanCoreListDeckThreadsInput,
@@ -712,6 +714,11 @@ export const WsCleanCoreEditQueuedMessageRpc = Rpc.make(WS_METHODS.cleanCoreEdit
   success: CleanCoreQueuedMessageResult,
   error: Schema.Union([WsRpcError, QueuedEditDraftNotEmptyError]),
 });
+export const WsCleanCoreGetFoldersRpc = Rpc.make(WS_METHODS.cleanCoreGetFolders, {
+  payload: CleanCoreGetFoldersInput,
+  success: CleanCoreGetFoldersResult,
+  error: WsRpcError,
+});
 export const WsCleanCoreGetThreadShellRpc = Rpc.make(WS_METHODS.cleanCoreGetThreadShell, {
   payload: CleanCoreGetThreadShellInput,
   success: Schema.NullOr(OrchestrationThreadShell),
@@ -803,6 +810,7 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsCleanCoreCancelQueuedMessageRpc,
   WsCleanCoreEditQueuedMessageRpc,
   WsCleanCoreCreateThreadRpc,
+  WsCleanCoreGetFoldersRpc,
   WsCleanCoreGetThreadShellRpc,
   WsCleanCoreListThreadsRpc,
   WsCleanCoreSearchThreadsRpc,

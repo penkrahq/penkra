@@ -3,7 +3,7 @@
 // indexed, keyset-paged query over `threads` that the sidebar, the deck and
 // ChatView read instead of the old projection snapshot.
 // Layer: Server clean core
-// Exports: ThreadSummaryRecord, ThreadListCursor, listThreads, THREADS_PAGE_SIZE
+// Exports: ThreadSummaryRecord, ThreadListCursor, listThreads
 
 import type {
   CleanCoreSearchThreadsInput,
@@ -15,6 +15,7 @@ import type {
   ThreadId,
   TurnId,
 } from "@penkra/contracts";
+import { THREADS_PAGE_SIZE } from "@penkra/contracts";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
@@ -92,9 +93,6 @@ export interface ThreadListPage {
   readonly threads: ReadonlyArray<ThreadSummaryRecord>;
   readonly nextCursor: ThreadListCursor | null;
 }
-
-/** 50 = one screen with margin (2.1). */
-export const THREADS_PAGE_SIZE = 50;
 
 /**
  * One (space, folder) page of threads in the sidebar order, bounded by a

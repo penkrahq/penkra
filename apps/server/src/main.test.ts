@@ -812,6 +812,7 @@ it.layer(testLayer)("server CLI command", (it) => {
           hasActiveProviderThread: () => Effect.die("unused provider admission method"),
           getShellSnapshot: () => Effect.die("unused"),
           getActiveFolderByWorkspaceRoot: () => Effect.die("unused"),
+          getFolderShellsByIds: () => Effect.die("unused"),
           getFolderShellById: () => Effect.die("unused"),
           getSpaceShellById: () => Effect.die("unused"),
           getFirstActiveThreadIdByFolderId: () => Effect.die("unused"),

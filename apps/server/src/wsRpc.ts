@@ -1437,6 +1437,11 @@ const makeWsRpcHandlersLayer = () =>
                 : toWsRpcError(error, "Failed to edit the queued message"),
             ),
           ),
+        [WS_METHODS.cleanCoreGetFolders]: (input) =>
+          rpcEffect(
+            projectionReadModelQuery.getFolderShellsByIds(input.folderIds),
+            "Failed to read folders",
+          ),
         [WS_METHODS.cleanCoreGetThreadShell]: (input) =>
           rpcEffect(
             Effect.flatMap(Effect.service(ProjectionSnapshotQuery), (query) =>

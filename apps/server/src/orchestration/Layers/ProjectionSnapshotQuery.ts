@@ -40,7 +40,7 @@ import {
   toPersistenceSqlError,
   type ProjectionRepositoryError,
 } from "../../persistence/Errors.ts";
-import { THREADS_PAGE_SIZE } from "../../cleanCore/threadList.ts";
+import { CleanCoreGetFoldersInput, THREADS_PAGE_SIZE } from "@penkra/contracts";
 import { normalizePersistedModelSelection } from "../../persistence/modelSelectionCompatibility.ts";
 import { deriveThreadSummaryMetadata } from "@penkra/shared/threadSummary";
 import { ProjectionFolder } from "../../persistence/Services/ProjectionFolders.ts";
@@ -774,12 +774,13 @@ const THREAD_AGENT_STATUS = `CASE
   WHEN lt.state = 'error' OR s.status = 'error' THEN 'error'
   WHEN lt.state = 'interrupted' THEN 'interrupted'
   ELSE 'idle' END`;
-export function buildFolderShellPageQuery(after: ProjectionFolderPageCursor | null) {
-  return {
-    text: `SELECT f.folder_id AS "folderId", f.title, f.workspace_root AS "workspaceRoot",
+const FOLDER_SHELL_COLUMNS = `f.folder_id AS "folderId", f.title, f.workspace_root AS "workspaceRoot",
       f.default_model_selection_json AS "defaultModelSelection", f.scripts_json AS scripts,
       f.icon_data_url AS "iconDataUrl", f.space_id AS "spaceId", f.sidebar_sort_order AS "sidebarSortOrder",
-      f.created_at AS "createdAt", f.updated_at AS "updatedAt", f.archived_at AS "archivedAt", f.deleted_at AS "deletedAt",
+      f.created_at AS "createdAt", f.updated_at AS "updatedAt", f.archived_at AS "archivedAt", f.deleted_at AS "deletedAt"`;
+export function buildFolderShellPageQuery(after: ProjectionFolderPageCursor | null) {
+  return {
+    text: `SELECT ${FOLDER_SHELL_COLUMNS},
       s.name AS "spaceTitle"
       FROM projection_folders f LEFT JOIN projection_spaces s ON s.space_id = f.space_id
         AND s.deleted_at IS NULL AND s.archived_at IS NULL
@@ -2704,6 +2705,28 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         ),
       );
 
+  const getFolderShellsByIds: ProjectionSnapshotQueryShape["getFolderShellsByIds"] = (folderIds) =>
+    Effect.gen(function* () {
+      const input = yield* Schema.decodeUnknownEffect(CleanCoreGetFoldersInput)({ folderIds });
+      const rows = yield* sql`SELECT ${sql.literal(FOLDER_SHELL_COLUMNS)}
+        FROM projection_folders f
+        WHERE f.folder_id IN (SELECT value FROM json_each(${JSON.stringify(input.folderIds)}))
+          AND f.deleted_at IS NULL AND f.archived_at IS NULL
+        ORDER BY f.folder_id LIMIT ${THREADS_PAGE_SIZE}`;
+      const decoded = yield* Schema.decodeUnknownEffect(Schema.Array(ProjectionFolderDbRowSchema))(
+        rows,
+      );
+      return yield* Effect.forEach(decoded, (row) =>
+        decodeProjectionFolderRow(row).pipe(Effect.map(toProjectedProjectShell)),
+      );
+    }).pipe(
+      Effect.mapError((error) =>
+        isPersistenceError(error)
+          ? error
+          : toPersistenceSqlError("ProjectionSnapshotQuery.getFolderShellsByIds:query")(error),
+      ),
+    );
+
   const getFolderShellById: ProjectionSnapshotQueryShape["getFolderShellById"] = (folderId) =>
     getProjectRowById({ folderId }).pipe(
       Effect.mapError(
@@ -3647,6 +3670,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     searchThreadMessages,
     getThreadMessageContext,
     getActiveFolderByWorkspaceRoot,
+    getFolderShellsByIds,
     getFolderShellById,
     getSpaceShellById,
     getFirstActiveThreadIdByFolderId,

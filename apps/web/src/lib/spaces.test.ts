@@ -1,20 +1,25 @@
 // FILE: spaces.test.ts
 // Purpose: Verifies web-client Space command batching and partial-failure reporting.
 
-import { FOLDER_MOVE_MAX_COUNT, type NativeApi, type FolderId, SpaceId } from "@penkra/contracts";
+import {
+  THREADS_PAGE_SIZE,
+  FOLDER_MOVE_MAX_COUNT,
+  type NativeApi,
+  type FolderId,
+  SpaceId,
+} from "@penkra/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import { moveFoldersToSpace, reorderSpaces } from "./spaces";
 
 function makeApi(
   dispatchCommand: ReturnType<typeof vi.fn>,
-  getShellSnapshot: ReturnType<typeof vi.fn> = vi.fn().mockRejectedValue(new Error("offline")),
+  getFolders: ReturnType<typeof vi.fn> = vi.fn().mockRejectedValue(new Error("offline")),
 ): NativeApi {
   return {
-    cleanCore: { updateThread: dispatchCommand },
+    cleanCore: { updateThread: dispatchCommand, getFolders },
     orchestration: {
       dispatchCommand,
-      getShellSnapshot,
     },
   } as unknown as NativeApi;
 }
@@ -59,38 +64,57 @@ describe("moveFoldersToSpace", () => {
     const targetSpaceId = SpaceId.makeUnsafe("space-target");
     const folderIds = ["project-1", "project-2"] as FolderId[];
     const dispatchCommand = vi.fn().mockRejectedValue(new Error("connection closed"));
-    const getShellSnapshot = vi.fn().mockResolvedValue({
-      folders: [
-        { id: folderIds[0], spaceId: targetSpaceId },
-        { id: folderIds[1], spaceId: null },
-      ],
-    });
+    const getFolders = vi.fn().mockResolvedValue([
+      { id: folderIds[0], spaceId: targetSpaceId },
+      { id: folderIds[1], spaceId: null },
+    ]);
 
     await expect(
       moveFoldersToSpace({
-        api: makeApi(dispatchCommand, getShellSnapshot),
+        api: makeApi(dispatchCommand, getFolders),
         folderIds,
         spaceId: targetSpaceId,
       }),
     ).resolves.toEqual({ failedFolderIds: [folderIds[1]] });
-    expect(getShellSnapshot).toHaveBeenCalledOnce();
+    expect(getFolders).toHaveBeenCalledOnce();
   });
 
   it("does not report folders deleted concurrently with an ambiguous dispatch", async () => {
     const targetSpaceId = SpaceId.makeUnsafe("space-target");
     const folderIds = ["project-deleted", "project-still-active"] as FolderId[];
     const dispatchCommand = vi.fn().mockRejectedValue(new Error("connection closed"));
-    const getShellSnapshot = vi.fn().mockResolvedValue({
-      folders: [{ id: folderIds[1], spaceId: null }],
-    });
+    const getFolders = vi.fn().mockResolvedValue([{ id: folderIds[1], spaceId: null }]);
 
     await expect(
       moveFoldersToSpace({
-        api: makeApi(dispatchCommand, getShellSnapshot),
+        api: makeApi(dispatchCommand, getFolders),
         folderIds,
         spaceId: targetSpaceId,
       }),
     ).resolves.toEqual({ failedFolderIds: [folderIds[1]] });
+  });
+
+  it("recovers the entire failed selection in bounded ID batches", async () => {
+    const targetSpaceId = SpaceId.makeUnsafe("space-target");
+    const folderIds = Array.from(
+      { length: THREADS_PAGE_SIZE + 3 },
+      (_, i) => `project-${i}` as FolderId,
+    );
+    const dispatchCommand = vi.fn().mockRejectedValue(new Error("connection closed"));
+    const getFolders = vi.fn(async ({ folderIds: ids }: { folderIds: FolderId[] }) =>
+      ids.map((id) => ({ id, spaceId: id === folderIds.at(-1) ? null : targetSpaceId })),
+    );
+    await expect(
+      moveFoldersToSpace({
+        api: makeApi(dispatchCommand, getFolders),
+        folderIds,
+        spaceId: targetSpaceId,
+      }),
+    ).resolves.toEqual({ failedFolderIds: [folderIds.at(-1)] });
+    expect(getFolders.mock.calls.map(([input]) => input.folderIds)).toEqual([
+      folderIds.slice(0, THREADS_PAGE_SIZE),
+      folderIds.slice(THREADS_PAGE_SIZE),
+    ]);
   });
 });
 

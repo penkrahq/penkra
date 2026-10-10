@@ -19,10 +19,20 @@ import {
   RuntimeMode,
   ProviderUserInputAnswers,
   OrchestrationThreadShell,
+  OrchestrationFolderShell,
   ChatAttachment,
   ProviderStartOptions,
   AssistantDeliveryMode,
 } from "./orchestration";
+
+/** Bounded read page size from clean-core design 2.1 and 2.8. */
+export const THREADS_PAGE_SIZE = 50;
+export const CleanCoreGetFoldersInput = Schema.Struct({
+  folderIds: Schema.Array(FolderId).check(Schema.isMaxLength(THREADS_PAGE_SIZE)),
+});
+export type CleanCoreGetFoldersInput = typeof CleanCoreGetFoldersInput.Type;
+export const CleanCoreGetFoldersResult = Schema.Array(OrchestrationFolderShell);
+export type CleanCoreGetFoldersResult = typeof CleanCoreGetFoldersResult.Type;
 
 /** Clean-core bounded transcript read (0.14.4 design 2.1). */
 export const CleanCoreListThreadItemsPageInput = Schema.Struct({
