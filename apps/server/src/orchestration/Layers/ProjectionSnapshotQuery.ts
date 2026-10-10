@@ -65,6 +65,7 @@ import {
   type ProjectionThreadMessageContextInput,
   type ProjectionFolderPageCursor,
   type ProjectionThreadShellPageInput,
+  type ProjectionTranscriptSearchInput,
   type ProjectionTranscriptSearchResult,
 } from "../Services/ProjectionSnapshotQuery.ts";
 
@@ -848,6 +849,123 @@ export function buildThreadShellPageQuery(input: ProjectionThreadShellPageInput)
     ],
   };
 }
+export function buildTranscriptSearchQuery(input: ProjectionTranscriptSearchInput) {
+  const useIndex = input.queries.every((query) => Array.from(query).length >= 3);
+  const conditions: string[] = [
+    "t.space_id = ?",
+    "f.space_id = ?",
+    "t.deleted_at IS NULL",
+    "f.deleted_at IS NULL",
+    "f.archived_at IS NULL",
+    "(? IS NULL OR t.id = ?)",
+    "(? IS NULL OR t.folder_id = ?)",
+    "(? IS NOT NULL OR t.archived_at IS NULL)",
+  ];
+  const parameters: unknown[] = [
+    input.spaceId,
+    input.spaceId,
+    input.threadId,
+    input.threadId,
+    input.folderId,
+    input.folderId,
+    input.threadId,
+  ];
+
+  if (useIndex) {
+    const quoteFtsLiteral = (query: string) => `"${query.replaceAll('"', '""')}"`;
+    const joiner = input.queryMode === "all" ? " AND " : " OR ";
+    conditions.push("projection_thread_messages_search MATCH ?");
+    parameters.push(input.queries.map(quoteFtsLiteral).join(joiner));
+  } else {
+    const joiner = input.queryMode === "all" ? " AND " : " OR ";
+    conditions.push(
+      `(${input.queries.map(() => "instr(lower(messages.text), lower(?)) > 0").join(joiner)})`,
+    );
+    parameters.push(...input.queries);
+  }
+
+  if (input.roles && input.roles.length > 0) {
+    conditions.push("messages.role IN (SELECT value FROM json_each(?))");
+    parameters.push(JSON.stringify(input.roles));
+  }
+  if (input.turnId !== undefined) {
+    conditions.push("messages.turn_id = ?");
+    parameters.push(input.turnId);
+  }
+  if (input.createdAfter !== undefined) {
+    conditions.push("messages.created_at >= ?");
+    parameters.push(input.createdAfter);
+  }
+  if (input.createdBefore !== undefined) {
+    conditions.push("messages.created_at < ?");
+    parameters.push(input.createdBefore);
+  }
+
+  const direction = input.order === "recent" ? "DESC" : "ASC";
+  const join = useIndex
+    ? `JOIN projection_thread_messages_search
+             ON projection_thread_messages_search.rowid = messages.rowid`
+    : "";
+  if (input.anchor !== undefined) {
+    const comparator = input.order === "recent" ? "<" : ">";
+    conditions.push(`(
+            messages.created_at ${comparator} ?
+            OR (messages.created_at = ? AND messages.thread_id ${comparator} ?)
+            OR (
+              messages.created_at = ?
+              AND messages.thread_id = ?
+              AND messages.message_id ${comparator} ?
+            )
+          )`);
+    parameters.push(
+      input.anchor.createdAt,
+      input.anchor.createdAt,
+      input.anchor.threadId,
+      input.anchor.createdAt,
+      input.anchor.threadId,
+      input.anchor.messageId,
+    );
+  }
+  parameters.push(THREADS_PAGE_SIZE + 1);
+  return {
+    text: `SELECT
+             messages.message_id AS "messageId",
+             messages.thread_id AS "threadId",
+             t.title AS "threadTitle", t.provider AS "threadProvider",
+             messages.turn_id AS "turnId",
+             messages.role,
+             messages.text,
+             messages.attachments_json AS "attachments",
+             messages.skills_json AS "skills",
+             messages.mentions_json AS "mentions",
+             messages.dispatch_mode AS "dispatchMode",
+             messages.dispatch_origin AS "dispatchOrigin",
+             messages.sender_thread_id AS "senderThreadId",
+             messages.delivery_state AS "deliveryState",
+             messages.delivery_queued AS "deliveryQueued",
+             messages.delivery_sequence AS "deliverySequence",
+             messages.delivery_failure_phase AS "deliveryFailurePhase",
+             messages.delivery_failure_detail AS "deliveryFailureDetail",
+             messages.is_streaming AS "isStreaming",
+             messages.source,
+             messages.sequence,
+             messages.created_at AS "createdAt",
+             messages.updated_at AS "updatedAt"
+           FROM projection_thread_messages AS messages
+           JOIN threads t ON t.id = messages.thread_id
+           JOIN projection_folders f ON f.folder_id = t.folder_id
+           ${join}
+           WHERE ${conditions.join(" AND ")}
+           ORDER BY
+             messages.created_at ${direction},
+             messages.thread_id ${direction},
+             messages.message_id ${direction}
+           LIMIT ?`,
+    parameters,
+    useIndex,
+  };
+}
+
 const ThreadPageRowSchema = Schema.Struct({
   ...ProjectionThreadShellDbRowSchema.fields,
   sessionJson: Schema.NullOr(Schema.fromJsonString(ProjectionThreadSessionDbRowSchema)),
@@ -3320,159 +3438,27 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         } satisfies ProjectionTranscriptSearchResult;
       }
 
-      const useIndex = input.queries.every((query) => Array.from(query).length >= 3);
-      const baseConditions: string[] = [
-        "t.space_id = ?",
-        "f.space_id = ?",
-        "t.deleted_at IS NULL",
-        "f.deleted_at IS NULL",
-        "f.archived_at IS NULL",
-        "(? IS NULL OR t.id = ?)",
-        "(? IS NULL OR t.folder_id = ?)",
-        "(? IS NOT NULL OR t.archived_at IS NULL)",
-      ];
-      const baseParameters: unknown[] = [
-        input.spaceId,
-        input.spaceId,
-        input.threadId,
-        input.threadId,
-        input.folderId,
-        input.folderId,
-        input.threadId,
-      ];
-
-      if (useIndex) {
-        const quoteFtsLiteral = (query: string) => `"${query.replaceAll('"', '""')}"`;
-        const joiner = input.queryMode === "all" ? " AND " : " OR ";
-        baseConditions.push("projection_thread_messages_search MATCH ?");
-        baseParameters.push(input.queries.map(quoteFtsLiteral).join(joiner));
-      }
-
-      if (input.roles && input.roles.length > 0) {
-        baseConditions.push("messages.role IN (SELECT value FROM json_each(?))");
-        baseParameters.push(JSON.stringify(input.roles));
-      }
-      if (input.turnId !== undefined) {
-        baseConditions.push("messages.turn_id = ?");
-        baseParameters.push(input.turnId);
-      }
-      if (input.createdAfter !== undefined) {
-        baseConditions.push("messages.created_at >= ?");
-        baseParameters.push(input.createdAfter);
-      }
-      if (input.createdBefore !== undefined) {
-        baseConditions.push("messages.created_at < ?");
-        baseParameters.push(input.createdBefore);
-      }
-
-      const direction = input.order === "recent" ? "DESC" : "ASC";
-      const join = useIndex
-        ? `JOIN projection_thread_messages_search
-             ON projection_thread_messages_search.rowid = messages.rowid`
-        : "";
-      const batchSize = THREADS_PAGE_SIZE;
-      const normalizedQueries = input.queries.map((query) => query.toLocaleLowerCase());
-      const matchesLiteralQuery = (text: string) => {
-        const normalizedText = text.toLocaleLowerCase();
-        const matches = normalizedQueries.map((query) => normalizedText.includes(query));
-        return input.queryMode === "all" ? matches.every(Boolean) : matches.some(Boolean);
-      };
+      const query = buildTranscriptSearchQuery(input);
+      const rows = yield* sql
+        .unsafe(query.text, query.parameters)
+        .pipe(
+          Effect.mapError(
+            toPersistenceSqlError("ProjectionSnapshotQuery.searchThreadMessages:query"),
+          ),
+        );
       const SearchMessageRowSchema = Schema.Struct({
         ...ProjectionThreadMessageDbRowSchema.fields,
         threadTitle: Schema.String,
         threadProvider: ProviderKind,
       });
-      const matchedRows: Schema.Schema.Type<typeof SearchMessageRowSchema>[] = [];
-      let pageAnchor = input.anchor;
-      let candidateCount = 0;
-      let exhaustedCandidates = false;
-
-      while (matchedRows.length <= input.limit && !exhaustedCandidates) {
-        const conditions = [...baseConditions];
-        const parameters = [...baseParameters];
-        if (pageAnchor !== undefined) {
-          const comparator = input.order === "recent" ? "<" : ">";
-          conditions.push(`(
-            messages.created_at ${comparator} ?
-            OR (messages.created_at = ? AND messages.thread_id ${comparator} ?)
-            OR (
-              messages.created_at = ?
-              AND messages.thread_id = ?
-              AND messages.message_id ${comparator} ?
-            )
-          )`);
-          parameters.push(
-            pageAnchor.createdAt,
-            pageAnchor.createdAt,
-            pageAnchor.threadId,
-            pageAnchor.createdAt,
-            pageAnchor.threadId,
-            pageAnchor.messageId,
-          );
-        }
-        parameters.push(batchSize);
-        const rows = yield* sql
-          .unsafe<ProjectionThreadMessageDbRow>(
-            `SELECT DISTINCT
-             messages.message_id AS "messageId",
-             messages.thread_id AS "threadId",
-             t.title AS "threadTitle", t.provider AS "threadProvider",
-             messages.turn_id AS "turnId",
-             messages.role,
-             messages.text,
-             messages.attachments_json AS "attachments",
-             messages.skills_json AS "skills",
-             messages.mentions_json AS "mentions",
-             messages.dispatch_mode AS "dispatchMode",
-             messages.dispatch_origin AS "dispatchOrigin",
-             messages.sender_thread_id AS "senderThreadId",
-             messages.delivery_state AS "deliveryState",
-             messages.delivery_queued AS "deliveryQueued",
-             messages.delivery_sequence AS "deliverySequence",
-             messages.delivery_failure_phase AS "deliveryFailurePhase",
-             messages.delivery_failure_detail AS "deliveryFailureDetail",
-             messages.is_streaming AS "isStreaming",
-             messages.source,
-             messages.sequence,
-             messages.created_at AS "createdAt",
-             messages.updated_at AS "updatedAt"
-           FROM projection_thread_messages AS messages
-           JOIN threads t ON t.id = messages.thread_id
-           JOIN projection_folders f ON f.folder_id = t.folder_id
-           ${join}
-           WHERE ${conditions.join(" AND ")}
-           ORDER BY
-             messages.created_at ${direction},
-             messages.thread_id ${direction},
-             messages.message_id ${direction}
-           LIMIT ?`,
-            parameters,
-          )
-          .pipe(
-            Effect.mapError(
-              toPersistenceSqlError("ProjectionSnapshotQuery.searchThreadMessages:query"),
-            ),
-          );
-        const decodedRows = yield* Schema.decodeUnknownEffect(Schema.Array(SearchMessageRowSchema))(
-          rows,
-        ).pipe(
-          Effect.mapError(
-            toPersistenceDecodeError("ProjectionSnapshotQuery.searchThreadMessages:decodeRows"),
-          ),
-        );
-        candidateCount += decodedRows.length;
-        matchedRows.push(...decodedRows.filter((row) => matchesLiteralQuery(row.text)));
-        exhaustedCandidates = decodedRows.length < batchSize;
-        const lastCandidate = decodedRows.at(-1);
-        if (!lastCandidate) break;
-        pageAnchor = {
-          createdAt: lastCandidate.createdAt,
-          threadId: lastCandidate.threadId,
-          messageId: lastCandidate.messageId,
-        };
-      }
-
-      const selected = matchedRows.slice(0, input.limit);
+      const decodedRows = yield* Schema.decodeUnknownEffect(Schema.Array(SearchMessageRowSchema))(
+        rows,
+      ).pipe(
+        Effect.mapError(
+          toPersistenceDecodeError("ProjectionSnapshotQuery.searchThreadMessages:decodeRows"),
+        ),
+      );
+      const selected = decodedRows.slice(0, THREADS_PAGE_SIZE);
       const result: ProjectionTranscriptSearchResult = {
         messages: selected.map((row) => ({
           threadId: row.threadId,
@@ -3484,8 +3470,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           text: row.text,
           createdAt: row.createdAt,
         })),
-        hasMore: matchedRows.length > selected.length,
-        path: useIndex ? "indexed" : "short-query-fallback",
+        hasMore: rows.length > THREADS_PAGE_SIZE,
+        path: query.useIndex ? "indexed" : "short-query-fallback",
       };
       yield* Effect.logInfo("orchestration transcript messages searched").pipe(
         Effect.annotateLogs({
@@ -3494,7 +3480,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           queryCount: input.queries.length,
           spaceId: input.spaceId,
           threadId: input.threadId,
-          candidateCount,
+          rowCount: rows.length,
           returnedCount: result.messages.length,
           order: input.order,
         }),

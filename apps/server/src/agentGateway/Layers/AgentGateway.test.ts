@@ -735,8 +735,8 @@ function makeHarnessLayer(
             return input.order === "recent" ? comparison < 0 : comparison > 0;
           });
         return {
-          messages: messages.slice(0, input.limit),
-          hasMore: messages.length > input.limit,
+          messages: messages.slice(0, THREADS_PAGE_SIZE),
+          hasMore: messages.length > THREADS_PAGE_SIZE,
           path: "indexed" as const,
         };
       }),
@@ -2657,19 +2657,29 @@ describe("AgentGateway", () => {
     const secondShell = makeThreadShell("thread-search-old", {
       title: "Older result",
     });
-    const firstDetail: OrchestrationThread = {
+    const firstDetailBase: OrchestrationThread = {
       ...makeThreadDetail(firstShell),
       messages: [
         {
           id: MessageId.makeUnsafe("message-search-new"),
           role: "assistant",
-          text: "The architecture uses a durable anchor for every page.",
+          text: "The architecture uses a durable anchor for every page. ".repeat(THREADS_PAGE_SIZE),
           turnId: TurnId.makeUnsafe("turn-search-new"),
           streaming: false,
           source: "native",
           createdAt: "2026-08-31T12:00:02.000Z",
           updatedAt: "2026-08-31T12:00:02.000Z",
         },
+      ],
+    };
+    const firstDetail: OrchestrationThread = {
+      ...firstDetailBase,
+      messages: [
+        ...firstDetailBase.messages,
+        ...Array.from({ length: THREADS_PAGE_SIZE - 1 }, (_, i) => ({
+          ...firstDetailBase.messages[0]!,
+          id: MessageId.makeUnsafe("message-search-new-" + i),
+        })),
       ],
     };
     const secondDetail: OrchestrationThread = {
@@ -2709,11 +2719,11 @@ describe("AgentGateway", () => {
         threadId: string;
         messageId: string;
       }>;
-      assert.lengthOf(firstItems, 1);
+      assert.lengthOf(firstItems, THREADS_PAGE_SIZE);
       assert.equal(first.query, "architecture");
       assert.deepEqual(first.queries, ["architecture"]);
-      assert.equal(firstItems[0]?.threadId, "thread-search-new");
-      assert.equal(firstItems[0]?.messageId, "message-search-new");
+      assert.isTrue(firstItems.every((item) => item.threadId === "thread-search-new"));
+      assert.isTrue(firstItems.some((item) => item.messageId === "message-search-new"));
       const cursor = (first.pageInfo as { nextCursor: string | null }).nextCursor;
       assert.isString(cursor);
 

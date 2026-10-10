@@ -2063,7 +2063,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         createdAfter: "2026-09-02T00:00:00.000Z",
         createdBefore: "2026-09-03T00:00:00.000Z",
         order: "recent",
-        limit: 20,
       });
       assert.equal(indexed.path, "indexed");
       assert.deepEqual(
@@ -2078,7 +2077,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         queries: ["x"],
         queryMode: "any",
         order: "oldest",
-        limit: 20,
       });
       assert.equal(fallback.path, "short-query-fallback");
       assert.deepEqual(
@@ -2093,10 +2091,18 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         queries: ["é"],
         queryMode: "any",
         order: "oldest",
-        limit: 20,
+      });
+      assert.lengthOf(unicodeFallback.messages, 0);
+      const unicodePhrase = yield* snapshotQuery.searchThreadMessages({
+        spaceId: SpaceId.makeUnsafe("penkra-personal"),
+        folderId: null,
+        threadId,
+        queries: ["élan"],
+        queryMode: "any",
+        order: "oldest",
       });
       assert.deepEqual(
-        unicodeFallback.messages.map((message) => message.messageId),
+        unicodePhrase.messages.map((message) => message.messageId),
         [asMessageId("search-user-3")],
       );
 
