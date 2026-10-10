@@ -1,6 +1,8 @@
 import { Schema } from "effect";
+import { ProviderSkillReference, ProviderMentionReference } from "./providerDiscovery";
 
 import {
+  MessageId,
   FolderId,
   IsoDateTime,
   NonNegativeInt,
@@ -17,6 +19,9 @@ import {
   RuntimeMode,
   ProviderUserInputAnswers,
   OrchestrationThreadShell,
+  ChatAttachment,
+  ProviderStartOptions,
+  AssistantDeliveryMode,
 } from "./orchestration";
 
 /** Clean-core bounded transcript read (0.14.4 design 2.1). */
@@ -72,6 +77,45 @@ export type CleanCoreThreadChange = typeof CleanCoreThreadChange.Type;
 export const CleanCoreSubscribeThreadInput = Schema.Struct({ threadId: ThreadId });
 export type CleanCoreSubscribeThreadInput = typeof CleanCoreSubscribeThreadInput.Type;
 
+export const CleanCoreQueuedMessage = Schema.Struct({
+  messageId: MessageId,
+  text: Schema.String,
+  attachments: Schema.Array(ChatAttachment),
+  senderThreadId: Schema.NullOr(ThreadId),
+  dispatchOrigin: Schema.Literals(["user", "automation", "agent"]),
+  queuedAt: IsoDateTime,
+});
+export type CleanCoreQueuedMessage = typeof CleanCoreQueuedMessage.Type;
+export const CleanCoreSendMessageInput = Schema.Struct({
+  threadId: ThreadId,
+  message: CleanCoreQueuedMessage,
+  dispatchMode: Schema.Literals(["queue", "steer"]),
+  modelSelection: Schema.optional(ModelSelection),
+  connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
+  providerOptions: Schema.optional(ProviderStartOptions),
+  assistantDeliveryMode: Schema.optional(AssistantDeliveryMode),
+  skills: Schema.optional(Schema.Array(ProviderSkillReference)),
+  mentions: Schema.optional(Schema.Array(ProviderMentionReference)),
+});
+export type CleanCoreSendMessageInput = typeof CleanCoreSendMessageInput.Type;
+export const CleanCoreQueuedMessageInput = Schema.Struct({
+  threadId: ThreadId,
+  messageId: MessageId,
+});
+export type CleanCoreQueuedMessageInput = typeof CleanCoreQueuedMessageInput.Type;
+export const CleanCoreQueuedMessageResult = Schema.Struct({
+  threadId: ThreadId,
+  messageId: MessageId,
+  removed: Schema.Boolean,
+});
+export type CleanCoreQueuedMessageResult = typeof CleanCoreQueuedMessageResult.Type;
+export const CleanCoreEditQueuedMessageInput = Schema.Struct({
+  ...CleanCoreQueuedMessageInput.fields,
+  draft: Schema.String,
+  updatedAt: IsoDateTime,
+});
+export type CleanCoreEditQueuedMessageInput = typeof CleanCoreEditQueuedMessageInput.Type;
+
 export const CleanCoreThreadSummary = Schema.Struct({
   id: ThreadId,
   spaceId: SpaceId,
@@ -86,6 +130,7 @@ export const CleanCoreThreadSummary = Schema.Struct({
   state: Schema.String,
   activeTurnId: Schema.NullOr(TurnId),
   lastError: Schema.NullOr(Schema.String),
+  queue: Schema.String,
   createdBy: Schema.String,
   createdByThreadId: Schema.NullOr(ThreadId),
   parentThreadId: Schema.NullOr(ThreadId),

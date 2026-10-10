@@ -20,8 +20,7 @@ export async function persistComposerAsset(input: {
   const bridge = desktopComposerDraftsBridge();
   if (!bridge) {
     return persistComposerImageBlob({
-      threadId: input.threadId,
-      imageId: input.assetId,
+      assetId: input.assetId,
       file: input.file,
     });
   }

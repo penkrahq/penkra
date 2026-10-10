@@ -6,7 +6,7 @@
 // Layer: Chat composer UI
 // Exports: ComposerQueuedHeader
 
-import type { QueuedComposerTurn } from "../../composerDraftStore";
+import type { CleanCoreQueuedMessage } from "@penkra/contracts";
 import { SteerIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import ChatMarkdown from "../ChatMarkdown";
@@ -56,11 +56,11 @@ export function compactQueuedComposerPreviewMarkdown(value: string): string {
 }
 
 interface ComposerQueuedHeaderProps {
-  queuedTurns: QueuedComposerTurn[];
+  queuedTurns: readonly CleanCoreQueuedMessage[];
   actionInFlightIds?: ReadonlySet<string>;
-  onSteer: (queuedTurn: QueuedComposerTurn) => void;
-  onRemove: (queuedTurn: QueuedComposerTurn) => void;
-  onEdit: (queuedTurn: QueuedComposerTurn) => void;
+  onSteer: (queuedTurn: CleanCoreQueuedMessage) => void;
+  onRemove: (queuedTurn: CleanCoreQueuedMessage) => void;
+  onEdit: (queuedTurn: CleanCoreQueuedMessage) => void;
   /** Workspace root used to resolve local file links/mentions inside the parsed preview. */
   cwd?: string | undefined;
   attachedToPrevious?: boolean;
@@ -85,7 +85,7 @@ export const ComposerQueuedHeader = function ComposerQueuedHeader({
       {queuedTurns.map((queuedTurn, queuedTurnIndex) => {
         return (
           <ComposerStackedPanelRow
-            key={queuedTurn.id}
+            key={queuedTurn.messageId}
             compact
             data-testid="queued-follow-up-row"
             className={cn(queuedTurnIndex > 0 && COMPOSER_STACKED_PANEL_DIVIDER_CLASS_NAME)}
@@ -93,7 +93,7 @@ export const ComposerQueuedHeader = function ComposerQueuedHeader({
             <ComposerStackedPanelRowMain>
               <SteerIcon className={COMPOSER_STACKED_PANEL_ICON_CLASS_NAME} />
               <ChatMarkdown
-                text={compactQueuedComposerPreviewMarkdown(queuedTurn.previewText)}
+                text={compactQueuedComposerPreviewMarkdown(queuedTurn.text)}
                 cwd={cwd}
                 isStreaming={false}
                 className={COMPOSER_STACKED_PANEL_PREVIEW_MARKDOWN_CLASS_NAME}
@@ -101,7 +101,7 @@ export const ComposerQueuedHeader = function ComposerQueuedHeader({
             </ComposerStackedPanelRowMain>
             <QueuedComposerActions
               queuedTurn={queuedTurn}
-              busy={actionInFlightIds?.has(queuedTurn.id) === true}
+              busy={actionInFlightIds?.has(queuedTurn.messageId) === true}
               onSteer={onSteer}
               onRemove={onRemove}
               onEdit={onEdit}

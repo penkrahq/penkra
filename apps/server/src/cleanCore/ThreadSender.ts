@@ -1,3 +1,4 @@
+import { ManagedAttachmentRepository } from "../persistence/Services/ManagedAttachments.ts";
 import { randomUUID } from "node:crypto";
 import {
   CommandId,
@@ -10,26 +11,24 @@ import {
   type CleanCoreInterruptResult,
   type CleanCoreSendResult,
   type ProviderConnectionId,
+  type CleanCoreSendMessageInput,
 } from "@penkra/contracts";
 import { Deferred, Effect, Layer, Option, Schema, Semaphore, ServiceMap } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { ProviderThreadSwitchCoordinator } from "../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
 import { ThreadProviderBindingRepository } from "../persistence/Services/ThreadProviderBindings.ts";
 import { ProviderService } from "../provider/Services/ProviderService.ts";
-import { LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL } from "../managedAttachmentPrincipal.ts";
+import {
+  CurrentManagedAttachmentPrincipal,
+  type ManagedAttachmentPrincipal,
+} from "../managedAttachmentPrincipal.ts";
 import { setThreadState } from "./threadStore.ts";
 import { ThreadPublisher } from "./ThreadPublisher.ts";
 import { deliverMessage, sendMessage, type SendDriver } from "./sendMessage.ts";
 import { readThreadQueue, QueuedMessage } from "./threadQueue.ts";
 import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
 
-export interface ThreadSendInput {
-  readonly threadId: ThreadId;
-  readonly message: QueuedMessage;
-  readonly dispatchMode: "queue" | "steer";
-  readonly modelSelection?: ModelSelection;
-  readonly connectionId?: ProviderConnectionId | null;
-}
+export type ThreadSendInput = CleanCoreSendMessageInput;
 export class ThreadSender extends ServiceMap.Service<
   ThreadSender,
   {
@@ -61,13 +60,72 @@ export const makeThreadSender = Effect.gen(function* () {
   const coordinator = yield* ProviderThreadSwitchCoordinator;
   const bindings = yield* ThreadProviderBindingRepository;
   const provider = yield* ProviderService;
+  const managedAttachments = yield* ManagedAttachmentRepository;
   const decodeQueue = Schema.decodeUnknownSync(Schema.Array(QueuedMessage));
+  const attachmentPrincipal = (input: Parameters<SendDriver["dispatch"]>[0]) =>
+    Effect.gen(function* () {
+      const queued = yield* readThreadQueue(input.threadId).pipe(
+        Effect.provideService(SqlClient.SqlClient, sql),
+      );
+      const attachment = input.message.attachments.find(
+        (attachment) => attachment.type !== "assistant-selection",
+      );
+      if (
+        attachment === undefined ||
+        !queued.some((message) => message.messageId === input.message.messageId)
+      )
+        return yield* CurrentManagedAttachmentPrincipal;
+      const claimed = yield* managedAttachments.findClaimedById({ attachmentId: attachment.id });
+      if (
+        Option.isNone(claimed) ||
+        claimed.value.ownerThreadId !== input.threadId ||
+        claimed.value.claimMessageId !== input.message.messageId
+      )
+        return yield* Effect.fail(
+          new Error("The queued attachment is not claimed by this message."),
+        );
+      const row = claimed.value;
+      if (row.ownerKind === "session" || row.ownerKind === "presented-media")
+        return {
+          ownerKind: row.ownerKind,
+          ownerId: row.ownerId,
+        } satisfies ManagedAttachmentPrincipal;
+      if (row.ownerKind === "local-loopback" && row.ownerId === "local-loopback")
+        return {
+          ownerKind: "local-loopback",
+          ownerId: "local-loopback",
+        } satisfies ManagedAttachmentPrincipal;
+      return yield* Effect.fail(new Error("The queued attachment has an invalid owner."));
+    });
   const driver: SendDriver = {
+    claimAttachments: (input) =>
+      Effect.gen(function* () {
+        const principal = yield* attachmentPrincipal(input);
+        const attachmentIds = input.message.attachments
+          .filter((attachment) => attachment.type !== "assistant-selection")
+          .map((attachment) => attachment.id);
+        const claim = yield* managedAttachments.claimForAcceptedTurn({
+          attachmentIds,
+          ownerThreadId: input.threadId,
+          ownerKind: principal.ownerKind,
+          ownerId: principal.ownerId,
+          commandId: input.message.messageId,
+          messageId: input.message.messageId,
+          now: new Date().toISOString(),
+        });
+        if (claim.status !== "claimed")
+          return yield* Effect.fail(
+            new Error(`Managed attachment claim was rejected: ${claim.reason}.`),
+          );
+      }).pipe(
+        Effect.mapError((error) => (error instanceof Error ? error : new Error(String(error)))),
+      ),
     interrupt: (threadId) =>
       provider.interruptTurn({ threadId: ThreadId.makeUnsafe(threadId) }).pipe(Effect.asVoid),
     dispatch: (input, mode) =>
       Effect.scoped(
         Effect.gen(function* () {
+          const principal = yield* attachmentPrincipal(input);
           const threadId = ThreadId.makeUnsafe(input.threadId);
           const rows = yield* sql<{
             provider: string;
@@ -109,6 +167,8 @@ export const makeThreadSender = Effect.gen(function* () {
                 role: "user",
                 text: input.message.text,
                 attachments: input.message.attachments,
+                ...(input.skills === undefined ? {} : { skills: input.skills }),
+                ...(input.mentions === undefined ? {} : { mentions: input.mentions }),
               },
               dispatchMode: mode === "steer" ? "steer" : "queue",
               dispatchOrigin: input.message.dispatchOrigin,
@@ -118,10 +178,16 @@ export const makeThreadSender = Effect.gen(function* () {
               modelSelection,
               connectionId: row.connectionId,
               runtimeMode,
+              ...(input.providerOptions === undefined
+                ? {}
+                : { providerOptions: input.providerOptions }),
+              ...(input.assistantDeliveryMode === undefined
+                ? {}
+                : { assistantDeliveryMode: input.assistantDeliveryMode }),
               bindingRevision: Option.isSome(binding) ? binding.value.revision : 0,
               createdAt: new Date().toISOString(),
             },
-            attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+            attachmentPrincipal: principal,
             ...(row.workingDirectory === null ? {} : { cwd: row.workingDirectory }),
           });
           return yield* Deferred.await(reply);
@@ -187,7 +253,7 @@ export const makeThreadSender = Effect.gen(function* () {
         return;
       }
       const remaining = queue.slice(1);
-      yield* sql`UPDATE threads SET queue = ${JSON.stringify(remaining)} WHERE id = ${threadId}`;
+      yield* sql`UPDATE threads SET queue = ${JSON.stringify(remaining)}, updated_at = ${new Date().toISOString()} WHERE id = ${threadId}`;
       publisher.publish({ threadId });
     }).pipe(Effect.provideService(SqlClient.SqlClient, sql));
   const unsubscribe = publisher.subscribeProvider((event) => {
@@ -215,7 +281,7 @@ export const makeThreadSender = Effect.gen(function* () {
             const remaining = queue.filter((message) => message.messageId !== input.messageId);
             if (remaining.length === queue.length) return null;
             if (draft === null)
-              yield* sql`UPDATE threads SET queue = ${JSON.stringify(remaining)} WHERE id = ${input.threadId}`;
+              yield* sql`UPDATE threads SET queue = ${JSON.stringify(remaining)}, updated_at = ${new Date().toISOString()} WHERE id = ${input.threadId}`;
             else
               yield* sql`UPDATE threads SET queue = ${JSON.stringify(remaining)}, draft = ${draft.value}, draft_updated_at = ${draft.updatedAt}, updated_at = ${draft.updatedAt} WHERE id = ${input.threadId}`;
             return remaining;
@@ -372,6 +438,7 @@ export const makeThreadSender = Effect.gen(function* () {
           }
           const result = yield* sendMessage(publisher, driver, {
             ...input,
+            message: position === -1 ? input.message : queue[position]!,
             dispatchMode: current.state === "running" ? input.dispatchMode : "queue",
             supportsSteer: providerSupportsNativeTurnSteering(row.provider),
           });

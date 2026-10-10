@@ -1,3 +1,5 @@
+import { toastManager } from "./ui/toast";
+import { resetThreadListForTests } from "../threadListStore";
 // Production CSS is part of the behavior under test because row height depends on it.
 import "../index.css";
 
@@ -51,7 +53,6 @@ import {
   removeInlineTerminalContextPlaceholder,
 } from "../lib/terminalContext";
 import { isMacPlatform } from "../lib/utils";
-import { queuedComposerTurnServerMessageId } from "../lib/queuedComposerTurnDispatch";
 import { readNativeApi } from "../nativeApi";
 import { getRouter } from "../router";
 import { useSpacesUiStore } from "../spacesUiStore";
@@ -75,7 +76,6 @@ import { resetWsNativeApiForTest } from "../wsNativeApi";
 import { useVoiceSessionCoordinatorStore } from "../voiceSessionCoordinator";
 // Pre-transform the compiler-heavy component outside the first case's timeout.
 // The router's auto-split route otherwise requests this module on first mount.
-import { resetPendingStartRecoveryRegistryForTests } from "./ChatView";
 import {
   enableChatPerformanceDiagnostics,
   getChatPerformanceWorkSamples,
@@ -1493,6 +1493,18 @@ function summarizeFixtureThread(thread: OrchestrationThread) {
     state: thread.session?.status === "running" ? "running" : "idle",
     activeTurnId: thread.session?.activeTurnId ?? null,
     lastError: thread.session?.lastError ?? null,
+    queue: JSON.stringify(
+      (thread.messages ?? [])
+        .filter((message) => thread.queuedMessageIds?.includes(message.id))
+        .map((message) => ({
+          messageId: message.id,
+          text: message.text,
+          attachments: message.attachments ?? [],
+          senderThreadId: message.senderThreadId ?? null,
+          dispatchOrigin: "user",
+          queuedAt: message.createdAt,
+        })),
+    ),
     createdBy: "user",
     createdByThreadId: null,
     parentThreadId: thread.parentThreadId ?? null,
@@ -1569,6 +1581,105 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
         fixture.snapshot.threads.find((thread) => thread.id === input.threadId)!,
       ),
     };
+  }
+  if (tag === WS_METHODS.cleanCoreGetThread) {
+    const thread = fixture.snapshot.threads.find((thread) => thread.id === body.threadId);
+    return thread ? summarizeFixtureThread(thread) : null;
+  }
+  if (tag === WS_METHODS.cleanCoreSendMessage) {
+    const input = body as unknown as import("@penkra/contracts").CleanCoreSendMessageInput;
+    const thread = fixture.snapshot.threads.find((thread) => thread.id === input.threadId);
+    if (!thread)
+      return {
+        threadId: input.threadId,
+        messageId: input.message.messageId,
+        delivery: "failed",
+        error: "The thread does not exist.",
+      };
+    const running = thread.session?.status === "running" || thread.latestTurn?.state === "running";
+    const queued = running && input.dispatchMode === "queue";
+    fixture = {
+      ...fixture,
+      snapshot: {
+        ...fixture.snapshot,
+        threads: fixture.snapshot.threads.map((row) =>
+          row.id === input.threadId
+            ? {
+                ...row,
+                updatedAt: input.message.queuedAt,
+                messages: [
+                  ...row.messages.filter((message) => message.id !== input.message.messageId),
+                  {
+                    id: input.message.messageId,
+                    role: "user" as const,
+                    text: input.message.text,
+                    attachments: input.message.attachments,
+                    source: "native" as const,
+                    turnId: null,
+                    createdAt: input.message.queuedAt,
+                    updatedAt: input.message.queuedAt,
+                    streaming: false,
+                  },
+                ],
+                queuedMessageIds: queued
+                  ? [...new Set([...(row.queuedMessageIds ?? []), input.message.messageId])]
+                  : (row.queuedMessageIds ?? []),
+              }
+            : row,
+        ),
+      },
+    };
+    fixtureDrafts.set(input.threadId, { draft: null, draftUpdatedAt: input.message.queuedAt });
+    pushCleanCoreThreadChange(input.threadId);
+    return queued
+      ? {
+          threadId: input.threadId,
+          messageId: input.message.messageId,
+          delivery: "queued",
+          position: thread.queuedMessageIds?.length ? thread.queuedMessageIds.length + 1 : 1,
+          queueLength: thread.queuedMessageIds?.length ? thread.queuedMessageIds.length + 1 : 1,
+          runningTurnId: thread.session?.activeTurnId ?? thread.latestTurn?.turnId ?? null,
+        }
+      : {
+          threadId: input.threadId,
+          messageId: input.message.messageId,
+          delivery: input.dispatchMode === "steer" && running ? "steered" : "started",
+          turnId: thread.session?.activeTurnId ?? thread.latestTurn?.turnId ?? "turn-fixture-start",
+        };
+  }
+  if (
+    tag === WS_METHODS.cleanCoreCancelQueuedMessage ||
+    tag === WS_METHODS.cleanCoreEditQueuedMessage
+  ) {
+    const thread = fixture.snapshot.threads.find((thread) => thread.id === body.threadId);
+    const removed = thread?.queuedMessageIds?.includes(body.messageId as MessageId) === true;
+    if (removed) {
+      fixture = {
+        ...fixture,
+        snapshot: {
+          ...fixture.snapshot,
+          threads: fixture.snapshot.threads.map((row) =>
+            row.id === body.threadId
+              ? {
+                  ...row,
+                  updatedAt: new Date().toISOString(),
+                  queuedMessageIds: (row.queuedMessageIds ?? []).filter(
+                    (id) => id !== body.messageId,
+                  ),
+                  messages: row.messages.filter((message) => message.id !== body.messageId),
+                }
+              : row,
+          ),
+        },
+      };
+      if (tag === WS_METHODS.cleanCoreEditQueuedMessage)
+        fixtureDrafts.set(body.threadId as string, {
+          draft: body.draft as string,
+          draftUpdatedAt: body.updatedAt as string,
+        });
+      pushCleanCoreThreadChange(body.threadId as ThreadId);
+    }
+    return { threadId: body.threadId, messageId: body.messageId, removed };
   }
   if (tag === WS_METHODS.cleanCoreGetThreadShell) {
     return (
@@ -1941,6 +2052,14 @@ function installDeterministicSendNativeApi(options?: {
       },
       cleanCore: {
         ...wsNativeApi.cleanCore,
+        sendMessage: async (input: Parameters<typeof wsNativeApi.cleanCore.sendMessage>[0]) => {
+          wsRequests.push({ _tag: WS_METHODS.cleanCoreSendMessage, ...input });
+          await options?.dispatchGate;
+          if (options?.dispatchError) throw options.dispatchError;
+          return resolveWsRpc({ _tag: WS_METHODS.cleanCoreSendMessage, ...input }) as Awaited<
+            ReturnType<typeof wsNativeApi.cleanCore.sendMessage>
+          >;
+        },
         updateThread: async (input: Parameters<typeof wsNativeApi.cleanCore.updateThread>[0]) => {
           if (options?.threadUpdateGate) {
             wsRequests.push({ _tag: WS_METHODS.cleanCoreUpdateThread, ...input });
@@ -2362,13 +2481,21 @@ async function waitForSendButton(): Promise<HTMLButtonElement> {
 }
 
 function readDispatchedCommand(request: WsRequestEnvelope["body"]): Record<string, unknown> | null {
+  if (request._tag === WS_METHODS.cleanCoreSendMessage) {
+    const input = request as unknown as import("@penkra/contracts").CleanCoreSendMessageInput;
+    return {
+      ...input,
+      type: "thread.turn.start",
+      message: { ...input.message, role: "user" },
+      createdAt: input.message.queuedAt,
+    };
+  }
   if (
     request._tag !== ORCHESTRATION_WS_METHODS.dispatchCommand ||
     typeof request.command !== "object" ||
     request.command === null
-  ) {
+  )
     return null;
-  }
   return request.command as Record<string, unknown>;
 }
 
@@ -3373,8 +3500,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
       }
     });
     resetComposerSendPreflightsForTests();
-    resetPendingStartRecoveryRegistryForTests();
     await resetWsNativeApiForTest();
+    resetThreadListForTests();
     resetRetainedThreadDetailSubscriptionsForTests();
     await setViewport(DEFAULT_VIEWPORT);
     attachmentResponseDelayMs = 0;
@@ -4415,7 +4542,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
         ...currentSnapshot,
         snapshotSequence: currentSnapshot.snapshotSequence + 1,
         threads: currentSnapshot.threads.map((thread) =>
-          thread.id === THREAD_ID ? update(thread) : thread,
+          thread.id === THREAD_ID
+            ? { ...update(thread), updatedAt: new Date().toISOString() }
+            : thread,
         ),
         updatedAt: isoAt(2_100 + currentSnapshot.snapshotSequence),
       };
@@ -4585,7 +4714,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
                       updatedAt: isoAt(2_104),
                     }
                   : null,
-                updatedAt: isoAt(2_106),
+                updatedAt: currentSnapshot.threads.find((thread) => thread.id === THREAD_ID)!
+                  .updatedAt,
               }
             : thread,
         ),
@@ -4602,7 +4732,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("sends the protocol's exact binding revision zero for an unstarted server thread", async () => {
+  it("sends an unstarted server thread through clean core without a client binding guess", async () => {
     const restoreNativeApi = installDeterministicSendNativeApi();
     const withEmptyThread = addThreadToSnapshot(createDraftOnlySnapshot(), OTHER_THREAD_ID);
     const snapshot: OrchestrationReadModel = {
@@ -4632,7 +4762,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
         expect(turnStart).toBeTruthy();
         return turnStart!;
       });
-      expect(command.bindingRevision).toBe(0);
+      expect(command.bindingRevision).toBeUndefined();
+      expect(wsRequests.some((request) => request._tag === WS_METHODS.cleanCoreSendMessage)).toBe(
+        true,
+      );
       expect(command.modelSelection).toEqual(
         expect.objectContaining({
           provider: "codex",
@@ -4835,7 +4968,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
               ? start.message.text
               : null,
           ).toBe(prompt);
-          expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe("");
+          expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt ?? "").toBe(
+            "",
+          );
           expect(editor.element().textContent ?? "").toBe("");
         },
         { timeout: 8_000, interval: 16 },
@@ -5414,6 +5549,15 @@ describe("ChatView timeline estimator parity (full app)", () => {
       configurable: true,
       value: {
         ...nativeApi,
+        cleanCore: {
+          ...nativeApi.cleanCore,
+          sendMessage: vi.fn(
+            async (input: import("@penkra/contracts").CleanCoreSendMessageInput) => {
+              wsRequests.push({ _tag: WS_METHODS.cleanCoreSendMessage, ...input });
+              throw new Error("fixture uncertain start transport failure");
+            },
+          ),
+        },
         orchestration: {
           ...nativeApi.orchestration,
           dispatchCommand: vi.fn(async (command: unknown) => {
@@ -5457,14 +5601,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
             (request.update as CleanCoreThreadUpdate).action === "delete",
         ),
       ).toEqual([]);
-      const recovery = Object.values(
-        useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]
-          ?.pendingStartRecoveriesByMessageId ?? {},
-      ).find((candidate) => candidate && "pendingTurn" in candidate);
-      expect(recovery && "settlement" in recovery ? recovery.settlement : null).toBe("unresolved");
-      expect(recovery && "pendingTurn" in recovery ? recovery.pendingTurn.prompt : null).toBe(
-        prompt,
-      );
+      expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(prompt);
+      expect(fixture.snapshot.threads.filter((thread) => thread.id === THREAD_ID)).toHaveLength(1);
     } finally {
       if (previousNativeApi) {
         Object.defineProperty(window, "nativeApi", {
@@ -5475,98 +5613,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
         Reflect.deleteProperty(window, "nativeApi");
       }
       await mounted.cleanup();
-    }
-  });
-
-  it("revalidates an admitted owner after missed push and ChatView remount", async () => {
-    const nativeApi = readNativeApi();
-    if (!nativeApi) throw new Error("Expected browser native API fixture.");
-    const previousNativeApi = window.nativeApi;
-    let outcome: "unknown" | "cancelled" = "unknown";
-    const lookupMessageIds: MessageId[] = [];
-    let lookupCount = 0;
-    Object.defineProperty(window, "nativeApi", {
-      configurable: true,
-      value: {
-        ...nativeApi,
-        orchestration: {
-          ...nativeApi.orchestration,
-          getPendingStartOutcome: async ({
-            threadId,
-            messageId,
-            minimumSequence,
-          }: Parameters<typeof nativeApi.orchestration.getPendingStartOutcome>[0]) => {
-            lookupCount += 1;
-            lookupMessageIds.push(messageId);
-            return {
-              threadId,
-              messageId,
-              snapshotSequence: minimumSequence,
-              threadExists: true,
-              outcome,
-              ...(outcome === "cancelled" ? { completedAt: NOW_ISO } : {}),
-            };
-          },
-        },
-      },
-    });
-    const base = createSnapshotForTargetUser({
-      targetMessageId: "msg-user-admitted-missed-push" as MessageId,
-      targetText: "unused bootstrap",
-    });
-    const snapshot: OrchestrationReadModel = {
-      ...base,
-      threads: base.threads.map((thread) => ({
-        ...thread,
-        messages: [],
-        activities: [],
-        latestTurn: null,
-        session: null,
-      })),
-    };
-    let mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
-    try {
-      const prompt = "admitted owner must survive a missed push";
-      useComposerDraftStore.getState().setPrompt(THREAD_ID, prompt);
-      (await waitForSendButton()).click();
-      const startCommand = await vi.waitFor(() => {
-        const command = wsRequests
-          .map(readDispatchedCommand)
-          .find((candidate) => candidate?.type === "thread.turn.start");
-        expect(command).toBeTruthy();
-        return command!;
-      });
-      const messageId = (startCommand.message as { messageId: MessageId }).messageId;
-      await vi.waitFor(() => expect(lookupCount).toBeGreaterThan(0));
-      const countBeforeRemount = lookupCount;
-      await mounted.cleanup();
-      outcome = "cancelled";
-      mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
-      useStore.getState().syncServerReadModel({
-        ...fixture.snapshot,
-        snapshotSequence: fixture.snapshot.snapshotSequence + 5,
-      });
-      await vi.waitFor(() => {
-        const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
-        expect(lookupCount).toBeGreaterThan(countBeforeRemount);
-        expect(
-          lookupMessageIds.slice(countBeforeRemount).every((candidate) => candidate === messageId),
-          `lookup trace target=${messageId} before=${countBeforeRemount}: ${JSON.stringify(lookupMessageIds)}`,
-        ).toBe(true);
-        expect(draft?.prompt).toBe(prompt);
-        expect(draft?.pendingStartRecoveriesByMessageId).toEqual({});
-        expect(
-          wsRequests
-            .map(readDispatchedCommand)
-            .filter((command) => command?.type === "thread.turn.start"),
-        ).toHaveLength(1);
-      });
-    } finally {
-      await mounted.cleanup();
-      Object.defineProperty(window, "nativeApi", {
-        configurable: true,
-        value: previousNativeApi,
-      });
     }
   });
 
@@ -5887,87 +5933,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("revalidates a hydrated pending-start owner through ChatView wiring", async () => {
-    const nativeApi = readNativeApi();
-    if (!nativeApi) throw new Error("Expected browser native API fixture.");
-    const previousNativeApi = window.nativeApi;
-    const messageId = "message-hydrated-recovery-wiring" as MessageId;
-    let lookupCount = 0;
-    const pendingTurn = {
-      id: messageId,
-      kind: "chat" as const,
-      createdAt: NOW_ISO,
-      previewText: "hydrated recovery wiring",
-      prompt: "hydrated recovery wiring",
-      images: [],
-      files: [],
-      assistantSelections: [],
-      terminalContexts: [],
-      fileComments: [],
-      pastedTexts: [],
-      skills: [],
-      mentions: [],
-      selectedProvider: "codex" as const,
-      selectedModel: "gpt-5",
-      selectedPromptEffort: null,
-      modelSelection: { provider: "codex" as const, model: "gpt-5" },
-      connectionId: TEST_CONNECTION_ID,
-      runtimeMode: "full-access" as const,
-      messageId,
-    };
-    expect(
-      useComposerDraftStore.getState().capturePendingStartRecovery(THREAD_ID, {
-        schemaVersion: 1,
-        threadId: THREAD_ID,
-        messageId,
-        pendingTurn,
-        settlement: "unresolved",
-      }),
-    ).toBe(true);
-    Object.defineProperty(window, "nativeApi", {
-      configurable: true,
-      value: {
-        ...nativeApi,
-        orchestration: {
-          ...nativeApi.orchestration,
-          getPendingStartOutcome: async ({
-            threadId,
-            messageId: requestedMessageId,
-            minimumSequence,
-          }: Parameters<typeof nativeApi.orchestration.getPendingStartOutcome>[0]) => {
-            lookupCount += 1;
-            expect(threadId).toBe(THREAD_ID);
-            expect(requestedMessageId).toBe(messageId);
-            return {
-              threadId,
-              messageId: requestedMessageId,
-              snapshotSequence: minimumSequence,
-              threadExists: true,
-              outcome: "unknown" as const,
-            };
-          },
-        },
-      },
-    });
-    let mounted: MountedChatView | undefined;
-    try {
-      mounted = await mountChatView({
-        viewport: DEFAULT_VIEWPORT,
-        snapshot: createSnapshotForTargetUser({
-          targetMessageId: "msg-hydrated-recovery-wiring" as MessageId,
-          targetText: "hydrated recovery wiring target",
-        }),
-      });
-      await vi.waitFor(() => expect(lookupCount).toBeGreaterThan(0));
-    } finally {
-      await mounted?.cleanup();
-      Object.defineProperty(window, "nativeApi", {
-        configurable: true,
-        value: previousNativeApi,
-      });
-    }
-  });
-
   it("coalesces bulk editor input without corrupting text or nesting React updates", async () => {
     const consoleError = vi.spyOn(console, "error");
     const mounted = await mountChatView({
@@ -6128,26 +6093,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       snapshot,
     });
     const api = readNativeApi()!;
-    const originalDispatch = api.orchestration.dispatchCommand;
-    const dispatchSpy = vi
-      .spyOn(api.orchestration, "dispatchCommand")
-      .mockImplementation(async (command) => {
-        const result = await originalDispatch(command);
-        if (command.type === "thread.turn.cancel-queued") {
-          useStore.getState().applyOrchestrationEvents([
-            makeDomainEvent(
-              "thread.turn-start-cancelled",
-              {
-                threadId: THREAD_ID,
-                messageId: queuedMessageId,
-                cancelledAt: NOW_ISO,
-              },
-              { sequence: 201 },
-            ),
-          ]);
-        }
-        return result;
-      });
+    const editSpy = vi.spyOn(api.cleanCore, "editQueuedMessage");
     const originalFetch = globalThis.fetch;
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
       if (String(input).includes(queuedImageId))
@@ -6181,20 +6127,22 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await vi.waitFor(() => {
         const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
-        expect(draft?.prompt).toBe(`existing draft\n\n${queuedPrompt}`);
+        expect(draft?.prompt).toBe(queuedPrompt);
         expect(draft?.prompt).toContain("queued terminal output");
         expect(draft?.images[0]?.name).toBe("queued.png");
         expect(draft?.images[0]?.file.size).toBe(4);
+        expect(editSpy).toHaveBeenCalledOnce();
+        expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
         expect(
-          wsRequests
-            .map(readDispatchedCommand)
-            .some((command) => command?.type === "thread.turn.cancel-queued"),
-        ).toBe(true);
+          (
+            document.querySelector('[data-testid="composer-editor"]') as HTMLElement
+          )?.textContent?.split("edit this durable queued prompt"),
+        ).toHaveLength(2);
       });
       expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
     } finally {
       fetchSpy.mockRestore();
-      dispatchSpy.mockRestore();
+      editSpy.mockRestore();
       await mounted.cleanup();
     }
   });
@@ -6235,34 +6183,23 @@ describe("ChatView timeline estimator parity (full app)", () => {
     };
     const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
     const api = readNativeApi()!;
-    const originalDispatch = api.orchestration.dispatchCommand;
-    const dispatchSpy = vi
-      .spyOn(api.orchestration, "dispatchCommand")
-      .mockImplementation(async (command) => {
-        const result = await originalDispatch(command);
-        if (command.type === "thread.turn.cancel-queued") {
-          useStore.getState().applyOrchestrationEvents([
-            makeDomainEvent(
-              "thread.message-sent",
-              {
-                threadId: THREAD_ID,
-                messageId: queuedMessageId,
-                role: "user",
-                text: queuedPrompt,
-                attachments: [],
-                dispatchMode: "queue",
-                delivery: { state: "accepted", queued: false },
-                turnId: null,
-                streaming: false,
-                source: "native",
-                createdAt: NOW_ISO,
-                updatedAt: NOW_ISO,
-              },
-              { sequence: 201 },
+    const toastSpy = vi.spyOn(toastManager, "add");
+    const editSpy = vi
+      .spyOn(api.cleanCore, "editQueuedMessage")
+      .mockImplementation(async (input) => {
+        fixture = {
+          ...fixture,
+          snapshot: {
+            ...fixture.snapshot,
+            threads: fixture.snapshot.threads.map((row) =>
+              row.id === THREAD_ID
+                ? { ...row, queuedMessageIds: [], updatedAt: new Date().toISOString() }
+                : row,
             ),
-          ]);
-        }
-        return result;
+          },
+        };
+        pushCleanCoreThreadChange(THREAD_ID);
+        return { threadId: input.threadId, messageId: input.messageId, removed: false };
       });
     try {
       useComposerDraftStore.getState().setPrompt(THREAD_ID, "unsent draft");
@@ -6286,12 +6223,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
         expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
           "unsent draft",
         );
-        expect(document.body.textContent).toContain(
-          "This message was already sent, so it can't be edited.",
+        expect(toastSpy).toHaveBeenCalledWith(
+          expect.objectContaining({ description: "This message is no longer queued." }),
         );
       });
     } finally {
-      dispatchSpy.mockRestore();
+      editSpy.mockRestore();
+      toastSpy.mockRestore();
       await mounted.cleanup();
     }
   });
@@ -6339,21 +6277,17 @@ describe("ChatView timeline estimator parity (full app)", () => {
       snapshot,
     });
     const api = readNativeApi()!;
-    const originalDispatch = api.orchestration.dispatchCommand;
+    const originalCancel = api.cleanCore.cancelQueuedMessage;
     let rejectAction!: (error: Error) => void;
     const actionGate = new Promise<void>((_resolve, reject) => {
       rejectAction = reject;
     });
     let deleteCalls = 0;
-    const spy = vi
-      .spyOn(api.orchestration, "dispatchCommand")
-      .mockImplementation(async (command) => {
-        if (command.type === "thread.turn.cancel-queued") {
-          deleteCalls += 1;
-          await actionGate;
-        }
-        return originalDispatch(command);
-      });
+    const spy = vi.spyOn(api.cleanCore, "cancelQueuedMessage").mockImplementation(async (input) => {
+      deleteCalls += 1;
+      await actionGate;
+      return originalCancel(input);
+    });
 
     try {
       const deleteButton = await waitForElement(
@@ -6368,9 +6302,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
       });
 
       rejectAction(new Error("controlled queued delete rejection"));
-      await vi.waitFor(() =>
-        expect(document.querySelector('[data-testid="queued-follow-up-row"]')).not.toBeNull(),
-      );
+      await vi.waitFor(() => {
+        expect(document.querySelector('[data-testid="queued-follow-up-row"]')).not.toBeNull();
+        expect(document.body.textContent).toContain("controlled queued delete rejection");
+      });
       expect(deleteCalls).toBe(1);
     } finally {
       rejectAction(new Error("test cleanup queued delete rejection"));

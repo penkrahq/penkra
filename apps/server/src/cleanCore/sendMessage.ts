@@ -1,5 +1,10 @@
 // Provider-confirmed sends and the persisted FIFO (TODO 2.3/2.4).
-import { ThreadId, TurnId, type CleanCoreSendResult } from "@penkra/contracts";
+import {
+  ThreadId,
+  TurnId,
+  type CleanCoreSendResult,
+  type CleanCoreSendMessageInput,
+} from "@penkra/contracts";
 import { Deferred, Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
@@ -10,13 +15,17 @@ import { upsertThreadItem, type ThreadPublisher } from "./threadStore.ts";
 export const PLAY_TURN_RECOVERY_PROMPT =
   "The previous turn did not finish. Continue the existing task from the current state. Verify the current state before repeating any action whose outcome may be uncertain.";
 
-export interface SendMessageInput {
+export interface SendMessageInput extends Pick<
+  CleanCoreSendMessageInput,
+  "providerOptions" | "assistantDeliveryMode" | "skills" | "mentions"
+> {
   readonly threadId: string;
   readonly message: QueuedMessage;
   readonly dispatchMode: "queue" | "steer";
   readonly supportsSteer: boolean;
 }
 export interface SendDriver {
+  readonly claimAttachments: (input: SendMessageInput) => Effect.Effect<void, Error>;
   /** Dispatch and return the adapter's acknowledged native turn id. */
   readonly dispatch: (
     input: SendMessageInput,
@@ -35,6 +44,7 @@ export const deliverMessage = (
 ) =>
   Effect.scoped(
     Effect.gen(function* () {
+      yield* driver.claimAttachments(input);
       const result = yield* Deferred.make<
         { readonly turnId: string; readonly at: string },
         Error
@@ -96,22 +106,29 @@ export const deliverMessage = (
           : started.has(acknowledged)
             ? { turnId: acknowledged, at: started.get(acknowledged)! }
             : yield* Deferred.await(result);
-      yield* upsertThreadItem({
-        threadId: input.threadId,
-        sourceId: input.message.messageId,
-        turnId: confirmed.turnId,
-        kind: "user",
-        status: "sent",
-        text: input.message.text,
-        data: JSON.stringify({
-          delivery: plan === "deliver" ? "started" : plan === "steer" ? "steered" : "interrupted",
-          attachments: input.message.attachments,
-          senderThreadId: input.message.senderThreadId,
-          dispatchOrigin: input.message.dispatchOrigin,
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql.withTransaction(
+        Effect.gen(function* () {
+          yield* upsertThreadItem({
+            threadId: input.threadId,
+            sourceId: input.message.messageId,
+            turnId: confirmed.turnId,
+            kind: "user",
+            status: "sent",
+            text: input.message.text,
+            data: JSON.stringify({
+              delivery:
+                plan === "deliver" ? "started" : plan === "steer" ? "steered" : "interrupted",
+              attachments: input.message.attachments,
+              senderThreadId: input.message.senderThreadId,
+              dispatchOrigin: input.message.dispatchOrigin,
+            }),
+            createdAt: confirmed.at,
+            updatedAt: confirmed.at,
+          });
+          yield* sql`UPDATE threads SET draft = NULL, draft_updated_at = ${confirmed.at}, updated_at = ${confirmed.at} WHERE id = ${input.threadId}`;
         }),
-        createdAt: confirmed.at,
-        updatedAt: confirmed.at,
-      });
+      );
       publisher.publish({ threadId: input.threadId });
       return {
         threadId: ThreadId.makeUnsafe(input.threadId),
@@ -160,7 +177,12 @@ export const sendMessage = (
     });
     if (plan !== "queue")
       return yield* deliverMessage(publisher, driver, input, plan, thread.activeTurnId);
-    const queued = yield* enqueueMessage(input.threadId, input.message);
+    const queued = yield* sql.withTransaction(
+      Effect.gen(function* () {
+        yield* driver.claimAttachments(input);
+        return yield* enqueueMessage(input.threadId, input.message);
+      }),
+    );
     publisher.publish({ threadId: input.threadId });
     return {
       threadId: ThreadId.makeUnsafe(input.threadId),
@@ -170,7 +192,17 @@ export const sendMessage = (
       queueLength: queued.length,
       runningTurnId: thread.activeTurnId === null ? null : TurnId.makeUnsafe(thread.activeTurnId),
     } satisfies CleanCoreSendResult;
-  });
+  }).pipe(
+    Effect.catch((error) => {
+      if ("_tag" in error && error._tag === "SqlError") return Effect.fail(error);
+      return Effect.succeed({
+        threadId: ThreadId.makeUnsafe(input.threadId),
+        messageId: input.message.messageId,
+        delivery: "failed" as const,
+        error: error.message,
+      } satisfies CleanCoreSendResult);
+    }),
+  );
 
 export const playThread = (
   publisher: ThreadPublisher,

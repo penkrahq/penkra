@@ -101,6 +101,12 @@ import type {
   CleanCoreListThreadItemsPageInput,
   CleanCoreListThreadItemsPageResult,
   CleanCoreCreateThreadInput,
+  CleanCoreThreadSummary,
+  CleanCoreSendMessageInput,
+  CleanCoreSendResult,
+  CleanCoreQueuedMessageInput,
+  CleanCoreQueuedMessageResult,
+  CleanCoreEditQueuedMessageInput,
   CleanCoreGetThreadShellInput,
   CleanCoreListThreadsInput,
   CleanCoreCreateThreadResponse,
@@ -1114,6 +1120,14 @@ export interface NativeApi {
     terminateConnection: (input: TerminateProviderConnectionInput) => Promise<ProviderConnection>;
   };
   cleanCore: {
+    getThread: (input: CleanCoreGetThreadShellInput) => Promise<CleanCoreThreadSummary | null>;
+    sendMessage: (input: CleanCoreSendMessageInput) => Promise<CleanCoreSendResult>;
+    cancelQueuedMessage: (
+      input: CleanCoreQueuedMessageInput,
+    ) => Promise<CleanCoreQueuedMessageResult>;
+    editQueuedMessage: (
+      input: CleanCoreEditQueuedMessageInput,
+    ) => Promise<CleanCoreQueuedMessageResult>;
     getThreadRuntime: (input: CleanCoreThreadRuntimeInput) => Promise<CleanCoreThreadRuntime>;
     interruptThread: (input: CleanCoreThreadRuntimeInput) => Promise<CleanCoreInterruptResult>;
     getThreadShell: (

@@ -402,6 +402,7 @@ function makeHarnessLayer(
         ? null
         : thread.session.activeTurnId,
     lastError: null,
+    queue: "[]",
     createdBy: thread.creationSource === "penkra_mcp" ? "agent" : "user",
     createdByThreadId: thread.sourceThreadId === undefined ? null : thread.sourceThreadId,
     parentThreadId: null,

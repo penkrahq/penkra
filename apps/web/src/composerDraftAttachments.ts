@@ -16,7 +16,6 @@ import {
   type ComposerImageAttachment,
   type ComposerPromptHistorySavedDraft,
   type ComposerThreadDraftState,
-  type QueuedComposerTurn,
 } from "./composerDraftDomain";
 import { getLocalStorageItem } from "./hooks/useLocalStorage";
 import { deleteComposerAsset } from "./lib/composerAssetStore";
@@ -103,15 +102,6 @@ export function revokeObjectPreviewUrl(previewUrl: string): void {
     return;
   }
   URL.revokeObjectURL(previewUrl);
-}
-
-export function revokeQueuedTurnPreviewUrls(queuedTurn: QueuedComposerTurn): void {
-  if (queuedTurn.kind !== "chat") {
-    return;
-  }
-  for (const image of queuedTurn.images) {
-    revokeObjectPreviewUrl(image.previewUrl);
-  }
 }
 
 export function revokePromptHistorySavedDraftPreviewUrls(

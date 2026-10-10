@@ -61,19 +61,26 @@ export async function loadThreadPage(input: {
   setThreads(next);
 }
 
-/** Reloads a thread's own (space, folder) page; used on a pushed change. */
+/** Read one indexed row, including its canonical queue. */
+export async function loadThread(threadId: ThreadId): Promise<void> {
+  const thread = await ensureNativeApi().cleanCore.getThread({ threadId });
+  const next = new Map(byId);
+  const stored = next.get(threadId);
+  if (thread === null) next.delete(threadId);
+  else if (stored === undefined || stored.updatedAt <= thread.updatedAt) next.set(threadId, thread);
+  setThreads(next);
+}
+
 export async function refreshThreadPage(threadId: ThreadId): Promise<void> {
-  const existing = byId.get(threadId);
-  if (!existing) return;
-  await loadThreadPage({ spaceId: existing.spaceId, folderId: existing.folderId });
+  await loadThread(threadId);
 }
 
 /** Applies the publisher's thread change so the store stays live. */
 function startLiveUpdates(): void {
   if (liveSubscription !== null) return;
   const api = ensureNativeApi();
-  liveSubscription = api.cleanCore.onThreadChange((change) => {
-    void refreshThreadPage(change.threadId);
+  liveSubscription = api.cleanCore.onSidebarChange((change) => {
+    if (change.kind === "thread") void loadThread(change.threadId);
   });
 }
 
@@ -85,4 +92,12 @@ export function useThreadSummary(threadId: string | null): CleanCoreThreadSummar
   const map = useSyncExternalStore(subscribeThreadList, getThreadListById, getThreadListById);
   if (threadId === null) return null;
   return map.get(threadId) ?? null;
+}
+
+export function resetThreadListForTests(): void {
+  liveSubscription?.();
+  liveSubscription = null;
+  byId = new Map();
+  threads = [];
+  listeners.clear();
 }

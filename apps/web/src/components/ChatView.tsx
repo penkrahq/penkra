@@ -1,5 +1,8 @@
+import { Schema } from "effect";
+import { loadThread, useThreadSummary } from "../threadListStore";
 import { useThreadStop } from "../hooks/useThreadStop";
 import {
+  CleanCoreQueuedMessage,
   type ApprovalRequestId,
   DEFAULT_MODEL_BY_PROVIDER,
   MessageId,
@@ -28,7 +31,7 @@ import {
   OrchestrationThreadActivity,
   RuntimeMode,
 } from "@penkra/contracts";
-import { matchesPromotedQueuedMessage, matchesRequestedTurnOutcome } from "./qaTurnOutcomes";
+import { matchesRequestedTurnOutcome } from "./qaTurnOutcomes";
 import { getModelCapabilities, normalizeModelSlug } from "@penkra/shared/model";
 import { startDiagnosticTrace } from "@penkra/shared/traceContext";
 import { createSendDiagnosticLifecycle } from "./sendDiagnosticLifecycle";
@@ -69,7 +72,6 @@ import {
   providerConnectionsQueryOptions,
   threadProviderBindingQueryOptions,
 } from "~/lib/providerConnectionsReactQuery";
-import { resolveThreadBindingRevisionAtAdmission as resolveBindingRevisionAtAdmission } from "~/lib/threadBindingAdmission";
 import {
   pruneUnavailableComposerConnectionSelections,
   resolveAnonymousModelDiscoveryRoute,
@@ -132,12 +134,7 @@ import {
   readFileAsDataUrl,
 } from "../lib/composerSend";
 import { persistComposerAsset } from "../lib/composerAssetStore";
-import { queuedComposerTurnServerMessageId } from "../lib/queuedComposerTurnDispatch";
 import { reconcileDeletedThreadFromClient } from "../lib/deletedThreadClientReconciliation";
-import {
-  PendingStartRecoveryRegistry,
-  type PendingStartRecoveryRestoration,
-} from "../lib/pendingStartRecoveryRegistry";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
 import { splitComposerDropzoneFiles, useComposerDropzone } from "../hooks/useComposerDropzone";
 import {
@@ -266,11 +263,8 @@ import {
   type ComposerImageAttachment,
   type ComposerAssistantSelectionAttachment,
   type ComposerThreadDraftState,
-  type PendingStartRecovery,
-  type PendingStartRecoverySettlement,
   type PersistedComposerImageAttachment,
   type QueuedComposerChatTurn,
-  type QueuedComposerTurn,
   captureComposerPromptHistorySavedDraft,
   useComposerDraftStore,
   useComposerThreadDraft,
@@ -279,17 +273,14 @@ import {
 import {
   cancelComposerSendPreflight,
   claimComposerSendPreflight,
-  getComposerSendPreflight,
   getActiveComposerSendPreparation,
   getComposerDispatchedSendOwner,
   isComposerImageOwnedBySendPreflight,
   markComposerSendPreflightDispatching,
   setComposerSendPreflightProjection,
-  settleComposerSendPreflightRecovery,
   updateComposerSendPreflightResolvedAdmission,
   updateComposerSendPreflightImages,
   releaseComposerSendPreflight,
-  markComposerSendPreflightAdmission,
   useHasComposerSendActivity,
   useComposerSendPreflightProjection,
 } from "../composerSendPreflight";
@@ -460,9 +451,6 @@ function composerDraftOwnsPreviewUrl(previewUrl: string): boolean {
     if (draft.promptHistorySavedDraft?.images.some((image) => image.previewUrl === previewUrl)) {
       return true;
     }
-  }
-  for (const restoration of pendingStartRecoveryRegistry.restorations()) {
-    if (restoration.previewUrls.includes(previewUrl)) return true;
   }
   return false;
 }
@@ -790,24 +778,6 @@ interface LateComposerSendHandlers {
   readonly handleStandaloneSlashCommand: (trimmedPrompt: string) => Promise<boolean>;
 }
 
-interface PendingTurnStartRestoration extends PendingStartRecoveryRestoration {
-  readonly threadId: ThreadId;
-  readonly messageId: MessageId;
-  readonly previewUrls: readonly string[];
-  readonly pendingTurn?: QueuedComposerChatTurn;
-  readonly restore: () => Promise<void>;
-}
-
-const pendingStartRecoveryRegistry =
-  new PendingStartRecoveryRegistry<PendingTurnStartRestoration>();
-
-/** Browser-test isolation only; production reconciliation never calls this. */
-export function resetPendingStartRecoveryRegistryForTests(): void {
-  for (const restoration of pendingStartRecoveryRegistry.restorations()) {
-    pendingStartRecoveryRegistry.release(restoration.threadId, restoration.messageId);
-  }
-}
-
 export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: ChatViewProps) {
   // Keep defaults out of the parameter list. Assignment-pattern parameters make
   // React Compiler skip this component, which turns every composer keystroke
@@ -850,7 +820,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
   const composerPastedTexts = composerDraft.pastedTexts;
   const composerSkills = composerDraft.skills;
   const composerMentions = composerDraft.mentions;
-  const composerPendingStartRecoveries = composerDraft.pendingStartRecoveriesByMessageId ?? {};
   const composerSendState = useMemo(
     () =>
       deriveComposerSendState({
@@ -892,24 +861,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     (store) => store.setProviderModelOptions,
   );
   const setComposerDraftRuntimeMode = useComposerDraftStore((store) => store.setRuntimeMode);
-  const recoverCancelledQueuedTurn = useComposerDraftStore(
-    (store) => store.recoverCancelledQueuedTurn,
-  );
-  const capturePendingStartRecovery = useComposerDraftStore(
-    (store) => store.capturePendingStartRecovery,
-  );
-  const markPendingStartRecoveryAccepted = useComposerDraftStore(
-    (store) => store.markPendingStartRecoveryAccepted,
-  );
-  const restorePendingStartRecovery = useComposerDraftStore(
-    (store) => store.restorePendingStartRecovery,
-  );
-  const markPendingStartRecoveryFailed = useComposerDraftStore(
-    (store) => store.markPendingStartRecoveryFailed,
-  );
-  const clearPendingStartRecovery = useComposerDraftStore(
-    (store) => store.clearPendingStartRecovery,
-  );
   const addComposerDraftImage = useComposerDraftStore((store) => store.addImage);
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
   const removeComposerDraftImage = useComposerDraftStore((store) => store.removeImage);
@@ -963,15 +914,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
   const markWorkflowRunDismissed = useWorkflowRunUiStore((store) => store.markDismissed);
   const serverThread = useStore(useMemo(() => createThreadSelector(threadId), [threadId]));
   const threadDetailSyncState = useStore((store) => store.threadDetailSyncById?.[threadId] ?? null);
-  const shellSnapshotSequence = useStore((store) => store.shellSnapshotSequence ?? 0);
-  const threadsHydrated = useStore((store) => store.threadsHydrated);
-  const threadRetained = useStore((store) => store.threadIds?.includes(threadId) ?? false);
-  const pendingStartCancellation = useStore(
-    (store) => store.pendingStartCancellationByThreadId?.[threadId],
-  );
-  const acknowledgePendingStartCancellation = useStore(
-    (store) => store.acknowledgePendingStartCancellation,
-  );
   const composerThreadSummaries = useStore(
     useMemo(() => createComposerThreadMentionSourcesSelector(), []),
   );
@@ -1046,346 +988,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     requestedAt: string;
     sessionUpdatedAt: string | null;
   } | null>(null);
-  const pendingTurnStartMessageRef = useRef<
-    (QueuedComposerChatTurn & { readonly messageId: MessageId }) | null
-  >(null);
-  const restorePendingTurnStartRef = useRef<
-    ((pendingTurn: QueuedComposerChatTurn) => Promise<boolean>) | null
-  >(null);
-  const pendingStartRecoveryRegistryRef = useRef(pendingStartRecoveryRegistry);
-  const settlePendingStartRecoveryDurably = useCallback(
-    async (input: {
-      messageId: MessageId;
-      settlement: PendingStartRecoverySettlement;
-      sequence: number;
-      prepare: () => boolean;
-    }): Promise<void> => {
-      const existingOwner = pendingStartRecoveryRegistryRef.current.get(threadId, input.messageId);
-      const currentRecovery =
-        useComposerDraftStore.getState().draftsByThreadId[threadId]
-          ?.pendingStartRecoveriesByMessageId?.[input.messageId];
-      if (
-        !existingOwner &&
-        (!currentRecovery ||
-          "raw" in currentRecovery ||
-          currentRecovery.messageId !== input.messageId)
-      ) {
-        throw new Error(
-          "Pending-start recovery is absent before durable settlement acknowledgement.",
-        );
-      }
-      const recoveredPendingTurn =
-        currentRecovery && "pendingTurn" in currentRecovery
-          ? currentRecovery.pendingTurn
-          : undefined;
-      const owner =
-        existingOwner ??
-        ({
-          threadId,
-          messageId: input.messageId,
-          previewUrls: recoveredPendingTurn
-            ? recoveredPendingTurn.images.map((image) => image.previewUrl)
-            : [],
-          ...(recoveredPendingTurn ? { pendingTurn: recoveredPendingTurn } : {}),
-          restore: async () => undefined,
-        } satisfies PendingTurnStartRestoration);
-      await pendingStartRecoveryRegistryRef.current.settleExact(
-        threadId,
-        input.messageId,
-        owner,
-        async () => {
-          const draft = () => useComposerDraftStore.getState().draftsByThreadId[threadId];
-          const before = draft()?.pendingStartRecoveriesByMessageId?.[input.messageId];
-          if (!before || "raw" in before || before.messageId !== input.messageId) {
-            throw new Error(
-              "Pending-start recovery is absent before durable settlement acknowledgement.",
-            );
-          }
-          const recovery = before;
-          if (recovery.settlement !== input.settlement) {
-            if (!input.prepare()) {
-              throw new Error("Could not prepare the exact pending-start settlement.");
-            }
-          }
-          const prepared = draft()?.pendingStartRecoveriesByMessageId?.[input.messageId];
-          if (
-            !prepared ||
-            "raw" in prepared ||
-            prepared.messageId !== input.messageId ||
-            prepared.settlement !== input.settlement
-          ) {
-            throw new Error("Pending-start settlement was not retained before cleanup.");
-          }
-          if (!clearPendingStartRecovery(threadId, input.messageId)) {
-            throw new Error("Pending-start settlement receipt is not durable.");
-          }
-        },
-        input.sequence,
-      );
-    },
-    [clearPendingStartRecovery, threadId],
-  );
-  const reconcileCancelledPendingStart = useCallback(
-    async (messageId: MessageId, cancellationSequence?: number) => {
-      const restoration = pendingStartRecoveryRegistryRef.current.get(threadId, messageId);
-      if (!restoration || restoration.threadId !== threadId) return;
-
-      const durableRecovery =
-        useComposerDraftStore.getState().draftsByThreadId[threadId]
-          ?.pendingStartRecoveriesByMessageId?.[messageId];
-      if (durableRecovery && "raw" in durableRecovery) {
-        throw new Error("Pending start recovery is unsupported and remains unresolved.");
-      }
-      // The authoritative cancellation owns recovery now. Retire both transient
-      // projections before restoring the draft, so no awaited durable write can
-      // leave the same captured submission visible in two places.
-      const retiredOptimisticMessages = optimisticUserMessagesRef.current.filter(
-        (message) => message.id === messageId,
-      );
-      settleComposerSendPreflightRecovery(threadId, messageId, cancellationSequence);
-      setOptimisticUserMessages((existing) =>
-        existing.filter((message) => message.id !== messageId),
-      );
-      if (
-        durableRecovery &&
-        "pendingTurn" in durableRecovery &&
-        durableRecovery.messageId === messageId
-      ) {
-        const settlementSequence = cancellationSequence ?? pendingStartCancellation?.sequence ?? 0;
-        await settlePendingStartRecoveryDurably({
-          messageId,
-          settlement: "restored",
-          sequence: settlementSequence,
-          prepare: () =>
-            restorePendingStartRecovery(
-              threadId,
-              messageId,
-              settlementSequence,
-              new Date().toISOString(),
-            ),
-        });
-        setOptimisticUserMessages((existing) => {
-          const removed = existing.filter((message) => message.id === messageId);
-          for (const message of removed) revokeUnownedUserMessagePreviewUrls(message);
-          return removed.length === 0
-            ? existing
-            : existing.filter((message) => message.id !== messageId);
-        });
-        for (const message of retiredOptimisticMessages)
-          revokeUnownedUserMessagePreviewUrls(message);
-        acknowledgePendingStartCancellation(threadId, messageId);
-        return;
-      }
-      const currentRestore = restorePendingTurnStartRef.current;
-      const restoredTurn = restoration.pendingTurn;
-      if (restoredTurn && currentRestore) {
-        const restored = await currentRestore(restoredTurn);
-        if (!restored) throw new Error("Pending start restoration remains unresolved.");
-      } else if (!restoredTurn) {
-        await restoration.restore();
-      }
-      const liveDraft = useComposerDraftStore.getState().draftsByThreadId[threadId];
-      if (
-        restoredTurn &&
-        (liveDraft?.prompt ?? "").length === 0 &&
-        (liveDraft?.images ?? []).length === 0
-      ) {
-        const draftStore = useComposerDraftStore.getState();
-        draftStore.setPrompt(threadId, restoredTurn.prompt);
-        draftStore.addImages(threadId, restoredTurn.images.map(cloneComposerImageAttachment));
-        draftStore.addFiles(threadId, restoredTurn.files);
-        for (const selection of restoredTurn.assistantSelections)
-          draftStore.addAssistantSelection(threadId, selection);
-        for (const comment of restoredTurn.fileComments)
-          draftStore.addFileComment(threadId, comment);
-        draftStore.addTerminalContexts(threadId, restoredTurn.terminalContexts);
-        draftStore.addPastedTexts(threadId, restoredTurn.pastedTexts);
-        draftStore.setSkills(threadId, restoredTurn.skills);
-        draftStore.setMentions(threadId, restoredTurn.mentions);
-        draftStore.setModelSelection(threadId, restoredTurn.modelSelection);
-        draftStore.setRuntimeMode(threadId, restoredTurn.runtimeMode);
-      }
-      setOptimisticUserMessages((existing) => {
-        const removed = existing.filter((message) => message.id === messageId);
-        for (const message of removed) revokeUnownedUserMessagePreviewUrls(message);
-        return removed.length === 0
-          ? existing
-          : existing.filter((message) => message.id !== messageId);
-      });
-      for (const message of retiredOptimisticMessages) revokeUnownedUserMessagePreviewUrls(message);
-      acknowledgePendingStartCancellation(threadId, messageId);
-    },
-    [
-      acknowledgePendingStartCancellation,
-      pendingStartCancellation?.sequence,
-      restorePendingStartRecovery,
-      settlePendingStartRecoveryDurably,
-      threadId,
-    ],
-  );
-  useEffect(() => {
-    for (const recovery of Object.values(composerPendingStartRecoveries)) {
-      if (!recovery) continue;
-      if ("raw" in recovery) {
-        setStoreThreadError(
-          threadId,
-          "This pending message has an unsupported recovery record and remains unresolved.",
-        );
-        continue;
-      }
-      if (recovery.settlement !== "unresolved") continue;
-      pendingStartRecoveryRegistryRef.current.register({
-        threadId,
-        messageId: recovery.messageId,
-        previewUrls: recovery.pendingTurn.images.map((image) => image.previewUrl),
-        pendingTurn: recovery.pendingTurn,
-        restore: async () => undefined,
-      });
-    }
-  }, [composerPendingStartRecoveries, setStoreThreadError, threadId]);
-  useEffect(() => {
-    if (!pendingStartCancellation) return;
-    void reconcileCancelledPendingStart(
-      pendingStartCancellation.messageId,
-      pendingStartCancellation.sequence,
-    ).catch(() => recordChatSendFailure("EXTERNAL_CALL_FAILED"));
-  }, [pendingStartCancellation, reconcileCancelledPendingStart, threadId]);
-  useEffect(() => {
-    for (const message of serverThread?.messages ?? EMPTY_MESSAGES) {
-      if (message.delivery?.state !== "accepted") continue;
-      const recovery =
-        useComposerDraftStore.getState().draftsByThreadId[threadId]
-          ?.pendingStartRecoveriesByMessageId?.[message.id];
-      if (
-        recovery &&
-        "pendingTurn" in recovery &&
-        recovery.messageId === message.id &&
-        (recovery.settlement === "unresolved" || recovery.settlement === "accepted")
-      ) {
-        const acceptedDeliverySequence = message.delivery?.sequence;
-        if (acceptedDeliverySequence === undefined) continue;
-        const settleAcceptedDurably = async (
-          _restoration?: unknown,
-          sequence = acceptedDeliverySequence,
-        ) =>
-          settlePendingStartRecoveryDurably({
-            messageId: message.id,
-            settlement: "accepted",
-            sequence,
-            prepare: () => markPendingStartRecoveryAccepted(threadId, message.id, sequence),
-          });
-        void settleAcceptedDurably().catch((error: unknown) => {
-          recordChatSendFailure("EXTERNAL_CALL_FAILED");
-          setStoreThreadError(
-            threadId,
-            error instanceof Error ? error.message : "Could not persist accepted message state.",
-          );
-        });
-      } else {
-        pendingStartRecoveryRegistryRef.current.release(threadId, message.id);
-      }
-    }
-  }, [
-    markPendingStartRecoveryAccepted,
-    serverThread?.messages,
-    settlePendingStartRecoveryDurably,
-    setStoreThreadError,
-    threadId,
-  ]);
-  useEffect(() => {
-    for (const recovery of Object.values(composerPendingStartRecoveries)) {
-      if (
-        !recovery ||
-        !("pendingTurn" in recovery) ||
-        (recovery.settlement !== "accepted" &&
-          recovery.settlement !== "restored" &&
-          recovery.settlement !== "failed")
-      ) {
-        continue;
-      }
-      void settlePendingStartRecoveryDurably({
-        messageId: recovery.messageId,
-        settlement: recovery.settlement,
-        sequence: recovery.receiptSequence ?? recovery.restorationReceipt?.sequence ?? 0,
-        prepare: () => true,
-      }).catch((error: unknown) => {
-        recordChatSendFailure("EXTERNAL_CALL_FAILED");
-        setStoreThreadError(
-          threadId,
-          error instanceof Error ? error.message : "Could not clear settled recovery.",
-        );
-      });
-    }
-  }, [
-    composerPendingStartRecoveries,
-    settlePendingStartRecoveryDurably,
-    setStoreThreadError,
-    threadId,
-  ]);
-  useEffect(() => {
-    if (
-      !threadsHydrated ||
-      threadRetained ||
-      Object.keys(composerPendingStartRecoveries).length > 0
-    )
-      return;
-    pendingStartRecoveryRegistryRef.current.releaseThread(threadId);
-  }, [composerPendingStartRecoveries, threadId, threadRetained, threadsHydrated]);
-  const revalidatePendingStartOutcome = useCallback(
-    async (messageId: MessageId, minimumSequence: number) => {
-      const api = readNativeApi();
-      if (!api) return;
-      await pendingStartRecoveryRegistryRef.current.request({
-        threadId,
-        messageId,
-        minimumSequence,
-        lookup: (frontier) =>
-          api.orchestration.getPendingStartOutcome({
-            threadId,
-            messageId,
-            minimumSequence: frontier,
-          }),
-        restoreCancelled: async (_restoration, sequence) =>
-          reconcileCancelledPendingStart(messageId, sequence),
-        fail: async (_restoration, sequence) =>
-          settlePendingStartRecoveryDurably({
-            messageId,
-            settlement: "failed",
-            sequence,
-            prepare: () => markPendingStartRecoveryFailed(threadId, messageId),
-          }),
-        accept: async (_restoration, sequence) =>
-          settlePendingStartRecoveryDurably({
-            messageId,
-            settlement: "accepted",
-            sequence,
-            prepare: () => markPendingStartRecoveryAccepted(threadId, messageId, sequence),
-          }),
-      });
-    },
-    [
-      markPendingStartRecoveryFailed,
-      markPendingStartRecoveryAccepted,
-      reconcileCancelledPendingStart,
-      settlePendingStartRecoveryDurably,
-      threadId,
-    ],
-  );
-  useEffect(() => {
-    for (const {
-      restoration,
-      frontier,
-    } of pendingStartRecoveryRegistryRef.current.entriesForThread(threadId)) {
-      void revalidatePendingStartOutcome(restoration.messageId, frontier);
-    }
-  }, [
-    composerPendingStartRecoveries,
-    pendingStartCancellation,
-    revalidatePendingStartOutcome,
-    shellSnapshotSequence,
-    threadDetailSyncState,
-    threadId,
-  ]);
   const [isLocalConnecting, _setIsLocalConnecting] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [respondingRequestKeys, setRespondingRequestKeys] = useState<string[]>([]);
@@ -2546,15 +2148,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
   const handleManageConnections = useCallback(() => {
     void navigate({ to: "/settings", search: { section: "providers" } });
   }, [navigate]);
-  const resolveThreadBindingRevisionAtAdmission = useCallback(async (): Promise<number> => {
-    return resolveBindingRevisionAtAdmission({
-      hasThreadStarted,
-      loadCurrentRevision: async () => {
-        const refreshed = await threadProviderBindingQuery.refetch();
-        return refreshed.data?.binding?.revision;
-      },
-    });
-  }, [hasThreadStarted, threadProviderBindingQuery]);
   const providerOptionsForDispatch = useMemo(() => getProviderStartOptions(settings), [settings]);
   const selectedModelForPicker =
     selectedModelSelection.provider === selectedProvider
@@ -2818,15 +2411,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
   const isWorking = chatActivity.busy || hasSendPreflight || continueInFlight !== null;
   const showThinking = isWorking;
   const hasControllableTurn = isTurnWorking;
-  useEffect(() => {
-    if (phase === "connecting" || isSendBusy || hasPendingTurnStart) {
-      return;
-    }
-    const pendingMessageId = pendingTurnStartMessageRef.current?.messageId;
-    if (pendingMessageId) {
-      pendingTurnStartMessageRef.current = null;
-    }
-  }, [hasPendingTurnStart, isSendBusy, phase]);
   const activeTurnLayoutLive = isWorking || !latestTurnSettled;
   const activeWorkStartedAt = hasLiveTurnTail
     ? (activeLatestTurn?.startedAt ?? null)
@@ -3039,53 +2623,40 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     }, ATTACHMENT_PREVIEW_HANDOFF_TTL_MS);
   }, []);
   const serverMessages = activeThread?.messages;
-  const serverDeliveryByMessageId = useMemo(
-    () =>
-      new Map(
-        (activeThread?.messages ?? EMPTY_MESSAGES).flatMap((message) =>
-          message.delivery === undefined ? [] : [[message.id, message.delivery] as const],
-        ),
-      ),
-    [activeThread?.messages],
-  );
   const [queuedComposerActionInFlightIds, setQueuedComposerActionInFlightIds] = useState<
     ReadonlySet<string>
   >(() => new Set());
   const runQueuedActionWhilePending = useCallback(
     <A,>(
-      queuedTurn: QueuedComposerTurn,
+      queuedTurn: CleanCoreQueuedMessage,
       _action: "steer" | "delete" | "edit",
       operation: () => Promise<A>,
     ): Promise<A | undefined> => {
-      if (queuedComposerActionInFlightIds.has(queuedTurn.id)) return Promise.resolve(undefined);
-      setQueuedComposerActionInFlightIds((current) => new Set(current).add(queuedTurn.id));
+      if (queuedComposerActionInFlightIds.has(queuedTurn.messageId))
+        return Promise.resolve(undefined);
+      setQueuedComposerActionInFlightIds((current) => new Set(current).add(queuedTurn.messageId));
       return operation().finally(() => {
         setQueuedComposerActionInFlightIds((current) => {
           const next = new Set(current);
-          next.delete(queuedTurn.id);
+          next.delete(queuedTurn.messageId);
           return next;
         });
       });
     },
     [queuedComposerActionInFlightIds],
   );
-  const serverQueuedMessageIds = useMemo(() => {
-    const ids = new Set<MessageId>();
-    for (const message of activeThread?.messages ?? EMPTY_MESSAGES) {
-      const visibleState = message.delivery?.state;
-      if (message.delivery?.queued === true && visibleState === "queued") {
-        ids.add(message.id);
-      }
-    }
-    // Compatibility for pre-lifecycle snapshots only. Once a message has a
-    // delivery record, that record is the sole placement authority.
-    for (const messageId of activeThread?.queuedMessageIds ?? []) {
-      if (!serverDeliveryByMessageId.has(messageId)) {
-        ids.add(messageId);
-      }
-    }
-    return ids;
-  }, [activeThread?.messages, activeThread?.queuedMessageIds, serverDeliveryByMessageId]);
+  const canonicalThreadForTimeline = useThreadSummary(activeThreadId);
+  const serverQueuedMessageIds = useMemo(
+    () =>
+      new Set<MessageId>(
+        canonicalThreadForTimeline === null
+          ? []
+          : Schema.decodeUnknownSync(Schema.Array(CleanCoreQueuedMessage))(
+              JSON.parse(canonicalThreadForTimeline.queue),
+            ).map((message) => message.messageId),
+      ),
+    [canonicalThreadForTimeline],
+  );
   const timelineMessages = useMemo(() => {
     const messages = (serverMessages ?? []).filter(
       (message) => !serverQueuedMessageIds.has(message.id),
@@ -3646,17 +3217,31 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
 
   const continueInFlightRef = useRef(false);
   const pendingContinueCommandIdRef = useRef<string | null>(null);
+  const pendingQueuedDiagnosticRef = useRef<{
+    threadId: ThreadId;
+    messageId: MessageId;
+    trace: ReturnType<typeof startDiagnosticTrace>;
+  } | null>(null);
+  useEffect(() => {
+    const pending = pendingQueuedDiagnosticRef.current;
+    if (pending === null || pending.threadId !== activeThreadId) return;
+    if (!threadItems.some((item) => item.kind === "user" && item.sourceId === pending.messageId))
+      return;
+    pendingQueuedDiagnosticRef.current = null;
+    void window.desktopBridge
+      ?.recordDiagnosticCheckpoint?.({
+        ...pending.trace,
+        threadId: pending.threadId,
+        flow: "queue",
+        step: "queue.started",
+        outcome: "ok",
+      })
+      .catch(() => undefined);
+  }, [threadItems, activeThreadId]);
   const pendingQaPlayRef = useRef<{
     threadId: string;
     turnId: string;
     trace: ReturnType<typeof startDiagnosticTrace>;
-  } | null>(null);
-  const pendingQaQueueRef = useRef<{
-    threadId: string;
-    messageId: string;
-    startCommandId: string;
-    trace: ReturnType<typeof startDiagnosticTrace>;
-    seenQueued: boolean;
   } | null>(null);
   useEffect(() => {
     const play = pendingQaPlayRef.current;
@@ -3682,50 +3267,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         })
         .catch(() => undefined);
     }
-    const queue = pendingQaQueueRef.current;
-    if (queue && activeThreadId === queue.threadId) {
-      const isQueued =
-        activeThread?.queuedMessageIds?.some((id) => id === queue.messageId) ?? false;
-      if (isQueued && !queue.seenQueued) {
-        queue.seenQueued = true;
-        void window.desktopBridge
-          ?.recordDiagnosticCheckpoint?.({
-            ...queue.trace,
-            threadId: queue.threadId,
-            flow: "queue",
-            step: "queue.enqueued",
-            outcome: "ok",
-          })
-          .catch(() => undefined);
-      } else if (
-        matchesPromotedQueuedMessage({
-          startCommandId: queue.startCommandId,
-          messageId: queue.messageId,
-          queuedMessageIds: activeThread?.queuedMessageIds ?? [],
-          seenQueued: queue.seenQueued,
-          latestTurnId: activeLatestTurn?.turnId ?? null,
-          latestTurnState: activeLatestTurn?.state ?? null,
-        })
-      ) {
-        pendingQaQueueRef.current = null;
-        void window.desktopBridge
-          ?.recordDiagnosticCheckpoint?.({
-            ...queue.trace,
-            threadId: queue.threadId,
-            flow: "queue",
-            step: "queue.started",
-            outcome: "ok",
-          })
-          .catch(() => undefined);
-      }
-    }
-  }, [
-    activeLatestTurn?.state,
-    activeLatestTurn?.turnId,
-    activeThread?.queuedMessageIds,
-    activeThreadId,
-    phase,
-  ]);
+  }, [activeLatestTurn?.turnId, activeThreadId, phase]);
   const [hiddenContinueTurnId, setHiddenContinueTurnId] = useState<TurnId | null>(null);
   useEffect(() => {
     const commandId = pendingContinueCommandIdRef.current;
@@ -5034,91 +4576,25 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [composerMenuOpen]);
 
-  const visibleQueuedComposerTurns = useMemo(() => {
-    const transcriptSteerMessageIds = new Set(
-      timelineMessages
-        .filter((message) => message.dispatchMode === "steer")
-        .map((message) => message.id),
+  const canonicalThread = useThreadSummary(activeThreadId);
+  useEffect(() => {
+    if (activeThreadId === null || !isServerThread) return;
+    void loadThread(activeThreadId).catch((error: unknown) =>
+      setStoreThreadError(
+        activeThreadId,
+        error instanceof Error ? error.message : "Failed to load the queue.",
+      ),
     );
-    const restoredServerTurns = (activeThread?.messages ?? []).flatMap((message) => {
-      const messageId = message.id;
-      const legacyQueued =
-        message.delivery === undefined &&
-        (activeThread?.queuedMessageIds ?? []).includes(messageId);
-      const lifecycleQueued =
-        message.delivery?.queued === true && message.delivery.state === "queued";
-      if (!legacyQueued && !lifecycleQueued) return [];
-      if (transcriptSteerMessageIds.has(messageId)) return [];
-      if (message.role !== "user") {
-        return [];
-      }
-      const attachments = message.attachments ?? [];
-      const images = attachments.flatMap((attachment) =>
-        attachment.type === "image"
-          ? [
-              {
-                ...attachment,
-                previewUrl: toAttachmentPreviewUrl(
-                  `/attachments/${encodeURIComponent(attachment.id)}`,
-                ),
-                file: new File([], attachment.name, { type: attachment.mimeType }),
-              },
-            ]
-          : [],
-      );
-      const files = attachments.flatMap((attachment) =>
-        attachment.type === "file"
-          ? [
-              {
-                ...attachment,
-                file: new File([], attachment.name, { type: attachment.mimeType }),
-              },
-            ]
-          : [],
-      );
-      const assistantSelections = attachments.filter(
-        (attachment) => attachment.type === "assistant-selection",
-      );
-      return [
-        {
-          id: `server:${messageId}`,
-          kind: "chat" as const,
-          createdAt: message.createdAt,
-          serverAcceptedAt: message.createdAt,
-          serverMessageId: messageId,
-          previewText: message.text,
-          prompt: message.text,
-          images,
-          files,
-          assistantSelections,
-          terminalContexts: [],
-          fileComments: [],
-          pastedTexts: [],
-          skills: message.skills ?? [],
-          mentions: message.mentions ?? [],
-          selectedProvider,
-          selectedModel,
-          selectedPromptEffort,
-          modelSelection: selectedModelSelection,
-          connectionId: selectedConnectionId ?? null,
-          ...(providerOptionsForDispatch ? { providerOptionsForDispatch } : {}),
-          runtimeMode,
-        },
-      ];
-    });
-    return restoredServerTurns;
-  }, [
-    activeThread?.messages,
-    activeThread?.queuedMessageIds,
-    providerOptionsForDispatch,
-    runtimeMode,
-    selectedConnectionId,
-    selectedModel,
-    selectedModelSelection,
-    selectedPromptEffort,
-    selectedProvider,
-    timelineMessages,
-  ]);
+  }, [activeThreadId, isServerThread, setStoreThreadError]);
+  const queuedMessages = useMemo(
+    () =>
+      canonicalThread === null
+        ? []
+        : Schema.decodeUnknownSync(Schema.Array(CleanCoreQueuedMessage))(
+            JSON.parse(canonicalThread.queue),
+          ),
+    [canonicalThread],
+  );
 
   const beginLocalDispatch = useCallback(
     (options?: { readonly expectedUserMessageId?: MessageId }) => {
@@ -5577,26 +5053,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     ],
   );
 
-  const restoreQueuedTurnToComposer = useCallback(
-    (queuedTurn: QueuedComposerTurn) => {
-      if (!activeThread) return;
-      cancelPendingPromptPersistence();
-      if (!recoverCancelledQueuedTurn(activeThread.id, queuedTurn)) return;
-      const nextPrompt =
-        useComposerDraftStore.getState().draftsByThreadId[activeThread.id]?.prompt ?? "";
-      promptRef.current = nextPrompt;
-      setComposerCursor(collapseExpandedComposerCursor(nextPrompt, nextPrompt.length));
-      setComposerTrigger(detectComposerTrigger(nextPrompt, nextPrompt.length));
-      scheduleComposerFocus();
-    },
-    [
-      activeThread,
-      cancelPendingPromptPersistence,
-      recoverCancelledQueuedTurn,
-      scheduleComposerFocus,
-    ],
-  );
-
   const onSendRef = useRef<
     (
       e?: { preventDefault: () => void },
@@ -5605,197 +5061,32 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     ) => Promise<boolean>
   >(async () => false);
 
-  const restorePendingTurnStart = async (pendingTurn: QueuedComposerChatTurn): Promise<boolean> => {
-    if (!activeThread) {
-      return false;
-    }
-    const liveDraft = useComposerDraftStore.getState().draftsByThreadId[activeThread.id];
-    const livePrompt = composerEditorRef.current?.readSnapshot().value ?? liveDraft?.prompt ?? "";
-    const liveImages = liveDraft?.images ?? [];
-    const liveFiles = liveDraft?.files ?? [];
-    const liveAssistantSelections = liveDraft?.assistantSelections ?? [];
-    const liveFileComments = liveDraft?.fileComments ?? [];
-    const liveTerminalContexts = liveDraft?.terminalContexts ?? [];
-    const livePastedTexts = liveDraft?.pastedTexts ?? [];
-    const liveSkills = liveDraft?.skills ?? [];
-    const liveMentions = liveDraft?.mentions ?? [];
-    const liveSendState = deriveComposerSendState({
-      prompt: livePrompt,
-      imageCount: liveImages.length,
-      fileCount: liveFiles.length,
-      assistantSelectionCount: liveAssistantSelections.length,
-      fileCommentCount: liveFileComments.length,
-      terminalContexts: liveTerminalContexts,
-      pastedTexts: livePastedTexts,
-    });
-    const liveMatchesPendingTurn =
-      livePrompt === pendingTurn.prompt &&
-      liveImages.length === pendingTurn.images.length &&
-      liveImages.every((image, index) => image.id === pendingTurn.images[index]?.id) &&
-      liveFiles.length === pendingTurn.files.length &&
-      liveFiles.every((file, index) => file.id === pendingTurn.files[index]?.id) &&
-      liveAssistantSelections.length === pendingTurn.assistantSelections.length &&
-      liveAssistantSelections.every(
-        (selection, index) => selection.id === pendingTurn.assistantSelections[index]?.id,
-      ) &&
-      liveFileComments.length === pendingTurn.fileComments.length &&
-      liveTerminalContexts.length === pendingTurn.terminalContexts.length &&
-      livePastedTexts.length === pendingTurn.pastedTexts.length;
-    const shouldQueueLiveDraft = liveSendState.hasSendableContent && !liveMatchesPendingTurn;
-    const resolvedLiveConnectionId = resolveSelectedConnection(
-      selectedModelSelection.provider,
-      selectedModelSelection.model,
-    );
-    const liveConnectionId =
-      resolvedLiveConnectionId === undefined
-        ? threadProviderBindingQuery.data?.binding?.connectionId
-        : resolvedLiveConnectionId;
-    if (shouldQueueLiveDraft && liveConnectionId === undefined) {
-      setThreadError(activeThread.id, "Choose a Connection before restoring this message.");
-      return false;
-    }
-
-    // Submit a newer composition through the server before restoring the
-    // failed message. This preserves both messages without a renderer queue.
-    if (shouldQueueLiveDraft && !(await onSendRef.current())) {
-      return false;
-    }
-    restoreQueuedTurnToComposer(pendingTurn);
-    return true;
-  };
-  useLayoutEffect(() => {
-    restorePendingTurnStartRef.current = restorePendingTurnStart;
-    for (const {
-      restoration,
-      frontier,
-    } of pendingStartRecoveryRegistryRef.current.entriesForThread(threadId)) {
-      void revalidatePendingStartOutcome(restoration.messageId, frontier);
-    }
-    return () => {
-      if (restorePendingTurnStartRef.current === restorePendingTurnStart) {
-        restorePendingTurnStartRef.current = null;
-      }
-    };
-  }, [restorePendingTurnStart, revalidatePendingStartOutcome, threadId]);
-
-  const waitForQueuedActionOutcome = useCallback(
-    (messageId: MessageId): Promise<"cancelled" | "sent" | "unknown"> => {
-      return new Promise((resolve) => {
-        let settled = false;
-        let unsubscribe: (() => void) | undefined;
-        const finish = (outcome: "cancelled" | "sent" | "unknown") => {
-          if (settled) return;
-          settled = true;
-          unsubscribe?.();
-          clearTimeout(timeout);
-          resolve(outcome);
-        };
-        const inspect = () => {
-          const thread = getThreadFromState(useStore.getState(), threadId);
-          if (!thread) return;
-          const message = thread.messages.find((candidate) => candidate.id === messageId);
-          if (!message) return finish("cancelled");
-          const queued =
-            message.delivery === undefined
-              ? (thread.queuedMessageIds ?? []).includes(messageId)
-              : message.delivery.queued === true && message.delivery.state === "queued";
-          if (!queued) return finish("sent");
-        };
-        const timeout = setTimeout(() => {
-          recordChatSendFailure("EXTERNAL_CALL_FAILED");
-          finish("unknown");
-        }, 10_000);
-        unsubscribe = useStore.subscribe(inspect);
-        inspect();
-      });
-    },
-    [threadId],
-  );
-
-  const cancelQueuedComposerTurn = useCallback(
-    async (queuedTurn: QueuedComposerTurn, restoreForEdit = false): Promise<boolean> => {
-      const resolvedQueuedTurn = queuedTurn;
-      const messageId = queuedComposerTurnServerMessageId(resolvedQueuedTurn);
-      const delivery = serverDeliveryByMessageId.get(messageId);
-      const isServerAccepted =
-        resolvedQueuedTurn.serverAcceptedAt !== undefined ||
-        delivery !== undefined ||
-        (activeThread?.queuedMessageIds ?? []).includes(messageId);
-      if (!isServerAccepted) {
-        return false;
-      }
+  const cancelQueuedMessage = useCallback(
+    async (message: CleanCoreQueuedMessage) => {
       const api = readNativeApi();
-      if (!api) {
-        return false;
-      }
+      if (!api) return false;
       try {
-        let restoredTurn = resolvedQueuedTurn;
-        if (restoreForEdit) {
-          const hydratedImages = await Promise.all(
-            resolvedQueuedTurn.images.map(async (image) => {
-              const response = await fetch(image.previewUrl);
-              if (!response.ok) throw new Error("Failed to cancel queued message.");
-              const blob = await response.blob();
-              return { ...image, file: new File([blob], image.name, { type: image.mimeType }) };
-            }),
-          );
-          const hydratedFiles = await Promise.all(
-            resolvedQueuedTurn.files.map(async (file) => {
-              const response = await fetch(
-                toAttachmentPreviewUrl(`/attachments/${encodeURIComponent(file.id)}`),
-              );
-              if (!response.ok) throw new Error("Failed to cancel queued message.");
-              const blob = await response.blob();
-              return { ...file, file: new File([blob], file.name, { type: file.mimeType }) };
-            }),
-          );
-          restoredTurn = { ...resolvedQueuedTurn, images: hydratedImages, files: hydratedFiles };
-        }
-        await api.orchestration.dispatchCommand({
-          type: "thread.turn.cancel-queued",
-          commandId: newCommandId(),
+        const result = await api.cleanCore.cancelQueuedMessage({
           threadId,
-          messageId,
-          createdAt: new Date().toISOString(),
+          messageId: message.messageId,
         });
-        const outcome = await waitForQueuedActionOutcome(messageId);
-        if (outcome === "cancelled") {
-          if (restoreForEdit) restoreQueuedTurnToComposer(restoredTurn);
-          setThreadError(threadId, null);
-          return true;
-        }
-        if (restoreForEdit) {
-          if (outcome === "sent") {
-            setThreadError(threadId, "This message was already sent, so it can't be edited.");
-          }
-        }
-        return false;
+        setThreadError(threadId, null);
+        return result.removed;
       } catch (error) {
-        recordChatSendFailure("EXTERNAL_CALL_FAILED");
         setThreadError(
           threadId,
-          error instanceof Error ? error.message : "Failed to cancel queued message.",
+          error instanceof Error ? error.message : "Failed to remove the queued message.",
         );
         return false;
       }
     },
-    [
-      activeThread?.queuedMessageIds,
-      serverDeliveryByMessageId,
-      setThreadError,
-      threadId,
-      waitForQueuedActionOutcome,
-      restoreQueuedTurnToComposer,
-    ],
+    [threadId, setThreadError],
   );
-
-  const removeQueuedComposerTurn = useCallback(
-    (queuedTurn: QueuedComposerTurn) => {
-      void runQueuedActionWhilePending(queuedTurn, "delete", () =>
-        cancelQueuedComposerTurn(queuedTurn),
-      );
+  const removeQueuedMessage = useCallback(
+    (message: CleanCoreQueuedMessage) => {
+      void runQueuedActionWhilePending(message, "delete", () => cancelQueuedMessage(message));
     },
-    [cancelQueuedComposerTurn, runQueuedActionWhilePending],
+    [runQueuedActionWhilePending, cancelQueuedMessage],
   );
 
   // These handlers are declared later because they depend on composer controls
@@ -6483,120 +5774,20 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         : {}),
       runtimeMode: runtimeModeForSend,
     };
-    // The exact dispatch payload was captured before visible ownership moved
-    // out of the composer. Make that captured owner durable before dispatch;
-    // it is the only owner used after a renderer/module restart, and it
-    // is not a retry queue and is never dispatched automatically.
-    let durableRecoveryTurn: typeof ownedPendingTurn = ownedPendingTurn;
-    let capturedDurableRecovery = false;
-    // Claim the live owner synchronously before capture mutates the composer
-    // store. The hydration effect may observe the new durable record before the
-    // async flush returns; this local claim keeps it out of the reload sweep
-    // until admission/Stop supplies an authoritative frontier.
-    pendingStartRecoveryRegistryRef.current.register(
-      {
-        threadId: threadIdForSend,
-        messageId: messageIdForSend,
-        previewUrls: ownedPendingTurn.images.map((image) => image.previewUrl),
-        pendingTurn: ownedPendingTurn,
-        restore: async () => reconcileCancelledPendingStart(messageIdForSend),
-      },
-      { deferLookup: true },
-    );
-    const persistedImages = capturedPersistedAttachments.filter((attachment) =>
-      ownedPendingTurn.images.some((image) => image.id === attachment.id),
-    );
-    const persistedImagesOption =
-      persistedImages && persistedImages.length > 0 ? { persistedImages } : {};
-    let durablePreparationError: unknown = null;
-    try {
-      const durableImages = await Promise.all(
-        ownedPendingTurn.images.map(async (image) => {
-          if (image.previewUrl.startsWith("data:")) return image;
-          return { ...image, previewUrl: await readFileAsDataUrl(image.file) };
-        }),
-      );
-      durableRecoveryTurn = { ...ownedPendingTurn, images: durableImages };
-      const recovery: PendingStartRecovery = {
-        schemaVersion: 1,
-        threadId: threadIdForSend,
-        messageId: messageIdForSend,
-        pendingTurn: durableRecoveryTurn,
-        ...persistedImagesOption,
-        settlement: "unresolved",
-      };
-      if (!capturePendingStartRecovery(threadIdForSend, recovery)) {
-        durablePreparationError = new Error(
-          "Could not capture the pending message for durable recovery.",
-        );
-      } else {
-        capturedDurableRecovery = true;
-        pendingStartRecoveryRegistryRef.current.register({
-          threadId: threadIdForSend,
-          messageId: messageIdForSend,
-          previewUrls: durableRecoveryTurn.images.map((image) => image.previewUrl),
-          pendingTurn: durableRecoveryTurn,
-          restore: async () => reconcileCancelledPendingStart(messageIdForSend),
-        });
-      }
-    } catch (error) {
-      recordChatSendFailure("SEND_PREFLIGHT_REJECTED", sendTrace);
-      durablePreparationError = error;
-    }
-    if (durablePreparationError !== null) {
-      let error = durablePreparationError;
-      if (capturedDurableRecovery) {
-        try {
-          await settlePendingStartRecoveryDurably({
-            messageId: messageIdForSend,
-            settlement: "failed",
-            sequence: 0,
-            prepare: () => markPendingStartRecoveryFailed(threadIdForSend, messageIdForSend),
-          });
-        } catch (cleanupError) {
-          recordChatSendFailure("EXTERNAL_CALL_FAILED", sendTrace);
-          error = new Error(
-            `${error instanceof Error ? error.message : "Could not durably prepare this message."} ` +
-              `(Recovery cleanup also failed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)})`,
-          );
-        }
-      } else {
-        pendingStartRecoveryRegistryRef.current.release(threadIdForSend, messageIdForSend);
-      }
-      pendingTurnStartMessageRef.current = null;
-      sendInFlightRef.current = false;
-      releaseSendPreflight({ restoreComposer: true });
-      resetLocalDispatch();
-      setThreadError(
-        threadIdForSend,
-        error instanceof Error ? error.message : "Could not durably prepare this message.",
-      );
-      return false;
-    }
-    const abortCancelledCapturedSend = async () => {
-      await reconcileCancelledPendingStart(messageIdForSend);
-      composerOwnershipTransferred = false;
-      pendingTurnStartMessageRef.current = null;
-      sendInFlightRef.current = false;
+    if (sendPreflightOwner.cancelled) {
+      restoreTransferredComposer();
       releaseSendPreflight();
+      sendInFlightRef.current = false;
       resetLocalDispatch();
       return false;
-    };
-    // Stop can cancel while the durable capture above is awaited. Retire that
-    // exact captured owner before it can become dispatching; otherwise the
-    // continuation would still publish a turn-start command after Stop.
-    if (sendPreflightOwner.cancelled) return abortCancelledCapturedSend();
-    if (!isFollowUpToActiveTurn) {
-      pendingTurnStartMessageRef.current = durableRecoveryTurn;
     }
     if (
-      !markComposerSendPreflightDispatching(
-        sendPreflightOwner,
-        messageIdForSend,
-        durableRecoveryTurn,
-      )
+      !markComposerSendPreflightDispatching(sendPreflightOwner, messageIdForSend, ownedPendingTurn)
     ) {
-      return abortCancelledCapturedSend();
+      releaseSendPreflight({ restoreComposer: true });
+      sendInFlightRef.current = false;
+      resetLocalDispatch();
+      return false;
     }
     const outgoingTextSeed =
       messageTextForSend || (composerImagesSnapshot.length > 0 ? IMAGE_ONLY_BOOTSTRAP_PROMPT : "");
@@ -6688,8 +5879,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     }
 
     let turnStartSucceeded = false;
-    let startCommandDispatched = false;
-    let preDispatchRecoveryPrepared = false;
     await (async () => {
       const threadCreateModelSelection: ModelSelection = buildModelSelection(
         selectedModelSelectionForSend.provider,
@@ -6739,64 +5928,63 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         provider: selectedModelSelectionForSend.provider,
         providerOptions: providerOptionsForDispatchForSend,
       });
-      // The resolver returns the protocol's exact revision zero for an
-      // unstarted thread and the authoritative managed-binding revision for a
-      // continuation.
-      const bindingRevisionForSend = await resolveThreadBindingRevisionAtAdmission();
-      const startCommandId = newCommandId();
-      const startReceipt = await stagedTurnAttachments.runWithDispatch((turnAttachments) => {
+      const sendResult = await stagedTurnAttachments.runWithDispatch((attachments) => {
         return sendDiagnostics.dispatch(threadIdForSend, () => {
-          startCommandDispatched = true;
-          return api.orchestration.dispatchCommand(
-            {
-              type: "thread.turn.start",
-              commandId: startCommandId,
-              threadId: threadIdForSend,
-              message: {
-                messageId: messageIdForSend,
-                role: "user",
-                text: outgoingMessageText,
-                attachments: turnAttachments,
-                ...(mentionedSkillsForSend.length > 0 ? { skills: mentionedSkillsForSend } : {}),
-                ...(mentionedPluginMentionsForSend.length > 0
-                  ? { mentions: mentionedPluginMentionsForSend }
-                  : {}),
-              },
-              modelSelection: selectedModelSelectionForSend,
-              ...(selectedConnectionIdForSend === undefined
-                ? {}
-                : { connectionId: selectedConnectionIdForSend }),
-              ...(bindingRevisionForSend === undefined
-                ? {}
-                : { bindingRevision: bindingRevisionForSend }),
-              ...(providerOptionsForDispatchForSend
-                ? { providerOptions: providerOptionsForDispatchForSend }
-                : {}),
-              assistantDeliveryMode,
-              dispatchMode,
-              runtimeMode: nextRuntimeModeForSend,
-              createdAt: messageCreatedAt,
+          return api.cleanCore.sendMessage({
+            threadId: threadIdForSend,
+            message: {
+              messageId: messageIdForSend,
+              text: outgoingMessageText,
+              attachments: [
+                ...attachments.filter((attachment) => attachment.type !== "assistant-selection"),
+                ...composerAssistantSelectionsSnapshot.map((selection) => ({
+                  ...selection,
+                  assistantMessageId: MessageId.makeUnsafe(selection.assistantMessageId),
+                })),
+              ],
+              senderThreadId: null,
+              dispatchOrigin: "user",
+              queuedAt: messageCreatedAt,
             },
-            sendTrace,
-          );
+            modelSelection: selectedModelSelectionForSend,
+            ...(providerOptionsForDispatchForSend === undefined
+              ? {}
+              : { providerOptions: providerOptionsForDispatchForSend }),
+            assistantDeliveryMode,
+            ...(mentionedSkillsForSend.length === 0 ? {} : { skills: mentionedSkillsForSend }),
+            ...(mentionedPluginMentionsForSend.length === 0
+              ? {}
+              : { mentions: mentionedPluginMentionsForSend }),
+            ...(selectedConnectionIdForSend === undefined
+              ? {}
+              : { connectionId: selectedConnectionIdForSend }),
+            dispatchMode,
+          });
         });
       });
+      if (sendResult.delivery === "failed") throw new Error(sendResult.error);
       turnStartSucceeded = true;
-      if (hasLiveTurn && dispatchMode === "queue")
-        pendingQaQueueRef.current = {
+      releaseSendPreflight();
+      if (sendResult.delivery === "queued") {
+        setOptimisticUserMessages((current) =>
+          current.filter((message) => message.id !== messageIdForSend),
+        );
+        resetLocalDispatch();
+        pendingQueuedDiagnosticRef.current = {
           threadId: threadIdForSend,
           messageId: messageIdForSend,
-          startCommandId,
           trace: sendTrace,
-          seenQueued: false,
         };
-      markComposerSendPreflightAdmission(sendPreflightOwner, startReceipt.sequence);
-      pendingStartRecoveryRegistryRef.current.setFrontier(
-        threadIdForSend,
-        messageIdForSend,
-        startReceipt.sequence,
-      );
-      void revalidatePendingStartOutcome(messageIdForSend, startReceipt.sequence);
+        void window.desktopBridge
+          ?.recordDiagnosticCheckpoint?.({
+            ...sendTrace,
+            threadId: threadIdForSend,
+            flow: "queue",
+            step: "queue.enqueued",
+            outcome: "ok",
+          })
+          .catch(() => undefined);
+      }
       await queryClient.invalidateQueries({
         queryKey: providerConnectionQueryKeys.thread(threadIdForSend),
       });
@@ -6807,33 +5995,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       });
     })().catch(async (err: unknown) => {
       recordChatSendFailure("COMMAND_REJECTED", sendTrace);
-      if (capturedDurableRecovery && !startCommandDispatched) {
-        await settlePendingStartRecoveryDurably({
-          messageId: messageIdForSend,
-          settlement: "restored",
-          sequence: 0,
-          prepare: () => {
-            const prepared = restorePendingStartRecovery(
-              threadIdForSend,
-              messageIdForSend,
-              0,
-              new Date().toISOString(),
-            );
-            if (prepared) {
-              preDispatchRecoveryPrepared = true;
-              composerOwnershipTransferred = false;
-            }
-            return prepared;
-          },
-        }).catch(() => recordChatSendFailure("EXTERNAL_CALL_FAILED", sendTrace));
-      }
-      if (capturedDurableRecovery && startCommandDispatched && !turnStartSucceeded) {
-        pendingStartRecoveryRegistryRef.current.activateForUncertainty(
-          threadIdForSend,
-          messageIdForSend,
-        );
-        void revalidatePendingStartOutcome(messageIdForSend, shellSnapshotSequence);
-      }
       // Uploads start in parallel with workspace/session preparation. If any
       // earlier step fails, settle that promise and release every staged blob.
       await turnAttachmentsPromise.then(
@@ -6841,12 +6002,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         () => undefined,
       );
 
-      if (
-        queuedChatTurn === null &&
-        !turnStartSucceeded &&
-        !startCommandDispatched &&
-        !sendPreflightOwner.cancelled
-      ) {
+      if (queuedChatTurn === null && !turnStartSucceeded && !sendPreflightOwner.cancelled) {
         setOptimisticUserMessages((existing) => {
           const removed = existing.filter((message) => message.id === messageIdForSend);
           for (const message of removed) {
@@ -6855,9 +6011,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
           const next = existing.filter((message) => message.id !== messageIdForSend);
           return next.length === existing.length ? existing : next;
         });
-        if (!preDispatchRecoveryPrepared) {
-          restoreTransferredComposer();
-        }
+        restoreTransferredComposer();
       }
       setThreadError(
         threadIdForSend,
@@ -7181,41 +6335,85 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     workflowRunState,
   ]);
 
-  const onSteerQueuedComposerTurn = useCallback(
-    async (queuedTurn: QueuedComposerTurn) => {
+  const steerQueuedMessage = useCallback(
+    async (message: CleanCoreQueuedMessage) => {
       armTranscriptAutoFollow(threadId);
-      await runQueuedActionWhilePending(queuedTurn, "steer", async () => {
-        const messageId = queuedComposerTurnServerMessageId(queuedTurn);
+      await runQueuedActionWhilePending(message, "steer", async () => {
         const api = readNativeApi();
         if (!api) return;
         try {
-          await api.orchestration.dispatchCommand({
-            type: "thread.turn.steer-queued",
-            commandId: newCommandId(),
+          const result = await api.cleanCore.sendMessage({
             threadId,
-            messageId,
-            createdAt: new Date().toISOString(),
+            message,
+            dispatchMode: "steer",
           });
+          if (result.delivery === "failed") throw new Error(result.error);
           setThreadError(threadId, null);
         } catch (error) {
-          recordChatSendFailure("COMMAND_REJECTED");
           setThreadError(
             threadId,
-            error instanceof Error ? error.message : "Failed to steer queued message.",
+            error instanceof Error ? error.message : "Failed to steer the queued message.",
           );
         }
       });
     },
     [runQueuedActionWhilePending, setThreadError, threadId],
   );
-
-  const onEditQueuedComposerTurn = useCallback(
-    (queuedTurn: QueuedComposerTurn) => {
-      void runQueuedActionWhilePending(queuedTurn, "edit", () =>
-        cancelQueuedComposerTurn(queuedTurn, true),
-      );
+  const editQueuedMessage = useCallback(
+    (message: CleanCoreQueuedMessage) => {
+      void runQueuedActionWhilePending(message, "edit", async () => {
+        const api = readNativeApi();
+        if (!api) return;
+        try {
+          // Stage the existing attachment bytes under the same ID used by the draft.
+          await Promise.all(
+            message.attachments
+              .filter((attachment) => attachment.type !== "assistant-selection")
+              .map(async (attachment) => {
+                const response = await fetch(
+                  toAttachmentPreviewUrl(`/attachments/${encodeURIComponent(attachment.id)}`),
+                );
+                if (!response.ok)
+                  throw new Error("Failed to prepare the queued attachment for editing.");
+                const blob = await response.blob();
+                await persistComposerAsset({
+                  threadId,
+                  assetId: attachment.id,
+                  file: new File([blob], attachment.name, { type: attachment.mimeType }),
+                });
+              }),
+          );
+          const reference = (attachment: { id: string; name: string; mimeType: string }) => ({
+            id: attachment.id,
+            name: attachment.name,
+            mimeType: attachment.mimeType,
+          });
+          const draft = JSON.stringify({
+            prompt: message.text,
+            attachments: message.attachments.filter((a) => a.type === "image").map(reference),
+            files: message.attachments.filter((a) => a.type === "file").map(reference),
+            assistantSelections: message.attachments.filter(
+              (a) => a.type === "assistant-selection",
+            ),
+          });
+          const result = await api.cleanCore.editQueuedMessage({
+            threadId,
+            messageId: message.messageId,
+            draft,
+            updatedAt: new Date().toISOString(),
+          });
+          if (!result.removed) throw new Error("This message is no longer queued.");
+          setThreadError(threadId, null);
+          scheduleComposerFocus();
+        } catch (error) {
+          const description =
+            error instanceof Error ? error.message : "Failed to edit the queued message.";
+          setThreadError(threadId, description);
+          toastManager.add({ type: "error", title: "Couldn't edit queued message", description });
+        }
+      });
     },
-    [cancelQueuedComposerTurn, runQueuedActionWhilePending],
+    [runQueuedActionWhilePending, setThreadError, threadId, scheduleComposerFocus],
   );
 
   const setPromptFromTraits = useCallback(
@@ -8245,11 +7443,11 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
                 />
               ) : null}
               <ComposerQueuedHeader
-                queuedTurns={visibleQueuedComposerTurns}
+                queuedTurns={queuedMessages}
                 actionInFlightIds={queuedComposerActionInFlightIds}
-                onSteer={onSteerQueuedComposerTurn}
-                onRemove={removeQueuedComposerTurn}
-                onEdit={onEditQueuedComposerTurn}
+                onSteer={steerQueuedMessage}
+                onRemove={removeQueuedMessage}
+                onEdit={editQueuedMessage}
                 cwd={threadWorkspaceCwd ?? undefined}
                 attachedToPrevious={showComposerWorkflowRunCard}
               />

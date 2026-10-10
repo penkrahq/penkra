@@ -1006,7 +1006,12 @@ export async function hydrateComposerThreadDraftFromServer(
     sizeBytes: (await readAssetSize(entry)) ?? 0,
     assetKey: entry.id,
   });
-  const attachments = await Promise.all(payload.attachments.map(hydrateEntry));
+  const attachments = await Promise.all(
+    payload.attachments.map(async (entry) => ({
+      ...(await hydrateEntry(entry)),
+      blobKey: entry.id,
+    })),
+  );
   const files = await Promise.all(payload.files.map(hydrateEntry));
   return toHydratedThreadDraft(threadId, {
     prompt: payload.prompt,
@@ -1025,5 +1030,3 @@ export async function hydrateComposerThreadDraftFromServer(
     ...(payload.runtimeMode ? { runtimeMode: payload.runtimeMode } : {}),
   } as PersistedComposerThreadDraftState);
 }
-
-

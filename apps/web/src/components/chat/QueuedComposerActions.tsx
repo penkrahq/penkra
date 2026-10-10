@@ -7,7 +7,7 @@
 
 import { EllipsisIcon, SteerIcon, Trash2 } from "~/lib/icons";
 
-import type { QueuedComposerTurn } from "../../composerDraftStore";
+import type { CleanCoreQueuedMessage } from "@penkra/contracts";
 
 import { Button } from "../ui/button";
 import { IconButton } from "../ui/icon-button";
@@ -15,11 +15,11 @@ import { MenuItem, MenuTrigger } from "../ui/menu";
 import { ComposerPickerMenu, ComposerPickerMenuPopup } from "./ComposerPickerMenuPopup";
 
 type QueuedComposerActionsProps = {
-  queuedTurn: QueuedComposerTurn;
+  queuedTurn: CleanCoreQueuedMessage;
   busy?: boolean;
-  onSteer: (queuedTurn: QueuedComposerTurn) => void;
-  onRemove: (queuedTurn: QueuedComposerTurn) => void;
-  onEdit: (queuedTurn: QueuedComposerTurn) => void;
+  onSteer: (queuedTurn: CleanCoreQueuedMessage) => void;
+  onRemove: (queuedTurn: CleanCoreQueuedMessage) => void;
+  onEdit: (queuedTurn: CleanCoreQueuedMessage) => void;
 };
 
 function QueuedComposerActions({

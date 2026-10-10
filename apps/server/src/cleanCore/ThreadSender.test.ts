@@ -1,3 +1,6 @@
+import { ManagedAttachmentRepository } from "../persistence/Services/ManagedAttachments.ts";
+import { CurrentManagedAttachmentPrincipal } from "../managedAttachmentPrincipal.ts";
+import { ManagedAttachmentRepositoryLive } from "../persistence/Layers/ManagedAttachments.ts";
 import { assert, it } from "@effect/vitest";
 import { MessageId, ThreadId, TurnId } from "@penkra/contracts";
 import { Deferred, Effect, Option } from "effect";
@@ -52,6 +55,7 @@ it.effect("uses the exact current binding revision and waits for native confirma
       recoverOpen: Effect.void,
     };
     const sender = yield* makeThreadSender.pipe(
+      Effect.provide(ManagedAttachmentRepositoryLive),
       Effect.provideService(ThreadPublisher, publisher),
       Effect.provideService(ProviderThreadSwitchCoordinator, coordinator),
       Effect.provideService(ThreadProviderBindingRepository, {
@@ -118,6 +122,7 @@ it.effect(
       publisher.subscribe("thread-1", (change) => changes.push(change.threadId));
       const interrupts: unknown[] = [];
       const sender = yield* makeThreadSender.pipe(
+        Effect.provide(ManagedAttachmentRepositoryLive),
         Effect.provideService(ThreadPublisher, publisher),
         Effect.provideService(
           ProviderThreadSwitchCoordinator,
@@ -238,6 +243,7 @@ for (const release of ["next-send", "remove-head", "edit-head"] as const) {
           }),
       } as typeof ProviderThreadSwitchCoordinator.Service;
       const sender = yield* makeThreadSender.pipe(
+        Effect.provide(ManagedAttachmentRepositoryLive),
         Effect.provideService(ThreadPublisher, publisher),
         Effect.provideService(ProviderThreadSwitchCoordinator, coordinator),
         Effect.provideService(ThreadProviderBindingRepository, {
@@ -326,3 +332,146 @@ for (const release of ["next-send", "remove-head", "edit-head"] as const) {
     }).pipe(Effect.scoped, Effect.provide(NodeSqliteClient.layerMemory())),
   );
 }
+
+it.effect("claims queued attachments atomically and delivers them with their original owner", () =>
+  Effect.gen(function* () {
+    yield* runMigrations();
+    const sql = yield* SqlClient.SqlClient;
+    yield* createThread({
+      id: "thread-attachments",
+      spaceId: "space",
+      title: "Attachments",
+      provider: "codex",
+      model: "gpt-5.5",
+      runtimeMode: "full-access",
+      createdBy: "user",
+      createdAt: "2026-10-10T00:00:00.000Z",
+    });
+    const repository = yield* ManagedAttachmentRepository;
+    const at = new Date().toISOString();
+    yield* repository.reserve({
+      attachmentId: "attachment",
+      ownerThreadId: "thread-attachments",
+      ownerKind: "session",
+      ownerId: "uploader",
+      kind: "image",
+      originalName: "image.png",
+      mimeType: "image/png",
+      reservedBytes: 4,
+      relativePath: "attachment.png",
+      now: at,
+    });
+    yield* repository.finalizeStaged({
+      attachmentId: "attachment",
+      ownerThreadId: "thread-attachments",
+      ownerKind: "session",
+      ownerId: "uploader",
+      sizeBytes: 4,
+      sha256: "a".repeat(64),
+      stagingExpiresAt: "9999-01-01T00:00:00.000Z",
+      now: at,
+    });
+    yield* setThreadState("thread-attachments", "running", "first", null, at);
+    yield* sql`UPDATE threads SET draft = '{"prompt":"draft to clear"}' WHERE id = 'thread-attachments'`;
+    const publisher = makeThreadPublisher();
+    const changes: string[] = [];
+    publisher.subscribe("thread-attachments", (change) => changes.push(change.threadId));
+    const coordinator: typeof ProviderThreadSwitchCoordinator.Service = {
+      dispatchTurnStart: ({ command, attachmentPrincipal }) =>
+        Effect.sync(() => {
+          assert.deepStrictEqual(attachmentPrincipal, {
+            ownerKind: "session",
+            ownerId: "uploader",
+          });
+          publisher.publishProvider({
+            type: "turn.started",
+            threadId: command.threadId,
+            turnId: "next",
+            at: command.createdAt,
+          });
+          publisher.publishDispatch({
+            type: "acknowledged",
+            threadId: command.threadId,
+            messageId: command.message.messageId,
+            turnId: "next",
+          });
+          return { sequence: 1 };
+        }),
+      dispatchQueuedTurn: () => Effect.die("no legacy queue"),
+      recoverOpen: Effect.void,
+    };
+    const sender = yield* makeThreadSender.pipe(
+      Effect.provideService(ThreadPublisher, publisher),
+      Effect.provideService(ProviderThreadSwitchCoordinator, coordinator),
+      Effect.provideService(ThreadProviderBindingRepository, {
+        getRuntimeBinding: () => Effect.succeed(Option.none()),
+      } as unknown as typeof ThreadProviderBindingRepository.Service),
+      Effect.provideService(ProviderService, {
+        interruptTurn: () => Effect.void,
+      } as unknown as typeof ProviderService.Service),
+    );
+    const request: ThreadSendInput = {
+      threadId: ThreadId.makeUnsafe("thread-attachments"),
+      dispatchMode: "queue",
+      message: {
+        messageId: MessageId.makeUnsafe("image-message"),
+        text: "image",
+        attachments: [
+          {
+            type: "image",
+            id: "attachment",
+            name: "image.png",
+            mimeType: "image/png",
+            sizeBytes: 4,
+          },
+        ],
+        senderThreadId: null,
+        dispatchOrigin: "user",
+        queuedAt: at,
+      },
+    };
+    const wrongOwner = yield* sender.send(request);
+    assert.equal(wrongOwner.delivery, "failed");
+    assert.deepStrictEqual(yield* readThreadQueue(request.threadId), []);
+    assert.equal(changes.length, 0);
+    assert.equal(
+      (yield* sql<{
+        draft: string | null;
+      }>`SELECT draft FROM threads WHERE id = ${request.threadId}`)[0]!.draft,
+      '{"prompt":"draft to clear"}',
+    );
+    const queued = yield* sender
+      .send(request)
+      .pipe(
+        Effect.provideService(CurrentManagedAttachmentPrincipal, {
+          ownerKind: "session",
+          ownerId: "uploader",
+        } as const),
+      );
+    assert.equal(queued.delivery, "queued");
+    assert.equal(changes.length, 1);
+    assert.equal(
+      (yield* sql<{
+        draft: string | null;
+      }>`SELECT draft FROM threads WHERE id = ${request.threadId}`)[0]!.draft,
+      null,
+    );
+    const blob = yield* repository.findClaimedById({ attachmentId: "attachment" });
+    assert.isTrue(Option.isSome(blob));
+    yield* setThreadState(request.threadId, "idle", null, null, new Date().toISOString());
+    const started = yield* sender
+      .send(request)
+      .pipe(
+        Effect.provideService(CurrentManagedAttachmentPrincipal, {
+          ownerKind: "session",
+          ownerId: "another-window",
+        } as const),
+      );
+    assert.equal(started.delivery, "started");
+    assert.deepStrictEqual(yield* readThreadQueue(request.threadId), []);
+  }).pipe(
+    Effect.scoped,
+    Effect.provide(ManagedAttachmentRepositoryLive),
+    Effect.provide(NodeSqliteClient.layerMemory()),
+  ),
+);
