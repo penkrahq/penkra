@@ -49,6 +49,39 @@ export interface ThreadSummaryRecord {
   readonly updatedAt: string;
 }
 
+const THREAD_SUMMARY_COLUMNS = `
+        id,
+        space_id AS "spaceId",
+        folder_id AS "folderId",
+        title,
+        provider,
+        connection_id AS "connectionId",
+        model,
+        model_options AS "modelOptions",
+        runtime_mode AS "runtimeMode",
+        working_directory AS "workingDirectory",
+        state,
+        active_turn_id AS "activeTurnId",
+        last_error AS "lastError",
+        queue,
+        created_by AS "createdBy",
+        created_by_thread_id AS "createdByThreadId",
+        parent_thread_id AS "parentThreadId",
+        deck_id AS "deckId",
+        deck_sort_order AS "deckSortOrder",
+        sidebar_sort_order AS "sidebarSortOrder",
+        is_pinned AS "isPinned",
+        last_activity_at AS "lastActivityAt",
+        last_message_preview AS "lastMessagePreview",
+        last_user_message_at AS "lastUserMessageAt",
+        last_visited_at AS "lastVisitedAt",
+        open_question_count AS "openQuestionCount",
+        archived_at AS "archivedAt",
+        deleted_at AS "deletedAt",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
+`;
+
 /** The sidebar order key: pinned first, then manual order, then newest. */
 export interface ThreadListCursor {
   readonly isPinned: number;
@@ -86,37 +119,7 @@ export const listThreads = (input: {
     const afterCreatedAt = after?.createdAt ?? null;
     const afterId = after?.id ?? null;
     const rows = yield* sql<ThreadSummaryRecord>`
-      SELECT
-        id,
-        space_id AS "spaceId",
-        folder_id AS "folderId",
-        title,
-        provider,
-        connection_id AS "connectionId",
-        model,
-        model_options AS "modelOptions",
-        runtime_mode AS "runtimeMode",
-        working_directory AS "workingDirectory",
-        state,
-        active_turn_id AS "activeTurnId",
-        last_error AS "lastError",
-        queue,
-        created_by AS "createdBy",
-        created_by_thread_id AS "createdByThreadId",
-        parent_thread_id AS "parentThreadId",
-        deck_id AS "deckId",
-        deck_sort_order AS "deckSortOrder",
-        sidebar_sort_order AS "sidebarSortOrder",
-        is_pinned AS "isPinned",
-        last_activity_at AS "lastActivityAt",
-        last_message_preview AS "lastMessagePreview",
-        last_user_message_at AS "lastUserMessageAt",
-        last_visited_at AS "lastVisitedAt",
-        open_question_count AS "openQuestionCount",
-        archived_at AS "archivedAt",
-        deleted_at AS "deletedAt",
-        created_at AS "createdAt",
-        updated_at AS "updatedAt"
+      SELECT ${sql.literal(THREAD_SUMMARY_COLUMNS)}
       FROM threads
       WHERE space_id = ${input.spaceId}
         AND folder_id IS ${input.folderId}
@@ -164,37 +167,7 @@ export const findThread = (threadId: ThreadId) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const rows = yield* sql<ThreadSummaryRecord>`
-      SELECT
-        id,
-        space_id AS "spaceId",
-        folder_id AS "folderId",
-        title,
-        provider,
-        connection_id AS "connectionId",
-        model,
-        model_options AS "modelOptions",
-        runtime_mode AS "runtimeMode",
-        working_directory AS "workingDirectory",
-        state,
-        active_turn_id AS "activeTurnId",
-        last_error AS "lastError",
-        queue,
-        created_by AS "createdBy",
-        created_by_thread_id AS "createdByThreadId",
-        parent_thread_id AS "parentThreadId",
-        deck_id AS "deckId",
-        deck_sort_order AS "deckSortOrder",
-        sidebar_sort_order AS "sidebarSortOrder",
-        is_pinned AS "isPinned",
-        last_activity_at AS "lastActivityAt",
-        last_message_preview AS "lastMessagePreview",
-        last_user_message_at AS "lastUserMessageAt",
-        last_visited_at AS "lastVisitedAt",
-        open_question_count AS "openQuestionCount",
-        archived_at AS "archivedAt",
-        deleted_at AS "deletedAt",
-        created_at AS "createdAt",
-        updated_at AS "updatedAt"
+      SELECT ${sql.literal(THREAD_SUMMARY_COLUMNS)}
       FROM threads
       WHERE id = ${threadId}
   `;
@@ -216,37 +189,7 @@ export const listDeckThreads = (input: {
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const rows = yield* sql<ThreadSummaryRecord>`
-      SELECT
-        id,
-        space_id AS "spaceId",
-        folder_id AS "folderId",
-        title,
-        provider,
-        connection_id AS "connectionId",
-        model,
-        model_options AS "modelOptions",
-        runtime_mode AS "runtimeMode",
-        working_directory AS "workingDirectory",
-        state,
-        active_turn_id AS "activeTurnId",
-        last_error AS "lastError",
-        queue,
-        created_by AS "createdBy",
-        created_by_thread_id AS "createdByThreadId",
-        parent_thread_id AS "parentThreadId",
-        deck_id AS "deckId",
-        deck_sort_order AS "deckSortOrder",
-        sidebar_sort_order AS "sidebarSortOrder",
-        is_pinned AS "isPinned",
-        last_activity_at AS "lastActivityAt",
-        last_message_preview AS "lastMessagePreview",
-        last_user_message_at AS "lastUserMessageAt",
-        last_visited_at AS "lastVisitedAt",
-        open_question_count AS "openQuestionCount",
-        archived_at AS "archivedAt",
-        deleted_at AS "deletedAt",
-        created_at AS "createdAt",
-        updated_at AS "updatedAt"
+      SELECT ${sql.literal(THREAD_SUMMARY_COLUMNS)}
       FROM threads
       WHERE deck_id = ${input.deckId}
         AND deleted_at IS NULL

@@ -1,4 +1,3 @@
-import type { SidebarThreadRow } from "../sidebarThreadRows";
 // FILE: useSpacesController.ts
 // Purpose: All Space selection, editing, deletion, and assignment behavior behind the sidebar.
 // Layer: Sidebar controller hook
@@ -7,6 +6,7 @@ import type { SidebarThreadRow } from "../sidebarThreadRows";
 //      (inputs in, handlers out) keeps it reviewable instead of interleaved through an
 //      8k-line component.
 
+import type { SidebarThreadRow } from "../sidebarThreadRows";
 import type { FolderId, SpaceId, ThreadId } from "@penkra/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { startTransition, useCallback, useEffect, useMemo, useState } from "react";

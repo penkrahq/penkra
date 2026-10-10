@@ -1,9 +1,9 @@
-import type { SidebarThreadRow } from "../sidebarThreadRows";
 // FILE: useSidebarThreadActions.ts
 // Purpose: Owns Sidebar thread pinning, archive/undo, deletion, and project-batch actions.
 // Layer: Web Sidebar controller hook
 // Exports: useSidebarThreadActions
 
+import type { SidebarThreadRow } from "../sidebarThreadRows";
 import { type FolderId, ThreadId } from "@penkra/contracts";
 import { pluralize } from "@penkra/shared/text";
 import { useNavigate } from "@tanstack/react-router";
