@@ -83,7 +83,7 @@ import {
   AgentGatewayCredentials,
   type AgentGatewayCredentialsShape,
 } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
-import { loadOpenCodeSharedMcpConfig } from "../openCodeSharedMcpConfig.ts";
+import { loadOpenCodeConfigContent } from "../openCodeSharedMcpConfig.ts";
 import {
   acquireAgentGatewaySessionLease,
   type AgentGatewaySessionLease,
@@ -272,7 +272,7 @@ export interface OpenCodeAdapterLiveOptions {
   readonly promptSubmissionInlineWaitMs?: number;
   readonly prematureIdleCompletionGraceMs?: number;
   readonly beforeSessionInstall?: Effect.Effect<void>;
-  readonly loadSharedMcpConfig?: (homeDir: string) => Promise<string | undefined>;
+  readonly loadSharedMcpConfig?: (homeDir: string) => Promise<string>;
   readonly resolveServerPassword?: (
     provider: OpenCodeCompatibleProvider,
   ) => Effect.Effect<string | undefined, ProviderAdapterValidationError>;
@@ -3544,11 +3544,10 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           if (managedProcessEnv) {
             const sharedMcpConfig = yield* Effect.tryPromise({
               try: () =>
-                (options?.loadSharedMcpConfig ?? loadOpenCodeSharedMcpConfig)(serverConfig.homeDir),
+                (options?.loadSharedMcpConfig ?? loadOpenCodeConfigContent)(serverConfig.homeDir),
               catch: (cause) => toAdapterProcessError(input.threadId, cause),
             });
-            if (sharedMcpConfig) managedProcessEnv.OPENCODE_CONFIG_CONTENT = sharedMcpConfig;
-            else delete managedProcessEnv.OPENCODE_CONFIG_CONTENT;
+            managedProcessEnv.OPENCODE_CONFIG_CONTENT = sharedMcpConfig;
           }
 
           let sessionScopeTransferred = false;

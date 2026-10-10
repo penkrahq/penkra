@@ -620,7 +620,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         Effect.provide(
           makeOpenCodeAdapterLive({
             runtime: runtime.runtime,
-            loadSharedMcpConfig: async () => undefined,
+            loadSharedMcpConfig: async () => JSON.stringify({}),
           }).pipe(
             Layer.provideMerge(
               ServerConfig.layerTest(process.cwd(), {
@@ -679,7 +679,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         Effect.provide(
           makeOpenCodeAdapterLive({
             runtime: runtime.runtime,
-            loadSharedMcpConfig: async () => undefined,
+            loadSharedMcpConfig: async () => JSON.stringify({}),
           }).pipe(
             Layer.provideMerge(
               ServerConfig.layerTest(process.cwd(), {
@@ -1262,7 +1262,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         Effect.provide(
           makeOpenCodeAdapterLive({
             runtime: runtime.runtime,
-            loadSharedMcpConfig: async () => undefined,
+            loadSharedMcpConfig: async () => JSON.stringify({}),
           }).pipe(
             Layer.provideMerge(
               ServerConfig.layerTest(process.cwd(), {
@@ -1279,7 +1279,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
       expect.objectContaining({
         binaryPath: "/managed/opencode",
         poolIsolationKey: "managed:connection-1",
-        processEnv: { OPENCODE_AUTH_CONTENT: "selected-only" },
+        processEnv: { OPENCODE_AUTH_CONTENT: "selected-only", OPENCODE_CONFIG_CONTENT: "{}" },
       }),
     );
     expect(runtime.connectCalls[0]?.serverUrl).toBeUndefined();

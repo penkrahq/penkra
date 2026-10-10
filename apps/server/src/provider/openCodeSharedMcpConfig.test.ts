@@ -4,10 +4,11 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { loadOpenCodeSharedMcpConfig } from "./openCodeSharedMcpConfig.ts";
+import { loadOpenCodeConfigContent } from "./openCodeSharedMcpConfig.ts";
+import { openCodeImageTransformPluginPath } from "./openCodeImageTransformPlugin.ts";
 
-describe("loadOpenCodeSharedMcpConfig", () => {
-  it("merges OpenCode's documented global order and excludes Penkra", async () => {
+describe("loadOpenCodeConfigContent", () => {
+  it("merges OpenCode's documented global order, excludes Penkra, and installs the image plugin", async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "penkra-opencode-shared-mcp-"));
     const configDir = path.join(home, ".config", "opencode");
     await mkdir(configDir, { recursive: true });
@@ -26,8 +27,16 @@ describe("loadOpenCodeSharedMcpConfig", () => {
       }`,
     );
 
-    expect(JSON.parse((await loadOpenCodeSharedMcpConfig(home))!)).toEqual({
+    expect(JSON.parse(await loadOpenCodeConfigContent(home))).toEqual({
       mcp: { pencil: { type: "local", command: ["pencil", "mcp"] } },
+      plugin: [openCodeImageTransformPluginPath(home)],
+    });
+  });
+
+  it("installs the image plugin even when the user has no MCP definitions", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "penkra-opencode-shared-mcp-"));
+    expect(JSON.parse(await loadOpenCodeConfigContent(home))).toEqual({
+      plugin: [openCodeImageTransformPluginPath(home)],
     });
   });
 });
