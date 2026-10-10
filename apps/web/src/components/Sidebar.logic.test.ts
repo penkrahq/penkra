@@ -7,20 +7,17 @@ import {
   canArchiveSidebarFolder,
   canArchiveSidebarThreads,
   createSidebarThreadHoverAnchorId,
-  derivePinnedFolderIdsForSidebar,
   deriveSidebarProjectData,
   findDeepestWorkspaceRootMatch,
   getFallbackThreadIdAfterDelete,
   getSidebarThreadLifecycleMenuItems,
   getVisibleSidebarEntriesForPreview,
-  orderPinnedFoldersForSidebar,
   orderSidebarSpaceItems,
   getNextVisibleSidebarThreadId,
   getSidebarThreadIdForJumpCommand,
   getSidebarThreadIdsToPrewarm,
   getRenderedThreadsForSidebarProject,
   groupSidebarThreadsByFolderId,
-  isLatestPinnedProjectMutation,
   isFoldersSidebarSurface,
   getVisibleSidebarThreadIds,
   getVisibleThreadsForProject,
@@ -433,68 +430,7 @@ describe("workspace attribution", () => {
   });
 });
 
-describe("pin helpers", () => {
-  const makeProject = (id: string): Project =>
-    ({
-      id: id as FolderId,
-      name: id,
-      remoteName: id,
-      folderName: id,
-      localName: null,
-      cwd: `/tmp/${id}`,
-      defaultModelSelection: null,
-      expanded: true,
-      spaceId: SpaceId.makeUnsafe("space-test"),
-      createdAt: "2026-03-09T10:00:00.000Z",
-      updatedAt: "2026-03-09T10:00:00.000Z",
-      scripts: [],
-    }) satisfies Project;
-
-  it("derives at most three pinned folders and keeps persisted order first", () => {
-    const folders = [
-      { ...makeProject("project-1"), isPinned: true },
-      { ...makeProject("project-2"), isPinned: true },
-      { ...makeProject("project-3"), isPinned: true },
-      { ...makeProject("project-4"), isPinned: true },
-    ];
-
-    expect(
-      derivePinnedFolderIdsForSidebar({
-        folders,
-        persistedPinnedFolderIds: ["project-3" as FolderId, "project-1" as FolderId],
-        optimisticPinnedStateByFolderId: new Map([["project-1" as FolderId, false]]),
-      }),
-    ).toEqual(["project-3", "project-2", "project-4"]);
-  });
-
-  it("moves pinned folders to the top while preserving unpinned order", () => {
-    const folders = [makeProject("project-1"), makeProject("project-2"), makeProject("project-3")];
-
-    expect(
-      orderPinnedFoldersForSidebar(folders, ["project-3" as FolderId, "project-1" as FolderId]),
-    ).toEqual([folders[2], folders[0], folders[1]]);
-  });
-
-  it("rejects stale pin mutation versions so old failures cannot roll back newer clicks", () => {
-    const folderId = "project-1" as FolderId;
-    const latestMutationVersionByFolderId = new Map<FolderId, number>([[folderId, 2]]);
-
-    expect(
-      isLatestPinnedProjectMutation({
-        folderId,
-        requestVersion: 1,
-        latestMutationVersionByFolderId,
-      }),
-    ).toBe(false);
-    expect(
-      isLatestPinnedProjectMutation({
-        folderId,
-        requestVersion: 2,
-        latestMutationVersionByFolderId,
-      }),
-    ).toBe(true);
-  });
-
+describe("resolveProjectEmptyState", () => {
   it("shows loading before the first project snapshot can prove the list is empty", () => {
     expect(
       resolveProjectEmptyState({
@@ -1033,7 +969,7 @@ describe("getVisibleThreadsForProject", () => {
 });
 
 describe("getRenderedThreadsForSidebarProject", () => {
-  it("pins only the active thread when the parent project is collapsed", () => {
+  it("shows only the active thread when the parent project is collapsed", () => {
     const threads = Array.from({ length: 4 }, (_, index) =>
       makeThread({
         id: ThreadId.makeUnsafe(`thread-${index + 1}`),
@@ -1056,32 +992,6 @@ describe("getRenderedThreadsForSidebarProject", () => {
 });
 
 describe("buildProjectThreadTree", () => {
-  it("orders pinned threads first inside their immediate parent without moving them", () => {
-    const rows = buildProjectThreadTree({
-      threads: [
-        makeThread({ id: ThreadId.makeUnsafe("root-unpinned") }),
-        makeThread({ id: ThreadId.makeUnsafe("root-pinned") }),
-        makeThread({
-          id: ThreadId.makeUnsafe("child-unpinned"),
-          parentThreadId: ThreadId.makeUnsafe("root-pinned"),
-        }),
-        makeThread({
-          id: ThreadId.makeUnsafe("child-pinned"),
-          parentThreadId: ThreadId.makeUnsafe("root-pinned"),
-        }),
-      ],
-      forceVisibleThreadId: ThreadId.makeUnsafe("child-unpinned"),
-      pinnedThreadIds: [ThreadId.makeUnsafe("child-pinned"), ThreadId.makeUnsafe("root-pinned")],
-    });
-
-    expect(rows.map((row) => [row.thread.id, row.depth])).toEqual([
-      [ThreadId.makeUnsafe("root-pinned"), 0],
-      [ThreadId.makeUnsafe("child-pinned"), 1],
-      [ThreadId.makeUnsafe("child-unpinned"), 1],
-      [ThreadId.makeUnsafe("root-unpinned"), 0],
-    ]);
-  });
-
   it("keeps inactive child threads out of the sidebar", () => {
     const rows = buildProjectThreadTree({
       threads: [
@@ -1423,7 +1333,7 @@ describe("createSidebarThreadHoverAnchorId", () => {
   it("keeps duplicated thread rows addressable by sidebar surface", () => {
     const threadId = ThreadId.makeUnsafe("thread-1");
 
-    expect(createSidebarThreadHoverAnchorId({ scope: "pinned", threadId })).toBe("pinned:thread-1");
+    expect(createSidebarThreadHoverAnchorId({ scope: "folder", threadId })).toBe("folder:thread-1");
     expect(createSidebarThreadHoverAnchorId({ scope: "chat", threadId })).toBe("chat:thread-1");
   });
 });
@@ -1511,40 +1421,6 @@ function makeSidebarThreadRow(overrides: Partial<SidebarThreadRow> = {}): Sideba
 }
 
 describe("deriveSidebarProjectData", () => {
-  it("keeps a pinned thread in its folder and orders it first", () => {
-    const project = makeProject();
-    const pinnedThread = makeSidebarThreadRow({
-      id: ThreadId.makeUnsafe("thread-pinned"),
-      title: "Pinned",
-    });
-    const unpinnedThread = makeSidebarThreadRow({
-      id: ThreadId.makeUnsafe("thread-unpinned"),
-      title: "Unpinned",
-      createdAt: "2026-03-09T10:05:00.000Z",
-      updatedAt: "2026-03-09T10:05:00.000Z",
-    });
-
-    const data = deriveSidebarProjectData({
-      folders: [project],
-      sortedSidebarThreadsByFolderId: groupSidebarThreadsByFolderId([pinnedThread, unpinnedThread]),
-      pinnedThreadIds: [pinnedThread.id],
-      threadListExtraPagesByProjectCwd: new Map(),
-      normalizeProjectCwd: (cwd) => cwd,
-      activeSidebarThreadId: undefined,
-      previewLimit: 5,
-      previewPageSize: 5,
-    });
-
-    expect(data.get(project.id)).toMatchObject({
-      allProjectThreadCount: 2,
-      orderedProjectThreadIds: [pinnedThread.id, unpinnedThread.id],
-      visibleEntries: [
-        expect.objectContaining({ rowId: pinnedThread.id }),
-        expect.objectContaining({ rowId: unpinnedThread.id }),
-      ],
-    });
-  });
-
   it("shows split member threads as normal project rows", () => {
     const project = makeProject();
     const sourceThread = makeSidebarThreadRow({
@@ -1571,7 +1447,6 @@ describe("deriveSidebarProjectData", () => {
         droppedThread,
         standaloneThread,
       ]),
-      pinnedThreadIds: [],
       threadListExtraPagesByProjectCwd: new Map(),
       normalizeProjectCwd: (cwd) => cwd,
       activeSidebarThreadId: undefined,
@@ -1612,7 +1487,6 @@ describe("deriveSidebarProjectData", () => {
         threadTwo,
         threadThree,
       ]),
-      pinnedThreadIds: [],
       threadListExtraPagesByProjectCwd: new Map(),
       normalizeProjectCwd: (cwd) => cwd,
       activeSidebarThreadId: threadThree.id,
@@ -1642,7 +1516,6 @@ describe("deriveSidebarProjectData", () => {
     const data = deriveSidebarProjectData({
       folders: [project],
       sortedSidebarThreadsByFolderId: groupSidebarThreadsByFolderId([threadOne]),
-      pinnedThreadIds: [],
       threadListExtraPagesByProjectCwd: new Map(),
       normalizeProjectCwd: (cwd) => cwd,
       activeSidebarThreadId: undefined,
@@ -1668,7 +1541,6 @@ describe("deriveSidebarProjectData", () => {
       deriveSidebarProjectData({
         folders: [project],
         sortedSidebarThreadsByFolderId: groupSidebarThreadsByFolderId(threads),
-        pinnedThreadIds: [],
         threadListExtraPagesByProjectCwd: new Map([[project.cwd, requestedExtraPages]]),
         normalizeProjectCwd: (cwd) => cwd,
         activeSidebarThreadId: undefined,
@@ -1712,7 +1584,6 @@ describe("deriveSidebarProjectData", () => {
     const data = deriveSidebarProjectData({
       folders: [project],
       sortedSidebarThreadsByFolderId: groupSidebarThreadsByFolderId(threads),
-      pinnedThreadIds: [],
       threadListExtraPagesByProjectCwd: new Map([[pagingKey, 1]]),
       normalizeProjectCwd: (cwd) => cwd,
       getProjectPagingKey: (candidate) => `project:${candidate.id}`,
@@ -1728,38 +1599,6 @@ describe("deriveSidebarProjectData", () => {
 });
 
 describe("sortThreadsForSidebar", () => {
-  it("keeps pinned items in a manually ordered top block", () => {
-    const sorted = sortThreadsForSidebar(
-      [
-        makeThread({
-          id: ThreadId.makeUnsafe("unpinned-first"),
-          createdAt: "2026-03-09T12:00:00.000Z",
-          sidebarSortOrder: 0,
-          isPinned: false,
-        }),
-        makeThread({
-          id: ThreadId.makeUnsafe("pinned-second"),
-          createdAt: "2026-03-09T08:00:00.000Z",
-          sidebarSortOrder: 1,
-          isPinned: true,
-        }),
-        makeThread({
-          id: ThreadId.makeUnsafe("pinned-first"),
-          createdAt: "2026-03-09T07:00:00.000Z",
-          sidebarSortOrder: 0,
-          isPinned: true,
-        }),
-      ],
-      "updated_at",
-    );
-
-    expect(sorted.map((thread) => thread.id)).toEqual([
-      ThreadId.makeUnsafe("pinned-first"),
-      ThreadId.makeUnsafe("pinned-second"),
-      ThreadId.makeUnsafe("unpinned-first"),
-    ]);
-  });
-
   it("does not reorder idle threads when updatedAt changes", () => {
     const sorted = sortThreadsForSidebar(
       [
@@ -2106,36 +1945,6 @@ describe("sortThreadsForSidebar", () => {
 });
 
 describe("orderSidebarSpaceItems", () => {
-  it("places a pinned folder above unpinned direct threads", () => {
-    const directThread = {
-      ...makeThread({ id: ThreadId.makeUnsafe("thread-running") }),
-      hasLiveTailWork: true,
-    };
-    const folderThread = makeThread({ id: ThreadId.makeUnsafe("thread-in-folder") });
-
-    const ordered = orderSidebarSpaceItems({
-      threadItems: [
-        {
-          id: "direct",
-          pinned: false,
-          threads: [directThread],
-          value: "direct-thread",
-        },
-      ],
-      projectItems: [
-        {
-          id: "folder",
-          pinned: true,
-          threads: [folderThread],
-          value: "folder",
-        },
-      ],
-      sortOrder: "updated_at",
-    });
-
-    expect(ordered).toEqual(["folder", "direct-thread"]);
-  });
-
   it("does not let folder activity change mixed manual order", () => {
     const directIdle = makeThread({
       id: ThreadId.makeUnsafe("direct-idle"),
@@ -2157,11 +1966,10 @@ describe("orderSidebarSpaceItems", () => {
     };
 
     const ordered = orderSidebarSpaceItems({
-      threadItems: [{ id: "direct", pinned: false, threads: [directIdle], value: "direct-thread" }],
+      threadItems: [{ id: "direct", threads: [directIdle], value: "direct-thread" }],
       projectItems: [
         {
           id: "folder",
-          pinned: false,
           threads: [folderIdle, folderRunning],
           value: "folder",
         },
@@ -2179,11 +1987,10 @@ describe("orderSidebarSpaceItems", () => {
     });
 
     const ordered = orderSidebarSpaceItems({
-      threadItems: [{ id: "direct", pinned: false, threads: [directIdle], value: "direct-thread" }],
+      threadItems: [{ id: "direct", threads: [directIdle], value: "direct-thread" }],
       projectItems: [
         {
           id: "empty-folder",
-          pinned: false,
           threads: [],
           fallbackCreatedAt: "2026-03-09T11:00:00.000Z",
           fallbackUpdatedAt: "2026-03-09T12:00:00.000Z",

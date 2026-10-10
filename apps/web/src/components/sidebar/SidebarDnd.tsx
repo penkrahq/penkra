@@ -32,20 +32,6 @@ export const SIDEBAR_PROJECT_DRAG_TYPE = "penkra/sidebar-project";
 export const SIDEBAR_THREAD_DRAG_TYPE = "penkra/sidebar-thread";
 
 export type SidebarDropPlacement = "before" | "after";
-
-function sidebarItemDragType(kind: "folder" | "thread", pinned: boolean): string {
-  const base = kind === "folder" ? SIDEBAR_PROJECT_DRAG_TYPE : SIDEBAR_THREAD_DRAG_TYPE;
-  return `${base}:${pinned ? "pinned" : "unpinned"}`;
-}
-
-export const SIDEBAR_PROJECT_DRAG_TYPES = [
-  sidebarItemDragType("folder", true),
-  sidebarItemDragType("folder", false),
-];
-export const SIDEBAR_THREAD_DRAG_TYPES = [
-  sidebarItemDragType("thread", true),
-  sidebarItemDragType("thread", false),
-];
 // Folder containers surround their sortable thread rows. Keep the container below row
 // collisions so a pointer over a thread preserves an exact before/after anchor, while the
 // container still owns the folder header and empty-content area.
@@ -61,7 +47,6 @@ export type SidebarDndPreview =
       kind: "folder";
       label: string;
       expanded: boolean;
-      pinned: boolean;
       workStatus: WorkStatus;
     }
   | {
@@ -69,7 +54,6 @@ export type SidebarDndPreview =
       label: string;
       harness: ProviderKind | "github";
       level: ThreadRowLevel;
-      pinned: boolean;
       workStatus: WorkStatus;
     };
 
@@ -131,10 +115,10 @@ export function readSidebarDndData(value: unknown): SidebarDndData | null {
 export function dragTypeForData(data: SidebarDndData): string {
   if (data.type === "space") return SIDEBAR_SPACE_DRAG_TYPE;
   if (data.type === "item" && data.item.kind === "folder") {
-    return sidebarItemDragType("folder", data.preview.pinned);
+    return SIDEBAR_PROJECT_DRAG_TYPE;
   }
   if (data.type === "item") {
-    return sidebarItemDragType("thread", data.preview.pinned);
+    return SIDEBAR_THREAD_DRAG_TYPE;
   }
   return SIDEBAR_THREAD_DRAG_TYPE;
 }
@@ -248,14 +232,9 @@ export function resolveSidebarItemDropTarget(
 export function acceptedTypesForData(data: SidebarDndData): string[] {
   if (data.type === "space") return [SIDEBAR_SPACE_DRAG_TYPE];
   if (data.type === "container") {
-    return data.parent.kind === "space"
-      ? [...SIDEBAR_PROJECT_DRAG_TYPES]
-      : [...SIDEBAR_THREAD_DRAG_TYPES];
+    return data.parent.kind === "space" ? [SIDEBAR_PROJECT_DRAG_TYPE] : [SIDEBAR_THREAD_DRAG_TYPE];
   }
-  const pinned = data.preview.pinned;
-  return data.item.kind === "folder"
-    ? [sidebarItemDragType("folder", pinned)]
-    : [sidebarItemDragType("thread", pinned)];
+  return data.item.kind === "folder" ? [SIDEBAR_PROJECT_DRAG_TYPE] : [SIDEBAR_THREAD_DRAG_TYPE];
 }
 
 export function areSidebarItemParentsEqual(
@@ -391,7 +370,6 @@ export function SidebarDragPreview(props: { preview: SidebarDndPreview }) {
       <FolderRowShared
         aria-hidden="true"
         expanded={preview.expanded}
-        pinned={preview.pinned}
         tabIndex={-1}
         workStatus={preview.workStatus}
       >
@@ -404,7 +382,6 @@ export function SidebarDragPreview(props: { preview: SidebarDndPreview }) {
       aria-hidden="true"
       harness={preview.harness}
       level={preview.level}
-      pinned={preview.pinned}
       tabIndex={-1}
       workStatus={preview.workStatus}
     >

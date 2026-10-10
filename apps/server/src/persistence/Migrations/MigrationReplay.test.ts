@@ -53,6 +53,7 @@ const replayedEntries: ReadonlyArray<readonly [id: number, name: string]> = [
   [176, "CleanCoreSchemaAndBackfill"],
   [177, "ThreadHarnessCanonicalForeignKey"],
   [178, "ThreadDeckOrderIndex"],
+  [179, "RemoveFolderPinning"],
 ];
 
 const schemaObjects = (sql: SqlClient.SqlClient) =>

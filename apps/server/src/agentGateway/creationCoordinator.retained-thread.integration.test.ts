@@ -116,7 +116,6 @@ it.effect(
         modelSelection: { provider: "codex", model: "gpt-5.5" },
         runtimeMode: "full-access",
         workingDirectory: null,
-        isPinned: false,
         parentThreadId: null,
         subagentAgentId: null,
         subagentNickname: null,

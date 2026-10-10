@@ -212,7 +212,6 @@ describe("decider project scripts", () => {
         parentThreadId: null,
         sidebarSortOrder: 0,
         deckSortOrder: 0,
-        isPinned: false,
       }),
     );
 
@@ -288,69 +287,6 @@ describe("decider project scripts", () => {
     expect(event.type).toBe("folder.updated");
     expect((event.payload as { scripts?: unknown[] }).scripts).toEqual(scripts);
   });
-
-  it("rejects pinning more than three active folders", async () => {
-    const now = new Date().toISOString();
-    let readModel = await withTestSpace(now);
-
-    for (const index of [1, 2, 3, 4]) {
-      readModel = await Effect.runPromise(
-        projectEvent(readModel, {
-          sequence: index,
-          eventId: asEventId(`evt-project-pin-${index}`),
-          aggregateKind: "folder",
-          aggregateId: asFolderId(`project-pin-${index}`),
-          type: "folder.created",
-          occurredAt: now,
-          commandId: CommandId.makeUnsafe(`cmd-project-pin-${index}`),
-          causationEventId: null,
-          correlationId: CommandId.makeUnsafe(`cmd-project-pin-${index}`),
-          metadata: {},
-          payload: {
-            folderId: asFolderId(`project-pin-${index}`),
-            title: `Project Pin ${index}`,
-            workspaceRoot: `/tmp/project-pin-${index}`,
-            defaultModelSelection: null,
-            scripts: [],
-            spaceId: TEST_SPACE_ID,
-            isPinned: index <= 3,
-            createdAt: now,
-            updatedAt: now,
-          },
-        }),
-      );
-    }
-
-    await expect(
-      Effect.runPromise(
-        decideOrchestrationCommand({
-          command: {
-            type: "folder.update",
-            commandId: CommandId.makeUnsafe("cmd-project-pin-fourth"),
-            folderId: asFolderId("project-pin-4"),
-            isPinned: true,
-          },
-          readModel,
-        }),
-      ),
-    ).rejects.toThrow("Only 3 folders can be pinned at once.");
-
-    const result = await Effect.runPromise(
-      decideOrchestrationCommand({
-        command: {
-          type: "folder.update",
-          commandId: CommandId.makeUnsafe("cmd-project-repin-existing"),
-          folderId: asFolderId("project-pin-1"),
-          isPinned: true,
-        },
-        readModel,
-      }),
-    );
-
-    const event = Array.isArray(result) ? result[0] : result;
-    expect(event.type).toBe("folder.updated");
-  });
-
   it("emits user message and turn-start-requested events for thread.turn.start", async () => {
     const now = new Date().toISOString();
     const initial = createEmptyReadModel(now);
@@ -396,7 +332,6 @@ describe("decider project scripts", () => {
         parentThreadId: null,
         sidebarSortOrder: 0,
         deckSortOrder: 0,
-        isPinned: false,
       }),
     );
 

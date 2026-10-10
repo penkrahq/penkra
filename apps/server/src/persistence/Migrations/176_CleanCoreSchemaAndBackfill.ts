@@ -55,7 +55,6 @@ export default Effect.gen(function* () {
       deck_id TEXT,
       deck_sort_order INTEGER NOT NULL DEFAULT 0,
       sidebar_sort_order INTEGER,
-      is_pinned INTEGER NOT NULL DEFAULT 0,
       last_activity_at TEXT,
       last_message_preview TEXT,
       last_user_message_at TEXT,
@@ -93,7 +92,7 @@ export default Effect.gen(function* () {
   // Matches listThreads' sidebar order for one (space, folder) page.
   yield* sql`
     CREATE INDEX IF NOT EXISTS idx_threads_sidebar_order
-    ON threads(space_id, folder_id, is_pinned DESC, COALESCE(sidebar_sort_order, 0), created_at DESC, id)
+    ON threads(space_id, folder_id, COALESCE(sidebar_sort_order, 0), created_at DESC, id)
   `;
 
   yield* sql`
@@ -138,7 +137,7 @@ export default Effect.gen(function* () {
       native_state_id, state, active_turn_id, last_error, draft,
       draft_updated_at, queue, created_by, created_by_thread_id,
       parent_thread_id, deck_id, deck_sort_order, sidebar_sort_order,
-      is_pinned, last_activity_at, last_message_preview, last_user_message_at,
+      last_activity_at, last_message_preview, last_user_message_at,
       last_visited_at, open_question_count, archived_at, deleted_at,
       created_at, updated_at
     )
@@ -173,7 +172,6 @@ export default Effect.gen(function* () {
       t.deck_id,
       t.deck_sort_order,
       t.sidebar_sort_order,
-      t.is_pinned,
       t.last_activity_at,
       t.last_message_preview,
       t.latest_user_message_at,

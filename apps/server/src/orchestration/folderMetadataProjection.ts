@@ -32,7 +32,6 @@ export const applyFolderMetadataProjection = (input: {
           defaultModelSelection: input.event.payload.defaultModelSelection,
           scripts: input.event.payload.scripts,
           iconDataUrl: input.event.payload.iconDataUrl ?? null,
-          isPinned: input.event.payload.isPinned ?? false,
           spaceId: input.event.payload.spaceId,
           sidebarSortOrder: input.event.payload.sidebarSortOrder ?? 0,
           createdAt: input.event.payload.createdAt,
@@ -63,9 +62,6 @@ export const applyFolderMetadataProjection = (input: {
               : {}),
             ...(input.event.payload.iconDataUrl !== undefined
               ? { iconDataUrl: input.event.payload.iconDataUrl }
-              : {}),
-            ...(input.event.payload.isPinned !== undefined
-              ? { isPinned: input.event.payload.isPinned }
               : {}),
             ...(input.event.payload.sidebarSortOrder !== undefined
               ? { sidebarSortOrder: input.event.payload.sidebarSortOrder }

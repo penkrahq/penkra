@@ -28,7 +28,6 @@ it.effect("lists every thread with the columns the web reads", () =>
         deckId: "deck:thread-1",
         deckSortOrder: 2,
         sidebarSortOrder: 1,
-        isPinned: 1,
         createdAt: "2026-10-09T00:00:00.000Z",
       });
       yield* createThread({
@@ -47,7 +46,7 @@ it.effect("lists every thread with the columns the web reads", () =>
       const threads = page.threads;
       assert.deepStrictEqual(
         threads.map((thread) => thread.id),
-        ["thread-1", "thread-2"],
+        ["thread-2", "thread-1"],
       );
       assert.isNull(page.nextCursor);
       const first = threads.find((thread) => thread.id === "thread-1");
@@ -57,7 +56,6 @@ it.effect("lists every thread with the columns the web reads", () =>
       assert.equal(first?.createdByThreadId, "parent-thread");
       assert.equal(first?.deckId, "deck:thread-1");
       assert.equal(first?.deckSortOrder, 2);
-      assert.equal(first?.isPinned, 1);
       assert.equal(first?.openQuestionCount, 0);
       const second = threads.find((thread) => thread.id === "thread-2");
       assert.equal(second?.createdBy, "user");
@@ -72,7 +70,7 @@ it.effect("lists every thread with the columns the web reads", () =>
       });
       assert.deepStrictEqual(
         firstPage.threads.map((thread) => thread.id),
-        ["thread-1"],
+        ["thread-2"],
       );
       assert.isNotNull(firstPage.nextCursor);
       const secondPage = yield* listThreads({
@@ -83,7 +81,7 @@ it.effect("lists every thread with the columns the web reads", () =>
       });
       assert.deepStrictEqual(
         secondPage.threads.map((thread) => thread.id),
-        ["thread-2"],
+        ["thread-1"],
       );
       assert.isNull(secondPage.nextCursor);
     }),

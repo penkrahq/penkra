@@ -1,5 +1,5 @@
 // FILE: sidebarOrdering.test.ts
-// Purpose: Covers stable anchor intent and the pinned sidebar boundary.
+// Purpose: Covers stable anchor intent and list-start insertion.
 
 import type { NativeApi, SidebarItemReference } from "@penkra/contracts";
 import { describe, expect, it, vi } from "vitest";
@@ -13,19 +13,23 @@ import {
 const project = (id: string): SidebarItemReference => ({ kind: "folder", id: id as never });
 
 describe("resolveSidebarMovePosition", () => {
-  const pinnedIds = new Set(["pin-a", "pin-b"]);
-  const isPinned = (item: SidebarItemReference) => pinnedIds.has(item.id);
-  const destinationItems = [project("pin-a"), project("pin-b"), project("one"), project("two")];
-
-  it("clamps an unpinned drop above pins to the pinned boundary", () => {
+  const destinationItems = [project("one"), project("two")];
+  it("uses the same insertion index for live feedback and stable edge anchors", () => {
+    for (const [requestedIndex, index, position] of [
+      [-1, 0, { type: "before", item: project("one") }],
+      [99, 2, { type: "after", item: project("two") }],
+    ] as const) {
+      const input = { item: project("moved"), destinationItems, requestedIndex };
+      expect(resolveSidebarInsertionIndex(input)).toBe(index);
+      expect(resolveSidebarMovePosition(input)).toEqual(position);
+    }
     expect(
       resolveSidebarMovePosition({
         item: project("moved"),
-        destinationItems,
+        destinationItems: [],
         requestedIndex: 0,
-        isPinned,
       }),
-    ).toEqual({ type: "pinned-boundary" });
+    ).toEqual({ type: "start" });
   });
 
   it("anchors valid moves to a stable neighboring item", () => {
@@ -33,52 +37,20 @@ describe("resolveSidebarMovePosition", () => {
       resolveSidebarMovePosition({
         item: project("moved"),
         destinationItems,
-        requestedIndex: 3,
-        isPinned,
+        requestedIndex: 1,
       }),
     ).toEqual({ type: "before", item: project("two") });
   });
 
-  it("anchors the first position when the list has no pinned items", () => {
-    const unpinnedItems = [project("one"), project("two")];
+  it("anchors the first position of the list", () => {
+    const items = [project("one"), project("two")];
     expect(
       resolveSidebarMovePosition({
         item: project("moved"),
-        destinationItems: unpinnedItems,
+        destinationItems: items,
         requestedIndex: 0,
-        isPinned: () => false,
       }),
     ).toEqual({ type: "before", item: project("one") });
-  });
-
-  it("exposes the same pin-clamped insertion index for live drag feedback", () => {
-    expect(
-      resolveSidebarInsertionIndex({
-        item: project("moved"),
-        destinationItems,
-        requestedIndex: 0,
-        isPinned,
-      }),
-    ).toBe(2);
-    expect(
-      resolveSidebarInsertionIndex({
-        item: project("moved"),
-        destinationItems: [project("one"), project("two")],
-        requestedIndex: 0,
-        isPinned: () => false,
-      }),
-    ).toBe(0);
-  });
-
-  it("keeps pinned moves inside the pinned block", () => {
-    expect(
-      resolveSidebarMovePosition({
-        item: project("pin-moved"),
-        destinationItems,
-        requestedIndex: 99,
-        isPinned: (item) => item.id.startsWith("pin-"),
-      }),
-    ).toEqual({ type: "pinned-boundary" });
   });
 });
 
@@ -89,14 +61,14 @@ it("writes each sidebar action through its clean-core input", async () => {
     api,
     item: { kind: "folder", id: "folder" as never },
     target: { kind: "space", spaceId: "space" as never },
-    position: { type: "pinned-boundary" },
+    position: { type: "start" },
   });
   expect(updateThread).toHaveBeenLastCalledWith({
     update: {
       action: "moveFolder",
       folderId: "folder",
       spaceId: "space",
-      position: { type: "pinned-boundary" },
+      position: { type: "start" },
       updatedAt: expect.any(String),
     },
   });

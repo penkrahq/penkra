@@ -9,7 +9,6 @@ export interface FolderRowInlineEditProps {
   onCancel: () => void;
   onSubmit: (name: string) => Promise<void> | void;
   onValueChange?: (value: string) => void;
-  pinned?: boolean;
   value?: string;
 }
 
@@ -22,10 +21,7 @@ export function FolderRowInlineEdit(props: FolderRowInlineEditProps) {
       defaultValue={props.defaultValue}
       existingNames={props.existingNames}
       leading={
-        <FolderRowLeading
-          {...(props.expanded === undefined ? {} : { expanded: props.expanded })}
-          {...(props.pinned === undefined ? {} : { pinned: props.pinned })}
-        />
+        <FolderRowLeading {...(props.expanded === undefined ? {} : { expanded: props.expanded })} />
       }
       onCancel={props.onCancel}
       onSubmit={props.onSubmit}

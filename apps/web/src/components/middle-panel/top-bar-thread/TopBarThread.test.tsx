@@ -6,13 +6,12 @@ import { TopBarThread } from "./TopBarThread";
 describe("TopBarThread", () => {
   it("does not render the removed generic panel toggle beneath the Apps launcher", () => {
     const markup = renderToStaticMarkup(
-      <TopBarThread harness="claudeAgent" pinned title="Initial greeting" />,
+      <TopBarThread harness="claudeAgent" title="Initial greeting" />,
     );
 
     expect(markup).toContain("Initial greeting");
     expect(markup).toContain('data-slot="thread-identity"');
     expect(markup).toContain('data-provider="claudeAgent"');
-    expect(markup).toContain('data-slot="pin-badge"');
     expect(markup).not.toContain("tabler-icon-folder");
     expect(markup).not.toContain("Restore left rail");
     expect(markup).not.toContain("Toggle panel");

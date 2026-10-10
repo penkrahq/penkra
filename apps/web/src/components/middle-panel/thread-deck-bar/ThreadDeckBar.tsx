@@ -52,7 +52,7 @@ import { CentralIcon } from "~/lib/central-icons";
 import { cn } from "~/lib/utils";
 import { useThreadDetailPrewarm } from "~/threadDetailPrewarm";
 import { isPrimaryThreadActivationIntent } from "~/threadActivation.logic";
-import { readSidebarDndData, SIDEBAR_THREAD_DRAG_TYPES } from "~/components/sidebar/SidebarDnd";
+import { readSidebarDndData, SIDEBAR_THREAD_DRAG_TYPE } from "~/components/sidebar/SidebarDnd";
 import {
   DECK_THREAD_DRAG_TYPE,
   type DeckThreadDndData,
@@ -82,7 +82,6 @@ function SortableDeckThread(props: {
     preview: {
       title: props.tab.title,
       harness: props.tab.harness,
-      pinned: props.tab.pinned,
       workStatus: props.tab.workStatus,
     },
   };
@@ -148,7 +147,6 @@ interface DeckTab {
   readonly folderId: Thread["folderId"];
   readonly title: string;
   readonly harness: ProviderKind;
-  readonly pinned: boolean;
   readonly workStatus: WorkStatus;
   readonly createdAt: string;
   readonly hasTurn: boolean;
@@ -210,7 +208,7 @@ function CanonicalThreadDeckBar(props: ThreadDeckBarProps & { deckId: ThreadDeck
   const droppable = useDroppable({
     id: dropTargetId,
     type: "penkra/thread-deck",
-    accept: SIDEBAR_THREAD_DRAG_TYPES,
+    accept: SIDEBAR_THREAD_DRAG_TYPE,
     data: { type: "thread-deck", deckId },
   });
   const dragOperation = useDragOperation();
@@ -376,7 +374,6 @@ function CanonicalThreadDeckBar(props: ThreadDeckBarProps & { deckId: ThreadDeck
         folderId: thread.folderId,
         title: thread.title,
         harness: thread.modelSelection.provider,
-        pinned: thread.isPinned,
         workStatus: resolveVisibleThreadWorkStatus({
           status,
           isRecording: thread.id === recordingThreadId,
@@ -407,7 +404,6 @@ function CanonicalThreadDeckBar(props: ThreadDeckBarProps & { deckId: ThreadDeck
             (threadId === props.activeThread.id
               ? props.activeComposerProvider
               : props.defaultComposerProvider),
-          pinned: false,
           workStatus: threadId === recordingThreadId ? "recording" : "idle",
           createdAt: draft.createdAt,
           hasTurn: false,
@@ -553,7 +549,7 @@ function CanonicalThreadDeckBar(props: ThreadDeckBarProps & { deckId: ThreadDeck
                   labelClassName="max-w-44"
                   icon={
                     tab.workStatus === "idle" ? (
-                      <ThreadIdentityShared harness={tab.harness} pinned={tab.pinned} />
+                      <ThreadIdentityShared harness={tab.harness} />
                     ) : (
                       <WorkStatusShared status={tab.workStatus} />
                     )

@@ -57,7 +57,6 @@ function makeCanonicalThread(request: CleanCoreCreateThreadInput): CleanCoreThre
     deckId: request.deckId,
     deckSortOrder: 0,
     sidebarSortOrder: null,
-    isPinned: 0,
     lastActivityAt: null,
     lastMessagePreview: null,
     lastUserMessageAt: null,

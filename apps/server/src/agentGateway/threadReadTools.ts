@@ -607,7 +607,6 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
             spaceTitle: spaceById.get(folder.spaceId)?.name ?? null,
             title: folder.title,
             workspaceRoot: folder.workspaceRoot,
-            isPinned: folder.isPinned,
           })),
         });
       }).pipe(Effect.catch((error) => Effect.succeed(gatewayMcpToolErrorResult(error)))),

@@ -4,7 +4,6 @@
 
 import type { SidebarThreadRow } from "../sidebarThreadRows";
 import {
-  MAX_PINNED_PROJECTS,
   type KeybindingCommand,
   type FolderId,
   type SpaceId,
@@ -15,7 +14,6 @@ import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "../appSett
 import { resolveRestorableThreadRoute, type LastThreadRoute } from "../chatRouteRestore";
 import type { Project, Thread } from "../types";
 import { cn } from "../lib/utils";
-import { derivePinnedIds, isLatestPinMutation, orderPinnedItemsFirst } from "../pinning.logic";
 import {
   SIDEBAR_ROW_ACTIVE_CLASS_NAME,
   SIDEBAR_ROW_HOVER_CLASS_NAME,
@@ -64,14 +62,12 @@ export function beginInlineFolderCreation(input: {
 type SidebarProject = {
   id: string;
   name: string;
-  isPinned?: boolean | undefined;
   sidebarSortOrder?: number | undefined;
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
 };
 type SidebarThreadSortInput = {
   createdAt: string;
-  isPinned?: boolean | undefined;
   sidebarSortOrder?: number | undefined;
   updatedAt?: string | undefined;
   latestTurn?: Thread["latestTurn"] | undefined;
@@ -108,7 +104,7 @@ export type SidebarProjectEntry = {
   depth: number;
 };
 
-export type SidebarThreadHoverAnchorScope = "pinned" | "chat" | "folder";
+export type SidebarThreadHoverAnchorScope = "chat" | "folder";
 
 export function createSidebarThreadHoverAnchorId(input: {
   scope: SidebarThreadHoverAnchorScope;
@@ -683,9 +679,8 @@ export function buildProjectThreadTree<
 >(input: {
   threads: readonly T[];
   forceVisibleThreadId?: T["id"] | undefined;
-  pinnedThreadIds?: readonly T["id"][];
 }): SidebarThreadTreeRow<T>[] {
-  const { forceVisibleThreadId, pinnedThreadIds = [], threads } = input;
+  const { forceVisibleThreadId, threads } = input;
   const threadById = new Map(threads.map((thread) => [thread.id, thread] as const));
   const childrenByParentId = new Map<T["id"], T[]>();
   const roots: T[] = [];
@@ -705,10 +700,7 @@ export function buildProjectThreadTree<
   const orderedRows: SidebarThreadTreeRow<T>[] = [];
 
   const visit = (thread: T, depth: number, rootThreadId: T["id"]) => {
-    const childThreads = orderPinnedItemsFirst(
-      childrenByParentId.get(thread.id) ?? [],
-      pinnedThreadIds,
-    );
+    const childThreads = childrenByParentId.get(thread.id) ?? [];
     const revealsActiveDescendant =
       childThreads.length > 0 && activeThreadAncestorIds.has(thread.id);
 
@@ -726,8 +718,7 @@ export function buildProjectThreadTree<
       visit(child, depth + 1, rootThreadId);
     }
   };
-
-  for (const root of orderPinnedItemsFirst(roots, pinnedThreadIds)) {
+  for (const root of roots) {
     visit(root, 0, root.id);
   }
 
@@ -797,42 +788,6 @@ export function getVisibleSidebarEntriesForPreview<
   };
 }
 
-export function isLatestPinnedProjectMutation<T>(input: {
-  readonly folderId: T;
-  readonly requestVersion: number;
-  readonly latestMutationVersionByFolderId: ReadonlyMap<T, number>;
-}): boolean {
-  return isLatestPinMutation({
-    id: input.folderId,
-    requestVersion: input.requestVersion,
-    latestMutationVersionById: input.latestMutationVersionByFolderId,
-  });
-}
-
-export function derivePinnedFolderIdsForSidebar<T extends Pick<Project, "id" | "isPinned">>(input: {
-  readonly folders: readonly T[];
-  readonly persistedPinnedFolderIds: readonly T["id"][];
-  readonly optimisticPinnedStateByFolderId: ReadonlyMap<T["id"], boolean>;
-}): T["id"][] {
-  return derivePinnedIds({
-    items: input.folders,
-    persistedPinnedIds: input.persistedPinnedFolderIds,
-    optimisticPinnedStateById: input.optimisticPinnedStateByFolderId,
-    maxCount: MAX_PINNED_PROJECTS,
-  });
-}
-
-export function orderPinnedFoldersForSidebar<T extends Pick<Project, "id">>(
-  folders: readonly T[],
-  pinnedFolderIds: readonly T["id"][],
-): T[] {
-  return orderPinnedItemsFirst(folders, pinnedFolderIds);
-}
-
-export function shouldPrunePinnedFolders(input: { threadsHydrated: boolean }): boolean {
-  return input.threadsHydrated;
-}
-
 export type ProjectEmptyState = "loading" | "empty" | null;
 
 // Keep the initial shell bootstrap visually distinct from a genuinely empty project list.
@@ -861,7 +816,7 @@ export function getRenderedThreadsForSidebarProject<
   renderedThreads: T[];
 } {
   const { activeThreadId, previewLimit, project, threads } = input;
-  const pinnedCollapsedThread =
+  const activeCollapsedThread =
     !project.expanded && activeThreadId
       ? (threads.find((thread) => thread.id === activeThreadId) ?? null)
       : null;
@@ -873,7 +828,7 @@ export function getRenderedThreadsForSidebarProject<
 
   return {
     hasHiddenThreads,
-    renderedThreads: pinnedCollapsedThread ? [pinnedCollapsedThread] : visibleThreads,
+    renderedThreads: activeCollapsedThread ? [activeCollapsedThread] : visibleThreads,
   };
 }
 
@@ -932,13 +887,13 @@ export function getVisibleSidebarThreadIds(input: {
       activeEntryId: activeThreadId,
       previewLimit: paging.previewLimit,
     });
-    const pinnedCollapsedThread =
+    const activeCollapsedThread =
       !project.expanded && activeThreadId
         ? (projectThreads.find((thread) => thread.id === activeThreadId) ?? null)
         : null;
 
-    if (pinnedCollapsedThread) {
-      visibleThreadIds.push(pinnedCollapsedThread.id);
+    if (activeCollapsedThread) {
+      visibleThreadIds.push(activeCollapsedThread.id);
       continue;
     }
 
@@ -1062,8 +1017,6 @@ export function sortThreadsForSidebar<T extends { id: Thread["id"] } & SidebarTh
   _sortOrder: SidebarThreadSortOrder,
 ): T[] {
   return threads.toSorted((left, right) => {
-    const byPinned = Number(right.isPinned === true) - Number(left.isPinned === true);
-    if (byPinned !== 0) return byPinned;
     const byManualOrder = (left.sidebarSortOrder ?? 0) - (right.sidebarSortOrder ?? 0);
     if (byManualOrder !== 0) return byManualOrder;
     const byCreatedAt = right.createdAt.localeCompare(left.createdAt);
@@ -1073,7 +1026,6 @@ export function sortThreadsForSidebar<T extends { id: Thread["id"] } & SidebarTh
 
 type SidebarSpaceSortCandidate<T> = {
   id: string;
-  pinned: boolean;
   sidebarSortOrder?: number | undefined;
   threads: readonly ({ id: Thread["id"] } & SidebarThreadSortInput)[];
   fallbackCreatedAt?: string | undefined;
@@ -1092,8 +1044,6 @@ export function orderSidebarSpaceItems<TThreadItem, TProjectItem>(input: {
   ];
   return items
     .toSorted((left, right) => {
-      const byPinned = Number(right.pinned) - Number(left.pinned);
-      if (byPinned !== 0) return byPinned;
       const byManualOrder = (left.sidebarSortOrder ?? 0) - (right.sidebarSortOrder ?? 0);
       if (byManualOrder !== 0) return byManualOrder;
       const byCreatedAt = (right.fallbackCreatedAt ?? "").localeCompare(
@@ -1161,8 +1111,6 @@ export function sortFoldersForSidebar<
   void threads;
   void sortOrder;
   return [...folders].toSorted((left, right) => {
-    const byPinned = Number(right.isPinned === true) - Number(left.isPinned === true);
-    if (byPinned !== 0) return byPinned;
     const byManualOrder = (left.sidebarSortOrder ?? 0) - (right.sidebarSortOrder ?? 0);
     if (byManualOrder !== 0) return byManualOrder;
     const byCreatedAt = (right.createdAt ?? "").localeCompare(left.createdAt ?? "");
@@ -1190,7 +1138,6 @@ export function groupSidebarThreadsByFolderId(
 export function deriveSidebarProjectData(input: {
   folders: readonly Pick<Project, "id" | "cwd" | "expanded">[];
   sortedSidebarThreadsByFolderId: ReadonlyMap<FolderId, SidebarThreadRow[]>;
-  pinnedThreadIds: readonly ThreadId[];
   threadListExtraPagesByProjectCwd: ReadonlyMap<string, number>;
   normalizeProjectCwd: (cwd: string) => string;
   getProjectPagingKey?: (project: Pick<Project, "id" | "cwd" | "expanded">) => string;
@@ -1219,10 +1166,7 @@ export function deriveSidebarProjectData(input: {
       ? input.getProjectPagingKey(project)
       : input.normalizeProjectCwd(project.cwd);
     const requestedExtraPages = input.threadListExtraPagesByProjectCwd.get(projectPagingKey) ?? 0;
-    let orderedProjectThreadIds = orderPinnedItemsFirst(projectThreads, input.pinnedThreadIds).map(
-      (thread) => thread.id,
-    );
-
+    let orderedProjectThreadIds = projectThreads.map((thread) => thread.id);
     // Collapsed folders should not build or render their full tree; large folders can
     // contain hundreds of rows and folder toggles are on the sidebar hot path.
     if (!project.expanded) {
@@ -1261,7 +1205,6 @@ export function deriveSidebarProjectData(input: {
     const projectThreadTree = buildProjectThreadTree({
       threads: projectThreads,
       forceVisibleThreadId: input.activeSidebarThreadId,
-      pinnedThreadIds: input.pinnedThreadIds,
     });
     orderedProjectThreadIds = projectThreadTree.map(({ thread }) => thread.id);
     const orderedEntries: SidebarProjectEntry[] = projectThreadTree.map(

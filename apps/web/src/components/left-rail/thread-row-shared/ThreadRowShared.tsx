@@ -4,8 +4,6 @@ import { FaGithub } from "react-icons/fa6";
 
 import { ProviderIcon } from "~/components/ProviderIcon";
 import { cn } from "~/lib/utils";
-
-import { PinBadgeShared } from "../pin-badge-shared/PinBadgeShared";
 import { LeftRailRow } from "../row-shared/LeftRailRow";
 import { WorkStatusShared, type WorkStatus } from "../work-status-shared/WorkStatusShared";
 
@@ -18,11 +16,9 @@ export interface ThreadRowSharedProps extends Omit<
 > {
   harness?: ProviderKind | "github";
   level?: ThreadRowLevel;
-  pinned?: boolean;
   workStatus?: ThreadWorkStatus;
 }
-
-export function ThreadRowLeading(props: { harness?: ProviderKind | "github"; pinned?: boolean }) {
+export function ThreadRowLeading(props: { harness?: ProviderKind | "github" }) {
   const harness = props.harness ?? "claudeAgent";
   return (
     <span className="relative inline-flex size-3.5 items-center justify-center">
@@ -31,7 +27,6 @@ export function ThreadRowLeading(props: { harness?: ProviderKind | "github"; pin
       ) : (
         <ProviderIcon className="size-3.5" provider={harness} />
       )}
-      {props.pinned ? <PinBadgeShared /> : null}
     </span>
   );
 }
@@ -41,7 +36,6 @@ export function ThreadRowShared({
   className,
   harness = "claudeAgent",
   level = "root",
-  pinned = false,
   state = "default",
   workStatus = "idle",
   ...props
@@ -57,9 +51,8 @@ export function ThreadRowShared({
           "bg-[var(--color-background-button-secondary-hover)] text-[var(--color-text-foreground)]",
         className,
       )}
-      leading={<ThreadRowLeading harness={harness} pinned={pinned} />}
+      leading={<ThreadRowLeading harness={harness} />}
       leadingClassName="size-3.5"
-      data-pinned={pinned ? "true" : undefined}
       data-thread-level={level}
       data-work-status={workStatus}
       state={state}

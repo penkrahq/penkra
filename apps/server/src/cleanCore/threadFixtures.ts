@@ -50,7 +50,6 @@ export const seedThreadReadModelFixture = (
     parentThreadId: ThreadId | null;
     sidebarSortOrder: number;
     deckSortOrder: number;
-    isPinned: boolean;
   },
 ) =>
   Effect.sync(() => {
@@ -66,7 +65,6 @@ export const seedThreadReadModelFixture = (
       parentThreadId: input.parentThreadId,
       sidebarSortOrder: input.sidebarSortOrder,
       deckSortOrder: input.deckSortOrder,
-      isPinned: input.isPinned,
       createdAt: input.createdAt,
       updatedAt: input.createdAt,
       deletedAt: null,

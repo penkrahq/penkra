@@ -1,5 +1,5 @@
 // FILE: useSidebarThreadActions.test.ts
-// Purpose: Characterizes Sidebar pin races, archive serialization/undo, and batch deletion.
+// Purpose: Characterizes Sidebar archive serialization/undo, and batch deletion.
 // Layer: Web hook tests
 
 import type { SidebarThreadRow } from "../sidebarThreadRows";
@@ -268,43 +268,6 @@ beforeEach(() => {
 });
 
 describe("useSidebarThreadActions", () => {
-  it("shows pins only after canonical rows confirm the write", async () => {
-    let controller = render();
-
-    controller.toggleThreadPinned(THREAD_ID);
-    await vi.waitFor(() => expect(harness.dispatchCommand).toHaveBeenCalled());
-    controller = render();
-
-    expect(harness.dispatchCommand).toHaveBeenCalledWith(
-      expect.objectContaining({
-        update: {
-          action: "pin",
-          threadId: THREAD_ID,
-          isPinned: true,
-          updatedAt: expect.any(String),
-        },
-      }),
-    );
-    expect(controller.pinnedThreadIdSet.has(THREAD_ID)).toBe(false);
-    sidebarThreads = sidebarThreads.map((thread) => ({
-      ...thread,
-      isPinned: thread.id === THREAD_ID,
-    }));
-    controller = render();
-    expect(controller.pinnedThreadIdSet.has(THREAD_ID)).toBe(true);
-  });
-
-  it("surfaces failed pin writes and leaves canonical state unchanged", async () => {
-    harness.dispatchCommand.mockRejectedValue(new Error("pin rejected"));
-
-    render().toggleThreadPinned(THREAD_ID);
-    await vi.waitFor(() => expect(harness.toast).toHaveBeenCalled());
-
-    expect(harness.toast).toHaveBeenCalledWith(
-      expect.objectContaining({ title: "Unable to pin thread" }),
-    );
-  });
-
   it("keeps archive available while server-side runtime cleanup is pending", async () => {
     await expect(render().archiveThread(THREAD_ID)).resolves.toBe(true);
 

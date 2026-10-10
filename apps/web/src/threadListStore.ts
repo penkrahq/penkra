@@ -1,7 +1,7 @@
 // FILE: threadListStore.ts
 // Purpose: The single clean-core thread-list store (0.14.4 step 4). The sidebar,
 // the deck and ChatView read thread summary fields (runtime mode, working
-// directory, deck, pin, sort, rollups) from here instead of the orchestration
+// directory, deck, sort, rollups) from here instead of the orchestration
 // projection snapshot. It stays live by applying the publisher's thread changes.
 // Layer: Web state
 // Exports: loadThreadPage, refreshThreadPage, subscribeThreadList,

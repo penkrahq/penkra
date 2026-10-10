@@ -26,7 +26,6 @@ export const ProjectionFolder = Schema.Struct({
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
   iconDataUrl: Schema.optional(Schema.NullOr(Schema.String)),
-  isPinned: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
   spaceId: SpaceId,
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   createdAt: IsoDateTime,

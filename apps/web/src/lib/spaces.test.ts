@@ -112,7 +112,7 @@ describe("reorderSpaces", () => {
         update: {
           action: "moveSpace",
           spaceId: third,
-          position: { type: "pinned-boundary" },
+          position: { type: "start" },
           updatedAt: expect.any(String),
         },
       }),

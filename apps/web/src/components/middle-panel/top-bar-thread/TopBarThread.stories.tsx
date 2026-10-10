@@ -14,8 +14,8 @@ export const Default: Story = {
   args: { harness: "codex" },
 };
 
-export const OpenCodePinned: Story = {
-  args: { harness: "opencode", pinned: true },
+export const OpenCode: Story = {
+  args: { harness: "opencode" },
 };
 
 export const LeftRailCollapsed: Story = {

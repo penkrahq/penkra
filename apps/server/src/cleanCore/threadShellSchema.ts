@@ -23,7 +23,6 @@ export const ProjectionThread = Schema.Struct({
   workingDirectory: Schema.optional(Schema.NullOr(Schema.String)).pipe(
     Schema.withDecodingDefault(() => null),
   ),
-  isPinned: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   creationSource: Schema.optional(

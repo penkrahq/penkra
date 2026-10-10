@@ -186,7 +186,6 @@ interface CreateThreadFields {
   readonly deckId?: string | null;
   readonly deckSortOrder?: number;
   readonly sidebarSortOrder?: number | null;
-  readonly isPinned?: number;
   readonly createdAt: string;
 }
 
@@ -209,7 +208,7 @@ export const createThread = (input: CreateThreadInput) =>
         id, space_id, folder_id, title, provider, connection_id, model, model_options,
         runtime_mode, working_directory, provider_session_id, native_state_id, state,
         queue, created_by, created_by_thread_id, parent_thread_id, deck_id,
-        deck_sort_order, sidebar_sort_order, is_pinned, created_at, updated_at
+        deck_sort_order, sidebar_sort_order, created_at, updated_at
       ) VALUES (
         ${input.id}, ${input.spaceId}, ${input.folderId ?? null}, ${input.title},
         ${input.provider}, ${input.connectionId ?? null}, ${input.model},
@@ -218,7 +217,7 @@ export const createThread = (input: CreateThreadInput) =>
         ${input.nativeStateId ?? null}, 'idle', '[]', ${input.createdBy},
         ${input.createdByThreadId ?? null}, ${input.parentThreadId ?? null},
         ${input.deckId ?? null}, ${input.deckSortOrder ?? 0},
-        ${input.sidebarSortOrder ?? null}, ${input.isPinned ?? 0},
+        ${input.sidebarSortOrder ?? null},
         ${input.createdAt}, ${input.createdAt}
       )
     `;
@@ -302,23 +301,18 @@ export const updateThreadDraft = (id: string, draft: string | null, updatedAt: s
       WHERE id = ${id} AND (draft_updated_at IS NULL OR draft_updated_at < ${updatedAt})
     `;
   });
-
-/** A sidebar/deck drop position: after a sibling, or the pinned boundary. */
+/** A sidebar drop position: before/after a sibling, or the start of the list. */
 export type ThreadMovePosition =
   | { readonly type: "before" | "after"; readonly itemId: string }
-  | { readonly type: "pinned-boundary" };
-
+  | { readonly type: "start" };
 interface ThreadSiblingRow {
   readonly id: string;
-  readonly isPinned: number;
   readonly sidebarSortOrder: number;
   readonly createdAt: string;
 }
 
 function orderThreadSiblings(rows: readonly ThreadSiblingRow[]): ThreadSiblingRow[] {
   return [...rows].sort((left, right) => {
-    const byPinned = right.isPinned - left.isPinned;
-    if (byPinned !== 0) return byPinned;
     const byManual = left.sidebarSortOrder - right.sidebarSortOrder;
     if (byManual !== 0) return byManual;
     const byCreated = right.createdAt.localeCompare(left.createdAt);
@@ -333,39 +327,16 @@ function resolveThreadMoveOrder(
   position: ThreadMovePosition,
 ): ThreadSiblingRow[] | null {
   const others = orderThreadSiblings(destination);
-  let insertionIndex = others.filter((row) => row.isPinned === 1).length;
-  if (position.type !== "pinned-boundary") {
+  let insertionIndex = 0;
+  if (position.type !== "start") {
     const anchorIndex = others.findIndex((row) => row.id === position.itemId);
     if (anchorIndex < 0) return null;
-    if (others[anchorIndex]!.isPinned !== moved.isPinned) return null;
     insertionIndex = anchorIndex + (position.type === "after" ? 1 : 0);
   }
   const ordered = [...others];
   ordered.splice(insertionIndex, 0, moved);
   return ordered;
 }
-
-/** Pin/unpin. Returns true when the row changed (so the caller broadcasts). */
-export const setThreadPinned = (input: {
-  readonly threadId: string;
-  readonly isPinned: boolean;
-  readonly updatedAt: string;
-}) =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    return yield* sql.withTransaction(
-      Effect.gen(function* () {
-        const next = input.isPinned ? 1 : 0;
-        const rows = yield* sql<{ readonly isPinned: number }>`
-      SELECT is_pinned AS "isPinned" FROM threads WHERE id = ${input.threadId}
-    `;
-        if (rows[0] === undefined || rows[0].isPinned === next) return false;
-        yield* sql`UPDATE threads SET is_pinned = ${next}, sidebar_sort_order = 0, updated_at = ${input.updatedAt} WHERE id = ${input.threadId}`;
-        return true;
-      }),
-    );
-  });
-
 /** Mark visited. Returns true when the row changed. */
 export const markThreadVisited = (input: {
   readonly threadId: string;
@@ -504,7 +475,7 @@ export const moveSidebarItem = (input: {
         const folder = folders[0];
         if (folder === undefined) return [] as string[];
         const movedRows = yield* sql<ThreadSiblingRow & { readonly folderId: string }>`
-      SELECT id, folder_id AS "folderId", is_pinned AS "isPinned",
+      SELECT id, folder_id AS "folderId",
              COALESCE(sidebar_sort_order, 0) AS "sidebarSortOrder", created_at AS "createdAt"
       FROM threads WHERE id = ${input.threadId} AND deleted_at IS NULL AND archived_at IS NULL AND parent_thread_id IS NULL
     `;
@@ -514,7 +485,7 @@ export const moveSidebarItem = (input: {
         let after: string | null = null;
         while (true) {
           const page: readonly ThreadSiblingRow[] = yield* sql<ThreadSiblingRow>`
-            SELECT id, is_pinned AS "isPinned", COALESCE(sidebar_sort_order, 0) AS "sidebarSortOrder", created_at AS "createdAt"
+            SELECT id, COALESCE(sidebar_sort_order, 0) AS "sidebarSortOrder", created_at AS "createdAt"
             FROM threads WHERE folder_id = ${input.folderId} AND id != ${input.threadId}
               AND deleted_at IS NULL AND archived_at IS NULL AND parent_thread_id IS NULL
               AND (${after} IS NULL OR id > ${after}) ORDER BY id LIMIT 50`;
@@ -772,7 +743,7 @@ export const moveFolder = (input: {
         const movedRows = yield* sql<
           ThreadSiblingRow & { readonly spaceId: string; readonly title: string }
         >`
-      SELECT folder_id AS id, title, space_id AS "spaceId", is_pinned AS "isPinned",
+      SELECT folder_id AS id, title, space_id AS "spaceId",
         sidebar_sort_order AS "sidebarSortOrder", created_at AS "createdAt"
       FROM projection_folders WHERE folder_id = ${input.folderId} AND deleted_at IS NULL
     `;
@@ -784,7 +755,7 @@ export const moveFolder = (input: {
           const page: readonly (ThreadSiblingRow & { readonly title: string })[] = yield* sql<
             ThreadSiblingRow & { readonly title: string }
           >`
-        SELECT folder_id AS id, title, is_pinned AS "isPinned", sidebar_sort_order AS "sidebarSortOrder",
+        SELECT folder_id AS id, title, sidebar_sort_order AS "sidebarSortOrder",
           created_at AS "createdAt" FROM projection_folders
         WHERE space_id = ${input.spaceId} AND folder_id != ${input.folderId} AND deleted_at IS NULL
           AND (${after} IS NULL OR folder_id > ${after}) ORDER BY folder_id LIMIT 50
@@ -835,8 +806,7 @@ export const moveFolder = (input: {
       }),
     );
   });
-
-/** Reorder active spaces in one transaction. Spaces have no pin partition. */
+/** Reorder active spaces in one transaction. */
 export const moveSpace = (input: {
   readonly spaceId: string;
   readonly position: ThreadMovePosition;
@@ -880,7 +850,7 @@ export const moveSpace = (input: {
         if (moved === undefined) return [] as string[];
         const ordered = rows.filter((row) => row.id !== input.spaceId);
         let insertionIndex = 0;
-        if (input.position.type !== "pinned-boundary") {
+        if (input.position.type !== "start") {
           const anchorId = input.position.itemId;
           const anchor = ordered.findIndex((row) => row.id === anchorId);
           if (anchor < 0) return [] as string[];

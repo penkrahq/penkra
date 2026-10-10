@@ -93,7 +93,6 @@ async function addThread(input: {
       modelSelection: { provider: "codex" as const, model: "gpt-5-codex" },
       runtimeMode: "full-access" as const,
       workingDirectory: null,
-      isPinned: false,
       parentThreadId: input.parentThreadId === undefined ? null : input.parentThreadId,
       subagentAgentId: null,
       subagentNickname: null,

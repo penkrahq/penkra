@@ -41,7 +41,6 @@ function row(queue: string, updatedAt: string): CleanCoreThreadSummary {
     deckId: null,
     deckSortOrder: 0,
     sidebarSortOrder: null,
-    isPinned: 0,
     lastActivityAt: null,
     lastMessagePreview: null,
     lastUserMessageAt: null,
@@ -97,7 +96,7 @@ it("refreshes the canonical queue after a broadcast and ignores an older in-flig
 it("reads one scope page at a time, deduplicates a pending next page, and stops at its final cursor", async () => {
   const thread = row("[]", "2026-10-10T00:00:01.000Z");
   const scope = { spaceId: thread.spaceId, folderId: thread.folderId };
-  const cursor = { isPinned: 0, sidebarSortOrder: 0, createdAt: thread.createdAt, id: thread.id };
+  const cursor = { sidebarSortOrder: 0, createdAt: thread.createdAt, id: thread.id };
   api.listThreads.mockResolvedValueOnce({ threads: [thread], nextCursor: cursor });
   await loadThreadPage(scope);
   expect(api.listThreads).toHaveBeenCalledExactlyOnceWith({ ...scope, after: null });
@@ -121,11 +120,10 @@ it("reads one scope page at a time, deduplicates a pending next page, and stops 
   });
   expect([...getThreadListById().keys()]).toEqual([thread.id, other.id]);
 });
-it("keeps a newer pin, move and visit when an older page reply arrives after a broadcast", async () => {
+it("keeps a newer move and visit when an older page reply arrives after a broadcast", async () => {
   const old = row("[]", "2026-10-10T00:00:01.000Z");
   const current = {
     ...old,
-    isPinned: 1,
     sidebarSortOrder: 2,
     workingDirectory: "/new",
     lastVisitedAt: "2026-10-10T00:00:02.000Z",
@@ -159,7 +157,7 @@ it("keeps a newer pin, move and visit when an older page reply arrives after a b
 it("loads deck members beyond sidebar pages and preserves newer broadcasts during paging", async () => {
   const deckId = "deck" as import("@penkra/contracts").ThreadDeckId;
   const old = { ...row("[]", "2026-10-10T00:00:01.000Z"), deckId };
-  const latest = { ...old, deckSortOrder: 3, isPinned: 1, updatedAt: "2026-10-10T00:00:02.000Z" };
+  const latest = { ...old, deckSortOrder: 3, updatedAt: "2026-10-10T00:00:02.000Z" };
   const outside = { ...old, id: ThreadId.makeUnsafe("outside-sidebar") };
   let release!: (page: { threads: CleanCoreThreadSummary[]; nextCursor: null }) => void;
   const cursor = { deckSortOrder: 0, id: old.id };

@@ -1532,7 +1532,6 @@ function summarizeFixtureThread(thread: OrchestrationThread) {
     deckId: thread.deckId,
     deckSortOrder: thread.deckSortOrder,
     sidebarSortOrder: thread.sidebarSortOrder ?? null,
-    isPinned: thread.isPinned ? 1 : 0,
     lastActivityAt: thread.lastActivityAt ?? null,
     lastMessagePreview: thread.lastMessagePreview ?? null,
     lastUserMessageAt: thread.latestUserMessageAt ?? null,
@@ -1813,8 +1812,6 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
               return { ...thread, connectionId: input.connectionId, updatedAt: input.updatedAt };
             case "visit":
               return { ...thread, lastVisitedAt: input.visitedAt, updatedAt: input.updatedAt };
-            case "pin":
-              return { ...thread, isPinned: input.isPinned, updatedAt: input.updatedAt };
             case "runtimeMode":
               return {
                 ...thread,
@@ -7611,7 +7608,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
                       defaultModelSelection: createdFolder.defaultModelSelection,
                       scripts: createdFolder.scripts,
                       iconDataUrl: createdFolder.iconDataUrl ?? null,
-                      isPinned: createdFolder.isPinned ?? false,
                       spaceId: createdFolder.spaceId,
                       sidebarSortOrder: createdFolder.sidebarSortOrder ?? 0,
                       createdAt: createdFolder.createdAt,

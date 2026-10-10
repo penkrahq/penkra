@@ -45,7 +45,6 @@ const FOLDER: OrchestrationFolderShell = {
   workspaceRoot: "/synthetic/retry",
   defaultModelSelection: null,
   scripts: [],
-  isPinned: false,
   createdAt: NOW,
   updatedAt: NOW,
 };
@@ -58,7 +57,6 @@ const CALLER: OrchestrationThreadShell = {
   title: "Synthetic caller",
   modelSelection: TARGET,
   runtimeMode: "full-access",
-  isPinned: false,
   parentThreadId: null,
   subagentAgentId: null,
   subagentNickname: null,
@@ -182,7 +180,6 @@ function makeHarness() {
             createdByThreadId: CALLER_THREAD_ID,
             parentThreadId: null,
             sidebarSortOrder: null,
-            isPinned: 0,
             lastActivityAt: null,
             lastMessagePreview: null,
             lastUserMessageAt: null,

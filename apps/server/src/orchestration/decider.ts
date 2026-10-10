@@ -4,7 +4,7 @@ import type {
   OrchestrationReadModel,
   OrchestrationThread,
 } from "@penkra/contracts";
-import { EventId, MAX_PINNED_PROJECTS, SPACES_MAX_COUNT, TurnId } from "@penkra/contracts";
+import { EventId, SPACES_MAX_COUNT, TurnId } from "@penkra/contracts";
 import {
   collectTailTurnIds,
   resolveTailUserMessageEditTarget,
@@ -88,59 +88,6 @@ function omitNullUserInputAnswers(
 ) {
   return Object.fromEntries(
     Object.entries(command.answers).filter(([, answer]) => answer !== null && answer !== undefined),
-  );
-}
-
-function countPinnedFolders(
-  readModel: OrchestrationReadModel,
-  options?: { readonly excludeFolderIds?: ReadonlySet<string> },
-): number {
-  return readModel.folders.filter(
-    (folder) =>
-      folder.deletedAt === null &&
-      folder.isPinned === true &&
-      !options?.excludeFolderIds?.has(folder.id),
-  ).length;
-}
-
-function validateProjectPinLimit(input: {
-  readonly command: Extract<OrchestrationCommand, { type: "folder.create" | "folder.update" }>;
-  readonly readModel: OrchestrationReadModel;
-  readonly folderId: OrchestrationEvent["aggregateId"];
-  readonly nextDeletedAt?: string | null;
-  readonly wasPinned?: boolean;
-  readonly staleFolderIds?: ReadonlySet<string>;
-}): Effect.Effect<void, OrchestrationCommandInvariantError> {
-  if (input.command.isPinned !== true) {
-    return Effect.void;
-  }
-
-  if (input.nextDeletedAt !== undefined && input.nextDeletedAt !== null) {
-    return Effect.fail(
-      new OrchestrationCommandInvariantError({
-        commandType: input.command.type,
-        detail: `Deleted folder '${input.folderId}' cannot be pinned.`,
-      }),
-    );
-  }
-
-  if (input.wasPinned === true) {
-    return Effect.void;
-  }
-
-  const excludeFolderIds = new Set<string>([input.folderId, ...(input.staleFolderIds ?? [])]);
-  const pinnedProjectCount = countPinnedFolders(input.readModel, {
-    excludeFolderIds,
-  });
-  if (pinnedProjectCount < MAX_PINNED_PROJECTS) {
-    return Effect.void;
-  }
-
-  return Effect.fail(
-    new OrchestrationCommandInvariantError({
-      commandType: input.command.type,
-      detail: `Only ${MAX_PINNED_PROJECTS} folders can be pinned at once.`,
-    }),
   );
 }
 
@@ -462,11 +409,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             "Folders are virtual containers. Set the physical directory on the thread instead.",
         });
       }
-      yield* validateProjectPinLimit({
-        command,
-        readModel,
-        folderId: command.folderId,
-      });
       yield* requireSpace({ readModel, command, spaceId: command.spaceId });
       yield* requireFolderNameAvailable({
         readModel,
@@ -489,7 +431,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           defaultModelSelection: command.defaultModelSelection ?? null,
           scripts: [],
           iconDataUrl: null,
-          isPinned: command.isPinned,
           spaceId: command.spaceId,
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
@@ -518,13 +459,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           excludeFolderId: command.folderId,
         });
       }
-      yield* validateProjectPinLimit({
-        command,
-        readModel,
-        folderId: command.folderId,
-        nextDeletedAt: existingProject.deletedAt,
-        wasPinned: existingProject.isPinned === true,
-      });
       const occurredAt = nowIso();
       return {
         ...withEventBase({

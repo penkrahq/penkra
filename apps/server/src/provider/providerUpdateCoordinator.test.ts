@@ -31,7 +31,6 @@ function thread(overrides: Partial<OrchestrationThreadShell> = {}): Orchestratio
     title: "Thread",
     modelSelection: { provider: "codex", model: "gpt-5" },
     runtimeMode: "full-access",
-    isPinned: false,
     parentThreadId: null,
     creationSource: null,
     sourceThreadId: null,

@@ -1,7 +1,6 @@
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 import { Effect, Layer, Schema, Struct } from "effect";
-import * as SchemaGetter from "effect/SchemaGetter";
 
 import { ModelSelection, ProjectScript } from "@penkra/contracts";
 import { toPersistenceSqlError } from "../Errors.ts";
@@ -13,18 +12,10 @@ import {
   type ProjectionFolderRepositoryShape,
 } from "../Services/ProjectionFolders.ts";
 
-const SqliteBoolean = Schema.Number.pipe(
-  Schema.decodeTo(Schema.Boolean, {
-    decode: SchemaGetter.transform((value) => value !== 0),
-    encode: SchemaGetter.transform((value) => (value ? 1 : 0)),
-  }),
-);
-
 const ProjectionFolderDbRow = ProjectionFolder.mapFields(
   Struct.assign({
     defaultModelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
     scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
-    isPinned: SqliteBoolean,
   }),
 );
 type ProjectionFolderDbRow = typeof ProjectionFolderDbRow.Type;
@@ -44,7 +35,6 @@ const makeProjectionFolderRepository = Effect.gen(function* () {
           default_model_selection_json,
           scripts_json,
           icon_data_url,
-          is_pinned,
           space_id,
           sidebar_sort_order,
           created_at,
@@ -60,7 +50,6 @@ const makeProjectionFolderRepository = Effect.gen(function* () {
           ${row.defaultModelSelection !== null ? JSON.stringify(row.defaultModelSelection) : null},
           ${JSON.stringify(row.scripts)},
           ${row.iconDataUrl ?? null},
-          ${row.isPinned ? 1 : 0},
           ${row.spaceId},
           ${row.sidebarSortOrder ?? 0},
           ${row.createdAt},
@@ -75,7 +64,6 @@ const makeProjectionFolderRepository = Effect.gen(function* () {
           default_model_selection_json = excluded.default_model_selection_json,
           scripts_json = excluded.scripts_json,
           icon_data_url = excluded.icon_data_url,
-          is_pinned = excluded.is_pinned,
           space_id = excluded.space_id,
           sidebar_sort_order = excluded.sidebar_sort_order,
           created_at = excluded.created_at,
@@ -97,7 +85,6 @@ const makeProjectionFolderRepository = Effect.gen(function* () {
           default_model_selection_json AS "defaultModelSelection",
           scripts_json AS "scripts",
           icon_data_url AS "iconDataUrl",
-          is_pinned AS "isPinned",
           COALESCE(space_id, 'penkra-personal') AS "spaceId",
           sidebar_sort_order AS "sidebarSortOrder",
           created_at AS "createdAt",
@@ -121,7 +108,6 @@ const makeProjectionFolderRepository = Effect.gen(function* () {
           default_model_selection_json AS "defaultModelSelection",
           scripts_json AS "scripts",
           icon_data_url AS "iconDataUrl",
-          is_pinned AS "isPinned",
           COALESCE(space_id, 'penkra-personal') AS "spaceId",
           sidebar_sort_order AS "sidebarSortOrder",
           created_at AS "createdAt",

@@ -32,7 +32,6 @@ function row(queue: string, updatedAt: string): CleanCoreThreadSummary {
     deckId: null,
     deckSortOrder: 0,
     sidebarSortOrder: null,
-    isPinned: 0,
     lastActivityAt: null,
     lastMessagePreview: null,
     lastUserMessageAt: null,
@@ -45,11 +44,10 @@ function row(queue: string, updatedAt: string): CleanCoreThreadSummary {
   };
 }
 
-it("takes sidebar ordering, pins, workspace and rollups exclusively from canonical rows", () => {
+it("takes sidebar ordering, workspace and rollups exclusively from canonical rows", () => {
   const core = {
     ...row("[]", "2026-10-10T00:00:01.000Z"),
     folderId: FolderId.makeUnsafe("folder"),
-    isPinned: 1,
     sidebarSortOrder: 3,
     workingDirectory: "/canonical",
     lastMessagePreview: "canonical preview",
@@ -70,19 +68,18 @@ it("takes sidebar ordering, pins, workspace and rollups exclusively from canonic
   const rows = buildSidebarThreadRows([core], { [core.id]: detail });
   expect(rows[0]).toMatchObject({
     title: core.title,
-    isPinned: true,
     sidebarSortOrder: 3,
     workingDirectory: "/canonical",
     lastMessagePreview: "canonical preview",
     lastActivityAt: core.lastActivityAt,
     latestUserMessageAt: core.lastUserMessageAt,
   });
-  const unpinned = { ...core, id: ThreadId.makeUnsafe("unpin"), isPinned: 0, sidebarSortOrder: 0 };
+  const earlier = { ...core, id: ThreadId.makeUnsafe("earlier"), sidebarSortOrder: 0 };
   expect(
-    sortThreadsForSidebar(buildSidebarThreadRows([unpinned, core], {}), "created_at").map(
+    sortThreadsForSidebar(buildSidebarThreadRows([earlier, core], {}), "created_at").map(
       (row) => row.id,
     ),
-  ).toEqual([core.id, unpinned.id]);
+  ).toEqual([earlier.id, core.id]);
 });
 it("uses the canonical visit for unread completion even when the projection detail is older", () => {
   const completedAt = "2026-10-10T00:00:01.000Z";
@@ -131,7 +128,7 @@ it("derives deck membership and ordering only from canonical rows, including pub
     deckId,
     deckSortOrder: 2,
   };
-  const second = { ...first, id: ThreadId.makeUnsafe("second"), deckSortOrder: 1, isPinned: 1 };
+  const second = { ...first, id: ThreadId.makeUnsafe("second"), deckSortOrder: 1 };
   const archived = { ...first, id: ThreadId.makeUnsafe("archived"), archivedAt: first.updatedAt };
   const other = {
     ...first,
