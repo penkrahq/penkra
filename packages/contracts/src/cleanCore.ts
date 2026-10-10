@@ -99,8 +99,25 @@ export const CleanCoreThreadSummary = Schema.Struct({
 });
 export type CleanCoreThreadSummary = typeof CleanCoreThreadSummary.Type;
 
+export const CleanCoreThreadListCursor = Schema.Struct({
+  isPinned: Schema.Number,
+  sidebarSortOrder: Schema.Number,
+  createdAt: IsoDateTime,
+  id: ThreadId,
+});
+export type CleanCoreThreadListCursor = typeof CleanCoreThreadListCursor.Type;
+
+export const CleanCoreListThreadsInput = Schema.Struct({
+  spaceId: SpaceId,
+  folderId: Schema.NullOr(FolderId),
+  after: Schema.optional(Schema.NullOr(CleanCoreThreadListCursor)),
+  limit: Schema.optional(NonNegativeInt),
+});
+export type CleanCoreListThreadsInput = typeof CleanCoreListThreadsInput.Type;
+
 export const CleanCoreListThreadsResult = Schema.Struct({
   threads: Schema.Array(CleanCoreThreadSummary),
+  nextCursor: Schema.NullOr(CleanCoreThreadListCursor),
 });
 export type CleanCoreListThreadsResult = typeof CleanCoreListThreadsResult.Type;
 

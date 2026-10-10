@@ -90,6 +90,12 @@ export default Effect.gen(function* () {
     ON thread_items(thread_id, seq DESC)
   `;
 
+  // Matches listThreads' sidebar order for one (space, folder) page.
+  yield* sql`
+    CREATE INDEX IF NOT EXISTS idx_threads_sidebar_order
+    ON threads(space_id, folder_id, is_pinned DESC, COALESCE(sidebar_sort_order, 0), created_at DESC, id)
+  `;
+
   yield* sql`
     CREATE VIRTUAL TABLE IF NOT EXISTS thread_items_search
     USING fts5(

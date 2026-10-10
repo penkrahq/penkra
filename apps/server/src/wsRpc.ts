@@ -1458,11 +1458,8 @@ const makeWsRpcHandlersLayer = () =>
 
         [WS_METHODS.serverGetConfig]: () =>
           rpcEffect(loadServerConfig, "Failed to load server config"),
-        [WS_METHODS.cleanCoreListThreads]: () =>
-          rpcEffect(
-            listThreads().pipe(Effect.map((threads) => ({ threads }))),
-            "Failed to load the thread list",
-          ),
+        [WS_METHODS.cleanCoreListThreads]: (input) =>
+          rpcEffect(listThreads(input), "Failed to load the thread list"),
         [WS_METHODS.cleanCoreListThreadItemsPage]: (input) =>
           rpcEffect(listThreadItemsPage(input), "Failed to load a thread items page"),
         [WS_METHODS.cleanCoreGetThreadDraft]: (input) =>
