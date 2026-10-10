@@ -240,6 +240,26 @@ App tab ops:
 - `--input` errors: when `--input` is not valid JSON, the error says so and shows a quoted example: `--input '{"key":"value"}'`. The parser stays shell-like; it gets no lenient fallback.
 - Tests: inline and file result on each side of the constant; `tabs list` fields; screenshot with no `document` option; the cursor ignores a real mouse move; the cursor resets after `lostpointercapture`; the `--input` error text.
 
+### 2.14 Sidebar search palette reads from the server (operator, 2026-10-10)
+
+- Problem (measured in `apps/web/src/components/Sidebar.tsx`, `SidebarSearchPaletteController`): the palette searches only threads whose sidebar page is loaded (pages of 50 per folder), and it matches message text only for threads whose full message history happens to be loaded in the web store. A thread on an unloaded page, or a message in a thread that was never opened, is not found.
+- Target: the palette sends the query to the server, and the server searches every non-deleted, non-archived thread in the current Space. Nothing is searched in the browser.
+- Server: one clean-core read, `searchThreads({ spaceId, query, limit, cursor })`, in `apps/server/src/cleanCore/threadList.ts`, exposed as one WS RPC.
+  - Title match: `threads.title` contains the query, case-insensitive.
+  - Message match: the existing trigram FTS table `thread_items_search` (migration 176) over `thread_items.text`.
+  - One result per thread: the thread summary row (the existing `THREAD_SUMMARY_COLUMNS`), plus `matchKind` ("title" or "message") and, for a message match, that message's id and text.
+  - Order: title matches before message matches; within each kind, `last_activity_at DESC`, then `id`.
+  - Keyset pages of 50, the same page size and cursor style as `listThreads`.
+- Web: `SidebarSearchPaletteController` sends the query on each change and shows only the latest response; a stale response for an older query is dropped.
+  - Rows that arrive go through `applyThreadRow`, so opening a result needs no second read.
+  - The last row loads the next page through the existing `SidebarThreadPageEnd` pattern.
+  - A failed read shows the existing toast with title "Could not search threads" and the error message.
+- Delete the browser-side thread matching: `matchSidebarSearchThreads` and its scoring, the `messages` field of `SidebarSearchThread`, and the `createAllThreadsSelector` read in the controller. Action, theme and folder matching stay local; they are small fixed lists.
+- Tests:
+  - Server: a thread on page 2 of its folder is found by title; a message in a never-opened thread is found; an archived thread is not found; the order and the page cursor are as specified.
+  - Web: a result absent from the loaded pages is shown and opens; a stale response is dropped.
+- Done when `git grep -n "matchSidebarSearchThreads" -- apps` shows no matches.
+
 ## 3. Migration of Production (in place, keep every chat)
 
 0. **Rehearsal copies:** made only with `sqlite3 'file:<Production>?mode=ro' "VACUUM INTO '<dest>'"` (never by copying `state.sqlite`, `-wal`, `-shm` files; that produced a corrupt copy on 2026-10-09 whose counts must not be used). If it fails with "database is locked", ask the operator to quit Penkra for the copy. Every copy must return `ok` from `PRAGMA integrity_check` before use.
