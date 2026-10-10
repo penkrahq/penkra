@@ -2093,6 +2093,14 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         order: "oldest",
       });
       assert.lengthOf(unicodeFallback.messages, 0);
+      yield* sql`INSERT INTO projection_thread_messages (
+        message_id, thread_id, turn_id, role, text, is_streaming,
+        sequence, created_at, updated_at
+      ) VALUES (
+        'search-user-lowercase-accent', ${threadId}, 'search-turn-5', 'user',
+        'Fifth turn with élan', 0, 7,
+        '2026-09-05T00:00:01.000Z', '2026-09-05T00:00:01.000Z'
+      )`;
       const unicodePhrase = yield* snapshotQuery.searchThreadMessages({
         spaceId: SpaceId.makeUnsafe("penkra-personal"),
         folderId: null,
@@ -2103,8 +2111,30 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       });
       assert.deepEqual(
         unicodePhrase.messages.map((message) => message.messageId),
+        [asMessageId("search-user-lowercase-accent")],
+      );
+      const uppercaseAccent = yield* snapshotQuery.searchThreadMessages({
+        spaceId: SpaceId.makeUnsafe("penkra-personal"),
+        folderId: null,
+        threadId,
+        queries: ["ÉLAN"],
+        queryMode: "any",
+        order: "oldest",
+      });
+      assert.deepEqual(
+        uppercaseAccent.messages.map((message) => message.messageId),
         [asMessageId("search-user-3")],
       );
+      const uppercaseAgainstLowercase = yield* snapshotQuery.searchThreadMessages({
+        spaceId: SpaceId.makeUnsafe("penkra-personal"),
+        folderId: null,
+        threadId,
+        queries: ["ÉLAN"],
+        queryMode: "any",
+        order: "oldest",
+        turnId: TurnId.makeUnsafe("search-turn-5"),
+      });
+      assert.lengthOf(uppercaseAgainstLowercase.messages, 0);
 
       const context = yield* snapshotQuery.getThreadMessageContext({
         threadId,
