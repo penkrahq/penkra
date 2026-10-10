@@ -6,6 +6,8 @@
 // Exports: ThreadSummaryRecord, ThreadListCursor, listThreads, THREADS_PAGE_SIZE
 
 import type {
+  CleanCoreSearchThreadsInput,
+  CleanCoreThreadSearchCursor,
   FolderId,
   ProviderConnectionId,
   SpaceId,
@@ -196,4 +198,55 @@ export const listDeckThreads = (input: {
           ? { deckSortOrder: last.deckSortOrder, id: last.id }
           : null,
     };
+  });
+
+export interface ThreadSearchMatch extends ThreadSummaryRecord {
+  readonly matchKind: "title" | "message";
+  readonly messageId: string | null;
+  readonly messageText: string | null;
+}
+
+/** Space-wide search with the latest matching transcript item and a keyset page. */
+export const searchThreads = (input: CleanCoreSearchThreadsInput) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const cursor = input.cursor;
+    // Quote the user's text as an FTS phrase, rather than interpreting FTS operators.
+    const phrase = '"' + input.query.replaceAll('"', '""') + '"';
+    const rows = yield* sql<ThreadSearchMatch>`
+      WITH message_hits AS (
+        SELECT i.thread_id, i.source_id, i.text,
+          ROW_NUMBER() OVER (PARTITION BY i.thread_id ORDER BY i.seq DESC) AS position
+        FROM thread_items_search JOIN thread_items i ON i.rowid = thread_items_search.rowid
+        JOIN threads t ON t.id = i.thread_id
+        WHERE thread_items_search MATCH ${phrase}
+          AND t.space_id = ${input.spaceId} AND t.archived_at IS NULL AND t.deleted_at IS NULL
+      ), candidates AS (
+        SELECT t.*,
+          CASE WHEN instr(lower(t.title), lower(${input.query})) > 0 THEN 'title' ELSE 'message' END AS matchKind,
+          CASE WHEN instr(lower(t.title), lower(${input.query})) > 0 THEN 0 ELSE 1 END AS match_order,
+          CASE WHEN instr(lower(t.title), lower(${input.query})) > 0 THEN NULL ELSE m.source_id END AS messageId,
+          CASE WHEN instr(lower(t.title), lower(${input.query})) > 0 THEN NULL ELSE m.text END AS messageText
+        FROM threads t LEFT JOIN message_hits m ON m.thread_id = t.id AND m.position = 1
+        WHERE t.space_id = ${input.spaceId} AND t.archived_at IS NULL AND t.deleted_at IS NULL
+          AND (instr(lower(t.title), lower(${input.query})) > 0 OR m.source_id IS NOT NULL)
+      )
+      SELECT ${sql.literal(THREAD_SUMMARY_COLUMNS)}, matchKind, messageId, messageText FROM candidates
+      WHERE (${cursor === null ? 0 : 1} = 0
+        OR match_order > ${cursor === null ? null : cursor.matchKind === "title" ? 0 : 1}
+        OR (matchKind = ${cursor?.matchKind ?? null} AND (
+          last_activity_at < ${cursor?.lastActivityAt ?? null}
+          OR (last_activity_at IS NULL AND ${cursor?.lastActivityAt ?? null} IS NOT NULL)
+          OR (last_activity_at IS ${cursor?.lastActivityAt ?? null} AND id > ${cursor?.id ?? null})
+        )))
+      ORDER BY match_order ASC, last_activity_at DESC, id ASC
+      LIMIT ${THREADS_PAGE_SIZE + 1}
+    `;
+    const threads = rows.slice(0, THREADS_PAGE_SIZE);
+    const last = threads.at(-1);
+    const nextCursor: CleanCoreThreadSearchCursor | null =
+      rows.length > THREADS_PAGE_SIZE && last !== undefined
+        ? { matchKind: last.matchKind, lastActivityAt: last.lastActivityAt, id: last.id }
+        : null;
+    return { threads, nextCursor };
   });

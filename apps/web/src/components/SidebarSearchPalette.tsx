@@ -20,6 +20,7 @@ import { BsChat } from "react-icons/bs";
 import { HiOutlineFolderOpen } from "react-icons/hi2";
 import { LuArrowDownToLine, LuArrowLeft } from "react-icons/lu";
 import { type ComponentType, useEffect, useState } from "react";
+import { SidebarThreadPageEnd } from "./SidebarThreadPageEnd";
 import { FolderClosed } from "./FolderClosed";
 import { ProviderIcon as SharedProviderIcon } from "./ProviderIcon";
 import { formatRelativeTime } from "~/lib/relativeTime";
@@ -28,11 +29,10 @@ import {
   type SidebarSearchAction,
   type SidebarSearchProject,
   type SidebarSearchTheme,
-  type SidebarSearchThread,
+  type SidebarSearchThreadMatch,
   matchSidebarSearchActions,
   matchSidebarSearchFolders,
   matchSidebarSearchThemes,
-  matchSidebarSearchThreads,
 } from "./SidebarSearchPalette.logic";
 import { useTheme } from "../hooks/useTheme";
 import { getAvailableCodeThemes, getCodeThemeSeed } from "../theme/theme.logic";
@@ -63,7 +63,12 @@ interface SidebarSearchPaletteProps {
   onOpenChange: (open: boolean) => void;
   actions: readonly SidebarSearchAction[];
   folders: readonly SidebarSearchProject[];
-  threads: readonly SidebarSearchThread[];
+  threads: readonly SidebarSearchThreadMatch[];
+  query: string;
+  onQueryChange: (query: string) => void;
+  hasNextThreadPage: boolean;
+  loadingThreads: boolean;
+  onLoadNextThreadPage: () => void;
   onCreateChat: () => void;
   onCreateThread: () => void;
   onOpenSettings: () => void;
@@ -249,17 +254,8 @@ function ProviderIcon(props: { provider: ProviderKind }) {
   );
 }
 
-function threadMatchLabel(input: {
-  matchKind: "message" | "folder" | "title";
-  messageMatchCount: number;
-}): string | null {
-  if (input.matchKind === "message") {
-    return input.messageMatchCount > 1 ? `${input.messageMatchCount} chat hits` : "Chat match";
-  }
-  if (input.matchKind === "folder") {
-    return "Folder match";
-  }
-  return null;
+function threadMatchLabel(matchKind: "message" | "title"): string | null {
+  return matchKind === "message" ? "Chat match" : null;
 }
 
 function tokenizeHighlightQuery(query: string): string[] {
@@ -316,7 +312,7 @@ function HighlightedText(props: { text: string; query: string; className?: strin
 
 export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
   const { activeTheme, resolvedTheme, setCodeThemeId, setTheme, theme } = useTheme();
-  const [query, setQuery] = useState("");
+  const query = props.query;
   const [importProviderState, setImportProvider] = useState<ImportProviderKind>(
     props.importProviders[0] ?? "codex",
   );
@@ -335,7 +331,6 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
     // Timeout-0 keeps the reset writes asynchronous (the palette is already
     // hidden), which keeps this component eligible for React Compiler.
     const timeoutId = window.setTimeout(() => {
-      setQuery("");
       setImportProvider(props.importProviders[0] ?? "codex");
       setImportId("");
       setImportError(null);
@@ -371,7 +366,7 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
   const showThemeSection =
     query.trim().length > 0 && (themeCommandItems.length > 0 || matchedCurrentThemes.length > 0);
   const matchedFolders = matchSidebarSearchFolders(props.folders, query);
-  const matchedThreads = matchSidebarSearchThreads(props.threads, query);
+  const matchedThreads = props.threads;
   const hasSearchResults =
     matchedActions.length > 0 ||
     themeCommandItems.length > 0 ||
@@ -527,7 +522,7 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                   <CommandInput
                     placeholder="Search folders, threads, and actions"
                     value={query}
-                    onChange={(event) => setQuery(event.currentTarget.value)}
+                    onChange={(event) => props.onQueryChange(event.currentTarget.value)}
                     startAddon={<SearchIcon className="text-muted-foreground" />}
                   />
                 </div>
@@ -585,68 +580,72 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                       <CommandGroupLabel className="py-1.5 pl-3">
                         {query ? "Threads" : "Recent"}
                       </CommandGroupLabel>
-                      {matchedThreads.map(
-                        ({ id, matchKind, messageMatchCount, snippet, thread }) => (
-                          <CommandItem
-                            key={id}
-                            value={id}
-                            className="cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2"
-                            onMouseDown={(event) => {
-                              event.preventDefault();
-                            }}
-                            onClick={() => {
-                              props.onOpenChange(false);
-                              props.onOpenThread(thread.id);
-                            }}
-                          >
-                            {isGenericChatThreadTitle(thread.title) ? null : (
-                              <ProviderIcon provider={thread.provider} />
-                            )}
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-baseline gap-3">
-                                <div className="min-w-0 flex-1 truncate text-[length:var(--app-font-size-ui,12px)] text-foreground">
-                                  <HighlightedText
-                                    text={thread.title || "Untitled thread"}
-                                    query={query}
-                                  />
-                                </div>
-                                {/* Project only, not "project · space": this column is
-                                    96px, and a thread's Space is already implied by its
-                                    project. Space stays searchable — it just does not
-                                    get to eat the name the user is scanning for. */}
-                                <span className="w-24 shrink-0 truncate text-right text-[length:var(--app-font-size-ui-meta,10px)] text-muted-foreground/79">
-                                  {thread.projectName}
-                                </span>
-                                {thread.updatedAt || thread.createdAt ? (
-                                  <span className="w-10 shrink-0 text-right text-[length:var(--app-font-size-ui-timestamp,10px)] text-muted-foreground/79">
-                                    {formatRelativeTime(thread.updatedAt ?? thread.createdAt)}
-                                  </span>
-                                ) : (
-                                  <span className="w-10 shrink-0" />
-                                )}
+                      {matchedThreads.map(({ id, matchKind, snippet, thread }) => (
+                        <CommandItem
+                          key={id}
+                          value={id}
+                          className="cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2"
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                          }}
+                          onClick={() => {
+                            props.onOpenChange(false);
+                            props.onOpenThread(thread.id);
+                          }}
+                        >
+                          {isGenericChatThreadTitle(thread.title) ? null : (
+                            <ProviderIcon provider={thread.provider} />
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-baseline gap-3">
+                              <div className="min-w-0 flex-1 truncate text-[length:var(--app-font-size-ui,12px)] text-foreground">
+                                <HighlightedText
+                                  text={thread.title || "Untitled thread"}
+                                  query={query}
+                                />
                               </div>
-                              {snippet ? (
-                                <div className="mt-0.5 flex items-start gap-3">
-                                  <div className="min-w-0 flex-1 line-clamp-1 text-[length:var(--app-font-size-ui-meta,10px)] leading-5 text-muted-foreground/78">
-                                    <HighlightedText text={snippet} query={query} />
-                                  </div>
-                                  <div className="flex w-[8.5rem] shrink-0 justify-end">
-                                    {threadMatchLabel({ matchKind, messageMatchCount }) ? (
-                                      <span className="truncate text-[length:var(--app-font-size-ui-meta,10px)] text-muted-foreground/58">
-                                        {threadMatchLabel({ matchKind, messageMatchCount })}
-                                      </span>
-                                    ) : null}
-                                  </div>
-                                </div>
-                              ) : threadMatchLabel({ matchKind, messageMatchCount }) ? (
-                                <div className="mt-0.5 text-[length:var(--app-font-size-ui-meta,10px)] text-muted-foreground/58">
-                                  {threadMatchLabel({ matchKind, messageMatchCount })}
-                                </div>
-                              ) : null}
+                              {/* Project only, not "project · space": this column is
+                                    96px, and a thread's Space is already implied by its
+                                    project. The Space is implicit — it just does not
+                                    get to eat the name the user is scanning for. */}
+                              <span className="w-24 shrink-0 truncate text-right text-[length:var(--app-font-size-ui-meta,10px)] text-muted-foreground/79">
+                                {thread.projectName}
+                              </span>
+                              {thread.updatedAt || thread.createdAt ? (
+                                <span className="w-10 shrink-0 text-right text-[length:var(--app-font-size-ui-timestamp,10px)] text-muted-foreground/79">
+                                  {formatRelativeTime(thread.updatedAt ?? thread.createdAt)}
+                                </span>
+                              ) : (
+                                <span className="w-10 shrink-0" />
+                              )}
                             </div>
-                          </CommandItem>
-                        ),
-                      )}
+                            {snippet ? (
+                              <div className="mt-0.5 flex items-start gap-3">
+                                <div className="min-w-0 flex-1 line-clamp-1 text-[length:var(--app-font-size-ui-meta,10px)] leading-5 text-muted-foreground/78">
+                                  <HighlightedText text={snippet} query={query} />
+                                </div>
+                                <div className="flex w-[8.5rem] shrink-0 justify-end">
+                                  {threadMatchLabel(matchKind) ? (
+                                    <span className="truncate text-[length:var(--app-font-size-ui-meta,10px)] text-muted-foreground/58">
+                                      {threadMatchLabel(matchKind)}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ) : threadMatchLabel(matchKind) ? (
+                              <div className="mt-0.5 text-[length:var(--app-font-size-ui-meta,10px)] text-muted-foreground/58">
+                                {threadMatchLabel(matchKind)}
+                              </div>
+                            ) : null}
+                          </div>
+                        </CommandItem>
+                      ))}
+                      {props.hasNextThreadPage ? (
+                        <SidebarThreadPageEnd
+                          loading={props.loadingThreads}
+                          onLoadNextPage={props.onLoadNextThreadPage}
+                        />
+                      ) : null}
                     </CommandGroup>
                   ) : null}
 

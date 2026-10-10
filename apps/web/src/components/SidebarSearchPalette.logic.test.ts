@@ -4,11 +4,9 @@ import {
   matchSidebarSearchActions,
   matchSidebarSearchFolders,
   matchSidebarSearchThemes,
-  matchSidebarSearchThreads,
   type SidebarSearchAction,
   type SidebarSearchProject,
   type SidebarSearchTheme,
-  type SidebarSearchThread,
 } from "./SidebarSearchPalette.logic";
 
 const actions: SidebarSearchAction[] = [
@@ -103,60 +101,6 @@ const themes: SidebarSearchTheme[] = [
   },
 ];
 
-const threads: SidebarSearchThread[] = [
-  {
-    id: "thread-alpha-composer",
-    title: "Composer refactor",
-    folderId: "project-alpha",
-    projectName: "Alpha Repo",
-    projectRemoteName: "Alpha Repo",
-    spaceName: "Work",
-    provider: "claudeAgent",
-    createdAt: "2026-04-09T09:00:00.000Z",
-    updatedAt: "2026-04-09T11:30:00.000Z",
-    messages: [
-      {
-        text: "Need to clean up the composer shell and remove duplicated state.",
-      },
-    ],
-  },
-  {
-    id: "thread-alpha-compose-prompt",
-    title: "composePrompt follow-up",
-    folderId: "project-alpha",
-    projectName: "Alpha Repo",
-    projectRemoteName: "Alpha Repo",
-    spaceName: "Work",
-    provider: "codex",
-    createdAt: "2026-04-09T08:00:00.000Z",
-    updatedAt: "2026-04-09T10:30:00.000Z",
-    messages: [
-      {
-        text: "composePrompt still leaks prompt state after retries.",
-      },
-      {
-        text: "Let's make composePrompt smaller before we move it.",
-      },
-    ],
-  },
-  {
-    id: "thread-beta-settings",
-    title: "Settings cleanup",
-    folderId: "project-beta",
-    projectName: "Docs",
-    projectRemoteName: "Beta Repo",
-    spaceName: "Personal",
-    provider: "claudeAgent",
-    createdAt: "2026-04-09T07:00:00.000Z",
-    updatedAt: "2026-04-09T09:00:00.000Z",
-    messages: [
-      {
-        text: "Settings page should expose desktop notification toggles.",
-      },
-    ],
-  },
-];
-
 describe("SidebarSearchPalette.logic", () => {
   it("keeps suggested actions in source order for an empty query", () => {
     const result = matchSidebarSearchActions(actions, "");
@@ -242,71 +186,10 @@ describe("SidebarSearchPalette.logic", () => {
     assert.equal(result[0]?.project.id, "project-beta");
   });
 
-  it("matches folders and threads through their space label", () => {
+  it("matches folders through their space label", () => {
     assert.deepEqual(
       matchSidebarSearchFolders(folders, "work").map((match) => match.project.id),
       ["project-alpha"],
     );
-    assert.deepEqual(
-      matchSidebarSearchThreads(threads, "personal").map((match) => match.thread.id),
-      ["thread-beta-settings"],
-    );
-  });
-
-  it("prefers thread title matches and then recency", () => {
-    const result = matchSidebarSearchThreads(threads, "comp");
-
-    assert.deepEqual(
-      result.map((match) => match.thread.id),
-      ["thread-alpha-composer", "thread-alpha-compose-prompt"],
-    );
-  });
-
-  it("can match threads through the project name", () => {
-    const result = matchSidebarSearchThreads(threads, "docs");
-
-    assert.deepEqual(
-      result.map((match) => match.thread.id),
-      ["thread-beta-settings"],
-    );
-    assert.equal(result[0]?.matchKind, "folder");
-  });
-
-  it("can match threads through the original project name", () => {
-    const result = matchSidebarSearchThreads(threads, "beta");
-
-    assert.deepEqual(
-      result.map((match) => match.thread.id),
-      ["thread-beta-settings"],
-    );
-    assert.equal(result[0]?.matchKind, "folder");
-  });
-
-  it("can match message content and returns a snippet", () => {
-    const result = matchSidebarSearchThreads(threads, "desktop notification");
-
-    assert.lengthOf(result, 1);
-    assert.equal(result[0]?.thread.id, "thread-beta-settings");
-    assert.equal(result[0]?.matchKind, "message");
-    assert.equal(result[0]?.messageMatchCount, 1);
-    assert.include(result[0]?.snippet ?? "", "desktop notification toggles");
-  });
-
-  it("keeps title matches ahead of message-only matches", () => {
-    const result = matchSidebarSearchThreads(threads, "composer");
-
-    assert.deepEqual(
-      result.map((match) => match.thread.id),
-      ["thread-alpha-composer"],
-    );
-    assert.equal(result[0]?.matchKind, "title");
-  });
-
-  it("counts multiple message hits in the same thread", () => {
-    const result = matchSidebarSearchThreads(threads, "composeprompt");
-
-    assert.equal(result[0]?.thread.id, "thread-alpha-compose-prompt");
-    assert.equal(result[0]?.matchKind, "title");
-    assert.equal(result[0]?.messageMatchCount, 2);
   });
 });

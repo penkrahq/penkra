@@ -2,6 +2,7 @@
 // Purpose: Renders the project/thread sidebar, including row status, sorting, and thread actions.
 // Exports: Sidebar
 
+import { SidebarSearchPaletteController } from "./SidebarSearchPaletteController";
 import { SidebarThreadPageEnd } from "./SidebarThreadPageEnd";
 import { useSidebarThreadRows, type SidebarThreadRow } from "../sidebarThreadRows";
 import { loadThread, loadThreadPage } from "../threadListStore";
@@ -20,7 +21,7 @@ import type { DragEndEvent, DragOverEvent } from "@dnd-kit/react";
 import { getDefaultModel } from "@penkra/shared/model";
 import { pluralize } from "@penkra/shared/text";
 import { resolveThreadWorkspaceCwd } from "@penkra/shared/threadEnvironment";
-import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import {
   Suspense,
@@ -77,10 +78,6 @@ import {
   resolveNewThreadTarget,
 } from "../lib/projectShortcutTargets";
 import {
-  providerComposerCapabilitiesQueryOptions,
-  supportsThreadImport,
-} from "../lib/providerDiscoveryReactQuery";
-import {
   prefetchProviderModelsForNewThread,
   resolveNewThreadModelPrefetchCwd,
   resolveNewThreadModelPrefetchProvider,
@@ -102,7 +99,6 @@ import { readNativeApi } from "../nativeApi";
 import { useSpacesUiStore } from "../spacesUiStore";
 import { useSidebarInlineRenameStore } from "../sidebarInlineRenameStore";
 import { persistAppStateNow, useStore } from "../store";
-import { createAllThreadsSelector } from "../storeSelectors";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { useThreadDetailPrewarm } from "../threadDetailPrewarm";
 import { retainThreadDetailSubscription } from "../threadDetailSubscriptionRetention";
@@ -145,16 +141,8 @@ import {
   readSidebarUiState,
 } from "./Sidebar.uiState";
 import { SidebarLeadingControls } from "./SidebarHeaderNavigationControls";
-import {
-  SidebarSearchPalette,
-  type ImportProviderKind,
-  type SidebarSearchPaletteMode,
-} from "./SidebarSearchPalette";
-import type {
-  SidebarSearchAction,
-  SidebarSearchProject,
-  SidebarSearchThread,
-} from "./SidebarSearchPalette.logic";
+import { type ImportProviderKind, type SidebarSearchPaletteMode } from "./SidebarSearchPalette";
+import type { SidebarSearchAction, SidebarSearchProject } from "./SidebarSearchPalette.logic";
 import { CHAT_SURFACE_HEADER_HEIGHT_CLASS } from "./chat/chatHeaderControls";
 import {
   getArm64IntelBuildWarningDescription,
@@ -3396,6 +3384,7 @@ export default function Sidebar() {
       {searchPaletteOpen ? (
         <SidebarSearchPaletteController
           open={searchPaletteOpen}
+          spaceId={activeSpaceId}
           mode={searchPaletteMode}
           onModeChange={setSearchPaletteMode}
           onOpenChange={(open) => {
@@ -3439,90 +3428,5 @@ export default function Sidebar() {
         }}
       />
     </>
-  );
-}
-
-function SidebarSearchPaletteController(props: {
-  open: boolean;
-  mode: SidebarSearchPaletteMode;
-  onModeChange: (mode: SidebarSearchPaletteMode) => void;
-  onOpenChange: (open: boolean) => void;
-  actions: readonly SidebarSearchAction[];
-  folders: readonly SidebarSearchProject[];
-  projectById: ReadonlyMap<FolderId, { name: string; remoteName: string }>;
-  onCreateChat: () => void;
-  onCreateThread: () => void;
-  onOpenSettings: () => void;
-  onOpenFeedback: () => void;
-  onOpenUsageSettings: () => void;
-  onOpenProject: (folderId: string) => void;
-  onImportThread: (provider: ImportProviderKind, externalId: string) => Promise<void>;
-  onOpenThread: (threadId: string) => void;
-}) {
-  const selectAllThreads = useMemo(() => createAllThreadsSelector(), []);
-  const canonicalSidebarRows = useSidebarThreadRows();
-  const importProviderCapabilityQueries = useQueries({
-    queries: (["codex", "claudeAgent", "opencode"] as const).map((provider) =>
-      providerComposerCapabilitiesQueryOptions(provider),
-    ),
-  });
-  const threads = useStore(selectAllThreads);
-  const sidebarDisplayThreads = useMemo(
-    () =>
-      canonicalSidebarRows.filter((row) => row.archivedAt === null && row.parentThreadId === null),
-    [canonicalSidebarRows],
-  );
-  const importProviders: ReadonlyArray<ImportProviderKind> = (
-    ["codex", "claudeAgent", "opencode"] as const
-  ).filter((provider, index) => supportsThreadImport(importProviderCapabilityQueries[index]?.data));
-  const searchPaletteThreads = useMemo<SidebarSearchThread[]>(() => {
-    const threadById = new Map(threads.map((thread) => [thread.id, thread] as const));
-    const searchProjectById = new Map(
-      props.folders.map((project) => [project.id, project] as const),
-    );
-    return sidebarDisplayThreads.flatMap((threadSummary) => {
-      const thread = threadById.get(threadSummary.id);
-      if (!thread) {
-        return [];
-      }
-
-      return [
-        {
-          id: thread.id,
-          title: thread.title,
-          folderId: thread.folderId,
-          projectName: props.projectById.get(thread.folderId)?.name ?? "Unknown folder",
-          projectRemoteName: props.projectById.get(thread.folderId)?.remoteName ?? "Unknown folder",
-          spaceName: searchProjectById.get(thread.folderId)?.spaceName ?? "Global",
-          provider: thread.modelSelection.provider,
-          createdAt: thread.createdAt,
-          updatedAt: thread.updatedAt,
-          messages: thread.messages.map((message) => ({
-            text: message.text,
-          })),
-        },
-      ];
-    });
-  }, [props.projectById, props.folders, sidebarDisplayThreads, threads]);
-
-  return (
-    <SidebarSearchPalette
-      open={props.open}
-      mode={props.mode}
-      onModeChange={props.onModeChange}
-      onOpenChange={props.onOpenChange}
-      actions={props.actions}
-      folders={props.folders}
-      threads={searchPaletteThreads}
-      onCreateChat={props.onCreateChat}
-      onCreateThread={props.onCreateThread}
-      onOpenSettings={props.onOpenSettings}
-      onOpenFeedback={props.onOpenFeedback}
-      onOpenUsageSettings={props.onOpenUsageSettings}
-      onOpenProject={props.onOpenProject}
-      importProviders={importProviders}
-      onImportThread={props.onImportThread}
-      onOpenThread={props.onOpenThread}
-    />
   );
 }
