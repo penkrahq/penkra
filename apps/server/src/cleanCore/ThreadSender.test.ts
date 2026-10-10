@@ -312,15 +312,18 @@ for (const release of ["next-send", "remove-head", "edit-head"] as const) {
       } else {
         const input = { threadId: ThreadId.makeUnsafe("thread-q"), messageId: "head" };
         if (release === "edit-head") {
-          const draft = JSON.stringify({ prompt: "head", attachments: [] });
           assert.isTrue(
-            (yield* sender.editQueued({ ...input, draft, updatedAt: "2026-10-09T00:00:04.000Z" }))
-              .removed,
+            (yield* sender.editQueued({ ...input, updatedAt: "2026-10-09T00:00:04.000Z" })).removed,
           );
           const stored = yield* sql<{
             draft: string;
           }>`SELECT draft FROM threads WHERE id = 'thread-q'`;
-          assert.equal(stored[0]?.draft, draft);
+          assert.deepStrictEqual(JSON.parse(stored[0]!.draft), {
+            prompt: "head",
+            attachments: [],
+            files: [],
+            assistantSelections: [],
+          });
         } else assert.isTrue((yield* sender.cancelQueued(input)).removed);
         yield* Deferred.await(delivered);
         assert.deepStrictEqual(attempts, ["head", "head", "second"]);
@@ -440,14 +443,12 @@ it.effect("claims queued attachments atomically and delivers them with their ori
       }>`SELECT draft FROM threads WHERE id = ${request.threadId}`)[0]!.draft,
       '{"prompt":"draft to clear"}',
     );
-    const queued = yield* sender
-      .send(request)
-      .pipe(
-        Effect.provideService(CurrentManagedAttachmentPrincipal, {
-          ownerKind: "session",
-          ownerId: "uploader",
-        } as const),
-      );
+    const queued = yield* sender.send(request).pipe(
+      Effect.provideService(CurrentManagedAttachmentPrincipal, {
+        ownerKind: "session",
+        ownerId: "uploader",
+      } as const),
+    );
     assert.equal(queued.delivery, "queued");
     assert.equal(changes.length, 1);
     assert.equal(
@@ -459,14 +460,12 @@ it.effect("claims queued attachments atomically and delivers them with their ori
     const blob = yield* repository.findClaimedById({ attachmentId: "attachment" });
     assert.isTrue(Option.isSome(blob));
     yield* setThreadState(request.threadId, "idle", null, null, new Date().toISOString());
-    const started = yield* sender
-      .send(request)
-      .pipe(
-        Effect.provideService(CurrentManagedAttachmentPrincipal, {
-          ownerKind: "session",
-          ownerId: "another-window",
-        } as const),
-      );
+    const started = yield* sender.send(request).pipe(
+      Effect.provideService(CurrentManagedAttachmentPrincipal, {
+        ownerKind: "session",
+        ownerId: "another-window",
+      } as const),
+    );
     assert.equal(started.delivery, "started");
     assert.deepStrictEqual(yield* readThreadQueue(request.threadId), []);
   }).pipe(
@@ -474,4 +473,108 @@ it.effect("claims queued attachments atomically and delivers them with their ori
     Effect.provide(ManagedAttachmentRepositoryLive),
     Effect.provide(NodeSqliteClient.layerMemory()),
   ),
+);
+
+it.effect(
+  "moves the stored queued message into the draft atomically, publishes once, and repeats as a no-op",
+  () =>
+    Effect.gen(function* () {
+      yield* runMigrations();
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = ThreadId.makeUnsafe("thread-edit");
+      yield* createThread({
+        id: threadId,
+        spaceId: "space",
+        title: "Edit",
+        provider: "codex",
+        model: "gpt-5.5",
+        runtimeMode: "full-access",
+        createdBy: "user",
+        createdAt: "2026-10-10T00:00:00.000Z",
+      });
+      yield* setThreadState(threadId, "running", "turn", null, "2026-10-10T00:00:01.000Z");
+      const message = {
+        messageId: MessageId.makeUnsafe("message-edit"),
+        text: "text exactly once",
+        attachments: [
+          {
+            type: "image" as const,
+            id: "image",
+            name: "image.png",
+            mimeType: "image/png",
+            sizeBytes: 4,
+          },
+          {
+            type: "file" as const,
+            id: "file",
+            name: "file.txt",
+            mimeType: "text/plain",
+            sizeBytes: 4,
+          },
+        ],
+        senderThreadId: null,
+        dispatchOrigin: "user" as const,
+        queuedAt: "2026-10-10T00:00:02.000Z",
+      };
+      yield* enqueueMessage(threadId, message);
+      yield* sql`UPDATE threads SET draft = '{"prompt":"old draft"}' WHERE id = ${threadId}`;
+      const publisher = makeThreadPublisher();
+      const changes: string[] = [];
+      publisher.subscribe(threadId, (change) => changes.push(change.threadId));
+      const sender = yield* makeThreadSender.pipe(
+        Effect.provide(ManagedAttachmentRepositoryLive),
+        Effect.provideService(ThreadPublisher, publisher),
+        Effect.provideService(
+          ProviderThreadSwitchCoordinator,
+          {} as typeof ProviderThreadSwitchCoordinator.Service,
+        ),
+        Effect.provideService(
+          ThreadProviderBindingRepository,
+          {} as typeof ThreadProviderBindingRepository.Service,
+        ),
+        Effect.provideService(ProviderService, {} as typeof ProviderService.Service),
+      );
+      const input = {
+        threadId,
+        messageId: message.messageId,
+        updatedAt: "2026-10-10T00:00:03.000Z",
+      };
+      yield* sql`CREATE TRIGGER reject_edit BEFORE UPDATE OF draft ON threads BEGIN SELECT RAISE(ABORT, 'edit rejected'); END`;
+      assert.isTrue((yield* Effect.exit(sender.editQueued(input)))._tag === "Failure");
+      assert.deepStrictEqual(yield* readThreadQueue(threadId), [message]);
+      assert.equal(
+        (yield* sql<{ draft: string }>`SELECT draft FROM threads WHERE id = ${threadId}`)[0]!.draft,
+        '{"prompt":"old draft"}',
+      );
+      assert.deepStrictEqual(changes, []);
+      yield* sql`DROP TRIGGER reject_edit`;
+      assert.isTrue((yield* sender.editQueued(input)).removed);
+      assert.deepStrictEqual(yield* readThreadQueue(threadId), []);
+      const read = sql<{
+        draft: string;
+        draftUpdatedAt: string;
+        updatedAt: string;
+      }>`SELECT draft, draft_updated_at AS "draftUpdatedAt", updated_at AS "updatedAt" FROM threads WHERE id = ${threadId}`;
+      const stored = (yield* read)[0]!;
+      assert.deepStrictEqual(JSON.parse(stored.draft), {
+        prompt: message.text,
+        attachments: [{ id: "image", name: "image.png", mimeType: "image/png" }],
+        files: [{ id: "file", name: "file.txt", mimeType: "text/plain" }],
+        assistantSelections: [],
+      });
+      assert.equal(stored.draftUpdatedAt, input.updatedAt);
+      assert.equal(stored.updatedAt, input.updatedAt);
+      assert.deepStrictEqual(changes, [threadId]);
+      assert.isFalse(
+        (yield* sender.editQueued({ ...input, updatedAt: "2026-10-10T00:00:04.000Z" })).removed,
+      );
+      assert.deepStrictEqual((yield* read)[0], stored);
+      assert.deepStrictEqual(changes, [threadId]);
+      assert.equal(
+        (yield* sql<{
+          count: number;
+        }>`SELECT COUNT(*) AS count FROM thread_items WHERE thread_id = ${threadId}`)[0]!.count,
+        0,
+      );
+    }).pipe(Effect.scoped, Effect.provide(NodeSqliteClient.layerMemory())),
 );

@@ -6383,23 +6383,9 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
                 });
               }),
           );
-          const reference = (attachment: { id: string; name: string; mimeType: string }) => ({
-            id: attachment.id,
-            name: attachment.name,
-            mimeType: attachment.mimeType,
-          });
-          const draft = JSON.stringify({
-            prompt: message.text,
-            attachments: message.attachments.filter((a) => a.type === "image").map(reference),
-            files: message.attachments.filter((a) => a.type === "file").map(reference),
-            assistantSelections: message.attachments.filter(
-              (a) => a.type === "assistant-selection",
-            ),
-          });
           const result = await api.cleanCore.editQueuedMessage({
             threadId,
             messageId: message.messageId,
-            draft,
             updatedAt: new Date().toISOString(),
           });
           if (!result.removed) throw new Error("This message is no longer queued.");
