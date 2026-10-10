@@ -27,20 +27,19 @@ One working tree, one implementer (operator, 2026-10-10): all work happens in `p
 
 ### 2.1 Data model
 
-Tables kept unchanged: `projection_spaces`, `projection_folders`, `projection_thread_decks` (plus one new column, 2.12), `space_navigation_state`, `auth_sessions`, `auth_pairing_links`, `provider_connections`, `provider_credential_profiles`, `provider_installations`, `managed_attachment_blobs`, `managed_attachment_cleanup_jobs`, `connection_usage_daily`, `connection_usage_turn_events`, `thread_harness_states` (its `thread_id` foreign key moves from `projection_threads` to `threads`, because `projection_threads` is dropped), `effect_sql_migrations`. They are not renamed.
+Tables kept unchanged: `projection_spaces`, `projection_folders` (plus one new column, 2.12), `space_navigation_state`, `auth_sessions`, `auth_pairing_links`, `provider_connections`, `provider_credential_profiles`, `provider_installations`, `managed_attachment_blobs`, `managed_attachment_cleanup_jobs`, `connection_usage_daily`, `connection_usage_turn_events`, `thread_harness_states` (its `thread_id` foreign key moves from `projection_threads` to `threads`, because `projection_threads` is dropped), `effect_sql_migrations`. They are not renamed.
 
 ```sql
 CREATE TABLE threads (
   id TEXT PRIMARY KEY,                  -- chosen by the client (UUID) before the create call
   space_id TEXT NOT NULL,
-  folder_id TEXT,
+  folder_id TEXT NOT NULL REFERENCES projection_folders(folder_id), -- 2.18
   title TEXT NOT NULL,
   provider TEXT NOT NULL,               -- codex | claudeAgent | opencode
   connection_id TEXT,                   -- NULL = provider's anonymous route
   model TEXT NOT NULL,
   model_options TEXT,                   -- JSON object, provider-specific
   runtime_mode TEXT NOT NULL,           -- copied from projection_threads.runtime_mode
-  working_directory TEXT,               -- the thread's cwd; NULL = folder's workspace root
   provider_session_id TEXT,             -- provider-native resume id (3.2)
   native_state_id TEXT,                 -- folder with the provider's own conversation files
   state TEXT NOT NULL,                  -- idle | running | error (2.3)
@@ -50,7 +49,6 @@ CREATE TABLE threads (
   queue TEXT NOT NULL DEFAULT '[]',     -- 2.4
   created_by TEXT NOT NULL,             -- user | agent | provider_native
   created_by_thread_id TEXT,            -- the agent thread that created it (created_by='agent')
-  deck_id TEXT, deck_sort_order INTEGER NOT NULL DEFAULT 0,
   sidebar_sort_order INTEGER,
   last_activity_at TEXT,                -- updated in the same write as every item insert/update
   last_message_preview TEXT,            -- text of the latest user/text item, first 200 characters
@@ -205,23 +203,23 @@ Removed features:
 ### 2.12 Right-panel App tabs
 
 Shared state (operator, 2026-10-09):
-- New column `projection_thread_decks.app_tabs TEXT NOT NULL DEFAULT '{"open":false,"panes":[],"activePaneId":null}'` holding `{ open, panes: [{ id, kind: "app", appId, appSpaceId, appSlug, appName, appRoute }], activePaneId }`. Runtime-only fields (`appIconDataUrl`, `appPresentationTitle`, `appPresentationIconUrl`, `appRendererId`, `appDocumentUrl`, `appState`, `appStatus`) are never stored.
-- Every change (open, close, select, reorder, show/hide the panel) is one server write followed by a broadcast; every window showing the deck applies it. Dock width stays per window, in memory.
-- Delete the localStorage persistence in `apps/web/src/rightDockStore.ts` (keys `penkra:app-tabs-by-deck:v3`, `:v2`, `penkra:app-tabs-by-thread:v1`) and its legacy migration. Old localStorage tabs are not imported; every deck starts with an empty panel once.
-- `penkra open --url` and every other agent open reuse the deck's existing tab for the same App (present it and navigate) instead of creating another (`openPenkraResource` in `apps/desktop/src/main.ts` must pass `presentExisting`).
+- New column `projection_folders.app_tabs TEXT NOT NULL DEFAULT '{"open":false,"panes":[],"activePaneId":null}'` holding `{ open, panes: [{ id, kind: "app", appId, appSpaceId, appSlug, appName, appRoute }], activePaneId }`. Runtime-only fields (`appIconDataUrl`, `appPresentationTitle`, `appPresentationIconUrl`, `appRendererId`, `appDocumentUrl`, `appState`, `appStatus`) are never stored.
+- Every change (open, close, select, reorder, show/hide the panel) is one server write followed by a broadcast; every window showing the folder applies it. Dock width stays per window, in memory.
+- Delete the localStorage persistence in `apps/web/src/rightDockStore.ts` (keys `penkra:app-tabs-by-deck:v3`, `:v2`, `penkra:app-tabs-by-thread:v1`) and its legacy migration. Old localStorage tabs are not imported; every folder starts with an empty panel once.
+- `penkra open --url` and every other agent open reuse the folder's existing tab for the same App (present it and navigate) instead of creating another (`openPenkraResource` in `apps/desktop/src/main.ts` must pass `presentExisting`).
 
-Agent tab activation (operator, 2026-10-10). An agent opens, reuses or presents a tab in its thread's deck. The agent never names a window. Definitions:
-- **Showing the deck:** the window is visible, not minimized, its current Space is the deck's Space and its current deck is the tab's deck.
+Agent tab activation (operator, 2026-10-10). An agent opens, reuses or presents a tab in its thread's folder. The agent never names a window. Definitions:
+- **Showing the folder:** the window is visible, not minimized, its current Space is the folder's Space and its current thread belongs to the tab's folder.
 - **Person busy in the right panel** of a window: `PanelFocusState.shouldPreserveAgentOpen(windowId, windowIsFocused)` (`apps/desktop/src/panelFocus.ts`) returns true, i.e. the window is the focused OS window AND the person's last trusted mouse-down or key-down in it landed inside the right panel (dock DOM via the `preload.ts` capture listeners, or any App tab's webContents via `recordPanelInteraction` in `main.ts`). Panel-level, not per tab. Reuse it; do not add a second definition.
-- **Home window:** `threadHomeWindow.presentingWindow(threadId, deckId, ...)`, as today.
+- **Home window:** `threadHomeWindow.presentingWindow(threadId, folderId, ...)` (keyed by folder, 2.18).
 - **Focus order:** a new main-process list of window ids, most recent first, updated on each `BrowserWindow` `focus` event and on `closed`.
 
 Rule, in order:
-1. If the home window is showing the deck and the person is not busy in its right panel, act there.
-2. Else, among other windows showing the deck where the person is not busy in the right panel, act in the first one in focus order.
-3. Else, fail at once with code `TAB_DECK_NOT_AVAILABLE` and the message `Deck "<deck title>" is not open in any window.` (no window shows it) or `You are working in the right panel of every window showing deck "<deck title>".` (all are busy). The agent reports the message and does not retry.
+1. If the home window is showing the folder and the person is not busy in its right panel, act there.
+2. Else, among other windows showing the folder where the person is not busy in the right panel, act in the first one in focus order.
+3. Else, fail at once with code `TAB_FOLDER_NOT_AVAILABLE` and the message `Folder "<folder title>" is not open in any window.` (no window shows it) or `You are working in the right panel of every window showing folder "<folder title>".` (all are busy). The agent reports the message and does not retry.
 
-The same rule applies to agent opening (`appTabOpenedRouting.ts`) and agent activation (`activateAppTabForAgent` in `main.ts`, which today checks only visibility). Main decides and sends the request to exactly one window; the renderer never filters requests (delete the deck/Space check at `SingleChatSurface.tsx:219`). The request resolves when that window reports the tab visible and rejects when it reports it cannot show it; no timer. Tests: one window idle → acts; one window busy → busy message; two windows, home on another deck and the other on the deck → acts in the other; two windows both busy → busy message; no window on the deck → not-open message.
+The same rule applies to agent opening (`appTabOpenedRouting.ts`) and agent activation (`activateAppTabForAgent` in `main.ts`, which today checks only visibility). Main decides and sends the request to exactly one window; the renderer never filters requests (delete the folder/Space check, formerly the deck check, at `SingleChatSurface.tsx:219`). The request resolves when that window reports the tab visible and rejects when it reports it cannot show it; no timer. Tests: one window idle → acts; one window busy → busy message; two windows, home on another folder and the other on the folder → acts in the other; two windows both busy → busy message; no window on the folder → not-open message.
 
 ### 2.13 Agent tool results and App tab ops (operator, 2026-10-10)
 
@@ -231,7 +229,7 @@ Large results. Provider limits (Codex report, 2026-10-10, sources in thread agen
 - No `--max-chars`, no automatic pruning. A snapshot is returned whole, inline or as a file.
 
 App tab ops:
-- `tabs list` returns per tab only `tabId`, `appId`, `appName`, `title`, `status`, `visible`, plus `url` only when the tab shows a web page. Remove `rendererId`, `agentAddressable`, `iconDataUrl`, `state`, `spaceId`, `deckId`, `threadId` (`appCommandPipeServer.ts:465`).
+- `tabs list` returns per tab only `tabId`, `appId`, `appName`, `title`, `status`, `visible`, plus `url` only when the tab shows a web page. Remove `rendererId`, `agentAddressable`, `iconDataUrl`, `state`, `spaceId`, `folderId`, `threadId` (`appCommandPipeServer.ts:465`).
 - Delete `tabs diff`: the op, its help text and its tests.
 - `tabs screenshot` captures the tab as the person sees it. Remove the `document` option. It picks its window by the 2.12 rule, with the same failure codes.
 - The agent cursor shows only agent input. Drive it from the CDP mouse events Penkra sends (`appTabObserver.ts`, `Input.dispatchMouseEvent`) and delete the trusted `pointermove`/`pointerdown`/`pointerup` listeners in `AGENT_CURSOR_SOURCE` (`appTabAgentSurface.ts`).
@@ -291,9 +289,81 @@ App tab ops:
   - If the row is absent and there is no draft for `threadId` (`useComposerDraftStore` `draftThreadsByThreadId`), call the existing `loadThread(threadId)` once for that `threadId` (one `cleanCore.getThread` read; the server handler `findThread` is one indexed SELECT by id). While the read is in flight, render nothing, as the route does now before hydration.
   - After the read: a row with `archivedAt === null` and `deletedAt === null` opens. If the result is `null`, or the row is archived or deleted, `navigate({ to: "/", replace: true })` as now.
   - If the read fails, show the existing toast with title "Could not open the thread" and the error message, then navigate home.
-- No retry, no timer, no second read. Use the same store for `threadFolderId`, `threadArchived` and `persistedDeckId` in this route, so the route has a single source.
+- No retry, no timer, no second read. Use the same store for `threadFolderId`, `threadArchived` and the thread's folder in this route, so the route has a single source.
 - Tests (web): (a) a thread absent from the loaded pages is read once by `getThread` and then rendered; (b) `getThread` returning `null` navigates home; (c) an archived row navigates home; (d) a thread already in the store causes no `getThread` call.
 - Done when `git grep -n "createThreadExistsSelector\|threadShellById" -- 'apps/web/src/routes/_chat.$threadId.tsx'` shows no matches.
+
+### 2.18 Folders own their threads: no decks, no working-directory override, required folder (operator, 2026-10-10)
+
+Decisions (operator, 2026-10-10):
+- A folder is the deck. Every unarchived thread of a folder is a tab of that folder. Tab order is the folder's sidebar order.
+- A thread runs in its folder's directory (`projection_folders.workspace_root`). If the folder has none, the thread runs in its own scratch directory (`ensureDurableThreadWorkspace(threadId, stateDir)` in `apps/server/src/scratchWorkspaces.ts`, as today). No per-thread directory exists.
+- Every thread has exactly one folder: `threads.folder_id TEXT NOT NULL REFERENCES projection_folders(folder_id)`.
+
+Measured on the 3.0 copy (`~/penkra-rehearsal/state-copy.sqlite`, 2026-10-10):
+- 25 folders; 24 have `workspace_root IS NULL`.
+- 581 threads; 0 have `folder_id IS NULL`; 0 point at a missing folder.
+- 219 threads set `working_directory` (13 of them unarchived: 4 claudeAgent, 7 codex, 2 opencode). After this change those threads run in their folder's directory or, when it has none, in their scratch directory. This is accepted (clean cut, no compatibility path).
+- 28 decks. The largest folder has 66 unarchived threads, so its tab bar shows 66 tabs (operator: "fine").
+
+A. Schema: new migration `183_FolderOwnedThreads.ts`. Migrations 176 and 178 stay unchanged (they have run on dev databases).
+1. Rebuild `threads` with the 2.1 definition: no `working_directory`, no `deck_id`, no `deck_sort_order`, and `folder_id TEXT NOT NULL REFERENCES projection_folders(folder_id)`. `PRAGMA foreign_keys = ON` is already set before migrations (`apps/server/src/persistence/Layers/Sqlite.ts:111`), so `DROP TABLE threads` would cascade. Follow the 177 pattern (`177_ThreadHarnessCanonicalForeignKey.ts`):
+   - read the definitions of every table, index and trigger that references `threads(id)` from `sqlite_master`;
+   - copy those child rows to TEMP tables;
+   - drop the child tables;
+   - create `threads_new`, then `INSERT INTO threads_new SELECT <the kept columns> FROM threads`;
+   - `DROP TABLE threads`, then `ALTER TABLE threads_new RENAME TO threads`;
+   - recreate every `threads` index except `idx_threads_deck_order`;
+   - recreate the child tables from their stored definitions, reinsert their rows, recreate their indexes and triggers, drop the TEMP tables.
+2. `DROP TABLE projection_thread_decks`.
+3. In the same migration, before the rebuild, count the rows where `working_directory IS NOT NULL` and the rows where `deck_id IS NOT NULL`. After the rebuild, verify the `threads` row count equals the count before and every child table's row count equals its count before. On a mismatch, fail the migration (the transaction rolls back). Log the counts with `Effect.logInfo`.
+4. Test `183_FolderOwnedThreads.test.ts`: a database at migration 182 with threads (one with `working_directory`, one in a deck), items, harness rows, bindings and notices migrates. Row counts are unchanged, the columns are gone, `projection_thread_decks` is gone, and inserting a thread with `folder_id` NULL or an unknown folder fails.
+5. Update 2.1 to match (done in this commit).
+
+B. Server: delete the working-directory override.
+- `apps/server/src/cleanCore/threadStore.ts`: delete `setThreadWorkingDirectory`; remove `workingDirectory` from the create input and the `INSERT` (line 182, 215).
+- `packages/contracts/src/cleanCore.ts`: remove `workingDirectory` from the thread row schemas (lines 138, 239) and delete the `workingDirectory` update action (line 352).
+- `apps/server/src/wsRpc.ts`: delete the `case "workingDirectory"` branch (line 1503) and the import.
+- `apps/server/src/cleanCore/threadList.ts`, `threadShellSchema.ts`, `threadLifecycle.ts`, `threadFixtures.ts`: remove the field and the fixture action.
+- `packages/shared/src/threadEnvironment.ts`: `resolveThreadWorkspaceCwd` takes only `projectCwd`, or is deleted and its callers read the folder's `workspaceRoot` directly. Choose deletion if each caller then reads one value.
+- Every place that picks a turn's cwd uses the folder's `workspace_root`, else `ensureDurableThreadWorkspace`:
+  - `apps/server/src/cleanCore/ThreadSender.ts:145` and `:199` (read `projection_folders.workspace_root` by the thread's `folder_id` in the same SELECT);
+  - `apps/server/src/wsRpc.ts:550`;
+  - `ProviderCommandReactor.ts:627`, `:2563`, `:2804`, `:3654`;
+  - `agentGateway/presentFile.ts`, `agentGateway/Layers/AgentGateway.ts:569` and `:725`, `agentGateway/creationCoordinator.ts:84` (an agent-created thread runs in its destination folder's directory; delete the `caller.workingDirectory` branch);
+  - `appRuntimeCli.ts:712` and `:1044` (relative paths resolve against the caller's thread cwd computed by the same rule);
+  - `desktopThreadCommands.ts:161`.
+- `packages/contracts/src/orchestration.ts:532`, `:594`, `apps/desktop/src/main.ts:2045`, `apps/desktop/src/desktopAppRuntime.ts:591`, `packages/sdk/src/runtime.ts:189`: remove the `workingDirectory` option.
+- Not in scope: `apps/server/src/open.ts`, `codexWorkingDirectory.ts`, `CodexTextGeneration.ts` and `accountAuth.ts` use process working directories, not the thread override. Leave them.
+
+C. Web: delete the folder chip and the directory picker.
+- Delete `apps/web/src/components/chat/ProjectPicker.tsx` and `ProjectPicker.test.ts` (recent folders, "Choose from computer…", "Don't work in a folder").
+- `apps/web/src/components/ChatView.tsx`: delete `handleResetWorkspaceToHome`, `handleSelectWorkspaceRoot` (lines 6579-6593), `showEmptyLandingProjectPicker`, `emptyLandingProjectChip` and the `DraftFolderBar` block (7352-7395). If `DraftFolderBar` has no other caller, delete it.
+- Remove `workingDirectory` from `composerDraftDomain.ts`, `composerDraftPersistence.ts`, `composerDraftActions.ts`, `lib/threadBootstrap.ts` (including the latest-thread inference at lines 53-63), `hooks/useHandleNewThread.ts` (lines 61-69, 187), `storeSelectors.ts`, `storeNormalization.ts`, `storeProjection.ts`, `types.ts`, `sidebarThreadRows.ts`, `Sidebar.tsx`, `SingleChatSurface.tsx`, `routes/-chatThreadRoute.logic.ts`, `lib/threadRename.ts`, `lib/providerModelPrefetch.ts`, `lib/providerDiscovery.ts`, `hooks/useComposerSlashCommands.ts`, `ModelsSettingsPanel.tsx`, `ChatView.logic.ts`, `test/effectRpcWebSocketMock.ts`. Where a value is needed for display or provider discovery, use the folder's `workspaceRoot`.
+- Delete the ChatView browser tests for the picker (`ChatView.browser.tsx` around line 7431 and 7468).
+
+D. Decks: delete them; the folder is the tab set.
+- Contracts: delete `ThreadDeckId`, `singletonThreadDeckId` (`packages/contracts/src/baseSchemas.ts:34`), `deckId`/`deckSortOrder` on every schema, `CleanCoreListDeckThreads*`, `CleanCoreDeckThreadCursor`, `CleanCoreDeckMovePosition`, the `moveDeckThread` update action, `DesktopThreadDeckPosition`, and the deck IPC channels in `packages/contracts/src/ipc.ts`.
+- Server: delete `listDeckThreads` (clean-core and RPC), the `moveDeckThread` branch in `wsRpc.ts`, every `projection_thread_decks` read and write (`threadLifecycle.ts:39-42`, `threadStore.ts:432`, `:548`, `:605`, `:617`, `ProjectionPipeline.ts:341`, `ProjectionSnapshotQuery.ts:1150`), and deck fields in `ProjectionSnapshotQuery.ts`, `projector.ts`, `cleanCore/threadList.ts`. A thread move between folders or Spaces (`moveSidebarItem`, `moveSpace`) changes only `folder_id`/`space_id`/`sidebar_sort_order`.
+- `penkra deck` operations (`apps/server/src/appRuntimeCli.ts:396-531`: `current`, `list`, `get`, `create`, `add`, `select`, `reorder`, `leave`, `archive`, `compose`, `send`) and the SDK `deck` API (`packages/sdk/src/runtime.ts:444-456`, `AppThreadDeckPosition`, `operations.ts`, `index.ts`, `tab.ts`) become `penkra folder` operations and an SDK `folder` API on the caller's folder, with the same inputs and results: `current`, `list` (the folder's unarchived threads in sidebar order), `get`, `create` (a new thread in the folder), `select`, `reorder` (calls `moveSidebarItem`), `archive`, `compose`, `send`. Delete `add` and `leave`: a thread belongs to a folder by `folder_id`, and moving it to another folder happens only in the sidebar. Every help text says "folder" where it said "Thread Deck" or "deck".
+- Web tab bar: rename the folder `components/middle-panel/thread-deck-bar/` to `components/middle-panel/folder-tabs/`. `ThreadDeckBar` becomes `FolderTabs`, `DeckTabStripViewport` becomes `FolderTabStripViewport`, `ThreadDeckDnd` becomes `FolderTabsDnd`. Behaviour:
+  - tabs = the rows of the active thread's folder from `threadListStore` (the same loaded pages and order the sidebar shows), plus that folder's local drafts, newest draft last;
+  - "+" creates a new draft thread in the folder (as the sidebar's new-thread action for that folder);
+  - archive button: unchanged (confirm, archive, toast on failure); the archived thread leaves the tabs;
+  - drag to reorder calls the existing `moveSidebarItem` update, so the sidebar and the tabs show the same order;
+  - delete dragging a sidebar thread into the tab bar (`canAddDraggedThread`, `addThreadToExistingDeck`, `DeckDropPreview`); moving between folders happens only in the sidebar.
+- Web: rename `apps/web/src/lib/threadDeckNavigation.ts` (and its test) to `folderTabNavigation.ts` and drop its deck types; delete `singletonThreadDeckId` uses, `deckDrafts`, `getDraftThreadByDeckId`, `canCreateAnotherDeckThread`, `homeDeckId`, `persistedDeckId`, deck fields in `storeProjection.ts`, `storeTestFixtures.ts`, `lib/threadBootstrap.ts`, `hooks/useHandleNewThread.ts`, `composerDraftDomain.ts`, `lib/panelShortcuts.ts`, `routes/_chat.tsx`, `routes/_chat.$threadId.tsx`, `DesktopThreadApiBridge.tsx`, `EventRouter`. Navigation that picked "the nearest visible deck thread" (`findNearestVisibleDeckThread`, `removeDeckThreadPreservingNavigation`) picks the neighbouring tab in the folder.
+- Desktop: `threadHomeWindow.ts` keys windows by `threadId` and `folderId` instead of `deckId`; the view record becomes `{ threadId, folderId }`. App tab stores keyed by deck (`appTabViewHost.ts`, `appTabResourceStores.ts`, `appBlobUrlRegistry.ts`, `appScopedFileWriteStore.ts`, `appTransfer.ts`, `appLocalResourceOpener.ts`, `appOperationBroker.ts`, `appCommandPipeServer.ts`, `appTabIpc.ts`, `appTabOpenedRouting.ts`, `panelShortcuts.ts`, `preload.ts`, `main.ts`) are keyed by `folderId`.
+- Web right dock: `rightDockStore.ts` / `rightDockStore.logic.ts` key state by `folderId` (`RightDockFolderState`, `dockStateByFolderId`). Delete its localStorage persistence (keys `penkra:app-tabs-by-deck:v3`, `:v2`, `penkra:app-tabs-by-thread:v1`) and its legacy migration now, as 2.12 already requires; until step 10 stores tabs on the server, dock state lives in memory per window.
+
+E. 2.12 and 2.13 now say folder instead of deck (done in this commit): `projection_folders.app_tabs`, "showing the folder", `TAB_FOLDER_NOT_AVAILABLE`, and the `tabs list` field removal names `folderId`.
+
+Tests: every existing deck, picker and working-directory test is deleted or rewritten to the folder rule, never skipped. New tests: (a) a turn in a thread whose folder has `workspace_root` starts with that cwd; (b) a folder without one starts the turn in `ensureDurableThreadWorkspace(threadId, stateDir)`; (c) `FolderTabs` shows the folder's unarchived threads in sidebar order and hides an archived one; (d) a tab reorder issues `moveSidebarItem` and the sidebar order matches; (e) the 183 migration test above.
+
+Done when:
+- `git grep -n -i "deck" -- apps packages ':!apps/server/src/persistence/Migrations' ':!apps/desktop/resources'` shows no matches;
+- `git grep -n "workingDirectory\|working_directory\|setThreadWorkingDirectory\|ProjectPicker\|Don't work in a folder" -- apps packages ':!apps/server/src/persistence/Migrations' ':!apps/server/src/open.ts' ':!apps/server/src/codexWorkingDirectory.ts' ':!apps/server/src/textGeneration' ':!apps/desktop/src/accountAuth.ts'` shows no matches;
+- typecheck, lint (0 errors), clean-core, server and web tests pass, and the rehearsal (3) is repeated on a fresh copy of the 3.0 copy with migration 183 included.
 
 ## 3. Migration of Production (in place, keep every chat)
 
@@ -305,7 +375,7 @@ App tab ops:
 5. Keep `state.pre-0.14.4.sqlite` until the operator deletes it.
 
 Mapping:
-- `threads` from `projection_threads` + `projection_thread_sessions`: all `state='idle'`; `space_id` from the thread's folder; `provider`/`model`/`model_options` from `model_selection_json`; `connection_id` from `projection_threads.connection_id`, else `thread_runtime_bindings.connection_id`; `provider_session_id` = codex `$.threadId`, claude `$.resume`, opencode `$.openCodeSessionId` from `provider_session_runtime.resume_cursor_json`; `native_state_id` from the `active` row of `provider_native_state_generations`; `created_by` = `agent` when `creation_source='penkra_mcp'`, `provider_native` when `'provider_native'`, else `user`; `created_by_thread_id` = `source_thread_id`; `runtime_mode`, `working_directory`, `deck_id`, `deck_sort_order`, `sidebar_sort_order`, `last_visited_at`, `last_activity_at`, `last_message_preview`, `last_user_message_at` (from `latest_user_message_at`), `archived_at`, `deleted_at`, `created_at`, `updated_at` copied; `open_question_count` = number of open questions written; `queue='[]'`; `draft=NULL`.
+- `threads` from `projection_threads` + `projection_thread_sessions`: all `state='idle'`; `space_id` from the thread's folder; `provider`/`model`/`model_options` from `model_selection_json`; `connection_id` from `projection_threads.connection_id`, else `thread_runtime_bindings.connection_id`; `provider_session_id` = codex `$.threadId`, claude `$.resume`, opencode `$.openCodeSessionId` from `provider_session_runtime.resume_cursor_json`; `native_state_id` from the `active` row of `provider_native_state_generations`; `created_by` = `agent` when `creation_source='penkra_mcp'`, `provider_native` when `'provider_native'`, else `user`; `created_by_thread_id` = `source_thread_id`; `runtime_mode`, `working_directory`, `deck_id`, `deck_sort_order` (migration 183 then removes these three, 2.18), `sidebar_sort_order`, `last_visited_at`, `last_activity_at`, `last_message_preview`, `last_user_message_at` (from `latest_user_message_at`), `archived_at`, `deleted_at`, `created_at`, `updated_at` copied; `open_question_count` = number of open questions written; `queue='[]'`; `draft=NULL`.
 - `thread_items` per thread in time order from messages, activities, operations, notices and pending interactions. Tool rows from activities and operations are grouped under one identity (activities: `data.toolCallId ?? data.toolUseId ?? data.callID ?? data.callId ?? data.item.id`, as `apps/web/src/workLog.ts:1884`; operations: `provider_operation_id`): one item per identity per thread, latest observation wins, the `operations` row wins a same-time tie. Old tool status `inProgress`/running in a migrated thread becomes `interrupted` (every migrated thread is idle).
 - Notices: `runtime.warning`, `context-compaction`, `media.presented`, `runtime.error` (text = `payload.message`), `provider.turn.start.failed` (text = `payload.detail`). `reasoning` activities → `reasoning` items. Every other activity kind is dropped. Questions come only from `projection_pending_interactions`.
 - Old OpenCode subagent results stored as `<task><task_result>…</task_result></task>` become the plain result text.
@@ -317,7 +387,7 @@ Rehearsal (part of step 4, repeated in step 11 after the drop is added): on a co
 
 | step | content | status |
 |---|---|---|
-| 4 | Schema + backfill (3) | committed (`cb85c5280`, columns `d616dac97`, `53e9f675c`). Done: clean-core `listThreads` + web `threadListStore` (`7af069da7`, `1bca9f78d`); every set-state writer and move on clean-core, old commands deleted (`3e7845416`, `7a81cf508`, `bf71db5dd`); create/rename/archive/delete on clean-core, `/fork` and automatic retention removed, foreign keys moved to `threads` (`dc65ad980`, `e80275005`, `7df1c254f`). **Open:** (a) redo the rehearsal on a copy made per 3.0 and report the numbers before step 11 (the first ran on a corrupt copy, `docs/clean-0144-notes.md` addendum (b)); (b) move the remaining readers (sidebar, deck, `ChatView`) to `threadListStore` and remove the moved fields from `SidebarThreadSummary`, `OrchestrationThread`, `ProjectionSnapshotQuery` and `threadPurge.ts`; (c) replace the remaining `getShellSnapshot` callers (`threadReadTools.ts`, `desktopThreadRoute.ts`, `providerUpdateCoordinator.ts`, `wsRpc.ts`, web) with bounded reads (2.8); (d) delete the fallback shell re-reads (2.15); (e) remove parent threads (2.16); (f) open a thread that is not loaded (2.17). |
+| 4 | Schema + backfill (3) | committed (`cb85c5280`, columns `d616dac97`, `53e9f675c`). Done: clean-core `listThreads` + web `threadListStore` (`7af069da7`, `1bca9f78d`); every set-state writer and move on clean-core, old commands deleted (`3e7845416`, `7a81cf508`, `bf71db5dd`); create/rename/archive/delete on clean-core, `/fork` and automatic retention removed, foreign keys moved to `threads` (`dc65ad980`, `e80275005`, `7df1c254f`). fallback shell re-reads deleted (`f956713cd`, 2.15); parent threads removed (`3aa76a2a4`, 2.16); unloaded thread opens (`2f20fc0d6`, 2.17). **Open, in this order:** (a) the rehearsal on the 3.0 copy `~/penkra-rehearsal/state-copy.sqlite` (made 2026-10-10: integrity `ok`, 581 threads, 75 with `parent_thread_id`), in progress; report the numbers in a new `docs/clean-0144-notes.md` addendum that supersedes addendum (b); (g) folders own their threads (2.18): migration 183, no decks, no working-directory override, `folder_id` required; (b) then move the remaining readers (sidebar, folder tabs, `ChatView`) to `threadListStore` and remove the moved fields from `SidebarThreadSummary`, `OrchestrationThread`, `ProjectionSnapshotQuery` and `threadPurge.ts`; (c) then replace the remaining `getShellSnapshot` callers (`threadReadTools.ts`, `desktopThreadRoute.ts`, `providerUpdateCoordinator.ts`, `wsRpc.ts`, web) with bounded reads (2.8). |
 | 6 | Stream consumer, turn state, queue/steer; delete reconciler (2.3, 2.4) | committed (parts 1-5; send results, interrupt/cancel, queue-head rule, Stopping… in `0a6593d2b`, `67773958a`, `567eca023`, `2f32eec80`, `5de7ba21d`) |
 | 7 | Questions, approvals removed, subagents disabled (2.5) | committed (parts 1-5b) |
 | 8 | Web client: transcript from items, draft sync, approval UI removed (2.1, 2.6) | in progress (tail-follow `18b0c50da`, `f60c94786`; terminal-pills warning `fd3c33935`). **Open:** composer queue on clean-core, queued-message Edit, delete `QueuedComposerTurn` / `thread.turn.cancel-queued` (2.4). |
