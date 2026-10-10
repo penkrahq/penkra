@@ -373,20 +373,18 @@ export default function Sidebar() {
   const syncServerShellSnapshot = useStore((store) => store.syncServerShellSnapshot);
   const markThreadVisited = useStore((store) => store.markThreadVisited);
   const markThreadUnread = useStore((store) => store.markThreadUnread);
-  const persistThreadVisit = useCallback((threadId: ThreadId, lastVisitedAt: string) => {
-    const api = readNativeApi();
-    if (!api) return;
-    void api.cleanCore
-      .updateThread({
-        update: {
-          action: "visit",
-          threadId,
-          visitedAt: lastVisitedAt,
-          updatedAt: new Date().toISOString(),
-        },
-      })
-      .catch(() => undefined);
-  }, []);
+  const persistThreadVisit = useCallback(
+    (threadId: ThreadId, lastVisitedAt: string) => {
+      void markThreadVisited(threadId, lastVisitedAt).catch((error: unknown) => {
+        toastManager.add({
+          type: "error",
+          title: "Unable to mark thread as read",
+          description: error instanceof Error ? error.message : String(error),
+        });
+      });
+    },
+    [markThreadVisited],
+  );
   const toggleProject = useStore((store) => store.toggleProject);
   const setProjectExpanded = useStore((store) => store.setProjectExpanded);
   const terminalStateByThreadId = useTerminalStateStore((state) => state.terminalStateByThreadId);
@@ -720,7 +718,6 @@ export default function Sidebar() {
       }
       if (threadStatus.label === "Completed") {
         const visitedAt = thread.latestTurn?.completedAt ?? new Date().toISOString();
-        markThreadVisited(threadId, visitedAt);
         persistThreadVisit(threadId, visitedAt);
         return;
       }
@@ -728,7 +725,6 @@ export default function Sidebar() {
     },
     [
       dismissThreadStatus,
-      markThreadVisited,
       persistThreadVisit,
       resolveThreadStatusForSidebar,
       sidebarThreadSummaryById,
