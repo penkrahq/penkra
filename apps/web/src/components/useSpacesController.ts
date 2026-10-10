@@ -1,3 +1,4 @@
+import type { SidebarThreadRow } from "../sidebarThreadRows";
 // FILE: useSpacesController.ts
 // Purpose: All Space selection, editing, deletion, and assignment behavior behind the sidebar.
 // Layer: Sidebar controller hook
@@ -23,7 +24,7 @@ import {
 import { readNativeApi } from "../nativeApi";
 import { useSpacesUiStore } from "../spacesUiStore";
 import { useStore } from "../store";
-import type { Project, SidebarThreadSummary, Space } from "../types";
+import type { Project, Space } from "../types";
 import { toSpaceIconName } from "../lib/spaceGrouping";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
 import { sortThreadsForSidebar } from "./Sidebar.logic";
@@ -48,7 +49,7 @@ export function useSpacesController(input: {
   /** Ordinary (space-assignable) folders; computed by Sidebar because its own memos need it too. */
   ordinarySpaceFolders: readonly Project[];
   projectById: ReadonlyMap<FolderId, Project>;
-  sidebarThreads: readonly SidebarThreadSummary[];
+  sidebarThreads: readonly SidebarThreadRow[];
   sidebarThreadSortOrder: SidebarThreadSortOrder;
   routeThreadId: ThreadId | null;
   activeRouteProject: Project | null;

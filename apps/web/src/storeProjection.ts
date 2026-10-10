@@ -329,32 +329,22 @@ function sidebarThreadSummariesEqual(
   return (
     left !== undefined &&
     left.id === right.id &&
-    left.deckId === right.deckId &&
-    left.deckSortOrder === right.deckSortOrder &&
     left.folderId === right.folderId &&
     (left.spaceId ?? null) === (right.spaceId ?? null) &&
-    (left.sidebarSortOrder ?? 0) === (right.sidebarSortOrder ?? 0) &&
     left.title === right.title &&
     left.modelSelection === right.modelSelection &&
-    (left.workingDirectory ?? null) === (right.workingDirectory ?? null) &&
     left.session === right.session &&
     left.createdAt === right.createdAt &&
     (left.archivedAt ?? null) === (right.archivedAt ?? null) &&
     left.updatedAt === right.updatedAt &&
-    (left.isPinned ?? false) === (right.isPinned ?? false) &&
     left.latestTurn === right.latestTurn &&
     (left.pendingTurnStartMessageId ?? null) === (right.pendingTurnStartMessageId ?? null) &&
-    left.lastVisitedAt === right.lastVisitedAt &&
-    (left.parentThreadId ?? null) === (right.parentThreadId ?? null) &&
     (left.subagentAgentId ?? null) === (right.subagentAgentId ?? null) &&
     (left.subagentNickname ?? null) === (right.subagentNickname ?? null) &&
     (left.subagentRole ?? null) === (right.subagentRole ?? null) &&
-    left.latestUserMessageAt === right.latestUserMessageAt &&
     left.hasPendingApprovals === right.hasPendingApprovals &&
     left.hasPendingUserInput === right.hasPendingUserInput &&
-    left.workStatus === right.workStatus &&
-    left.lastMessagePreview === right.lastMessagePreview &&
-    left.lastActivityAt === right.lastActivityAt
+    left.workStatus === right.workStatus
   );
 }
 
@@ -365,32 +355,22 @@ function buildSidebarThreadSummary(
   const metadata = resolveThreadSidebarMetadata(thread);
   const nextSummary: SidebarThreadSummary = {
     id: thread.id,
-    deckId: thread.deckId,
-    deckSortOrder: thread.deckSortOrder,
     folderId: thread.folderId,
     spaceId: thread.spaceId ?? null,
-    sidebarSortOrder: thread.sidebarSortOrder ?? 0,
     title: thread.title,
     modelSelection: thread.modelSelection,
-    workingDirectory: thread.workingDirectory ?? null,
     session: thread.session,
     createdAt: thread.createdAt,
     archivedAt: thread.archivedAt ?? null,
     updatedAt: thread.updatedAt,
-    isPinned: thread.isPinned ?? false,
     latestTurn: thread.latestTurn,
     pendingTurnStartMessageId: thread.pendingTurnStartMessageId ?? null,
-    lastVisitedAt: thread.lastVisitedAt,
-    parentThreadId: thread.parentThreadId ?? null,
     subagentAgentId: thread.subagentAgentId ?? null,
     subagentNickname: thread.subagentNickname ?? null,
     subagentRole: thread.subagentRole ?? null,
-    latestUserMessageAt: metadata.latestUserMessageAt,
     hasPendingApprovals: metadata.hasPendingApprovals,
     hasPendingUserInput: metadata.hasPendingUserInput,
     workStatus: thread.workStatus ?? "idle",
-    lastMessagePreview: thread.lastMessagePreview ?? null,
-    lastActivityAt: thread.lastActivityAt ?? null,
   };
   if (previous && sidebarThreadSummariesEqual(previous, nextSummary)) {
     return previous;

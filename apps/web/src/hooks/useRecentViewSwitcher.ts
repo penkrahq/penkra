@@ -1,3 +1,4 @@
+import { useSidebarThreadRows } from "../sidebarThreadRows";
 // FILE: useRecentViewSwitcher.ts
 // Purpose: Own the Ctrl+Tab recent-primary-view MRU wiring for the chat shell.
 // Layer: UI hook
@@ -5,10 +6,9 @@
 
 import { ThreadId } from "@penkra/contracts";
 import { useLocation, useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useMemo, useEffect, useRef, useState } from "react";
 
 import { useComposerDraftStore } from "../composerDraftStore";
-import { usePinnedThreadsStore } from "../pinnedThreadsStore";
 import {
   buildRecentViewDisplayEntries,
   deriveCurrentRecentView,
@@ -56,9 +56,12 @@ export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
   const recordRecentView = useRecentViewsStore((state) => state.recordRecentView);
   const pruneRecentViewsStore = useRecentViewsStore((state) => state.pruneRecentViews);
   const { prewarmThreadDetail, prewarmThreadDetails } = useThreadDetailPrewarm();
-  const persistedPinnedThreadIds = usePinnedThreadsStore((state) => state.pinnedThreadIds);
   const draftThreadsByThreadId = useComposerDraftStore((state) => state.draftThreadsByThreadId);
-  const sidebarThreadSummaryById = useStore((state) => state.sidebarThreadSummaryById);
+  const sidebarRows = useSidebarThreadRows();
+  const sidebarThreadSummaryById = useMemo(
+    () => Object.fromEntries(sidebarRows.map((row) => [row.id, row])),
+    [sidebarRows],
+  );
   const threadsHydrated = useStore((state) => state.threadsHydrated);
   const settingsSection = typeof routeSearch.section === "string" ? routeSearch.section : undefined;
   const currentRecentView = deriveCurrentRecentView({
@@ -93,7 +96,6 @@ export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
       threadsById: sidebarThreadSummaryById,
       draftThreadsById,
       folders: input.folders,
-      pinnedThreadIds: persistedPinnedThreadIds,
     });
   }
   const currentRecentViewRef = useRef<RecentView | null>(currentRecentView);

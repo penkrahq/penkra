@@ -1,3 +1,6 @@
+import { SidebarThreadPageEnd } from "./SidebarThreadPageEnd";
+import { useSidebarThreadRows, type SidebarThreadRow } from "../sidebarThreadRows";
+import { loadThread, loadThreadPage } from "../threadListStore";
 // FILE: Sidebar.tsx
 // Purpose: Renders the project/thread sidebar, including row status, sorting, and thread actions.
 // Exports: Sidebar
@@ -103,18 +106,12 @@ import { reconcileOptimisticPinState } from "../pinning.logic";
 import { useSpacesUiStore } from "../spacesUiStore";
 import { useSidebarInlineRenameStore } from "../sidebarInlineRenameStore";
 import { persistAppStateNow, useStore } from "../store";
-import {
-  createAllThreadsSelector,
-  createSidebarDisplayThreadsSelector,
-  createSidebarThreadSummariesSelector,
-  createSidebarTreeThreadsSelector,
-} from "../storeSelectors";
+import { createAllThreadsSelector } from "../storeSelectors";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
-import { getThreadFromState } from "../threadDerivation";
 import { useThreadDetailPrewarm } from "../threadDetailPrewarm";
 import { retainThreadDetailSubscription } from "../threadDetailSubscriptionRetention";
 import { useThreadSelectionStore } from "../threadSelectionStore";
-import type { SidebarThreadSummary, Space } from "../types";
+import type { Space } from "../types";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
 import { useVoiceSessionCoordinatorStore } from "../voiceSessionCoordinator";
 import { subscribeToSpaceUiActions } from "../spaceUiEvents";
@@ -144,7 +141,7 @@ import {
   resolveSidebarThreadSummaryStatus,
   resolveVisibleThreadWorkStatus,
   shouldClearThreadSelectionOnMouseDown,
-  shouldPrunePinnedThreads,
+  shouldPrunePinnedFolders,
   shouldShowDebugFeatureFlagsMenu,
   sortFoldersForSidebar,
   sortThreadsForSidebar,
@@ -369,7 +366,52 @@ export default function Sidebar() {
   );
   const activeSpaceId = resolveActiveSpaceId(storedActiveSpaceId, spaces, pendingActiveSpaceId);
   const threadsHydrated = useStore((store) => store.threadsHydrated);
-  const sidebarThreadSummaryById = useStore((store) => store.sidebarThreadSummaryById);
+  const canonicalSidebarRows = useSidebarThreadRows();
+  const sidebarThreadSummaryById = useMemo(
+    () => Object.fromEntries(canonicalSidebarRows.map((row) => [row.id, row])),
+    [canonicalSidebarRows],
+  );
+  const missingAncestorKey = useMemo(() => {
+    const known = new Set(canonicalSidebarRows.map((row) => row.id));
+    return JSON.stringify(
+      [
+        ...new Set(
+          canonicalSidebarRows.flatMap((row) =>
+            row.parentThreadId !== null && !known.has(row.parentThreadId)
+              ? [row.parentThreadId]
+              : [],
+          ),
+        ),
+      ].sort(),
+    );
+  }, [canonicalSidebarRows]);
+  useEffect(() => {
+    for (const parentId of JSON.parse(missingAncestorKey) as string[])
+      void loadThread(ThreadId.makeUnsafe(parentId)).catch((error: unknown) =>
+        toastManager.add({
+          type: "error",
+          title: "Could not load thread",
+          description: error instanceof Error ? error.message : String(error),
+        }),
+      );
+  }, [missingAncestorKey]);
+  useEffect(() => {
+    const report = (error: unknown) =>
+      toastManager.add({
+        type: "error",
+        title: "Could not load threads",
+        description: error instanceof Error ? error.message : String(error),
+      });
+    for (const space of spaces)
+      void loadThreadPage({ spaceId: space.id, folderId: null }).catch(report);
+    for (const folder of folders) {
+      if (folder.spaceId !== null && folder.spaceId !== undefined)
+        void loadThreadPage({ spaceId: folder.spaceId, folderId: folder.id }).catch(report);
+      else
+        for (const space of spaces)
+          void loadThreadPage({ spaceId: space.id, folderId: folder.id }).catch(report);
+    }
+  }, [spaces, folders]);
   const syncServerShellSnapshot = useStore((store) => store.syncServerShellSnapshot);
   const markThreadVisited = useStore((store) => store.markThreadVisited);
   const markThreadUnread = useStore((store) => store.markThreadUnread);
@@ -584,10 +626,15 @@ export default function Sidebar() {
   const routeActiveSidebarThreadId = routedSidebarThreadId ?? retainedDeckSidebarThreadId;
   const activeSidebarThreadId = optimisticActiveThreadId ?? routeActiveSidebarThreadId;
   const visualActiveSidebarThreadId = activeSidebarThreadId;
-  const selectSidebarThreads = useMemo(() => createSidebarThreadSummariesSelector(), []);
-  const selectSidebarTreeThreads = useMemo(() => createSidebarTreeThreadsSelector(), []);
-  const sidebarThreads = useStore(selectSidebarThreads);
-  const sidebarTreeThreads = useStore(selectSidebarTreeThreads);
+  const sidebarThreads = useMemo(
+    () =>
+      canonicalSidebarRows.filter((row) => row.archivedAt === null && row.parentThreadId === null),
+    [canonicalSidebarRows],
+  );
+  const sidebarTreeThreads = useMemo(
+    () => canonicalSidebarRows.filter((row) => row.archivedAt === null),
+    [canonicalSidebarRows],
+  );
   const dismissThreadStatus = useCallback(
     (threadId: ThreadId, statusKey: string | null | undefined) => {
       if (!statusKey) {
@@ -616,9 +663,10 @@ export default function Sidebar() {
     });
   }, []);
   const resolveThreadStatusForSidebar = useCallback(
-    (thread: SidebarThreadSummary) =>
+    (thread: SidebarThreadRow) =>
       resolveSidebarThreadSummaryStatus({
         thread,
+        lastVisitedAt: thread.lastVisitedAt,
         dismissedStatusKey: dismissedThreadStatusKeyByThreadId[thread.id],
         isPromotedDraftPending: draftThreadsByThreadId[thread.id]?.promotedTo !== undefined,
         hasLocalSendOwner: localSendOwnerThreadIds.has(thread.id),
@@ -1266,7 +1314,7 @@ export default function Sidebar() {
     ) => {
       const api = readNativeApi();
       if (!api) return;
-      const thread = getThreadFromState(useStore.getState(), threadId);
+      const thread = sidebarThreadSummaryById[threadId];
       if (!thread) return;
       const threadSummary = sidebarThreadSummaryById[threadId];
       const isPinned = pinnedThreadIdSet.has(threadId);
@@ -1859,7 +1907,7 @@ export default function Sidebar() {
     [sidebarTreeThreads],
   );
   const sortedSidebarThreadsByFolderId = useMemo(() => {
-    const byFolderId = new Map<FolderId, SidebarThreadSummary[]>();
+    const byFolderId = new Map<FolderId, SidebarThreadRow[]>();
     for (const [folderId, projectThreads] of sidebarThreadsByFolderId) {
       byFolderId.set(
         folderId,
@@ -2233,7 +2281,7 @@ export default function Sidebar() {
   }, [standardFolders]);
 
   useEffect(() => {
-    if (!shouldPrunePinnedThreads({ threadsHydrated })) {
+    if (!shouldPrunePinnedFolders({ threadsHydrated })) {
       return;
     }
     prunePinnedFolders(allStandardFoldersBase.map((project) => project.id));
@@ -2529,6 +2577,9 @@ export default function Sidebar() {
                     : undefined,
                 ),
               )}
+              {!canShowMoreThreads ? (
+                <SidebarThreadPageEnd spaceId={project.spaceId} folderId={project.id} />
+              ) : null}
               {canShowMoreThreads ? (
                 <ShowMoreRow
                   onClick={() => showMoreThreadsForProject(pagingKey, threadListExtraPages)}
@@ -2548,7 +2599,7 @@ export default function Sidebar() {
   }
 
   function renderPencilThreadRow(
-    thread: SidebarThreadSummary,
+    thread: SidebarThreadRow,
     orderedProjectThreadIds: readonly ThreadId[],
     depth = 0,
     levelOverride?: "root" | "nested",
@@ -3650,14 +3701,18 @@ function SidebarSearchPaletteController(props: {
   onOpenThread: (threadId: string) => void;
 }) {
   const selectAllThreads = useMemo(() => createAllThreadsSelector(), []);
-  const selectSidebarDisplayThreads = useMemo(() => createSidebarDisplayThreadsSelector(), []);
+  const canonicalSidebarRows = useSidebarThreadRows();
   const importProviderCapabilityQueries = useQueries({
     queries: (["codex", "claudeAgent", "opencode"] as const).map((provider) =>
       providerComposerCapabilitiesQueryOptions(provider),
     ),
   });
   const threads = useStore(selectAllThreads);
-  const sidebarDisplayThreads = useStore(selectSidebarDisplayThreads);
+  const sidebarDisplayThreads = useMemo(
+    () =>
+      canonicalSidebarRows.filter((row) => row.archivedAt === null && row.parentThreadId === null),
+    [canonicalSidebarRows],
+  );
   const importProviders: ReadonlyArray<ImportProviderKind> = (
     ["codex", "claudeAgent", "opencode"] as const
   ).filter((provider, index) => supportsThreadImport(importProviderCapabilityQueries[index]?.data));

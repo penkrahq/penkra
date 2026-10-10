@@ -1,3 +1,4 @@
+import type { SidebarThreadRow } from "../sidebarThreadRows";
 // FILE: spaceNavigation.ts
 // Purpose: Where selecting a Space lands, and which threads a Space is allowed to land on.
 // Layer: Spaces domain helper
@@ -10,7 +11,7 @@ import type { FolderId, SpaceId, ThreadId } from "@penkra/contracts";
 
 import type { ServerWorkspacePaths } from "~/lib/serverWorkspacePaths";
 import { isOrdinarySpaceProject } from "~/lib/spaces";
-import type { Project, SidebarThreadSummary } from "~/types";
+import type { Project } from "~/types";
 
 /** Strict membership: a project Spaces organize, filed into `spaceId`. */
 export function isProjectInSpace(
@@ -57,12 +58,12 @@ export function resolveSpaceSelectionTarget(input: {
   /** Space-assignable folders only; the containers are filtered out by `isProjectInSpace`. */
   folders: readonly Project[];
   projectById: ReadonlyMap<FolderId, Project>;
-  threads: readonly SidebarThreadSummary[];
+  threads: readonly SidebarThreadRow[];
   rememberedThreadId: ThreadId | null;
   rememberedFolderId: FolderId | null;
   paths: ServerWorkspacePaths;
   /** Injected so this stays a domain helper instead of importing sidebar presentation. */
-  sortThreads: (threads: readonly SidebarThreadSummary[]) => readonly SidebarThreadSummary[];
+  sortThreads: (threads: readonly SidebarThreadRow[]) => readonly SidebarThreadRow[];
 }): SpaceSelectionTarget {
   const { paths, projectById, folders, rememberedFolderId, rememberedThreadId, spaceId } = input;
 

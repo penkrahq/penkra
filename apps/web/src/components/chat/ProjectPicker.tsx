@@ -3,12 +3,13 @@
 //          or the native folder picker.
 // Layer: Chat / empty-state entrypoint
 
-import { memo, useCallback, useMemo, useState, type ReactElement } from "react";
+import { memo, useEffect, useCallback, useMemo, useState, type ReactElement } from "react";
 import type { FolderId, SpaceId } from "@penkra/contracts";
 
 import { readNativeApi } from "../../nativeApi";
 import { useStore } from "../../store";
-import { createSidebarDisplayThreadsSelector } from "../../storeSelectors";
+import { loadThreadPage } from "../../threadListStore";
+import { useSidebarThreadRows } from "../../sidebarThreadRows";
 import { PlusIcon, XIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { ELEVATED_HOVER_SURFACE_CLASS_NAME } from "~/surfaceStyles";
@@ -93,10 +94,20 @@ export const ProjectPicker = memo(function ProjectPicker({
   const addActionLabel = addActionLabelProp ?? "Choose from computer…";
   const resetActionLabel = resetActionLabelProp ?? "Don't work in a folder";
   const variant = variantProp ?? "default";
-  const sidebarThreads = useStore(useMemo(() => createSidebarDisplayThreadsSelector(), []));
+  const sidebarThreads = useSidebarThreadRows();
+  const spaces = useStore((state) => state.spaces);
   const [open, setOpen] = useState(false);
   const [isPicking, setIsPicking] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const scopeIds = recentSpaceId === null ? spaces.map((space) => space.id) : [recentSpaceId];
+    for (const spaceId of scopeIds)
+      void loadThreadPage({ spaceId, folderId: recentFolderId }).catch((error: unknown) =>
+        setErrorMessage(error instanceof Error ? error.message : String(error)),
+      );
+  }, [open, recentSpaceId, recentFolderId, spaces]);
 
   const recentFolders = useMemo(() => {
     const seen = new Set<string>();

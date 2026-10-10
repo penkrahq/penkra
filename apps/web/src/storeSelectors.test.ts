@@ -37,7 +37,9 @@ const summaryA = {
   modelSelection: { provider: "codex", model: "gpt-5-codex" },
   session: null,
   createdAt: "2026-01-01T00:00:00.000Z",
-  latestUserMessageAt: null,
+  latestTurn: null,
+  hasPendingApprovals: false,
+  hasPendingUserInput: false,
 } as SidebarThreadSummary;
 
 interface TestStateSlices {
@@ -102,12 +104,22 @@ describe("createThreadShellsSelector", () => {
 });
 
 describe("createComposerThreadMentionSourcesSelector", () => {
-  it("does not rescan summaries when only streaming detail changes", () => {
+  it("does not rescan shells when only streaming detail changes", () => {
     const selectSources = createComposerThreadMentionSourcesSelector();
     const threadIds = [threadIdA];
     let summaryReads = 0;
     const summaryById = new Proxy(
-      { [threadIdA]: summaryA },
+      {
+        [threadIdA]: {
+          ...summaryA,
+          deckId: "deck" as ThreadShell["deckId"],
+          deckSortOrder: 0,
+          runtimeMode: "full-access" as const,
+          codexThreadId: null,
+          error: null,
+          latestUserMessageAt: null,
+        },
+      },
       {
         get(target, property, receiver) {
           summaryReads += 1;
@@ -116,16 +128,18 @@ describe("createComposerThreadMentionSourcesSelector", () => {
       },
     );
 
-    const before = selectSources(makeState({ threadIds, sidebarThreadSummaryById: summaryById }));
+    const before = selectSources(makeState({ threadIds, threadShellById: summaryById }));
     const readsAfterFirstSelection = summaryReads;
     const after = selectSources(
       makeState({
         threadIds,
-        sidebarThreadSummaryById: summaryById,
+        threadShellById: summaryById,
         messageIdsByThreadId: { [threadIdA]: [messageId] },
       }),
     );
 
+    expect(before).toHaveLength(1);
+    expect(readsAfterFirstSelection).toBeGreaterThan(0);
     expect(after).toBe(before);
     expect(summaryReads).toBe(readsAfterFirstSelection);
   });
