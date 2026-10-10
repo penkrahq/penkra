@@ -85,11 +85,39 @@ it.effect("backfills threads and thread_items from the replaced projection table
         readonly provider: string;
         readonly model: string;
         readonly state: string;
+        readonly runtimeMode: string;
+        readonly createdBy: string;
+        readonly createdByThreadId: string | null;
+        readonly isPinned: number;
+        readonly deckId: string | null;
+        readonly sidebarSortOrder: number;
+        readonly lastUserMessageAt: string | null;
+        readonly openQuestionCount: number;
       }>`
-        SELECT id, space_id AS "spaceId", provider, model, state FROM threads
+        SELECT id, space_id AS "spaceId", provider, model, state,
+               runtime_mode AS "runtimeMode", created_by AS "createdBy",
+               created_by_thread_id AS "createdByThreadId", is_pinned AS "isPinned",
+               deck_id AS "deckId", sidebar_sort_order AS "sidebarSortOrder",
+               last_user_message_at AS "lastUserMessageAt",
+               open_question_count AS "openQuestionCount"
+        FROM threads
       `;
       assert.deepStrictEqual(threads, [
-        { id: "thread-1", spaceId: "space-1", provider: "codex", model: "gpt-5.5", state: "idle" },
+        {
+          id: "thread-1",
+          spaceId: "space-1",
+          provider: "codex",
+          model: "gpt-5.5",
+          state: "idle",
+          runtimeMode: "full-access",
+          createdBy: "user",
+          createdByThreadId: null,
+          isPinned: 0,
+          deckId: "deck:thread-1",
+          sidebarSortOrder: 0,
+          lastUserMessageAt: null,
+          openQuestionCount: 0,
+        },
       ]);
 
       const items = yield* sql<{
