@@ -13,8 +13,6 @@
  */
 import type {
   ProviderBackgroundTaskInput,
-  ProviderForkThreadInput,
-  ProviderForkThreadResult,
   ProviderInterruptTurnInput,
   ProviderKind,
   ProviderRespondToRequestInput,
@@ -49,10 +47,6 @@ export type ProviderServiceSessionStartInput = ProviderSessionStartInput & {
    * when routing metadata for the previous conversation still exists.
    */
   readonly resumePolicy?: "use-persisted" | "fresh";
-};
-
-export type ProviderServiceForkThreadInput = ProviderForkThreadInput & {
-  readonly managedLaunch?: ProviderManagedLaunchContext;
 };
 
 export type ProviderRuntimeEventPumpStatus = "starting" | "healthy" | "recovering" | "degraded";
@@ -101,17 +95,6 @@ export interface ProviderServiceShape {
   readonly startReview: (
     input: ProviderStartReviewInput,
   ) => Effect.Effect<ProviderTurnStartResult, ProviderServiceError>;
-
-  /**
-   * Fork a provider thread natively when the underlying adapter supports it.
-   *
-   * Returns a persisted provider-native fork binding when available. A null
-   * result means the exact native operation is unavailable; callers must fail
-   * closed rather than reconstruct provider context from projected history.
-   */
-  readonly forkThread?: (
-    input: ProviderServiceForkThreadInput,
-  ) => Effect.Effect<ProviderForkThreadResult | null, ProviderServiceError>;
 
   /**
    * Interrupt a running provider turn.

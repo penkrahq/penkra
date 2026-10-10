@@ -21,7 +21,6 @@ import {
   hasProviderNativeSlashCommand,
   parseComposerSlashInvocationForCommands,
   parseFastSlashCommandAction,
-  parseForkSlashCommandArgs,
 } from "../composerSlashCommands";
 import { buildThreadImportedMessages } from "../lib/threadImport";
 import { toastManager } from "../components/ui/toast";
@@ -63,7 +62,6 @@ export function useComposerSlashCommands(input: {
   syncServerShellSnapshot: (snapshot: OrchestrationShellSnapshot) => void;
   navigateToThread: (threadId: ThreadId) => Promise<void>;
   handleClearConversation: () => Promise<void> | void;
-  openForkTargetPicker: () => void;
   openReviewTargetPicker: () => void;
   setComposerDraftProviderModelOptions: (
     threadId: ThreadId,
@@ -110,7 +108,6 @@ export function useComposerSlashCommands(input: {
     syncServerShellSnapshot,
     navigateToThread,
     handleClearConversation,
-    openForkTargetPicker,
     openReviewTargetPicker,
     setComposerDraftProviderModelOptions,
     editorActions,
@@ -121,7 +118,6 @@ export function useComposerSlashCommands(input: {
     supportsFastSlashCommand,
     canOfferCompactCommand,
     canOfferReviewCommand: true,
-    canOfferForkCommand: true,
     canOfferExportCommand,
     providerNativeCommandNames,
   });
@@ -226,50 +222,6 @@ export function useComposerSlashCommands(input: {
     [fastModeEnabled, supportsFastSlashCommand, setFastModeFromSlashCommand],
   );
 
-  const createForkThreadFromSlashCommand = useCallback(async () => {
-    const api = readNativeApi();
-    if (!api || !activeProject || !activeThread || !isServerThread) {
-      toastManager.add({
-        type: "warning",
-        title: "Fork is unavailable",
-        description: "Only existing server-backed threads can be forked right now.",
-      });
-      return true;
-    }
-
-    const importedMessages = buildThreadImportedMessages(activeThread);
-
-    const nextThreadId = newThreadId();
-    const createdAt = new Date().toISOString();
-    await api.orchestration.dispatchCommand({
-      type: "thread.fork.create",
-      commandId: newCommandId(),
-      threadId: nextThreadId,
-      deckId: activeThread.deckId,
-      sourceThreadId: activeThread.id,
-      folderId: activeProject.id,
-      title: activeThread.title,
-      modelSelection: selectedModelSelection,
-      runtimeMode,
-      workingDirectory: activeThread.workingDirectory ?? null,
-      importedMessages: [...importedMessages],
-      createdAt,
-    });
-    const snapshot = await api.orchestration.getShellSnapshot();
-    syncServerShellSnapshot(snapshot);
-    await navigateToThread(nextThreadId);
-    return true;
-  }, [
-    activeProject,
-    activeThread,
-    isServerThread,
-    navigateToThread,
-    runtimeMode,
-    selectedConnectionId,
-    selectedModelSelection,
-    syncServerShellSnapshot,
-  ]);
-
   const runCodexReviewStart = useCallback(async () => {
     const api = readNativeApi();
     if (!api || !activeThread || !activeProject) {
@@ -293,9 +245,9 @@ export function useComposerSlashCommands(input: {
       if (selectedConnectionId === undefined) {
         throw new Error("Choose a Connection before starting a review.");
       }
-      await api.orchestration.dispatchCommand({
-        type: "thread.create",
-        commandId: newCommandId(),
+      await api.cleanCore.createThread({
+        creator: { kind: "user" },
+        connection: { kind: "selected", connectionId: selectedConnectionId },
         threadId: nextThreadId,
         deckId: activeThread.deckId,
         folderId: activeProject.id,
@@ -356,24 +308,6 @@ export function useComposerSlashCommands(input: {
       editorActions.scheduleComposerFocus();
     },
     [editorActions, selectedProvider, runCodexReviewStart],
-  );
-
-  const handleForkTargetSelection = useCallback(
-    async (_target: "local") => {
-      try {
-        await createForkThreadFromSlashCommand();
-      } catch (error) {
-        toastManager.add({
-          type: "error",
-          title: "Could not fork thread",
-          description:
-            error instanceof Error
-              ? error.message
-              : "An error occurred while creating the forked thread.",
-        });
-      }
-    },
-    [createForkThreadFromSlashCommand],
   );
 
   const checkClaudeFastSlashCommandAvailability = useCallback(async (): Promise<boolean> => {
@@ -554,46 +488,14 @@ export function useComposerSlashCommands(input: {
         runFastSlashCommand(trimmed);
         return true;
       }
-      if (slashInvocation.command === "fork") {
-        const { target, invalid } = parseForkSlashCommandArgs(slashInvocation.args);
-        if (invalid) {
-          toastManager.add({
-            type: "warning",
-            title: "Invalid /fork command",
-            description: "Use /fork or /fork local.",
-          });
-          return true;
-        }
-        try {
-          if (!target) {
-            editorActions.clearComposerSlashDraft();
-            openForkTargetPicker();
-            return true;
-          }
-          await createForkThreadFromSlashCommand();
-          editorActions.clearComposerSlashDraft();
-        } catch (error) {
-          toastManager.add({
-            type: "error",
-            title: "Could not fork thread",
-            description:
-              error instanceof Error
-                ? error.message
-                : "An error occurred while creating the forked thread.",
-          });
-        }
-        return true;
-      }
       return false;
     },
     [
       availableBuiltInSlashCommands,
       checkClaudeFastSlashCommandAvailability,
       compactProviderThread,
-      createForkThreadFromSlashCommand,
       editorActions,
       handleClearConversation,
-      openForkTargetPicker,
       openFeedbackDialog,
       openReviewTargetPicker,
       selectedProvider,
@@ -749,23 +651,11 @@ export function useComposerSlashCommands(input: {
         editorActions.scheduleComposerFocus();
         return;
       }
-
-      if (item.command === "fork") {
-        const applied = clearSlashCommandFromComposer();
-        if (!wasPromptReplacementApplied(applied)) {
-          return;
-        }
-        editorActions.setComposerHighlightedItemId(null);
-        openForkTargetPicker();
-        editorActions.scheduleComposerFocus();
-        return;
-      }
     },
     [
       compactProviderThread,
       editorActions,
       handleClearConversation,
-      openForkTargetPicker,
       openFeedbackDialog,
       openReviewTargetPicker,
       selectedProvider,
@@ -776,7 +666,6 @@ export function useComposerSlashCommands(input: {
   );
 
   return {
-    handleForkTargetSelection,
     handleReviewTargetSelection,
     isSlashStatusDialogOpen,
     setIsSlashStatusDialogOpen,

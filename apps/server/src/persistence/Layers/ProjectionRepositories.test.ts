@@ -5,18 +5,17 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { SqlitePersistenceMemory } from "./Sqlite.ts";
 import { ProjectionFolderRepositoryLive } from "./ProjectionFolders.ts";
-import { ProjectionThreadRepositoryLive } from "./ProjectionThreads.ts";
+import { createThread, setThreadDeleted } from "../../cleanCore/threadStore.ts";
+import { getThread } from "../../cleanCore/threadList.ts";
 import { ProjectionStateRepositoryLive } from "./ProjectionState.ts";
 import { ProjectionTurnRepositoryLive } from "./ProjectionTurns.ts";
 import { ProjectionFolderRepository } from "../Services/ProjectionFolders.ts";
-import { ProjectionThreadRepository } from "../Services/ProjectionThreads.ts";
 import { ProjectionStateRepository } from "../Services/ProjectionState.ts";
 import { ProjectionTurnRepository } from "../Services/ProjectionTurns.ts";
 
 const projectionRepositoriesLayer = it.layer(
   Layer.mergeAll(
     ProjectionFolderRepositoryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
-    ProjectionThreadRepositoryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
     ProjectionStateRepositoryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
     ProjectionTurnRepositoryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
     SqlitePersistenceMemory,
@@ -75,58 +74,23 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
     }),
   );
 
-  it.effect("stores JSON for thread model options", () =>
+  it.effect("stores canonical thread model options without adding defaults", () =>
     Effect.gen(function* () {
-      const threads = yield* ProjectionThreadRepository;
-      const sql = yield* SqlClient.SqlClient;
-
-      yield* threads.upsert({
-        threadId: ThreadId.makeUnsafe("thread-null-options"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-null-options")),
-        deckSortOrder: 0,
-        folderId: FolderId.makeUnsafe("project-null-options"),
-        title: "Null options thread",
-        modelSelection: {
-          provider: "claudeAgent",
-          model: "claude-opus-4-6",
-        },
-        runtimeMode: "full-access",
-        latestTurnId: null,
-        latestUserMessageAt: null,
-        pendingApprovalCount: 0,
-        pendingUserInputCount: 0,
-        createdAt: "2026-03-24T00:00:00.000Z",
-        updatedAt: "2026-03-24T00:00:00.000Z",
-        deletedAt: null,
-      });
-
-      const rows = yield* sql<{
-        readonly modelSelection: string | null;
-      }>`
-        SELECT model_selection_json AS "modelSelection"
-        FROM projection_threads
-        WHERE thread_id = 'thread-null-options'
-      `;
-      const row = rows[0];
-      if (!row) {
-        return yield* Effect.fail(new Error("Expected projection_threads row to exist."));
-      }
-
-      assert.strictEqual(
-        row.modelSelection,
-        JSON.stringify({
-          provider: "claudeAgent",
-          model: "claude-opus-4-6",
-        }),
-      );
-
-      const persisted = yield* threads.getById({
-        threadId: ThreadId.makeUnsafe("thread-null-options"),
-      });
-      assert.deepStrictEqual(Option.getOrNull(persisted)?.modelSelection, {
+      yield* createThread({
+        id: "thread-null-options",
+        spaceId: "space",
+        folderId: "folder",
+        title: "Thread",
         provider: "claudeAgent",
         model: "claude-opus-4-6",
+        modelOptions: null,
+        runtimeMode: "full-access",
+        createdBy: "user",
+        createdAt: "2026-03-24T00:00:00.000Z",
       });
+      const row = yield* getThread(ThreadId.makeUnsafe("thread-null-options"));
+      assert.equal(row.model, "claude-opus-4-6");
+      assert.equal(row.modelOptions, null);
     }),
   );
 
@@ -158,27 +122,22 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
 
   it.effect("batches pinned turn state with current thread existence", () =>
     Effect.gen(function* () {
-      const threads = yield* ProjectionThreadRepository;
       const turns = yield* ProjectionTurnRepository;
       const now = "2026-07-19T00:00:00.000Z";
-      const makeThread = (threadId: string, deletedAt: string | null) => ({
-        threadId: ThreadId.makeUnsafe(threadId),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe(threadId)),
-        deckSortOrder: 0,
-        folderId: FolderId.makeUnsafe("project-wait-snapshot"),
-        title: threadId,
-        modelSelection: { provider: "codex" as const, model: "gpt-5.5" },
-        runtimeMode: "approval-required" as const,
-        latestTurnId: null,
-        latestUserMessageAt: null,
-        pendingApprovalCount: 0,
-        pendingUserInputCount: 0,
-        createdAt: now,
-        updatedAt: now,
-        deletedAt,
-      });
-      yield* threads.upsert(makeThread("thread-wait-active", null));
-      yield* threads.upsert(makeThread("thread-wait-deleted", now));
+      for (const id of ["thread-wait-active", "thread-wait-deleted"]) {
+        yield* createThread({
+          id,
+          spaceId: "space",
+          folderId: "project-wait-snapshot",
+          title: id,
+          provider: "codex",
+          model: "gpt-5.5",
+          runtimeMode: "approval-required",
+          createdBy: "user",
+          createdAt: now,
+        });
+      }
+      yield* setThreadDeleted("thread-wait-deleted", now, now);
       yield* turns.upsertByTurnId({
         threadId: ThreadId.makeUnsafe("thread-wait-active"),
         turnId: TurnId.makeUnsafe("turn-wait-active"),

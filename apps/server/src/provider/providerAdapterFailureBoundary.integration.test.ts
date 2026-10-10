@@ -1,3 +1,4 @@
+import { createThreadFixture } from "../cleanCore/threadFixtures.ts";
 import { singletonThreadDeckId } from "@penkra/contracts";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -477,6 +478,7 @@ async function makeProviderRuntime(
   const provider = await runtime.runPromise(Effect.service(ProviderService));
   const events = await runtime.runPromise(Effect.service(ProviderRuntimeEventRepository));
   const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
+  const sql = await runtime.runPromise(Effect.service(SqlClient.SqlClient));
   const projection = await runtime.runPromise(Effect.service(ProjectionSnapshotQuery));
   const ingestion = await runtime.runPromise(Effect.service(ProviderRuntimeIngestionService));
   const reactor = await runtime.runPromise(Effect.service(ProviderCommandReactor));
@@ -520,17 +522,17 @@ async function makeProviderRuntime(
     }),
   );
   await runtime.runPromise(
-    engine.dispatch({
-      type: "thread.create",
-      commandId: CommandId.makeUnsafe("cmd-boundary-thread"),
+    createThreadFixture(sql, {
       threadId: THREAD_ID,
-      deckId: singletonThreadDeckId(THREAD_ID),
       folderId: FolderId.makeUnsafe("folder-boundary"),
+      deckId: singletonThreadDeckId(THREAD_ID),
       title: "Adapter boundary",
       modelSelection: MODEL_SELECTION,
       runtimeMode: "full-access",
       workingDirectory: "/tmp/provider-boundary",
       createdAt: now,
+      connection: { kind: "selected", connectionId: null },
+      creator: { kind: "user" },
     }),
   );
   if (probe)

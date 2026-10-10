@@ -32,7 +32,6 @@ import {
 } from "./orchestration/Services/ProviderCommandReactor";
 import { ProviderThreadSwitchCoordinator } from "./orchestration/Services/ProviderThreadSwitchCoordinator";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
-import { ThreadDeletionReactor } from "./orchestration/Services/ThreadDeletionReactor";
 import { settleRunningThreadsOnStartup } from "./cleanCore/providerStreamConsumer.ts";
 import { ThreadPublisher } from "./cleanCore/ThreadPublisher.ts";
 import { ProviderSessionReaper } from "./provider/Services/ProviderSessionReaper";
@@ -72,7 +71,6 @@ export interface ServerShape {
     | ProviderService
     | ServerRuntimeStartup
     | ServerSettingsService
-    | ThreadDeletionReactor
     | WorkspaceWatcher
     | SqlClient.SqlClient
   >;
@@ -159,7 +157,6 @@ export const createEffectServer = Effect.fn(function* (
   const threadPublisher = yield* ThreadPublisher;
   const runtimeStartup = yield* ServerRuntimeStartup;
   const serverSettings = yield* ServerSettingsService;
-  const threadDeletionReactor = yield* ThreadDeletionReactor;
   const readiness = yield* makeServerReadiness;
 
   yield* keybindings.syncDefaultKeybindingsOnStartup.pipe(
@@ -242,10 +239,6 @@ export const createEffectServer = Effect.fn(function* (
   yield* runStartupStage(
     "orchestration-reactor.start",
     Scope.provide(orchestrationReactor.start, subscriptionsScope),
-  );
-  yield* runStartupStage(
-    "thread-deletion-reactor.start",
-    Scope.provide(threadDeletionReactor.start(), subscriptionsScope),
   );
   yield* runStartupStage(
     "provider-session-reaper.start",

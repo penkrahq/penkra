@@ -214,7 +214,7 @@ layer("OrchestrationEventDeliveryRepository", (it) => {
           occurred_at, command_id, causation_event_id, correlation_id,
           actor_kind, payload_json, metadata_json
         ) VALUES (
-          'evt-expired-delivery', 'thread', 'thread-expired', 0, 'thread.created',
+          'evt-expired-delivery', 'thread', 'thread-expired', 0, 'folder.created',
           ${now}, 'cmd-expired-delivery', NULL, NULL, 'server',
           '{"threadId":"thread-expired"}', '{}'
         )

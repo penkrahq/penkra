@@ -85,11 +85,7 @@ const READ_PAGE_SIZE = 500;
 const CURRENT_PERSISTED_EVENT_SCHEMA_VERSION = 2;
 const LEGACY_PERSISTED_EVENT_SCHEMA_VERSION = 0;
 const PERSISTED_EVENT_SCHEMA_VERSION_KEY = "persistedEventSchemaVersion";
-const LEGACY_MODEL_SELECTION_EVENT_TYPES = new Set([
-  "thread.created",
-  "thread.updated",
-  "thread.turn-start-requested",
-]);
+const LEGACY_MODEL_SELECTION_EVENT_TYPES = new Set(["thread.turn-start-requested"]);
 
 type RawPersistedEventRow = typeof RawPersistedEventRowSchema.Type;
 type ParsedPersistedEventRow = Omit<RawPersistedEventRow, "payloadJson" | "metadataJson"> & {
@@ -182,27 +178,13 @@ function normalizeLegacyEventRow(row: ParsedPersistedEventRow): ParsedPersistedE
   return normalizedPayload === undefined ? row : { ...row, payload: normalizedPayload };
 }
 
-function addThreadDeckIdentity(row: ParsedPersistedEventRow): ParsedPersistedEventRow {
-  if (row.type !== "thread.created" || !isRecord(row.payload)) return row;
-  const threadId = readTrimmedString(row.payload, "threadId");
-  if (!threadId) return row;
-  return {
-    ...row,
-    payload: {
-      ...row.payload,
-      deckId: row.payload.deckId ?? `deck:${threadId}`,
-      deckSortOrder: row.payload.deckSortOrder ?? 0,
-    },
-  };
-}
-
 type PersistedEventUpcaster = (row: ParsedPersistedEventRow) => ParsedPersistedEventRow;
 
 // Every unversioned event passes through the same v0 -> v1 boundary. Most event types are a
 // no-op; the model-selection families need the historical shape normalization above.
 const PERSISTED_EVENT_UPCASTERS: Readonly<Record<number, PersistedEventUpcaster>> = {
   [LEGACY_PERSISTED_EVENT_SCHEMA_VERSION]: normalizeLegacyEventRow,
-  1: addThreadDeckIdentity,
+  1: (row) => row,
 };
 
 function persistedEventDecodeOperation(

@@ -1,3 +1,6 @@
+import { makeAgentCreationIds, stableGatewayDigest } from "../creationUtils.ts";
+import { ThreadRunningError } from "../../cleanCore/threadStore.ts";
+import { ThreadLifecycle } from "../../cleanCore/threadLifecycle.ts";
 import { ThreadSender, type ThreadSendInput } from "../../cleanCore/ThreadSender.ts";
 import { assert, describe, it } from "@effect/vitest";
 import type {
@@ -54,10 +57,7 @@ import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
-import {
-  AgentGatewayCreationAdmissionRepository,
-  type AgentGatewayCreationAdmission,
-} from "../../persistence/Services/AgentGatewayCreationAdmissions.ts";
+
 import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
 import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
 import { AgentGateway } from "../Services/AgentGateway.ts";
@@ -111,12 +111,12 @@ function makeThreadShell(
     title: `Thread ${id}`,
     modelSelection: { provider: "codex", model: "gpt-5.5" },
     runtimeMode: "approval-required",
+    workingDirectory: null,
     isPinned: false,
     parentThreadId: null,
     subagentAgentId: null,
     subagentNickname: null,
     subagentRole: null,
-    forkSourceThreadId: null,
     latestTurn:
       id === "thread-parent"
         ? {
@@ -158,6 +158,7 @@ function makeThreadDetail(shell: OrchestrationThreadShell): OrchestrationThread 
 }
 
 interface GatewayHarness {
+  readonly getThread: (id: string) => OrchestrationThreadShell | undefined;
   readonly sent: ThreadSendInput[];
   readonly dispatched: Array<OrchestrationCommand>;
   readonly setThreadDetail: (thread: OrchestrationThread) => void;
@@ -265,8 +266,7 @@ function makeHarnessLayer(
     };
     readonly dispatchDelayMs?: number;
     readonly providerStatuses?: ReadonlyArray<ServerProviderStatus>;
-    readonly pauseAfterDispatch?: {
-      readonly commandType: OrchestrationCommand["type"];
+    readonly pauseAfterCreate?: {
       readonly entered: Deferred.Deferred<void>;
       readonly release: Deferred.Deferred<void>;
     };
@@ -328,18 +328,6 @@ function makeHarnessLayer(
           : new Set(["thread:read", "thread:write", "diagnostics:read"] as const),
     };
   };
-  const creationAdmissions = new Map<string, AgentGatewayCreationAdmission>();
-  const creationAdmissionsLayer = Layer.succeed(AgentGatewayCreationAdmissionRepository, {
-    get: (operationId: string) =>
-      Effect.succeed(Option.fromNullishOr(creationAdmissions.get(operationId))),
-    reserve: (admission: AgentGatewayCreationAdmission) =>
-      Effect.sync(() => {
-        const existing = creationAdmissions.get(admission.operationId);
-        if (existing) return { kind: "existing" as const, admission: existing };
-        creationAdmissions.set(admission.operationId, admission);
-        return { kind: "reserved" as const, admission };
-      }),
-  });
   const commandReceiptsLayer = Layer.succeed(OrchestrationCommandReceiptRepository, {
     insert: () => Effect.die("unused receipt insert"),
     getByCommandId: () => Effect.succeed(Option.none()),
@@ -392,6 +380,105 @@ function makeHarnessLayer(
   });
 
   const threadsById = new Map(threads.map((thread) => [thread.id as string, thread]));
+  const summary = (
+    thread: OrchestrationThreadShell,
+  ): import("@penkra/contracts").CleanCoreThreadSummary => ({
+    id: thread.id,
+    spaceId: SPACE_ID,
+    folderId: thread.folderId,
+    title: thread.title,
+    provider: thread.modelSelection.provider,
+    connectionId: thread.connectionId === undefined ? null : thread.connectionId,
+    model: thread.modelSelection.model,
+    modelOptions:
+      thread.modelSelection.options === undefined
+        ? null
+        : JSON.stringify(thread.modelSelection.options),
+    runtimeMode: thread.runtimeMode,
+    workingDirectory: thread.workingDirectory === undefined ? null : thread.workingDirectory,
+    state: thread.session?.status === "running" ? "running" : "idle",
+    activeTurnId:
+      thread.session === null || thread.session.activeTurnId === undefined
+        ? null
+        : thread.session.activeTurnId,
+    lastError: null,
+    createdBy: thread.creationSource === "penkra_mcp" ? "agent" : "user",
+    createdByThreadId: thread.sourceThreadId === undefined ? null : thread.sourceThreadId,
+    parentThreadId: null,
+    deckId: thread.deckId,
+    deckSortOrder: thread.deckSortOrder,
+    sidebarSortOrder: null,
+    isPinned: thread.isPinned ? 1 : 0,
+    lastActivityAt: null,
+    lastMessagePreview: null,
+    lastUserMessageAt: null,
+    lastVisitedAt: null,
+    openQuestionCount: 0,
+    archivedAt: thread.archivedAt === undefined ? null : thread.archivedAt,
+    deletedAt: null,
+    createdAt: thread.createdAt,
+    updatedAt: thread.updatedAt,
+  });
+  const lifecycleLayer = Layer.succeed(ThreadLifecycle, {
+    get: (threadId) =>
+      Effect.sync(() => {
+        const thread = threadsById.get(threadId);
+        return thread === undefined ? null : summary(thread);
+      }),
+    create: (input) =>
+      Effect.sync(() => {
+        const existing = threadsById.get(input.threadId);
+        if (existing !== undefined) return { thread: summary(existing), created: false };
+        const thread = makeThreadShell(input.threadId, {
+          folderId: input.folderId,
+          deckId: input.deckId,
+          title: input.title,
+          modelSelection: input.modelSelection,
+          runtimeMode: input.runtimeMode,
+          workingDirectory: input.workingDirectory,
+          connectionId:
+            input.connection.kind === "selected" ? input.connection.connectionId : CONNECTION_ID,
+          creationSource: input.creator.kind === "agent" ? "penkra_mcp" : null,
+          sourceThreadId: input.creator.kind === "agent" ? input.creator.threadId : null,
+          createdAt: input.createdAt,
+          updatedAt: input.createdAt,
+        });
+        threadsById.set(input.threadId, thread);
+        return { thread: summary(thread), created: true };
+      }).pipe(
+        Effect.flatMap((result) =>
+          options.pauseAfterCreate === undefined
+            ? Effect.succeed(result)
+            : Deferred.succeed(options.pauseAfterCreate.entered, undefined).pipe(
+                Effect.andThen(Deferred.await(options.pauseAfterCreate.release)),
+                Effect.as(result),
+              ),
+        ),
+      ),
+    update: (input) =>
+      Effect.suspend(() => {
+        if (options.rejectRunningArchive && input.action === "archive" && input.archivedAt !== null)
+          return Effect.fail(new ThreadRunningError());
+        return Effect.sync(() => {
+          const thread = threadsById.get(input.threadId);
+          if (thread === undefined) return;
+          if (input.action === "rename")
+            threadsById.set(input.threadId, {
+              ...thread,
+              title: input.title,
+              updatedAt: input.updatedAt,
+            });
+          else if (input.action === "archive")
+            threadsById.set(input.threadId, {
+              ...thread,
+              archivedAt: input.archivedAt,
+              updatedAt: input.updatedAt,
+            });
+          else threadsById.delete(input.threadId);
+        });
+      }),
+  });
+
   const threadDetailsById = new Map(options.threadDetails ?? []);
   const projectionTurnsByKey = new Map<
     string,
@@ -773,15 +860,6 @@ function makeHarnessLayer(
                 }),
               );
             }
-            if (options.rejectRunningArchive && command.type === "thread.archive") {
-              return Effect.fail(
-                new OrchestrationCommandInvariantError({
-                  commandType: command.type,
-                  code: "thread_running",
-                  detail: "This thread is still running. Stop it before archiving.",
-                }),
-              );
-            }
             dispatched.push(command);
             if (command.type === "thread.turn.cancel-queued" && command.turnId !== undefined) {
               const key = `${command.threadId}:${command.turnId}`;
@@ -829,11 +907,7 @@ function makeHarnessLayer(
             const result = options.failDispatch?.(command)
               ? Effect.fail(new Error("injected dispatch failure"))
               : Effect.succeed({ sequence: dispatched.length });
-            if (options.pauseAfterDispatch?.commandType !== command.type) return result;
-            return Deferred.succeed(options.pauseAfterDispatch.entered, undefined).pipe(
-              Effect.andThen(Deferred.await(options.pauseAfterDispatch.release)),
-              Effect.andThen(result),
-            );
+            return result;
           }),
         ),
       ),
@@ -1021,7 +1095,7 @@ function makeHarnessLayer(
 
   const sent: ThreadSendInput[] = [];
   const gatewayLayer = AgentGatewayLive.pipe(
-    Layer.provide(creationAdmissionsLayer),
+    Layer.provide(lifecycleLayer),
     Layer.provide(commandReceiptsLayer),
     Layer.provide(AgentGatewayToolBridgeLive),
     Layer.provide(credentialsLayer),
@@ -1064,6 +1138,7 @@ function makeHarnessLayer(
   ).pipe(
     Layer.provide(
       Layer.succeed(ThreadSender, {
+        runExclusive: (_threadId, action) => action,
         getRuntime: () => Effect.succeed({ state: "idle", activeTurnId: null }),
         editQueued: () => Effect.die("Gateway does not edit composer drafts"),
         queuedThread: () => Effect.succeed(ThreadId.makeUnsafe("thread-cancel-queued")),
@@ -1130,6 +1205,7 @@ function makeHarnessLayer(
     return {
       dispatched,
       sent,
+      getThread: (id) => threadsById.get(id),
       setThreadDetail: (thread) => {
         threadsById.set(thread.id, thread);
         threadDetailsById.set(thread.id, thread);
@@ -1423,8 +1499,7 @@ describe("AgentGateway", () => {
         const entered = yield* Deferred.make<void>();
         const release = yield* Deferred.make<void>();
         const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
-          pauseAfterDispatch: {
-            commandType: "thread.create",
+          pauseAfterCreate: {
             entered,
             release,
           },
@@ -1472,9 +1547,7 @@ describe("AgentGateway", () => {
             ],
             { concurrency: "unbounded" },
           );
-          const turnStarts = harness.dispatched.filter(
-            (command) => command.type === "thread.turn.start",
-          );
+          const turnStarts = harness.sent;
           if (replacement === "same-native-steer") {
             assert.isFalse(isToolError(response.result), toolErrorText(response.result));
             assert.equal(turnStarts.length, 1);
@@ -1485,14 +1558,8 @@ describe("AgentGateway", () => {
               "caller_turn_inactive",
             );
             assert.equal(turnStarts.length, 0);
-            const create = harness.dispatched.filter((command) => command.type === "thread.create");
-            const deleted = new Set(
-              harness.dispatched
-                .filter((command) => command.type === "thread.delete")
-                .map((command) => command.threadId),
-            );
-            assert.equal(create.length, 1);
-            assert.isTrue(create.every((command) => deleted.has(command.threadId)));
+            // The accepted child is retained; a retry uses its client-chosen id.
+            assert.equal(harness.dispatched.length, 0);
           }
         }).pipe(Effect.provide(gatewayLayer));
       }),
@@ -1538,10 +1605,7 @@ describe("AgentGateway", () => {
         (toolResultJson(response.result).error as { code: string }).code,
         "caller_turn_inactive",
       );
-      assert.equal(
-        harness.dispatched.filter((command) => command.type === "thread.create").length,
-        0,
-      );
+      assert.equal(harness.sent.length, 0);
     }).pipe(Effect.provide(gatewayLayer));
   });
 
@@ -2807,7 +2871,7 @@ describe("AgentGateway", () => {
     });
     const olderEvent = {
       sequence: 1,
-      type: "thread.archived",
+      type: "thread.session-stop-requested",
       eventId: EventId.makeUnsafe("event-archived-1"),
       aggregateKind: "thread",
       aggregateId: threadId,
@@ -2816,7 +2880,7 @@ describe("AgentGateway", () => {
       causationEventId: null,
       correlationId: null,
       metadata: {},
-      payload: { threadId, archivedAt: NOW, updatedAt: NOW },
+      payload: { threadId, createdAt: NOW },
     } as OrchestrationEvent;
     const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
       diagnosticEvents: [olderEvent, ...messageEvents],
@@ -2845,7 +2909,7 @@ describe("AgentGateway", () => {
       );
       assert.deepInclude((second.events as Array<Record<string, unknown>>)[0] ?? {}, {
         sequence: 1,
-        type: "thread.archived",
+        type: "thread.session-stop-requested",
       });
     }).pipe(Effect.provide(gatewayLayer));
   });
@@ -2897,7 +2961,7 @@ describe("AgentGateway", () => {
     const events: ReadonlyArray<OrchestrationEvent> = [
       {
         sequence: 7,
-        type: "thread.archived",
+        type: "thread.session-stop-requested",
         eventId: EventId.makeUnsafe("event-diagnostic-7"),
         aggregateKind: "thread",
         aggregateId: threadId,
@@ -2906,7 +2970,7 @@ describe("AgentGateway", () => {
         causationEventId: null,
         correlationId: null,
         metadata: {},
-        payload: { threadId, archivedAt: NOW, updatedAt: NOW },
+        payload: { threadId, createdAt: NOW },
       },
     ];
     const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
@@ -3187,20 +3251,26 @@ describe("AgentGateway", () => {
   it.effect("preserves an existing creation binding instead of resolving a changed default", () => {
     const originalAccount = ProviderConnectionId.makeUnsafe("original-account");
     const discoveryInputs: unknown[] = [];
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
-      existingBinding: {
-        threadId: ThreadId.makeUnsafe("existing-created-thread"),
-        connectionId: originalAccount,
-        installationId: ProviderInstallationId.makeUnsafe("installation"),
-        internalProviderId: null,
-        modelId: "gpt-5.5",
-        revision: 0,
-        createdAt: NOW,
-        updatedAt: NOW,
+    const existingIds = makeAgentCreationIds(
+      `gateway:create:${stableGatewayDigest({ principalKind: "provider-session", principalId: "thread-parent", requestId: "retry-existing" })}`,
+    );
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(
+      [...baseThreads, makeThreadShell(existingIds.threadId, { connectionId: originalAccount })],
+      {
+        existingBinding: {
+          threadId: ThreadId.makeUnsafe("existing-created-thread"),
+          connectionId: originalAccount,
+          installationId: ProviderInstallationId.makeUnsafe("installation"),
+          internalProviderId: null,
+          modelId: "gpt-5.5",
+          revision: 0,
+          createdAt: NOW,
+          updatedAt: NOW,
+        },
+        resolveConnection: () => assert.fail("A creation retry must not select a new default"),
+        discoverModels: (input) => discoveryInputs.push(input),
       },
-      resolveConnection: () => assert.fail("A creation retry must not select a new default"),
-      discoverModels: (input) => discoveryInputs.push(input),
-    });
+    );
     return Effect.gen(function* () {
       const harness = yield* makeHarness;
       const args = {
@@ -3219,11 +3289,8 @@ describe("AgentGateway", () => {
         provider: "codex",
         connectionId: originalAccount,
       });
-      const turn = harness.dispatched.find((command) => command.type === "thread.turn.start");
-      assert.equal(
-        turn?.type === "thread.turn.start" ? turn.connectionId : undefined,
-        originalAccount,
-      );
+      assert.equal(harness.getThread(existingIds.threadId)!.connectionId, originalAccount);
+      assert.equal(harness.sent.length, 1);
       const count = harness.dispatched.length;
       const conflict = yield* harness.callTool({
         token: "token-parent",
@@ -3284,29 +3351,18 @@ describe("AgentGateway", () => {
       assert.equal(typeof payload.turnId, "string");
       assert.strictEqual("parentThreadId" in payload, false);
 
-      assert.equal(harness.dispatched.length, 3);
-      const create = harness.dispatched[0]!;
-      assert.equal(create.type, "thread.create");
-      if (create.type === "thread.create") {
-        // Gateway-created threads are ordinary top-level threads, not subagents.
-        assert.isNull(create.parentThreadId);
-        assert.isNull(create.subagentNickname);
-        assert.equal(create.modelSelection.provider, "opencode");
-        // Project and runtime mode default from the calling thread.
-        assert.equal(create.folderId, PROJECT_ID);
-        assert.equal(create.runtimeMode, "approval-required");
-        // Same placeholder title flow as UI threads so the first-turn reactor
-        // replaces it with a model-generated title.
-        assert.equal(create.title, "analyze the feature");
-      }
-      const turn = harness.dispatched[1]!;
-      assert.equal(turn.type, "thread.turn.start");
-      if (turn.type === "thread.turn.start") {
-        assert.equal(turn.dispatchOrigin, "agent");
-        assert.equal(turn.message.text, "analyze the feature");
-        assert.equal(payload.messageId, turn.message.messageId);
-        assert.equal(payload.turnId, turn.turnId);
-      }
+      assert.equal(harness.dispatched.length, 0);
+      assert.equal(harness.sent.length, 1);
+      const created = harness.getThread(payload.threadId as string)!;
+      assert.isNull(created.parentThreadId);
+      assert.equal(created.modelSelection.provider, "opencode");
+      assert.equal(created.folderId, PROJECT_ID);
+      assert.equal(created.runtimeMode, "approval-required");
+      assert.equal(created.title, "analyze the feature");
+      assert.equal(harness.sent[0]!.message.dispatchOrigin, "agent");
+      assert.equal(harness.sent[0]!.message.text, "analyze the feature");
+      assert.equal(payload.messageId, harness.sent[0]!.message.messageId);
+      assert.equal(payload.turnId, "provider-confirmed-turn");
     }).pipe(Effect.provide(gatewayLayer));
   });
 
@@ -3328,7 +3384,8 @@ describe("AgentGateway", () => {
         },
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
-      assert.equal(harness.dispatched.length, 3);
+      assert.equal(harness.dispatched.length, 0);
+      assert.equal(harness.sent.length, 1);
     }).pipe(Effect.provide(gatewayLayer));
   });
 
@@ -3858,7 +3915,8 @@ describe("AgentGateway", () => {
         name: "penkra_archive_thread",
         args: { threadId: "thread-child" },
       });
-      assert.equal(harness.dispatched[0]?.type, "thread.archive");
+      assert.equal(harness.dispatched.length, 0);
+      assert.isNotNull(harness.getThread("thread-child")!.archivedAt);
     }).pipe(Effect.provide(gatewayLayer));
   });
 

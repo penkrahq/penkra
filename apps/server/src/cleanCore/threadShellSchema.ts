@@ -1,11 +1,3 @@
-/**
- * ProjectionThreadRepository - Projection repository interface for threads.
- *
- * Owns persistence operations for projected thread records in the
- * orchestration read model.
- *
- * @module ProjectionThreadRepository
- */
 import {
   IsoDateTime,
   ModelSelection,
@@ -17,10 +9,7 @@ import {
   ThreadId,
   TurnId,
 } from "@penkra/contracts";
-import { Option, Schema, ServiceMap } from "effect";
-import type { Effect } from "effect";
-
-import type { ProjectionRepositoryError } from "../Errors.ts";
+import { Schema } from "effect";
 
 export const ProjectionThread = Schema.Struct({
   threadId: ThreadId,
@@ -53,7 +42,6 @@ export const ProjectionThread = Schema.Struct({
   subagentAgentId: Schema.optional(Schema.NullOr(Schema.String)),
   subagentNickname: Schema.optional(Schema.NullOr(Schema.String)),
   subagentRole: Schema.optional(Schema.NullOr(Schema.String)),
-  forkSourceThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   latestTurnId: Schema.NullOr(TurnId),
   latestUserMessageAt: Schema.NullOr(IsoDateTime),
   lastVisitedAt: Schema.optional(Schema.NullOr(IsoDateTime)).pipe(
@@ -78,61 +66,3 @@ export const ProjectionThread = Schema.Struct({
   deletedAt: Schema.NullOr(IsoDateTime),
 });
 export type ProjectionThread = typeof ProjectionThread.Type;
-
-export const GetProjectionThreadInput = Schema.Struct({
-  threadId: ThreadId,
-});
-export type GetProjectionThreadInput = typeof GetProjectionThreadInput.Type;
-
-export const DeleteProjectionThreadInput = Schema.Struct({
-  threadId: ThreadId,
-});
-export type DeleteProjectionThreadInput = typeof DeleteProjectionThreadInput.Type;
-
-export const ListProjectionThreadsByProjectInput = Schema.Struct({
-  folderId: FolderId,
-});
-export type ListProjectionThreadsByProjectInput = typeof ListProjectionThreadsByProjectInput.Type;
-
-/**
- * ProjectionThreadRepositoryShape - Service API for projected thread records.
- */
-export interface ProjectionThreadRepositoryShape {
-  /**
-   * Insert or replace a projected thread row.
-   *
-   * Upserts by `threadId`.
-   */
-  readonly upsert: (thread: ProjectionThread) => Effect.Effect<void, ProjectionRepositoryError>;
-
-  /**
-   * Read a projected thread row by id.
-   */
-  readonly getById: (
-    input: GetProjectionThreadInput,
-  ) => Effect.Effect<Option.Option<ProjectionThread>, ProjectionRepositoryError>;
-
-  /**
-   * List projected threads for a project.
-   *
-   * Returned in deterministic creation order.
-   */
-  readonly listByFolderId: (
-    input: ListProjectionThreadsByProjectInput,
-  ) => Effect.Effect<ReadonlyArray<ProjectionThread>, ProjectionRepositoryError>;
-
-  /**
-   * Soft-delete a projected thread row by id.
-   */
-  readonly deleteById: (
-    input: DeleteProjectionThreadInput,
-  ) => Effect.Effect<void, ProjectionRepositoryError>;
-}
-
-/**
- * ProjectionThreadRepository - Service tag for thread projection persistence.
- */
-export class ProjectionThreadRepository extends ServiceMap.Service<
-  ProjectionThreadRepository,
-  ProjectionThreadRepositoryShape
->()("penkra/persistence/Services/ProjectionThreads/ProjectionThreadRepository") {}

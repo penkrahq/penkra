@@ -176,7 +176,6 @@ export function threadShellsEqual(left: ThreadShell | undefined, right: ThreadSh
     (left.subagentAgentId ?? null) === (right.subagentAgentId ?? null) &&
     (left.subagentNickname ?? null) === (right.subagentNickname ?? null) &&
     (left.subagentRole ?? null) === (right.subagentRole ?? null) &&
-    (left.forkSourceThreadId ?? null) === (right.forkSourceThreadId ?? null) &&
     left.latestUserMessageAt === right.latestUserMessageAt &&
     left.hasPendingApprovals === right.hasPendingApprovals &&
     left.hasPendingUserInput === right.hasPendingUserInput &&
@@ -1618,7 +1617,6 @@ export function normalizeThreadFromReadModel(
     previous.workStatus === sidebarRollups.workStatus &&
     previous.lastMessagePreview === sidebarRollups.lastMessagePreview &&
     previous.lastActivityAt === sidebarRollups.lastActivityAt &&
-    (previous.forkSourceThreadId ?? null) === (incoming.forkSourceThreadId ?? null) &&
     previous.activities === activities &&
     previous.pendingInteractions === pendingInteractions
   ) {
@@ -1656,7 +1654,6 @@ export function normalizeThreadFromReadModel(
     subagentNickname: incoming.subagentNickname ?? null,
     subagentRole: incoming.subagentRole ?? null,
     workingDirectory: nextWorkingDirectory,
-    forkSourceThreadId: incoming.forkSourceThreadId ?? null,
     ...(resolvedLatestUserMessageAt !== undefined
       ? { latestUserMessageAt: resolvedLatestUserMessageAt }
       : {}),
@@ -1714,7 +1711,6 @@ export function normalizeThreadShellSnapshot(
     subagentAgentId: incoming.subagentAgentId ?? null,
     subagentNickname: incoming.subagentNickname ?? null,
     subagentRole: incoming.subagentRole ?? null,
-    forkSourceThreadId: incoming.forkSourceThreadId ?? null,
     // The sidebar shell snapshot/event does not carry thread annotations, so keep the values
     // resolved from the thread-detail path instead of clobbering them with `undefined`.
     ...(incoming.latestUserMessageAt !== undefined

@@ -1,3 +1,4 @@
+import { createThreadFixture } from "../../cleanCore/threadFixtures.ts";
 import { createThread, markThreadVisited } from "../../cleanCore/threadStore.ts";
 import {
   ApprovalRequestId,
@@ -113,30 +114,21 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         },
       });
 
-      yield* eventStore.append({
-        type: "thread.created",
-        eventId: EventId.makeUnsafe("evt-2"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-1"),
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-2"),
-        causationEventId: null,
-        correlationId: CommandId.makeUnsafe("cmd-2"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-1"),
-          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-1")),
-          deckSortOrder: 0,
-          folderId: FolderId.makeUnsafe("project-1"),
-          title: "Thread 1",
-          modelSelection: {
-            provider: "codex",
-            model: "gpt-5-codex",
-          },
-          runtimeMode: "full-access",
-          createdAt: now,
-          updatedAt: now,
+      yield* projectionPipeline.bootstrap;
+      yield* createThreadFixture(sql, {
+        threadId: ThreadId.makeUnsafe(ThreadId.makeUnsafe("thread-1")),
+        folderId: FolderId.makeUnsafe(FolderId.makeUnsafe("project-1")),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-1")),
+        title: "Thread 1",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
         },
+        runtimeMode: "full-access",
+        workingDirectory: null,
+        createdAt: now,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
       });
 
       yield* eventStore.append({
@@ -201,7 +193,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       `;
       assert.equal(stateRows.length, Object.keys(ORCHESTRATION_PROJECTOR_NAMES).length);
       for (const row of stateRows) {
-        assert.equal(row.lastAppliedSequence, 3);
+        assert.equal(row.lastAppliedSequence, 2);
       }
     }),
   );
@@ -235,27 +227,18 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           updatedAt: createdAt,
         },
       });
-      yield* eventStore.append({
-        type: "thread.created",
-        eventId: EventId.makeUnsafe("evt-visit-thread"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-visit"),
-        occurredAt: createdAt,
-        commandId: CommandId.makeUnsafe("cmd-visit-thread"),
-        causationEventId: null,
-        correlationId: CommandId.makeUnsafe("cmd-visit-thread"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-visit"),
-          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-visit")),
-          deckSortOrder: 0,
-          folderId: FolderId.makeUnsafe("project-visit"),
-          title: "Thread",
-          modelSelection: { provider: "codex", model: "gpt-5-codex" },
-          runtimeMode: "full-access",
-          createdAt,
-          updatedAt: createdAt,
-        },
+      yield* projectionPipeline.bootstrap;
+      yield* createThreadFixture(sql, {
+        threadId: ThreadId.makeUnsafe(ThreadId.makeUnsafe("thread-visit")),
+        folderId: FolderId.makeUnsafe(FolderId.makeUnsafe("project-visit")),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-visit")),
+        title: "Thread",
+        modelSelection: { provider: "codex", model: "gpt-5-codex" },
+        runtimeMode: "full-access",
+        workingDirectory: null,
+        createdAt: createdAt,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
       });
       yield* createThread({
         id: "thread-visit",
@@ -274,7 +257,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       yield* sql`DELETE FROM projection_threads WHERE thread_id = 'thread-visit'`;
       yield* sql`
         DELETE FROM projection_state
-        WHERE projector = ${ORCHESTRATION_PROJECTOR_NAMES.threads}
+        WHERE projector = ${ORCHESTRATION_PROJECTOR_NAMES.threadMessages}
       `;
       yield* projectionPipeline.bootstrap;
 
@@ -287,227 +270,6 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         WHERE id = 'thread-visit'
       `;
       assert.deepEqual(rows, [{ lastVisitedAt: visitedAt, updatedAt: createdAt }]);
-    }),
-  );
-
-  it.effect("persists turn-start thread settings into projection rows", () =>
-    Effect.gen(function* () {
-      const projectionPipeline = yield* OrchestrationProjectionPipeline;
-      const eventStore = yield* OrchestrationEventStore;
-      const sql = yield* SqlClient.SqlClient;
-      const createdAt = "2026-02-26T13:00:00.000Z";
-      const turnRequestedAt = "2026-02-26T13:00:05.000Z";
-
-      yield* eventStore.append({
-        type: "folder.created",
-        eventId: EventId.makeUnsafe("evt-turn-settings-project"),
-        aggregateKind: "folder",
-        aggregateId: FolderId.makeUnsafe("project-turn-settings"),
-        occurredAt: createdAt,
-        commandId: CommandId.makeUnsafe("cmd-turn-settings-project"),
-        causationEventId: null,
-        correlationId: CommandId.makeUnsafe("cmd-turn-settings-project"),
-        metadata: {},
-        payload: {
-          folderId: FolderId.makeUnsafe("project-turn-settings"),
-          spaceId: SpaceId.makeUnsafe("penkra-personal"),
-          title: "Project",
-          workspaceRoot: "/tmp/project-turn-settings",
-          defaultModelSelection: null,
-          scripts: [],
-          createdAt,
-          updatedAt: createdAt,
-        },
-      });
-
-      yield* eventStore.append({
-        type: "thread.created",
-        eventId: EventId.makeUnsafe("evt-turn-settings-thread"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-turn-settings"),
-        occurredAt: createdAt,
-        commandId: CommandId.makeUnsafe("cmd-turn-settings-thread"),
-        causationEventId: null,
-        correlationId: CommandId.makeUnsafe("cmd-turn-settings-thread"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-turn-settings"),
-          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-turn-settings")),
-          deckSortOrder: 0,
-          folderId: FolderId.makeUnsafe("project-turn-settings"),
-          title: "Thread",
-          modelSelection: {
-            provider: "opencode",
-            model: "openai/gpt-5",
-          },
-          runtimeMode: "full-access",
-          createdAt,
-          updatedAt: createdAt,
-        },
-      });
-
-      yield* eventStore.append({
-        type: "thread.turn-start-requested",
-        eventId: EventId.makeUnsafe("evt-turn-settings-start"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-turn-settings"),
-        occurredAt: turnRequestedAt,
-        commandId: CommandId.makeUnsafe("cmd-turn-settings-start"),
-        causationEventId: null,
-        correlationId: CommandId.makeUnsafe("cmd-turn-settings-start"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-turn-settings"),
-          messageId: MessageId.makeUnsafe("message-turn-settings"),
-          modelSelection: {
-            provider: "opencode",
-            model: "openrouter/gpt-5.5",
-          },
-          runtimeMode: "approval-required",
-          createdAt: turnRequestedAt,
-        },
-      });
-
-      yield* projectionPipeline.bootstrap;
-
-      const rows = yield* sql<{
-        readonly modelSelectionJson: string;
-        readonly runtimeMode: string;
-        readonly updatedAt: string;
-      }>`
-        SELECT
-          model_selection_json AS "modelSelectionJson",
-          runtime_mode AS "runtimeMode",
-          updated_at AS "updatedAt"
-        FROM projection_threads
-        WHERE thread_id = 'thread-turn-settings'
-      `;
-
-      assert.equal(rows.length, 1);
-      assert.deepEqual(JSON.parse(rows[0]!.modelSelectionJson), {
-        provider: "opencode",
-        model: "openrouter/gpt-5.5",
-      });
-      assert.equal(rows[0]!.runtimeMode, "approval-required");
-      assert.equal(rows[0]!.updatedAt, turnRequestedAt);
-
-      const sessionRows = yield* sql<{
-        readonly status: string;
-        readonly providerName: string | null;
-        readonly runtimeMode: string;
-        readonly activeTurnId: string | null;
-        readonly updatedAt: string;
-      }>`
-        SELECT
-          status,
-          provider_name AS "providerName",
-          runtime_mode AS "runtimeMode",
-          active_turn_id AS "activeTurnId",
-          updated_at AS "updatedAt"
-        FROM projection_thread_sessions
-        WHERE thread_id = 'thread-turn-settings'
-      `;
-      assert.deepEqual(sessionRows, [
-        {
-          status: "starting",
-          providerName: "opencode",
-          runtimeMode: "approval-required",
-          activeTurnId: null,
-          updatedAt: turnRequestedAt,
-        },
-      ]);
-
-      const turnCompletedAt = "2026-02-26T13:00:10.000Z";
-      yield* eventStore.append({
-        type: "thread.session-set",
-        eventId: EventId.makeUnsafe("evt-turn-settings-ready"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-turn-settings"),
-        occurredAt: turnCompletedAt,
-        commandId: CommandId.makeUnsafe("cmd-turn-settings-ready"),
-        causationEventId: null,
-        correlationId: CommandId.makeUnsafe("cmd-turn-settings-ready"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-turn-settings"),
-          session: {
-            threadId: ThreadId.makeUnsafe("thread-turn-settings"),
-            status: "ready",
-            providerName: "opencode",
-            runtimeMode: "approval-required",
-            activeTurnId: null,
-            lastError: null,
-            updatedAt: turnCompletedAt,
-          },
-        },
-      });
-
-      yield* sql`
-        DELETE FROM projection_thread_sessions
-        WHERE thread_id = 'thread-turn-settings'
-      `;
-      yield* sql`
-        DELETE FROM projection_state
-        WHERE projector IN (
-          ${ORCHESTRATION_PROJECTOR_NAMES.threadSessions},
-          ${ORCHESTRATION_PROJECTOR_NAMES.threads}
-        )
-      `;
-      yield* projectionPipeline.bootstrap;
-
-      const rebuiltSessionRows = yield* sql<{
-        readonly status: string;
-        readonly updatedAt: string;
-      }>`
-        SELECT status, updated_at AS "updatedAt"
-        FROM projection_thread_sessions
-        WHERE thread_id = 'thread-turn-settings'
-      `;
-      assert.deepEqual(rebuiltSessionRows, [
-        {
-          status: "ready",
-          updatedAt: turnCompletedAt,
-        },
-      ]);
-
-      const crossProviderRequestedAt = "2026-02-26T13:00:15.000Z";
-      const crossProviderEvent = yield* eventStore.append({
-        type: "thread.turn-start-requested",
-        eventId: EventId.makeUnsafe("evt-turn-settings-cross-provider"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-turn-settings"),
-        occurredAt: crossProviderRequestedAt,
-        commandId: CommandId.makeUnsafe("cmd-turn-settings-cross-provider"),
-        causationEventId: null,
-        correlationId: CommandId.makeUnsafe("cmd-turn-settings-cross-provider"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-turn-settings"),
-          messageId: MessageId.makeUnsafe("message-turn-settings-cross-provider"),
-          modelSelection: { provider: "codex", model: "gpt-5-codex" },
-          runtimeMode: "full-access",
-          createdAt: crossProviderRequestedAt,
-        },
-      });
-      yield* projectionPipeline.projectEvent(crossProviderEvent);
-
-      const providerRows = yield* sql<{
-        readonly modelSelectionJson: string;
-        readonly providerName: string | null;
-      }>`
-        SELECT
-          threads.model_selection_json AS "modelSelectionJson",
-          sessions.provider_name AS "providerName"
-        FROM projection_threads AS threads
-        LEFT JOIN projection_thread_sessions AS sessions
-          ON sessions.thread_id = threads.thread_id
-        WHERE threads.thread_id = 'thread-turn-settings'
-      `;
-      assert.deepEqual(JSON.parse(providerRows[0]!.modelSelectionJson), {
-        provider: "opencode",
-        model: "openrouter/gpt-5.5",
-      });
-      assert.equal(providerRows[0]!.providerName, "opencode");
     }),
   );
 
@@ -545,27 +307,18 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           updatedAt: createdAt,
         },
       });
-      yield* appendAndProject({
-        type: "thread.created",
-        eventId: EventId.makeUnsafe("evt-retained-error-thread"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: createdAt,
-        commandId: CommandId.makeUnsafe("cmd-retained-error-thread"),
-        causationEventId: null,
-        correlationId: CommandId.makeUnsafe("cmd-retained-error-thread"),
-        metadata: {},
-        payload: {
-          threadId,
-          deckId: singletonThreadDeckId(threadId),
-          deckSortOrder: 0,
-          folderId: FolderId.makeUnsafe("project-retained-error"),
-          title: "Retained error thread",
-          modelSelection: { provider: "codex", model: "gpt-5.6-sol" },
-          runtimeMode: "full-access",
-          createdAt,
-          updatedAt: createdAt,
-        },
+      yield* projectionPipeline.bootstrap;
+      yield* createThreadFixture(sql, {
+        threadId: ThreadId.makeUnsafe(threadId),
+        folderId: FolderId.makeUnsafe(FolderId.makeUnsafe("project-retained-error")),
+        deckId: singletonThreadDeckId(threadId),
+        title: "Retained error thread",
+        modelSelection: { provider: "codex", model: "gpt-5.6-sol" },
+        runtimeMode: "full-access",
+        workingDirectory: null,
+        createdAt: createdAt,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
       });
       yield* appendAndProject({
         type: "thread.turn-start-requested",
@@ -1053,6 +806,7 @@ it.effect("fast-forwards lagging hot projector cursors before restart replay", (
     const createdAt = "2026-07-09T10:00:00.000Z";
 
     const latestSequence = yield* Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
       const eventStore = yield* OrchestrationEventStore;
       const projectionPipeline = yield* OrchestrationProjectionPipeline;
 
@@ -1077,30 +831,21 @@ it.effect("fast-forwards lagging hot projector cursors before restart replay", (
           updatedAt: createdAt,
         },
       });
-      yield* eventStore.append({
-        type: "thread.created",
-        eventId: EventId.makeUnsafe("evt-bootstrap-fast-forward-thread"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: createdAt,
-        commandId: CommandId.makeUnsafe("cmd-bootstrap-fast-forward-thread"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-bootstrap-fast-forward-thread"),
-        metadata: {},
-        payload: {
-          threadId,
-          deckId: singletonThreadDeckId(threadId),
-          deckSortOrder: 0,
-          folderId,
-          title: "Bootstrap fast-forward thread",
-          modelSelection: {
-            provider: "claudeAgent",
-            model: "claude-sonnet-4-5-20250929",
-          },
-          runtimeMode: "full-access",
-          createdAt,
-          updatedAt: createdAt,
+      yield* projectionPipeline.bootstrap;
+      yield* createThreadFixture(sql, {
+        threadId: ThreadId.makeUnsafe(threadId),
+        folderId: FolderId.makeUnsafe(folderId),
+        deckId: singletonThreadDeckId(threadId),
+        title: "Bootstrap fast-forward thread",
+        modelSelection: {
+          provider: "claudeAgent",
+          model: "claude-sonnet-4-5-20250929",
         },
+        runtimeMode: "full-access",
+        workingDirectory: null,
+        createdAt: createdAt,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
       });
       yield* projectionPipeline.bootstrap;
 
@@ -1390,649 +1135,6 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("penkra-base-")))(
 );
 
 it.layer(
-  Layer.fresh(makeProjectionPipelinePrefixedTestLayer("penkra-projection-pipeline-approvals-")),
-)("OrchestrationProjectionPipeline", (it) => {
-  it.effect("refreshes stored thread approval summary after approval-response-requested", () =>
-    Effect.gen(function* () {
-      const eventStore = yield* OrchestrationEventStore;
-      const projectionPipeline = yield* OrchestrationProjectionPipeline;
-      const sql = yield* SqlClient.SqlClient;
-      const folderId = FolderId.makeUnsafe("project-approvals");
-      const threadId = ThreadId.makeUnsafe("thread-approvals");
-      const requestId = ApprovalRequestId.makeUnsafe("approval-request-1");
-      const createdAt = "2026-03-05T09:00:00.000Z";
-      const requestedAt = "2026-03-05T09:00:01.000Z";
-      const resolvedAt = "2026-03-05T09:00:02.000Z";
-
-      yield* eventStore.append({
-        type: "folder.created",
-        eventId: EventId.makeUnsafe("evt-approvals-project"),
-        aggregateKind: "folder",
-        aggregateId: folderId,
-        occurredAt: createdAt,
-        commandId: CommandId.makeUnsafe("cmd-approvals-project"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-approvals-project"),
-        metadata: {},
-        payload: {
-          folderId,
-          spaceId: SpaceId.makeUnsafe("penkra-personal"),
-          title: "Approvals Project",
-          workspaceRoot: "/tmp/project-approvals",
-          defaultModelSelection: null,
-          scripts: [],
-          createdAt,
-          updatedAt: createdAt,
-        },
-      });
-
-      yield* eventStore.append({
-        type: "thread.created",
-        eventId: EventId.makeUnsafe("evt-approvals-thread"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: createdAt,
-        commandId: CommandId.makeUnsafe("cmd-approvals-thread"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-approvals-thread"),
-        metadata: {},
-        payload: {
-          threadId,
-          deckId: singletonThreadDeckId(threadId),
-          deckSortOrder: 0,
-          folderId,
-          title: "Approvals Thread",
-          modelSelection: {
-            provider: "codex",
-            model: "gpt-5-codex",
-          },
-          runtimeMode: "full-access",
-          createdAt,
-          updatedAt: createdAt,
-        },
-      });
-
-      yield* eventStore.append({
-        type: "thread.activity-appended",
-        eventId: EventId.makeUnsafe("evt-approvals-requested"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: requestedAt,
-        commandId: CommandId.makeUnsafe("cmd-approvals-requested"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-approvals-requested"),
-        metadata: {},
-        payload: {
-          threadId,
-          activity: {
-            id: EventId.makeUnsafe("activity-approval-requested"),
-            tone: "approval",
-            kind: "approval.requested",
-            summary: "Command approval requested",
-            payload: {
-              requestId,
-              requestKind: "command",
-            },
-            turnId: null,
-            createdAt: requestedAt,
-          },
-        },
-      });
-
-      yield* projectionPipeline.bootstrap;
-
-      const rowsAfterRequest = yield* sql<{
-        readonly pendingApprovalCount: number;
-      }>`
-        SELECT
-          pending_approval_count AS "pendingApprovalCount"
-        FROM projection_threads
-        WHERE thread_id = ${threadId}
-      `;
-      assert.deepEqual(rowsAfterRequest, [{ pendingApprovalCount: 1 }]);
-
-      yield* eventStore.append({
-        type: "thread.approval-response-requested",
-        eventId: EventId.makeUnsafe("evt-approvals-resolved"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: resolvedAt,
-        commandId: CommandId.makeUnsafe("cmd-approvals-resolved"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-approvals-resolved"),
-        metadata: {},
-        payload: {
-          threadId,
-          requestId,
-          decision: "accept",
-          createdAt: resolvedAt,
-        },
-      });
-
-      yield* projectionPipeline.bootstrap;
-
-      const rowsAfterResolve = yield* sql<{
-        readonly pendingApprovalCount: number;
-        readonly updatedAt: string;
-      }>`
-        SELECT
-          pending_approval_count AS "pendingApprovalCount",
-          updated_at AS "updatedAt"
-        FROM projection_threads
-        WHERE thread_id = ${threadId}
-      `;
-      assert.deepEqual(rowsAfterResolve, [
-        {
-          pendingApprovalCount: 0,
-          updatedAt: resolvedAt,
-        },
-      ]);
-    }),
-  );
-
-  it.effect("does not refresh stored thread shell summary for streaming assistant deltas", () =>
-    Effect.gen(function* () {
-      const projectionPipeline = yield* OrchestrationProjectionPipeline;
-      const eventStore = yield* OrchestrationEventStore;
-      const sql = yield* SqlClient.SqlClient;
-      const folderId = FolderId.makeUnsafe("project-streaming-shell");
-      const threadId = ThreadId.makeUnsafe("thread-streaming-shell");
-      const createdAt = "2026-03-05T10:00:00.000Z";
-      const deltaAt = "2026-03-05T10:00:05.000Z";
-
-      yield* eventStore.append({
-        type: "folder.created",
-        eventId: EventId.makeUnsafe("evt-streaming-shell-project"),
-        aggregateKind: "folder",
-        aggregateId: folderId,
-        occurredAt: createdAt,
-        commandId: CommandId.makeUnsafe("cmd-streaming-shell-project"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-streaming-shell-project"),
-        metadata: {},
-        payload: {
-          folderId,
-          spaceId: SpaceId.makeUnsafe("penkra-personal"),
-          title: "Streaming Shell Project",
-          workspaceRoot: "/tmp/project-streaming-shell",
-          defaultModelSelection: null,
-          scripts: [],
-          createdAt,
-          updatedAt: createdAt,
-        },
-      });
-
-      yield* eventStore.append({
-        type: "thread.created",
-        eventId: EventId.makeUnsafe("evt-streaming-shell-thread"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: createdAt,
-        commandId: CommandId.makeUnsafe("cmd-streaming-shell-thread"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-streaming-shell-thread"),
-        metadata: {},
-        payload: {
-          threadId,
-          deckId: singletonThreadDeckId(threadId),
-          deckSortOrder: 0,
-          folderId,
-          title: "Streaming Shell Thread",
-          modelSelection: {
-            provider: "codex",
-            model: "gpt-5-codex",
-          },
-          runtimeMode: "full-access",
-          createdAt,
-          updatedAt: createdAt,
-        },
-      });
-
-      yield* eventStore.append({
-        type: "thread.message-sent",
-        eventId: EventId.makeUnsafe("evt-streaming-shell-assistant-delta"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: deltaAt,
-        commandId: CommandId.makeUnsafe("cmd-streaming-shell-assistant-delta"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-streaming-shell-assistant-delta"),
-        metadata: {},
-        payload: {
-          threadId,
-          messageId: MessageId.makeUnsafe("message-streaming-shell-assistant"),
-          role: "assistant",
-          text: "hello",
-          turnId: null,
-          streaming: true,
-          createdAt: deltaAt,
-          updatedAt: deltaAt,
-        },
-      });
-
-      yield* projectionPipeline.bootstrap;
-
-      const rows = yield* sql<{
-        readonly latestUserMessageAt: string | null;
-        readonly updatedAt: string;
-      }>`
-          SELECT
-            latest_user_message_at AS "latestUserMessageAt",
-            updated_at AS "updatedAt"
-          FROM projection_threads
-          WHERE thread_id = ${threadId}
-        `;
-      assert.deepEqual(rows, [
-        {
-          latestUserMessageAt: null,
-          updatedAt: createdAt,
-        },
-      ]);
-    }),
-  );
-
-  it.effect("refreshes stored thread user-input summary after user-input-response-requested", () =>
-    Effect.gen(function* () {
-      const eventStore = yield* OrchestrationEventStore;
-      const projectionPipeline = yield* OrchestrationProjectionPipeline;
-      const sql = yield* SqlClient.SqlClient;
-      const folderId = FolderId.makeUnsafe("project-user-inputs");
-      const threadId = ThreadId.makeUnsafe("thread-user-inputs");
-      const requestId = ApprovalRequestId.makeUnsafe("user-input-request-1");
-      const createdAt = "2026-03-05T11:00:00.000Z";
-      const requestedAt = "2026-03-05T11:00:01.000Z";
-      const respondedAt = "2026-03-05T11:00:02.000Z";
-
-      yield* eventStore.append({
-        type: "folder.created",
-        eventId: EventId.makeUnsafe("evt-user-input-project"),
-        aggregateKind: "folder",
-        aggregateId: folderId,
-        occurredAt: createdAt,
-        commandId: CommandId.makeUnsafe("cmd-user-input-project"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-user-input-project"),
-        metadata: {},
-        payload: {
-          folderId,
-          spaceId: SpaceId.makeUnsafe("penkra-personal"),
-          title: "User Input Project",
-          workspaceRoot: "/tmp/project-user-input",
-          defaultModelSelection: null,
-          scripts: [],
-          createdAt,
-          updatedAt: createdAt,
-        },
-      });
-
-      yield* eventStore.append({
-        type: "thread.created",
-        eventId: EventId.makeUnsafe("evt-user-input-thread"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: createdAt,
-        commandId: CommandId.makeUnsafe("cmd-user-input-thread"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-user-input-thread"),
-        metadata: {},
-        payload: {
-          threadId,
-          deckId: singletonThreadDeckId(threadId),
-          deckSortOrder: 0,
-          folderId,
-          title: "User Input Thread",
-          modelSelection: {
-            provider: "codex",
-            model: "gpt-5-codex",
-          },
-          runtimeMode: "full-access",
-          createdAt,
-          updatedAt: createdAt,
-        },
-      });
-
-      yield* eventStore.append({
-        type: "thread.activity-appended",
-        eventId: EventId.makeUnsafe("evt-user-input-requested"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: requestedAt,
-        commandId: CommandId.makeUnsafe("cmd-user-input-requested"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-user-input-requested"),
-        metadata: {},
-        payload: {
-          threadId,
-          activity: {
-            id: EventId.makeUnsafe("activity-user-input-requested"),
-            tone: "info",
-            kind: "user-input.requested",
-            summary: "Need more info",
-            payload: {
-              requestId,
-              questions: [
-                {
-                  id: "q1",
-                  header: "Choice",
-                  question: "Pick one",
-                  options: [
-                    {
-                      label: "Yes",
-                      description: "Use the provided answer",
-                    },
-                  ],
-                },
-              ],
-            },
-            turnId: null,
-            createdAt: requestedAt,
-          },
-        },
-      });
-
-      yield* projectionPipeline.bootstrap;
-
-      const rowsAfterRequest = yield* sql<{
-        readonly pendingApprovalCount: number;
-        readonly pendingUserInputCount: number;
-      }>`
-          SELECT
-            pending_approval_count AS "pendingApprovalCount",
-            pending_user_input_count AS "pendingUserInputCount"
-          FROM projection_threads
-          WHERE thread_id = ${threadId}
-        `;
-      assert.deepEqual(rowsAfterRequest, [{ pendingApprovalCount: 0, pendingUserInputCount: 1 }]);
-
-      // Simulate rows written by older projectors that treated user-input requests as approvals.
-      yield* sql`
-            INSERT INTO projection_pending_interactions (
-              interaction_kind,
-              request_id,
-              thread_id,
-              turn_id,
-              status,
-              decision,
-              created_at,
-              resolved_at
-            )
-            VALUES (
-              'approval',
-              ${requestId},
-              ${threadId},
-              ${null},
-              'pending',
-              ${null},
-              ${requestedAt},
-              ${null}
-            )
-          `;
-
-      yield* eventStore.append({
-        type: "thread.user-input-response-requested",
-        eventId: EventId.makeUnsafe("evt-user-input-responded"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: respondedAt,
-        commandId: CommandId.makeUnsafe("cmd-user-input-responded"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-user-input-responded"),
-        metadata: {},
-        payload: {
-          threadId,
-          requestId,
-          answers: {
-            q1: "yes",
-          },
-          createdAt: respondedAt,
-        },
-      });
-
-      yield* projectionPipeline.bootstrap;
-
-      const rowsAfterRespond = yield* sql<{
-        readonly pendingApprovalCount: number;
-        readonly pendingUserInputCount: number;
-        readonly updatedAt: string;
-      }>`
-          SELECT
-            pending_approval_count AS "pendingApprovalCount",
-            pending_user_input_count AS "pendingUserInputCount",
-            updated_at AS "updatedAt"
-          FROM projection_threads
-          WHERE thread_id = ${threadId}
-        `;
-      assert.deepEqual(rowsAfterRespond, [
-        {
-          pendingApprovalCount: 0,
-          pendingUserInputCount: 0,
-          updatedAt: respondedAt,
-        },
-      ]);
-
-      const interactionRowsAfterRespond = yield* sql<{
-        readonly interactionKind: string;
-        readonly status: string;
-        readonly responseCommandId: string | null;
-      }>`
-        SELECT
-          interaction_kind AS "interactionKind",
-          status,
-          response_command_id AS "responseCommandId"
-        FROM projection_pending_interactions
-        WHERE thread_id = ${threadId} AND request_id = ${requestId}
-        ORDER BY interaction_kind
-      `;
-      assert.deepEqual(interactionRowsAfterRespond, [
-        { interactionKind: "approval", status: "pending", responseCommandId: null },
-        {
-          interactionKind: "userInput",
-          status: "responding",
-          responseCommandId: "cmd-user-input-responded",
-        },
-      ]);
-
-      const failedAt = "2026-03-05T11:00:03.000Z";
-      yield* eventStore.append({
-        type: "thread.activity-appended",
-        eventId: EventId.makeUnsafe("evt-user-input-response-failed"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: failedAt,
-        commandId: CommandId.makeUnsafe("cmd-user-input-response-failed"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-user-input-response-failed"),
-        metadata: {},
-        payload: {
-          threadId,
-          activity: {
-            id: EventId.makeUnsafe("activity-user-input-response-failed"),
-            tone: "error",
-            kind: "provider.user-input.respond.failed",
-            summary: "User input response failed",
-            payload: {
-              requestId,
-              responseCommandId: "cmd-user-input-responded",
-              settlementStatus: "retryable",
-              detail: "No active provider session is bound to this thread.",
-            },
-            turnId: null,
-            createdAt: failedAt,
-          },
-        },
-      });
-      yield* projectionPipeline.bootstrap;
-
-      const retryableRows = yield* sql<{
-        readonly status: string;
-        readonly pendingUserInputCount: number;
-      }>`
-        SELECT
-          interactions.status,
-          threads.pending_user_input_count AS "pendingUserInputCount"
-        FROM projection_pending_interactions AS interactions
-        INNER JOIN projection_threads AS threads
-          ON threads.thread_id = interactions.thread_id
-        WHERE interactions.thread_id = ${threadId}
-          AND interactions.interaction_kind = 'userInput'
-          AND interactions.request_id = ${requestId}
-      `;
-      assert.deepEqual(retryableRows, [{ status: "retryable", pendingUserInputCount: 1 }]);
-
-      const retryAt = "2026-03-05T11:00:04.000Z";
-      yield* eventStore.append({
-        type: "thread.user-input-response-requested",
-        eventId: EventId.makeUnsafe("evt-user-input-retried"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: retryAt,
-        commandId: CommandId.makeUnsafe("cmd-user-input-retried"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-user-input-retried"),
-        metadata: {},
-        payload: {
-          threadId,
-          requestId,
-          answers: { q1: "yes" },
-          createdAt: retryAt,
-        },
-      });
-      yield* projectionPipeline.bootstrap;
-
-      const confirmedAt = "2026-03-05T11:00:05.000Z";
-      yield* eventStore.append({
-        type: "thread.activity-appended",
-        eventId: EventId.makeUnsafe("evt-user-input-confirmed"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: confirmedAt,
-        commandId: CommandId.makeUnsafe("cmd-user-input-confirmed"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-user-input-confirmed"),
-        metadata: {},
-        payload: {
-          threadId,
-          activity: {
-            id: EventId.makeUnsafe("activity-user-input-confirmed"),
-            tone: "info",
-            kind: "user-input.resolved",
-            summary: "User input answered",
-            payload: { requestId, answers: { q1: "yes" } },
-            turnId: null,
-            createdAt: confirmedAt,
-          },
-        },
-      });
-      yield* projectionPipeline.bootstrap;
-
-      const confirmedRows = yield* sql<{
-        readonly status: string;
-        readonly responseCommandId: string | null;
-        readonly resolvedAt: string;
-      }>`
-        SELECT
-          status,
-          response_command_id AS "responseCommandId",
-          resolved_at AS "resolvedAt"
-        FROM projection_pending_interactions
-        WHERE thread_id = ${threadId}
-          AND interaction_kind = 'userInput'
-          AND request_id = ${requestId}
-      `;
-      assert.deepEqual(confirmedRows, [
-        {
-          status: "confirmed",
-          responseCommandId: "cmd-user-input-retried",
-          resolvedAt: confirmedAt,
-        },
-      ]);
-
-      const staleRequestId = ApprovalRequestId.makeUnsafe("stale-user-input-request");
-      const staleRequestedAt = "2026-03-05T11:00:06.000Z";
-      yield* eventStore.append({
-        type: "thread.activity-appended",
-        eventId: EventId.makeUnsafe("evt-stale-user-input-requested"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: staleRequestedAt,
-        commandId: CommandId.makeUnsafe("cmd-stale-user-input-requested"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-stale-user-input-requested"),
-        metadata: {},
-        payload: {
-          threadId,
-          activity: {
-            id: EventId.makeUnsafe("activity-stale-user-input-requested"),
-            tone: "info",
-            kind: "user-input.requested",
-            summary: "Need more info",
-            payload: { requestId: staleRequestId, questions: [] },
-            turnId: null,
-            createdAt: staleRequestedAt,
-          },
-        },
-      });
-      yield* projectionPipeline.bootstrap;
-
-      const staleFailedAt = "2026-03-05T11:00:07.000Z";
-      yield* eventStore.append({
-        type: "thread.activity-appended",
-        eventId: EventId.makeUnsafe("evt-stale-user-input-failed"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: staleFailedAt,
-        commandId: CommandId.makeUnsafe("cmd-stale-user-input-failed"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-stale-user-input-failed"),
-        metadata: {},
-        payload: {
-          threadId,
-          activity: {
-            id: EventId.makeUnsafe("activity-stale-user-input-failed"),
-            tone: "error",
-            kind: "provider.user-input.respond.failed",
-            summary: "User input response failed",
-            payload: {
-              requestId: staleRequestId,
-              failureCode: "PENDING_INTERACTION_NOT_FOUND",
-              detail:
-                "Stale pending user-input request: stale-user-input-request. Provider callback state does not survive app restarts or recovered sessions. Restart the turn to continue.",
-            },
-            turnId: null,
-            createdAt: staleFailedAt,
-          },
-        },
-      });
-      yield* projectionPipeline.bootstrap;
-
-      const staleRows = yield* sql<{
-        readonly status: string;
-        readonly resolvedAt: string;
-        readonly pendingUserInputCount: number;
-      }>`
-        SELECT
-          interactions.status,
-          interactions.resolved_at AS "resolvedAt",
-          threads.pending_user_input_count AS "pendingUserInputCount"
-        FROM projection_pending_interactions AS interactions
-        INNER JOIN projection_threads AS threads
-          ON threads.thread_id = interactions.thread_id
-        WHERE interactions.thread_id = ${threadId}
-          AND interactions.interaction_kind = 'userInput'
-          AND interactions.request_id = ${staleRequestId}
-      `;
-      assert.deepEqual(staleRows, [
-        {
-          status: "confirmed",
-          resolvedAt: staleFailedAt,
-          pendingUserInputCount: 0,
-        },
-      ]);
-    }),
-  );
-});
-
-it.layer(
   Layer.fresh(makeProjectionPipelinePrefixedTestLayer("penkra-projection-attachments-safe-")),
 )("OrchestrationProjectionPipeline", (it) => {
   it.effect("preserves mixed image attachment metadata as-is", () =>
@@ -2144,30 +1246,21 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           },
         });
 
-        yield* eventStore.append({
-          type: "thread.created",
-          eventId: EventId.makeUnsafe("evt-clear-attachments-2"),
-          aggregateKind: "thread",
-          aggregateId: ThreadId.makeUnsafe("thread-clear-attachments"),
-          occurredAt: now,
-          commandId: CommandId.makeUnsafe("cmd-clear-attachments-2"),
-          causationEventId: null,
-          correlationId: CommandId.makeUnsafe("cmd-clear-attachments-2"),
-          metadata: {},
-          payload: {
-            threadId: ThreadId.makeUnsafe("thread-clear-attachments"),
-            deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-clear-attachments")),
-            deckSortOrder: 0,
-            folderId: FolderId.makeUnsafe("project-clear-attachments"),
-            title: "Thread Clear Attachments",
-            modelSelection: {
-              provider: "codex",
-              model: "gpt-5-codex",
-            },
-            runtimeMode: "full-access",
-            createdAt: now,
-            updatedAt: now,
+        yield* projectionPipeline.bootstrap;
+        yield* createThreadFixture(sql, {
+          threadId: ThreadId.makeUnsafe(ThreadId.makeUnsafe("thread-clear-attachments")),
+          folderId: FolderId.makeUnsafe(FolderId.makeUnsafe("project-clear-attachments")),
+          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-clear-attachments")),
+          title: "Thread Clear Attachments",
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5-codex",
           },
+          runtimeMode: "full-access",
+          workingDirectory: null,
+          createdAt: now,
+          connection: { kind: "selected", connectionId: null },
+          creator: { kind: "user" },
         });
 
         yield* eventStore.append({
@@ -2273,30 +1366,21 @@ it.layer(
         },
       });
 
-      yield* eventStore.append({
-        type: "thread.created",
-        eventId: EventId.makeUnsafe("evt-overwrite-2"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-overwrite"),
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-overwrite-2"),
-        causationEventId: null,
-        correlationId: CommandId.makeUnsafe("cmd-overwrite-2"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-overwrite"),
-          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-overwrite")),
-          deckSortOrder: 0,
-          folderId: FolderId.makeUnsafe("project-overwrite"),
-          title: "Thread Overwrite",
-          modelSelection: {
-            provider: "codex",
-            model: "gpt-5-codex",
-          },
-          runtimeMode: "full-access",
-          createdAt: now,
-          updatedAt: now,
+      yield* projectionPipeline.bootstrap;
+      yield* createThreadFixture(sql, {
+        threadId: ThreadId.makeUnsafe(ThreadId.makeUnsafe("thread-overwrite")),
+        folderId: FolderId.makeUnsafe(FolderId.makeUnsafe("project-overwrite")),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-overwrite")),
+        title: "Thread Overwrite",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
         },
+        runtimeMode: "full-access",
+        workingDirectory: null,
+        createdAt: now,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
       });
 
       yield* eventStore.append({
@@ -2419,30 +1503,21 @@ it.layer(
         },
       });
 
-      yield* appendAndProject({
-        type: "thread.created",
-        eventId: EventId.makeUnsafe("evt-rollback-2"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-rollback"),
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-rollback-2"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-rollback-2"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-rollback"),
-          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-rollback")),
-          deckSortOrder: 0,
-          folderId: FolderId.makeUnsafe("project-rollback"),
-          title: "Thread Rollback",
-          modelSelection: {
-            provider: "codex",
-            model: "gpt-5-codex",
-          },
-          runtimeMode: "full-access",
-          createdAt: now,
-          updatedAt: now,
+      yield* projectionPipeline.bootstrap;
+      yield* createThreadFixture(sql, {
+        threadId: ThreadId.makeUnsafe(ThreadId.makeUnsafe("thread-rollback")),
+        folderId: FolderId.makeUnsafe(FolderId.makeUnsafe("project-rollback")),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-rollback")),
+        title: "Thread Rollback",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
         },
+        runtimeMode: "full-access",
+        workingDirectory: null,
+        createdAt: now,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
       });
 
       yield* sql`
@@ -2541,27 +1616,18 @@ it.layer(
         },
       });
 
-      yield* appendAndProject({
-        type: "thread.created",
-        eventId: EventId.makeUnsafe("evt-stream-append-thread"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: createdAt,
-        commandId: CommandId.makeUnsafe("cmd-stream-append-thread"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-stream-append-thread"),
-        metadata: {},
-        payload: {
-          threadId,
-          deckId: singletonThreadDeckId(threadId),
-          deckSortOrder: 0,
-          folderId,
-          title: "Stream Append Thread",
-          modelSelection: { provider: "codex", model: "gpt-5-codex" },
-          runtimeMode: "full-access",
-          createdAt,
-          updatedAt: createdAt,
-        },
+      yield* projectionPipeline.bootstrap;
+      yield* createThreadFixture(sql, {
+        threadId: ThreadId.makeUnsafe(threadId),
+        folderId: FolderId.makeUnsafe(folderId),
+        deckId: singletonThreadDeckId(threadId),
+        title: "Stream Append Thread",
+        modelSelection: { provider: "codex", model: "gpt-5-codex" },
+        runtimeMode: "full-access",
+        workingDirectory: null,
+        createdAt: createdAt,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
       });
 
       // Deltas deliberately include multi-byte characters, empty chunks and
@@ -2645,7 +1711,7 @@ it.layer(
       const shellCursor = yield* sql<{ readonly lastAppliedSequence: number }>`
         SELECT last_applied_sequence AS "lastAppliedSequence"
         FROM projection_state
-        WHERE projector = ${ORCHESTRATION_PROJECTOR_NAMES.threadShellSummaries}
+        WHERE projector = ${ORCHESTRATION_PROJECTOR_NAMES.threadMessages}
       `;
       assert.equal(shellCursor[0]?.lastAppliedSequence, lastDeltaSequence[0]?.sequence);
 
@@ -2773,27 +1839,18 @@ it.layer(
         },
       });
 
-      yield* appendAndProject({
-        type: "thread.created",
-        eventId: EventId.makeUnsafe("evt-stream-restart-thread"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: createdAt,
-        commandId: CommandId.makeUnsafe("cmd-stream-restart-thread"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-stream-restart-thread"),
-        metadata: {},
-        payload: {
-          threadId,
-          deckId: singletonThreadDeckId(threadId),
-          deckSortOrder: 0,
-          folderId,
-          title: "Stream Restart Thread",
-          modelSelection: { provider: "codex", model: "gpt-5-codex" },
-          runtimeMode: "full-access",
-          createdAt,
-          updatedAt: createdAt,
-        },
+      yield* projectionPipeline.bootstrap;
+      yield* createThreadFixture(sql, {
+        threadId: ThreadId.makeUnsafe(threadId),
+        folderId: FolderId.makeUnsafe(folderId),
+        deckId: singletonThreadDeckId(threadId),
+        title: "Stream Restart Thread",
+        modelSelection: { provider: "codex", model: "gpt-5-codex" },
+        runtimeMode: "full-access",
+        workingDirectory: null,
+        createdAt: createdAt,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
       });
 
       for (const [index, delta] of ["first ", "second ", "third"].entries()) {
@@ -2940,30 +1997,21 @@ it.layer(
         },
       });
 
-      yield* appendAndProject({
-        type: "thread.created",
-        eventId: EventId.makeUnsafe("evt-revert-files-2"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-revert-files-2"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-revert-files-2"),
-        metadata: {},
-        payload: {
-          threadId,
-          deckId: singletonThreadDeckId(threadId),
-          deckSortOrder: 0,
-          folderId: FolderId.makeUnsafe("project-revert-files"),
-          title: "Thread Revert Files",
-          modelSelection: {
-            provider: "codex",
-            model: "gpt-5-codex",
-          },
-          runtimeMode: "full-access",
-          createdAt: now,
-          updatedAt: now,
+      yield* projectionPipeline.bootstrap;
+      yield* createThreadFixture(sql, {
+        threadId: ThreadId.makeUnsafe(threadId),
+        folderId: FolderId.makeUnsafe(FolderId.makeUnsafe("project-revert-files")),
+        deckId: singletonThreadDeckId(threadId),
+        title: "Thread Revert Files",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
         },
+        runtimeMode: "full-access",
+        workingDirectory: null,
+        createdAt: now,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
       });
 
       yield* appendAndProject({
@@ -3131,175 +2179,6 @@ it.layer(
   );
 });
 
-it.layer(
-  Layer.fresh(makeProjectionPipelinePrefixedTestLayer("penkra-projection-attachments-revert-")),
-)("OrchestrationProjectionPipeline", (it) => {
-  it.effect("removes thread attachment directory when thread is deleted", () =>
-    Effect.gen(function* () {
-      const fileSystem = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const projectionPipeline = yield* OrchestrationProjectionPipeline;
-      const eventStore = yield* OrchestrationEventStore;
-      const { attachmentsDir } = yield* ServerConfig;
-      const now = new Date().toISOString();
-      const threadId = ThreadId.makeUnsafe("Thread Delete.Files");
-      const attachmentId = "thread-delete-files-00000000-0000-4000-8000-000000000001";
-      const otherThreadAttachmentId =
-        "thread-delete-files-extra-00000000-0000-4000-8000-000000000002";
-
-      const appendAndProject = makeAppendAndProject(eventStore, projectionPipeline);
-
-      yield* appendAndProject({
-        type: "folder.created",
-        eventId: EventId.makeUnsafe("evt-delete-files-1"),
-        aggregateKind: "folder",
-        aggregateId: FolderId.makeUnsafe("project-delete-files"),
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-delete-files-1"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-delete-files-1"),
-        metadata: {},
-        payload: {
-          folderId: FolderId.makeUnsafe("project-delete-files"),
-          spaceId: SpaceId.makeUnsafe("penkra-personal"),
-          title: "Project Delete Files",
-          workspaceRoot: "/tmp/project-delete-files",
-          defaultModelSelection: null,
-          scripts: [],
-          createdAt: now,
-          updatedAt: now,
-        },
-      });
-
-      yield* appendAndProject({
-        type: "thread.created",
-        eventId: EventId.makeUnsafe("evt-delete-files-2"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-delete-files-2"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-delete-files-2"),
-        metadata: {},
-        payload: {
-          threadId,
-          deckId: singletonThreadDeckId(threadId),
-          deckSortOrder: 0,
-          folderId: FolderId.makeUnsafe("project-delete-files"),
-          title: "Thread Delete Files",
-          modelSelection: {
-            provider: "codex",
-            model: "gpt-5-codex",
-          },
-          runtimeMode: "full-access",
-          createdAt: now,
-          updatedAt: now,
-        },
-      });
-
-      yield* appendAndProject({
-        type: "thread.message-sent",
-        eventId: EventId.makeUnsafe("evt-delete-files-3"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-delete-files-3"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-delete-files-3"),
-        metadata: {},
-        payload: {
-          threadId,
-          messageId: MessageId.makeUnsafe("message-delete-files"),
-          role: "user",
-          text: "Delete",
-          attachments: [
-            {
-              type: "image",
-              id: attachmentId,
-              name: "delete.png",
-              mimeType: "image/png",
-              sizeBytes: 5,
-            },
-          ],
-          turnId: null,
-          streaming: false,
-          createdAt: now,
-          updatedAt: now,
-        },
-      });
-
-      const threadAttachmentPath = path.join(attachmentsDir, `${attachmentId}.png`);
-      const otherThreadAttachmentPath = path.join(attachmentsDir, `${otherThreadAttachmentId}.png`);
-      yield* fileSystem.makeDirectory(attachmentsDir, { recursive: true });
-      yield* fileSystem.writeFileString(threadAttachmentPath, "delete");
-      yield* fileSystem.writeFileString(otherThreadAttachmentPath, "other-thread");
-      assert.isTrue(yield* exists(threadAttachmentPath));
-      assert.isTrue(yield* exists(otherThreadAttachmentPath));
-
-      yield* appendAndProject({
-        type: "thread.deleted",
-        eventId: EventId.makeUnsafe("evt-delete-files-4"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-delete-files-4"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-delete-files-4"),
-        metadata: {},
-        payload: {
-          threadId,
-          deletedAt: now,
-        },
-      });
-
-      assert.isFalse(yield* exists(threadAttachmentPath));
-      assert.isTrue(yield* exists(otherThreadAttachmentPath));
-    }),
-  );
-});
-
-it.layer(
-  Layer.fresh(makeProjectionPipelinePrefixedTestLayer("penkra-projection-attachments-delete-")),
-)("OrchestrationProjectionPipeline", (it) => {
-  it.effect("ignores unsafe thread ids for attachment cleanup paths", () =>
-    Effect.gen(function* () {
-      const fileSystem = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const projectionPipeline = yield* OrchestrationProjectionPipeline;
-      const eventStore = yield* OrchestrationEventStore;
-      const now = new Date().toISOString();
-      const { attachmentsDir: attachmentsRootDir, stateDir } = yield* ServerConfig;
-      const attachmentsSentinelPath = path.join(attachmentsRootDir, "sentinel.txt");
-      const stateDirSentinelPath = path.join(stateDir, "state-sentinel.txt");
-      yield* fileSystem.makeDirectory(attachmentsRootDir, { recursive: true });
-      yield* fileSystem.writeFileString(attachmentsSentinelPath, "keep-attachments-root");
-      yield* fileSystem.writeFileString(stateDirSentinelPath, "keep-state-dir");
-
-      yield* eventStore.append({
-        type: "thread.deleted",
-        eventId: EventId.makeUnsafe("evt-unsafe-thread-delete"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe(".."),
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-unsafe-thread-delete"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-unsafe-thread-delete"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe(".."),
-          deletedAt: now,
-        },
-      });
-
-      yield* projectionPipeline.bootstrap;
-
-      assert.isTrue(yield* exists(attachmentsRootDir));
-      assert.isTrue(yield* exists(attachmentsSentinelPath));
-      assert.isTrue(yield* exists(stateDirSentinelPath));
-    }),
-  );
-});
-
 it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
   it.effect("resumes from projector last_applied_sequence without replaying older events", () =>
     Effect.gen(function* () {
@@ -3330,30 +2209,21 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         },
       });
 
-      yield* eventStore.append({
-        type: "thread.created",
-        eventId: EventId.makeUnsafe("evt-a2"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-a"),
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-a2"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-a2"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-a"),
-          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-a")),
-          deckSortOrder: 0,
-          folderId: FolderId.makeUnsafe("project-a"),
-          title: "Thread A",
-          modelSelection: {
-            provider: "codex",
-            model: "gpt-5-codex",
-          },
-          runtimeMode: "full-access",
-          createdAt: now,
-          updatedAt: now,
+      yield* projectionPipeline.bootstrap;
+      yield* createThreadFixture(sql, {
+        threadId: ThreadId.makeUnsafe(ThreadId.makeUnsafe("thread-a")),
+        folderId: FolderId.makeUnsafe(FolderId.makeUnsafe("project-a")),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-a")),
+        title: "Thread A",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
         },
+        runtimeMode: "full-access",
+        workingDirectory: null,
+        createdAt: now,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
       });
 
       yield* eventStore.append({
@@ -3458,30 +2328,21 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         },
       });
 
-      yield* eventStore.append({
-        type: "thread.created",
-        eventId: EventId.makeUnsafe("evt-empty-2"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-empty"),
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-empty-2"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-empty-2"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-empty"),
-          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-empty")),
-          deckSortOrder: 0,
-          folderId: FolderId.makeUnsafe("project-empty"),
-          title: "Thread Empty",
-          modelSelection: {
-            provider: "codex",
-            model: "gpt-5-codex",
-          },
-          runtimeMode: "full-access",
-          createdAt: now,
-          updatedAt: now,
+      yield* projectionPipeline.bootstrap;
+      yield* createThreadFixture(sql, {
+        threadId: ThreadId.makeUnsafe(ThreadId.makeUnsafe("thread-empty")),
+        folderId: FolderId.makeUnsafe(FolderId.makeUnsafe("project-empty")),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-empty")),
+        title: "Thread Empty",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
         },
+        runtimeMode: "full-access",
+        workingDirectory: null,
+        createdAt: now,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
       });
 
       yield* eventStore.append({
@@ -3652,7 +2513,6 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
         { projector: "projection.thread-activities", lastAppliedSequence: 2 },
         { projector: "projection.thread-messages", lastAppliedSequence: 2 },
         { projector: "projection.thread-sessions", lastAppliedSequence: 2 },
-        { projector: "projection.threads", lastAppliedSequence: 2 },
       ]);
     }),
   );
@@ -3759,17 +2619,17 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
         defaultModelSelection: { provider: "codex", model: "gpt-5-codex" },
         createdAt,
       });
-      yield* engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-routed-thread"),
-        threadId,
+      yield* createThreadFixture(sql, {
+        threadId: threadId,
+        folderId: folderId,
         deckId: singletonThreadDeckId(threadId),
-        folderId,
         title: "Routed telemetry",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "full-access",
         workingDirectory: "/tmp/project-routed-telemetry",
-        createdAt,
+        createdAt: createdAt,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
       });
 
       yield* sql`CREATE TABLE projection_state_write_log (projector TEXT NOT NULL)`;
@@ -3812,7 +2672,6 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
       assert.deepEqual(writes, [
         { projector: "projection.hot" },
         { projector: "projection.thread-activities" },
-        { projector: "projection.thread-shell-summaries" },
       ]);
     }),
   );
@@ -3827,6 +2686,19 @@ it.layer(
       const projectionPipeline = yield* OrchestrationProjectionPipeline;
       const sql = yield* SqlClient.SqlClient;
       const threadId = ThreadId.makeUnsafe("thread-turn-finish");
+      yield* createThread({
+        id: threadId,
+        spaceId: "penkra-personal",
+        folderId: "project-test",
+        deckId: singletonThreadDeckId(threadId),
+        sidebarSortOrder: 0,
+        title: "Thread",
+        provider: "codex",
+        model: "gpt-5.5",
+        runtimeMode: "full-access",
+        createdBy: "user",
+        createdAt: "2026-10-10T00:00:00.000Z",
+      });
       const turnId = TurnId.makeUnsafe("turn-turn-finish");
       const startedAt = "2026-02-27T09:00:00.000Z";
       const assistantCompletedAt = "2026-02-27T09:00:02.000Z";
@@ -3972,6 +2844,19 @@ it.layer(
       const projectionPipeline = yield* OrchestrationProjectionPipeline;
       const sql = yield* SqlClient.SqlClient;
       const threadId = ThreadId.makeUnsafe("thread-native-steer-aliases");
+      yield* createThread({
+        id: threadId,
+        spaceId: "penkra-personal",
+        folderId: "project-test",
+        deckId: singletonThreadDeckId(threadId),
+        sidebarSortOrder: 0,
+        title: "Thread",
+        provider: "codex",
+        model: "gpt-5.5",
+        runtimeMode: "full-access",
+        createdBy: "user",
+        createdAt: "2026-10-10T00:00:00.000Z",
+      });
       const providerTurnId = TurnId.makeUnsafe("turn-provider-native-steer");
       const settledAt = "2026-09-05T07:11:04.000Z";
       const logicalTurns = [
@@ -4131,6 +3016,19 @@ it.layer(
 
       for (const [index, scenario] of scenarios.entries()) {
         const threadId = ThreadId.makeUnsafe(`thread-session-settlement-${scenario.key}`);
+        yield* createThread({
+          id: threadId,
+          spaceId: "penkra-personal",
+          folderId: "project-test",
+          deckId: singletonThreadDeckId(threadId),
+          sidebarSortOrder: 0,
+          title: "Thread",
+          provider: "codex",
+          model: "gpt-5.5",
+          runtimeMode: "full-access",
+          createdBy: "user",
+          createdAt: "2026-10-10T00:00:00.000Z",
+        });
         const turnId = TurnId.makeUnsafe(`turn-session-settlement-${scenario.key}`);
         const startedAt = `2026-02-27T12:00:${String(index * 2).padStart(2, "0")}.000Z`;
         const settledAt = `2026-02-27T12:00:${String(index * 2 + 1).padStart(2, "0")}.000Z`;
@@ -4221,6 +3119,19 @@ it.layer(
 
       for (const [index, scenario] of scenarios.entries()) {
         const threadId = ThreadId.makeUnsafe(`thread-session-settlement-${scenario.key}`);
+        yield* createThread({
+          id: threadId,
+          spaceId: "penkra-personal",
+          folderId: "project-test",
+          deckId: singletonThreadDeckId(threadId),
+          sidebarSortOrder: 0,
+          title: "Thread",
+          provider: "codex",
+          model: "gpt-5.5",
+          runtimeMode: "full-access",
+          createdBy: "user",
+          createdAt: "2026-10-10T00:00:00.000Z",
+        });
         const turnId = TurnId.makeUnsafe(`turn-session-settlement-${scenario.key}`);
         const settledAt = `2026-02-27T12:00:${String(index * 2 + 1).padStart(2, "0")}.000Z`;
         const rows = yield* sql<{
@@ -4249,6 +3160,19 @@ it.layer(
       const projectionPipeline = yield* OrchestrationProjectionPipeline;
       const sql = yield* SqlClient.SqlClient;
       const threadId = ThreadId.makeUnsafe("thread-steer-chip");
+      yield* createThread({
+        id: threadId,
+        spaceId: "penkra-personal",
+        folderId: "project-test",
+        deckId: singletonThreadDeckId(threadId),
+        sidebarSortOrder: 0,
+        title: "Thread",
+        provider: "codex",
+        model: "gpt-5.5",
+        runtimeMode: "full-access",
+        createdBy: "user",
+        createdAt: "2026-10-10T00:00:00.000Z",
+      });
       const messageId = MessageId.makeUnsafe("message-steer-chip");
       const createdAt = "2026-02-27T11:00:00.000Z";
 
@@ -4293,6 +3217,19 @@ it.layer(
       const projectionPipeline = yield* OrchestrationProjectionPipeline;
       const sql = yield* SqlClient.SqlClient;
       const threadId = ThreadId.makeUnsafe("thread-restored-steer-marker");
+      yield* createThread({
+        id: threadId,
+        spaceId: "penkra-personal",
+        folderId: "project-test",
+        deckId: singletonThreadDeckId(threadId),
+        sidebarSortOrder: 0,
+        title: "Thread",
+        provider: "codex",
+        model: "gpt-5.5",
+        runtimeMode: "full-access",
+        createdBy: "user",
+        createdAt: "2026-10-10T00:00:00.000Z",
+      });
       const messageId = MessageId.makeUnsafe("message-restored-steer-marker");
       const createdAt = "2026-02-27T11:01:00.000Z";
       const base = {
@@ -4343,6 +3280,19 @@ it.layer(
       const projectionPipeline = yield* OrchestrationProjectionPipeline;
       const sql = yield* SqlClient.SqlClient;
       const threadId = ThreadId.makeUnsafe("thread-delivery-lifecycle");
+      yield* createThread({
+        id: threadId,
+        spaceId: "penkra-personal",
+        folderId: "project-test",
+        deckId: singletonThreadDeckId(threadId),
+        sidebarSortOrder: 0,
+        title: "Thread",
+        provider: "codex",
+        model: "gpt-5.5",
+        runtimeMode: "full-access",
+        createdBy: "user",
+        createdAt: "2026-10-10T00:00:00.000Z",
+      });
       const messageId = MessageId.makeUnsafe("message-delivery-lifecycle");
       const createdAt = "2026-02-27T11:02:00.000Z";
 
@@ -4474,6 +3424,19 @@ it.layer(
       const projectionPipeline = yield* OrchestrationProjectionPipeline;
       const sql = yield* SqlClient.SqlClient;
       const threadId = ThreadId.makeUnsafe("thread-edit-replay-time");
+      yield* createThread({
+        id: threadId,
+        spaceId: "penkra-personal",
+        folderId: "project-test",
+        deckId: singletonThreadDeckId(threadId),
+        sidebarSortOrder: 0,
+        title: "Thread",
+        provider: "codex",
+        model: "gpt-5.5",
+        runtimeMode: "full-access",
+        createdBy: "user",
+        createdAt: "2026-10-10T00:00:00.000Z",
+      });
       const messageId = MessageId.makeUnsafe("message-edit-replay-time");
       const originalAt = "2026-09-11T10:28:50.952Z";
       const replayAt = "2026-09-11T17:21:54.125Z";
@@ -4571,6 +3534,19 @@ it.layer(
       const projectionPipeline = yield* OrchestrationProjectionPipeline;
       const sql = yield* SqlClient.SqlClient;
       const threadId = ThreadId.makeUnsafe("thread-automation-chip");
+      yield* createThread({
+        id: threadId,
+        spaceId: "penkra-personal",
+        folderId: "project-test",
+        deckId: singletonThreadDeckId(threadId),
+        sidebarSortOrder: 0,
+        title: "Thread",
+        provider: "codex",
+        model: "gpt-5.5",
+        runtimeMode: "full-access",
+        createdBy: "user",
+        createdAt: "2026-10-10T00:00:00.000Z",
+      });
       const messageId = MessageId.makeUnsafe("message-automation-chip");
       const createdAt = "2026-02-27T11:05:00.000Z";
 
@@ -4615,6 +3591,19 @@ it.layer(
       const projectionPipeline = yield* OrchestrationProjectionPipeline;
       const sql = yield* SqlClient.SqlClient;
       const threadId = ThreadId.makeUnsafe("thread-agent-chip");
+      yield* createThread({
+        id: threadId,
+        spaceId: "penkra-personal",
+        folderId: "project-test",
+        deckId: singletonThreadDeckId(threadId),
+        sidebarSortOrder: 0,
+        title: "Thread",
+        provider: "codex",
+        model: "gpt-5.5",
+        runtimeMode: "full-access",
+        createdBy: "user",
+        createdAt: "2026-10-10T00:00:00.000Z",
+      });
       const messageId = MessageId.makeUnsafe("message-agent-chip");
       const createdAt = "2026-02-27T11:06:00.000Z";
 
@@ -4663,6 +3652,19 @@ it.layer(
       const { attachmentsDir } = yield* ServerConfig;
       const sql = yield* SqlClient.SqlClient;
       const threadId = ThreadId.makeUnsafe("thread-managed-rebuild");
+      yield* createThread({
+        id: threadId,
+        spaceId: "penkra-personal",
+        folderId: "project-test",
+        deckId: singletonThreadDeckId(threadId),
+        sidebarSortOrder: 0,
+        title: "Thread",
+        provider: "codex",
+        model: "gpt-5.5",
+        runtimeMode: "full-access",
+        createdBy: "user",
+        createdAt: "2026-10-10T00:00:00.000Z",
+      });
       const retainedAttachmentId = "att_v2_11111111111111111111111111111111";
       const prunedAttachmentId = "att_v2_22222222222222222222222222222222";
       const retainedLegacyId = "thread-managed-rebuild-11111111-1111-4111-8111-111111111111";

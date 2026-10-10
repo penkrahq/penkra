@@ -2101,12 +2101,6 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
         catch: (cause) => toRequestError(threadId, "thread/compact/start", cause),
       });
 
-    const forkThread: CodexAdapterShape["forkThread"] = (input) =>
-      Effect.tryPromise({
-        try: () => manager.forkThread(input),
-        catch: (cause) => toRequestError(input.sourceThreadId, "thread/fork", cause),
-      });
-
     const respondToRequest: CodexAdapterShape["respondToRequest"] = (
       threadId,
       requestId,
@@ -2429,7 +2423,6 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
       readThread,
       rollbackThread,
       compactThread,
-      forkThread,
       respondToRequest,
       respondToUserInput,
       stopSession,

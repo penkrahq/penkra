@@ -1,3 +1,4 @@
+import { ThreadLifecycle } from "./cleanCore/threadLifecycle.ts";
 // FILE: desktopThreadRoute.ts
 // Purpose: Private loopback endpoint for window-independent App Thread commands.
 
@@ -51,10 +52,13 @@ export const desktopThreadRouteLayer = HttpRouter.add(
     const providerBindings = yield* ThreadProviderBindingRepository;
     const sql = yield* SqlClient.SqlClient;
     const publisher = yield* ThreadPublisher;
+    const lifecycle = yield* ThreadLifecycle;
     commands ??= new DesktopThreadCommands({
+      createThread: (input) => Effect.runPromise(lifecycle.create(input)),
       updateThread: (update) =>
         Effect.runPromise(
           Effect.gen(function* () {
+            if (update.action === "archive") return yield* lifecycle.update(update);
             for (const threadId of yield* moveDeckThread(update)) publisher.publish({ threadId });
           }).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
         ),

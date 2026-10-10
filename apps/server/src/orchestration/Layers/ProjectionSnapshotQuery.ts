@@ -51,7 +51,7 @@ import {
   type ProjectionThreadMessageDbRow,
 } from "../../persistence/projectionThreadMessageRow.ts";
 import { ProjectionThreadSession } from "../../persistence/Services/ProjectionThreadSessions.ts";
-import { ProjectionThread } from "../../persistence/Services/ProjectionThreads.ts";
+import { ProjectionThread } from "../../cleanCore/threadShellSchema.ts";
 import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import {
   ProjectionSnapshotQuery,
@@ -310,10 +310,7 @@ function decodeProjectionThreadOption(
   );
 }
 
-const REQUIRED_SNAPSHOT_PROJECTORS = [
-  ORCHESTRATION_PROJECTOR_NAMES.hot,
-  ORCHESTRATION_PROJECTOR_NAMES.threadShellSummaries,
-] as const;
+const REQUIRED_SNAPSHOT_PROJECTORS = [ORCHESTRATION_PROJECTOR_NAMES.hot] as const;
 
 function maxIso(left: string | null, right: string): string {
   if (left === null) {
@@ -593,7 +590,6 @@ function toProjectedThreadShellFromStoredSummary(input: {
     subagentAgentId: threadRow.subagentAgentId ?? null,
     subagentNickname: threadRow.subagentNickname ?? null,
     subagentRole: threadRow.subagentRole ?? null,
-    forkSourceThreadId: threadRow.forkSourceThreadId ?? null,
     latestTurn: input.latestTurn,
     latestUserMessageAt: threadRow.latestUserMessageAt,
     hasPendingApprovals: threadRow.pendingApprovalCount > 0,
@@ -647,7 +643,6 @@ function assembleProjectedThread(
     subagentAgentId: threadRow.subagentAgentId ?? null,
     subagentNickname: threadRow.subagentNickname ?? null,
     subagentRole: threadRow.subagentRole ?? null,
-    forkSourceThreadId: threadRow.forkSourceThreadId,
     latestTurn: input.latestTurn,
     pendingTurnStartMessageId: input.pendingTurnStartMessageId ?? null,
     createdAt: threadRow.createdAt,
@@ -751,16 +746,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     `,
   });
 
-  // Thread retention soft-deletes and never purges (see ThreadDeletionReactor), so the
-  // projection tables keep every row of every deleted thread forever. `getSnapshot` is the
-  // only reader that hydrates message/activity bodies for the whole database at once, and
-  // every consumer of its read model drops soft-deleted threads before use. Ranking those
-  // rows was therefore ~95% pure waste on a mature database.
-  //
   // Filtering by thread removes whole `PARTITION BY thread_id` partitions, so the
   // ROW_NUMBER() ranks of the threads that survive are bit-for-bit unchanged.
   const liveThreadScope = sql`
-    thread_id IN (SELECT thread_id FROM projection_threads WHERE deleted_at IS NULL)
+    thread_id IN (SELECT id FROM threads WHERE deleted_at IS NULL)
   `;
 
   const listSpaceRows = SqlSchema.findAll({
@@ -806,94 +795,118 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
-  const listThreadRows = SqlSchema.findAll({
-    Request: Schema.Void,
+  const listThreadRowsPage = SqlSchema.findAll({
+    Request: Schema.NullOr(ThreadId),
     Result: ProjectionThreadDbRowSchema,
-    execute: () =>
+    execute: (after) =>
       sql`
         SELECT
-          thread_id AS "threadId",
+          id AS "threadId",
           deck_id AS "deckId",
           deck_sort_order AS "deckSortOrder",
           folder_id AS "folderId",
           title,
-          model_selection_json AS "modelSelection",
+          json_patch(json_object('provider', provider, 'model', model), CASE WHEN model_options IS NULL THEN '{}' ELSE json_object('options', json(model_options)) END) AS "modelSelection",
           connection_id AS "connectionId",
-          connection_id_selected AS "connectionSelectionExplicit",
+          1 AS "connectionSelectionExplicit",
           runtime_mode AS "runtimeMode",
           working_directory AS "workingDirectory",
           is_pinned AS "isPinned",
-          sidebar_sort_order AS "sidebarSortOrder",
+          COALESCE(sidebar_sort_order, 0) AS "sidebarSortOrder",
           parent_thread_id AS "parentThreadId",
-          creation_source AS "creationSource",
-          source_thread_id AS "sourceThreadId",
-          source_turn_id AS "sourceTurnId",
-          gateway_operation_id AS "gatewayOperationId",
-          gateway_operation_index AS "gatewayOperationIndex",
-          subagent_agent_id AS "subagentAgentId",
-          subagent_nickname AS "subagentNickname",
-          subagent_role AS "subagentRole",
-          fork_source_thread_id AS "forkSourceThreadId",
-          latest_turn_id AS "latestTurnId",
-          latest_user_message_at AS "latestUserMessageAt",
+          CASE created_by WHEN 'agent' THEN 'penkra_mcp' WHEN 'provider_native' THEN 'provider_native' ELSE NULL END AS "creationSource",
+          created_by_thread_id AS "sourceThreadId",
+          NULL AS "sourceTurnId",
+          NULL AS "gatewayOperationId",
+          NULL AS "gatewayOperationIndex",
+          NULL AS "subagentAgentId",
+          NULL AS "subagentNickname",
+          NULL AS "subagentRole",
+          active_turn_id AS "latestTurnId",
+          last_user_message_at AS "latestUserMessageAt",
           last_visited_at AS "lastVisitedAt",
-          pending_approval_count AS "pendingApprovalCount",
-          pending_user_input_count AS "pendingUserInputCount",
-          work_status AS "workStatus",
+          0 AS "pendingApprovalCount",
+          open_question_count AS "pendingUserInputCount",
+          CASE WHEN state = 'running' THEN 'running' WHEN state = 'error' OR open_question_count > 0 THEN 'attention' WHEN last_activity_at > COALESCE(last_visited_at, '') THEN 'done' ELSE 'idle' END AS "workStatus",
           last_message_preview AS "lastMessagePreview",
           last_activity_at AS "lastActivityAt",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           archived_at AS "archivedAt",
           deleted_at AS "deletedAt"
-        FROM projection_threads
-        ORDER BY created_at ASC, thread_id ASC
+        FROM threads
+        WHERE (${after} IS NULL OR id > ${after})
+        ORDER BY id ASC
+        LIMIT 50
       `,
   });
 
-  const listThreadShellRows = SqlSchema.findAll({
-    Request: Schema.Void,
+  const listThreadRows = Effect.fnUntraced(function* (_request: void) {
+    const rows: ProjectionThreadDbRowRaw[] = [];
+    let after: ThreadId | null = null;
+    while (true) {
+      const page: readonly ProjectionThreadDbRowRaw[] = yield* listThreadRowsPage(after);
+      rows.push(...page);
+      if (page.length < 50) return rows;
+      after = page[page.length - 1]!.threadId;
+    }
+  });
+
+  const listThreadShellRowsPage = SqlSchema.findAll({
+    Request: Schema.NullOr(ThreadId),
     Result: ProjectionThreadShellDbRowSchema,
-    execute: () =>
+    execute: (after) =>
       sql`
         SELECT
-          thread_id AS "threadId",
+          id AS "threadId",
           deck_id AS "deckId",
           deck_sort_order AS "deckSortOrder",
           folder_id AS "folderId",
           title,
-          model_selection_json AS "modelSelection",
+          json_patch(json_object('provider', provider, 'model', model), CASE WHEN model_options IS NULL THEN '{}' ELSE json_object('options', json(model_options)) END) AS "modelSelection",
           connection_id AS "connectionId",
-          connection_id_selected AS "connectionSelectionExplicit",
+          1 AS "connectionSelectionExplicit",
           runtime_mode AS "runtimeMode",
           working_directory AS "workingDirectory",
           is_pinned AS "isPinned",
-          sidebar_sort_order AS "sidebarSortOrder",
+          COALESCE(sidebar_sort_order, 0) AS "sidebarSortOrder",
           parent_thread_id AS "parentThreadId",
-          creation_source AS "creationSource",
-          source_thread_id AS "sourceThreadId",
-          source_turn_id AS "sourceTurnId",
-          gateway_operation_id AS "gatewayOperationId",
-          gateway_operation_index AS "gatewayOperationIndex",
-          subagent_agent_id AS "subagentAgentId",
-          subagent_nickname AS "subagentNickname",
-          subagent_role AS "subagentRole",
-          fork_source_thread_id AS "forkSourceThreadId",
-          latest_turn_id AS "latestTurnId",
-          latest_user_message_at AS "latestUserMessageAt",
+          CASE created_by WHEN 'agent' THEN 'penkra_mcp' WHEN 'provider_native' THEN 'provider_native' ELSE NULL END AS "creationSource",
+          created_by_thread_id AS "sourceThreadId",
+          NULL AS "sourceTurnId",
+          NULL AS "gatewayOperationId",
+          NULL AS "gatewayOperationIndex",
+          NULL AS "subagentAgentId",
+          NULL AS "subagentNickname",
+          NULL AS "subagentRole",
+          active_turn_id AS "latestTurnId",
+          last_user_message_at AS "latestUserMessageAt",
           last_visited_at AS "lastVisitedAt",
-          pending_approval_count AS "pendingApprovalCount",
-          pending_user_input_count AS "pendingUserInputCount",
-          work_status AS "workStatus",
+          0 AS "pendingApprovalCount",
+          open_question_count AS "pendingUserInputCount",
+          CASE WHEN state = 'running' THEN 'running' WHEN state = 'error' OR open_question_count > 0 THEN 'attention' WHEN last_activity_at > COALESCE(last_visited_at, '') THEN 'done' ELSE 'idle' END AS "workStatus",
           last_message_preview AS "lastMessagePreview",
           last_activity_at AS "lastActivityAt",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           archived_at AS "archivedAt",
           deleted_at AS "deletedAt"
-        FROM projection_threads
-        ORDER BY created_at ASC, thread_id ASC
+        FROM threads
+        WHERE (${after} IS NULL OR id > ${after})
+        ORDER BY id ASC
+        LIMIT 50
       `,
+  });
+
+  const listThreadShellRows = Effect.fnUntraced(function* (_request: void) {
+    const rows: ProjectionThreadShellDbRowRaw[] = [];
+    let after: ThreadId | null = null;
+    while (true) {
+      const page: readonly ProjectionThreadShellDbRowRaw[] = yield* listThreadShellRowsPage(after);
+      rows.push(...page);
+      if (page.length < 50) return rows;
+      after = page[page.length - 1]!.threadId;
+    }
   });
 
   const listThreadDeckRows = SqlSchema.findAll({
@@ -916,16 +929,16 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     Result: ProjectionThreadIdLookupRowSchema,
     execute: ({ updatedBefore, limit }) =>
       sql`
-        SELECT threads.thread_id AS "threadId"
-        FROM projection_threads AS threads
+        SELECT threads.id AS "threadId"
+        FROM threads
         -- LEFT, not INNER: a thread whose runtime binding row was already
         -- removed is exactly the thread most likely to be stuck running with
         -- nothing left to settle it. Archived threads are included for the same
         -- reason - archiving does not stop a turn.
         LEFT JOIN provider_session_runtime AS runtime
-          ON runtime.thread_id = threads.thread_id
+          ON runtime.thread_id = threads.id
         LEFT JOIN projection_thread_sessions AS sessions
-          ON sessions.thread_id = threads.thread_id
+          ON sessions.thread_id = threads.id
         WHERE threads.deleted_at IS NULL
           AND (
             (
@@ -937,7 +950,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               AND EXISTS (
                 SELECT 1
                 FROM projection_turns AS running_turn
-                WHERE running_turn.thread_id = threads.thread_id
+                WHERE running_turn.thread_id = threads.id
                   AND running_turn.state = 'running'
                   AND running_turn.started_at IS NOT NULL
                   AND running_turn.completed_at IS NULL
@@ -949,7 +962,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           -- output advances threads.updated_at even when the session row stays
           -- unchanged for the full turn.
           AND MAX(COALESCE(sessions.updated_at, threads.updated_at), threads.updated_at) <= ${updatedBefore}
-        ORDER BY MAX(COALESCE(sessions.updated_at, threads.updated_at), threads.updated_at) ASC, threads.thread_id ASC
+        ORDER BY MAX(COALESCE(sessions.updated_at, threads.updated_at), threads.updated_at) ASC, threads.id ASC
         LIMIT ${Math.max(1, Math.min(1_000, Math.floor(limit)))}
       `,
   });
@@ -1228,7 +1241,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       sql`
         SELECT
           (SELECT COUNT(*) FROM projection_folders) AS "folderCount",
-          (SELECT COUNT(*) FROM projection_threads) AS "threadCount"
+          (SELECT COUNT(*) FROM threads) AS "threadCount"
       `,
   });
 
@@ -1286,11 +1299,11 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     execute: ({ folderId }) =>
       sql`
         SELECT
-          thread_id AS "threadId"
-        FROM projection_threads
+          id AS "threadId"
+        FROM threads
         WHERE folder_id = ${folderId}
           AND deleted_at IS NULL
-        ORDER BY created_at ASC, thread_id ASC
+        ORDER BY created_at ASC, id ASC
         LIMIT 1
       `,
   });
@@ -1327,42 +1340,41 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     execute: ({ threadId }) =>
       sql`
         SELECT
-          thread_id AS "threadId",
+          id AS "threadId",
           deck_id AS "deckId",
           deck_sort_order AS "deckSortOrder",
           folder_id AS "folderId",
           title,
-          model_selection_json AS "modelSelection",
+          json_patch(json_object('provider', provider, 'model', model), CASE WHEN model_options IS NULL THEN '{}' ELSE json_object('options', json(model_options)) END) AS "modelSelection",
           connection_id AS "connectionId",
-          connection_id_selected AS "connectionSelectionExplicit",
+          1 AS "connectionSelectionExplicit",
           runtime_mode AS "runtimeMode",
           working_directory AS "workingDirectory",
           is_pinned AS "isPinned",
-          sidebar_sort_order AS "sidebarSortOrder",
+          COALESCE(sidebar_sort_order, 0) AS "sidebarSortOrder",
           parent_thread_id AS "parentThreadId",
-          creation_source AS "creationSource",
-          source_thread_id AS "sourceThreadId",
-          source_turn_id AS "sourceTurnId",
-          gateway_operation_id AS "gatewayOperationId",
-          gateway_operation_index AS "gatewayOperationIndex",
-          subagent_agent_id AS "subagentAgentId",
-          subagent_nickname AS "subagentNickname",
-          subagent_role AS "subagentRole",
-          fork_source_thread_id AS "forkSourceThreadId",
-          latest_turn_id AS "latestTurnId",
-          latest_user_message_at AS "latestUserMessageAt",
+          CASE created_by WHEN 'agent' THEN 'penkra_mcp' WHEN 'provider_native' THEN 'provider_native' ELSE NULL END AS "creationSource",
+          created_by_thread_id AS "sourceThreadId",
+          NULL AS "sourceTurnId",
+          NULL AS "gatewayOperationId",
+          NULL AS "gatewayOperationIndex",
+          NULL AS "subagentAgentId",
+          NULL AS "subagentNickname",
+          NULL AS "subagentRole",
+          active_turn_id AS "latestTurnId",
+          last_user_message_at AS "latestUserMessageAt",
           last_visited_at AS "lastVisitedAt",
-          pending_approval_count AS "pendingApprovalCount",
-          pending_user_input_count AS "pendingUserInputCount",
-          work_status AS "workStatus",
+          0 AS "pendingApprovalCount",
+          open_question_count AS "pendingUserInputCount",
+          CASE WHEN state = 'running' THEN 'running' WHEN state = 'error' OR open_question_count > 0 THEN 'attention' WHEN last_activity_at > COALESCE(last_visited_at, '') THEN 'done' ELSE 'idle' END AS "workStatus",
           last_message_preview AS "lastMessagePreview",
           last_activity_at AS "lastActivityAt",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           archived_at AS "archivedAt",
           deleted_at AS "deletedAt"
-        FROM projection_threads
-        WHERE thread_id = ${threadId}
+        FROM threads
+        WHERE id = ${threadId}
           AND deleted_at IS NULL
         LIMIT 1
       `,
@@ -1374,44 +1386,43 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     execute: ({ threadId }) =>
       sql`
         SELECT
-          thread_id AS "threadId",
+          id AS "threadId",
           deck_id AS "deckId",
           deck_sort_order AS "deckSortOrder",
           folder_id AS "folderId",
           title,
-          model_selection_json AS "modelSelection",
+          json_patch(json_object('provider', provider, 'model', model), CASE WHEN model_options IS NULL THEN '{}' ELSE json_object('options', json(model_options)) END) AS "modelSelection",
           connection_id AS "connectionId",
-          connection_id_selected AS "connectionSelectionExplicit",
+          1 AS "connectionSelectionExplicit",
           runtime_mode AS "runtimeMode",
           working_directory AS "workingDirectory",
           is_pinned AS "isPinned",
-          sidebar_sort_order AS "sidebarSortOrder",
+          COALESCE(sidebar_sort_order, 0) AS "sidebarSortOrder",
           parent_thread_id AS "parentThreadId",
-          creation_source AS "creationSource",
-          source_thread_id AS "sourceThreadId",
-          source_turn_id AS "sourceTurnId",
-          gateway_operation_id AS "gatewayOperationId",
-          gateway_operation_index AS "gatewayOperationIndex",
-          subagent_agent_id AS "subagentAgentId",
-          subagent_nickname AS "subagentNickname",
-          subagent_role AS "subagentRole",
-          fork_source_thread_id AS "forkSourceThreadId",
-          latest_turn_id AS "latestTurnId",
-          latest_user_message_at AS "latestUserMessageAt",
+          CASE created_by WHEN 'agent' THEN 'penkra_mcp' WHEN 'provider_native' THEN 'provider_native' ELSE NULL END AS "creationSource",
+          created_by_thread_id AS "sourceThreadId",
+          NULL AS "sourceTurnId",
+          NULL AS "gatewayOperationId",
+          NULL AS "gatewayOperationIndex",
+          NULL AS "subagentAgentId",
+          NULL AS "subagentNickname",
+          NULL AS "subagentRole",
+          active_turn_id AS "latestTurnId",
+          last_user_message_at AS "latestUserMessageAt",
           last_visited_at AS "lastVisitedAt",
-          pending_approval_count AS "pendingApprovalCount",
-          pending_user_input_count AS "pendingUserInputCount",
-          work_status AS "workStatus",
+          0 AS "pendingApprovalCount",
+          open_question_count AS "pendingUserInputCount",
+          CASE WHEN state = 'running' THEN 'running' WHEN state = 'error' OR open_question_count > 0 THEN 'attention' WHEN last_activity_at > COALESCE(last_visited_at, '') THEN 'done' ELSE 'idle' END AS "workStatus",
           last_message_preview AS "lastMessagePreview",
           last_activity_at AS "lastActivityAt",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           archived_at AS "archivedAt",
           deleted_at AS "deletedAt"
-        FROM projection_threads
-        WHERE ${threadId} LIKE ('subagent:' || thread_id || ':%')
+        FROM threads
+        WHERE ${threadId} LIKE ('subagent:' || id || ':%')
           AND deleted_at IS NULL
-        ORDER BY length(thread_id) DESC, created_at ASC, thread_id ASC
+        ORDER BY length(id) DESC, created_at ASC, id ASC
         LIMIT 1
       `,
   });
@@ -2621,7 +2632,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               ),
             ),
           );
-          if (Option.isNone(threadRow)) {
+          if (Option.isNone(threadRow) || threadRow.value.deletedAt !== null) {
             return Option.none<OrchestrationThreadShell>();
           }
 

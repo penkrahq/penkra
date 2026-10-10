@@ -44,7 +44,6 @@ export function makeThread(overrides: Partial<Thread> = {}): Thread {
     latestUserMessageAt: null,
     hasPendingApprovals: false,
     hasPendingUserInput: false,
-    forkSourceThreadId: null,
     ...overrides,
   };
   return Object.assign({}, thread, {
@@ -174,7 +173,6 @@ export function makeReadModelThread(overrides: Partial<OrchestrationReadModel["t
       model: "gpt-5.3-codex",
     },
     runtimeMode: DEFAULT_RUNTIME_MODE,
-    forkSourceThreadId: null,
     latestTurn: null,
     createdAt: "2026-02-27T00:00:00.000Z",
     updatedAt: "2026-02-27T00:00:00.000Z",

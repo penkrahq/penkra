@@ -20,10 +20,6 @@ import {
 } from "../../managedAttachmentPrincipal.ts";
 import { ProviderThreadSwitchOperationRepository } from "../../persistence/Services/ProviderThreadSwitchOperations.ts";
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
-import {
-  ProviderNativeForkOperationRepository,
-  type ProviderNativeForkOperationState,
-} from "../../persistence/Services/ProviderNativeForkOperations.ts";
 import { providerNativeResumeIdentity } from "../../provider/nativeResumeIdentity.ts";
 import {
   discardClaudeThreadAccountTransition,
@@ -64,7 +60,6 @@ const mapOperationError = (detail: string) =>
   Effect.mapError((cause: unknown) => new ProviderThreadSwitchCoordinatorError({ detail, cause }));
 
 const operationIdFor = (commandId: string) => `provider-switch:${commandId}`;
-const forkOperationIdFor = (commandId: string) => `provider-fork:${commandId}`;
 const generationIdFor = (commandId: string) =>
   ProviderNativeStateGenerationId.makeUnsafe(`provider-switch-generation:${commandId}`);
 const anonymousConnectionLabel = (harness: string) =>
@@ -99,7 +94,6 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
   const config = yield* ServerConfig;
   const engine = yield* OrchestrationEngineService;
   const operations = yield* ProviderThreadSwitchOperationRepository;
-  const forkOperations = yield* ProviderNativeForkOperationRepository;
   const threadBindings = yield* ThreadProviderBindingRepository;
   const provider = yield* ProviderService;
   const projections = yield* ProjectionSnapshotQuery;
@@ -691,278 +685,6 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
       ),
     );
 
-  const runForkOperation = Effect.fnUntraced(function* (input: {
-    readonly command: Extract<typeof OrchestrationCommand.Type, { type: "thread.turn.start" }>;
-    readonly attachmentPrincipal: ManagedAttachmentPrincipal;
-    readonly selection: typeof ResolvedProviderTurnSelection.Type;
-    readonly sourceThreadId: ThreadId;
-    readonly sourceStateRevision: number;
-    readonly sourceBindingRevision: number;
-    readonly targetGenerationId: typeof ProviderNativeStateGenerationId.Type;
-    readonly operationId: string;
-    readonly startingState: ProviderNativeForkOperationState;
-    readonly forkResultJson: string | null;
-    readonly cwd?: string;
-  }) {
-    let state = input.startingState;
-    let forkResultJson = input.forkResultJson;
-    const readExactSource = Effect.gen(function* () {
-      const sourceState = yield* threadBindings
-        .getHarnessState(input.sourceThreadId)
-        .pipe(mapOperationError("Could not read the native fork source state."));
-      const sourceBinding = yield* threadBindings
-        .getRuntimeBinding(input.sourceThreadId)
-        .pipe(mapOperationError("Could not read the native fork source binding."));
-      if (
-        Option.isNone(sourceState) ||
-        Option.isNone(sourceBinding) ||
-        sourceState.value.revision !== input.sourceStateRevision ||
-        sourceBinding.value.revision !== input.sourceBindingRevision
-      ) {
-        return yield* fail("The native fork source changed before the fork committed.");
-      }
-      const sourceCursor = yield* Effect.try({
-        try: () => JSON.parse(sourceState.value.nativeStateLocatorJson) as unknown,
-        catch: (cause) =>
-          new ProviderThreadSwitchCoordinatorError({
-            detail: "The native fork source cursor is invalid.",
-            cause,
-          }),
-      });
-      const sourceIdentity = providerNativeResumeIdentity(sourceState.value.harness, sourceCursor);
-      if (
-        sourceState.value.harness !== input.selection.harness ||
-        sourceIdentity === null ||
-        sourceState.value.providerSessionId !== sourceIdentity
-      ) {
-        return yield* fail("The native fork source identity is not exact.");
-      }
-      return {
-        sourceState: sourceState.value,
-        sourceBinding: sourceBinding.value,
-        sourceCursor,
-        sourceIdentity,
-      };
-    });
-
-    if (state === "pending") {
-      const source = yield* readExactSource;
-      yield* materializer.discard(input.targetGenerationId).pipe(
-        Effect.andThen(
-          materializer.clone({
-            harness: input.selection.harness,
-            providerSessionId: source.sourceIdentity,
-            sourceStorage: "connection-profile",
-            sourceConnectionId: source.sourceBinding.connectionId,
-            targetConnectionId: input.selection.connectionId,
-            sourceGenerationId: source.sourceState.nativeStateGenerationId,
-            targetGenerationId: input.targetGenerationId,
-            sourceThreadId: input.sourceThreadId,
-            targetThreadId: input.command.threadId,
-          }),
-        ),
-        mapOperationError("Could not materialize the native fork source generation."),
-      );
-      yield* forkOperations
-        .transition({
-          id: input.operationId,
-          state: "materialized",
-          failureReason: null,
-          updatedAt: new Date().toISOString(),
-        })
-        .pipe(mapOperationError("Could not persist the materialized native fork state."));
-      state = "materialized";
-    }
-    if (state === "materialized") {
-      const source = yield* readExactSource;
-      const launch = yield* launches
-        .resolveProfile({
-          harness: input.selection.harness,
-          connectionId: input.selection.connectionId,
-          installationId: input.selection.installationId,
-          internalProviderId: input.selection.internalProviderId,
-          nativeStateIdentity: input.targetGenerationId,
-          claudeThreadId: input.command.threadId,
-        })
-        .pipe(mapOperationError("Could not resolve the native fork target launch."));
-      if (!provider.forkThread)
-        return yield* fail("This provider does not support exact native thread forks.");
-      const forked = yield* provider
-        .forkThread({
-          sourceThreadId: input.sourceThreadId,
-          threadId: input.command.threadId,
-          sourceResumeCursor: source.sourceCursor,
-          ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
-          modelSelection: input.command.modelSelection,
-          runtimeMode: input.command.runtimeMode ?? "full-access",
-          managedLaunch: {
-            binaryPath: launch.binaryPath,
-            isolationKey: launch.isolationKey,
-            profileRoot: launch.profileRoot,
-            nativeStateRoot: launch.nativeStateRoot,
-            childEnvironment: (baseEnv) => launch.childEnvironment(baseEnv),
-          } satisfies ProviderManagedLaunchContext,
-        })
-        .pipe(
-          Effect.mapError(
-            (cause) =>
-              new ProviderThreadSwitchCoordinatorError({
-                detail: "Could not create the exact provider-native fork.",
-                cause,
-              }),
-          ),
-        );
-      const forkIdentity = providerNativeResumeIdentity(
-        input.selection.harness,
-        forked?.resumeCursor,
-      );
-      if (
-        !forked?.resumeCursor ||
-        forkIdentity === null ||
-        forkIdentity === source.sourceIdentity
-      ) {
-        return yield* fail("The provider did not return a distinct exact native fork identity.");
-      }
-      const verifiedAt = new Date().toISOString();
-      forkResultJson = JSON.stringify({
-        generationId: input.targetGenerationId,
-        adapterSchemaVersion: "managed-native-state-v1",
-        stateManifestJson: JSON.stringify({
-          format: "managed-native-state-v1",
-          sourceGenerationId: source.sourceState.nativeStateGenerationId,
-          forkSourceThreadId: input.sourceThreadId,
-        }),
-        providerSessionId: forkIdentity,
-        nativeStateLocatorJson: JSON.stringify(forked.resumeCursor),
-        verifiedAt,
-      } satisfies typeof VerifiedProviderNativeContinuation.Type);
-      yield* forkOperations
-        .transition({
-          id: input.operationId,
-          state: "forked",
-          forkResultJson,
-          failureReason: null,
-          updatedAt: verifiedAt,
-        })
-        .pipe(mapOperationError("Could not persist the verified native fork state."));
-      state = "forked";
-    }
-    if (state === "committed") {
-      const result = yield* engine
-        .dispatch(
-          {
-            ...input.command,
-            connectionId: input.selection.connectionId,
-            bindingRevision: input.selection.bindingRevision,
-          },
-          {
-            attachmentPrincipal: input.attachmentPrincipal,
-          },
-        )
-        .pipe(
-          Effect.mapError(
-            (cause) =>
-              new ProviderThreadSwitchCoordinatorError({
-                detail: cause.message,
-                cause,
-              }),
-          ),
-        );
-      yield* materializer
-        .finalize(input.targetGenerationId)
-        .pipe(mapOperationError("Could not finalize the committed native fork state."));
-      return result;
-    }
-    if (state !== "forked" || forkResultJson === null)
-      return yield* fail("The native fork verification evidence is missing.");
-    const verified = yield* decodeVerification(forkResultJson);
-    const result = yield* engine
-      .dispatch(
-        {
-          ...input.command,
-          connectionId: input.selection.connectionId,
-          bindingRevision: input.selection.bindingRevision,
-        },
-        {
-          attachmentPrincipal: input.attachmentPrincipal,
-          acceptedInitialProviderBinding: {
-            generation: {
-              id: verified.generationId,
-              ownerThreadId: input.command.threadId,
-              harness: input.selection.harness,
-              adapterSchemaVersion: verified.adapterSchemaVersion,
-              stateManifestJson: verified.stateManifestJson,
-              createdAt: verified.verifiedAt,
-            },
-            threadId: input.command.threadId,
-            providerSessionId: verified.providerSessionId,
-            nativeStateLocatorJson: verified.nativeStateLocatorJson,
-            connectionId: input.selection.connectionId,
-            installationId: input.selection.installationId,
-            internalProviderId: input.selection.internalProviderId,
-            modelId: input.selection.modelId,
-            createdAt: input.command.createdAt,
-          },
-          acceptedInitialProviderForkOperationId: input.operationId,
-        },
-      )
-      .pipe(
-        Effect.mapError(
-          (cause) =>
-            new ProviderThreadSwitchCoordinatorError({
-              detail: cause.message,
-              cause,
-            }),
-        ),
-      );
-    yield* materializer
-      .finalize(input.targetGenerationId)
-      .pipe(mapOperationError("Could not finalize the committed native fork state."));
-    return result;
-  });
-
-  const runForkClientOperation = (input: Parameters<typeof runForkOperation>[0]) =>
-    runForkOperation(input).pipe(
-      Effect.catch((cause) =>
-        forkOperations.get(input.operationId).pipe(
-          Effect.flatMap(
-            Option.match({
-              onNone: () => Effect.fail(cause),
-              onSome: (current) => {
-                if (current.state === "committed") {
-                  return runForkOperation({
-                    ...input,
-                    startingState: "committed",
-                  });
-                }
-                if (current.state === "failed") return Effect.fail(cause);
-                return forkOperations
-                  .transition({
-                    id: input.operationId,
-                    state: "failed",
-                    failureReason: cause.message,
-                    updatedAt: new Date().toISOString(),
-                  })
-                  .pipe(
-                    Effect.ignore,
-                    Effect.andThen(
-                      provider.stopSession({
-                        threadId: input.command.threadId,
-                      }),
-                    ),
-                    Effect.ignore,
-                    Effect.andThen(materializer.discard(input.targetGenerationId)),
-                    Effect.ignore,
-                    Effect.andThen(Effect.fail(cause)),
-                  );
-              },
-            }),
-          ),
-          Effect.catch(() => Effect.fail(cause)),
-        ),
-      ),
-    );
-
   const dispatchTurnAdmission = (input: {
     readonly command: TurnAdmissionCommand;
     readonly attachmentPrincipal: ManagedAttachmentPrincipal;
@@ -1021,51 +743,6 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
         return result;
       }
 
-      const existingFork = Option.getOrUndefined(
-        yield* forkOperations
-          .get(forkOperationIdFor(input.command.commandId))
-          .pipe(mapOperationError("Could not inspect the provider fork journal.")),
-      );
-      if (existingFork) {
-        if (input.command.type !== "thread.turn.start") {
-          return yield* fail("A queued turn cannot use a native fork journal.");
-        }
-        if (existingFork.state === "failed") {
-          return yield* Effect.fail(
-            new ProviderThreadSwitchCoordinatorError({
-              code: "switch_operation_failed",
-              detail: existingFork.failureReason ?? "The provider fork previously failed.",
-            }),
-          );
-        }
-        const persistedCommand = yield* decodeCommand(existingFork.commandJson);
-        if (persistedCommand.type !== "thread.turn.start") {
-          return yield* fail("The persisted native fork command is not a turn start.");
-        }
-        const persistedFingerprint = fingerprintOrchestrationCommand(persistedCommand);
-        const inputFingerprint = fingerprintOrchestrationCommand(input.command);
-        if (
-          persistedFingerprint.version !== inputFingerprint.version ||
-          persistedFingerprint.value !== inputFingerprint.value
-        ) {
-          return yield* fail("This command id already belongs to a different provider fork.");
-        }
-        const selection = yield* decodeSelection(existingFork.selectionJson);
-        return yield* runForkClientOperation({
-          command: persistedCommand,
-          attachmentPrincipal: input.attachmentPrincipal,
-          selection,
-          sourceThreadId: existingFork.sourceThreadId,
-          sourceStateRevision: existingFork.sourceStateRevision,
-          sourceBindingRevision: existingFork.sourceBindingRevision,
-          targetGenerationId: existingFork.targetNativeStateGenerationId,
-          operationId: existingFork.id,
-          startingState: existingFork.state,
-          forkResultJson: existingFork.forkResultJson,
-          ...(existingFork.cwd === null ? {} : { cwd: existingFork.cwd }),
-        });
-      }
-
       const harnessState = yield* threadBindings
         .getHarnessState(input.command.threadId)
         .pipe(mapOperationError("Could not inspect the thread's provider binding."));
@@ -1119,57 +796,6 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
                 }),
             ),
           );
-        const forkSourceThreadId = existingThread?.forkSourceThreadId;
-        if (forkSourceThreadId) {
-          const sourceState = yield* threadBindings
-            .getHarnessState(forkSourceThreadId)
-            .pipe(mapOperationError("Could not read the native fork source state."));
-          const sourceBinding = yield* threadBindings
-            .getRuntimeBinding(forkSourceThreadId)
-            .pipe(mapOperationError("Could not read the native fork source binding."));
-          if (Option.isNone(sourceState) || Option.isNone(sourceBinding)) {
-            return yield* fail("The native fork source has no exact managed provider binding.");
-          }
-          if (
-            sourceState.value.harness !== initial.selection.harness ||
-            input.command.modelSelection.provider !== sourceState.value.harness
-          ) {
-            return yield* fail("A native fork cannot change provider harnesses.");
-          }
-          const now = new Date().toISOString();
-          const operation = yield* forkOperations
-            .begin({
-              id: forkOperationIdFor(input.command.commandId),
-              commandId: input.command.commandId,
-              sourceThreadId: forkSourceThreadId,
-              targetThreadId: input.command.threadId,
-              state: "pending",
-              sourceStateRevision: sourceState.value.revision,
-              sourceBindingRevision: sourceBinding.value.revision,
-              targetNativeStateGenerationId: initial.initialization.generation.id,
-              selectionJson: JSON.stringify(initial.selection),
-              commandJson,
-              cwd: input.cwd ?? null,
-              forkResultJson: null,
-              failureReason: null,
-              createdAt: now,
-              updatedAt: now,
-            })
-            .pipe(mapOperationError("Could not create the native fork journal."));
-          return yield* runForkClientOperation({
-            command: input.command,
-            attachmentPrincipal: input.attachmentPrincipal,
-            selection: initial.selection,
-            sourceThreadId: forkSourceThreadId,
-            sourceStateRevision: sourceState.value.revision,
-            sourceBindingRevision: sourceBinding.value.revision,
-            targetGenerationId: operation.targetNativeStateGenerationId,
-            operationId: operation.id,
-            startingState: operation.state,
-            forkResultJson: operation.forkResultJson,
-            ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
-          });
-        }
         return yield* engine
           .dispatch(
             {
@@ -1367,78 +993,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
     ),
   );
 
-  const recoverForks = forkOperations.listOpen().pipe(
-    Effect.flatMap((open) =>
-      Effect.forEach(
-        open,
-        (operation) =>
-          Effect.gen(function* () {
-            const decoded = yield* Effect.all([
-              decodeCommand(operation.commandJson),
-              decodeSelection(operation.selectionJson),
-            ]).pipe(Effect.result);
-            if (Result.isFailure(decoded)) {
-              yield* materializer.discard(operation.targetNativeStateGenerationId);
-              yield* forkOperations.transition({
-                id: operation.id,
-                state: "failed",
-                failureReason: "Discarded an incompatible pre-cutover provider fork.",
-                updatedAt: new Date().toISOString(),
-              });
-              return;
-            }
-            const [command, selection] = decoded.success;
-            if (command.type !== "thread.turn.start") {
-              yield* materializer.discard(operation.targetNativeStateGenerationId);
-              yield* forkOperations.transition({
-                id: operation.id,
-                state: "failed",
-                failureReason: "Discarded an incompatible native fork command.",
-                updatedAt: new Date().toISOString(),
-              });
-              return;
-            }
-            yield* runForkOperation({
-              command,
-              attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-              selection,
-              sourceThreadId: operation.sourceThreadId,
-              sourceStateRevision: operation.sourceStateRevision,
-              sourceBindingRevision: operation.sourceBindingRevision,
-              targetGenerationId: operation.targetNativeStateGenerationId,
-              operationId: operation.id,
-              startingState: operation.state,
-              forkResultJson: operation.forkResultJson,
-              ...(operation.cwd === null ? {} : { cwd: operation.cwd }),
-            });
-          }).pipe(
-            Effect.catch((cause) =>
-              Effect.sync(() => {
-                console.error("provider native fork recovery failed", {
-                  operationId: operation.id,
-                  threadId: operation.targetThreadId,
-                  cause: cause.message,
-                });
-              }),
-            ),
-          ),
-        { concurrency: 1, discard: true },
-      ),
-    ),
-    mapOperationError("Could not list open provider native forks."),
-    Effect.catch((cause) =>
-      Effect.sync(() => {
-        console.error("could not list open provider native forks", {
-          cause: cause.message,
-        });
-      }),
-    ),
-  );
-
-  const recoverOpen = Effect.all([recoverSwitches, recoverForks], {
-    concurrency: 1,
-    discard: true,
-  });
+  const recoverOpen = recoverSwitches;
 
   return {
     dispatchTurnStart: dispatchTurnAdmission,

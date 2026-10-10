@@ -1,3 +1,4 @@
+import { seedThreadReadModelFixture } from "../cleanCore/threadFixtures.ts";
 import {
   CommandId,
   EventId,
@@ -46,18 +47,6 @@ function makeEvent(input: {
   commandId: string | null;
   payload: unknown;
 }): OrchestrationEvent {
-  const payload =
-    input.type === "thread.created" &&
-    input.payload !== null &&
-    typeof input.payload === "object" &&
-    "threadId" in input.payload &&
-    typeof input.payload.threadId === "string"
-      ? {
-          deckId: singletonThreadDeckId(ThreadId.makeUnsafe(input.payload.threadId)),
-          deckSortOrder: 0,
-          ...input.payload,
-        }
-      : input.payload;
   return {
     sequence: input.sequence,
     eventId: EventId.makeUnsafe(`event-${input.sequence}`),
@@ -74,7 +63,7 @@ function makeEvent(input: {
     causationEventId: null,
     correlationId: null,
     metadata: {},
-    payload: payload as never,
+    payload: input.payload as never,
   } as OrchestrationEvent;
 }
 
@@ -114,29 +103,25 @@ function makeSessionSetEvent(input: {
 // Folders "thread-1" through creation and a running session on "turn-1".
 async function projectThreadWithRunningTurn(input: { createdAt: string; startedAt: string }) {
   const afterCreate = await Effect.runPromise(
-    projectEvent(
-      createEmptyReadModel(input.createdAt),
-      makeEvent({
-        sequence: 1,
-        type: "thread.created",
-        aggregateKind: "thread",
-        aggregateId: "thread-1",
-        occurredAt: input.createdAt,
-        commandId: "cmd-create",
-        payload: {
-          threadId: "thread-1",
-          folderId: "project-1",
-          title: "demo",
-          modelSelection: {
-            provider: "codex",
-            model: "gpt-5.3-codex",
-          },
-          runtimeMode: "full-access",
-          createdAt: input.createdAt,
-          updatedAt: input.createdAt,
-        },
-      }),
-    ),
+    seedThreadReadModelFixture(createEmptyReadModel(input.createdAt), {
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      folderId: FolderId.makeUnsafe("project-1"),
+      deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-1")),
+      title: "demo",
+      modelSelection: {
+        provider: "codex",
+        model: "gpt-5.3-codex",
+      },
+      runtimeMode: "full-access",
+      workingDirectory: null,
+      createdAt: input.createdAt,
+      connection: { kind: "selected", connectionId: null },
+      creator: { kind: "user" },
+      parentThreadId: null,
+      sidebarSortOrder: 0,
+      deckSortOrder: 0,
+      isPinned: false,
+    }),
   );
 
   return Effect.runPromise(
@@ -156,246 +141,6 @@ async function projectThreadWithRunningTurn(input: { createdAt: string; startedA
 }
 
 describe("orchestration projector", () => {
-  it("applies thread.created events", async () => {
-    const now = new Date().toISOString();
-    const model = createEmptyReadModel(now);
-
-    const next = await Effect.runPromise(
-      projectEvent(
-        model,
-        makeEvent({
-          sequence: 1,
-          type: "thread.created",
-          aggregateKind: "thread",
-          aggregateId: "thread-1",
-          occurredAt: now,
-          commandId: "cmd-thread-create",
-          payload: {
-            threadId: "thread-1",
-            folderId: "project-1",
-            title: "demo",
-            modelSelection: {
-              provider: "codex",
-              model: "gpt-5-codex",
-            },
-            runtimeMode: "full-access",
-            createdAt: now,
-            updatedAt: now,
-          },
-        }),
-      ),
-    );
-
-    expect(next.snapshotSequence).toBe(1);
-    expect(next.threads).toEqual([
-      {
-        id: "thread-1",
-        deckId: "deck:thread-1",
-        deckSortOrder: 0,
-        folderId: "project-1",
-        sidebarSortOrder: 0,
-        title: "demo",
-        modelSelection: {
-          provider: "codex",
-          model: "gpt-5-codex",
-        },
-        runtimeMode: "full-access",
-        workingDirectory: null,
-        isPinned: false,
-        parentThreadId: null,
-        creationSource: null,
-        sourceThreadId: null,
-        sourceTurnId: null,
-        gatewayOperationId: null,
-        gatewayOperationIndex: null,
-        subagentAgentId: null,
-        subagentNickname: null,
-        subagentRole: null,
-        forkSourceThreadId: null,
-        latestTurn: null,
-        pendingTurnStartMessageId: null,
-        createdAt: now,
-        updatedAt: now,
-        archivedAt: null,
-        deletedAt: null,
-        messages: [],
-        queuedMessageIds: [],
-        activities: [],
-        session: null,
-      },
-    ]);
-  });
-
-  it("updates thread settings from turn start events", async () => {
-    const createdAt = "2026-02-23T08:00:00.000Z";
-    const turnRequestedAt = "2026-02-23T08:00:05.000Z";
-    const model = createEmptyReadModel(createdAt);
-
-    const afterCreate = await Effect.runPromise(
-      projectEvent(
-        model,
-        makeEvent({
-          sequence: 1,
-          type: "thread.created",
-          aggregateKind: "thread",
-          aggregateId: "thread-1",
-          occurredAt: createdAt,
-          commandId: "cmd-create",
-          payload: {
-            threadId: "thread-1",
-            folderId: "project-1",
-            title: "demo",
-            modelSelection: {
-              provider: "opencode",
-              model: "openai/gpt-5",
-            },
-            runtimeMode: "full-access",
-            createdAt,
-            updatedAt: createdAt,
-          },
-        }),
-      ),
-    );
-
-    const next = await Effect.runPromise(
-      projectEvent(
-        afterCreate,
-        makeEvent({
-          sequence: 2,
-          type: "thread.turn-start-requested",
-          aggregateKind: "thread",
-          aggregateId: "thread-1",
-          occurredAt: turnRequestedAt,
-          commandId: "cmd-turn-start",
-          payload: {
-            threadId: "thread-1",
-            messageId: "message-1",
-            modelSelection: {
-              provider: "opencode",
-              model: "openrouter/gpt-5.5",
-            },
-            runtimeMode: "approval-required",
-            createdAt: turnRequestedAt,
-          },
-        }),
-      ),
-    );
-
-    expect(next.threads[0]?.modelSelection).toEqual({
-      provider: "opencode",
-      model: "openrouter/gpt-5.5",
-    });
-    expect(next.threads[0]?.runtimeMode).toBe("approval-required");
-    expect(next.threads[0]?.pendingTurnStartMessageId).toBe("message-1");
-    expect(next.threads[0]?.updatedAt).toBe(turnRequestedAt);
-    expect(next.threads[0]?.session).toEqual({
-      threadId: "thread-1",
-      status: "starting",
-      providerName: "opencode",
-      runtimeMode: "approval-required",
-      activeTurnId: null,
-      lastError: null,
-      updatedAt: turnRequestedAt,
-    });
-
-    const ready = await Effect.runPromise(
-      projectEvent(
-        next,
-        makeSessionSetEvent({
-          sequence: 3,
-          commandId: "cmd-ready",
-          occurredAt: "2026-02-23T08:00:06.000Z",
-          status: "ready",
-          activeTurnId: null,
-          lastError: null,
-          updatedAt: "2026-02-23T08:00:06.000Z",
-        }),
-      ),
-    );
-    expect(ready.threads[0]?.pendingTurnStartMessageId).toBe("message-1");
-
-    const stopped = await Effect.runPromise(
-      projectEvent(
-        ready,
-        makeSessionSetEvent({
-          sequence: 4,
-          commandId: "cmd-stopped",
-          occurredAt: "2026-02-23T08:00:07.000Z",
-          status: "stopped",
-          activeTurnId: null,
-          lastError: null,
-          updatedAt: "2026-02-23T08:00:07.000Z",
-        }),
-      ),
-    );
-    expect(stopped.threads[0]?.pendingTurnStartMessageId).toBeNull();
-  });
-
-  it("lets empty threads adopt the requested first-turn provider", async () => {
-    const createdAt = "2026-02-23T08:00:00.000Z";
-    const turnRequestedAt = "2026-02-23T08:00:05.000Z";
-    const model = createEmptyReadModel(createdAt);
-
-    const afterCreate = await Effect.runPromise(
-      projectEvent(
-        model,
-        makeEvent({
-          sequence: 1,
-          type: "thread.created",
-          aggregateKind: "thread",
-          aggregateId: "thread-1",
-          occurredAt: createdAt,
-          commandId: "cmd-create",
-          payload: {
-            threadId: "thread-1",
-            folderId: "project-1",
-            title: "demo",
-            modelSelection: {
-              provider: "codex",
-              model: "gpt-5-codex",
-            },
-            runtimeMode: "full-access",
-            createdAt,
-            updatedAt: createdAt,
-          },
-        }),
-      ),
-    );
-
-    const next = await Effect.runPromise(
-      projectEvent(
-        afterCreate,
-        makeEvent({
-          sequence: 2,
-          type: "thread.turn-start-requested",
-          aggregateKind: "thread",
-          aggregateId: "thread-1",
-          occurredAt: turnRequestedAt,
-          commandId: "cmd-turn-start",
-          payload: {
-            threadId: "thread-1",
-            messageId: "message-1",
-            modelSelection: {
-              provider: "opencode",
-              model: "openai/gpt-5",
-            },
-            runtimeMode: "approval-required",
-            createdAt: turnRequestedAt,
-          },
-        }),
-      ),
-    );
-
-    expect(next.threads[0]?.modelSelection).toEqual({
-      provider: "opencode",
-      model: "openai/gpt-5",
-    });
-    expect(next.threads[0]?.session).toMatchObject({
-      status: "starting",
-      providerName: "opencode",
-    });
-  });
-
   it.each(["codex", "claudeAgent"] as const)(
     "does not retain a promoted %s steer as a pending turn start after the running turn settles",
     async (provider) => {
@@ -590,7 +335,7 @@ describe("orchestration projector", () => {
           model,
           makeEvent({
             sequence: 1,
-            type: "thread.created",
+            type: "thread.message-sent",
             aggregateKind: "thread",
             aggregateId: "thread-1",
             occurredAt: now,
@@ -647,29 +392,25 @@ describe("orchestration projector", () => {
     const model = createEmptyReadModel(createdAt);
 
     const afterCreate = await Effect.runPromise(
-      projectEvent(
-        model,
-        makeEvent({
-          sequence: 1,
-          type: "thread.created",
-          aggregateKind: "thread",
-          aggregateId: "thread-1",
-          occurredAt: createdAt,
-          commandId: "cmd-create",
-          payload: {
-            threadId: "thread-1",
-            folderId: "project-1",
-            title: "demo",
-            modelSelection: {
-              provider: "codex",
-              model: "gpt-5.3-codex",
-            },
-            runtimeMode: "full-access",
-            createdAt,
-            updatedAt: createdAt,
-          },
-        }),
-      ),
+      seedThreadReadModelFixture(model, {
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        folderId: FolderId.makeUnsafe("project-1"),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-1")),
+        title: "demo",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5.3-codex",
+        },
+        runtimeMode: "full-access",
+        workingDirectory: null,
+        createdAt: createdAt,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
+        parentThreadId: null,
+        sidebarSortOrder: 0,
+        deckSortOrder: 0,
+        isPinned: false,
+      }),
     );
 
     const afterRunning = await Effect.runPromise(
@@ -793,29 +534,25 @@ describe("orchestration projector", () => {
     const model = createEmptyReadModel(createdAt);
 
     const afterCreate = await Effect.runPromise(
-      projectEvent(
-        model,
-        makeEvent({
-          sequence: 1,
-          type: "thread.created",
-          aggregateKind: "thread",
-          aggregateId: "thread-1",
-          occurredAt: createdAt,
-          commandId: "cmd-create",
-          payload: {
-            threadId: "thread-1",
-            folderId: "project-1",
-            title: "demo",
-            modelSelection: {
-              provider: "codex",
-              model: "gpt-5.3-codex",
-            },
-            runtimeMode: "full-access",
-            createdAt,
-            updatedAt: createdAt,
-          },
-        }),
-      ),
+      seedThreadReadModelFixture(model, {
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        folderId: FolderId.makeUnsafe("project-1"),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-1")),
+        title: "demo",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5.3-codex",
+        },
+        runtimeMode: "full-access",
+        workingDirectory: null,
+        createdAt: createdAt,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
+        parentThreadId: null,
+        sidebarSortOrder: 0,
+        deckSortOrder: 0,
+        isPinned: false,
+      }),
     );
 
     const afterDelta = await Effect.runPromise(
@@ -878,26 +615,22 @@ describe("orchestration projector", () => {
     const originalAt = "2026-09-11T10:28:50.952Z";
     const replayAt = "2026-09-11T17:21:54.125Z";
     const afterCreate = await Effect.runPromise(
-      projectEvent(
-        createEmptyReadModel(originalAt),
-        makeEvent({
-          sequence: 1,
-          type: "thread.created",
-          aggregateKind: "thread",
-          aggregateId: "thread-edit-replay-time",
-          occurredAt: originalAt,
-          commandId: "cmd-create-edit-replay-time",
-          payload: {
-            threadId: "thread-edit-replay-time",
-            folderId: "project-1",
-            title: "edit replay time",
-            modelSelection: { provider: "opencode", model: "opencode/big-pickle" },
-            runtimeMode: "full-access",
-            createdAt: originalAt,
-            updatedAt: originalAt,
-          },
-        }),
-      ),
+      seedThreadReadModelFixture(createEmptyReadModel(originalAt), {
+        threadId: ThreadId.makeUnsafe("thread-edit-replay-time"),
+        folderId: FolderId.makeUnsafe("project-1"),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-edit-replay-time")),
+        title: "edit replay time",
+        modelSelection: { provider: "opencode", model: "opencode/big-pickle" },
+        runtimeMode: "full-access",
+        workingDirectory: null,
+        createdAt: originalAt,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
+        parentThreadId: null,
+        sidebarSortOrder: 0,
+        deckSortOrder: 0,
+        isPinned: false,
+      }),
     );
     const originalMessage = await Effect.runPromise(
       projectEvent(
@@ -986,26 +719,22 @@ describe("orchestration projector", () => {
   it("keeps activity order while appending and replacing without a full sort", async () => {
     const createdAt = "2026-07-09T00:00:00.000Z";
     const afterCreate = await Effect.runPromise(
-      projectEvent(
-        createEmptyReadModel(createdAt),
-        makeEvent({
-          sequence: 1,
-          type: "thread.created",
-          aggregateKind: "thread",
-          aggregateId: "thread-activity-order",
-          occurredAt: createdAt,
-          commandId: "cmd-thread-activity-order",
-          payload: {
-            threadId: "thread-activity-order",
-            folderId: "project-1",
-            title: "Activity order",
-            modelSelection: { provider: "codex", model: "gpt-5-codex" },
-            runtimeMode: "full-access",
-            createdAt,
-            updatedAt: createdAt,
-          },
-        }),
-      ),
+      seedThreadReadModelFixture(createEmptyReadModel(createdAt), {
+        threadId: ThreadId.makeUnsafe("thread-activity-order"),
+        folderId: FolderId.makeUnsafe("project-1"),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-activity-order")),
+        title: "Activity order",
+        modelSelection: { provider: "codex", model: "gpt-5-codex" },
+        runtimeMode: "full-access",
+        workingDirectory: null,
+        createdAt: createdAt,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
+        parentThreadId: null,
+        sidebarSortOrder: 0,
+        deckSortOrder: 0,
+        isPinned: false,
+      }),
     );
     const activityEvent = (input: { id: string; sequence: number; summary: string }) =>
       makeEvent({
@@ -1061,29 +790,25 @@ describe("orchestration projector", () => {
     const model = createEmptyReadModel(createdAt);
 
     const afterCreate = await Effect.runPromise(
-      projectEvent(
-        model,
-        makeEvent({
-          sequence: 1,
-          type: "thread.created",
-          aggregateKind: "thread",
-          aggregateId: "thread-capped",
-          occurredAt: createdAt,
-          commandId: "cmd-create-capped",
-          payload: {
-            threadId: "thread-capped",
-            folderId: "project-1",
-            title: "capped",
-            modelSelection: {
-              provider: "codex",
-              model: "gpt-5-codex",
-            },
-            runtimeMode: "full-access",
-            createdAt,
-            updatedAt: createdAt,
-          },
-        }),
-      ),
+      seedThreadReadModelFixture(model, {
+        threadId: ThreadId.makeUnsafe("thread-capped"),
+        folderId: FolderId.makeUnsafe("project-1"),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-capped")),
+        title: "capped",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
+        },
+        runtimeMode: "full-access",
+        workingDirectory: null,
+        createdAt: createdAt,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
+        parentThreadId: null,
+        sidebarSortOrder: 0,
+        deckSortOrder: 0,
+        isPinned: false,
+      }),
     );
 
     const messageEvents: ReadonlyArray<OrchestrationEvent> = Array.from(
@@ -1126,26 +851,22 @@ describe("orchestration projector", () => {
   it("accumulates streaming deltas in place without reordering the transcript", async () => {
     const createdAt = "2026-07-20T09:00:00.000Z";
     const afterCreate = await Effect.runPromise(
-      projectEvent(
-        createEmptyReadModel(createdAt),
-        makeEvent({
-          sequence: 1,
-          type: "thread.created",
-          aggregateKind: "thread",
-          aggregateId: "thread-stream",
-          occurredAt: createdAt,
-          commandId: "cmd-create-stream",
-          payload: {
-            threadId: "thread-stream",
-            folderId: "project-1",
-            title: "Streaming",
-            modelSelection: { provider: "codex", model: "gpt-5-codex" },
-            runtimeMode: "full-access",
-            createdAt,
-            updatedAt: createdAt,
-          },
-        }),
-      ),
+      seedThreadReadModelFixture(createEmptyReadModel(createdAt), {
+        threadId: ThreadId.makeUnsafe("thread-stream"),
+        folderId: FolderId.makeUnsafe("project-1"),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-stream")),
+        title: "Streaming",
+        modelSelection: { provider: "codex", model: "gpt-5-codex" },
+        runtimeMode: "full-access",
+        workingDirectory: null,
+        createdAt: createdAt,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
+        parentThreadId: null,
+        sidebarSortOrder: 0,
+        deckSortOrder: 0,
+        isPinned: false,
+      }),
     );
 
     const messageEvent = (input: {

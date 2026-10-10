@@ -2,7 +2,7 @@
 // including draft-thread promotion when a title is edited before the first send.
 // The promotion path mirrors the first-send flow, but routes through the shared
 // idempotent helper so concurrent draft promotion callers do not surface duplicate
-// `thread.create` invariant failures as user-visible toasts.
+// creation failures as user-visible toasts.
 
 import {
   type ModelSelection,
@@ -14,7 +14,6 @@ import {
 } from "@penkra/contracts";
 import { readNativeApi } from "../nativeApi";
 import { promoteThreadCreate } from "./threadCreatePromotion";
-import { newCommandId } from "./utils";
 
 type ThreadRenameOutcome = "empty" | "unchanged" | "unavailable" | "renamed";
 
@@ -49,8 +48,8 @@ export async function dispatchThreadRename(input: {
   if (input.createIfMissing) {
     const promotionResult = await promoteThreadCreate(
       {
-        type: "thread.create",
-        commandId: newCommandId(),
+        creator: { kind: "user" },
+        connection: { kind: "default" },
         threadId: input.threadId,
         deckId: singletonThreadDeckId(input.threadId),
         folderId: input.createIfMissing.folderId,
@@ -63,19 +62,23 @@ export async function dispatchThreadRename(input: {
       api,
     );
     if (promotionResult === "exists") {
-      await api.orchestration.dispatchCommand({
-        type: "thread.update",
-        commandId: newCommandId(),
-        threadId: input.threadId,
-        title: trimmed,
+      await api.cleanCore.updateThread({
+        update: {
+          action: "rename",
+          threadId: input.threadId,
+          title: trimmed,
+          updatedAt: new Date().toISOString(),
+        },
       });
     }
   } else {
-    await api.orchestration.dispatchCommand({
-      type: "thread.update",
-      commandId: newCommandId(),
-      threadId: input.threadId,
-      title: trimmed,
+    await api.cleanCore.updateThread({
+      update: {
+        action: "rename",
+        threadId: input.threadId,
+        title: trimmed,
+        updatedAt: new Date().toISOString(),
+      },
     });
   }
 

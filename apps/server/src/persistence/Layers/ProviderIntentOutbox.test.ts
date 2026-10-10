@@ -1,4 +1,11 @@
-import { EventId, ThreadId, type DiagnosticTraceContext } from "@penkra/contracts";
+import { createThreadFixture } from "../../cleanCore/threadFixtures.ts";
+import {
+  EventId,
+  ThreadId,
+  FolderId,
+  singletonThreadDeckId,
+  type DiagnosticTraceContext,
+} from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { DiagnosticsStore, openDiagnosticsReader } from "@penkra/shared/diagnostics/store";
 import * as fs from "node:fs";
@@ -35,7 +42,7 @@ layer("ProviderIntentOutbox", (it) => {
       };
       yield* sql`DELETE FROM provider_intent_outbox`;
       const event = yield* events.append({
-        type: "thread.archived",
+        type: "thread.session-stop-requested",
         eventId: EventId.makeUnsafe("event-pruned-retry"),
         aggregateKind: "thread",
         aggregateId: ThreadId.makeUnsafe("thread-pruned-retry"),
@@ -44,11 +51,7 @@ layer("ProviderIntentOutbox", (it) => {
         causationEventId: null,
         correlationId: null,
         metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-pruned-retry"),
-          archivedAt: now,
-          updatedAt: now,
-        },
+        payload: { threadId: ThreadId.makeUnsafe("thread-pruned-retry"), createdAt: now },
       });
       if (!isProviderIntentEvent(event)) return yield* Effect.die("Expected provider intent");
       yield* outbox.enqueueInCurrentTransaction(event, parent);
@@ -127,7 +130,7 @@ layer("ProviderIntentOutbox", (it) => {
           sql.withTransaction(
             Effect.gen(function* () {
               const event = yield* events.append({
-                type: "thread.archived",
+                type: "thread.session-stop-requested",
                 eventId: EventId.makeUnsafe(eventId),
                 aggregateKind: "thread",
                 aggregateId: ThreadId.makeUnsafe(threadId),
@@ -136,11 +139,7 @@ layer("ProviderIntentOutbox", (it) => {
                 causationEventId: null,
                 correlationId: null,
                 metadata: {},
-                payload: {
-                  threadId: ThreadId.makeUnsafe(threadId),
-                  archivedAt: now,
-                  updatedAt: now,
-                },
+                payload: { threadId: ThreadId.makeUnsafe(threadId), createdAt: now },
               });
               if (!isProviderIntentEvent(event)) {
                 return yield* Effect.die(new Error("Expected provider intent"));
@@ -214,23 +213,28 @@ layer("ProviderIntentOutbox", (it) => {
       const cutover = yield* outbox.getLegacyCutover();
       assert.equal(cutover.drainedAt, null);
 
-      yield* sql`
-        INSERT INTO projection_threads (
-          thread_id, folder_id, title, model_selection_json, runtime_mode,
-          parent_thread_id, created_at, updated_at
-        ) VALUES
-          ('lane-parent', 'test-folder', 'Parent', '{"provider":"codex","model":"gpt-5.5"}',
-           'full-access', NULL, ${now}, ${now}),
-          ('lane-child', 'test-folder', 'Child', '{"provider":"codex","model":"gpt-5.5"}',
-           'full-access', 'lane-parent', ${now}, ${now}),
-          ('lane-fork', 'test-folder', 'Fork', '{"provider":"codex","model":"gpt-5.5"}',
-           'full-access', NULL, ${now}, ${now})
-      `;
+      yield* sql`INSERT INTO projection_folders (folder_id, space_id, title, workspace_root, default_model_selection_json, scripts_json, created_at, updated_at) VALUES ('test-folder', 'penkra-personal', 'Test folder', NULL, NULL, '[]', ${now}, ${now}) ON CONFLICT(folder_id) DO NOTHING`;
+      for (const id of ["lane-parent", "lane-child", "lane-fork"]) {
+        const threadId = ThreadId.makeUnsafe(id);
+        yield* createThreadFixture(sql, {
+          threadId,
+          folderId: FolderId.makeUnsafe("test-folder"),
+          deckId: singletonThreadDeckId(threadId),
+          title: id,
+          modelSelection: { provider: "codex", model: "gpt-5.5" },
+          runtimeMode: "full-access",
+          workingDirectory: null,
+          connection: { kind: "selected", connectionId: null },
+          creator: { kind: "user" },
+          createdAt: now,
+        });
+      }
+      yield* sql`UPDATE threads SET parent_thread_id = 'lane-parent' WHERE id = 'lane-child'`;
 
       const appendIntent = (id: string, threadId: string) =>
         Effect.gen(function* () {
           const event = yield* events.append({
-            type: "thread.archived",
+            type: "thread.session-stop-requested",
             eventId: EventId.makeUnsafe(id),
             aggregateKind: "thread",
             aggregateId: ThreadId.makeUnsafe(threadId),
@@ -239,11 +243,7 @@ layer("ProviderIntentOutbox", (it) => {
             causationEventId: null,
             correlationId: null,
             metadata: {},
-            payload: {
-              threadId: ThreadId.makeUnsafe(threadId),
-              archivedAt: now,
-              updatedAt: now,
-            },
+            payload: { threadId: ThreadId.makeUnsafe(threadId), createdAt: now },
           });
           if (!isProviderIntentEvent(event)) {
             return yield* Effect.die(new Error("Expected a provider intent"));

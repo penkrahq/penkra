@@ -8,11 +8,6 @@ import {
   FolderUpdatedPayload as ContractsFolderUpdatedPayloadSchema,
   FolderMovedPayload as ContractsFolderMovedPayloadSchema,
   FolderDeletedPayload as ContractsFolderDeletedPayloadSchema,
-  ThreadCreatedPayload as ContractsThreadCreatedPayloadSchema,
-  ThreadArchivedPayload as ContractsThreadArchivedPayloadSchema,
-  ThreadUpdatedPayload as ContractsThreadUpdatedPayloadSchema,
-  ThreadDeletedPayload as ContractsThreadDeletedPayloadSchema,
-  ThreadUnarchivedPayload as ContractsThreadUnarchivedPayloadSchema,
   ThreadMessageSentPayload as ContractsThreadMessageSentPayloadSchema,
   ThreadSessionSetPayload as ContractsThreadSessionSetPayloadSchema,
   ThreadActivityAppendedPayload as ContractsThreadActivityAppendedPayloadSchema,
@@ -36,12 +31,6 @@ export const FolderCreatedPayload = ContractsFolderCreatedPayloadSchema;
 export const FolderUpdatedPayload = ContractsFolderUpdatedPayloadSchema;
 export const FolderMovedPayload = ContractsFolderMovedPayloadSchema;
 export const FolderDeletedPayload = ContractsFolderDeletedPayloadSchema;
-
-export const ThreadCreatedPayload = ContractsThreadCreatedPayloadSchema;
-export const ThreadArchivedPayload = ContractsThreadArchivedPayloadSchema;
-export const ThreadUpdatedPayload = ContractsThreadUpdatedPayloadSchema;
-export const ThreadDeletedPayload = ContractsThreadDeletedPayloadSchema;
-export const ThreadUnarchivedPayload = ContractsThreadUnarchivedPayloadSchema;
 
 export const MessageSentPayloadSchema = ContractsThreadMessageSentPayloadSchema;
 export const ThreadSessionSetPayload = ContractsThreadSessionSetPayloadSchema;

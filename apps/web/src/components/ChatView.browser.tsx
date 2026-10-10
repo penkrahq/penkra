@@ -3,6 +3,9 @@ import "../index.css";
 
 import {
   type CleanCoreThreadItem,
+  type CleanCoreCreateThreadInput,
+  type CleanCoreThreadUpdate,
+  type OrchestrationThread,
   EventId,
   MessageId,
   ORCHESTRATION_WS_METHODS,
@@ -120,6 +123,8 @@ let fixtureActiveThreadPageId: ThreadId | null = null;
 // Clean-core change emitters, keyed by thread id, captured from the mock WS
 // subscribe stream so tests can push an item refresh after updating the fixture.
 const cleanCoreThreadChangeEmitters = new Map<ThreadId, () => void>();
+const cleanCoreSidebarChangeEmitters = new Set<(threadId: ThreadId) => void>();
+let unsubscribeCoreFixtureStore: (() => void) | undefined;
 
 function closeFixtureSockets(): void {
   for (const client of [...fixtureSocketClients]) {
@@ -143,6 +148,7 @@ interface TestFixture {
 }
 
 let fixture: TestFixture;
+const fixtureDrafts = new Map<string, { draft: string | null; draftUpdatedAt: string | null }>();
 const wsRequests: WsRequestEnvelope["body"][] = [];
 const wsLink = ws.link(/ws(s)?:\/\/.*/);
 
@@ -618,6 +624,7 @@ function createThreadItemsPageFromFixtureSnapshot(threadId: ThreadId) {
 /** Push a clean-core thread change so mounted transcripts re-read thread_items. */
 function pushCleanCoreThreadChange(threadId: ThreadId): void {
   cleanCoreThreadChangeEmitters.get(threadId)?.();
+  for (const emit of cleanCoreSidebarChangeEmitters) emit(threadId);
 }
 
 function publishThreadToFixture(): void {
@@ -628,7 +635,26 @@ function publishThreadToFixture(): void {
     snapshot: {
       ...fixture.snapshot,
       threads: fixture.snapshot.threads.map((thread) =>
-        thread.id === THREAD_ID ? (stored as unknown as typeof thread) : thread,
+        thread.id === THREAD_ID
+          ? ({
+              ...thread,
+              ...stored,
+              deletedAt: thread.deletedAt,
+              archivedAt: thread.archivedAt,
+              session:
+                stored.session === null || stored.session === undefined
+                  ? null
+                  : {
+                      threadId: stored.id,
+                      providerName: stored.session.provider,
+                      status: stored.session.orchestrationStatus,
+                      runtimeMode: stored.runtimeMode,
+                      activeTurnId: stored.session.activeTurnId ?? null,
+                      lastError: stored.session.lastError ?? null,
+                      updatedAt: stored.session.updatedAt,
+                    },
+            } as unknown as typeof thread)
+          : thread,
       ),
     },
   };
@@ -1450,8 +1476,191 @@ function recordSpaceCreateCommand(command: unknown): boolean {
   return true;
 }
 
+function summarizeFixtureThread(thread: OrchestrationThread) {
+  return {
+    id: thread.id,
+    spaceId: TEST_SPACE_ID,
+    folderId: thread.folderId,
+    title: thread.title,
+    provider: thread.modelSelection.provider,
+    connectionId: thread.connectionId ?? null,
+    model: thread.modelSelection.model,
+    modelOptions: thread.modelSelection.options
+      ? JSON.stringify(thread.modelSelection.options)
+      : null,
+    runtimeMode: thread.runtimeMode,
+    workingDirectory: thread.workingDirectory ?? null,
+    state: thread.session?.status === "running" ? "running" : "idle",
+    activeTurnId: thread.session?.activeTurnId ?? null,
+    lastError: thread.session?.lastError ?? null,
+    createdBy: "user",
+    createdByThreadId: null,
+    parentThreadId: thread.parentThreadId ?? null,
+    deckId: thread.deckId,
+    deckSortOrder: thread.deckSortOrder,
+    sidebarSortOrder: thread.sidebarSortOrder ?? null,
+    isPinned: thread.isPinned ? 1 : 0,
+    lastActivityAt: thread.lastActivityAt ?? null,
+    lastMessagePreview: thread.lastMessagePreview ?? null,
+    lastUserMessageAt: thread.latestUserMessageAt ?? null,
+    lastVisitedAt: thread.lastVisitedAt ?? null,
+    openQuestionCount: 0,
+    archivedAt: thread.archivedAt ?? null,
+    deletedAt: thread.deletedAt,
+    createdAt: thread.createdAt,
+    updatedAt: thread.updatedAt,
+  };
+}
+
 function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
   const tag = body._tag;
+  if (tag === WS_METHODS.cleanCoreGetThreadRuntime || tag === WS_METHODS.cleanCoreInterruptThread) {
+    const threadId = body.threadId as ThreadId;
+    const thread = getThreadFromState(useStore.getState(), threadId);
+    if (!thread) throw new Error("Fixture thread must exist");
+    const running =
+      thread.session?.status === "running" ||
+      (thread.session === null && thread.latestTurn?.state === "running");
+    const turnId = running
+      ? (thread.session?.activeTurnId ?? thread.latestTurn?.turnId ?? null)
+      : null;
+    if (tag === WS_METHODS.cleanCoreGetThreadRuntime)
+      return { state: running ? "running" : "idle", activeTurnId: turnId };
+    return { threadId, interruptRequested: running, interruptedTurnId: turnId };
+  }
+  if (tag === WS_METHODS.cleanCoreCreateThread) {
+    const input = body as unknown as CleanCoreCreateThreadInput;
+    const existing = fixture.snapshot.threads.find((thread) => thread.id === input.threadId);
+    if (!existing) {
+      const snapshot = addThreadToSnapshot(fixture.snapshot, input.threadId, {
+        title: input.title,
+      });
+      fixture = {
+        ...fixture,
+        snapshot: {
+          ...snapshot,
+          threads: snapshot.threads.map((thread) =>
+            thread.id === input.threadId
+              ? {
+                  ...thread,
+                  folderId: input.folderId,
+                  deckId: input.deckId,
+                  modelSelection: input.modelSelection,
+                  runtimeMode: input.runtimeMode,
+                  workingDirectory: input.workingDirectory,
+                  connectionId:
+                    input.connection.kind === "selected"
+                      ? input.connection.connectionId
+                      : ProviderConnectionId.makeUnsafe("connection-codex-browser"),
+                  createdAt: input.createdAt,
+                  updatedAt: input.createdAt,
+                }
+              : thread,
+          ),
+        },
+      };
+    }
+    return {
+      created: !existing,
+      shell: createShellSnapshotFromReadModel(fixture.snapshot).threads.find(
+        (thread) => thread.id === input.threadId,
+      ),
+      thread: summarizeFixtureThread(
+        fixture.snapshot.threads.find((thread) => thread.id === input.threadId)!,
+      ),
+    };
+  }
+  if (tag === WS_METHODS.cleanCoreGetThreadShell) {
+    return (
+      createShellSnapshotFromReadModel(fixture.snapshot).threads.find(
+        (thread) => thread.id === body.threadId,
+      ) ?? null
+    );
+  }
+  if (tag === WS_METHODS.cleanCoreListThreads) {
+    return { threads: fixture.snapshot.threads.map(summarizeFixtureThread), nextCursor: null };
+  }
+  if (tag === WS_METHODS.cleanCoreUpdateThread) {
+    const input = body.update as CleanCoreThreadUpdate;
+    if (!("threadId" in input)) return [];
+    if (input.action === "moveDeckThread") {
+      const members = fixture.snapshot.threads
+        .filter((thread) => thread.deckId === input.deckId && thread.id !== input.threadId)
+        .toSorted((a, b) => a.deckSortOrder - b.deckSortOrder)
+        .map((thread) => thread.id);
+      const position =
+        input.position.type === "start"
+          ? 0
+          : input.position.type === "end"
+            ? members.length
+            : members.indexOf("itemId" in input.position ? input.position.itemId : input.threadId) +
+              (input.position.type === "after" ? 1 : 0);
+      members.splice(position, 0, input.threadId);
+      fixture = {
+        ...fixture,
+        snapshot: {
+          ...fixture.snapshot,
+          threads: fixture.snapshot.threads.map((thread) =>
+            members.includes(thread.id)
+              ? {
+                  ...thread,
+                  deckId: input.deckId,
+                  deckSortOrder: members.indexOf(thread.id),
+                  updatedAt: input.updatedAt,
+                }
+              : thread,
+          ),
+        },
+      };
+      for (const id of members) pushCleanCoreThreadChange(id);
+      return null;
+    }
+    fixture = {
+      ...fixture,
+      snapshot: {
+        ...fixture.snapshot,
+        threads: fixture.snapshot.threads.map((thread) => {
+          if (thread.id !== input.threadId) return thread;
+          switch (input.action) {
+            case "rename":
+              return { ...thread, title: input.title, updatedAt: input.updatedAt };
+            case "archive":
+              return { ...thread, archivedAt: input.archivedAt, updatedAt: input.updatedAt };
+            case "delete":
+              return { ...thread, deletedAt: input.deletedAt, updatedAt: input.updatedAt };
+            case "model":
+              return {
+                ...thread,
+                modelSelection: input.modelSelection,
+                updatedAt: input.updatedAt,
+              };
+            case "connection":
+              return { ...thread, connectionId: input.connectionId, updatedAt: input.updatedAt };
+            case "visit":
+              return { ...thread, lastVisitedAt: input.visitedAt, updatedAt: input.updatedAt };
+            case "pin":
+              return { ...thread, isPinned: input.isPinned, updatedAt: input.updatedAt };
+            case "runtimeMode":
+              return {
+                ...thread,
+                runtimeMode: input.runtimeMode as OrchestrationThread["runtimeMode"],
+                updatedAt: input.updatedAt,
+              };
+            case "workingDirectory":
+              return {
+                ...thread,
+                workingDirectory: input.workingDirectory,
+                updatedAt: input.updatedAt,
+              };
+            default:
+              return thread;
+          }
+        }),
+      },
+    };
+    pushCleanCoreThreadChange(input.threadId);
+    return null;
+  }
   if (tag === ORCHESTRATION_WS_METHODS.getShellSnapshot) {
     return createShellSnapshotFromReadModel(fixture.snapshot);
   }
@@ -1476,10 +1685,12 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
     return fixture.serverConfig;
   }
   if (tag === WS_METHODS.cleanCoreGetThreadDraft) {
-    return { draft: null, draftUpdatedAt: null };
+    return fixtureDrafts.get(body.threadId as string) ?? { draft: null, draftUpdatedAt: null };
   }
   if (tag === WS_METHODS.cleanCoreSetThreadDraft) {
-    return { draft: body.draft ?? null, draftUpdatedAt: body.updatedAt ?? null };
+    const saved = { draft: body.draft as string | null, draftUpdatedAt: body.updatedAt as string };
+    fixtureDrafts.set(body.threadId as string, saved);
+    return saved;
   }
   if (tag === WS_METHODS.cleanCoreListThreadItemsPage && typeof body.threadId === "string") {
     return createThreadItemsPageFromFixtureSnapshot(ThreadId.makeUnsafe(body.threadId));
@@ -1607,7 +1818,6 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
       supportsPluginDiscovery: false,
       supportsRuntimeModelList: true,
       supportsThreadCompaction: body.provider === "codex",
-      supportsThreadFork: body.provider === "codex" || body.provider === "opencode",
       supportsThreadImport: false,
     };
   }
@@ -1729,6 +1939,18 @@ function installDeterministicSendNativeApi(options?: {
           });
         },
       },
+      cleanCore: {
+        ...wsNativeApi.cleanCore,
+        updateThread: async (input: Parameters<typeof wsNativeApi.cleanCore.updateThread>[0]) => {
+          if (options?.threadUpdateGate) {
+            wsRequests.push({ _tag: WS_METHODS.cleanCoreUpdateThread, ...input });
+            await options.threadUpdateGate;
+            resolveWsRpc({ _tag: WS_METHODS.cleanCoreUpdateThread, ...input });
+            return;
+          }
+          return wsNativeApi.cleanCore.updateThread(input);
+        },
+      },
       orchestration: {
         ...wsNativeApi.orchestration,
         getPendingStartOutcome: async (
@@ -1747,9 +1969,6 @@ function installDeterministicSendNativeApi(options?: {
             _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
             command,
           });
-          if (command.type === "thread.update") {
-            await options?.threadUpdateGate;
-          }
           if (command.type === "thread.turn.start" || command.type === "thread.turn.recover") {
             await options?.dispatchGate;
           }
@@ -1850,6 +2069,12 @@ const worker = setupWorker(
             thread,
           },
         });
+        return;
+      }
+      if (method === WS_METHODS.cleanCoreSubscribeSidebar) {
+        cleanCoreSidebarChangeEmitters.add((threadId) =>
+          sendEffectRpcChunk(client, parsed.request.id, { kind: "thread", threadId }),
+        );
         return;
       }
       if (method === WS_METHODS.cleanCoreSubscribeThread && "threadId" in requestBody) {
@@ -3104,6 +3329,49 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   beforeEach(async () => {
+    fixtureDrafts.clear();
+    unsubscribeCoreFixtureStore?.();
+    cleanCoreSidebarChangeEmitters.clear();
+    unsubscribeCoreFixtureStore = useStore.subscribe((state, previous) => {
+      for (const id of state.threadIds ?? []) {
+        const thread = getThreadFromState(state, id),
+          old = getThreadFromState(previous, id);
+        if (
+          thread?.session?.status !== old?.session?.status ||
+          thread?.latestTurn?.state !== old?.latestTurn?.state
+        ) {
+          if (old === undefined || thread === undefined) continue;
+          fixture = {
+            ...fixture,
+            snapshot: {
+              ...fixture.snapshot,
+              threads: fixture.snapshot.threads.map((row) =>
+                row.id === id
+                  ? ({
+                      ...row,
+                      ...(thread.updatedAt === undefined ? {} : { updatedAt: thread.updatedAt }),
+                      latestTurn: thread.latestTurn ?? null,
+                      session:
+                        thread.session === null || thread.session === undefined
+                          ? null
+                          : {
+                              threadId: id,
+                              providerName: thread.session.provider,
+                              status: thread.session.orchestrationStatus,
+                              runtimeMode: thread.runtimeMode,
+                              activeTurnId: thread.session.activeTurnId ?? null,
+                              lastError: thread.session.lastError ?? null,
+                              updatedAt: thread.session.updatedAt,
+                            },
+                    } as typeof row)
+                  : row,
+              ),
+            },
+          };
+          pushCleanCoreThreadChange(id);
+        }
+      }
+    });
     resetComposerSendPreflightsForTests();
     resetPendingStartRecoveryRegistryForTests();
     await resetWsNativeApiForTest();
@@ -3144,6 +3412,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   afterEach(async () => {
+    unsubscribeCoreFixtureStore?.();
+    unsubscribeCoreFixtureStore = undefined;
     resetRetainedThreadDetailSubscriptionsForTests();
     document.body.innerHTML = "";
   });
@@ -3787,7 +4057,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("sends the visible turn ID when the session active ID has not arrived", async () => {
+  it("interrupts by thread id when the session active ID has not arrived", async () => {
     const turnId = TurnId.makeUnsafe("turn-stop-session-lag");
     const snapshot = createSnapshotForTargetUser({
       targetMessageId: MessageId.makeUnsafe("msg-stop-session-lag"),
@@ -3823,12 +4093,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
       expect(stop.dataset.turnState).toBe("running");
       expect(stop.dataset.threadId).toBe(runningSnapshot.threads[0]!.id);
       stop.click();
-      await vi.waitFor(() => expect(hasDispatchedCommandType("thread.turn.interrupt")).toBe(true));
+      await vi.waitFor(() =>
+        expect(
+          wsRequests.some((request) => request._tag === WS_METHODS.cleanCoreInterruptThread),
+        ).toBe(true),
+      );
       expect(
-        wsRequests
-          .map(readDispatchedCommand)
-          .find((command) => command?.type === "thread.turn.interrupt"),
-      ).toMatchObject({ turnId });
+        wsRequests.find((request) => request._tag === WS_METHODS.cleanCoreInterruptThread),
+      ).toMatchObject({ threadId: THREAD_ID });
     } finally {
       restoreNativeApi();
       await mounted.cleanup();
@@ -3882,7 +4154,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
         "Stop did not appear for a running turn.",
       );
       stop.click();
-      await vi.waitFor(() => expect(hasDispatchedCommandType("thread.turn.interrupt")).toBe(true));
+      await vi.waitFor(() =>
+        expect(
+          wsRequests.some((request) => request._tag === WS_METHODS.cleanCoreInterruptThread),
+        ).toBe(true),
+      );
       useStore.getState().applyOrchestrationEvents([
         makeDomainEvent(
           "thread.turn-interrupt-requested",
@@ -3933,24 +4209,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
       expect(getThreadFromState(useStore.getState(), THREAD_ID)?.latestTurn?.state).toBe(
         "interrupted",
       );
-      await vi.waitFor(() =>
-        expect(recordDiagnosticCheckpoint).toHaveBeenCalledWith(
-          expect.objectContaining({ flow: "stop", step: "turn.terminal", outcome: "ok" }),
-        ),
-      );
-      const stopTrace = dispatchCommand.mock.calls.find(
-        ([command]) => command.type === "thread.turn.interrupt",
-      )?.[1];
       expect(
-        dispatchCommand.mock.calls.find(
-          ([command]) => command.type === "thread.turn.interrupt",
-        )?.[0],
-      ).toMatchObject({ turnId });
-      expect(stopTrace?.traceId).toBe(
-        recordDiagnosticCheckpoint.mock.calls.find(
-          ([checkpoint]) => checkpoint.flow === "stop" && checkpoint.step === "turn.terminal",
-        )?.[0].traceId,
-      );
+        wsRequests.find((request) => request._tag === WS_METHODS.cleanCoreInterruptThread),
+      ).toMatchObject({ threadId: THREAD_ID });
       await vi.waitFor(() => {
         expect(
           getChatLifecycleDiagnosticSamples(THREAD_ID).some(
@@ -4880,9 +5141,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await page.getByText("alternate@example.com", { exact: true }).click();
       await vi.waitFor(() => {
         expect(
-          wsRequests
-            .map(readDispatchedCommand)
-            .find((command) => command?.type === "thread.update"),
+          wsRequests.map(readCleanCoreUpdate).find((command) => command?.action === "connection"),
         ).toMatchObject({ connectionId: ALTERNATE_CONNECTION_ID });
       });
       // The fixture intentionally keeps the old shell and binding projection.
@@ -5149,7 +5408,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     const previousNativeApi = window.nativeApi;
     const nativeApi = readNativeApi();
     if (!nativeApi) throw new Error("Expected browser native API fixture.");
-    const threadDeleteCommands: unknown[] = [];
     const prompt = "promoted local thread must remain after uncertain start";
     const promotedSnapshot = () => addThreadToSnapshot(fixture.snapshot, THREAD_ID);
     Object.defineProperty(window, "nativeApi", {
@@ -5167,26 +5425,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
               command &&
               typeof command === "object" &&
               "type" in command &&
-              command.type === "thread.create"
-            ) {
-              fixture = { ...fixture, snapshot: promotedSnapshot() };
-              return { sequence: fixture.snapshot.snapshotSequence };
-            }
-            if (
-              command &&
-              typeof command === "object" &&
-              "type" in command &&
               command.type === "thread.turn.start"
             ) {
               throw new Error("fixture uncertain start transport failure");
-            }
-            if (
-              command &&
-              typeof command === "object" &&
-              "type" in command &&
-              command.type === "thread.delete"
-            ) {
-              threadDeleteCommands.push(command);
             }
             return { sequence: fixture.snapshot.snapshotSequence };
           }),
@@ -5200,9 +5441,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       (await waitForSendButton()).click();
       await vi.waitFor(() => {
         expect(
-          wsRequests
-            .map(readDispatchedCommand)
-            .some((command) => command?.type === "thread.create"),
+          wsRequests.some((command) => command._tag === WS_METHODS.cleanCoreCreateThread),
         ).toBe(true);
         expect(
           wsRequests
@@ -5211,7 +5450,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
         ).toBe(true);
         expect(document.body.textContent).toContain("fixture uncertain start transport failure");
       });
-      expect(threadDeleteCommands).toEqual([]);
+      expect(
+        wsRequests.filter(
+          (request) =>
+            request._tag === WS_METHODS.cleanCoreUpdateThread &&
+            (request.update as CleanCoreThreadUpdate).action === "delete",
+        ),
+      ).toEqual([]);
       const recovery = Object.values(
         useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]
           ?.pendingStartRecoveriesByMessageId ?? {},
@@ -5396,8 +5641,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await vi.waitFor(() => {
         expect(
           wsRequests
-            .map(readDispatchedCommand)
-            .filter((command) => command?.type === "thread.update")
+            .map(readCleanCoreUpdate)
+            .filter((command) => command?.action === "model")
             .at(-1),
         ).toMatchObject({ modelSelection: { provider: "codex", model: "gpt-5.5" } });
       });
@@ -6743,7 +6988,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await waitForComposerEditor();
 
       // Simulate the snapshot sync arriving from the server after the draft
-      // thread has been promoted to a server thread (thread.create + turn.start
+      // thread has been promoted to a server thread (clean-core creation + turn.start
       // succeeded). The snapshot now includes the new thread, and the sync
       // should clear the draft without disrupting the route.
       const { syncServerReadModel } = useStore.getState();
@@ -6803,25 +7048,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
                 command !== null &&
                 typeof command === "object" &&
                 "type" in command &&
-                command.type === "thread.create"
-              ) {
-                fixture = {
-                  ...fixture,
-                  snapshot: addThreadToSnapshot(fixture.snapshot, newThreadId),
-                };
-                useStore
-                  .getState()
-                  .syncServerShellSnapshot(createShellSnapshotFromReadModel(fixture.snapshot));
-                useStore.setState((state) => {
-                  const { [newThreadId]: _syntheticKnownEmpty, ...threadDetailSyncById } =
-                    state.threadDetailSyncById ?? {};
-                  return { threadDetailSyncById };
-                });
-              }
-              if (
-                command !== null &&
-                typeof command === "object" &&
-                "type" in command &&
                 command.type === "thread.turn.start"
               ) {
                 await turnStartGate;
@@ -6863,7 +7089,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       try {
         await vi.waitFor(() => {
-          expect(hasDispatchedCommandType("thread.create")).toBe(true);
+          expect(
+            wsRequests.some((request) => request._tag === WS_METHODS.cleanCoreCreateThread),
+          ).toBe(true);
           expect(hasDispatchedCommandType("thread.turn.start")).toBe(true);
         });
         useStore.setState((state) => {
@@ -7787,13 +8015,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(
             wsRequests.some(
               (request) =>
-                request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
-                typeof request.command === "object" &&
-                request.command !== null &&
-                "type" in request.command &&
-                "threadId" in request.command &&
-                request.command.type === "thread.create" &&
-                request.command.threadId === newThreadId,
+                request._tag === WS_METHODS.cleanCoreCreateThread &&
+                request.threadId === newThreadId,
             ),
           ).toBe(true);
         },
@@ -8030,15 +8253,15 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await vi.waitFor(
         () => {
           const visitCommands = wsRequests
-            .map(readDispatchedCommand)
-            .filter((command) => command?.type === "thread.update" && "lastVisitedAt" in command);
+            .map(readCleanCoreUpdate)
+            .filter((command) => command?.action === "visit");
           expect(visitCommands).toHaveLength(1);
           expect(visitCommands[0]).toMatchObject({
-            type: "thread.update",
+            action: "visit",
             threadId: THREAD_ID,
           });
-          if (visitCommands[0]?.type !== "thread.update") return;
-          const lastVisitedAt = visitCommands[0].lastVisitedAt;
+          if (visitCommands[0]?.action !== "visit") return;
+          const lastVisitedAt = visitCommands[0].visitedAt;
           expect(
             Date.parse(typeof lastVisitedAt === "string" ? lastVisitedAt : ""),
           ).toBeGreaterThanOrEqual(Date.parse(completionAt));

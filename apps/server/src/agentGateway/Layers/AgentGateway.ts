@@ -1,3 +1,5 @@
+import { ThreadRunningError } from "../../cleanCore/threadStore.ts";
+import { ThreadLifecycle } from "../../cleanCore/threadLifecycle.ts";
 /**
  * AgentGatewayLive - Penkra app-control MCP tool surface.
  *
@@ -45,8 +47,6 @@ import { ProviderHealth } from "../../provider/Services/ProviderHealth.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
-import { AgentGatewayCreationAdmissionRepository } from "../../persistence/Services/AgentGatewayCreationAdmissions.ts";
-import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
 import { type AgentGatewayProviderAvailability } from "../targetResolver.ts";
 import {
   extractPenkraExecRichResult,
@@ -157,6 +157,7 @@ function sendMessageErrorResult(error: unknown) {
 
 export const makeAgentGateway = Effect.gen(function* () {
   const sender = yield* ThreadSender;
+  const lifecycle = yield* ThreadLifecycle;
   const credentials = yield* AgentGatewayCredentials;
   const toolBridge = yield* AgentGatewayToolBridge;
   const snapshotQuery = yield* ProjectionSnapshotQuery;
@@ -168,8 +169,6 @@ export const makeAgentGateway = Effect.gen(function* () {
   const serverSettings = yield* ServerSettingsService;
   const connections = yield* ProviderConnectionRepository;
   const threadBindings = yield* ThreadProviderBindingRepository;
-  const creationAdmissions = yield* AgentGatewayCreationAdmissionRepository;
-  const commandReceipts = yield* OrchestrationCommandReceiptRepository;
   const projectionTurns = yield* ProjectionTurnRepository;
   const queuedTurnPromotions = yield* QueuedTurnPromotionRepository;
   const eventStore = yield* OrchestrationEventStore;
@@ -264,21 +263,17 @@ export const makeAgentGateway = Effect.gen(function* () {
   // --- write tools ----------------------------------------------------------
 
   const runCreateThread = yield* makeCreateThreadHandler({
-    diagnostics,
-    admissions: creationAdmissions,
-    commandReceipts,
-    loadExistingBinding: (threadId) => threadBindings.getRuntimeBinding(threadId),
+    lifecycle,
+    sender,
     snapshotQuery,
-    orchestrationEngine,
     providerDiscovery,
     providerTurnSelectionResolver,
-    providerThreadSwitchCoordinator,
     loadProviderAvailabilities,
     requireThreadShell,
     onThreadCreated: (parentThreadId, childThreadId) =>
       Effect.tryPromise(() =>
         requestAppRuntimeBridge("thread.home.inherit", { parentThreadId, childThreadId }),
-      ).pipe(Effect.map(() => undefined)),
+      ).pipe(Effect.asVoid),
   });
 
   const createThread: ToolEntry = {
@@ -501,19 +496,18 @@ export const makeAgentGateway = Effect.gen(function* () {
         const caller = yield* requireThreadShell(context.callerThreadId);
         const target = yield* requireThreadShell(threadId);
         yield* assertCallerMayDriveThread(caller, target);
-        yield* orchestrationEngine
-          .dispatch({
-            type: archived ? "thread.archive" : "thread.unarchive",
-            commandId: CommandId.makeUnsafe(
-              `agent:${randomUUID()}:${archived ? "archive" : "unarchive"}`,
-            ),
+        const updatedAt = new Date().toISOString();
+        yield* lifecycle
+          .update({
+            action: "archive",
             threadId: target.id,
-            ...(archived ? { createdAt: new Date().toISOString() } : {}),
+            archivedAt: archived ? updatedAt : null,
+            updatedAt,
           })
           .pipe(
             Effect.mapError((error) =>
-              error instanceof OrchestrationCommandInvariantError && error.code === "thread_running"
-                ? new GatewayToolError(error.code, error.detail)
+              error instanceof ThreadRunningError
+                ? new GatewayToolError(error.code, error.message)
                 : new ToolInputError(errorText(error)),
             ),
           );

@@ -344,7 +344,7 @@ export function getStreamDuplicateRetryDelayMs(
 }
 
 /**
- * A visible local draft subscribes before its `thread.create` projection exists
+ * A visible local draft subscribes before its canonical thread row exists
  * so it cannot miss the first provider events. The event journal and projection
  * commit independently, leaving a short window where that valid subscription
  * receives THREAD_SNAPSHOT_NOT_FOUND. Retry only that admission race in place;

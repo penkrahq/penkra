@@ -54,7 +54,10 @@ export async function loadThreadPage(input: {
     folderId: input.folderId,
   });
   const next = new Map(byId);
-  for (const thread of page.threads) next.set(thread.id, thread);
+  for (const thread of page.threads) {
+    const stored = next.get(thread.id);
+    if (stored === undefined || stored.updatedAt <= thread.updatedAt) next.set(thread.id, thread);
+  }
   setThreads(next);
 }
 

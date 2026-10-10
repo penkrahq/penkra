@@ -24,7 +24,6 @@ export interface ComposerSlashInvocation {
 }
 
 export type FastSlashCommandAction = "toggle" | "on" | "off" | "status" | "invalid";
-export type ForkSlashCommandTarget = "local";
 
 const CLAUDE_NATIVE_COMMAND_ALIASES: Record<string, readonly string[]> = {
   clear: ["reset", "new"],
@@ -32,7 +31,7 @@ const CLAUDE_NATIVE_COMMAND_ALIASES: Record<string, readonly string[]> = {
   desktop: ["app"],
   exit: ["quit"],
   feedback: ["bug"],
-  branch: ["fork"],
+
   mobile: ["ios", "android"],
   permissions: ["allowed-tools"],
   "remote-control": ["rc"],
@@ -157,12 +156,6 @@ const COMPOSER_SLASH_COMMAND_DEFINITIONS: Record<
     description: "Start a code review for current changes",
     source: "app",
   },
-  fork: {
-    command: "fork",
-    label: "/fork",
-    description: "Fork this thread locally",
-    source: "app",
-  },
   status: {
     command: "status",
     label: "/status",
@@ -241,22 +234,6 @@ function hasMeaningfulComposerText(prompt: string): boolean {
   return prompt.trim().length > 0;
 }
 
-export function canOfferForkSlashCommand(input: {
-  prompt: string;
-  imageCount: number;
-  terminalContextCount: number;
-  selectedSkillCount: number;
-  selectedMentionCount: number;
-}): boolean {
-  return (
-    !hasMeaningfulComposerText(input.prompt) &&
-    input.imageCount === 0 &&
-    input.terminalContextCount === 0 &&
-    input.selectedSkillCount === 0 &&
-    input.selectedMentionCount === 0
-  );
-}
-
 export function canOfferReviewSlashCommand(input: {
   prompt: string;
   imageCount: number;
@@ -310,7 +287,6 @@ export function getAvailableComposerSlashCommands(input: {
   supportsFastSlashCommand: boolean;
   canOfferCompactCommand: boolean;
   canOfferReviewCommand: boolean;
-  canOfferForkCommand: boolean;
   canOfferExportCommand: boolean;
   providerNativeCommandNames?: ReadonlyArray<string>;
 }): ComposerSlashCommand[] {
@@ -333,7 +309,6 @@ export function getAvailableComposerSlashCommands(input: {
           "model",
           ...(input.supportsFastSlashCommand ? (["fast"] as const) : []),
           ...(input.canOfferReviewCommand ? (["review"] as const) : []),
-          ...(input.canOfferForkCommand ? (["fork"] as const) : []),
           "status",
           "subagents",
           ...(input.canOfferExportCommand ? (["export"] as const) : []),
@@ -364,25 +339,4 @@ export function buildSlashReviewComposerPrompt(args: string): string {
     return basePrompt;
   }
   return `${basePrompt}\nFocus especially on: ${trimmedArgs}`;
-}
-
-// `/fork` optionally accepts only an explicit target shorthand like `/fork local`.
-export function parseForkSlashCommandArgs(args: string): {
-  target: ForkSlashCommandTarget | null;
-  invalid: boolean;
-} {
-  const trimmedArgs = args.trim();
-  if (!trimmedArgs) {
-    return { target: null, invalid: false };
-  }
-
-  const match = /^(local)$/i.exec(trimmedArgs);
-  if (!match) {
-    return { target: null, invalid: true };
-  }
-
-  return {
-    target: match[1]!.toLowerCase() as ForkSlashCommandTarget,
-    invalid: false,
-  };
 }

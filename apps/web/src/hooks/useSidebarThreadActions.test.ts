@@ -85,7 +85,6 @@ const harness = vi.hoisted(() => ({
   confirm: vi.fn(),
   archiveThread: vi.fn(),
   unarchiveThread: vi.fn(),
-  alreadyUnarchived: false,
   activeThreadDelete: vi.fn(),
   navigate: vi.fn(),
   toast: vi.fn(),
@@ -143,7 +142,6 @@ vi.mock("../nativeApi", () => ({
 vi.mock("../lib/threadArchive", () => ({
   archiveThreadFromClient: harness.archiveThread,
   unarchiveThreadFromClient: harness.unarchiveThread,
-  isThreadAlreadyUnarchivedError: () => harness.alreadyUnarchived,
 }));
 vi.mock("../lib/activeThreadDelete", () => ({
   deleteActiveThreadFromClient: harness.activeThreadDelete,
@@ -241,7 +239,6 @@ beforeEach(() => {
   reactHarness.reset();
   sidebarThreads = [makeThread(THREAD_ID), makeThread(FALLBACK_ID)];
   harness.pinnedThreadIds = [];
-  harness.alreadyUnarchived = false;
   for (const mock of [
     harness.pinThread,
     harness.unpinThread,
@@ -387,9 +384,8 @@ describe("useSidebarThreadActions", () => {
     );
   });
 
-  it("treats an already-restored invariant as successful Undo", async () => {
-    harness.alreadyUnarchived = true;
-    harness.unarchiveThread.mockRejectedValue(new Error("already restored"));
+  it("treats the idempotent restore result as successful Undo", async () => {
+    harness.unarchiveThread.mockResolvedValue(undefined);
     const controller = render({ routeThreadId: THREAD_ID });
     await controller.archiveThreadWithUndo(THREAD_ID);
     const toast = harness.toast.mock.calls.at(-1)?.[0] as {

@@ -122,25 +122,20 @@ export const ProviderIntentOutboxLive = Layer.effect(
       diagnosticTrace,
     ) =>
       Effect.gen(function* () {
-        // A subagent shares its ancestor's provider session. A native fork
-        // has no parent_thread_id and therefore owns its own lane.
-        const startThreadId =
-          event.type === "thread.created" && event.payload.parentThreadId
-            ? event.payload.parentThreadId
-            : event.payload.threadId;
+        const startThreadId = event.payload.threadId;
         const ancestors = yield* sql<{
           readonly laneKey: string;
           readonly parentThreadId: string | null;
           readonly depth: number;
         }>`
             WITH RECURSIVE ancestry(thread_id, parent_thread_id, depth) AS (
-              SELECT thread_id, parent_thread_id, 0
-              FROM projection_threads
-              WHERE thread_id = ${startThreadId}
+              SELECT id, parent_thread_id, 0
+              FROM threads
+              WHERE id = ${startThreadId}
               UNION ALL
-              SELECT parent.thread_id, parent.parent_thread_id, ancestry.depth + 1
-              FROM projection_threads AS parent
-              JOIN ancestry ON parent.thread_id = ancestry.parent_thread_id
+              SELECT parent.id, parent.parent_thread_id, ancestry.depth + 1
+              FROM threads AS parent
+              JOIN ancestry ON parent.id = ancestry.parent_thread_id
               WHERE ancestry.depth < 32
             )
             SELECT thread_id AS "laneKey", parent_thread_id AS "parentThreadId", depth

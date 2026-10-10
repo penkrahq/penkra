@@ -47,10 +47,13 @@ export async function deleteActiveThreadFromClient<TPrepared = undefined>(input:
   const thread = getThreadFromState(state, input.threadId);
   if (!thread) return;
   const prepared = input.prepareForDelete?.(thread);
-  await api.orchestration.dispatchCommand({
-    type: "thread.delete",
-    commandId: newCommandId(),
-    threadId: input.threadId,
+  await api.cleanCore.updateThread({
+    update: {
+      action: "delete",
+      threadId: input.threadId,
+      deletedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
   });
   // Provider and terminal cleanup are owned by the server-side lifecycle
   // reactor. Dispose only the local renderer after the durable delete intent

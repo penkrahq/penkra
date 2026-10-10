@@ -1,7 +1,7 @@
 import { ThreadId, type OrchestrationSession } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
-import { deriveTurnStartModelSelection, deriveTurnStartSession } from "./turnStartSession.ts";
+import { deriveTurnStartSession } from "./turnStartSession.ts";
 
 const THREAD_ID = ThreadId.makeUnsafe("thread-turn-start-session");
 const REQUESTED_AT = "2026-07-21T00:00:00.000Z";
@@ -29,26 +29,6 @@ function derive(currentSession: OrchestrationSession | null) {
 }
 
 describe("deriveTurnStartSession", () => {
-  it("keeps an established provider when a later turn requests another provider", () => {
-    expect(
-      deriveTurnStartModelSelection({
-        currentModelSelection: { provider: "codex", model: "gpt-5-codex" },
-        requestedModelSelection: { provider: "opencode", model: "openai/gpt-5" },
-        canAdoptRequestedProvider: false,
-      }),
-    ).toEqual({ provider: "codex", model: "gpt-5-codex" });
-  });
-
-  it("allows an empty thread to adopt its first requested provider", () => {
-    expect(
-      deriveTurnStartModelSelection({
-        currentModelSelection: { provider: "codex", model: "gpt-5-codex" },
-        requestedModelSelection: { provider: "opencode", model: "openai/gpt-5" },
-        canAdoptRequestedProvider: true,
-      }),
-    ).toEqual({ provider: "opencode", model: "openai/gpt-5" });
-  });
-
   it("creates a starting session when no session exists", () => {
     expect(derive(null)).toEqual({
       threadId: THREAD_ID,

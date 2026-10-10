@@ -79,7 +79,6 @@ const disabledCapabilitiesForProvider = (
   supportsPluginDiscovery: false,
   supportsRuntimeModelList: false,
   supportsThreadCompaction: false,
-  supportsThreadFork: false,
   supportsThreadImport: false,
 });
 

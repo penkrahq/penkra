@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   buildReviewPrompt,
   buildSubagentsPrompt,
-  canOfferForkSlashCommand,
   canOfferReviewSlashCommand,
   filterComposerSlashCommands,
   getAvailableComposerSlashCommands,
@@ -12,7 +11,6 @@ import {
   parseComposerSlashInvocation,
   parseComposerSlashInvocationForCommands,
   parseFastSlashCommandAction,
-  parseForkSlashCommandArgs,
   providerSupportsTextNativeReviewCommand,
   shouldHideProviderNativeCommandFromComposerMenu,
 } from "./composerSlashCommands";
@@ -75,51 +73,6 @@ describe("composerSlashCommands", () => {
     expect(parseFastSlashCommandAction("/review")).toBeNull();
   });
 
-  it("parses /fork target shorthand only", () => {
-    expect(parseForkSlashCommandArgs("")).toEqual({
-      target: null,
-      invalid: false,
-    });
-    expect(parseForkSlashCommandArgs("local")).toEqual({
-      target: "local",
-      invalid: false,
-    });
-    expect(parseForkSlashCommandArgs("  worktree  ")).toEqual({
-      target: null,
-      invalid: true,
-    });
-    expect(parseForkSlashCommandArgs("follow up on the bug")).toEqual({
-      target: null,
-      invalid: true,
-    });
-    expect(parseForkSlashCommandArgs("local continue here")).toEqual({
-      target: null,
-      invalid: true,
-    });
-  });
-
-  it("only offers /fork for an otherwise empty composer", () => {
-    expect(
-      canOfferForkSlashCommand({
-        prompt: "",
-        imageCount: 0,
-        terminalContextCount: 0,
-        selectedSkillCount: 0,
-        selectedMentionCount: 0,
-      }),
-    ).toBe(true);
-
-    expect(
-      canOfferForkSlashCommand({
-        prompt: "hello",
-        imageCount: 0,
-        terminalContextCount: 0,
-        selectedSkillCount: 0,
-        selectedMentionCount: 0,
-      }),
-    ).toBe(false);
-  });
-
   it("only offers /review for an otherwise empty composer", () => {
     expect(
       canOfferReviewSlashCommand({
@@ -154,7 +107,6 @@ describe("composerSlashCommands", () => {
       supportsFastSlashCommand: true,
       canOfferCompactCommand: true,
       canOfferReviewCommand: true,
-      canOfferForkCommand: true,
       canOfferExportCommand: true,
       providerNativeCommandNames: ["fast", "/model", "status"],
     });
@@ -174,7 +126,6 @@ describe("composerSlashCommands", () => {
       supportsFastSlashCommand: true,
       canOfferCompactCommand: true,
       canOfferReviewCommand: true,
-      canOfferForkCommand: true,
       canOfferExportCommand: true,
       providerNativeCommandNames: ["review"],
     });
@@ -193,7 +144,6 @@ describe("composerSlashCommands", () => {
       supportsFastSlashCommand: false,
       canOfferCompactCommand: true,
       canOfferReviewCommand: true,
-      canOfferForkCommand: true,
       canOfferExportCommand: true,
       providerNativeCommandNames: ["review", "status"],
     });
@@ -212,7 +162,6 @@ describe("composerSlashCommands", () => {
       supportsFastSlashCommand: true,
       canOfferCompactCommand: true,
       canOfferReviewCommand: true,
-      canOfferForkCommand: true,
       canOfferExportCommand: true,
       providerNativeCommandNames: ["feedback"],
     });
@@ -228,7 +177,6 @@ describe("composerSlashCommands", () => {
         supportsFastSlashCommand: true,
         canOfferCompactCommand: true,
         canOfferReviewCommand: true,
-        canOfferForkCommand: true,
         canOfferExportCommand: true,
       }),
     ).toEqual(["export", "feedback"]);
@@ -241,7 +189,6 @@ describe("composerSlashCommands", () => {
         supportsFastSlashCommand: true,
         canOfferCompactCommand: true,
         canOfferReviewCommand: true,
-        canOfferForkCommand: true,
         canOfferExportCommand: true,
       }),
     ).toContain("export");
@@ -254,7 +201,6 @@ describe("composerSlashCommands", () => {
         supportsFastSlashCommand: true,
         canOfferCompactCommand: true,
         canOfferReviewCommand: true,
-        canOfferForkCommand: true,
         canOfferExportCommand: false,
       }),
     ).not.toContain("export");
@@ -266,7 +212,6 @@ describe("composerSlashCommands", () => {
       supportsFastSlashCommand: true,
       canOfferCompactCommand: true,
       canOfferReviewCommand: true,
-      canOfferForkCommand: true,
       canOfferExportCommand: true,
       providerNativeCommandNames: ["export"],
     });
@@ -298,7 +243,6 @@ describe("composerSlashCommands", () => {
         supportsFastSlashCommand: true,
         canOfferCompactCommand: true,
         canOfferReviewCommand: true,
-        canOfferForkCommand: true,
         canOfferExportCommand: true,
       }),
     ).toContain("compact");
@@ -309,14 +253,8 @@ describe("composerSlashCommands", () => {
         supportsFastSlashCommand: true,
         canOfferCompactCommand: false,
         canOfferReviewCommand: true,
-        canOfferForkCommand: true,
         canOfferExportCommand: true,
       }),
     ).not.toContain("compact");
-  });
-
-  it("treats claude aliases like /fork as provider-native collisions", () => {
-    expect(hasProviderNativeSlashCommand("claudeAgent", ["branch", "model"], "fork")).toBe(true);
-    expect(hasProviderNativeSlashCommand("claudeAgent", ["clear"], "reset")).toBe(true);
   });
 });

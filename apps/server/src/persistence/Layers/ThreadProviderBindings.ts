@@ -99,7 +99,7 @@ const makeThreadProviderBindingRepository = Effect.gen(function* () {
           SELECT state.thread_id AS "threadId"
           FROM thread_harness_states AS state
           JOIN thread_runtime_bindings AS binding ON binding.thread_id = state.thread_id
-          JOIN projection_threads AS thread ON thread.thread_id = state.thread_id
+          JOIN threads AS thread ON thread.id = state.thread_id
           WHERE state.harness_kind = 'claudeAgent'
             AND binding.connection_id = ${connectionId}
             AND thread.deleted_at IS NULL

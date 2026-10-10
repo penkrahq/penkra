@@ -1,56 +1,28 @@
-import { singletonThreadDeckId } from "@penkra/contracts";
 import {
   FolderId,
-  CommandId,
-  ProviderNativeStateGenerationId,
   ProviderConnectionId,
   ProviderInstallationId,
   SpaceId,
   ThreadId,
   TurnId,
+  singletonThreadDeckId,
   type ModelSelection,
-  type OrchestrationCommand,
   type OrchestrationFolderShell,
   type OrchestrationThreadShell,
   type PenkraCreateThreadInput,
   type ProviderKind,
   type ProviderListModelsInput,
-  type ThreadRuntimeBinding,
+  type CleanCoreThreadSummary,
+  type CleanCoreSendResult,
 } from "@penkra/contracts";
-import { Effect, Option, Stream } from "effect";
+import { Effect, Option } from "effect";
 import { describe, expect, it, vi } from "vitest";
-import { it as effectIt } from "@effect/vitest";
-import { Layer } from "effect";
-import * as NodeServices from "@effect/platform-node/NodeServices";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { ProviderValidationError } from "../provider/Errors.ts";
 import type { ProviderDiscoveryServiceShape } from "../provider/Services/ProviderDiscoveryService.ts";
-import type { ProviderTurnSelectionResolverShape } from "../provider/Services/ProviderTurnSelectionResolver.ts";
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import type { OrchestrationEngineShape } from "../orchestration/Services/OrchestrationEngine.ts";
-import type { ProviderThreadSwitchCoordinatorShape } from "../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
-import type { ThreadDiagnosticsQueryShape } from "../diagnostics/Services/ThreadDiagnosticsQuery.ts";
-import { ProviderThreadSwitchCoordinatorError } from "../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
-import { makeAgentCreationIds, stableGatewayDigest } from "./creationUtils.ts";
 import { makeCreateThreadHandler, type GatewayCreationContext } from "./creationCoordinator.ts";
-import type { AgentGatewayProviderAvailability } from "./targetResolver.ts";
+import { makeAgentCreationIds, stableGatewayDigest } from "./creationUtils.ts";
 import type { McpToolCallResult } from "./protocol.ts";
-import { ToolInputError, errorText } from "./toolInput.ts";
-
-import { fingerprintOrchestrationCommand } from "../orchestration/commandFingerprint.ts";
-import type { AgentGatewayCreationAdmission } from "../persistence/Services/AgentGatewayCreationAdmissions.ts";
-import { PersistenceSqlError } from "../persistence/Errors.ts";
-import { AgentGatewayCreationAdmissionRepository } from "../persistence/Services/AgentGatewayCreationAdmissions.ts";
-import { OrchestrationCommandReceiptRepository } from "../persistence/Services/OrchestrationCommandReceipts.ts";
-import { AgentGatewayCreationAdmissionRepositoryLive } from "../persistence/Layers/AgentGatewayCreationAdmissions.ts";
-import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
-import { OrchestrationLayerLive } from "../orchestration/runtimeLayer.ts";
-import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
-import { OrchestrationEventStore } from "../persistence/Services/OrchestrationEventStore.ts";
-import { ThreadProviderBindingRepository } from "../persistence/Services/ThreadProviderBindings.ts";
-import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import { ServerConfig } from "../config.ts";
-
 const NOW = "2026-09-06T08:00:00.000Z";
 const CALLER_THREAD_ID = ThreadId.makeUnsafe("caller-retry");
 const CALLER_TURN_ID = TurnId.makeUnsafe("caller-turn");
@@ -91,76 +63,38 @@ const CALLER: OrchestrationThreadShell = {
   subagentAgentId: null,
   subagentNickname: null,
   subagentRole: null,
-  forkSourceThreadId: null,
   latestTurn: null,
   latestUserMessageAt: null,
   createdAt: NOW,
   updatedAt: NOW,
   archivedAt: null,
   session: null,
+  workingDirectory: null,
 };
 
-function expectedIds() {
-  const operationId = `gateway:create:${stableGatewayDigest({
-    principalKind: "provider-session",
-    principalId: CALLER_THREAD_ID,
-    requestId: INPUT.requestId,
-  })}`;
-  const ids = makeAgentCreationIds(operationId, 0);
-  return {
-    ...ids,
-    operationId,
-    turnId: TurnId.makeUnsafe(`turn:${ids.turnStartCommandId}`),
-  };
-}
-
-function makeBinding(
-  connectionId: ProviderConnectionId,
-  threadId: ThreadId,
-  revision: number,
-): ThreadRuntimeBinding {
-  return {
-    threadId,
-    connectionId,
-    installationId: INSTALLATION_ID,
-    internalProviderId: null,
-    modelId: TARGET.model,
-    revision,
-    createdAt: NOW,
-    updatedAt: NOW,
-  };
-}
-
-type CreationDependencies = Parameters<typeof makeCreateThreadHandler>[0];
-
-interface HarnessOptions {
-  readonly existingBinding?: ThreadRuntimeBinding;
-  readonly defaultConnection?: ProviderConnectionId;
-  readonly discoveryFailure?: boolean;
-  readonly rejectStaleBinding?: boolean;
-  readonly diagnosticWriteFailure?: boolean;
-}
-
-interface Harness {
-  readonly dependencies: CreationDependencies;
-  readonly engineCommands: Array<OrchestrationCommand>;
-  readonly turnStartAttempts: Array<Extract<OrchestrationCommand, { type: "thread.turn.start" }>>;
-  readonly successfulTurnStarts: Array<
-    Extract<OrchestrationCommand, { type: "thread.turn.start" }>
-  >;
-  readonly modelDiscoveryCalls: Array<ProviderListModelsInput>;
-  readonly selectionCalls: number;
-}
-
-function makeHarness(options: HarnessOptions = {}): Harness {
-  const admissions = new Map<string, AgentGatewayCreationAdmission>();
-  const engineCommands: Array<OrchestrationCommand> = [];
-  const turnStartAttempts: Array<Extract<OrchestrationCommand, { type: "thread.turn.start" }>> = [];
-  const successfulTurnStarts: Array<Extract<OrchestrationCommand, { type: "thread.turn.start" }>> =
-    [];
-  const modelDiscoveryCalls: Array<ProviderListModelsInput> = [];
+const CONTEXT: GatewayCreationContext = {
+  kind: "provider-session",
+  callerThreadId: CALLER_THREAD_ID,
+  callerTurnId: CALLER_TURN_ID,
+  assertAuthority: () => Effect.void,
+  attachmentPrincipal: { ownerKind: "session", ownerId: "synthetic-session" },
+};
+const IDS = makeAgentCreationIds(
+  `gateway:create:${stableGatewayDigest({ principalKind: CONTEXT.kind, principalId: CALLER_THREAD_ID, requestId: INPUT.requestId })}`,
+);
+function makeHarness() {
+  const rows = new Map<string, CleanCoreThreadSummary>();
+  const confirmations = new Map<string, CleanCoreSendResult>();
+  const sends: Array<
+    Parameters<Parameters<typeof makeCreateThreadHandler>[0]["sender"]["send"]>[0]
+  > = [];
+  const modelDiscoveryCalls: ProviderListModelsInput[] = [];
+  let discoveryFailure = false;
+  let launchFailure = false;
+  let defaultConnection = ACCOUNT_A;
   let selectionCalls = 0;
-
+  let deliveries = 0;
+  let caller = CALLER;
   const snapshotQuery: ProjectionSnapshotQueryShape = {
     getCommandReadModel: () => Effect.die("unused snapshot method"),
     getSnapshot: () => Effect.die("unused snapshot method"),
@@ -185,26 +119,6 @@ function makeHarness(options: HarnessOptions = {}): Harness {
     getPendingStartOutcome: () => Effect.die("unused snapshot method"),
   };
 
-  const orchestrationEngine: OrchestrationEngineShape = {
-    quiesce: Effect.void,
-    drain: Effect.void,
-    stop: Effect.void,
-    getProjectionCatchUpStatus: Effect.die("unused engine method"),
-    readEvents: () => Stream.empty,
-    readEventsThrough: () => Stream.empty,
-    getEventHighWaterSequence: Effect.die("unused engine method"),
-    subscribeDomainEvents: Effect.succeed(Stream.empty),
-    getReadModel: () => Effect.die("unused engine method"),
-    getCommandReadModel: () => Effect.die("unused engine method"),
-    dispatch: (command) => {
-      engineCommands.push(command);
-      return Effect.succeed({ sequence: engineCommands.length });
-    },
-    repairState: () => Effect.die("unused engine method"),
-    refreshCommandReadModel: () => Effect.die("unused engine method"),
-    streamDomainEvents: Stream.empty,
-  };
-
   const providerDiscovery: ProviderDiscoveryServiceShape = {
     probeConnection: () => Effect.die("unused discovery method"),
     getComposerCapabilities: () => Effect.die("unused discovery method"),
@@ -215,7 +129,7 @@ function makeHarness(options: HarnessOptions = {}): Harness {
     readPlugin: () => Effect.die("unused discovery method"),
     listModels: (input) => {
       modelDiscoveryCalls.push(input);
-      if (options.discoveryFailure) {
+      if (discoveryFailure) {
         return Effect.fail(
           new ProviderValidationError({
             operation: "listModels",
@@ -231,618 +145,273 @@ function makeHarness(options: HarnessOptions = {}): Harness {
     listAgents: () => Effect.die("unused discovery method"),
   };
 
-  const providerTurnSelectionResolver: ProviderTurnSelectionResolverShape = {
-    resolveNewThreadConnection: () => {
-      selectionCalls += 1;
-      return Effect.succeed(options.defaultConnection ?? ACCOUNT_A);
-    },
-    resolveInitial: () => Effect.die("unused selection method"),
-    resolveExisting: () => Effect.die("unused selection method"),
-  };
-
-  const providerThreadSwitchCoordinator: ProviderThreadSwitchCoordinatorShape = {
-    dispatchTurnStart: ({ command }) => {
-      turnStartAttempts.push(command);
-      if (options.rejectStaleBinding && command.bindingRevision === 0) {
-        return Effect.fail(
-          new ProviderThreadSwitchCoordinatorError({
-            detail: "synthetic stale binding revision",
-          }),
-        );
-      }
-      successfulTurnStarts.push(command);
-      return Effect.succeed({ sequence: successfulTurnStarts.length });
-    },
-    dispatchQueuedTurn: () => Effect.die("unused queued turn dispatch"),
-    recoverOpen: Effect.void,
-  };
-
-  const availabilities: ReadonlyMap<ProviderKind, AgentGatewayProviderAvailability> = new Map([
-    ["codex", { enabled: true, available: true, authStatus: "authenticated" }],
-  ]);
-
-  const diagnostics: ThreadDiagnosticsQueryShape = {
-    getActivityCoverage: () => Effect.die("unused diagnostics method"),
-    listActivities: () => Effect.die("unused diagnostics method"),
-    recordOperationalDiagnostic: () =>
-      options.diagnosticWriteFailure
-        ? Effect.fail(
-            new PersistenceSqlError({
-              operation: "test.diagnostic",
-              detail: "controlled diagnostic writer failure",
-            }),
-          )
-        : Effect.void,
-    listOperationalDiagnostics: () => Effect.die("unused diagnostics method"),
-  };
-
-  const dependencies: CreationDependencies = {
-    diagnostics,
-    admissions: {
-      get: (operationId) => Effect.succeed(Option.fromNullishOr(admissions.get(operationId))),
-      reserve: (admission) =>
+  const dependencies: Parameters<typeof makeCreateThreadHandler>[0] = {
+    lifecycle: {
+      get: (id) =>
         Effect.sync(() => {
-          const existing = admissions.get(admission.operationId);
-          if (existing) return { kind: "existing" as const, admission: existing };
-          admissions.set(admission.operationId, admission);
-          return { kind: "reserved" as const, admission };
+          const row = rows.get(id);
+          return row === undefined ? null : row;
         }),
+      create: (input) =>
+        Effect.sync(() => {
+          const existing = rows.get(input.threadId);
+          if (existing !== undefined) return { thread: existing, created: false };
+          if (input.connection.kind !== "selected")
+            throw new Error("Gateway must resolve its connection before creation");
+          const thread: CleanCoreThreadSummary = {
+            id: input.threadId,
+            folderId: input.folderId,
+            spaceId: SPACE_ID,
+            deckId: input.deckId,
+            deckSortOrder: 0,
+            title: input.title,
+            provider: input.modelSelection.provider,
+            model: input.modelSelection.model,
+            modelOptions:
+              input.modelSelection.options === undefined
+                ? null
+                : JSON.stringify(input.modelSelection.options),
+            connectionId: input.connection.connectionId,
+            runtimeMode: input.runtimeMode,
+            workingDirectory: input.workingDirectory,
+            state: "idle",
+            activeTurnId: null,
+            lastError: null,
+            createdBy: "agent",
+            createdByThreadId: CALLER_THREAD_ID,
+            parentThreadId: null,
+            sidebarSortOrder: null,
+            isPinned: 0,
+            lastActivityAt: null,
+            lastMessagePreview: null,
+            lastUserMessageAt: null,
+            lastVisitedAt: null,
+            openQuestionCount: 0,
+            archivedAt: null,
+            deletedAt: null,
+            createdAt: input.createdAt,
+            updatedAt: input.createdAt,
+          };
+          rows.set(thread.id, thread);
+          return { thread, created: true };
+        }),
+      update: () => Effect.die("unused lifecycle update"),
     },
-    commandReceipts: {
-      insert: () => Effect.die("unused receipt method"),
-      getByCommandId: () => Effect.succeed(Option.none()),
+    sender: {
+      runExclusive: (_threadId, action) => action,
+      send: (input) =>
+        Effect.sync(() => {
+          sends.push(input);
+          const previous = confirmations.get(input.message.messageId);
+          if (previous !== undefined) return previous;
+          if (launchFailure)
+            return {
+              delivery: "failed" as const,
+              threadId: input.threadId,
+              messageId: input.message.messageId,
+              error: "controlled launch failure",
+            };
+          deliveries++;
+          const result: CleanCoreSendResult = {
+            delivery: "started",
+            threadId: input.threadId,
+            messageId: input.message.messageId,
+            turnId: TurnId.makeUnsafe("confirmed-turn"),
+          };
+          confirmations.set(input.message.messageId, result);
+          return result;
+        }),
+      editQueued: () => Effect.die("unused edit"),
+      queuedThread: () => Effect.die("unused queue lookup"),
+      cancelQueued: () => Effect.die("unused cancel"),
+      getRuntime: () => Effect.die("unused runtime"),
+      interrupt: () => Effect.die("unused interrupt"),
     },
-    loadExistingBinding: () => Effect.succeed(Option.fromNullishOr(options.existingBinding)),
     snapshotQuery,
-    orchestrationEngine,
     providerDiscovery,
-    providerTurnSelectionResolver,
-    providerThreadSwitchCoordinator,
-    loadProviderAvailabilities: Effect.succeed(availabilities),
-    requireThreadShell: () => Effect.succeed(CALLER),
+    providerTurnSelectionResolver: {
+      resolveNewThreadConnection: () =>
+        Effect.sync(() => {
+          selectionCalls++;
+          return defaultConnection;
+        }),
+      resolveInitial: () => Effect.die("unused selection"),
+      resolveExisting: () => Effect.die("unused selection"),
+    },
+    loadProviderAvailabilities: Effect.succeed(
+      new Map([["codex", { enabled: true, available: true, authStatus: "authenticated" }]]),
+    ),
+    requireThreadShell: () => Effect.sync(() => caller),
   };
-
   return {
     dependencies,
-    engineCommands,
-    turnStartAttempts,
-    successfulTurnStarts,
+    rows,
+    sends,
     modelDiscoveryCalls,
+    get deliveries() {
+      return deliveries;
+    },
     get selectionCalls() {
       return selectionCalls;
     },
+    setDefault: (id: ProviderConnectionId) => {
+      defaultConnection = id;
+    },
+    failDiscovery: () => {
+      discoveryFailure = true;
+    },
+    failLaunch: (value: boolean) => {
+      launchFailure = value;
+    },
+    moveCaller: (folderId: FolderId) => {
+      caller = { ...caller, folderId };
+    },
+    downgrade: () => {
+      caller = { ...caller, runtimeMode: "approval-required" };
+    },
   };
 }
-
-const CONTEXT: GatewayCreationContext = {
-  kind: "provider-session",
-  callerThreadId: CALLER_THREAD_ID,
-  callerTurnId: CALLER_TURN_ID,
-  assertAuthority: () => Effect.void,
-  attachmentPrincipal: { ownerKind: "session", ownerId: "synthetic-session" },
-};
-
-async function invoke(
-  harness: Harness,
-  input: PenkraCreateThreadInput = INPUT,
-): Promise<McpToolCallResult> {
+async function invoke(harness: ReturnType<typeof makeHarness>, input = INPUT) {
   const handler = await Effect.runPromise(makeCreateThreadHandler(harness.dependencies));
   return Effect.runPromise(handler(input, CONTEXT));
 }
-
 function resultText(result: McpToolCallResult): string {
   const block = result.content[0];
-  if (!block || block.type !== "text") throw new Error("expected a text MCP result");
+  if (block?.type !== "text") throw new Error("expected text MCP result");
   return block.text;
 }
-
-function threadCreateCommands(harness: Harness) {
-  return harness.engineCommands.filter(
-    (command): command is Extract<OrchestrationCommand, { type: "thread.create" }> =>
-      command.type === "thread.create",
-  );
-}
-
-describe("create thread retry characterization", () => {
-  it("keeps child creation successful when home-window inheritance is unavailable", async () => {
-    const harness = makeHarness();
-    let resolveNotification!: () => void;
-    const notified = new Promise<void>((resolve) => {
-      resolveNotification = resolve;
-    });
-    const withUnavailableHomeBridge = {
-      ...harness,
-      dependencies: {
-        ...harness.dependencies,
-        onThreadCreated: () =>
-          Effect.tryPromise({
-            try: async () => {
-              resolveNotification();
-              throw new Error("desktop bridge timed out");
-            },
-            catch: (error) => error,
-          }),
-      },
-    };
-
-    const result = await invoke(withUnavailableHomeBridge);
-    await notified;
-
-    expect(result.isError).not.toBe(true);
-    expect(threadCreateCommands(harness)).toHaveLength(1);
-    expect(harness.successfulTurnStarts).toHaveLength(1);
-  });
-
-  it("keeps deterministic thread, message, and turn IDs for the same caller execution and request ID", async () => {
-    const harness = makeHarness();
-    const ids = expectedIds();
-
-    const first = await invoke(harness);
-    const retry = await invoke(harness);
-
-    for (const result of [first, retry]) {
-      expect(resultText(result)).toContain(String(ids.threadId));
-      expect(resultText(result)).toContain(String(ids.messageId));
-      expect(resultText(result)).toContain(String(ids.turnId));
-      expect(resultText(result)).toContain(ids.operationId);
-    }
-    const creates = threadCreateCommands(harness);
-    expect(creates).toHaveLength(2);
-    expect(creates.map((command) => command.commandId)).toEqual([
-      ids.threadCreateCommandId,
-      ids.threadCreateCommandId,
-    ]);
-    expect(creates.map((command) => command.threadId)).toEqual([ids.threadId, ids.threadId]);
-    expect(harness.successfulTurnStarts).toHaveLength(2);
-    expect(harness.successfulTurnStarts.map((command) => command.commandId)).toEqual([
-      ids.turnStartCommandId,
-      ids.turnStartCommandId,
-    ]);
-    expect(harness.successfulTurnStarts.map((command) => command.message.messageId)).toEqual([
-      ids.messageId,
-      ids.messageId,
-    ]);
-    expect(harness.successfulTurnStarts.map((command) => command.turnId)).toEqual([
-      ids.turnId,
-      ids.turnId,
-    ]);
-    expect(harness.successfulTurnStarts.map((command) => command.senderThreadId)).toEqual([
-      ThreadId.makeUnsafe(CALLER_THREAD_ID),
-      ThreadId.makeUnsafe(CALLER_THREAD_ID),
-    ]);
-  });
-
-  it("keeps an existing account A binding when the host default changes to account B", async () => {
-    const ids = expectedIds();
-    const harness = makeHarness({
-      existingBinding: makeBinding(ACCOUNT_A, ids.threadId, 0),
-      defaultConnection: ACCOUNT_B,
-    });
-
-    const result = await invoke(harness);
-    const creates = threadCreateCommands(harness);
-
-    expect(resultText(result)).toContain(String(ACCOUNT_A));
-    expect(harness.selectionCalls).toBe(0);
-    expect(creates).toHaveLength(1);
-    expect(creates[0]?.threadId).toBe(ids.threadId);
-    expect(harness.successfulTurnStarts).toHaveLength(1);
-    expect(harness.successfulTurnStarts[0]?.connectionId).toBe(ACCOUNT_A);
-    expect(harness.successfulTurnStarts[0]?.bindingRevision).toBe(0);
-  });
-
-  it("rejects explicit account B against an existing account A binding before any dispatch", async () => {
-    const ids = expectedIds();
-    const harness = makeHarness({
-      existingBinding: makeBinding(ACCOUNT_A, ids.threadId, 0),
-    });
-
-    const result = await invoke(harness, { ...INPUT, connectionId: ACCOUNT_B });
-
-    expect(result.isError).toBe(true);
-    expect(resultText(result)).toContain(
-      "already created a thread with a different Connection. It cannot be rerouted by retrying creation.",
+describe("clean-core agent creation retries", () => {
+  it("creates one child and returns the same native confirmation on retry", async () => {
+    const h = makeHarness();
+    const first = await invoke(h);
+    const retry = await invoke(h);
+    expect(first.isError, resultText(first)).not.toBe(true);
+    expect(resultText(retry)).toBe(resultText(first));
+    expect(h.rows.size).toBe(1);
+    expect(h.deliveries).toBe(1);
+    expect(h.sends.map((input) => input.message.messageId)).toEqual([IDS.messageId, IDS.messageId]);
+    expect(h.sends.every((input) => input.message.senderThreadId === CALLER_THREAD_ID)).toBe(true);
+    expect(resultText(first)).toContain("confirmed-turn");
+    expect(h.selectionCalls).toBe(1);
+    expect(h.rows.get(IDS.threadId)?.createdByThreadId).toBe(CALLER_THREAD_ID);
+    expect(IDS.threadId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
     );
-    expect(harness.engineCommands).toHaveLength(0);
-    expect(harness.turnStartAttempts).toHaveLength(0);
-    expect(harness.selectionCalls).toBe(0);
-    expect(harness.modelDiscoveryCalls).toHaveLength(0);
   });
-
-  it("characterizes current stale-binding rejection without rerouting or successfully starting a second request", async () => {
-    const ids = expectedIds();
-    const harness = makeHarness({
-      existingBinding: makeBinding(ACCOUNT_A, ids.threadId, 1),
-      defaultConnection: ACCOUNT_B,
-      rejectStaleBinding: true,
-    });
-
-    const result = await invoke(harness);
-    const creates = threadCreateCommands(harness);
-
-    expect(result.isError).toBe(true);
-    expect(resultText(result)).toContain("synthetic stale binding revision");
-    expect(harness.selectionCalls).toBe(0);
-    expect(creates).toHaveLength(1);
-    expect(creates[0]?.threadId).toBe(ids.threadId);
-    expect(harness.turnStartAttempts).toHaveLength(1);
-    expect(harness.turnStartAttempts[0]?.connectionId).toBe(ACCOUNT_A);
-    expect(harness.turnStartAttempts[0]?.bindingRevision).toBe(0);
-    expect(harness.successfulTurnStarts).toHaveLength(0);
+  it("retains the child after launch failure and retries its stored connection", async () => {
+    const h = makeHarness();
+    h.failLaunch(true);
+    expect(resultText(await invoke(h))).toContain("controlled launch failure");
+    expect(h.rows.size).toBe(1);
+    h.setDefault(ACCOUNT_B);
+    h.failLaunch(false);
+    const retry = await invoke(h);
+    expect(retry.isError, resultText(retry)).not.toBe(true);
+    expect(resultText(retry)).toContain(ACCOUNT_A);
+    expect(h.selectionCalls).toBe(1);
+    expect(h.rows.size).toBe(1);
   });
-
-  it("keeps the gateway failure when retaining its diagnostic fails", async () => {
-    const harness = makeHarness({
-      existingBinding: makeBinding(ACCOUNT_A, expectedIds().threadId, 1),
-      rejectStaleBinding: true,
-      diagnosticWriteFailure: true,
-    });
-
-    const result = await invoke(harness);
-    const payload = JSON.parse(resultText(result)) as {
-      error?: {
-        code?: string;
-        message?: string;
-        details?: Record<string, unknown>;
-      };
-    };
-    expect(payload.error?.code).toBe("operation_failed");
-    expect(payload.error?.message).toContain("following thread may already exist");
-    expect(payload.error?.details?.cause).toBe("synthetic stale binding revision");
-    expect(payload.error?.details?.diagnosticStatus).toBe("write-failed");
-    expect(payload.error?.details?.diagnosticWriteFailure).toBe("diagnostic_write_failed");
+  it("rejects rerouting a retained child before model discovery or delivery", async () => {
+    const h = makeHarness();
+    await invoke(h);
+    const discoveries = h.modelDiscoveryCalls.length;
+    const retry = await invoke(h, { ...INPUT, connectionId: ACCOUNT_B });
+    expect(retry.isError).toBe(true);
+    expect(resultText(retry)).toContain("different Connection");
+    expect(h.modelDiscoveryCalls).toHaveLength(discoveries);
+    expect(h.deliveries).toBe(1);
   });
-
-  it("does not create another child or substitute account B when existing account A discovery fails", async () => {
-    const ids = expectedIds();
-    const harness = makeHarness({
-      existingBinding: makeBinding(ACCOUNT_A, ids.threadId, 0),
-      defaultConnection: ACCOUNT_B,
-      discoveryFailure: true,
-    });
-
-    const result = await invoke(harness);
-
-    expect(result.isError).toBe(true);
-    expect(resultText(result)).toContain("synthetic discovery failure");
-    expect(harness.engineCommands).toHaveLength(0);
-    expect(harness.turnStartAttempts).toHaveLength(0);
-    expect(harness.successfulTurnStarts).toHaveLength(0);
-    expect(harness.selectionCalls).toBe(0);
-    expect(harness.modelDiscoveryCalls).toHaveLength(1);
-    expect(harness.modelDiscoveryCalls[0]?.connectionId).toBe(ACCOUNT_A);
+  it("does not substitute the new default when stored connection discovery fails", async () => {
+    const h = makeHarness();
+    await invoke(h);
+    h.setDefault(ACCOUNT_B);
+    h.failDiscovery();
+    expect((await invoke(h)).isError).toBe(true);
+    expect(h.rows.size).toBe(1);
+    expect(h.deliveries).toBe(1);
+    expect(h.modelDiscoveryCalls.at(-1)?.connectionId).toBe(ACCOUNT_A);
+    expect(h.selectionCalls).toBe(1);
   });
-
-  it("does not use an admitted full-access plan after the caller is downgraded", async () => {
-    const harness = makeHarness();
-    expect((await invoke(harness)).isError).not.toBe(true);
-    const dispatchedBeforeRetry = harness.engineCommands.length;
+  it("rejects driving a retained full-access child after caller downgrade", async () => {
+    const h = makeHarness();
+    await invoke(h);
+    h.downgrade();
+    const retry = await invoke(h);
+    expect(retry.isError).toBe(true);
+    expect(resultText(retry)).toContain("cannot drive");
+    expect(h.deliveries).toBe(1);
+  });
+  it("rejects a child moved to another space before resolving or dispatching", async () => {
+    const h = makeHarness();
+    await invoke(h);
+    const child = h.rows.get(IDS.threadId)!;
+    h.rows.set(child.id, { ...child, spaceId: SpaceId.makeUnsafe("another-space") });
+    const retry = await invoke(h);
+    expect(retry.isError).toBe(true);
+    expect(resultText(retry)).toContain("another Space");
+    expect(h.deliveries).toBe(1);
+    expect(h.selectionCalls).toBe(1);
+  });
+  it("keeps creation successful if home-window inheritance fails", async () => {
+    const h = makeHarness();
     const handler = await Effect.runPromise(
       makeCreateThreadHandler({
-        ...harness.dependencies,
-        requireThreadShell: () => Effect.succeed({ ...CALLER, runtimeMode: "approval-required" }),
+        ...h.dependencies,
+        onThreadCreated: () => Effect.fail(new Error("window unavailable")),
       }),
     );
-    const retry = await Effect.runPromise(handler(INPUT, CONTEXT));
-    expect(retry.isError).toBe(true);
-    expect(resultText(retry)).toContain("can no longer authorize");
-    expect(harness.engineCommands).toHaveLength(dispatchedBeforeRetry);
+    const result = await Effect.runPromise(handler(INPUT, CONTEXT));
+    expect(result.isError, resultText(result)).not.toBe(true);
+    expect(h.deliveries).toBe(1);
   });
-
-  it("does not use an admitted destination after the caller moves to another Space", async () => {
-    const harness = makeHarness();
-    expect((await invoke(harness)).isError).not.toBe(true);
-    const dispatchedBeforeRetry = harness.engineCommands.length;
-    const movedFolderId = FolderId.makeUnsafe("folder-moved");
-    const movedSpaceId = SpaceId.makeUnsafe("space-moved");
+  it("revalidates the destination after the caller moves to another Space", async () => {
+    const h = makeHarness();
+    await invoke(h);
+    const movedFolder = FolderId.makeUnsafe("caller-moved");
+    h.moveCaller(movedFolder);
+    const selectionCalls = h.selectionCalls;
+    const discoveryCalls = h.modelDiscoveryCalls.length;
+    const sendCalls = h.sends.length;
     const handler = await Effect.runPromise(
       makeCreateThreadHandler({
-        ...harness.dependencies,
-        requireThreadShell: () => Effect.succeed({ ...CALLER, folderId: movedFolderId }),
+        ...h.dependencies,
         snapshotQuery: {
-          ...harness.dependencies.snapshotQuery,
-          getFolderShellById: (folderId) =>
+          ...h.dependencies.snapshotQuery,
+          getFolderShellById: (id) =>
             Effect.succeed(
               Option.some(
-                folderId === movedFolderId
-                  ? { ...FOLDER, id: movedFolderId, spaceId: movedSpaceId }
+                id === movedFolder
+                  ? { ...FOLDER, id, spaceId: SpaceId.makeUnsafe("other-space") }
                   : FOLDER,
               ),
             ),
         },
       }),
     );
-    const retry = await Effect.runPromise(handler(INPUT, CONTEXT));
-    expect(retry.isError).toBe(true);
-    expect(resultText(retry)).toContain("no longer in the caller Thread's Space");
-    expect(harness.engineCommands).toHaveLength(dispatchedBeforeRetry);
+    const result = await Effect.runPromise(handler(INPUT, CONTEXT));
+    expect(result.isError).toBe(true);
+    expect(h.sends).toHaveLength(sendCalls);
+    expect(h.selectionCalls).toBe(selectionCalls);
+    expect(h.modelDiscoveryCalls).toHaveLength(discoveryCalls);
+    expect(h.rows.size).toBe(1);
   });
-
-  it("does not replay or re-resolve defaults after the created child moves to another Space", async () => {
-    const harness = makeHarness();
-    expect((await invoke(harness)).isError).not.toBe(true);
-    const ids = expectedIds();
-    const movedFolderId = FolderId.makeUnsafe("child-moved-folder");
-    const movedSpaceId = SpaceId.makeUnsafe("child-moved-space");
-    const dispatchedBeforeRetry = harness.engineCommands.length;
-    const selectionCallsBeforeRetry = harness.selectionCalls;
-    const discoveryCallsBeforeRetry = harness.modelDiscoveryCalls.length;
-    const handler = await Effect.runPromise(
-      makeCreateThreadHandler({
-        ...harness.dependencies,
-        snapshotQuery: {
-          ...harness.dependencies.snapshotQuery,
-          getThreadShellById: (threadId) =>
-            Effect.succeed(
-              threadId === ids.threadId
-                ? Option.some({
-                    ...CALLER,
-                    id: ids.threadId,
-                    folderId: movedFolderId,
-                  })
-                : Option.none(),
-            ),
-          getFolderShellById: (folderId) =>
-            Effect.succeed(
-              Option.some(
-                folderId === movedFolderId
-                  ? { ...FOLDER, id: movedFolderId, spaceId: movedSpaceId }
-                  : FOLDER,
-              ),
-            ),
-        },
-      }),
-    );
-    const retry = await Effect.runPromise(handler(INPUT, CONTEXT));
-    expect(retry.isError).toBe(true);
-    expect(resultText(retry)).toContain("created child Thread is no longer");
-    expect(harness.engineCommands).toHaveLength(dispatchedBeforeRetry);
-    expect(harness.selectionCalls).toBe(selectionCallsBeforeRetry);
-    expect(harness.modelDiscoveryCalls).toHaveLength(discoveryCallsBeforeRetry);
-  });
-});
-
-describe("L10 actual command fingerprint on creation retry", () => {
-  it("preserves command content across clock advancement for the same request", async () => {
+  it("keeps the stored creation and message identity across clock advancement", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     try {
+      const h = makeHarness();
       vi.setSystemTime(new Date("2026-09-07T05:00:00Z"));
-      const harness = makeHarness();
-      await invoke(harness);
+      const first = await invoke(h);
+      const createdAt = h.rows.get(IDS.threadId)!.createdAt;
       vi.setSystemTime(new Date("2026-09-07T05:00:01Z"));
-      await invoke(harness);
-      const creates = threadCreateCommands(harness);
-      expect(creates).toHaveLength(2);
-      expect(creates[0]!.commandId).toBe(creates[1]!.commandId);
-      expect(fingerprintOrchestrationCommand(creates[0]!)).toEqual(
-        fingerprintOrchestrationCommand(creates[1]!),
-      );
+      expect(resultText(await invoke(h))).toBe(resultText(first));
+      expect(h.rows.get(IDS.threadId)!.createdAt).toBe(createdAt);
+      expect(h.sends.map((input) => input.message.messageId)).toEqual([
+        IDS.messageId,
+        IDS.messageId,
+      ]);
+      expect(h.deliveries).toBe(1);
     } finally {
       vi.useRealTimers();
     }
   });
-});
-
-const sqliteAdmissionLayer = Layer.mergeAll(
-  OrchestrationLayerLive,
-  AgentGatewayCreationAdmissionRepositoryLive,
-).pipe(
-  Layer.provideMerge(SqlitePersistenceMemory),
-  Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
-  Layer.provideMerge(NodeServices.layer),
-);
-
-effectIt.layer(sqliteAdmissionLayer)("durable creation admission replay", (it) => {
-  it.effect(
-    "recovers partial acceptance after restart without adopting a changed account default",
-    () =>
-      Effect.gen(function* () {
-        const admissions = yield* AgentGatewayCreationAdmissionRepository;
-        const commandReceipts = yield* OrchestrationCommandReceiptRepository;
-        const engine = yield* OrchestrationEngineService;
-        const eventStore = yield* OrchestrationEventStore;
-        const threadBindings = yield* ThreadProviderBindingRepository;
-        const projections = yield* ProjectionSnapshotQuery;
-        const sql = yield* SqlClient.SqlClient;
-        const base = makeHarness();
-        let selectedConnection = ACCOUNT_A;
-        let selectionCalls = 0;
-        let failFirstTurn = true;
-
-        yield* sql`
-        INSERT INTO provider_installations (
-          installation_id, harness_kind, version, platform, architecture, executable_path,
-          artifact_source, artifact_url, artifact_sha256, adapter_version, protocol_version,
-          lifecycle, installed_at, activated_at
-        ) VALUES (${INSTALLATION_ID}, 'codex', '1', 'test', 'test', '/test/codex',
-          'test', 'test', ${"a".repeat(64)}, '1', '1', 'active', ${NOW}, ${NOW})
-      `;
-        yield* sql`
-        INSERT INTO provider_connections (
-          connection_id, harness_kind, authentication_target_id, authentication_method_id,
-          label, profile_ref, lifecycle, created_at, updated_at
-        ) VALUES (${ACCOUNT_A}, 'codex', 'test', 'test', 'Account A', 'test-profile',
-          'active', ${NOW}, ${NOW})
-      `;
-
-        yield* engine.dispatch({
-          type: "space.create",
-          commandId: CommandId.makeUnsafe("retry-space-create"),
-          spaceId: SPACE_ID,
-          name: "Retry",
-          icon: "home",
-          createdAt: NOW,
-        });
-        yield* engine.dispatch({
-          type: "folder.create",
-          commandId: CommandId.makeUnsafe("retry-folder-create"),
-          folderId: FOLDER_ID,
-          spaceId: SPACE_ID,
-          title: FOLDER.title,
-          workspaceRoot: null,
-          defaultModelSelection: null,
-          createdAt: NOW,
-        });
-        yield* engine.dispatch({
-          type: "thread.create",
-          commandId: CommandId.makeUnsafe("retry-caller-create"),
-          threadId: CALLER_THREAD_ID,
-          deckId: singletonThreadDeckId(CALLER_THREAD_ID),
-          folderId: FOLDER_ID,
-          title: CALLER.title,
-          modelSelection: TARGET,
-          runtimeMode: "full-access",
-          createdAt: NOW,
-        });
-
-        const dependencies: CreationDependencies = {
-          ...base.dependencies,
-          admissions,
-          commandReceipts,
-          providerTurnSelectionResolver: {
-            ...base.dependencies.providerTurnSelectionResolver,
-            resolveNewThreadConnection: () =>
-              Effect.sync(() => {
-                selectionCalls += 1;
-                return selectedConnection;
-              }),
-          },
-          snapshotQuery: projections,
-          orchestrationEngine: engine,
-          loadExistingBinding: (threadId) => threadBindings.getRuntimeBinding(threadId),
-          requireThreadShell: (threadId) =>
-            projections.getThreadShellById(ThreadId.makeUnsafe(threadId)).pipe(
-              Effect.mapError((cause) => new ToolInputError(errorText(cause))),
-              Effect.flatMap(
-                Option.match({
-                  onNone: () => Effect.fail(new ToolInputError("missing test thread")),
-                  onSome: Effect.succeed,
-                }),
-              ),
-            ),
-          providerThreadSwitchCoordinator: {
-            ...base.dependencies.providerThreadSwitchCoordinator,
-            dispatchTurnStart: ({ command }) => {
-              if (failFirstTurn) {
-                failFirstTurn = false;
-                return Effect.fail(
-                  new ProviderThreadSwitchCoordinatorError({
-                    detail: "synthetic partial acceptance",
-                  }),
-                );
-              }
-              return engine
-                .dispatch(command, {
-                  attachmentPrincipal: CONTEXT.attachmentPrincipal,
-                  acceptedInitialProviderBinding: {
-                    generation: {
-                      id: ProviderNativeStateGenerationId.makeUnsafe(
-                        `provider-initial-generation:${command.commandId}`,
-                      ),
-                      ownerThreadId: command.threadId,
-                      harness: command.modelSelection!.provider,
-                      adapterSchemaVersion: "managed-native-state-v1",
-                      stateManifestJson: '{"initial":true}',
-                      createdAt: command.createdAt,
-                    },
-                    threadId: command.threadId,
-                    providerSessionId: null,
-                    nativeStateLocatorJson: "null",
-                    connectionId: command.connectionId!,
-                    installationId: INSTALLATION_ID,
-                    internalProviderId: null,
-                    modelId: command.modelSelection!.model,
-                    createdAt: command.createdAt,
-                  },
-                })
-                .pipe(
-                  Effect.mapError(
-                    (cause) =>
-                      new ProviderThreadSwitchCoordinatorError({
-                        detail: errorText(cause),
-                        cause,
-                      }),
-                  ),
-                );
-            },
-          },
-        };
-
-        const firstHandler = yield* makeCreateThreadHandler(dependencies);
-        const first = yield* firstHandler(INPUT, CONTEXT);
-        expect(first.isError).toBe(true);
-        const ids = expectedIds();
-        expect(
-          Option.isSome(
-            yield* commandReceipts.getByCommandId({
-              commandId: ids.threadCreateCommandId,
-            }),
-          ),
-        ).toBe(true);
-        expect(
-          Option.isNone(
-            yield* commandReceipts.getByCommandId({
-              commandId: ids.turnStartCommandId,
-            }),
-          ),
-        ).toBe(true);
-        expect(Option.isNone(yield* threadBindings.getRuntimeBinding(ids.threadId))).toBe(true);
-        selectedConnection = ACCOUNT_B;
-
-        // Reconstruct the coordinator as a server restart would; only SQLite state survives.
-        const restartedHandler = yield* makeCreateThreadHandler(dependencies);
-        const retry = yield* restartedHandler(INPUT, CONTEXT);
-        expect(retry.isError, resultText(retry)).not.toBe(true);
-        expect(resultText(retry)).toContain(String(ACCOUNT_A));
-        expect(resultText(retry)).not.toContain(String(ACCOUNT_B));
-        expect(selectionCalls).toBe(1);
-
-        const createReceipt = yield* commandReceipts.getByCommandId({
-          commandId: ids.threadCreateCommandId,
-        });
-        const turnReceipt = yield* commandReceipts.getByCommandId({
-          commandId: ids.turnStartCommandId,
-        });
-        expect(Option.isSome(createReceipt)).toBe(true);
-        expect(Option.isSome(turnReceipt)).toBe(true);
-        const binding = yield* threadBindings.getRuntimeBinding(ids.threadId);
-        expect(Option.getOrThrow(binding).connectionId).toBe(ACCOUNT_A);
-        const highWater = yield* eventStore.getThreadHighWaterSequence(ids.threadId);
-        const events = yield* eventStore.readThreadEvents({
-          threadId: ids.threadId,
-          throughSequenceInclusive: highWater,
-          limit: 20,
-        });
-        expect(events.filter((event) => event.type === "thread.created")).toHaveLength(1);
-        expect(events.filter((event) => event.type === "thread.turn-start-requested")).toHaveLength(
-          1,
-        );
-        const stored = yield* admissions.get(ids.operationId);
-        expect(Option.isSome(stored)).toBe(true);
-        expect(Option.getOrThrow(stored).turnStartCommandJson).toContain(String(ACCOUNT_A));
-
-        yield* sql`
-        UPDATE provider_connections
-        SET lifecycle = 'terminated', termination_reason = 'removed', terminated_at = ${NOW},
-          updated_at = ${NOW}
-        WHERE connection_id = ${ACCOUNT_A}
-      `;
-
-        const acceptedReplayHandler = yield* makeCreateThreadHandler({
-          ...dependencies,
-          providerDiscovery: {
-            ...dependencies.providerDiscovery,
-            listModels: () => Effect.die("accepted replay must not rediscover a removed account"),
-          },
-          providerThreadSwitchCoordinator: {
-            ...dependencies.providerThreadSwitchCoordinator,
-            dispatchTurnStart: () =>
-              Effect.die("accepted replay must use the checked receipt path"),
-          },
-        });
-        const acceptedReplay = yield* acceptedReplayHandler(INPUT, CONTEXT);
-        expect(acceptedReplay.isError).not.toBe(true);
-        expect(resultText(acceptedReplay)).toContain(String(ACCOUNT_A));
-      }),
-  );
 });

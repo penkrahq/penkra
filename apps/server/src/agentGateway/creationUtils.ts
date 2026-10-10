@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { CommandId, MessageId, ThreadId } from "@penkra/contracts";
+import { MessageId, ThreadId } from "@penkra/contracts";
 
 export function slugifyAgentTask(value: string): string {
   return (
@@ -31,12 +31,19 @@ export function stableGatewayDigest(value: unknown, length = 32): string {
   return createHash("sha256").update(canonicalJson(value)).digest("hex").slice(0, length);
 }
 
-export function makeAgentCreationIds(operationId: string, index: number) {
-  const id = stableGatewayDigest({ operationId, index }, 32);
+// RFC 9562 UUIDv5 URL namespace; the request identity supplies the UUID name.
+const URL_NAMESPACE = Buffer.from("6ba7b8119dad11d180b400c04fd430c8", "hex");
+function creationUuid(name: string): string {
+  const bytes = createHash("sha1").update(URL_NAMESPACE).update(name).digest().subarray(0, 16);
+  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = bytes.toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+export function makeAgentCreationIds(operationId: string) {
   return {
-    threadId: ThreadId.makeUnsafe(`agent-${id}`),
-    threadCreateCommandId: CommandId.makeUnsafe(`agent:${id}:thread-create`),
-    turnStartCommandId: CommandId.makeUnsafe(`agent:${id}:turn-start`),
-    messageId: MessageId.makeUnsafe(`agent:${id}:message`),
+    threadId: ThreadId.makeUnsafe(creationUuid(`${operationId}/thread`)),
+    messageId: MessageId.makeUnsafe(creationUuid(`${operationId}/message`)),
   };
 }

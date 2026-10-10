@@ -1,3 +1,6 @@
+import { updateThreadFixture } from "../../cleanCore/threadFixtures.ts";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { createThreadFixture } from "../../cleanCore/threadFixtures.ts";
 import {
   singletonThreadDeckId,
   CommandId,
@@ -19,7 +22,6 @@ import { PersistenceSqlError } from "../../persistence/Errors.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
-import { ProviderNativeForkOperationRepository } from "../../persistence/Services/ProviderNativeForkOperations.ts";
 import { ProviderThreadSwitchOperationRepository } from "../../persistence/Services/ProviderThreadSwitchOperations.ts";
 import { QueuedTurnPromotionRepository } from "../../persistence/Services/QueuedTurnPromotions.ts";
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
@@ -121,10 +123,6 @@ async function makeSystem(options?: {
             }),
       listOpen: () => Effect.succeed([]),
     } as never),
-    Layer.succeed(ProviderNativeForkOperationRepository, {
-      get: () => Effect.succeed(Option.none()),
-      listOpen: () => Effect.succeed([]),
-    } as never),
     Layer.succeed(ProviderService, { listSessions: () => Effect.succeed([]) } as never),
     Layer.succeed(ProviderLaunchResolver, {} as never),
     Layer.succeed(ProviderNativeContinuationVerifier, {} as never),
@@ -202,6 +200,7 @@ async function makeSystem(options?: {
   );
   return {
     threadId,
+    sql: await runtime.runPromise(Effect.service(SqlClient.SqlClient)),
     run: <A, E>(effect: Effect.Effect<A, E>) => runtime.runPromise(effect),
     engine: await runtime.runPromise(Effect.service(OrchestrationEngineService)),
     coordinator: await runtime.runPromise(Effect.service(ProviderThreadSwitchCoordinator)),
@@ -256,16 +255,17 @@ async function seedThreadForAdmission(s: Awaited<ReturnType<typeof makeSystem>>)
     }),
   );
   await s.run(
-    s.engine.dispatch({
-      type: "thread.create",
-      commandId: CommandId.makeUnsafe("queued-thread"),
+    createThreadFixture(s.sql, {
       threadId: s.threadId,
+      folderId: folderId,
       deckId: singletonThreadDeckId(s.threadId),
-      folderId,
       title: "Test",
       modelSelection: { provider: "codex", model: oldModel },
       runtimeMode: "full-access",
+      workingDirectory: null,
       createdAt: at,
+      connection: { kind: "selected", connectionId: null },
+      creator: { kind: "user" },
     }),
   );
 }
@@ -498,16 +498,17 @@ describe("queued selection through real admission", () => {
           }),
         );
         await s.run(
-          s.engine.dispatch({
-            type: "thread.create",
-            commandId: CommandId.makeUnsafe("queued-thread"),
+          createThreadFixture(s.sql, {
             threadId: s.threadId,
+            folderId: folderId,
             deckId: singletonThreadDeckId(s.threadId),
-            folderId,
             title: "Test",
             modelSelection: { provider: "codex", model: oldModel },
             runtimeMode: "full-access",
+            workingDirectory: null,
             createdAt: at,
+            connection: { kind: "selected", connectionId: null },
+            creator: { kind: "user" },
           }),
         );
         await s.run(
@@ -573,14 +574,23 @@ describe("queued selection through real admission", () => {
         const desiredModel = kind === "model" ? newModel : oldModel;
         if (kind !== "unchanged")
           await s.run(
-            s.engine.dispatch({
-              type: "thread.update",
-              commandId: CommandId.makeUnsafe(`queued-update-${kind}`),
-              threadId: s.threadId,
-              ...(kind === "model"
-                ? { modelSelection: { provider: "codex", model: desiredModel } }
-                : { connectionId: desiredConnection }),
-            }),
+            updateThreadFixture(
+              s.sql,
+              kind === "model"
+                ? {
+                    action: "model",
+                    threadId: s.threadId,
+                    modelSelection: { provider: "codex", model: desiredModel },
+                    connection: { kind: "keep" },
+                    updatedAt: "2026-08-09T00:00:00.000Z",
+                  }
+                : {
+                    action: "connection",
+                    threadId: s.threadId,
+                    connectionId: desiredConnection,
+                    updatedAt: "2026-08-09T00:00:00.000Z",
+                  },
+            ),
           );
         const claimed = await s.run(
           s.queue.claimNext({

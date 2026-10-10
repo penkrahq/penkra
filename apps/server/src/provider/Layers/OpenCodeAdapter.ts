@@ -4216,109 +4216,6 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           ).pipe(Effect.mapError(toAdapterRequestError));
         });
 
-      const forkThread: NonNullable<OpenCodeAdapterShape["forkThread"]> = (input) =>
-        Effect.gen(function* () {
-          const sourceContext = sessions.get(input.sourceThreadId);
-          const sourceSessionId =
-            sourceContext?.openCodeSessionId ?? extractResumeSessionId(input.sourceResumeCursor);
-          if (!sourceSessionId) {
-            return yield* new ProviderAdapterValidationError({
-              provider,
-              operation: "forkThread",
-              issue: `${adapterConfig.displayName} native fork requires a resumable source session id.`,
-            });
-          }
-
-          const providerOptions = input.providerOptions?.[adapterConfig.providerOptionsKey];
-          const binaryPath =
-            input.managedLaunch?.binaryPath ??
-            providerOptions?.binaryPath?.trim() ??
-            adapterConfig.defaultBinaryPath;
-          const serverUrl = input.managedLaunch ? undefined : providerOptions?.serverUrl?.trim();
-          const serverPassword = options?.resolveServerPassword
-            ? input.managedLaunch
-              ? undefined
-              : yield* options.resolveServerPassword(provider)
-            : undefined;
-          const persistedSourceDirectory =
-            sourceContext?.directory ??
-            input.sourceCwd ??
-            extractResumeCwd(input.sourceResumeCursor);
-          const targetDirectory = input.cwd ?? persistedSourceDirectory ?? serverConfig.cwd;
-          const sourceDirectory = persistedSourceDirectory ?? targetDirectory;
-          if (sourceDirectory !== targetDirectory) {
-            return yield* new ProviderAdapterValidationError({
-              provider,
-              operation: "forkThread",
-              issue: `${adapterConfig.displayName} native fork cannot cross cwd boundaries.`,
-            });
-          }
-
-          const forkWithClient = (client: OpencodeClient) =>
-            runOpenCodeSdk("session.fork", () =>
-              client.session.fork({
-                sessionID: sourceSessionId,
-              }),
-            ).pipe(Effect.mapError(toAdapterRequestError));
-
-          const forked =
-            sourceContext && !input.managedLaunch
-              ? yield* forkWithClient(sourceContext.client)
-              : yield* Effect.scoped(
-                  Effect.gen(function* () {
-                    const server = yield* openCodeRuntime
-                      .connectToOpenCodeServer({
-                        binaryPath,
-                        cliSpec: adapterConfig.cliSpec,
-                        cwd: sourceDirectory,
-                        ...(serverUrl ? { serverUrl } : {}),
-                        ...(input.managedLaunch
-                          ? {
-                              poolIsolationKey: input.managedLaunch.isolationKey,
-                              processEnv: input.managedLaunch.childEnvironment(process.env),
-                            }
-                          : {}),
-                      })
-                      .pipe(Effect.mapError(toAdapterRequestError));
-                    const client = openCodeRuntime.createOpenCodeSdkClient({
-                      baseUrl: server.url,
-                      directory: sourceDirectory,
-                      cliSpec: adapterConfig.cliSpec,
-                      ...(server.external && serverPassword ? { serverPassword } : {}),
-                    });
-                    return yield* forkWithClient(client);
-                  }),
-                );
-
-          const forkedSessionId = forked.data?.id?.trim();
-          if (!forkedSessionId) {
-            return yield* new ProviderAdapterRequestError({
-              provider,
-              method: "session.fork",
-              detail: `${adapterConfig.displayName} session.fork returned no session payload.`,
-            });
-          }
-
-          const session = yield* startSession({
-            threadId: input.threadId,
-            provider,
-            cwd: targetDirectory,
-            ...(input.modelSelection ? { modelSelection: input.modelSelection } : {}),
-            ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
-            ...(input.managedLaunch ? { managedLaunch: input.managedLaunch } : {}),
-            resumeCursor: {
-              openCodeSessionId: forkedSessionId,
-              cwd: targetDirectory,
-            },
-            runtimeMode: input.runtimeMode,
-          });
-
-          return {
-            threadId: input.threadId,
-            ...(session.resumeCursor !== undefined ? { resumeCursor: session.resumeCursor } : {}),
-          };
-        });
-
       const withDiscoveryClient = <A>(
         input: {
           readonly threadId?: string | null;
@@ -4705,7 +4602,6 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           supportsPluginDiscovery: false,
           supportsRuntimeModelList: true,
           supportsThreadCompaction: true,
-          supportsThreadFork: provider === "opencode",
           supportsThreadImport: false,
         } satisfies ProviderComposerCapabilities);
 
@@ -4739,7 +4635,6 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         readThread,
         rollbackThread,
         compactThread,
-        forkThread,
         stopAll,
         drainRuntimeEvents: awaitProviderRuntimeEventsDrained(
           Queue.size(runtimeEvents).pipe(Effect.map((size) => size === 0)),

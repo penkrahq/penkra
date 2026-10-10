@@ -1,3 +1,5 @@
+import { updateThreadFixture } from "../../cleanCore/threadFixtures.ts";
+import { createThreadFixture } from "../../cleanCore/threadFixtures.ts";
 import { singletonThreadDeckId } from "@penkra/contracts";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -174,6 +176,7 @@ async function createOrchestrationSystem(options?: {
       : configuredLayer,
   );
   const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
+
   await runtime.runPromise(createTestSpace(engine));
   const managedAttachmentRepository = await runtime.runPromise(
     Effect.service(ManagedAttachmentRepository),
@@ -221,36 +224,6 @@ describe("OrchestrationEngine", () => {
           createdAt: now(),
         }),
       );
-      const threadId = ThreadId.makeUnsafe("thread-worker-provenance");
-      await system.run(
-        system.engine.dispatch({
-          type: "thread.create",
-          commandId: CommandId.makeUnsafe("cmd-worker-thread-create"),
-          threadId,
-          deckId: singletonThreadDeckId(threadId),
-          folderId: asFolderId("folder-worker-trace"),
-          title: "Trace provenance",
-          modelSelection: { provider: "codex", model: "gpt-5-codex" },
-          runtimeMode: "approval-required",
-          createdAt: now(),
-        }),
-      );
-      const archiveCommandId = CommandId.makeUnsafe("cmd-worker-archive");
-      store.checkpoint({
-        traceId,
-        spanId: "0123456789abcdef",
-        commandId: archiveCommandId,
-        flow: "archive",
-        step: "server.received",
-      });
-      await system.run(
-        system.engine.dispatch({
-          type: "thread.archive",
-          commandId: archiveCommandId,
-          threadId,
-          createdAt: now(),
-        }),
-      );
       const db = openDiagnosticsReader(stateDir)!;
       const rows = db
         .prepare("SELECT step, trace_id FROM detail WHERE command_id = ? ORDER BY id")
@@ -265,11 +238,6 @@ describe("OrchestrationEngine", () => {
         ]),
       );
       expect(rows.every((row) => row.trace_id === traceId)).toBe(true);
-      expect(
-        db
-          .prepare("SELECT field, set_by_trace_id FROM provenance WHERE entity_id = ?")
-          .all(threadId),
-      ).toMatchObject([{ field: "thread.archived", set_by_trace_id: traceId }]);
       db.close();
     } finally {
       await system?.dispose();
@@ -311,24 +279,28 @@ describe("OrchestrationEngine", () => {
         }),
       );
       await system.run(
-        system.engine.dispatch({
-          type: "thread.create",
-          commandId: CommandId.makeUnsafe("cmd-slow-command-thread-a"),
+        createThreadFixture(system.sql, {
           threadId: threadA,
-          deckId: singletonThreadDeckId(threadA),
           folderId: asFolderId("folder-slow-command-a"),
+          deckId: singletonThreadDeckId(threadA),
           title: "Thread A",
           modelSelection: { provider: "codex", model: "gpt-5-codex" },
           runtimeMode: "approval-required",
           workingDirectory: null,
           createdAt: now(),
+          connection: { kind: "selected", connectionId: null },
+          creator: { kind: "user" },
         }),
       );
       const slow = system.run(
         system.engine.dispatch({
-          type: "thread.archive",
-          commandId: CommandId.makeUnsafe("cmd-slow-command-archive-a"),
+          type: "thread.turn.recover",
+          reason: "restart",
+          commandId: CommandId.makeUnsafe("slow-read-11118"),
           threadId: threadA,
+          connectionId: null,
+          bindingRevision: 0,
+          recoveryMessageId: MessageId.makeUnsafe("slow-recover-11118"),
           createdAt: now(),
         }),
       );
@@ -353,9 +325,13 @@ describe("OrchestrationEngine", () => {
       const sameThread = system
         .run(
           system.engine.dispatch({
-            type: "thread.archive",
-            commandId: CommandId.makeUnsafe("cmd-slow-command-archive-a-again"),
+            type: "thread.turn.recover",
+            reason: "restart",
+            commandId: CommandId.makeUnsafe("slow-read-11921"),
             threadId: threadA,
+            connectionId: null,
+            bindingRevision: 0,
+            recoveryMessageId: MessageId.makeUnsafe("slow-recover-11921"),
             createdAt: now(),
           }),
         )
@@ -464,16 +440,17 @@ describe("OrchestrationEngine", () => {
           }),
         );
         await system.run(
-          system.engine.dispatch({
-            type: "thread.create",
-            commandId: CommandId.makeUnsafe(`thread-${completion}-order`),
-            threadId,
+          createThreadFixture(system.sql, {
+            threadId: threadId,
+            folderId: folderId,
             deckId: singletonThreadDeckId(threadId),
-            folderId,
             title: "Ordering",
             modelSelection: { provider: "codex", model: "gpt-5-codex" },
             runtimeMode: "full-access",
-            createdAt,
+            workingDirectory: null,
+            createdAt: createdAt,
+            connection: { kind: "selected", connectionId: null },
+            creator: { kind: "user" },
           }),
         );
         await system.run(
@@ -575,7 +552,7 @@ describe("OrchestrationEngine", () => {
       }
     },
   );
-  it("refuses a send to an archived thread without creating a turn, and drops queued rows on archive", async () => {
+  it("refuses a send to an archived canonical thread without creating a turn", async () => {
     const system = await createOrchestrationSystem({ withRuntimeBinding: true });
     const threadId = ThreadId.makeUnsafe("thread-archived-engine-guard");
     const folderId = asFolderId("folder-archived-engine-guard");
@@ -595,74 +572,31 @@ describe("OrchestrationEngine", () => {
         }),
       );
       await system.run(
-        system.engine.dispatch({
-          type: "thread.create",
-          commandId: CommandId.makeUnsafe("archive-thread"),
-          threadId,
+        createThreadFixture(system.sql, {
+          threadId: threadId,
+          folderId: folderId,
           deckId: singletonThreadDeckId(threadId),
-          folderId,
           title: "Archive guard",
           modelSelection: { provider: "codex", model: "gpt-5-codex" },
           runtimeMode: "full-access",
-          createdAt,
+          workingDirectory: null,
+          createdAt: createdAt,
+          connection: { kind: "selected", connectionId: null },
+          creator: { kind: "user" },
         }),
       );
-      const imported = await system.run(
-        system.engine.dispatch({
-          type: "thread.messages.import",
-          commandId: CommandId.makeUnsafe("archive-import"),
-          threadId,
-          messages: [
-            {
-              messageId: queuedMessageId,
-              role: "user",
-              text: "queued",
-              createdAt,
-              updatedAt: createdAt,
-            },
-          ],
-          createdAt,
-        }),
-      );
-      await system.run(system.sql`
-        INSERT INTO queued_turn_promotions (
-          queued_event_sequence, thread_id, message_id, dispatch_mode, state,
-          attempt_count, created_at, updated_at, action_kind, action_event_id
-        ) VALUES (${imported.sequence}, ${threadId}, ${queuedMessageId}, 'queue', 'queued', 0, ${createdAt}, ${createdAt}, 'cancel', 'stale-action')
-      `);
       await system.run(
-        system.engine.dispatch({
-          type: "thread.archive",
-          commandId: CommandId.makeUnsafe("archive-command"),
-          threadId,
+        updateThreadFixture(system.sql, {
+          action: "archive",
+          threadId: threadId,
+          updatedAt: new Date().toISOString(),
+          archivedAt: new Date().toISOString(),
         }),
       );
       const archived = (await system.run(system.engine.getReadModel())).threads.find(
         (thread) => thread.id === threadId,
       );
       expect(archived?.archivedAt).toBeDefined();
-      const queueRows = await system.run(
-        system.sql<{
-          readonly state: string;
-          readonly updatedAt: string;
-          readonly actionKind: string | null;
-          readonly actionEventId: string | null;
-        }>`SELECT state, updated_at AS "updatedAt", action_kind AS "actionKind", action_event_id AS "actionEventId" FROM queued_turn_promotions WHERE thread_id = ${threadId}`,
-      );
-      expect(queueRows).toMatchObject([
-        {
-          state: "cancelled",
-          updatedAt: archived?.archivedAt,
-          actionKind: null,
-          actionEventId: null,
-        },
-      ]);
-      const messages = await system.run(
-        system.sql<{
-          readonly messageId: string;
-        }>`SELECT message_id AS "messageId" FROM projection_thread_messages WHERE thread_id = ${threadId} AND message_id = ${queuedMessageId}`,
-      );
-      expect(messages).toHaveLength(0);
       await expect(
         system.run(
           system.engine.dispatch({
@@ -687,10 +621,11 @@ describe("OrchestrationEngine", () => {
       );
       expect(turns).toHaveLength(0);
       await system.run(
-        system.engine.dispatch({
-          type: "thread.unarchive",
-          commandId: CommandId.makeUnsafe("unarchive-after-queue-drop"),
-          threadId,
+        updateThreadFixture(system.sql, {
+          action: "archive",
+          threadId: threadId,
+          updatedAt: new Date().toISOString(),
+          archivedAt: null,
         }),
       );
       await system.run(
@@ -739,16 +674,17 @@ describe("OrchestrationEngine", () => {
         }),
       );
       await system.run(
-        system.engine.dispatch({
-          type: "thread.create",
-          commandId: CommandId.makeUnsafe("cmd-play-stop-thread"),
-          threadId,
+        createThreadFixture(system.sql, {
+          threadId: threadId,
+          folderId: folderId,
           deckId: singletonThreadDeckId(threadId),
-          folderId,
           title: "Play after Stop",
           modelSelection: { provider: "codex", model: "gpt-5-codex" },
           runtimeMode: "full-access",
+          workingDirectory: null,
           createdAt: requestedAt,
+          connection: { kind: "selected", connectionId: null },
+          creator: { kind: "user" },
         }),
       );
       await system.run(
@@ -906,16 +842,17 @@ describe("OrchestrationEngine", () => {
         }),
       );
       await system.run(
-        system.engine.dispatch({
-          type: "thread.create",
-          commandId: CommandId.makeUnsafe(`cmd-play-thread-${blocker}`),
-          threadId,
-          deckId: singletonThreadDeckId(threadId),
+        createThreadFixture(system.sql, {
+          threadId: threadId,
           folderId: asFolderId(`folder-play-${blocker}`),
+          deckId: singletonThreadDeckId(threadId),
           title: "Play test",
           modelSelection: { provider: "codex", model: "gpt-5-codex" },
           runtimeMode: "full-access",
-          createdAt,
+          workingDirectory: null,
+          createdAt: createdAt,
+          connection: { kind: "selected", connectionId: null },
+          creator: { kind: "user" },
         }),
       );
       const session = {
@@ -991,16 +928,17 @@ describe("OrchestrationEngine", () => {
         }),
       );
       await system.run(
-        system.engine.dispatch({
-          type: "thread.create",
-          commandId: CommandId.makeUnsafe("cmd-concurrent-play-thread"),
-          threadId,
+        createThreadFixture(system.sql, {
+          threadId: threadId,
+          folderId: folderId,
           deckId: singletonThreadDeckId(threadId),
-          folderId,
           title: "Concurrent Play thread",
           modelSelection: { provider: "codex", model: "gpt-5-codex" },
           runtimeMode: "full-access",
-          createdAt,
+          workingDirectory: null,
+          createdAt: createdAt,
+          connection: { kind: "selected", connectionId: null },
+          creator: { kind: "user" },
         }),
       );
       const session = {
@@ -1090,19 +1028,20 @@ describe("OrchestrationEngine", () => {
       }),
     );
     await system.run(
-      system.engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-engine-quiesce-thread"),
-        threadId,
-        deckId: singletonThreadDeckId(threadId),
+      createThreadFixture(system.sql, {
+        threadId: threadId,
         folderId: asFolderId("project-engine-quiesce"),
+        deckId: singletonThreadDeckId(threadId),
         title: "Engine quiesce thread",
         modelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
         },
         runtimeMode: "approval-required",
-        createdAt,
+        workingDirectory: null,
+        createdAt: createdAt,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
       }),
     );
 
@@ -1110,9 +1049,9 @@ describe("OrchestrationEngine", () => {
     await expect(
       system.run(
         system.engine.dispatch({
-          type: "thread.update",
-          commandId: CommandId.makeUnsafe("cmd-engine-quiesce-normal"),
-          threadId,
+          type: "folder.update",
+          commandId: CommandId.makeUnsafe("cmd-quiesced-folder-update"),
+          folderId: asFolderId("project-engine-quiesce"),
           title: "Rejected after quiesce",
         }),
       ),
@@ -1233,7 +1172,7 @@ describe("OrchestrationEngine", () => {
   it("returns deterministic read models for repeated reads", async () => {
     const createdAt = now();
     const system = await createOrchestrationSystem();
-    const { engine } = system;
+    const { engine, sql } = system;
 
     await system.run(
       engine.dispatch({
@@ -1251,19 +1190,20 @@ describe("OrchestrationEngine", () => {
       }),
     );
     await system.run(
-      engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-thread-1-create"),
+      createThreadFixture(sql, {
         threadId: ThreadId.makeUnsafe("thread-1"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-1")),
         folderId: asFolderId("project-1"),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-1")),
         title: "Thread",
         modelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
         },
         runtimeMode: "approval-required",
-        createdAt,
+        workingDirectory: null,
+        createdAt: createdAt,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
       }),
     );
     await system.run(
@@ -1292,7 +1232,7 @@ describe("OrchestrationEngine", () => {
 
   it("returns the original sequence for equal retries and rejects unequal command-id reuse", async () => {
     const system = await createOrchestrationSystem();
-    const { engine } = system;
+    const { engine, sql } = system;
     const command = {
       type: "folder.create" as const,
       kind: "folder" as const,
@@ -1322,7 +1262,7 @@ describe("OrchestrationEngine", () => {
   it("claims managed attachments atomically and rejects attachment changes on an accepted retry", async () => {
     const createdAt = now();
     const system = await createOrchestrationSystem();
-    const { engine } = system;
+    const { engine, sql } = system;
     const threadId = ThreadId.makeUnsafe("thread-managed-attachment");
     const commandId = CommandId.makeUnsafe("cmd-managed-attachment-turn");
     const messageId = asMessageId("msg-managed-attachment");
@@ -1341,16 +1281,17 @@ describe("OrchestrationEngine", () => {
       }),
     );
     await system.run(
-      engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-managed-attachment-thread"),
-        threadId,
-        deckId: singletonThreadDeckId(threadId),
+      createThreadFixture(sql, {
+        threadId: threadId,
         folderId: asFolderId("project-managed-attachment"),
+        deckId: singletonThreadDeckId(threadId),
         title: "Managed attachment thread",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
-        createdAt,
+        workingDirectory: null,
+        createdAt: createdAt,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
       }),
     );
 
@@ -1453,7 +1394,7 @@ describe("OrchestrationEngine", () => {
 
   it("replays append-only events from sequence", async () => {
     const system = await createOrchestrationSystem();
-    const { engine } = system;
+    const { engine, sql } = system;
     const createdAt = now();
 
     await system.run(
@@ -1473,25 +1414,26 @@ describe("OrchestrationEngine", () => {
     );
     await system.run(
       engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-thread-replay-create"),
-        threadId: ThreadId.makeUnsafe("thread-replay"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-replay")),
-        folderId: asFolderId("project-replay"),
+        type: "folder.create",
+        commandId: CommandId.makeUnsafe('fixture-folder-ThreadId.makeUnsafe("thread-replay")'),
+        folderId: FolderId.makeUnsafe(ThreadId.makeUnsafe("thread-replay")),
+        spaceId: TEST_SPACE_ID,
         title: "replay",
-        modelSelection: {
+        workspaceRoot: null,
+        defaultModelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
         },
-        runtimeMode: "approval-required",
-        createdAt,
+        createdAt: createdAt,
       }),
     );
     await system.run(
       engine.dispatch({
-        type: "thread.delete",
-        commandId: CommandId.makeUnsafe("cmd-thread-replay-delete"),
-        threadId: ThreadId.makeUnsafe("thread-replay"),
+        type: "folder.delete",
+        commandId: CommandId.makeUnsafe(
+          'fixture-folder-update-ThreadId.makeUnsafe("thread-replay")',
+        ),
+        folderId: FolderId.makeUnsafe(ThreadId.makeUnsafe("thread-replay")),
       }),
     );
 
@@ -1503,8 +1445,8 @@ describe("OrchestrationEngine", () => {
     expect(events.map((event) => event.type)).toEqual([
       "space.created",
       "folder.created",
-      "thread.created",
-      "thread.deleted",
+      "folder.created",
+      "folder.deleted",
     ]);
     const outboxJobs = await system.run(
       system.sql<{ readonly eventSequence: number; readonly eventType: string }>`
@@ -1512,16 +1454,13 @@ describe("OrchestrationEngine", () => {
         FROM provider_intent_outbox ORDER BY event_sequence
       `,
     );
-    expect(outboxJobs).toEqual([
-      { eventSequence: events[2]!.sequence, eventType: "thread.created" },
-      { eventSequence: events[3]!.sequence, eventType: "thread.deleted" },
-    ]);
+    expect(outboxJobs).toEqual([]);
     await system.dispose();
   });
 
   it("streams persisted domain events in order", async () => {
     const system = await createOrchestrationSystem();
-    const { engine } = system;
+    const { engine, sql } = system;
     const createdAt = now();
 
     await system.run(
@@ -1551,23 +1490,24 @@ describe("OrchestrationEngine", () => {
         );
         yield* Effect.sleep("10 millis");
         yield* engine.dispatch({
-          type: "thread.create",
-          commandId: CommandId.makeUnsafe("cmd-stream-thread-create"),
-          threadId: ThreadId.makeUnsafe("thread-stream"),
-          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-stream")),
-          folderId: asFolderId("project-stream"),
+          type: "folder.create",
+          commandId: CommandId.makeUnsafe('fixture-folder-ThreadId.makeUnsafe("thread-stream")'),
+          folderId: FolderId.makeUnsafe(ThreadId.makeUnsafe("thread-stream")),
+          spaceId: TEST_SPACE_ID,
           title: "domain-stream",
-          modelSelection: {
+          workspaceRoot: null,
+          defaultModelSelection: {
             provider: "codex",
             model: "gpt-5-codex",
           },
-          runtimeMode: "approval-required",
-          createdAt,
+          createdAt: createdAt,
         });
         yield* engine.dispatch({
-          type: "thread.update",
-          commandId: CommandId.makeUnsafe("cmd-stream-thread-update"),
-          threadId: ThreadId.makeUnsafe("thread-stream"),
+          type: "folder.update",
+          commandId: CommandId.makeUnsafe(
+            'fixture-folder-update-ThreadId.makeUnsafe("thread-stream")',
+          ),
+          folderId: FolderId.makeUnsafe(ThreadId.makeUnsafe("thread-stream")),
           title: "domain-stream-updated",
         });
         eventTypes.push((yield* Queue.take(eventQueue)).type);
@@ -1575,7 +1515,7 @@ describe("OrchestrationEngine", () => {
       }).pipe(Effect.scoped),
     );
 
-    expect(eventTypes).toEqual(["thread.created", "thread.updated"]);
+    expect(eventTypes).toEqual(["folder.created", "folder.updated"]);
     await system.dispose();
   });
 
@@ -1625,12 +1565,13 @@ describe("OrchestrationEngine", () => {
         Layer.provide(OrchestrationProjectionSnapshotQueryLive),
         Layer.provide(Layer.succeed(OrchestrationEventStore, flakyStore)),
         Layer.provide(OrchestrationCommandReceiptRepositoryLive),
-        Layer.provide(SqlitePersistenceMemory),
+        Layer.provideMerge(SqlitePersistenceMemory),
         Layer.provideMerge(TestServerConfigLayer),
         Layer.provideMerge(NodeServices.layer),
       ),
     );
     const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
+    const sql = await runtime.runPromise(Effect.service(SqlClient.SqlClient));
     await runtime.runPromise(createTestSpace(engine));
     const createdAt = now();
 
@@ -1653,36 +1594,34 @@ describe("OrchestrationEngine", () => {
     await expect(
       runtime.runPromise(
         engine.dispatch({
-          type: "thread.create",
+          type: "folder.create",
           commandId: CommandId.makeUnsafe("cmd-flaky-1"),
-          threadId: ThreadId.makeUnsafe("thread-flaky-fail"),
-          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-flaky-fail")),
-          folderId: asFolderId("project-flaky"),
+          folderId: FolderId.makeUnsafe(ThreadId.makeUnsafe("thread-flaky-fail")),
+          spaceId: TEST_SPACE_ID,
           title: "flaky-fail",
-          modelSelection: {
+          workspaceRoot: null,
+          defaultModelSelection: {
             provider: "codex",
             model: "gpt-5-codex",
           },
-          runtimeMode: "approval-required",
-          createdAt,
+          createdAt: createdAt,
         }),
       ),
     ).rejects.toThrow("failed unexpectedly");
 
     const result = await runtime.runPromise(
       engine.dispatch({
-        type: "thread.create",
+        type: "folder.create",
         commandId: CommandId.makeUnsafe("cmd-flaky-2"),
-        threadId: ThreadId.makeUnsafe("thread-flaky-ok"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-flaky-ok")),
-        folderId: asFolderId("project-flaky"),
+        folderId: FolderId.makeUnsafe(ThreadId.makeUnsafe("thread-flaky-ok")),
+        spaceId: TEST_SPACE_ID,
         title: "flaky-ok",
-        modelSelection: {
+        workspaceRoot: null,
+        defaultModelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
         },
-        runtimeMode: "approval-required",
-        createdAt,
+        createdAt: createdAt,
       }),
     );
 
@@ -1722,12 +1661,13 @@ describe("OrchestrationEngine", () => {
         Layer.provide(OrchestrationProjectionSnapshotQueryLive),
         Layer.provide(OrchestrationEventStoreLive),
         Layer.provide(OrchestrationCommandReceiptRepositoryLive),
-        Layer.provide(SqlitePersistenceMemory),
+        Layer.provideMerge(SqlitePersistenceMemory),
         Layer.provideMerge(TestServerConfigLayer),
         Layer.provideMerge(NodeServices.layer),
       ),
     );
     const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
+    const sql = await runtime.runPromise(Effect.service(SqlClient.SqlClient));
     await runtime.runPromise(createTestSpace(engine));
     const createdAt = now();
 
@@ -1747,19 +1687,23 @@ describe("OrchestrationEngine", () => {
       }),
     );
     await runtime.runPromise(
-      engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-thread-atomic-create"),
+      sql`INSERT INTO projection_folders (folder_id, space_id, title, workspace_root, default_model_selection_json, scripts_json, created_at, updated_at) VALUES ('project-atomic', ${TEST_SPACE_ID}, 'Folder', NULL, NULL, '[]', ${createdAt}, ${createdAt})`,
+    );
+    await runtime.runPromise(
+      createThreadFixture(sql, {
         threadId: ThreadId.makeUnsafe("thread-atomic"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-atomic")),
         folderId: asFolderId("project-atomic"),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-atomic")),
         title: "atomic",
         modelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
         },
         runtimeMode: "approval-required",
-        createdAt,
+        workingDirectory: null,
+        createdAt: createdAt,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
       }),
     );
 
@@ -1789,15 +1733,14 @@ describe("OrchestrationEngine", () => {
     expect(eventsAfterFailure.map((event) => event.type)).toEqual([
       "space.created",
       "folder.created",
-      "thread.created",
     ]);
     // The failed command must not advance the in-memory model past the last
     // durable event. The projection pipeline in this test is intentionally a
     // no-op, so a database snapshot would report zero and mask this invariant.
-    expect((await runtime.runPromise(engine.getCommandReadModel())).snapshotSequence).toBe(3);
+    expect((await runtime.runPromise(engine.getCommandReadModel())).snapshotSequence).toBe(2);
 
     const retryResult = await runtime.runPromise(engine.dispatch(turnStartCommand));
-    expect(retryResult.sequence).toBe(5);
+    expect(retryResult.sequence).toBe(4);
 
     const eventsAfterRetry = await runtime.runPromise(
       Stream.runCollect(engine.readEvents(0)).pipe(
@@ -1807,7 +1750,6 @@ describe("OrchestrationEngine", () => {
     expect(eventsAfterRetry.map((event) => event.type)).toEqual([
       "space.created",
       "folder.created",
-      "thread.created",
       "thread.message-sent",
       "thread.turn-start-requested",
     ]);
@@ -1872,12 +1814,13 @@ describe("OrchestrationEngine", () => {
         Layer.provide(OrchestrationProjectionSnapshotQueryLive),
         Layer.provide(Layer.succeed(OrchestrationEventStore, nonTransactionalStore)),
         Layer.provide(OrchestrationCommandReceiptRepositoryLive),
-        Layer.provide(SqlitePersistenceMemory),
+        Layer.provideMerge(SqlitePersistenceMemory),
         Layer.provideMerge(TestServerConfigLayer),
         Layer.provideMerge(NodeServices.layer),
       ),
     );
     const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
+    const sql = await runtime.runPromise(Effect.service(SqlClient.SqlClient));
     await runtime.runPromise(createTestSpace(engine));
     const createdAt = now();
 
@@ -1997,12 +1940,13 @@ describe("OrchestrationEngine", () => {
         Layer.provide(OrchestrationProjectionSnapshotQueryLive),
         Layer.provide(Layer.succeed(OrchestrationEventStore, nonTransactionalStore)),
         Layer.provide(OrchestrationCommandReceiptRepositoryLive),
-        Layer.provide(SqlitePersistenceMemory),
+        Layer.provideMerge(SqlitePersistenceMemory),
         Layer.provideMerge(TestServerConfigLayer),
         Layer.provideMerge(NodeServices.layer),
       ),
     );
     const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
+    const sql = await runtime.runPromise(Effect.service(SqlClient.SqlClient));
     await runtime.runPromise(createTestSpace(engine));
     const createdAt = now();
 
@@ -2022,29 +1966,42 @@ describe("OrchestrationEngine", () => {
       }),
     );
     await runtime.runPromise(
-      engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-thread-sync-create"),
+      sql`INSERT INTO projection_folders (folder_id, space_id, title, workspace_root, default_model_selection_json, scripts_json, created_at, updated_at) VALUES ('project-sync', ${TEST_SPACE_ID}, 'Folder', NULL, NULL, '[]', ${createdAt}, ${createdAt})`,
+    );
+    await runtime.runPromise(
+      createThreadFixture(sql, {
         threadId: ThreadId.makeUnsafe("thread-sync"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-sync")),
         folderId: asFolderId("project-sync"),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-sync")),
         title: "sync-before",
         modelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
         },
         runtimeMode: "approval-required",
-        createdAt,
+        workingDirectory: null,
+        createdAt: createdAt,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
       }),
     );
 
     await expect(
       runtime.runPromise(
         engine.dispatch({
-          type: "thread.update",
+          type: "thread.activity.append",
           commandId: CommandId.makeUnsafe("cmd-thread-meta-sync-fail"),
           threadId: ThreadId.makeUnsafe("thread-sync"),
-          title: "sync-after-failed-projection",
+          createdAt,
+          activity: {
+            id: EventId.makeUnsafe("sync-activity"),
+            kind: "notice",
+            tone: "info",
+            summary: "sync-after-failed-projection",
+            payload: {},
+            turnId: null,
+            createdAt,
+          },
         }),
       ),
     ).rejects.toThrow("failed unexpectedly");
@@ -2054,15 +2011,15 @@ describe("OrchestrationEngine", () => {
         Effect.map((chunk): OrchestrationEvent[] => Array.from(chunk)),
       ),
     );
-    expect(eventsAfterFailure.at(-1)?.type).toBe("thread.updated");
-    expect(eventsAfterFailure.at(-1)?.sequence).toBe(4);
+    expect(eventsAfterFailure.at(-1)?.type).toBe("thread.activity-appended");
+    expect(eventsAfterFailure.at(-1)?.sequence).toBe(3);
 
     await runtime.dispose();
   });
 
   it("fails command dispatch when command invariants are violated", async () => {
     const system = await createOrchestrationSystem();
-    const { engine } = system;
+    const { engine, sql } = system;
 
     await expect(
       system.run(
@@ -2132,12 +2089,13 @@ describe("OrchestrationEngine", () => {
         Layer.provide(OrchestrationProjectionSnapshotQueryLive),
         Layer.provide(OrchestrationEventStoreLive),
         Layer.provide(OrchestrationCommandReceiptRepositoryLive),
-        Layer.provide(SqlitePersistenceMemory),
+        Layer.provideMerge(SqlitePersistenceMemory),
         Layer.provideMerge(TestServerConfigLayer),
         Layer.provideMerge(NodeServices.layer),
       ),
     );
     const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
+    const sql = await runtime.runPromise(Effect.service(SqlClient.SqlClient));
     await runtime.runPromise(createTestSpace(engine));
     const createdAt = now();
 
@@ -2157,19 +2115,23 @@ describe("OrchestrationEngine", () => {
       }),
     );
     await runtime.runPromise(
-      engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-thread-deferred-recovery"),
+      sql`INSERT INTO projection_folders (folder_id, space_id, title, workspace_root, default_model_selection_json, scripts_json, created_at, updated_at) VALUES ('project-deferred-recovery', ${TEST_SPACE_ID}, 'Folder', NULL, NULL, '[]', ${createdAt}, ${createdAt})`,
+    );
+    await runtime.runPromise(
+      createThreadFixture(sql, {
         threadId: ThreadId.makeUnsafe("thread-deferred-recovery"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-deferred-recovery")),
         folderId: asFolderId("project-deferred-recovery"),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-deferred-recovery")),
         title: "deferred-recovery",
         modelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
         },
         runtimeMode: "approval-required",
-        createdAt,
+        workingDirectory: null,
+        createdAt: createdAt,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
       }),
     );
 
@@ -2191,7 +2153,7 @@ describe("OrchestrationEngine", () => {
 
     await recoveryBootstrap;
 
-    expect(result.sequence).toBe(5);
+    expect(result.sequence).toBe(4);
     expect(deferredCalls).toBeGreaterThanOrEqual(1);
     expect(bootstrapCalls).toBe(4);
     await vi.waitFor(async () => {
@@ -2222,12 +2184,13 @@ describe("OrchestrationEngine", () => {
         Layer.provide(OrchestrationProjectionSnapshotQueryLive),
         Layer.provide(OrchestrationEventStoreLive),
         Layer.provide(OrchestrationCommandReceiptRepositoryLive),
-        Layer.provide(SqlitePersistenceMemory),
+        Layer.provideMerge(SqlitePersistenceMemory),
         Layer.provideMerge(TestServerConfigLayer),
         Layer.provideMerge(NodeServices.layer),
       ),
     );
     const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
+    const sql = await runtime.runPromise(Effect.service(SqlClient.SqlClient));
     await runtime.runPromise(createTestSpace(engine));
     const createdAt = now();
 
@@ -2255,7 +2218,7 @@ describe("OrchestrationEngine", () => {
 
   it("rejects physical roots on ordinary folders", async () => {
     const system = await createOrchestrationSystem();
-    const { engine } = system;
+    const { engine, sql } = system;
     const createdAt = now();
 
     await expect(
@@ -2272,66 +2235,6 @@ describe("OrchestrationEngine", () => {
         }),
       ),
     ).rejects.toThrow("Folders are virtual containers");
-
-    await system.dispose();
-  });
-
-  it("rejects duplicate thread creation", async () => {
-    const system = await createOrchestrationSystem();
-    const { engine } = system;
-    const createdAt = now();
-
-    await system.run(
-      engine.dispatch({
-        type: "folder.create",
-        commandId: CommandId.makeUnsafe("cmd-project-duplicate-create"),
-        folderId: asFolderId("project-duplicate"),
-        spaceId: TEST_SPACE_ID,
-        title: "Duplicate Project",
-        workspaceRoot: null,
-        defaultModelSelection: {
-          provider: "codex",
-          model: "gpt-5-codex",
-        },
-        createdAt,
-      }),
-    );
-
-    await system.run(
-      engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-thread-duplicate-1"),
-        threadId: ThreadId.makeUnsafe("thread-duplicate"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-duplicate")),
-        folderId: asFolderId("project-duplicate"),
-        title: "duplicate",
-        modelSelection: {
-          provider: "codex",
-          model: "gpt-5-codex",
-        },
-        runtimeMode: "approval-required",
-        createdAt,
-      }),
-    );
-
-    await expect(
-      system.run(
-        engine.dispatch({
-          type: "thread.create",
-          commandId: CommandId.makeUnsafe("cmd-thread-duplicate-2"),
-          threadId: ThreadId.makeUnsafe("thread-duplicate"),
-          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-duplicate")),
-          folderId: asFolderId("project-duplicate"),
-          title: "duplicate",
-          modelSelection: {
-            provider: "codex",
-            model: "gpt-5-codex",
-          },
-          runtimeMode: "approval-required",
-          createdAt,
-        }),
-      ),
-    ).rejects.toThrow("already exists");
 
     await system.dispose();
   });

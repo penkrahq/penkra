@@ -9,6 +9,7 @@ import {
   type OrchestrationEvent,
   type OrchestrationReadModel,
   type OrchestrationShellSnapshot,
+  type OrchestrationThreadShell,
   type OrchestrationShellStreamEvent,
   type OrchestrationGetThreadTurnsPageResult,
   type SpaceId,
@@ -30,6 +31,7 @@ import {
   removeDeletedThreadFromClientState,
   syncServerReadModel,
   syncServerShellSnapshot,
+  syncServerThreadShell,
   syncServerThreadDetail,
   syncServerThreadDetailHotPath,
   syncServerThreadTurnsPage,
@@ -59,6 +61,7 @@ export {
   removeDeletedThreadFromClientState,
   syncServerReadModel,
   syncServerShellSnapshot,
+  syncServerThreadShell,
   syncServerThreadDetail,
   syncServerThreadDetailHotPath,
   syncServerThreadTurnsPage,
@@ -186,6 +189,7 @@ export function setError(state: AppState, threadId: ThreadId, error: string | nu
 
 interface AppStore extends AppState {
   syncServerShellSnapshot: (snapshot: OrchestrationShellSnapshot) => void;
+  syncServerThreadShell: (threadId: ThreadId, thread: OrchestrationThreadShell | null) => void;
   syncServerThreadDetail: (thread: ReadModelThread) => void;
   syncServerThreadDetailHotPath: (thread: ReadModelThread) => void;
   syncServerThreadTurnsPage: (page: OrchestrationGetThreadTurnsPageResult) => void;
@@ -215,6 +219,8 @@ interface AppStore extends AppState {
 export const useStore = create<AppStore>((set) => ({
   ...readPersistedState(initialState),
   syncServerShellSnapshot: (snapshot) => set((state) => syncServerShellSnapshot(state, snapshot)),
+  syncServerThreadShell: (threadId, thread) =>
+    set((state) => syncServerThreadShell(state, threadId, thread)),
   syncServerThreadDetail: (thread) => set((state) => syncServerThreadDetail(state, thread)),
   syncServerThreadDetailHotPath: (thread) =>
     set((state) => syncServerThreadDetailHotPath(state, thread)),

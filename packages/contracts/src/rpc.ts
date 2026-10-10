@@ -13,6 +13,7 @@ import {
   OrchestrationImportThreadResult,
   OrchestrationRpcSchemas,
   OrchestrationShellStreamItem,
+  OrchestrationThreadShell,
   OrchestrationSyncStreamItem,
   OrchestrationThreadStreamItem,
 } from "./orchestration";
@@ -120,8 +121,9 @@ import {
   CleanCoreListThreadItemsPageInput,
   CleanCoreListThreadItemsPageResult,
   CleanCoreCreateThreadInput,
+  CleanCoreGetThreadShellInput,
   CleanCoreListThreadsInput,
-  CleanCoreThreadSummary,
+  CleanCoreCreateThreadResponse,
   CleanCoreListThreadsResult,
   CleanCoreUpdateThreadInput,
   CleanCoreSetThreadDraftInput,
@@ -679,9 +681,14 @@ export const WsProviderTerminateConnectionRpc = Rpc.make(WS_METHODS.providerTerm
   success: ProviderConnection,
   error: WsRpcError,
 });
+export const WsCleanCoreGetThreadShellRpc = Rpc.make(WS_METHODS.cleanCoreGetThreadShell, {
+  payload: CleanCoreGetThreadShellInput,
+  success: Schema.NullOr(OrchestrationThreadShell),
+  error: WsRpcError,
+});
 export const WsCleanCoreCreateThreadRpc = Rpc.make(WS_METHODS.cleanCoreCreateThread, {
   payload: CleanCoreCreateThreadInput,
-  success: CleanCoreThreadSummary,
+  success: CleanCoreCreateThreadResponse,
   error: WsRpcError,
 });
 export const WsCleanCoreListThreadsRpc = Rpc.make(WS_METHODS.cleanCoreListThreads, {
@@ -750,6 +757,7 @@ export const WsBootstrapRpcGroup = RpcGroup.make(WsBootstrapNegotiateRpc);
 
 export const WsFeatureRpcGroup = RpcGroup.make(
   WsCleanCoreCreateThreadRpc,
+  WsCleanCoreGetThreadShellRpc,
   WsCleanCoreListThreadsRpc,
   WsCleanCoreGetThreadRuntimeRpc,
   WsCleanCoreInterruptThreadRpc,

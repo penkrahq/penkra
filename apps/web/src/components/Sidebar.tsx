@@ -1121,9 +1121,10 @@ export default function Sidebar() {
       let createdThread = false;
 
       try {
-        await api.orchestration.dispatchCommand({
-          type: "thread.create",
-          commandId: newCommandId(),
+        await api.cleanCore.createThread({
+          creator: { kind: "provider_native" },
+          connection: { kind: "default" },
+          workingDirectory: activeProject.cwd,
           threadId,
           deckId: singletonThreadDeckId(threadId),
           folderId: activeProject.id,
@@ -1145,11 +1146,14 @@ export default function Sidebar() {
         });
       } catch (error) {
         if (createdThread) {
-          await api.orchestration
-            .dispatchCommand({
-              type: "thread.delete",
-              commandId: newCommandId(),
-              threadId,
+          await api.cleanCore
+            .updateThread({
+              update: {
+                action: "delete",
+                threadId,
+                deletedAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              },
             })
             .catch(() => undefined);
         }

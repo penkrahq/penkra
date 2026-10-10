@@ -1,7 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import { MessageId, ThreadId, TurnId } from "@penkra/contracts";
 import { Deferred, Effect, Option } from "effect";
-import { makeThreadSender } from "./ThreadSender.ts";
+import { makeThreadSender, type ThreadSendInput } from "./ThreadSender.ts";
 import { ThreadPublisher } from "./ThreadPublisher.ts";
 import { createThread, makeThreadPublisher, setThreadState } from "./threadStore.ts";
 import { ProviderThreadSwitchCoordinator } from "../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
@@ -27,9 +27,11 @@ it.effect("uses the exact current binding revision and waits for native confirma
       createdAt: "2026-10-09T00:00:00.000Z",
     });
     const publisher = makeThreadPublisher();
+    let dispatchCount = 0;
     const coordinator: typeof ProviderThreadSwitchCoordinator.Service = {
       dispatchTurnStart: ({ command }) =>
         Effect.sync(() => {
+          dispatchCount += 1;
           assert.equal(command.bindingRevision, 12);
           assert.isTrue(command.commandId.length > 0);
           publisher.publishProvider({
@@ -59,7 +61,7 @@ it.effect("uses the exact current binding revision and waits for native confirma
         interruptTurn: () => Effect.void,
       } as unknown as typeof ProviderService.Service),
     );
-    const result = yield* sender.send({
+    const request = {
       threadId: ThreadId.makeUnsafe("thread-1"),
       message: {
         messageId: MessageId.makeUnsafe("m1"),
@@ -70,7 +72,10 @@ it.effect("uses the exact current binding revision and waits for native confirma
         queuedAt: "2026-10-09T00:00:01.000Z",
       },
       dispatchMode: "queue",
-    });
+    } satisfies ThreadSendInput;
+    const result = yield* sender.send(request);
+    assert.deepStrictEqual(yield* sender.send(request), result);
+    assert.equal(dispatchCount, 1);
     assert.equal(result.delivery, "started");
     if (result.delivery === "started")
       assert.equal(result.turnId, TurnId.makeUnsafe("native-turn"));

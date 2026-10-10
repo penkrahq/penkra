@@ -6019,7 +6019,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       supportsPluginDiscovery: false,
       supportsRuntimeModelList: true,
       supportsThreadCompaction: false,
-      supportsThreadFork: false,
       supportsThreadImport: false,
     };
 

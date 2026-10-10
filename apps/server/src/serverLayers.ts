@@ -1,14 +1,13 @@
+import { ThreadLifecycleLive } from "./cleanCore/threadLifecycle.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Layer } from "effect";
 
 import { ThreadSenderLive } from "./cleanCore/ThreadSender.ts";
 import { AgentGatewayLive } from "./agentGateway/Layers/AgentGateway";
-import { AgentGatewayCreationAdmissionRepositoryLive } from "./persistence/Layers/AgentGatewayCreationAdmissions";
 import { AgentGatewayCredentialsWithSecretsLive } from "./agentGateway/Layers/AgentGatewayCredentials";
 import { OrchestrationReactorLive } from "./orchestration/Layers/OrchestrationReactor";
 import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderCommandReactor";
 import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRuntimeIngestion";
-import { ThreadDeletionReactorLive } from "./orchestration/Layers/ThreadDeletionReactor";
 import { OrchestrationLayerLive } from "./orchestration/runtimeLayer";
 
 import { DevServerManagerLive } from "./devServerManager";
@@ -21,7 +20,6 @@ import { ServerAuthLive } from "./auth/Layers/ServerAuth";
 import { ServerAuthPolicyLive } from "./auth/Layers/ServerAuthPolicy";
 import { ServerSecretStoreLive } from "./auth/Layers/ServerSecretStore";
 import { SessionCredentialServiceLive } from "./auth/Layers/SessionCredentialService";
-import { ThreadPurgeLive } from "./threadPurge";
 import { ServerLifecycleEventsLive } from "./serverLifecycleEvents";
 import { ServerRuntimeStartupLive } from "./serverRuntimeStartup";
 import { ServerSettingsLive } from "./serverSettings";
@@ -39,7 +37,6 @@ import { ProviderConnectionOperationRepositoryLive } from "./persistence/Layers/
 import { ProviderConnectionLoginRepositoryLive } from "./persistence/Layers/ProviderConnectionLogins";
 import { ThreadProviderBindingRepositoryLive } from "./persistence/Layers/ThreadProviderBindings";
 import { ProviderThreadSwitchOperationRepositoryLive } from "./persistence/Layers/ProviderThreadSwitchOperations";
-import { ProviderNativeForkOperationRepositoryLive } from "./persistence/Layers/ProviderNativeForkOperations";
 import { ProviderNativeStateDeletionRepositoryLive } from "./persistence/Layers/ProviderNativeStateDeletions";
 import { ProviderCredentialBrokerLive } from "./provider/providerCredentialBroker";
 import { ProviderConnectionLifecycleLive } from "./provider/Layers/ProviderConnectionLifecycle";
@@ -73,7 +70,6 @@ export function makeServerRuntimeServicesLayer(
     ProviderConnectionLoginRepositoryLive,
     ThreadProviderBindingRepositoryLive,
     ProviderThreadSwitchOperationRepositoryLive,
-    ProviderNativeForkOperationRepositoryLive,
     ProviderNativeStateDeletionRepositoryLive,
   );
   const providerConnectionLifecycleLayer = ProviderConnectionLifecycleLive.pipe(
@@ -142,12 +138,6 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(runtimeIngestionLayer),
     Layer.provideMerge(providerCommandReactorLayer),
   );
-  const threadDeletionReactorLayer = ThreadDeletionReactorLive.pipe(
-    Layer.provideMerge(ThreadPurgeLive),
-    Layer.provideMerge(OrchestrationLayerLive),
-    Layer.provideMerge(TerminalLayerLive),
-    Layer.provideMerge(providerNativeStateDeletionCoordinatorLayer),
-  );
   // Shares the single memoized TerminalManager with the top-level TerminalLayerLive.
   const devServerManagerLayer = DevServerManagerLive.pipe(Layer.provide(TerminalLayerLive));
   const sessionCredentialLayer = SessionCredentialServiceLive.pipe(
@@ -175,9 +165,14 @@ export function makeServerRuntimeServicesLayer(
   const threadSenderLayer = ThreadSenderLive.pipe(
     Layer.provideMerge(providerThreadSwitchCoordinatorLayer),
   );
-  const agentGatewayLayer = AgentGatewayLive.pipe(
+  const threadLifecycleLayer = ThreadLifecycleLive.pipe(
     Layer.provideMerge(threadSenderLayer),
-    Layer.provideMerge(AgentGatewayCreationAdmissionRepositoryLive),
+    Layer.provideMerge(TerminalLayerLive),
+    Layer.provideMerge(providerThreadSwitchCoordinatorLayer),
+  );
+  const agentGatewayLayer = AgentGatewayLive.pipe(
+    Layer.provideMerge(threadLifecycleLayer),
+    Layer.provideMerge(threadSenderLayer),
     Layer.provideMerge(agentGatewayCredentialsLayer),
     Layer.provideMerge(runtimeServicesLayer),
     Layer.provideMerge(ProjectionTurnRepositoryLive),
@@ -210,7 +205,6 @@ export function makeServerRuntimeServicesLayer(
     providerHealthLayer,
     orchestrationReactorLayer,
     providerCommandReactorLayer,
-    threadDeletionReactorLayer,
     devServerManagerLayer,
     TextGenerationLayerLive,
     TerminalLayerLive,

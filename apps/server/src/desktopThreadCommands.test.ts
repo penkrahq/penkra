@@ -32,6 +32,10 @@ const snapshot = {
 } as unknown as OrchestrationShellSnapshot;
 
 function harness() {
+  const createThread = vi.fn(async () => ({
+    thread: {} as import("@penkra/contracts").CleanCoreThreadSummary,
+    created: true,
+  }));
   const dispatch = vi.fn(async () => ({ sequence: 1 }));
   const updateThread = vi.fn(async () => undefined);
   const dispatchTurn = vi.fn(async () => ({ sequence: 1 }));
@@ -52,6 +56,7 @@ function harness() {
     readModel: async () =>
       snapshot as unknown as import("@penkra/contracts").OrchestrationReadModel,
     bindingRevision,
+    createThread,
     dispatch,
     dispatchTurn,
     updateThread,
@@ -59,6 +64,7 @@ function harness() {
   });
   return {
     commands,
+    createThread,
     dispatch,
     dispatchTurn,
     updateThread,
@@ -114,7 +120,14 @@ for (const windows of ["zero windows", "one window", "window closes mid-operatio
         release!();
       }
       const value = await result;
-      if (method === "create" || method === "archive") expect(h.dispatch).toHaveBeenCalledOnce();
+      if (method === "create") {
+        expect(h.createThread).toHaveBeenCalledOnce();
+        expect(h.dispatch).not.toHaveBeenCalled();
+      }
+      if (method === "archive") {
+        expect(h.updateThread).toHaveBeenCalledOnce();
+        expect(h.dispatch).not.toHaveBeenCalled();
+      }
       if (method === "add" || method === "reorder" || method === "leave") {
         expect(h.updateThread).toHaveBeenCalledOnce();
         expect(h.dispatch).not.toHaveBeenCalled();

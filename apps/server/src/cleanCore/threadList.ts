@@ -158,7 +158,7 @@ export const listThreads = (input: {
   });
 
 /** Indexed single-row read for creation and publisher consumers. */
-export const getThread = (threadId: ThreadId) =>
+export const findThread = (threadId: ThreadId) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const rows = yield* sql<ThreadSummaryRecord>`
@@ -195,6 +195,12 @@ export const getThread = (threadId: ThreadId) =>
       FROM threads
       WHERE id = ${threadId}
   `;
-    if (rows[0] === undefined) return yield* Effect.fail(new Error("The thread does not exist."));
-    return rows[0];
+    return rows[0] === undefined ? null : rows[0];
+  });
+
+export const getThread = (threadId: ThreadId) =>
+  Effect.gen(function* () {
+    const row = yield* findThread(threadId);
+    if (row === null) return yield* Effect.fail(new Error("The thread does not exist."));
+    return row;
   });

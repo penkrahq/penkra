@@ -27,13 +27,8 @@ import {
   FolderDeletedPayload,
   FolderMovedPayload,
   FolderUpdatedPayload,
-  ThreadArchivedPayload,
   ThreadActivityAppendedPayload,
-  ThreadCreatedPayload,
-  ThreadDeletedPayload,
-  ThreadUpdatedPayload,
   ThreadConversationRolledBackPayload,
-  ThreadUnarchivedPayload,
   ThreadSessionSetPayload,
   ThreadTurnStartRequestedPayload,
   ThreadTurnStartCancelledPayload,
@@ -45,7 +40,7 @@ function withoutDeliveryFailureEvidence(delivery: MessageDelivery): MessageDeliv
 }
 import { resolveStableMessageTurnId } from "./messageTurnId.ts";
 import { settleTurnStateFromSession } from "./turnLifecycle.ts";
-import { deriveTurnStartModelSelection, deriveTurnStartSession } from "./turnStartSession.ts";
+import { deriveTurnStartSession } from "./turnStartSession.ts";
 
 type ThreadPatch = Partial<Omit<OrchestrationThread, "id" | "folderId">>;
 const MAX_THREAD_MESSAGES = ORCHESTRATION_THREAD_HYDRATION_LIMITS.messages;
@@ -459,171 +454,6 @@ export function projectEvent(
         })),
       );
 
-    case "thread.created":
-      return Effect.gen(function* () {
-        const payload = yield* decodeForEvent(
-          ThreadCreatedPayload,
-          event.payload,
-          event.type,
-          "payload",
-        );
-        const thread: OrchestrationThread = yield* decodeForEvent(
-          OrchestrationThread,
-          {
-            id: payload.threadId,
-            deckId: payload.deckId,
-            deckSortOrder: payload.deckSortOrder,
-            folderId: payload.folderId,
-            sidebarSortOrder: payload.sidebarSortOrder ?? 0,
-            title: payload.title,
-            modelSelection: payload.modelSelection,
-            runtimeMode: payload.runtimeMode,
-            workingDirectory: payload.workingDirectory,
-            isPinned: payload.isPinned,
-            parentThreadId: payload.parentThreadId,
-            creationSource: payload.creationSource ?? null,
-            sourceThreadId: payload.sourceThreadId ?? null,
-            sourceTurnId: payload.sourceTurnId ?? null,
-            gatewayOperationId: payload.gatewayOperationId ?? null,
-            gatewayOperationIndex: payload.gatewayOperationIndex ?? null,
-            subagentAgentId: payload.subagentAgentId,
-            subagentNickname: payload.subagentNickname,
-            subagentRole: payload.subagentRole,
-            forkSourceThreadId: payload.forkSourceThreadId,
-            latestTurn: null,
-            createdAt: payload.createdAt,
-            updatedAt: payload.updatedAt,
-            archivedAt: null,
-            deletedAt: null,
-            messages: [],
-            activities: [],
-            session: null,
-          },
-          event.type,
-          "thread",
-        );
-        const existing = nextBase.threads.find((entry) => entry.id === thread.id);
-        const folder = nextBase.folders.find((entry) => entry.id === payload.folderId);
-        const existingDeck = nextBase.decks.find((entry) => entry.id === payload.deckId);
-        const deckSpaceId = existingDeck?.spaceId ?? folder?.spaceId;
-        if (!deckSpaceId) {
-          return yield* new OrchestrationProjectorDecodeError({
-            eventType: event.type,
-            issue: `Thread '${payload.threadId}' references missing folder '${payload.folderId}'.`,
-          });
-        }
-        if (folder && existingDeck && folder.spaceId !== existingDeck.spaceId) {
-          return yield* new OrchestrationProjectorDecodeError({
-            eventType: event.type,
-            issue: `Thread '${payload.threadId}' would join a deck in another Space.`,
-          });
-        }
-        const nextDeck = existingDeck
-          ? {
-              ...existingDeck,
-              threadIds: existingDeck.threadIds.includes(thread.id)
-                ? existingDeck.threadIds
-                : [...existingDeck.threadIds, thread.id],
-              updatedAt: payload.updatedAt,
-            }
-          : {
-              id: payload.deckId,
-              spaceId: deckSpaceId,
-              threadIds: [thread.id],
-              createdAt: payload.createdAt,
-              updatedAt: payload.updatedAt,
-            };
-        return {
-          ...nextBase,
-          decks: existingDeck
-            ? nextBase.decks.map((entry) => (entry.id === payload.deckId ? nextDeck : entry))
-            : [...nextBase.decks, nextDeck],
-          threads: existing
-            ? nextBase.threads.map((entry) => (entry.id === thread.id ? thread : entry))
-            : [...nextBase.threads, thread],
-        };
-      });
-
-    case "thread.deleted":
-      return decodeForEvent(ThreadDeletedPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => {
-          const deleted = nextBase.threads.find((thread) => thread.id === payload.threadId);
-          return {
-            ...nextBase,
-            decks: deleted
-              ? nextBase.decks.flatMap((deck) => {
-                  if (deck.id !== deleted.deckId) return [deck];
-                  const threadIds = deck.threadIds.filter(
-                    (threadId) => threadId !== payload.threadId,
-                  );
-                  return threadIds.length === 0
-                    ? []
-                    : [{ ...deck, threadIds, updatedAt: payload.deletedAt }];
-                })
-              : nextBase.decks,
-            threads: updateThread(nextBase.threads, payload.threadId, {
-              deletedAt: payload.deletedAt,
-              updatedAt: payload.deletedAt,
-            }),
-          };
-        }),
-      );
-
-    case "thread.archived":
-      return decodeForEvent(ThreadArchivedPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => {
-          const archivedAt = payload.archivedAt ?? payload.updatedAt ?? event.occurredAt;
-          return {
-            ...nextBase,
-            threads: updateThread(nextBase.threads, payload.threadId, {
-              archivedAt,
-              updatedAt: payload.updatedAt ?? archivedAt,
-            }),
-          };
-        }),
-      );
-
-    case "thread.unarchived":
-      return decodeForEvent(ThreadUnarchivedPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => {
-          const updatedAt = payload.updatedAt ?? payload.unarchivedAt ?? event.occurredAt;
-          return {
-            ...nextBase,
-            threads: updateThread(nextBase.threads, payload.threadId, {
-              archivedAt: null,
-              updatedAt,
-            }),
-          };
-        }),
-      );
-
-    case "thread.updated":
-      return decodeForEvent(ThreadUpdatedPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => {
-          return {
-            ...nextBase,
-            threads: updateThread(nextBase.threads, payload.threadId, {
-              ...(payload.title !== undefined ? { title: payload.title } : {}),
-              ...(payload.modelSelection !== undefined
-                ? { modelSelection: payload.modelSelection }
-                : {}),
-              ...(payload.connectionId !== undefined ? { connectionId: payload.connectionId } : {}),
-              ...(payload.parentThreadId !== undefined
-                ? { parentThreadId: payload.parentThreadId }
-                : {}),
-              ...(payload.subagentAgentId !== undefined
-                ? { subagentAgentId: payload.subagentAgentId }
-                : {}),
-              ...(payload.subagentNickname !== undefined
-                ? { subagentNickname: payload.subagentNickname }
-                : {}),
-              ...(payload.subagentRole !== undefined ? { subagentRole: payload.subagentRole } : {}),
-              updatedAt: payload.updatedAt,
-            }),
-          };
-        }),
-      );
-
     // Marker events are retained in the event contract solely for historical replay.
     case "thread.marker-added":
     case "thread.marker-removed":
@@ -643,21 +473,10 @@ export function projectEvent(
           if (!thread) {
             return nextBase;
           }
-          const canAdoptFirstTurnProvider =
-            thread.latestTurn === null && thread.session === null && thread.messages.length <= 1;
-          const projectedModelSelection = deriveTurnStartModelSelection({
-            currentModelSelection: thread.modelSelection,
-            requestedModelSelection: payload.modelSelection,
-            canAdoptRequestedProvider: canAdoptFirstTurnProvider,
-          });
-          const modelSelectionPatch =
-            projectedModelSelection !== thread.modelSelection
-              ? { modelSelection: projectedModelSelection }
-              : {};
           const turnStartSession = deriveTurnStartSession({
             threadId: thread.id,
             currentSession: thread.session,
-            providerName: projectedModelSelection.provider,
+            providerName: thread.modelSelection.provider,
             requestedRuntimeMode: payload.runtimeMode,
             requestedAt: payload.createdAt,
           });
@@ -679,12 +498,11 @@ export function projectEvent(
           const nativeSteer =
             payload.dispatchMode === "steer" &&
             providerSupportsNativeTurnSteering(
-              thread.session?.providerName ?? projectedModelSelection.provider,
+              thread.session?.providerName ?? thread.modelSelection.provider,
             );
           return {
             ...nextBase,
             threads: updateThread(nextBase.threads, payload.threadId, {
-              ...modelSelectionPatch,
               ...(turnStartSession !== null ? { session: turnStartSession } : {}),
               messages,
               pendingTurnStartMessageId:

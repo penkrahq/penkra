@@ -75,10 +75,6 @@ export function orchestrationCommandLane(
     return "control";
   }
   switch (type) {
-    // Direct user actions must not sit behind retention and other background
-    // projection traffic. They get their own lane rather than the control lane,
-    // so a burst of turn starts cannot delay a stop.
-    case "thread.create":
     case "thread.turn.start":
     case "thread.conversation.rollback":
     case "thread.message.edit-and-resend":

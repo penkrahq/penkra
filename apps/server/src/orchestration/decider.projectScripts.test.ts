@@ -1,3 +1,4 @@
+import { seedThreadReadModelFixture } from "../cleanCore/threadFixtures.ts";
 import {
   CommandId,
   EventId,
@@ -194,31 +195,24 @@ describe("decider project scripts", () => {
       }),
     );
     const readModel = await Effect.runPromise(
-      projectEvent(withActiveProject, {
-        sequence: 3,
-        eventId: asEventId("evt-mixed-active-thread"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-mixed-active"),
-        type: "thread.created",
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-mixed-active-thread"),
-        causationEventId: null,
-        correlationId: CommandId.makeUnsafe("cmd-mixed-active-thread"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-mixed-active"),
-          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-mixed-active")),
-          deckSortOrder: 0,
-          folderId: asFolderId("project-mixed-active"),
-          title: "Saved chat",
-          modelSelection: {
-            provider: "codex",
-            model: "gpt-5-codex",
-          },
-          runtimeMode: "approval-required",
-          createdAt: now,
-          updatedAt: now,
+      seedThreadReadModelFixture(withActiveProject, {
+        threadId: ThreadId.makeUnsafe(ThreadId.makeUnsafe("thread-mixed-active")),
+        folderId: FolderId.makeUnsafe(asFolderId("project-mixed-active")),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-mixed-active")),
+        title: "Saved chat",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
         },
+        runtimeMode: "approval-required",
+        workingDirectory: null,
+        createdAt: now,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
+        parentThreadId: null,
+        sidebarSortOrder: 0,
+        deckSortOrder: 0,
+        isPinned: false,
       }),
     );
 
@@ -385,31 +379,24 @@ describe("decider project scripts", () => {
       }),
     );
     const readModel = await Effect.runPromise(
-      projectEvent(withProject, {
-        sequence: 2,
-        eventId: asEventId("evt-thread-create"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-1"),
-        type: "thread.created",
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-thread-create"),
-        causationEventId: null,
-        correlationId: CommandId.makeUnsafe("cmd-thread-create"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-1"),
-          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-1")),
-          deckSortOrder: 0,
-          folderId: asFolderId("project-1"),
-          title: "Thread",
-          modelSelection: {
-            provider: "codex",
-            model: "gpt-5-codex",
-          },
-          runtimeMode: "approval-required",
-          createdAt: now,
-          updatedAt: now,
+      seedThreadReadModelFixture(withProject, {
+        threadId: ThreadId.makeUnsafe(ThreadId.makeUnsafe("thread-1")),
+        folderId: FolderId.makeUnsafe(asFolderId("project-1")),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-1")),
+        title: "Thread",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
         },
+        runtimeMode: "approval-required",
+        workingDirectory: null,
+        createdAt: now,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
+        parentThreadId: null,
+        sidebarSortOrder: 0,
+        deckSortOrder: 0,
+        isPinned: false,
       }),
     );
 

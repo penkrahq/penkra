@@ -36,7 +36,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`DELETE FROM projection_state`;
       yield* sql`DELETE FROM projection_thread_messages`;
       yield* sql`DELETE FROM projection_turns`;
-      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM threads`;
       yield* sql`DELETE FROM projection_folders`;
       yield* sql`
         INSERT INTO projection_folders (
@@ -45,14 +45,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         ) VALUES ('project-outcome', 'Outcome', '/tmp/outcome', NULL, '[]',
           '2026-09-07T00:00:00.000Z', '2026-09-07T00:00:00.000Z', NULL)
       `;
-      yield* sql`
-        INSERT INTO projection_threads (
-          thread_id, folder_id, title, model_selection_json, working_directory,
-          latest_turn_id, created_at, updated_at, deleted_at
-        ) VALUES ('thread-outcome', 'project-outcome', 'Outcome',
-          '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL,
-          '2026-09-07T00:00:00.000Z', '2026-09-07T00:00:00.000Z', NULL)
-      `;
+      yield* sql`INSERT INTO threads (id, space_id, folder_id, title, provider, model, model_options, runtime_mode, state, created_by, created_at, updated_at, working_directory, deleted_at, deck_id, sidebar_sort_order) VALUES ('thread-outcome', 'penkra-personal', 'project-outcome', 'Outcome', json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.provider'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.model'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.options'), 'full-access', 'idle', 'user', '2026-09-07T00:00:00.000Z', '2026-09-07T00:00:00.000Z', NULL, NULL, 'deck:' || 'thread-outcome', 0)`;
       for (const projector of Object.values(ORCHESTRATION_PROJECTOR_NAMES)) {
         yield* sql`INSERT INTO projection_state (projector, last_applied_sequence, updated_at)
           VALUES (${projector}, 20, '2026-09-07T00:00:00.000Z')`;
@@ -118,7 +111,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
       const sql = yield* SqlClient.SqlClient;
-      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM threads`;
       yield* sql`DELETE FROM projection_folders`;
       yield* sql`DELETE FROM projection_spaces`;
       yield* sql`DELETE FROM projection_state`;
@@ -201,36 +194,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         )
       `;
 
-      yield* sql`
-        INSERT INTO projection_threads (
-          thread_id,
-          folder_id,
-          title,
-          model_selection_json,
-          working_directory,
-          latest_turn_id,
-          latest_user_message_at,
-          pending_approval_count,
-          pending_user_input_count,
-          created_at,
-          updated_at,
-          deleted_at
-        )
-        VALUES (
-          'thread-1',
-          'project-1',
-          'Thread 1',
-          '{"provider":"codex","model":"gpt-5-codex"}',
-          NULL,
-          'turn-1',
-          '2026-02-24T00:00:03.500Z',
-          1,
-          1,
-          '2026-02-24T00:00:02.000Z',
-          '2026-02-24T00:00:03.000Z',
-          NULL
-        )
-      `;
+      yield* sql`INSERT INTO threads (id, space_id, folder_id, title, provider, model, model_options, runtime_mode, state, created_by, created_at, updated_at, working_directory, last_user_message_at, deleted_at, deck_id, sidebar_sort_order) VALUES ('thread-1', 'penkra-personal', 'project-1', 'Thread 1', json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.provider'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.model'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.options'), 'full-access', 'idle', 'user', '2026-02-24T00:00:02.000Z', '2026-02-24T00:00:03.000Z', NULL, '2026-02-24T00:00:03.500Z', NULL, 'deck:' || 'thread-1', 0)`;
 
       yield* sql`
         INSERT INTO projection_thread_messages (
@@ -388,13 +352,14 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         sequence += 1;
       }
 
+      yield* sql`UPDATE threads SET open_question_count = 2, last_activity_at = '2026-02-24T00:00:06.750Z', last_message_preview = 'hello from projection' WHERE id = 'thread-1'`;
       const snapshot = yield* snapshotQuery.getSnapshot();
       const commandModel = yield* snapshotQuery.getCommandReadModel();
 
       const commandThread = commandModel.threads[0];
       assert.isDefined(commandThread);
       assert.equal(commandThread.latestUserMessageAt, "2026-02-24T00:00:03.500Z");
-      assert.equal(commandThread.hasPendingApprovals, true);
+      assert.equal(commandThread.hasPendingApprovals, false);
       assert.equal(commandThread.hasPendingUserInput, true);
       assert.deepEqual(commandThread.messages, []);
       assert.deepEqual(commandThread.activities, []);
@@ -432,6 +397,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       assert.deepEqual(snapshot.threads, [
         {
           id: ThreadId.makeUnsafe("thread-1"),
+          connectionId: null,
           deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-1")),
           deckSortOrder: 0,
           folderId: asFolderId("project-1"),
@@ -453,7 +419,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           subagentAgentId: null,
           subagentNickname: null,
           subagentRole: null,
-          forkSourceThreadId: null,
           latestUserMessageAt: "2026-02-24T00:00:03.500Z",
           hasPendingApprovals: true,
           hasPendingUserInput: true,
@@ -575,7 +540,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       const sql = yield* SqlClient.SqlClient;
 
       yield* sql`DELETE FROM projection_folders`;
-      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM threads`;
       yield* sql`DELETE FROM projection_thread_activities`;
 
       yield* sql`
@@ -600,30 +565,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           NULL
         )
       `;
-      yield* sql`
-        INSERT INTO projection_threads (
-          thread_id,
-          folder_id,
-          title,
-          model_selection_json,
-          working_directory,
-          latest_turn_id,
-          created_at,
-          updated_at,
-          deleted_at
-        )
-        VALUES (
-          'thread-activity-cap',
-          'project-activity-cap',
-          'Thread Activity Cap',
-          '{"provider":"codex","model":"gpt-5-codex"}',
-          NULL,
-          NULL,
-          '2026-02-24T00:00:00.000Z',
-          '2026-02-24T00:00:00.000Z',
-          NULL
-        )
-      `;
+      yield* sql`INSERT INTO threads (id, space_id, folder_id, title, provider, model, model_options, runtime_mode, state, created_by, created_at, updated_at, working_directory, deleted_at, deck_id, sidebar_sort_order) VALUES ('thread-activity-cap', 'penkra-personal', 'project-activity-cap', 'Thread Activity Cap', json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.provider'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.model'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.options'), 'full-access', 'idle', 'user', '2026-02-24T00:00:00.000Z', '2026-02-24T00:00:00.000Z', NULL, NULL, 'deck:' || 'thread-activity-cap', 0)`;
 
       yield* sql`
         INSERT INTO projection_thread_activities (
@@ -850,7 +792,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`DELETE FROM notices`;
       yield* sql`DELETE FROM projection_thread_activities`;
       yield* sql`DELETE FROM projection_thread_messages`;
-      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM threads`;
       yield* sql`DELETE FROM projection_folders`;
       yield* sql`
         INSERT INTO projection_folders (
@@ -862,16 +804,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           '2026-08-19T00:00:00.000Z', '2026-08-19T00:00:00.000Z', NULL
         )
       `;
-      yield* sql`
-        INSERT INTO projection_threads (
-          thread_id, folder_id, title, model_selection_json, working_directory,
-          latest_turn_id, created_at, updated_at, deleted_at
-        ) VALUES (
-          'thread-canonical-window', 'project-canonical-window', 'Canonical Window',
-          '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL,
-          '2026-08-19T00:00:00.000Z', '2026-08-20T00:00:00.000Z', NULL
-        )
-      `;
+      yield* sql`INSERT INTO threads (id, space_id, folder_id, title, provider, model, model_options, runtime_mode, state, created_by, created_at, updated_at, working_directory, deleted_at, deck_id, sidebar_sort_order) VALUES ('thread-canonical-window', 'penkra-personal', 'project-canonical-window', 'Canonical Window', json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.provider'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.model'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.options'), 'full-access', 'idle', 'user', '2026-08-19T00:00:00.000Z', '2026-08-20T00:00:00.000Z', NULL, NULL, 'deck:' || 'thread-canonical-window', 0)`;
       yield* sql`
         INSERT INTO projection_thread_activities (
           activity_id, thread_id, turn_id, tone, kind, summary,
@@ -924,7 +857,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
       yield* sql`DELETE FROM projection_thread_activities`;
       yield* sql`DELETE FROM projection_thread_messages`;
-      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM threads`;
       yield* sql`DELETE FROM projection_folders`;
       yield* sql`
         INSERT INTO projection_folders (
@@ -936,16 +869,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           '2026-02-24T00:00:00.000Z', '2026-02-24T00:00:00.000Z', NULL
         )
       `;
-      yield* sql`
-        INSERT INTO projection_threads (
-          thread_id, folder_id, title, model_selection_json, working_directory,
-          latest_turn_id, created_at, updated_at, deleted_at
-        ) VALUES (
-          'thread-turn-window', 'project-turn-window', 'Turn Window',
-          '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL,
-          '2026-02-24T00:00:00.000Z', '2026-02-24T00:00:00.000Z', NULL
-        )
-      `;
+      yield* sql`INSERT INTO threads (id, space_id, folder_id, title, provider, model, model_options, runtime_mode, state, created_by, created_at, updated_at, working_directory, deleted_at, deck_id, sidebar_sort_order) VALUES ('thread-turn-window', 'penkra-personal', 'project-turn-window', 'Turn Window', json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.provider'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.model'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.options'), 'full-access', 'idle', 'user', '2026-02-24T00:00:00.000Z', '2026-02-24T00:00:00.000Z', NULL, NULL, 'deck:' || 'thread-turn-window', 0)`;
 
       // 2_150 scoped activities across three turns, plus two newer unscoped
       // metadata rows. The raw 2_000-row detail cap falls at sequence 153 - in
@@ -1027,7 +951,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
       yield* sql`DELETE FROM projection_thread_activities`;
       yield* sql`DELETE FROM projection_thread_messages`;
-      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM threads`;
       yield* sql`DELETE FROM projection_folders`;
       yield* sql`
         INSERT INTO projection_folders (
@@ -1039,16 +963,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           '2026-02-24T00:00:00.000Z', '2026-02-24T00:00:00.000Z', NULL
         )
       `;
-      yield* sql`
-        INSERT INTO projection_threads (
-          thread_id, folder_id, title, model_selection_json, working_directory,
-          latest_turn_id, created_at, updated_at, deleted_at
-        ) VALUES (
-          'thread-oversized-turn', 'project-oversized-turn', 'Oversized Turn',
-          '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL,
-          '2026-02-24T00:00:00.000Z', '2026-02-24T00:00:00.000Z', NULL
-        )
-      `;
+      yield* sql`INSERT INTO threads (id, space_id, folder_id, title, provider, model, model_options, runtime_mode, state, created_by, created_at, updated_at, working_directory, deleted_at, deck_id, sidebar_sort_order) VALUES ('thread-oversized-turn', 'penkra-personal', 'project-oversized-turn', 'Oversized Turn', json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.provider'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.model'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.options'), 'full-access', 'idle', 'user', '2026-02-24T00:00:00.000Z', '2026-02-24T00:00:00.000Z', NULL, NULL, 'deck:' || 'thread-oversized-turn', 0)`;
       yield* sql`
         INSERT INTO projection_thread_activities (
           activity_id, thread_id, turn_id, tone, kind, summary,
@@ -1109,7 +1024,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
       yield* sql`DELETE FROM projection_thread_messages`;
       yield* sql`DELETE FROM projection_pending_interactions`;
-      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM threads`;
       yield* sql`DELETE FROM projection_folders`;
 
       yield* sql`
@@ -1134,30 +1049,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           NULL
         )
       `;
-      yield* sql`
-        INSERT INTO projection_threads (
-          thread_id,
-          folder_id,
-          title,
-          model_selection_json,
-          working_directory,
-          latest_turn_id,
-          created_at,
-          updated_at,
-          deleted_at
-        )
-        VALUES (
-          'thread-export-message-cap',
-          'project-export-message-cap',
-          'Thread Export Message Cap',
-          '{"provider":"codex","model":"gpt-5-codex"}',
-          NULL,
-          NULL,
-          '2026-02-24T00:00:00.000Z',
-          '2026-02-24T00:00:00.000Z',
-          NULL
-        )
-      `;
+      yield* sql`INSERT INTO threads (id, space_id, folder_id, title, provider, model, model_options, runtime_mode, state, created_by, created_at, updated_at, working_directory, deleted_at, deck_id, sidebar_sort_order) VALUES ('thread-export-message-cap', 'penkra-personal', 'project-export-message-cap', 'Thread Export Message Cap', json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.provider'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.model'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.options'), 'full-access', 'idle', 'user', '2026-02-24T00:00:00.000Z', '2026-02-24T00:00:00.000Z', NULL, NULL, 'deck:' || 'thread-export-message-cap', 0)`;
 
       for (let index = 0; index < messageCount; index += 1) {
         const createdAt = new Date(Date.UTC(2026, 1, 24, 0, 0, index)).toISOString();
@@ -1209,7 +1101,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
       yield* sql`DELETE FROM projection_thread_messages`;
       yield* sql`DELETE FROM projection_pending_interactions`;
-      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM threads`;
       yield* sql`DELETE FROM projection_folders`;
       yield* sql`
         INSERT INTO projection_folders (
@@ -1222,17 +1114,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           '2026-07-14T12:00:00.000Z', '2026-07-14T12:00:00.000Z', NULL
         )
       `;
-      yield* sql`
-        INSERT INTO projection_threads (
-          thread_id, folder_id, title, model_selection_json, working_directory,
-          latest_turn_id, created_at, updated_at, deleted_at
-        ) VALUES (
-          'thread-causal-message-snapshot', 'project-causal-message-snapshot',
-          'Causal Message Snapshot', '{"provider":"codex","model":"gpt-5-codex"}',
-          NULL, NULL,
-          '2026-07-14T12:00:00.000Z', '2026-07-14T12:00:00.000Z', NULL
-        )
-      `;
+      yield* sql`INSERT INTO threads (id, space_id, folder_id, title, provider, model, model_options, runtime_mode, state, created_by, created_at, updated_at, working_directory, deleted_at, deck_id, sidebar_sort_order) VALUES ('thread-causal-message-snapshot', 'penkra-personal', 'project-causal-message-snapshot', 'Causal Message Snapshot', json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.provider'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.model'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.options'), 'full-access', 'idle', 'user', '2026-07-14T12:00:00.000Z', '2026-07-14T12:00:00.000Z', NULL, NULL, 'deck:' || 'thread-causal-message-snapshot', 0)`;
       yield* sql`
         INSERT INTO projection_thread_messages (
           message_id, thread_id, turn_id, role, text, is_streaming, source,
@@ -1307,7 +1189,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       const sql = yield* SqlClient.SqlClient;
 
       yield* sql`DELETE FROM projection_folders`;
-      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM threads`;
       yield* sql`DELETE FROM projection_state`;
       yield* sql`DELETE FROM projection_thread_messages`;
       yield* sql`DELETE FROM projection_thread_activities`;
@@ -1337,32 +1219,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         )
       `;
 
-      yield* sql`
-        INSERT INTO projection_threads (
-          thread_id,
-          folder_id,
-          title,
-          model_selection_json,
-          working_directory,
-          runtime_mode,
-          latest_turn_id,
-          created_at,
-          updated_at,
-          deleted_at
-        )
-        VALUES (
-          'thread-imported-shape',
-          'project-imported-shape',
-          'Imported Shape Thread',
-          '{"provider":"codex","model":"gpt-5.5","options":[{"id":"reasoningEffort","value":"medium"}]}',
-          NULL,
-          'full-access',
-          NULL,
-          '2026-05-05T14:39:20.000Z',
-          '2026-05-05T14:39:21.000Z',
-          NULL
-        )
-      `;
+      yield* sql`INSERT INTO threads (id, space_id, folder_id, title, provider, model, model_options, runtime_mode, state, created_by, created_at, updated_at, working_directory, deleted_at, deck_id, sidebar_sort_order) VALUES ('thread-imported-shape', 'penkra-personal', 'project-imported-shape', 'Imported Shape Thread', json_extract('{"provider":"codex","model":"gpt-5.5","options":[{"id":"reasoningEffort","value":"medium"}]}', '$.provider'), json_extract('{"provider":"codex","model":"gpt-5.5","options":[{"id":"reasoningEffort","value":"medium"}]}', '$.model'), json_extract('{"provider":"codex","model":"gpt-5.5","options":[{"id":"reasoningEffort","value":"medium"}]}', '$.options'), 'full-access', 'idle', 'user', '2026-05-05T14:39:20.000Z', '2026-05-05T14:39:21.000Z', NULL, NULL, 'deck:' || 'thread-imported-shape', 0)`;
 
       const expectedProjectSelection = {
         provider: "codex",
@@ -1442,7 +1299,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       const sql = yield* SqlClient.SqlClient;
 
       yield* sql`DELETE FROM projection_folders`;
-      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM threads`;
 
       yield* sql`
         INSERT INTO projection_folders (
@@ -1478,61 +1335,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           )
       `;
 
-      yield* sql`
-        INSERT INTO projection_threads (
-          thread_id,
-          folder_id,
-          title,
-          model_selection_json,
-          runtime_mode,
-          working_directory,
-          latest_turn_id,
-          created_at,
-          updated_at,
-          archived_at,
-          deleted_at
-        )
-        VALUES
-          (
-            'thread-first',
-            'project-active',
-            'First Thread',
-            '{"provider":"codex","model":"gpt-5-codex"}',
-            'full-access',
-            NULL,
-            NULL,
-            '2026-03-01T00:00:05.000Z',
-            '2026-03-01T00:00:06.000Z',
-            NULL,
-            NULL
-          ),
-          (
-            'thread-second',
-            'project-active',
-            'Second Thread',
-            '{"provider":"codex","model":"gpt-5-codex"}',
-            'full-access',
-            NULL,
-            NULL,
-            '2026-03-01T00:00:07.000Z',
-            '2026-03-01T00:00:08.000Z',
-            NULL,
-            NULL
-          ),
-          (
-            'thread-deleted',
-            'project-active',
-            'Deleted Thread',
-            '{"provider":"codex","model":"gpt-5-codex"}',
-            'full-access',
-            NULL,
-            NULL,
-            '2026-03-01T00:00:09.000Z',
-            '2026-03-01T00:00:10.000Z',
-            NULL,
-            '2026-03-01T00:00:11.000Z'
-          )
-      `;
+      yield* sql`INSERT INTO threads (id, space_id, folder_id, title, provider, model, model_options, runtime_mode, state, created_by, created_at, updated_at, working_directory, archived_at, deleted_at, deck_id, sidebar_sort_order) VALUES ('thread-first', 'penkra-personal', 'project-active', 'First Thread', json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.provider'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.model'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.options'), 'full-access', 'idle', 'user', '2026-03-01T00:00:05.000Z', '2026-03-01T00:00:06.000Z', NULL, NULL, NULL, 'deck:' || 'thread-first', 0),
+('thread-second', 'penkra-personal', 'project-active', 'Second Thread', json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.provider'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.model'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.options'), 'full-access', 'idle', 'user', '2026-03-01T00:00:07.000Z', '2026-03-01T00:00:08.000Z', NULL, NULL, NULL, 'deck:' || 'thread-second', 0),
+('thread-deleted', 'penkra-personal', 'project-active', 'Deleted Thread', json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.provider'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.model'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.options'), 'full-access', 'idle', 'user', '2026-03-01T00:00:09.000Z', '2026-03-01T00:00:10.000Z', NULL, NULL, '2026-03-01T00:00:11.000Z', 'deck:' || 'thread-deleted', 0)`;
 
       const counts = yield* snapshotQuery.getCounts();
       assert.deepEqual(counts, {
@@ -1565,7 +1370,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       const sql = yield* SqlClient.SqlClient;
 
       yield* sql`DELETE FROM projection_folders`;
-      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM threads`;
       yield* sql`DELETE FROM projection_thread_messages`;
       yield* sql`DELETE FROM projection_thread_activities`;
       yield* sql`DELETE FROM projection_thread_sessions`;
@@ -1595,40 +1400,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         )
       `;
 
-      yield* sql`
-        INSERT INTO projection_threads (
-          thread_id,
-          folder_id,
-          title,
-          model_selection_json,
-          runtime_mode,
-          working_directory,
-          latest_turn_id,
-          latest_user_message_at,
-          pending_approval_count,
-          pending_user_input_count,
-          created_at,
-          updated_at,
-          archived_at,
-          deleted_at
-        )
-        VALUES (
-          'thread-shell',
-          'project-shell',
-          'Shell Thread',
-          '{"provider":"codex","model":"gpt-5-codex"}',
-          'full-access',
-          NULL,
-          'turn-shell',
-          '2026-03-03T00:00:02.500Z',
-          2,
-          1,
-          '2026-03-03T00:00:02.000Z',
-          '2026-03-03T00:00:03.000Z',
-          NULL,
-          NULL
-        )
-      `;
+      yield* sql`INSERT INTO threads (id, space_id, folder_id, title, provider, model, model_options, runtime_mode, state, created_by, created_at, updated_at, working_directory, last_user_message_at, archived_at, deleted_at, deck_id, sidebar_sort_order) VALUES ('thread-shell', 'penkra-personal', 'project-shell', 'Shell Thread', json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.provider'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.model'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.options'), 'full-access', 'idle', 'user', '2026-03-03T00:00:02.000Z', '2026-03-03T00:00:03.000Z', NULL, '2026-03-03T00:00:02.500Z', NULL, NULL, 'deck:' || 'thread-shell', 0)`;
 
       yield* sql`
         INSERT INTO projection_thread_sessions (
@@ -1695,10 +1467,12 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         sequence += 1;
       }
 
+      yield* sql`UPDATE threads SET open_question_count = 2 WHERE id = 'thread-shell'`;
       const shellSnapshot = yield* snapshotQuery.getShellSnapshot();
       assert.deepEqual(shellSnapshot.threads, [
         {
           id: ThreadId.makeUnsafe("thread-shell"),
+          connectionId: null,
           deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-shell")),
           deckSortOrder: 0,
           folderId: asFolderId("project-shell"),
@@ -1720,7 +1494,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           subagentAgentId: null,
           subagentNickname: null,
           subagentRole: null,
-          forkSourceThreadId: null,
           latestTurn: {
             turnId: asTurnId("turn-shell"),
             state: "completed",
@@ -1730,7 +1503,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             assistantMessageId: null,
           },
           latestUserMessageAt: "2026-03-03T00:00:02.500Z",
-          hasPendingApprovals: true,
+          hasPendingApprovals: false,
           hasPendingUserInput: true,
           workStatus: "attention",
           lastMessagePreview: null,
@@ -1767,7 +1540,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
       yield* sql`DELETE FROM projection_thread_sessions`;
       yield* sql`DELETE FROM projection_turns`;
-      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM threads`;
       yield* sql`DELETE FROM projection_folders`;
 
       yield* sql`
@@ -1780,19 +1553,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           '2026-08-29T06:14:00.000Z', '2026-08-29T06:14:00.000Z', NULL
         )
       `;
-      yield* sql`
-        INSERT INTO projection_threads (
-          thread_id, folder_id, title, model_selection_json, runtime_mode,
-          working_directory, latest_turn_id, latest_user_message_at,
-          pending_approval_count, pending_user_input_count,
-          created_at, updated_at, archived_at, deleted_at
-        ) VALUES (
-          'thread-active-turn', 'project-active-turn', 'Active Turn',
-          '{"provider":"codex","model":"gpt-5-codex"}', 'full-access',
-          NULL, NULL, '2026-08-29T06:14:22.782Z', 0, 0,
-          '2026-08-29T06:14:00.000Z', '2026-08-29T06:14:25.053Z', NULL, NULL
-        )
-      `;
+      yield* sql`INSERT INTO threads (id, space_id, folder_id, title, provider, model, model_options, runtime_mode, state, created_by, created_at, updated_at, working_directory, last_user_message_at, archived_at, deleted_at, deck_id, sidebar_sort_order) VALUES ('thread-active-turn', 'penkra-personal', 'project-active-turn', 'Active Turn', json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.provider'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.model'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.options'), 'full-access', 'idle', 'user', '2026-08-29T06:14:00.000Z', '2026-08-29T06:14:25.053Z', NULL, '2026-08-29T06:14:22.782Z', NULL, NULL, 'deck:' || 'thread-active-turn', 0)`;
       yield* sql`
         INSERT INTO projection_thread_sessions (
           thread_id, status, provider_name, provider_session_id,
@@ -1840,7 +1601,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
       yield* sql`DELETE FROM projection_thread_sessions`;
       yield* sql`DELETE FROM projection_turns`;
-      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM threads`;
       yield* sql`DELETE FROM projection_folders`;
       yield* sql`
         INSERT INTO projection_folders (
@@ -1852,43 +1613,12 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           '2026-07-23T00:00:00.000Z', '2026-07-23T00:00:00.000Z', NULL
         )
       `;
-      yield* sql`
-        INSERT INTO projection_threads (
-          thread_id, folder_id, title, model_selection_json, working_directory,
-          latest_turn_id, created_at, updated_at, archived_at, deleted_at
-        ) VALUES
-          (
-            'thread-stale-running', 'project-runtime-candidates', 'Stale',
-            '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL,
-            '2026-07-23T00:00:00.000Z', '2026-07-23T00:00:00.000Z', NULL, NULL
-          ),
-          (
-            'thread-fresh-running', 'project-runtime-candidates', 'Fresh',
-            '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL,
-            '2026-07-23T00:00:00.000Z', '2026-07-23T09:59:00.000Z', NULL, NULL
-          ),
-          (
-            'thread-settled', 'project-runtime-candidates', 'Settled',
-            '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL,
-            '2026-07-23T00:00:00.000Z', '2026-07-23T00:00:00.000Z', NULL, NULL
-          ),
-          (
-            'thread-archived-running', 'project-runtime-candidates', 'Archived',
-            '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL,
-            '2026-07-23T00:00:00.000Z', '2026-07-23T00:00:00.000Z',
-            '2026-07-23T08:00:00.000Z', NULL
-          ),
-          (
-            'thread-unbound-oldest', 'project-runtime-candidates', 'Unbound',
-            '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL,
-            '2026-07-22T00:00:00.000Z', '2026-07-22T00:00:00.000Z', NULL, NULL
-          ),
-          (
-            'thread-queued-oldest', 'project-runtime-candidates', 'Queued',
-            '{"provider":"codex","model":"gpt-5-codex"}', NULL, 'turn-queued',
-            '2026-07-21T00:00:00.000Z', '2026-07-21T00:00:00.000Z', NULL, NULL
-          )
-      `;
+      yield* sql`INSERT INTO threads (id, space_id, folder_id, title, provider, model, model_options, runtime_mode, state, created_by, created_at, updated_at, working_directory, archived_at, deleted_at, deck_id, sidebar_sort_order) VALUES ('thread-stale-running', 'penkra-personal', 'project-runtime-candidates', 'Stale', json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.provider'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.model'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.options'), 'full-access', 'idle', 'user', '2026-07-23T00:00:00.000Z', '2026-07-23T00:00:00.000Z', NULL, NULL, NULL, 'deck:' || 'thread-stale-running', 0),
+('thread-fresh-running', 'penkra-personal', 'project-runtime-candidates', 'Fresh', json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.provider'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.model'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.options'), 'full-access', 'idle', 'user', '2026-07-23T00:00:00.000Z', '2026-07-23T09:59:00.000Z', NULL, NULL, NULL, 'deck:' || 'thread-fresh-running', 0),
+('thread-settled', 'penkra-personal', 'project-runtime-candidates', 'Settled', json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.provider'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.model'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.options'), 'full-access', 'idle', 'user', '2026-07-23T00:00:00.000Z', '2026-07-23T00:00:00.000Z', NULL, NULL, NULL, 'deck:' || 'thread-settled', 0),
+('thread-archived-running', 'penkra-personal', 'project-runtime-candidates', 'Archived', json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.provider'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.model'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.options'), 'full-access', 'idle', 'user', '2026-07-23T00:00:00.000Z', '2026-07-23T00:00:00.000Z', NULL, '2026-07-23T08:00:00.000Z', NULL, 'deck:' || 'thread-archived-running', 0),
+('thread-unbound-oldest', 'penkra-personal', 'project-runtime-candidates', 'Unbound', json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.provider'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.model'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.options'), 'full-access', 'idle', 'user', '2026-07-22T00:00:00.000Z', '2026-07-22T00:00:00.000Z', NULL, NULL, NULL, 'deck:' || 'thread-unbound-oldest', 0),
+('thread-queued-oldest', 'penkra-personal', 'project-runtime-candidates', 'Queued', json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.provider'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.model'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.options'), 'full-access', 'idle', 'user', '2026-07-21T00:00:00.000Z', '2026-07-21T00:00:00.000Z', NULL, NULL, NULL, 'deck:' || 'thread-queued-oldest', 0)`;
       yield* sql`
         INSERT INTO projection_turns (
           thread_id, turn_id, pending_message_id, assistant_message_id, state, requested_at,
@@ -2001,7 +1731,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
       yield* sql`DELETE FROM projection_thread_activities`;
       yield* sql`DELETE FROM projection_thread_messages`;
-      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM threads`;
       yield* sql`DELETE FROM projection_folders`;
       yield* sql`
         INSERT INTO projection_folders (
@@ -2013,23 +1743,8 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           '2026-07-24T00:00:00.000Z', '2026-07-24T00:00:00.000Z', NULL
         )
       `;
-      yield* sql`
-        INSERT INTO projection_threads (
-          thread_id, folder_id, title, model_selection_json, working_directory,
-          latest_turn_id, created_at, updated_at, deleted_at
-        ) VALUES
-          (
-            'thread-live', 'project-soft-delete', 'Live',
-            '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL,
-            '2026-07-24T00:00:01.000Z', '2026-07-24T00:00:01.000Z', NULL
-          ),
-          (
-            'thread-soft-deleted', 'project-soft-delete', 'Retention deleted',
-            '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL,
-            '2026-07-24T00:00:02.000Z', '2026-07-24T00:00:09.000Z',
-            '2026-07-24T00:00:09.000Z'
-          )
-      `;
+      yield* sql`INSERT INTO threads (id, space_id, folder_id, title, provider, model, model_options, runtime_mode, state, created_by, created_at, updated_at, working_directory, deleted_at, deck_id, sidebar_sort_order) VALUES ('thread-live', 'penkra-personal', 'project-soft-delete', 'Live', json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.provider'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.model'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.options'), 'full-access', 'idle', 'user', '2026-07-24T00:00:01.000Z', '2026-07-24T00:00:01.000Z', NULL, NULL, 'deck:' || 'thread-live', 0),
+('thread-soft-deleted', 'penkra-personal', 'project-soft-delete', 'Retention deleted', json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.provider'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.model'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.options'), 'full-access', 'idle', 'user', '2026-07-24T00:00:02.000Z', '2026-07-24T00:00:09.000Z', NULL, '2026-07-24T00:00:09.000Z', 'deck:' || 'thread-soft-deleted', 0)`;
       yield* sql`
         INSERT INTO projection_thread_messages (
           message_id, thread_id, turn_id, role, text, is_streaming, created_at, updated_at

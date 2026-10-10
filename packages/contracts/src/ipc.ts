@@ -101,8 +101,9 @@ import type {
   CleanCoreListThreadItemsPageInput,
   CleanCoreListThreadItemsPageResult,
   CleanCoreCreateThreadInput,
+  CleanCoreGetThreadShellInput,
   CleanCoreListThreadsInput,
-  CleanCoreThreadSummary,
+  CleanCoreCreateThreadResponse,
   CleanCoreListThreadsResult,
   CleanCoreUpdateThreadInput,
   CleanCoreSetThreadDraftInput,
@@ -1115,7 +1116,10 @@ export interface NativeApi {
   cleanCore: {
     getThreadRuntime: (input: CleanCoreThreadRuntimeInput) => Promise<CleanCoreThreadRuntime>;
     interruptThread: (input: CleanCoreThreadRuntimeInput) => Promise<CleanCoreInterruptResult>;
-    createThread: (input: CleanCoreCreateThreadInput) => Promise<CleanCoreThreadSummary>;
+    getThreadShell: (
+      input: CleanCoreGetThreadShellInput,
+    ) => Promise<import("./orchestration").OrchestrationThreadShell | null>;
+    createThread: (input: CleanCoreCreateThreadInput) => Promise<CleanCoreCreateThreadResponse>;
     listThreads: (input: CleanCoreListThreadsInput) => Promise<CleanCoreListThreadsResult>;
     updateThread: (input: CleanCoreUpdateThreadInput) => Promise<void>;
     listThreadItemsPage: (

@@ -63,7 +63,6 @@ import {
   supportsPluginDiscovery,
   supportsSkillDiscovery,
   supportsThreadCompaction,
-  supportsThreadFork,
 } from "~/lib/providerDiscoveryReactQuery";
 import {
   providerConnectionQueryKeys,
@@ -180,7 +179,6 @@ import {
 } from "../storeSelectors";
 import { hasUnseenThreadCompletion } from "../threadCompletion";
 import {
-  canOfferForkSlashCommand,
   canOfferReviewSlashCommand,
   hasProviderNativeSlashCommand,
   providerSupportsTextNativeReviewCommand,
@@ -1415,9 +1413,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
   >(loadConfirmedCustomBinaryPaths);
   const confirmedCustomBinarySessionKeysRef = useRef<Set<string>>(new Set());
   const pendingCustomBinaryPathsByThreadProviderRef = useRef<Map<string, string>>(new Map());
-  const [composerCommandPicker, setComposerCommandPicker] = useState<
-    null | "fork-target" | "review-target"
-  >(null);
+  const [composerCommandPicker, setComposerCommandPicker] = useState<null | "review-target">(null);
   const [secondaryChromePlaceholderHeight, setSecondaryChromePlaceholderHeight] = useState(88);
   const [composerHighlightedItemId, setComposerHighlightedItemId] = useState<string | null>(null);
   const [attachmentPreviewHandoffByMessageId, setAttachmentPreviewHandoffByMessageId] = useState<
@@ -1995,10 +1991,13 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       const api = readNativeApi();
       if (!api) return;
       const deleteEmptyTerminalThread = async () => {
-        await api.orchestration.dispatchCommand({
-          type: "thread.delete",
-          commandId: newCommandId(),
-          threadId: terminalThreadId,
+        await api.cleanCore.updateThread({
+          update: {
+            action: "delete",
+            threadId: terminalThreadId,
+            deletedAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
         });
         void reconcileDeletedThreadFromClient({
           threadId: terminalThreadId,
@@ -2514,11 +2513,13 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     if (serverThread) {
       const api = readNativeApi();
       if (api) {
-        const update = api.orchestration.dispatchCommand({
-          type: "thread.update",
-          commandId: newCommandId(),
-          threadId: serverThread.id,
-          connectionId,
+        const update = api.cleanCore.updateThread({
+          update: {
+            action: "connection",
+            threadId: serverThread.id,
+            connectionId,
+            updatedAt: new Date().toISOString(),
+          },
         });
         pendingConnectionUpdateRef.current = { threadId: serverThread.id, promise: update };
         void update
@@ -3406,17 +3407,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     selectedSkillCount: selectedComposerSkills.length,
     selectedMentionCount: selectedComposerMentions.length,
   });
-  const canOfferForkCommand =
-    supportsThreadFork(providerComposerCapabilitiesQuery.data) &&
-    isServerThread &&
-    activeThread !== undefined &&
-    canOfferForkSlashCommand({
-      prompt: composerPromptWithoutActiveSlashTrigger,
-      imageCount: composerImages.length,
-      terminalContextCount: composerTerminalContexts.length,
-      selectedSkillCount: selectedComposerSkills.length,
-      selectedMentionCount: selectedComposerMentions.length,
-    });
   // Export is hidden while the thread is running so archives cannot capture a
   // partial assistant response. Same shared predicate as the server's 409
   // guard, so the composer and the export route cannot drift.
@@ -3439,7 +3429,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       activeThread?.session !== null &&
       activeThread?.session?.status !== "closed",
     canOfferReviewCommand,
-    canOfferForkCommand,
     canOfferExportCommand,
     dynamicAgents,
     threadMentionSources: {
@@ -3449,17 +3438,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     },
   });
   const composerMenuItems = useMemo(() => {
-    if (composerCommandPicker === "fork-target") {
-      return [
-        {
-          id: "fork-target:local",
-          type: "fork-target" as const,
-          target: "local" as const,
-          label: "Fork Into Local",
-          description: "Continue in a new local thread",
-        },
-      ];
-    }
     if (composerCommandPicker === "review-target") {
       return [
         {
@@ -5302,13 +5280,17 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       if (serverThread) {
         const api = readNativeApi();
         if (api) {
-          void api.orchestration
-            .dispatchCommand({
-              type: "thread.update",
-              commandId: newCommandId(),
-              threadId: activeThread.id,
-              modelSelection: nextModelSelection,
-              ...(!hasThreadStarted ? { connectionId: nextConnectionId } : {}),
+          void api.cleanCore
+            .updateThread({
+              update: {
+                action: "model",
+                threadId: activeThread.id,
+                modelSelection: nextModelSelection,
+                connection: hasThreadStarted
+                  ? { kind: "keep" }
+                  : { kind: "selected", connectionId: nextConnectionId },
+                updatedAt: new Date().toISOString(),
+              },
             })
             .catch((error: unknown) =>
               setStoreThreadError(
@@ -6705,7 +6687,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       clearComposerDraftContent(threadIdForSend, { preservePreviewUrls: true });
     }
 
-    let createdServerThreadForLocalDraft = false;
     let turnStartSucceeded = false;
     let startCommandDispatched = false;
     let preDispatchRecoveryPrepared = false;
@@ -6720,10 +6701,13 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       );
 
       if (isLocalDraftThread) {
-        const promotionResult = await promoteThreadCreate(
+        await promoteThreadCreate(
           {
-            type: "thread.create",
-            commandId: newCommandId(),
+            creator: { kind: "user" },
+            connection:
+              selectedConnectionIdForSend === undefined
+                ? { kind: "default" }
+                : { kind: "selected", connectionId: selectedConnectionIdForSend },
             threadId: threadIdForSend,
             deckId: activeThread.deckId,
             folderId: targetFolderIdForSend,
@@ -6734,9 +6718,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
             createdAt: activeThread.createdAt,
           },
           api,
-          { force: true },
         );
-        createdServerThreadForLocalDraft = promotionResult === "created";
       }
 
       if (isServerThread) {
@@ -6858,16 +6840,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         (staged) => staged.cleanup(),
         () => undefined,
       );
-      if (createdServerThreadForLocalDraft && !turnStartSucceeded && !startCommandDispatched) {
-        // This rollback cleans up a retryable draft promotion; do not tombstone the draft id.
-        await api.orchestration
-          .dispatchCommand({
-            type: "thread.delete",
-            commandId: newCommandId(),
-            threadId: threadIdForSend,
-          })
-          .catch(() => recordChatSendFailure("EXTERNAL_CALL_FAILED", sendTrace));
-      }
+
       if (
         queuedChatTurn === null &&
         !turnStartSucceeded &&
@@ -7644,7 +7617,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
   );
 
   const {
-    handleForkTargetSelection,
     handleReviewTargetSelection,
     isSlashStatusDialogOpen,
     setIsSlashStatusDialogOpen,
@@ -7689,10 +7661,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       }
       await handleNewThread(activeProject.id, { entryPoint: "chat" });
     },
-    openForkTargetPicker: () => {
-      setComposerCommandPicker("fork-target");
-      setComposerHighlightedItemId("fork-target:local");
-    },
     openReviewTargetPicker: () => {
       setComposerCommandPicker("review-target");
       setComposerHighlightedItemId("review-target:changes");
@@ -7715,12 +7683,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       window.requestAnimationFrame(() => {
         composerSelectLockRef.current = false;
       });
-      if (item.type === "fork-target") {
-        setComposerCommandPicker(null);
-        setComposerHighlightedItemId(null);
-        void handleForkTargetSelection(item.target);
-        return;
-      }
       if (item.type === "review-target") {
         setComposerCommandPicker(null);
         setComposerHighlightedItemId(null);
@@ -7815,7 +7777,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     [
       applyComposerTriggerReplacement,
       scheduleComposerFocus,
-      handleForkTargetSelection,
       handleNavigateLocalFolder,
       handleReviewTargetSelection,
       handleSlashCommandSelection,

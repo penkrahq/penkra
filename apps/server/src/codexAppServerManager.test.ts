@@ -3068,6 +3068,7 @@ describe("sendTurn", () => {
     expect(sendRequest).toHaveBeenCalledWith(context, "turn/start", {
       threadId: "thread_1",
       ...approvalRequiredTurnOverrides,
+      approvalPolicy: "never",
       summary: "auto",
       input: [
         {
@@ -3857,41 +3858,6 @@ describe("provider thread control", () => {
           items: [{ type: "userMessage", content: [{ type: "text", text: "hello" }] }],
         },
       ],
-    });
-  });
-
-  it.skipIf(!process.env.CODEX_BINARY_PATH)("forks a provider thread via thread/fork", async () => {
-    const { manager, sendRequest } = createThreadControlHarness();
-    sendRequest.mockResolvedValue({
-      thread: {
-        id: "thread_forked",
-      },
-    });
-
-    const result = await manager.forkThread({
-      sourceThreadId: asThreadId("thread_1"),
-      sourceResumeCursor: {
-        threadId: "thread_1",
-      },
-      threadId: asThreadId("thread_2"),
-      runtimeMode: "full-access",
-    });
-
-    expect(sendRequest).toHaveBeenNthCalledWith(
-      3,
-      expect.anything(),
-      "thread/fork",
-      expect.objectContaining({
-        threadId: "thread_1",
-        approvalPolicy: "never",
-        sandbox: "danger-full-access",
-      }),
-    );
-    expect(result).toEqual({
-      threadId: "thread_2",
-      resumeCursor: {
-        threadId: "thread_forked",
-      },
     });
   });
 

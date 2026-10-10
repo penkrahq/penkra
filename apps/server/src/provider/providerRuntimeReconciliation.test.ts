@@ -42,7 +42,6 @@ function threadShell(overrides: Partial<OrchestrationThreadShell> = {}): Orchest
     subagentAgentId: null,
     subagentNickname: null,
     subagentRole: null,
-    forkSourceThreadId: null,
     latestTurn: {
       turnId: OLD_TURN_ID,
       state: "running",

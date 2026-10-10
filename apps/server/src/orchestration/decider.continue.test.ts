@@ -204,7 +204,6 @@ describe("archived thread admission", () => {
   );
 
   it.each([
-    "thread.update",
     "thread.turn.steer-queued",
     "thread.task.background",
     "thread.approval.respond",
@@ -233,7 +232,6 @@ describe("archived thread admission", () => {
   it("admits only trusted provider projection mutations after archive", async () => {
     const archived = threadWith({ archivedAt: now, messages: [], activities: [] });
     const commands = [
-      { type: "thread.update", ...base, title: "Provider title" },
       {
         type: "thread.message.assistant.delta",
         ...base,
@@ -274,56 +272,6 @@ describe("archived thread admission", () => {
     });
   });
 
-  it("clamps archive time to the thread's latest update", async () => {
-    const updatedAt = "2026-09-26T01:00:00.000Z";
-    const result = await decide(threadWith({ updatedAt }), {
-      type: "thread.archive",
-      ...base,
-      createdAt: now,
-    });
-    expect(result).toMatchObject({
-      type: "thread.archived",
-      occurredAt: updatedAt,
-      payload: { archivedAt: updatedAt, updatedAt },
-    });
-  });
-
-  it.each([
-    ["running latest turn", { latestTurn: { ...threadWith().latestTurn, state: "running" } }],
-    ["pending start", { pendingTurnStartMessageId: MessageId.makeUnsafe("pending") }],
-    ["starting session", { session: { status: "starting", activeTurnId: null } }],
-    ["active provider turn", { session: { status: "running", activeTurnId: turnId } }],
-  ])("refuses archive with %s", async (_reason, changes) => {
-    await expect(
-      decide(threadWith(changes), { type: "thread.archive", ...base }),
-    ).rejects.toMatchObject({
-      code: "thread_running",
-      detail: "This thread is still running. Stop it before archiving.",
-    });
-  });
-
-  it("drops queued messages in the archive command", async () => {
-    const queuedMessageId = MessageId.makeUnsafe("queued-message");
-    const result = await decide(threadWith({ queuedMessageIds: [queuedMessageId] }), {
-      type: "thread.archive",
-      ...base,
-    });
-    expect(result).toMatchObject([
-      { type: "thread.turn-start-cancelled", payload: { messageId: queuedMessageId } },
-      { type: "thread.archived", payload: { threadId } },
-    ]);
-  });
-
-  it("allows unarchive, delete, and interrupt on an archived thread", async () => {
-    for (const command of [
-      { type: "thread.unarchive" as const, ...base },
-      { type: "thread.delete" as const, ...base },
-      { type: "thread.turn.interrupt" as const, ...base, createdAt: now },
-    ]) {
-      await expect(decide(threadWith({ archivedAt: now }), command)).resolves.toBeDefined();
-    }
-  });
-
   it("applies the guard to the target child independently of its parent", async () => {
     const parentId = ThreadId.makeUnsafe("parent-thread");
     const parent = threadWith({ id: parentId, archivedAt: now });
@@ -332,16 +280,5 @@ describe("archived thread admission", () => {
     await expect(
       Effect.runPromise(decideOrchestrationCommand({ readModel, command: start("queue") })),
     ).resolves.toBeDefined();
-    await expect(
-      Effect.runPromise(
-        decideOrchestrationCommand({
-          readModel,
-          command: {
-            type: "thread.archive",
-            ...base,
-          },
-        }),
-      ),
-    ).resolves.toMatchObject({ type: "thread.archived" });
   });
 });
