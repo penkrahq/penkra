@@ -1,6 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Layer } from "effect";
 
+import { ThreadSenderLive } from "./cleanCore/ThreadSender.ts";
 import { AgentGatewayLive } from "./agentGateway/Layers/AgentGateway";
 import { AgentGatewayCreationAdmissionRepositoryLive } from "./persistence/Layers/AgentGatewayCreationAdmissions";
 import { AgentGatewayCredentialsWithSecretsLive } from "./agentGateway/Layers/AgentGatewayCredentials";
@@ -171,7 +172,11 @@ export function makeServerRuntimeServicesLayer(
     serverAuthLayer,
   );
   const workspaceWatcherLayer = WorkspaceWatcherLive.pipe(Layer.provideMerge(runtimeServicesLayer));
+  const threadSenderLayer = ThreadSenderLive.pipe(
+    Layer.provideMerge(providerThreadSwitchCoordinatorLayer),
+  );
   const agentGatewayLayer = AgentGatewayLive.pipe(
+    Layer.provideMerge(threadSenderLayer),
     Layer.provideMerge(AgentGatewayCreationAdmissionRepositoryLive),
     Layer.provideMerge(agentGatewayCredentialsLayer),
     Layer.provideMerge(runtimeServicesLayer),

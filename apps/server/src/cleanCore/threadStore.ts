@@ -17,6 +17,7 @@ import { normalizeEntityName } from "@penkra/shared/entityNames";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
+import type { CleanCoreProviderEvent } from "./providerStreamConsumer.ts";
 import { capThreadItemData } from "./threadItemData.ts";
 
 export type ThreadItemKind = "user" | "text" | "reasoning" | "tool" | "question" | "notice";
@@ -37,7 +38,20 @@ export interface ThreadChange {
   readonly threadId: string;
 }
 
+export type MessageDispatchReply = { readonly threadId: string; readonly messageId: string } & (
+  | { readonly type: "acknowledged"; readonly turnId: string }
+  | { readonly type: "failed"; readonly error: string }
+);
+
 export interface ThreadPublisher {
+  readonly subscribeProvider: (listener: (event: CleanCoreProviderEvent) => void) => () => void;
+  readonly publishProvider: (event: CleanCoreProviderEvent) => void;
+  readonly subscribeDispatch: (
+    threadId: string,
+    messageId: string,
+    listener: (reply: MessageDispatchReply) => void,
+  ) => () => void;
+  readonly publishDispatch: (reply: MessageDispatchReply) => void;
   /** Subscribe to one thread's changes. Returns an unsubscribe function. */
   readonly subscribe: (threadId: string, listener: (change: ThreadChange) => void) => () => void;
   /** Subscribe to every thread's changes. Returns an unsubscribe function. */
@@ -51,7 +65,30 @@ export const makeThreadPublisher = (): ThreadPublisher => {
   const byThread = new Map<string, Set<(change: ThreadChange) => void>>();
   const all = new Set<(change: ThreadChange) => void>();
   const sidebar = new Set<(change: CleanCoreSidebarChange) => void>();
+  const provider = new Set<(event: CleanCoreProviderEvent) => void>();
+  const dispatch = new Set<(reply: MessageDispatchReply) => void>();
   return {
+    subscribeProvider: (listener) => {
+      provider.add(listener);
+      return () => {
+        provider.delete(listener);
+      };
+    },
+    publishProvider: (event) => {
+      for (const listener of provider) listener(event);
+    },
+    subscribeDispatch: (threadId, messageId, listener) => {
+      const scoped = (reply: MessageDispatchReply) => {
+        if (reply.threadId === threadId && reply.messageId === messageId) listener(reply);
+      };
+      dispatch.add(scoped);
+      return () => {
+        dispatch.delete(scoped);
+      };
+    },
+    publishDispatch: (reply) => {
+      for (const listener of dispatch) listener(reply);
+    },
     subscribeSidebar: (listener) => {
       sidebar.add(listener);
       return () => {

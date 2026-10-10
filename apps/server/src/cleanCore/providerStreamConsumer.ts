@@ -56,6 +56,7 @@ export type CleanCoreProviderEvent =
   | {
       readonly type: "provider.exited";
       readonly threadIds: ReadonlyArray<string>;
+      readonly reason?: string;
       readonly at: string;
     };
 
@@ -72,6 +73,7 @@ export const applyProviderEvent = (publisher: ThreadPublisher, event: CleanCoreP
       case "turn.started": {
         yield* setThreadState(event.threadId, "running", event.turnId, null, event.at);
         publisher.publish({ threadId: event.threadId });
+        publisher.publishProvider(event);
         return;
       }
       case "turn.ended": {
@@ -90,6 +92,7 @@ export const applyProviderEvent = (publisher: ThreadPublisher, event: CleanCoreP
           event.turnId,
         );
         publisher.publish({ threadId: event.threadId });
+        publisher.publishProvider(event);
         return;
       }
       case "item": {
@@ -118,6 +121,10 @@ export const applyProviderEvent = (publisher: ThreadPublisher, event: CleanCoreP
           event.threadIds,
           (threadId) =>
             Effect.gen(function* () {
+              const sql = yield* SqlClient.SqlClient;
+              const rows =
+                yield* sql`SELECT id FROM threads WHERE id = ${threadId} AND state = 'running'`;
+              if (rows.length === 0) return;
               yield* setThreadState(threadId, "idle", null, null, event.at);
               // A cut-off turn leaves no running items behind.
               yield* settleRunningItems(threadId, "interrupted", event.at);
@@ -135,6 +142,7 @@ export const applyProviderEvent = (publisher: ThreadPublisher, event: CleanCoreP
             }),
           { discard: true },
         );
+        publisher.publishProvider(event);
         return;
       }
     }

@@ -7535,6 +7535,15 @@ describe("ProviderCommandReactor", () => {
   it("releases a promoted-turn reservation on an id-less terminal event once the session is idle", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
+    const firstSend = Effect.runSync(Deferred.make<void>());
+    const secondSend = Effect.runSync(Deferred.make<void>());
+    for (const observed of [firstSend, secondSend]) {
+      harness.sendTurn.mockImplementationOnce(() =>
+        Deferred.succeed(observed, undefined).pipe(
+          Effect.as({ threadId: ThreadId.makeUnsafe("thread-1"), turnId: asTurnId("turn-1") }),
+        ),
+      );
+    }
 
     harness.setRuntimeSessionTurnState({
       threadId: "thread-1",
@@ -7598,7 +7607,9 @@ describe("ProviderCommandReactor", () => {
       payload: { state: "completed" },
       providerRefs: {},
     } as ProviderRuntimeEvent);
-    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    await Effect.runPromise(Deferred.await(firstSend));
+    await harness.drain();
+    expect(harness.sendTurn).toHaveBeenCalledTimes(1);
 
     harness.setRuntimeSessionTurnState({
       threadId: "thread-1",
@@ -7614,7 +7625,9 @@ describe("ProviderCommandReactor", () => {
       providerRefs: {},
     } as ProviderRuntimeEvent);
 
-    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+    await Effect.runPromise(Deferred.await(secondSend));
+    await harness.drain();
+    expect(harness.sendTurn).toHaveBeenCalledTimes(2);
     expect(harness.sendTurn.mock.calls[1]?.[0]).toMatchObject({
       threadId: ThreadId.makeUnsafe("thread-1"),
       input: "release after id-less abort",

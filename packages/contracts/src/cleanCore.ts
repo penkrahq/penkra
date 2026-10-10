@@ -4,6 +4,7 @@ import {
   FolderId,
   IsoDateTime,
   NonNegativeInt,
+  PositiveInt,
   ProviderConnectionId,
   SpaceId,
   ThreadDeckId,
@@ -227,3 +228,28 @@ export const CLEAN_CORE_WS_CHANNELS = {
   threadChange: "cleanCore.threadChange",
   sidebarChange: "cleanCore.sidebarChange",
 } as const;
+
+/** Provider-confirmed send outcomes (TODO 2.4); queued messages have no turn yet. */
+export const CleanCoreSendResult = Schema.Union([
+  Schema.Struct({
+    threadId: ThreadId,
+    messageId: Schema.String,
+    delivery: Schema.Literals(["started", "steered", "interrupted"]),
+    turnId: TurnId,
+  }),
+  Schema.Struct({
+    threadId: ThreadId,
+    messageId: Schema.String,
+    delivery: Schema.Literal("queued"),
+    position: PositiveInt,
+    queueLength: PositiveInt,
+    runningTurnId: Schema.NullOr(TurnId),
+  }),
+  Schema.Struct({
+    threadId: ThreadId,
+    messageId: Schema.String,
+    delivery: Schema.Literal("failed"),
+    error: Schema.String,
+  }),
+]);
+export type CleanCoreSendResult = typeof CleanCoreSendResult.Type;

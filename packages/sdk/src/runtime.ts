@@ -318,19 +318,11 @@ export interface AppThreadSendReceipt {
   acceptedAt: string;
 }
 
-/** Immediate routing result of agent-facing `penkra threads send`; poll turn state for provider progress. */
-export type AgentThreadSendResult = {
-  threadId: string;
-  messageId: string;
-  turnId: string;
-} & (
-  | {
-      delivery: "queued";
-      queuePosition: number;
-      blockingTurnId?: string;
-      blockingTurnStartedAt?: string | null;
-    }
-  | { delivery: "started" | "steered" | "interrupted" }
+/** Provider-confirmed result of `penkra threads send` (TODO 2.4). */
+export type AgentThreadSendResult = { threadId: string; messageId: string } & (
+  | { delivery: "started" | "steered" | "interrupted"; turnId: string }
+  | { delivery: "queued"; position: number; queueLength: number; runningTurnId: string | null }
+  | { delivery: "failed"; error: string }
 );
 
 export interface AppPossibleModelDescriptor {
