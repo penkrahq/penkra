@@ -156,3 +156,45 @@ export const listThreads = (input: {
           : null,
     } satisfies ThreadListPage;
   });
+
+/** Indexed single-row read for creation and publisher consumers. */
+export const getThread = (threadId: ThreadId) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const rows = yield* sql<ThreadSummaryRecord>`
+      SELECT
+        id,
+        space_id AS "spaceId",
+        folder_id AS "folderId",
+        title,
+        provider,
+        connection_id AS "connectionId",
+        model,
+        model_options AS "modelOptions",
+        runtime_mode AS "runtimeMode",
+        working_directory AS "workingDirectory",
+        state,
+        active_turn_id AS "activeTurnId",
+        last_error AS "lastError",
+        created_by AS "createdBy",
+        created_by_thread_id AS "createdByThreadId",
+        parent_thread_id AS "parentThreadId",
+        deck_id AS "deckId",
+        deck_sort_order AS "deckSortOrder",
+        sidebar_sort_order AS "sidebarSortOrder",
+        is_pinned AS "isPinned",
+        last_activity_at AS "lastActivityAt",
+        last_message_preview AS "lastMessagePreview",
+        last_user_message_at AS "lastUserMessageAt",
+        last_visited_at AS "lastVisitedAt",
+        open_question_count AS "openQuestionCount",
+        archived_at AS "archivedAt",
+        deleted_at AS "deletedAt",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
+      FROM threads
+      WHERE id = ${threadId}
+  `;
+    if (rows[0] === undefined) return yield* Effect.fail(new Error("The thread does not exist."));
+    return rows[0];
+  });

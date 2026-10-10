@@ -12,7 +12,7 @@ import {
   TurnId,
   TrimmedNonEmptyString,
 } from "./baseSchemas";
-import { ProviderUserInputAnswers } from "./orchestration";
+import { ModelSelection, RuntimeMode, ProviderUserInputAnswers } from "./orchestration";
 
 /** Clean-core bounded transcript read (0.14.4 design 2.1). */
 export const CleanCoreListThreadItemsPageInput = Schema.Struct({
@@ -122,6 +122,23 @@ export const CleanCoreListThreadsResult = Schema.Struct({
 });
 export type CleanCoreListThreadsResult = typeof CleanCoreListThreadsResult.Type;
 
+export const CleanCoreCreateThreadInput = Schema.Struct({
+  threadId: ThreadId,
+  folderId: FolderId,
+  deckId: ThreadDeckId,
+  title: Schema.String,
+  modelSelection: ModelSelection,
+  connectionId: Schema.NullOr(ProviderConnectionId),
+  runtimeMode: RuntimeMode,
+  workingDirectory: Schema.NullOr(Schema.String),
+  createdAt: IsoDateTime,
+  creator: Schema.Union([
+    Schema.Struct({ kind: Schema.Literals(["user", "provider_native"]) }),
+    Schema.Struct({ kind: Schema.Literal("agent"), threadId: ThreadId }),
+  ]),
+});
+export type CleanCoreCreateThreadInput = typeof CleanCoreCreateThreadInput.Type;
+
 export const CleanCoreThreadMovePosition = Schema.Union([
   Schema.Struct({ type: Schema.Literals(["before", "after"]), itemId: Schema.String }),
   Schema.Struct({ type: Schema.Literal("pinned-boundary") }),
@@ -153,6 +170,24 @@ export const CleanCoreDeckMovePosition = Schema.Union([
 export type CleanCoreDeckMovePosition = typeof CleanCoreDeckMovePosition.Type;
 
 export const CleanCoreThreadUpdate = Schema.Union([
+  Schema.Struct({
+    action: Schema.Literal("rename"),
+    threadId: ThreadId,
+    title: Schema.String,
+    updatedAt: IsoDateTime,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("archive"),
+    threadId: ThreadId,
+    archivedAt: Schema.NullOr(IsoDateTime),
+    updatedAt: IsoDateTime,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("delete"),
+    threadId: ThreadId,
+    deletedAt: IsoDateTime,
+    updatedAt: IsoDateTime,
+  }),
   Schema.Struct({
     action: Schema.Literal("moveFolder"),
     folderId: FolderId,

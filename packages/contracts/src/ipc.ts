@@ -100,7 +100,9 @@ import type {
   CleanCoreGetThreadDraftInput,
   CleanCoreListThreadItemsPageInput,
   CleanCoreListThreadItemsPageResult,
+  CleanCoreCreateThreadInput,
   CleanCoreListThreadsInput,
+  CleanCoreThreadSummary,
   CleanCoreListThreadsResult,
   CleanCoreUpdateThreadInput,
   CleanCoreSetThreadDraftInput,
@@ -1113,6 +1115,7 @@ export interface NativeApi {
   cleanCore: {
     getThreadRuntime: (input: CleanCoreThreadRuntimeInput) => Promise<CleanCoreThreadRuntime>;
     interruptThread: (input: CleanCoreThreadRuntimeInput) => Promise<CleanCoreInterruptResult>;
+    createThread: (input: CleanCoreCreateThreadInput) => Promise<CleanCoreThreadSummary>;
     listThreads: (input: CleanCoreListThreadsInput) => Promise<CleanCoreListThreadsResult>;
     updateThread: (input: CleanCoreUpdateThreadInput) => Promise<void>;
     listThreadItemsPage: (

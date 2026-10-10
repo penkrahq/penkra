@@ -223,28 +223,29 @@ export const createThread = (input: CreateThreadInput) =>
     `;
   });
 
-const updateThread = (id: string, column: "archived_at" | "deleted_at", value: string | null) =>
+const updateThreadLifecycleColumn = (
+  id: string,
+  column: "archived_at" | "deleted_at" | "title",
+  value: string | null,
+  updatedAt: string,
+) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    if (column === "archived_at") {
-      yield* sql`UPDATE threads SET archived_at = ${value}, updated_at = ${value ?? new Date().toISOString()} WHERE id = ${id}`;
-    } else {
-      yield* sql`UPDATE threads SET deleted_at = ${value}, updated_at = ${value ?? new Date().toISOString()} WHERE id = ${id}`;
-    }
+    const rows =
+      column === "archived_at"
+        ? yield* sql`UPDATE threads SET archived_at = ${value}, updated_at = ${updatedAt} WHERE id = ${id} AND archived_at IS NOT ${value} RETURNING id`
+        : column === "deleted_at"
+          ? yield* sql`UPDATE threads SET deleted_at = ${value}, updated_at = ${updatedAt} WHERE id = ${id} AND deleted_at IS NOT ${value} RETURNING id`
+          : yield* sql`UPDATE threads SET title = ${value}, updated_at = ${updatedAt} WHERE id = ${id} AND title IS NOT ${value} RETURNING id`;
+    return rows.length !== 0;
   });
 
-/** Archive/unarchive: a plain set-state update; repeating it changes nothing. */
-export const setThreadArchived = (id: string, archivedAt: string | null) =>
-  updateThread(id, "archived_at", archivedAt);
-
-export const setThreadDeleted = (id: string, deletedAt: string | null) =>
-  updateThread(id, "deleted_at", deletedAt);
-
+export const setThreadArchived = (id: string, archivedAt: string | null, updatedAt: string) =>
+  updateThreadLifecycleColumn(id, "archived_at", archivedAt, updatedAt);
+export const setThreadDeleted = (id: string, deletedAt: string, updatedAt: string) =>
+  updateThreadLifecycleColumn(id, "deleted_at", deletedAt, updatedAt);
 export const renameThread = (id: string, title: string, updatedAt: string) =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    yield* sql`UPDATE threads SET title = ${title}, updated_at = ${updatedAt} WHERE id = ${id}`;
-  });
+  updateThreadLifecycleColumn(id, "title", title, updatedAt);
 
 export const setThreadState = (
   id: string,

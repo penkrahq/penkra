@@ -6,6 +6,7 @@ import {
   CleanCoreAnswerThreadQuestionInput,
   CleanCoreGetThreadDraftInput,
   CleanCoreListThreadItemsPageInput,
+  CleanCoreCreateThreadInput,
   CleanCoreListThreadsInput,
   CleanCoreUpdateThreadInput,
   CleanCoreSetThreadDraftInput,
@@ -134,6 +135,7 @@ export const WS_METHODS = {
   // Server meta
   cleanCoreGetThreadRuntime: "cleanCore.getThreadRuntime",
   cleanCoreInterruptThread: "cleanCore.interruptThread",
+  cleanCoreCreateThread: "cleanCore.createThread",
   cleanCoreListThreads: "cleanCore.listThreads",
   cleanCoreUpdateThread: "cleanCore.updateThread",
   cleanCoreSubscribeSidebar: "cleanCore.subscribeSidebar",
@@ -280,6 +282,7 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.serverGetConfig, Schema.Struct({})),
   tagRequestBody(WS_METHODS.cleanCoreGetThreadRuntime, CleanCoreThreadRuntimeInput),
   tagRequestBody(WS_METHODS.cleanCoreInterruptThread, CleanCoreThreadRuntimeInput),
+  tagRequestBody(WS_METHODS.cleanCoreCreateThread, CleanCoreCreateThreadInput),
   tagRequestBody(WS_METHODS.cleanCoreListThreads, CleanCoreListThreadsInput),
   tagRequestBody(WS_METHODS.cleanCoreUpdateThread, CleanCoreUpdateThreadInput),
   tagRequestBody(WS_METHODS.cleanCoreSubscribeSidebar, Schema.Struct({})),

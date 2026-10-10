@@ -278,8 +278,8 @@ it.effect("archive and answer are plain idempotent updates", () =>
         createdAt: "2026-10-09T00:00:01.000Z",
         updatedAt: "2026-10-09T00:00:01.000Z",
       });
-      yield* setThreadArchived("thread-1", "2026-10-09T00:01:00.000Z");
-      yield* setThreadArchived("thread-1", "2026-10-09T00:01:00.000Z");
+      yield* setThreadArchived("thread-1", "2026-10-09T00:01:00.000Z", "2026-10-09T00:01:00.000Z");
+      yield* setThreadArchived("thread-1", "2026-10-09T00:01:00.000Z", "2026-10-09T00:01:00.000Z");
       yield* answerQuestion(
         "thread-1",
         "question:req-1",

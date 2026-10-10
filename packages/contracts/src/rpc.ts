@@ -119,7 +119,9 @@ import {
   CleanCoreGetThreadDraftInput,
   CleanCoreListThreadItemsPageInput,
   CleanCoreListThreadItemsPageResult,
+  CleanCoreCreateThreadInput,
   CleanCoreListThreadsInput,
+  CleanCoreThreadSummary,
   CleanCoreListThreadsResult,
   CleanCoreUpdateThreadInput,
   CleanCoreSetThreadDraftInput,
@@ -677,6 +679,11 @@ export const WsProviderTerminateConnectionRpc = Rpc.make(WS_METHODS.providerTerm
   success: ProviderConnection,
   error: WsRpcError,
 });
+export const WsCleanCoreCreateThreadRpc = Rpc.make(WS_METHODS.cleanCoreCreateThread, {
+  payload: CleanCoreCreateThreadInput,
+  success: CleanCoreThreadSummary,
+  error: WsRpcError,
+});
 export const WsCleanCoreListThreadsRpc = Rpc.make(WS_METHODS.cleanCoreListThreads, {
   payload: CleanCoreListThreadsInput,
   success: CleanCoreListThreadsResult,
@@ -742,6 +749,7 @@ export const WsCleanCoreAnswerThreadQuestionRpc = Rpc.make(
 export const WsBootstrapRpcGroup = RpcGroup.make(WsBootstrapNegotiateRpc);
 
 export const WsFeatureRpcGroup = RpcGroup.make(
+  WsCleanCoreCreateThreadRpc,
   WsCleanCoreListThreadsRpc,
   WsCleanCoreGetThreadRuntimeRpc,
   WsCleanCoreInterruptThreadRpc,
