@@ -3037,6 +3037,58 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
 
+  it("warns when sending text while omitting expired terminal pills", async () => {
+    const expiredLabel = "Terminal 1 line 4";
+    useComposerDraftStore.getState().addTerminalContext(
+      THREAD_ID,
+      createTerminalContext({
+        id: "ctx-expired-send-warning",
+        terminalLabel: "Terminal 1",
+        lineStart: 4,
+        lineEnd: 4,
+        text: "",
+      }),
+    );
+    useComposerDraftStore
+      .getState()
+      .setPrompt(THREAD_ID, `yoo${INLINE_TERMINAL_CONTEXT_PLACEHOLDER}waddup`);
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-expired-pill-warning" as MessageId,
+        targetText: "expired pill warning target",
+      }),
+    });
+
+    try {
+      await vi.waitFor(
+        () => {
+          expect(document.body.textContent).toContain(expiredLabel);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      const sendButton = await waitForSendButton();
+      expect(sendButton.disabled).toBe(false);
+      await page.getByRole("button", { name: "Send message" }).click();
+
+      await expect
+        .element(page.getByText("Expired terminal context omitted from message"))
+        .toBeInTheDocument();
+      // The send clears the draft, so the expired pill is gone; the sent text is
+      // not shown optimistically (it arrives as a clean-core item).
+      await vi.waitFor(
+        () => {
+          expect(document.body.textContent).not.toContain(expiredLabel);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   beforeAll(async () => {
     fixture = buildFixture(
       createSnapshotForTargetUser({
