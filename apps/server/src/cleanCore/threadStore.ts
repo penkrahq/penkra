@@ -96,8 +96,17 @@ export interface CreateThreadInput {
   readonly connectionId?: string | null;
   readonly model: string;
   readonly modelOptions?: string | null;
+  readonly runtimeMode?: string;
+  readonly workingDirectory?: string | null;
   readonly providerSessionId?: string | null;
   readonly nativeStateId?: string | null;
+  readonly createdBy?: string;
+  readonly createdByThreadId?: string | null;
+  readonly parentThreadId?: string | null;
+  readonly deckId?: string | null;
+  readonly deckSortOrder?: number;
+  readonly sidebarSortOrder?: number | null;
+  readonly isPinned?: number;
   readonly createdAt: string;
 }
 
@@ -108,12 +117,19 @@ export const createThread = (input: CreateThreadInput) =>
     yield* sql`
       INSERT OR IGNORE INTO threads (
         id, space_id, folder_id, title, provider, connection_id, model, model_options,
-        provider_session_id, native_state_id, state, queue, created_at, updated_at
+        runtime_mode, working_directory, provider_session_id, native_state_id, state,
+        queue, created_by, created_by_thread_id, parent_thread_id, deck_id,
+        deck_sort_order, sidebar_sort_order, is_pinned, created_at, updated_at
       ) VALUES (
         ${input.id}, ${input.spaceId}, ${input.folderId ?? null}, ${input.title},
         ${input.provider}, ${input.connectionId ?? null}, ${input.model},
-        ${input.modelOptions ?? null}, ${input.providerSessionId ?? null},
-        ${input.nativeStateId ?? null}, 'idle', '[]', ${input.createdAt}, ${input.createdAt}
+        ${input.modelOptions ?? null}, ${input.runtimeMode ?? "full-access"},
+        ${input.workingDirectory ?? null}, ${input.providerSessionId ?? null},
+        ${input.nativeStateId ?? null}, 'idle', '[]', ${input.createdBy ?? "user"},
+        ${input.createdByThreadId ?? null}, ${input.parentThreadId ?? null},
+        ${input.deckId ?? null}, ${input.deckSortOrder ?? 0},
+        ${input.sidebarSortOrder ?? null}, ${input.isPinned ?? 0},
+        ${input.createdAt}, ${input.createdAt}
       )
     `;
   });

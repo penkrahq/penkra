@@ -39,6 +39,8 @@ export default Effect.gen(function* () {
       connection_id TEXT,
       model TEXT NOT NULL,
       model_options TEXT,
+      runtime_mode TEXT NOT NULL,
+      working_directory TEXT,
       provider_session_id TEXT,
       native_state_id TEXT,
       state TEXT NOT NULL,
@@ -47,6 +49,18 @@ export default Effect.gen(function* () {
       draft TEXT,
       draft_updated_at TEXT,
       queue TEXT NOT NULL DEFAULT '[]',
+      created_by TEXT NOT NULL,
+      created_by_thread_id TEXT,
+      parent_thread_id TEXT,
+      deck_id TEXT,
+      deck_sort_order INTEGER NOT NULL DEFAULT 0,
+      sidebar_sort_order INTEGER,
+      is_pinned INTEGER NOT NULL DEFAULT 0,
+      last_activity_at TEXT,
+      last_message_preview TEXT,
+      last_user_message_at TEXT,
+      last_visited_at TEXT,
+      open_question_count INTEGER NOT NULL DEFAULT 0,
       archived_at TEXT,
       deleted_at TEXT,
       created_at TEXT NOT NULL,
@@ -114,9 +128,13 @@ export default Effect.gen(function* () {
   yield* sql`
     INSERT OR IGNORE INTO threads (
       id, space_id, folder_id, title, provider, connection_id, model,
-      model_options, provider_session_id, native_state_id, state,
-      active_turn_id, last_error, draft, draft_updated_at, queue,
-      archived_at, deleted_at, created_at, updated_at
+      model_options, runtime_mode, working_directory, provider_session_id,
+      native_state_id, state, active_turn_id, last_error, draft,
+      draft_updated_at, queue, created_by, created_by_thread_id,
+      parent_thread_id, deck_id, deck_sort_order, sidebar_sort_order,
+      is_pinned, last_activity_at, last_message_preview, last_user_message_at,
+      last_visited_at, open_question_count, archived_at, deleted_at,
+      created_at, updated_at
     )
     SELECT
       t.thread_id,
@@ -127,6 +145,8 @@ export default Effect.gen(function* () {
       COALESCE(t.connection_id, b.connection_id),
       COALESCE(json_extract(t.model_selection_json, '$.model'), 'unknown'),
       NULL,
+      COALESCE(t.runtime_mode, 'full-access'),
+      t.working_directory,
       (SELECT CASE r.provider_name
          WHEN 'codex' THEN json_extract(r.resume_cursor_json, '$.threadId')
          WHEN 'claudeAgent' THEN json_extract(r.resume_cursor_json, '$.resume')
@@ -138,6 +158,21 @@ export default Effect.gen(function* () {
         WHERE g.owner_thread_id = t.thread_id AND g.lifecycle = 'active'
         LIMIT 1),
       'idle', NULL, NULL, NULL, NULL, '[]',
+      CASE t.creation_source
+        WHEN 'penkra_mcp' THEN 'agent'
+        WHEN 'provider_native' THEN 'provider_native'
+        ELSE 'user' END,
+      t.source_thread_id,
+      t.parent_thread_id,
+      t.deck_id,
+      COALESCE(t.deck_sort_order, 0),
+      t.sidebar_sort_order,
+      COALESCE(t.is_pinned, 0),
+      t.last_activity_at,
+      t.last_message_preview,
+      t.latest_user_message_at,
+      t.last_visited_at,
+      0,
       t.archived_at, t.deleted_at, t.created_at, t.updated_at
     FROM projection_threads t
     LEFT JOIN projection_folders f ON f.folder_id = t.folder_id
@@ -465,6 +500,16 @@ export default Effect.gen(function* () {
       ),
       source_id, turn_id, kind, status, text, data, created_at, updated_at
     FROM temp.clean_core_items
+  `;
+
+  // open_question_count is derived from the question items just written.
+  yield* sql`
+    UPDATE threads SET open_question_count = (
+      SELECT COUNT(*) FROM thread_items
+      WHERE thread_items.thread_id = threads.id
+        AND thread_items.kind = 'question'
+        AND thread_items.status = 'open'
+    )
   `;
 
   yield* sql`DROP TABLE IF EXISTS temp.clean_core_items`;
