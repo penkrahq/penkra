@@ -5,7 +5,13 @@
 import { SidebarSearchPaletteController } from "./SidebarSearchPaletteController";
 import { SidebarThreadPageEnd } from "./SidebarThreadPageEnd";
 import { useSidebarThreadRows, type SidebarThreadRow } from "../sidebarThreadRows";
-import { loadThread, loadThreadPage } from "../threadListStore";
+import {
+  loadThread,
+  loadThreadPage,
+  loadNextThreadPage,
+  threadListScopeKey,
+  useThreadListPages,
+} from "../threadListStore";
 import {
   FolderId,
   SpaceId,
@@ -2328,7 +2334,7 @@ export default function Sidebar() {
                 ),
               )}
               {!canShowMoreThreads ? (
-                <SidebarThreadPageEnd spaceId={project.spaceId} folderId={project.id} />
+                <SidebarFolderPaging spaceId={project.spaceId} folderId={project.id} />
               ) : null}
               {canShowMoreThreads ? (
                 <ShowMoreRow
@@ -3428,5 +3434,26 @@ export default function Sidebar() {
         }}
       />
     </>
+  );
+}
+
+function SidebarFolderPaging({ spaceId, folderId }: { spaceId: SpaceId; folderId: FolderId }) {
+  const page = useThreadListPages().get(threadListScopeKey(spaceId, folderId));
+  const onLoadNextPage = useCallback(() => {
+    void loadNextThreadPage({ spaceId, folderId }).catch((error: unknown) =>
+      toastManager.add({
+        type: "error",
+        title: "Could not load threads",
+        description: error instanceof Error ? error.message : String(error),
+      }),
+    );
+  }, [spaceId, folderId]);
+  if (page === undefined) return null;
+  return (
+    <SidebarThreadPageEnd
+      loading={page.loading}
+      hasNextPage={page.nextCursor !== null}
+      onLoadNextPage={onLoadNextPage}
+    />
   );
 }

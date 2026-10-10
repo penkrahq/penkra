@@ -14,6 +14,7 @@ import { page } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { SidebarSearchPaletteController } from "./SidebarSearchPaletteController";
+import { SidebarThreadPageEnd } from "./SidebarThreadPageEnd";
 import { getThreadListById, resetThreadListForTests } from "../threadListStore";
 import { toastManager } from "./ui/toast";
 
@@ -215,6 +216,42 @@ it("loads the next keyset page when the list end intersects, once per pending pa
     await vi.waitFor(() => expect(document.body.textContent).toContain("Next page thread"));
     expect(getThreadListById().size).toBe(51);
     expect(api.searchThreads).toHaveBeenCalledTimes(2);
+  } finally {
+    await view.unmount();
+    vi.unstubAllGlobals();
+  }
+});
+
+it("keeps the page-end observer across renders with unchanged paging values", async () => {
+  const observe = vi.fn();
+  const disconnect = vi.fn();
+  const createObserver = vi.fn();
+  vi.stubGlobal(
+    "IntersectionObserver",
+    class {
+      constructor(callback: IntersectionObserverCallback) {
+        createObserver(callback);
+      }
+      observe = observe;
+      disconnect = disconnect;
+    },
+  );
+  const onLoadNextPage = vi.fn();
+  const view = await render(
+    <SidebarThreadPageEnd loading={false} hasNextPage onLoadNextPage={onLoadNextPage} />,
+  );
+  try {
+    expect(createObserver).toHaveBeenCalledOnce();
+    await view.rerender(
+      <SidebarThreadPageEnd loading={false} hasNextPage onLoadNextPage={onLoadNextPage} />,
+    );
+    expect(createObserver).toHaveBeenCalledOnce();
+    expect(disconnect).not.toHaveBeenCalled();
+    await view.rerender(
+      <SidebarThreadPageEnd loading hasNextPage onLoadNextPage={onLoadNextPage} />,
+    );
+    expect(disconnect).toHaveBeenCalledOnce();
+    expect(createObserver).toHaveBeenCalledOnce();
   } finally {
     await view.unmount();
     vi.unstubAllGlobals();
