@@ -243,7 +243,7 @@ Mapping:
 - `thread_items` per thread in time order from messages, activities, operations, notices and pending interactions. Tool rows from activities and operations are grouped under one identity (activities: `data.toolCallId ?? data.toolUseId ?? data.callID ?? data.callId ?? data.item.id`, as `apps/web/src/workLog.ts:1884`; operations: `provider_operation_id`): one item per identity per thread, latest observation wins, the `operations` row wins a same-time tie. Old tool status `inProgress`/running in a migrated thread becomes `interrupted` (every migrated thread is idle).
 - Notices: `runtime.warning`, `context-compaction`, `media.presented`, `runtime.error` (text = `payload.message`), `provider.turn.start.failed` (text = `payload.detail`). `reasoning` activities → `reasoning` items. Every other activity kind is dropped. Questions come only from `projection_pending_interactions`.
 - Old OpenCode subagent results stored as `<task><task_result>…</task_result></task>` become the plain result text.
-- `retained` native-state folders are left on disk; their paths are written to `userdata/retained-native-state.txt`.
+- `retained` native-state folders (old deletion records whose folder removal failed) are deleted during the backfill. If one cannot be deleted, the backfill rolls back and the 2.9 banner names the path and the error. No `retained-native-state.txt` file exists.
 
 Rehearsal (part of step 4, repeated in step 11 after the drop is added): on a copy made per 3.0, report before/after counts, duration, final file size and free pages, and test the failure path by injecting an error after the first insert (expected: rollback, database unchanged, banner).
 
@@ -277,7 +277,7 @@ Step 12 details: the codebase should shrink substantially; report lines removed.
   - restart_turn_recoveries, queued_turn_promotions, retention_active_days, lost_and_found, operational_diagnostics
   - `agent_gateway_creation_admissions` → client-chosen thread id + `ON CONFLICT DO NOTHING`.
   - `provider_thread_switch_operations`, `provider_native_fork_operations` → account switch (same provider only) = copy the active native-state folder to a new folder, update `threads.connection_id` and `native_state_id` in one write, then start the turn.
-  - `provider_native_state_deletions` → deleting a thread deletes its native-state folder right after the row; a failure is logged and the path appended to `userdata/retained-native-state.txt`.
+  - `provider_native_state_deletions` → deleting a thread first deletes its native-state folder, then the row. If the folder cannot be deleted, the delete fails with that error (path and cause) shown to the caller, and the thread row stays. Nothing is logged-and-continued, and no `retained-native-state.txt` file exists (operator, 2026-10-10).
   - `provider_connection_logins`, `provider_connection_operations` → a login in progress lives in memory; if the app quits mid-login, the user starts it again.
   - `provider_auth_circuits` → in memory.
   - `connection_rate_limits` → in memory; the usage panel fetches fresh on launch. Delete `ConnectionUsageFactRepository`.
