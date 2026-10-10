@@ -1,3 +1,4 @@
+import { createThreadFromClient, updateThreadLifecycle } from "./cleanCore/threadLifecycle.ts";
 import { ThreadSender } from "./cleanCore/ThreadSender.ts";
 import { execFile } from "node:child_process";
 import { childDiagnosticSpan, startDiagnosticTrace } from "@penkra/shared/traceContext";
@@ -1422,6 +1423,8 @@ const makeWsRpcHandlersLayer = () =>
             ),
             "Failed to interrupt the provider turn",
           ),
+        [WS_METHODS.cleanCoreCreateThread]: (input) =>
+          rpcEffect(createThreadFromClient(input), "Failed to create the thread"),
         [WS_METHODS.cleanCoreListThreads]: (input) =>
           rpcEffect(listThreads(input), "Failed to load the thread list"),
         [WS_METHODS.cleanCoreUpdateThread]: (input) =>
@@ -1430,6 +1433,11 @@ const makeWsRpcHandlersLayer = () =>
               const update = input.update;
               const publish = (threadId: string) => threadPublisher.publish({ threadId });
               switch (update.action) {
+                case "rename":
+                case "archive":
+                case "delete":
+                  yield* updateThreadLifecycle(update);
+                  return;
                 case "moveFolder": {
                   const changed = yield* moveFolder(update);
                   yield* publishSidebarRows(threadPublisher, "folder", changed.folderIds);
