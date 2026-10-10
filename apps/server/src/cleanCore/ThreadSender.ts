@@ -40,7 +40,6 @@ export class ThreadSender extends ServiceMap.Service<
     readonly editQueued: (input: {
       threadId: ThreadId;
       messageId: string;
-      draft: string;
       updatedAt: string;
     }) => Effect.Effect<{ threadId: ThreadId; messageId: string; removed: boolean }, Error>;
     readonly queuedThread: (messageId: string) => Effect.Effect<ThreadId | null, Error>;
@@ -269,27 +268,41 @@ export const makeThreadSender = Effect.gen(function* () {
   yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
   const removeQueued = (
     input: { threadId: ThreadId; messageId: string },
-    draft: { value: string; updatedAt: string } | null,
+    draftUpdatedAt: string | null,
   ) =>
     withLane(
       input.threadId,
       Effect.gen(function* () {
-        const before = yield* readThreadQueue(input.threadId);
         const changed = yield* sql.withTransaction(
           Effect.gen(function* () {
             const queue = yield* readThreadQueue(input.threadId);
+            const message = queue.find((message) => message.messageId === input.messageId);
+            if (message === undefined) return null;
             const remaining = queue.filter((message) => message.messageId !== input.messageId);
-            if (remaining.length === queue.length) return null;
-            if (draft === null)
+            if (draftUpdatedAt === null)
               yield* sql`UPDATE threads SET queue = ${JSON.stringify(remaining)}, updated_at = ${new Date().toISOString()} WHERE id = ${input.threadId}`;
-            else
-              yield* sql`UPDATE threads SET queue = ${JSON.stringify(remaining)}, draft = ${draft.value}, draft_updated_at = ${draft.updatedAt}, updated_at = ${draft.updatedAt} WHERE id = ${input.threadId}`;
-            return remaining;
+            else {
+              const reference = (attachment: { id: string; name: string; mimeType: string }) => ({
+                id: attachment.id,
+                name: attachment.name,
+                mimeType: attachment.mimeType,
+              });
+              const draft = JSON.stringify({
+                prompt: message.text,
+                attachments: message.attachments.filter((a) => a.type === "image").map(reference),
+                files: message.attachments.filter((a) => a.type === "file").map(reference),
+                assistantSelections: message.attachments.filter(
+                  (a) => a.type === "assistant-selection",
+                ),
+              });
+              yield* sql`UPDATE threads SET queue = ${JSON.stringify(remaining)}, draft = ${draft}, draft_updated_at = ${draftUpdatedAt}, updated_at = ${draftUpdatedAt} WHERE id = ${input.threadId}`;
+            }
+            return { wasHead: queue[0]?.messageId === input.messageId };
           }),
         );
         if (changed !== null) {
           publisher.publish({ threadId: input.threadId });
-          if (before[0]?.messageId === input.messageId)
+          if (changed.wasHead)
             yield* Effect.forkIn(withLane(input.threadId, deliverHead(input.threadId)), scope);
         }
         return { ...input, removed: changed !== null };
@@ -348,16 +361,8 @@ export const makeThreadSender = Effect.gen(function* () {
         }
       }),
     cancelQueued: (input: { threadId: ThreadId; messageId: string }) => removeQueued(input, null),
-    editQueued: (input: {
-      threadId: ThreadId;
-      messageId: string;
-      draft: string;
-      updatedAt: string;
-    }) =>
-      removeQueued(
-        { threadId: input.threadId, messageId: input.messageId },
-        { value: input.draft, updatedAt: input.updatedAt },
-      ),
+    editQueued: (input: { threadId: ThreadId; messageId: string; updatedAt: string }) =>
+      removeQueued({ threadId: input.threadId, messageId: input.messageId }, input.updatedAt),
     getRuntime,
     interrupt: (threadId: ThreadId) =>
       withLane(

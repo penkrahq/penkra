@@ -111,7 +111,6 @@ export const CleanCoreQueuedMessageResult = Schema.Struct({
 export type CleanCoreQueuedMessageResult = typeof CleanCoreQueuedMessageResult.Type;
 export const CleanCoreEditQueuedMessageInput = Schema.Struct({
   ...CleanCoreQueuedMessageInput.fields,
-  draft: Schema.String,
   updatedAt: IsoDateTime,
 });
 export type CleanCoreEditQueuedMessageInput = typeof CleanCoreEditQueuedMessageInput.Type;

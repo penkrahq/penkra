@@ -5,6 +5,7 @@ import "../index.css";
 
 import {
   type CleanCoreThreadItem,
+  type CleanCoreQueuedMessage,
   type CleanCoreCreateThreadInput,
   type CleanCoreThreadUpdate,
   type OrchestrationThread,
@@ -1654,6 +1655,21 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
     const thread = fixture.snapshot.threads.find((thread) => thread.id === body.threadId);
     const removed = thread?.queuedMessageIds?.includes(body.messageId as MessageId) === true;
     if (removed) {
+      const message = summarizeFixtureThread(thread!).queue;
+      const entry = (JSON.parse(message) as CleanCoreQueuedMessage[]).find(
+        (entry) => entry.messageId === body.messageId,
+      )!;
+      const reference = (a: { id: string; name: string; mimeType: string }) => ({
+        id: a.id,
+        name: a.name,
+        mimeType: a.mimeType,
+      });
+      const draft = JSON.stringify({
+        prompt: entry.text,
+        attachments: entry.attachments.filter((a) => a.type === "image").map(reference),
+        files: entry.attachments.filter((a) => a.type === "file").map(reference),
+        assistantSelections: entry.attachments.filter((a) => a.type === "assistant-selection"),
+      });
       fixture = {
         ...fixture,
         snapshot: {
@@ -1674,7 +1690,7 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
       };
       if (tag === WS_METHODS.cleanCoreEditQueuedMessage)
         fixtureDrafts.set(body.threadId as string, {
-          draft: body.draft as string,
+          draft,
           draftUpdatedAt: body.updatedAt as string,
         });
       pushCleanCoreThreadChange(body.threadId as ThreadId);
