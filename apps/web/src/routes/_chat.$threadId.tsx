@@ -2,15 +2,16 @@
 // Purpose: Resolve the active thread route into a single chat surface.
 // Layer: Route container
 
-import { type FolderId, ThreadId, singletonThreadDeckId } from "@penkra/contracts";
+import { ThreadId, singletonThreadDeckId } from "@penkra/contracts";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import { useComposerDraftStore } from "../composerDraftStore";
 import { parseChatRouteSearch } from "../chatRouteSearch";
 import { isLocalThreadArchiveNavigationPending } from "../lib/threadArchiveNavigation";
 import { useStore } from "../store";
-import { createThreadExistsSelector, createThreadFolderIdSelector } from "../storeSelectors";
+import { getThreadListById, loadThread, useThreadSummary } from "../threadListStore";
+import { toastManager } from "../components/ui/toast";
 import { SingleChatSurface } from "../components/chat/SingleChatSurface";
 import { resolveSingleFolderId, shouldRedirectArchivedThreadRoute } from "./-chatThreadRoute.logic";
 
@@ -19,17 +20,17 @@ function ChatThreadRouteView() {
   const threadId = Route.useParams({
     select: (params) => ThreadId.makeUnsafe(params.threadId),
   });
-  const threadFolderIdSelector = createThreadFolderIdSelector(threadId);
-  const threadExistsSelector = createThreadExistsSelector(threadId);
-  const threadFolderId: FolderId | null = useStore(threadFolderIdSelector);
-  const threadExists = useStore(threadExistsSelector);
-  const threadArchived = useStore((store) => store.threadShellById?.[threadId]?.archivedAt != null);
-  const persistedDeckId = useStore((store) => store.threadShellById?.[threadId]?.deckId ?? null);
+  const thread = useThreadSummary(threadId);
+  const threadFolderId = thread?.folderId ?? null;
+  const threadArchived = thread !== null && thread.archivedAt !== null;
+  const threadDeleted = thread !== null && thread.deletedAt !== null;
+  const persistedDeckId = thread?.deckId ?? null;
+  const readsByThreadId = useRef(new Map<ThreadId, Promise<void>>());
   const draftThreadState = useComposerDraftStore(
     (store) => store.draftThreadsByThreadId[threadId] ?? null,
   );
   const draftThreadExists = draftThreadState !== null;
-  const routeThreadExists = threadExists || draftThreadExists;
+  const routeThreadExists = thread !== null || draftThreadExists;
   const homeDeckId = persistedDeckId ?? draftThreadState?.deckId ?? singletonThreadDeckId(threadId);
   const activeFolderId = resolveSingleFolderId({
     threadFolderId,
@@ -38,28 +39,17 @@ function ChatThreadRouteView() {
   const navigate = useNavigate();
   useEffect(() => {
     const home = window.desktopBridge?.threadHome;
-    if (!routeThreadExists || threadArchived) {
+    if (!routeThreadExists || threadArchived || threadDeleted) {
       home?.leave();
       return;
     }
     const recordView = () => {
-      const visibleThreadIds = [threadId];
-      const activeThreadId = threadId;
-      const state = useStore.getState();
-      const draftState = useComposerDraftStore.getState();
-      const views = visibleThreadIds.map((visibleThreadId) => ({
-        threadId: visibleThreadId,
-        deckId:
-          state.threadShellById?.[visibleThreadId]?.deckId ??
-          draftState.draftThreadsByThreadId[visibleThreadId]?.deckId ??
-          (visibleThreadId === threadId ? homeDeckId : singletonThreadDeckId(visibleThreadId)),
-      }));
-      home?.view({ views, activeThreadId });
+      home?.view({ views: [{ threadId, deckId: homeDeckId }], activeThreadId: threadId });
     };
     recordView();
     window.addEventListener("focus", recordView);
     return () => window.removeEventListener("focus", recordView);
-  }, [homeDeckId, routeThreadExists, threadArchived, threadId]);
+  }, [homeDeckId, routeThreadExists, threadArchived, threadDeleted, threadId]);
 
   useEffect(() => {
     const home = window.desktopBridge?.threadHome;
@@ -83,12 +73,49 @@ function ChatThreadRouteView() {
       return;
     }
 
-    if (!routeThreadExists) {
+    if (threadDeleted) {
       void navigate({ to: "/", replace: true });
+      return;
     }
-  }, [navigate, routeThreadExists, threadId, threadArchived, threadsHydrated]);
+    if (thread !== null || draftThreadExists) return;
 
-  if (threadArchived) {
+    // Keep the request through effect cleanup so rerenders and StrictMode never reread the id.
+    let request = readsByThreadId.current.get(threadId);
+    if (request === undefined) {
+      request = loadThread(threadId);
+      readsByThreadId.current.set(threadId, request);
+    }
+    let cancelled = false;
+    void request
+      .then(() => {
+        if (cancelled) return;
+        const loaded = getThreadListById().get(threadId);
+        if (loaded === undefined || loaded.archivedAt !== null || loaded.deletedAt !== null)
+          void navigate({ to: "/", replace: true });
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        toastManager.add({
+          type: "error",
+          title: "Could not open the thread",
+          description: error instanceof Error ? error.message : String(error),
+        });
+        void navigate({ to: "/", replace: true });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    navigate,
+    draftThreadExists,
+    threadId,
+    thread,
+    threadArchived,
+    threadDeleted,
+    threadsHydrated,
+  ]);
+
+  if (threadArchived || threadDeleted) {
     return null;
   }
 
