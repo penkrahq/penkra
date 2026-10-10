@@ -2,7 +2,12 @@
 // Purpose: Keep ChatView's thread-scoped selectors off the component hot path and out of the render file.
 // Exports: lineage/work-log selector factories used by ChatView.
 
-import { type MessageId, ThreadId, type ThreadId as ThreadIdType } from "@penkra/contracts";
+import {
+  type CleanCoreThreadSummary,
+  type MessageId,
+  ThreadId,
+  type ThreadId as ThreadIdType,
+} from "@penkra/contracts";
 
 import type { AppState } from "../storeState";
 import { collectByIds, getThreadFromState } from "../threadDerivation";
@@ -113,6 +118,7 @@ function buildThreadSelectionResult(
 function buildThreadLineageSelectionResult(
   state: AppState,
   selectedThreadIds: ReadonlyArray<ThreadIdType>,
+  rowsById: ReadonlyMap<ThreadIdType, Pick<CleanCoreThreadSummary, "id" | "parentThreadId">>,
 ): ThreadLineageEntry[] {
   return selectedThreadIds.flatMap((threadId) => {
     const shell = state.threadShellById?.[threadId];
@@ -128,7 +134,7 @@ function buildThreadLineageSelectionResult(
           state.activityByThreadId?.[threadId],
           EMPTY_LINEAGE_ACTIVITIES,
         ),
-        ...(shell.parentThreadId !== undefined ? { parentThreadId: shell.parentThreadId } : {}),
+        parentThreadId: rowsById.get(threadId)!.parentThreadId,
         ...(shell.subagentAgentId !== undefined ? { subagentAgentId: shell.subagentAgentId } : {}),
         ...(shell.subagentNickname !== undefined
           ? { subagentNickname: shell.subagentNickname }
@@ -263,7 +269,11 @@ export function createRelevantWorkLogThreadsSelector(input: {
   };
 }
 
-export function createThreadLineageSelector(threadId: ThreadIdType | null) {
+export function createThreadLineageSelector(
+  threadId: ThreadIdType | null,
+  rows: readonly Pick<CleanCoreThreadSummary, "id" | "parentThreadId">[],
+) {
+  const rowsById = new Map(rows.map((row) => [row.id, row]));
   let previousSelectedThreadIds: ThreadIdType[] = [];
   let previousSliceRefs = new Map<ThreadIdType, ThreadLineageSliceRefs>();
   let previousResult: ThreadLineageEntry[] = [];
@@ -279,13 +289,12 @@ export function createThreadLineageSelector(threadId: ThreadIdType | null) {
       return previousResult;
     }
 
-    const threadShellById: Record<ThreadIdType, ThreadShell> = state.threadShellById ?? {};
     const selectedThreadIds: ThreadIdType[] = [];
     const visitedThreadIds = new Set<ThreadIdType>();
     let currentThreadId: ThreadIdType | null = threadId;
 
     while (currentThreadId) {
-      const thread: ThreadShell | undefined = threadShellById[currentThreadId];
+      const thread = rowsById.get(currentThreadId);
       if (!thread || visitedThreadIds.has(thread.id)) {
         break;
       }
@@ -318,7 +327,7 @@ export function createThreadLineageSelector(threadId: ThreadIdType | null) {
     previousSelectedThreadIds = selectedThreadIds;
     previousSliceRefs = nextSliceRefs;
 
-    const nextResult = buildThreadLineageSelectionResult(state, selectedThreadIds);
+    const nextResult = buildThreadLineageSelectionResult(state, selectedThreadIds, rowsById);
     if (shallowEqualThreadLineageEntries(previousResult, nextResult)) {
       return previousResult;
     }

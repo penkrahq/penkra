@@ -1,3 +1,4 @@
+import { promoteThreadCreate } from "../lib/threadCreatePromotion";
 import { toastManager } from "./ui/toast";
 import { resetThreadListForTests } from "../threadListStore";
 // Production CSS is part of the behavior under test because row height depends on it.
@@ -673,6 +674,24 @@ function applyEventsForTest(events: OrchestrationEvent[]): void {
   useStore.getState().applyOrchestrationEvents(events);
   publishThreadToFixture();
   pushCleanCoreThreadChange(THREAD_ID);
+}
+
+async function promoteDraftThreadForTest(threadId: ThreadId, title: string): Promise<void> {
+  const draft = useComposerDraftStore.getState().getDraftThread(threadId);
+  if (draft === null || draft === undefined)
+    throw new Error("A local draft is required for promotion.");
+  await promoteThreadCreate({
+    threadId,
+    folderId: draft.folderId,
+    deckId: draft.deckId,
+    title,
+    modelSelection: { provider: "codex", model: "gpt-5" },
+    runtimeMode: draft.runtimeMode,
+    workingDirectory: draft.workingDirectory ?? null,
+    connection: { kind: "default" },
+    creator: { kind: "user" },
+    createdAt: draft.createdAt,
+  });
 }
 
 function addThreadToSnapshot(
@@ -4101,7 +4120,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
         ...snapshot,
         snapshotSequence: snapshot.snapshotSequence + 1,
         threads: snapshot.threads.map((thread) =>
-          thread.id === THREAD_ID ? change(thread) : thread,
+          thread.id === THREAD_ID
+            ? { ...change(thread), updatedAt: new Date().toISOString() }
+            : thread,
         ),
       };
       fixture = { ...fixture, snapshot };
@@ -4938,7 +4959,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await editor.fill("first prompt");
       await expect.element(editor).toHaveTextContent("first prompt");
 
-      useStore.getState().syncServerReadModel(addThreadToSnapshot(draftSnapshot, THREAD_ID));
+      await promoteDraftThreadForTest(THREAD_ID, THREAD_TITLE);
       useComposerDraftStore.getState().clearDraftThread(THREAD_ID);
       await expect.element(editor).toHaveTextContent("");
 
@@ -6958,8 +6979,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       // thread has been promoted to a server thread (clean-core creation + turn.start
       // succeeded). The snapshot now includes the new thread, and the sync
       // should clear the draft without disrupting the route.
-      const { syncServerReadModel } = useStore.getState();
-      syncServerReadModel(addThreadToSnapshot(fixture.snapshot, newThreadId));
+      await promoteDraftThreadForTest(newThreadId, THREAD_TITLE);
 
       // Clear the draft now that the server thread exists (mirrors EventRouter behavior).
       useComposerDraftStore.getState().clearDraftThread(newThreadId);
@@ -7990,12 +8010,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
 
-      useStore.getState().syncServerReadModel(
-        addThreadToSnapshot(fixture.snapshot, newThreadId, {
-          title: "New terminal",
-        }),
+      expect(fixture.snapshot.threads.filter((thread) => thread.id === newThreadId)).toHaveLength(
+        1,
       );
-      useComposerDraftStore.getState().clearDraftThread(newThreadId);
 
       await vi.waitFor(
         () => {
@@ -8075,8 +8092,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           "Route should have changed to a promoted draft thread UUID.",
         );
 
-      const { syncServerReadModel } = useStore.getState();
-      syncServerReadModel(addThreadToSnapshot(fixture.snapshot, promotedThreadId));
+      await promoteDraftThreadForTest(promotedThreadId, THREAD_TITLE);
       useComposerDraftStore.getState().clearDraftThread(promotedThreadId);
 
       const freshThreadPath = await triggerChatNewShortcutUntilPath(

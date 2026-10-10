@@ -144,6 +144,13 @@ export function loadDeckThreads(deckId: ThreadDeckId): Promise<void> {
   return request;
 }
 
+/** Apply an operation's returned row without a second read. */
+export function applyThreadRow(row: CleanCoreThreadSummary): void {
+  const stored = byId.get(row.id);
+  if (stored !== undefined && stored.updatedAt > row.updatedAt) return;
+  setThreads(new Map(byId).set(row.id, row));
+}
+
 /** Read one indexed row, including its canonical queue. */
 export async function loadThread(threadId: ThreadId): Promise<void> {
   const thread = await ensureNativeApi().cleanCore.getThread({ threadId });
