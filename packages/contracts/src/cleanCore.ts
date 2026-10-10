@@ -169,6 +169,31 @@ export const CleanCoreListThreadsResult = Schema.Struct({
 });
 export type CleanCoreListThreadsResult = typeof CleanCoreListThreadsResult.Type;
 
+export const CleanCoreThreadSearchCursor = Schema.Struct({
+  matchKind: Schema.Literals(["title", "message"]),
+  lastActivityAt: Schema.NullOr(IsoDateTime),
+  id: ThreadId,
+});
+export type CleanCoreThreadSearchCursor = typeof CleanCoreThreadSearchCursor.Type;
+export const CleanCoreSearchThreadsInput = Schema.Struct({
+  spaceId: SpaceId,
+  query: Schema.String,
+  cursor: Schema.NullOr(CleanCoreThreadSearchCursor),
+});
+export type CleanCoreSearchThreadsInput = typeof CleanCoreSearchThreadsInput.Type;
+export const CleanCoreThreadSearchMatch = Schema.Struct({
+  ...CleanCoreThreadSummary.fields,
+  matchKind: Schema.Literals(["title", "message"]),
+  messageId: Schema.NullOr(Schema.String),
+  messageText: Schema.NullOr(Schema.String),
+});
+export type CleanCoreThreadSearchMatch = typeof CleanCoreThreadSearchMatch.Type;
+export const CleanCoreSearchThreadsResult = Schema.Struct({
+  threads: Schema.Array(CleanCoreThreadSearchMatch),
+  nextCursor: Schema.NullOr(CleanCoreThreadSearchCursor),
+});
+export type CleanCoreSearchThreadsResult = typeof CleanCoreSearchThreadsResult.Type;
+
 export const CleanCoreDeckThreadCursor = Schema.Struct({
   deckSortOrder: Schema.Number,
   id: ThreadId,

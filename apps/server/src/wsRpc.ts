@@ -115,7 +115,7 @@ import { armQaProviderSwitch, clearQaProviderSwitch } from "./diagnostics/qaProv
 import { recordServerQaAction } from "./diagnostics/qaProofBuild";
 import { recordWsRpcFailure } from "./diagnostics/wsRpcFailure";
 import { listThreadItemsPage } from "./cleanCore/threadItemsPage.ts";
-import { findThread, listThreads, listDeckThreads } from "./cleanCore/threadList.ts";
+import { findThread, listThreads, listDeckThreads, searchThreads } from "./cleanCore/threadList.ts";
 import { getThreadDraft, setThreadDraft } from "./cleanCore/threadDraft.ts";
 import {
   markThreadVisited,
@@ -1459,6 +1459,8 @@ const makeWsRpcHandlersLayer = () =>
           ),
         [WS_METHODS.cleanCoreListDeckThreads]: (input) =>
           rpcEffect(listDeckThreads(input), "Failed to load deck threads"),
+        [WS_METHODS.cleanCoreSearchThreads]: (input) =>
+          rpcEffect(searchThreads(input), "Failed to search threads"),
         [WS_METHODS.cleanCoreListThreads]: (input) =>
           rpcEffect(listThreads(input), "Failed to load the thread list"),
         [WS_METHODS.cleanCoreUpdateThread]: (input) =>
