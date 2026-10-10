@@ -11,7 +11,6 @@ import {
   MessageId,
   type ModelSelection,
   type NativeApi,
-  type OrchestrationShellSnapshot,
   type ProjectScript,
   type ModelSlug,
   type ProviderKind,
@@ -501,44 +500,7 @@ function composerDraftContentOwnershipKey(draft: ComposerThreadDraftState | unde
     mentions: draft.mentions,
   });
 }
-const DRAFT_PROJECT_SYNC_MAX_ATTEMPTS = 6;
-const DRAFT_PROJECT_SYNC_DELAY_MS = 50;
 const COMPOSER_INPUT_BURST_IDLE_MS = 50;
-
-function waitForDraftProjectSyncDelay(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
-}
-
-// Waits for a project to appear in the shell snapshot before a local draft points at it.
-async function waitForShellProjectById(
-  api: NativeApi,
-  folderId: FolderId,
-): Promise<{
-  project: OrchestrationShellSnapshot["folders"][number] | null;
-  snapshot: OrchestrationShellSnapshot | null;
-}> {
-  let latestSnapshot: OrchestrationShellSnapshot | null = null;
-  for (let attempt = 1; attempt <= DRAFT_PROJECT_SYNC_MAX_ATTEMPTS; attempt += 1) {
-    const snapshot = await api.orchestration.getShellSnapshot().catch(() => {
-      if (attempt === DRAFT_PROJECT_SYNC_MAX_ATTEMPTS)
-        recordChatSendFailure("EXTERNAL_CALL_FAILED");
-      return null;
-    });
-    if (snapshot) {
-      latestSnapshot = snapshot;
-      const project = snapshot.folders.find((candidate) => candidate.id === folderId) ?? null;
-      if (project) {
-        return { project, snapshot };
-      }
-    }
-    if (attempt < DRAFT_PROJECT_SYNC_MAX_ATTEMPTS) {
-      await waitForDraftProjectSyncDelay(DRAFT_PROJECT_SYNC_DELAY_MS * attempt);
-    }
-  }
-  return { project: null, snapshot: latestSnapshot };
-}
 
 function revokeBlobPreviewUrlsAfterPaint(previewUrls: readonly string[]): void {
   if (previewUrls.length === 0 || typeof window === "undefined") {
@@ -830,7 +792,6 @@ function ChatViewContent({
   // into a full long-thread render.
   const paneScopeId = paneScopeIdProp ?? SINGLE_CHAT_PANE_SCOPE_ID;
   const markThreadVisited = useStore((store) => store.markThreadVisited);
-  const syncServerShellSnapshot = useStore((store) => store.syncServerShellSnapshot);
   const syncServerThreadTurnsPage = useStore((store) => store.syncServerThreadTurnsPage);
   const markThreadDetailSyncFailed = useStore((store) => store.markThreadDetailSyncFailed);
   const clearThreadDetailSyncFailure = useStore((store) => store.clearThreadDetailSyncFailure);
@@ -6885,7 +6846,6 @@ function ChatViewContent({
     selectedConnectionId,
     runtimeMode,
     threadId,
-    syncServerShellSnapshot,
     navigateToThread: (nextThreadId) =>
       navigate({
         to: "/$threadId",
