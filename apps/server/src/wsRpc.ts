@@ -114,7 +114,7 @@ import { armQaProviderSwitch, clearQaProviderSwitch } from "./diagnostics/qaProv
 import { recordServerQaAction } from "./diagnostics/qaProofBuild";
 import { recordWsRpcFailure } from "./diagnostics/wsRpcFailure";
 import { listThreadItemsPage } from "./cleanCore/threadItemsPage.ts";
-import { listThreads } from "./cleanCore/threadList.ts";
+import { findThread, listThreads } from "./cleanCore/threadList.ts";
 import { getThreadDraft, setThreadDraft } from "./cleanCore/threadDraft.ts";
 import {
   markThreadVisited,
@@ -1407,6 +1407,33 @@ const makeWsRpcHandlersLayer = () =>
               sender.interrupt(input.threadId),
             ),
             "Failed to interrupt the provider turn",
+          ),
+        [WS_METHODS.cleanCoreGetThread]: (input) =>
+          rpcEffect(findThread(input.threadId), "Failed to read the thread"),
+        [WS_METHODS.cleanCoreSendMessage]: (input) =>
+          rpcEffect(
+            runtimeStartup.enqueueCommand(
+              Effect.flatMap(Effect.service(ThreadSender), (sender) => sender.send(input)),
+            ),
+            "Failed to send the message",
+          ),
+        [WS_METHODS.cleanCoreCancelQueuedMessage]: (input) =>
+          rpcEffect(
+            Effect.flatMap(Effect.service(ThreadSender), (sender) =>
+              sender
+                .cancelQueued(input)
+                .pipe(Effect.map((result) => ({ ...result, messageId: input.messageId }))),
+            ),
+            "Failed to remove the queued message",
+          ),
+        [WS_METHODS.cleanCoreEditQueuedMessage]: (input) =>
+          rpcEffect(
+            Effect.flatMap(Effect.service(ThreadSender), (sender) =>
+              sender
+                .editQueued(input)
+                .pipe(Effect.map((result) => ({ ...result, messageId: input.messageId }))),
+            ),
+            "Failed to edit the queued message",
           ),
         [WS_METHODS.cleanCoreGetThreadShell]: (input) =>
           rpcEffect(

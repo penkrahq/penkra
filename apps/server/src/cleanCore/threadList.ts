@@ -30,6 +30,7 @@ export interface ThreadSummaryRecord {
   readonly state: string;
   readonly activeTurnId: TurnId | null;
   readonly lastError: string | null;
+  readonly queue: string;
   readonly createdBy: string;
   readonly createdByThreadId: ThreadId | null;
   readonly parentThreadId: ThreadId | null;
@@ -99,6 +100,7 @@ export const listThreads = (input: {
         state,
         active_turn_id AS "activeTurnId",
         last_error AS "lastError",
+        queue,
         created_by AS "createdBy",
         created_by_thread_id AS "createdByThreadId",
         parent_thread_id AS "parentThreadId",
@@ -176,6 +178,7 @@ export const findThread = (threadId: ThreadId) =>
         state,
         active_turn_id AS "activeTurnId",
         last_error AS "lastError",
+        queue,
         created_by AS "createdBy",
         created_by_thread_id AS "createdByThreadId",
         parent_thread_id AS "parentThreadId",

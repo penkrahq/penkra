@@ -1,3 +1,4 @@
+import { ManagedAttachmentRepositoryLive } from "../persistence/Layers/ManagedAttachments.ts";
 import { assert, it } from "@effect/vitest";
 import {
   FolderId,
@@ -97,6 +98,7 @@ it.effect(
       } satisfies typeof ProviderThreadSwitchCoordinator.Service;
       const newSender = () =>
         makeThreadSender.pipe(
+          Effect.provide(ManagedAttachmentRepositoryLive),
           Effect.provideService(ThreadPublisher, publisher),
           Effect.provideService(ProviderThreadSwitchCoordinator, coordinator),
           Effect.provideService(ThreadProviderBindingRepository, {

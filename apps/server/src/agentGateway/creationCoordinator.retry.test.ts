@@ -177,6 +177,7 @@ function makeHarness() {
             state: "idle",
             activeTurnId: null,
             lastError: null,
+            queue: "[]",
             createdBy: "agent",
             createdByThreadId: CALLER_THREAD_ID,
             parentThreadId: null,

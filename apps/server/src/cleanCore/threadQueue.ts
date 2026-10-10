@@ -5,19 +5,10 @@
 // Exports: QueuedMessage, planSend, readThreadQueue, enqueueMessage
 
 import { Schema, Effect } from "effect";
-import { ChatAttachment, MessageId, ThreadId } from "@penkra/contracts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-export const QueuedMessage = Schema.Struct({
-  messageId: MessageId,
-  text: Schema.String,
-  attachments: Schema.Array(ChatAttachment),
-  senderThreadId: Schema.NullOr(ThreadId),
-  dispatchOrigin: Schema.Literals(["user", "automation", "agent"]),
-  queuedAt: Schema.String,
-});
-export type QueuedMessage = typeof QueuedMessage.Type;
-
+export { CleanCoreQueuedMessage as QueuedMessage } from "@penkra/contracts";
+import { CleanCoreQueuedMessage as QueuedMessage } from "@penkra/contracts";
 export type SendPlan = "deliver" | "queue" | "steer" | "interrupt-deliver";
 
 /**
@@ -56,6 +47,7 @@ export const enqueueMessage = (threadId: string, message: QueuedMessage) =>
       SELECT queue FROM threads WHERE id = ${threadId}
     `;
     const queue = [...decodeQueue(JSON.parse(rows[0]!.queue!)), message];
-    yield* sql`UPDATE threads SET queue = ${JSON.stringify(queue)} WHERE id = ${threadId}`;
+    const changedAt = new Date().toISOString();
+    yield* sql`UPDATE threads SET queue = ${JSON.stringify(queue)}, draft = NULL, draft_updated_at = ${changedAt}, updated_at = ${changedAt} WHERE id = ${threadId}`;
     return queue;
   });

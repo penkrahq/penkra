@@ -34,16 +34,11 @@ function waitForTransaction(transaction: IDBTransaction): Promise<void> {
   return waitForIdbTransaction(transaction, "Composer image storage");
 }
 
-export function composerImageBlobKey(threadId: string, imageId: string): string {
-  return `${threadId}:${imageId}`;
-}
-
 export async function persistComposerImageBlob(input: {
-  threadId: string;
-  imageId: string;
+  assetId: string;
   file: File;
 }): Promise<string> {
-  const key = composerImageBlobKey(input.threadId, input.imageId);
+  const key = input.assetId;
   const database = await openComposerImageDatabase();
   try {
     const transaction = database.transaction(IMAGE_STORE_NAME, "readwrite");

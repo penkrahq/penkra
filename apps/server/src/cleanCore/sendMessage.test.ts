@@ -52,6 +52,7 @@ it.effect("started waits for the exact provider start, then records the delivere
       const publisher = yield* setup;
       const dispatched = yield* Deferred.make<void>();
       const driver: SendDriver = {
+        claimAttachments: () => Effect.void,
         dispatch: () => Deferred.succeed(dispatched, undefined).pipe(Effect.as("turn-1")),
         interrupt: () => Effect.void,
       };
@@ -101,6 +102,7 @@ it.effect("steered returns only after the provider acknowledges it", () =>
       });
       const acknowledged = yield* Deferred.make<string, Error>();
       const driver: SendDriver = {
+        claimAttachments: () => Effect.void,
         dispatch: (_, mode) => {
           assert.equal(mode, "steer");
           return Deferred.await(acknowledged);
@@ -134,6 +136,7 @@ it.effect("interrupted waits for the old turn to end and for the new turn to sta
       const interrupted = yield* Deferred.make<void>();
       const dispatched = yield* Deferred.make<void>();
       const driver: SendDriver = {
+        claimAttachments: () => Effect.void,
         interrupt: () => Deferred.succeed(interrupted, undefined).pipe(Effect.asVoid),
         dispatch: () => Deferred.succeed(dispatched, undefined).pipe(Effect.as("next")),
       };
@@ -179,6 +182,7 @@ it.effect(
           at,
         });
         const driver: SendDriver = {
+          claimAttachments: () => Effect.void,
           dispatch: () => Effect.die("queued must not dispatch"),
           interrupt: () => Effect.die("queued must not interrupt"),
         };
@@ -207,6 +211,7 @@ it.effect("failed preserves the provider message, previous thread state and empt
       const publisher = yield* setup;
       const error = "Provider rejected: invalid credentials\nOriginal detail";
       const driver: SendDriver = {
+        claimAttachments: () => Effect.void,
         dispatch: () => Effect.fail(new Error(error)),
         interrupt: () => Effect.void,
       };
@@ -230,6 +235,7 @@ it.effect(
         const dispatched = yield* Deferred.make<void>();
         const reply = yield* Deferred.make<string, Error>();
         const driver: SendDriver = {
+          claimAttachments: () => Effect.void,
           dispatch: () =>
             Deferred.succeed(dispatched, undefined).pipe(Effect.andThen(Deferred.await(reply))),
           interrupt: () => Effect.void,
@@ -260,6 +266,7 @@ it.effect("play only sends the recovery prompt for an idle cut-off thread", () =
       const sql = yield* SqlClient.SqlClient;
       const publisher = yield* setup;
       const driver: SendDriver = {
+        claimAttachments: () => Effect.void,
         dispatch: () =>
           Effect.sync(() => {
             publisher.publishProvider({

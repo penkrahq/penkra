@@ -121,6 +121,12 @@ import {
   CleanCoreListThreadItemsPageInput,
   CleanCoreListThreadItemsPageResult,
   CleanCoreCreateThreadInput,
+  CleanCoreThreadSummary,
+  CleanCoreSendMessageInput,
+  CleanCoreSendResult,
+  CleanCoreQueuedMessageInput,
+  CleanCoreQueuedMessageResult,
+  CleanCoreEditQueuedMessageInput,
   CleanCoreGetThreadShellInput,
   CleanCoreListThreadsInput,
   CleanCoreCreateThreadResponse,
@@ -681,6 +687,26 @@ export const WsProviderTerminateConnectionRpc = Rpc.make(WS_METHODS.providerTerm
   success: ProviderConnection,
   error: WsRpcError,
 });
+export const WsCleanCoreGetThreadRpc = Rpc.make(WS_METHODS.cleanCoreGetThread, {
+  payload: CleanCoreGetThreadShellInput,
+  success: Schema.NullOr(CleanCoreThreadSummary),
+  error: WsRpcError,
+});
+export const WsCleanCoreSendMessageRpc = Rpc.make(WS_METHODS.cleanCoreSendMessage, {
+  payload: CleanCoreSendMessageInput,
+  success: CleanCoreSendResult,
+  error: WsRpcError,
+});
+export const WsCleanCoreCancelQueuedMessageRpc = Rpc.make(WS_METHODS.cleanCoreCancelQueuedMessage, {
+  payload: CleanCoreQueuedMessageInput,
+  success: CleanCoreQueuedMessageResult,
+  error: WsRpcError,
+});
+export const WsCleanCoreEditQueuedMessageRpc = Rpc.make(WS_METHODS.cleanCoreEditQueuedMessage, {
+  payload: CleanCoreEditQueuedMessageInput,
+  success: CleanCoreQueuedMessageResult,
+  error: WsRpcError,
+});
 export const WsCleanCoreGetThreadShellRpc = Rpc.make(WS_METHODS.cleanCoreGetThreadShell, {
   payload: CleanCoreGetThreadShellInput,
   success: Schema.NullOr(OrchestrationThreadShell),
@@ -756,6 +782,10 @@ export const WsCleanCoreAnswerThreadQuestionRpc = Rpc.make(
 export const WsBootstrapRpcGroup = RpcGroup.make(WsBootstrapNegotiateRpc);
 
 export const WsFeatureRpcGroup = RpcGroup.make(
+  WsCleanCoreGetThreadRpc,
+  WsCleanCoreSendMessageRpc,
+  WsCleanCoreCancelQueuedMessageRpc,
+  WsCleanCoreEditQueuedMessageRpc,
   WsCleanCoreCreateThreadRpc,
   WsCleanCoreGetThreadShellRpc,
   WsCleanCoreListThreadsRpc,

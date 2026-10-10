@@ -1,3 +1,4 @@
+import { ManagedAttachmentRepositoryLive } from "../persistence/Layers/ManagedAttachments.ts";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -55,6 +56,7 @@ it.effect("web creation is idempotent and a send on its running thread is queued
     assert.deepStrictEqual(changes, [input.threadId]);
     yield* setThreadState(input.threadId, "running", "active-turn", null, at);
     const sender = yield* makeThreadSender.pipe(
+      Effect.provide(ManagedAttachmentRepositoryLive),
       Effect.provideService(ThreadPublisher, publisher),
       Effect.provideService(
         ProviderThreadSwitchCoordinator,

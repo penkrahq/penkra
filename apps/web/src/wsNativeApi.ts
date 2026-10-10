@@ -544,6 +544,11 @@ export function createWsNativeApi(): NativeApi {
         transport.request(WS_METHODS.providerTerminateConnection, input),
     },
     cleanCore: {
+      getThread: (input) => transport.request(WS_METHODS.cleanCoreGetThread, input),
+      sendMessage: (input) => transport.request(WS_METHODS.cleanCoreSendMessage, input),
+      cancelQueuedMessage: (input) =>
+        transport.request(WS_METHODS.cleanCoreCancelQueuedMessage, input),
+      editQueuedMessage: (input) => transport.request(WS_METHODS.cleanCoreEditQueuedMessage, input),
       getThreadShell: (input) => transport.request(WS_METHODS.cleanCoreGetThreadShell, input),
       createThread: (input) => transport.request(WS_METHODS.cleanCoreCreateThread, input),
       getThreadRuntime: (input) => transport.request(WS_METHODS.cleanCoreGetThreadRuntime, input),
