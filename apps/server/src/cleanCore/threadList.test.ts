@@ -1,4 +1,5 @@
 import { assert, it } from "@effect/vitest";
+import { SpaceId } from "@penkra/contracts";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
@@ -16,7 +17,7 @@ it.effect("lists every thread with the columns the web reads", () =>
       yield* runMigrations();
       yield* createThread({
         id: "thread-1",
-        spaceId: "space-1",
+        spaceId: SpaceId.makeUnsafe("space-1"),
         title: "Hello",
         provider: "codex",
         model: "gpt-5.5",
@@ -32,7 +33,7 @@ it.effect("lists every thread with the columns the web reads", () =>
       });
       yield* createThread({
         id: "thread-2",
-        spaceId: "space-1",
+        spaceId: SpaceId.makeUnsafe("space-1"),
         title: "Second",
         provider: "claudeAgent",
         model: "claude-sonnet-4-6",
@@ -42,11 +43,13 @@ it.effect("lists every thread with the columns the web reads", () =>
         createdAt: "2026-10-09T00:00:01.000Z",
       });
 
-      const threads = yield* listThreads();
+      const page = yield* listThreads({ spaceId: SpaceId.makeUnsafe("space-1"), folderId: null });
+      const threads = page.threads;
       assert.deepStrictEqual(
         threads.map((thread) => thread.id),
-        ["thread-2", "thread-1"],
+        ["thread-1", "thread-2"],
       );
+      assert.isNull(page.nextCursor);
       const first = threads.find((thread) => thread.id === "thread-1");
       assert.equal(first?.runtimeMode, "full-access");
       assert.equal(first?.workingDirectory, "/repo");
@@ -60,6 +63,25 @@ it.effect("lists every thread with the columns the web reads", () =>
       assert.equal(second?.createdBy, "user");
       assert.equal(second?.createdByThreadId, null);
       assert.equal(second?.runtimeMode, "read-only");
+
+      // Keyset pagination: one row per page, cursor advances.
+      const firstPage = yield* listThreads({ spaceId: SpaceId.makeUnsafe("space-1"), folderId: null, limit: 1 });
+      assert.deepStrictEqual(
+        firstPage.threads.map((thread) => thread.id),
+        ["thread-1"],
+      );
+      assert.isNotNull(firstPage.nextCursor);
+      const secondPage = yield* listThreads({
+        spaceId: SpaceId.makeUnsafe("space-1"),
+        folderId: null,
+        limit: 1,
+        after: firstPage.nextCursor,
+      });
+      assert.deepStrictEqual(
+        secondPage.threads.map((thread) => thread.id),
+        ["thread-2"],
+      );
+      assert.isNull(secondPage.nextCursor);
     }),
   ),
 );

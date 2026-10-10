@@ -116,6 +116,7 @@ import {
   CleanCoreGetThreadDraftInput,
   CleanCoreListThreadItemsPageInput,
   CleanCoreListThreadItemsPageResult,
+  CleanCoreListThreadsInput,
   CleanCoreListThreadsResult,
   CleanCoreSetThreadDraftInput,
   CleanCoreSubscribeThreadInput,
@@ -672,7 +673,7 @@ export const WsProviderTerminateConnectionRpc = Rpc.make(WS_METHODS.providerTerm
   error: WsRpcError,
 });
 export const WsCleanCoreListThreadsRpc = Rpc.make(WS_METHODS.cleanCoreListThreads, {
-  payload: Schema.Struct({}),
+  payload: CleanCoreListThreadsInput,
   success: CleanCoreListThreadsResult,
   error: WsRpcError,
 });

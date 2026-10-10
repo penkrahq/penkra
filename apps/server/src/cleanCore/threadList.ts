@@ -1,9 +1,9 @@
 // FILE: threadList.ts
-// Purpose: The clean-core thread-list read (0.14.4 step 4): one bounded query
-// over `threads` that the sidebar, the deck and ChatView read instead of the
-// old projection snapshot.
+// Purpose: The clean-core thread-list read (0.14.4 step 4): one bounded,
+// indexed, keyset-paged query over `threads` that the sidebar, the deck and
+// ChatView read instead of the old projection snapshot.
 // Layer: Server clean core
-// Exports: ThreadSummaryRecord, listThreads
+// Exports: ThreadSummaryRecord, ThreadListCursor, listThreads, THREADS_PAGE_SIZE
 
 import type {
   FolderId,
@@ -48,11 +48,43 @@ export interface ThreadSummaryRecord {
   readonly updatedAt: string;
 }
 
-/** Every thread row, including archived ones; the caller filters deleted rows. */
-export const listThreads = () =>
+/** The sidebar order key: pinned first, then manual order, then newest. */
+export interface ThreadListCursor {
+  readonly isPinned: number;
+  readonly sidebarSortOrder: number;
+  readonly createdAt: string;
+  readonly id: ThreadId;
+}
+
+export interface ThreadListPage {
+  readonly threads: ReadonlyArray<ThreadSummaryRecord>;
+  readonly nextCursor: ThreadListCursor | null;
+}
+
+/** 50 = one screen with margin (2.1). */
+export const THREADS_PAGE_SIZE = 50;
+
+/**
+ * One (space, folder) page of threads in the sidebar order, bounded by a
+ * keyset cursor. Deleted rows are excluded in SQL. The index
+ * `idx_threads_sidebar_order` matches this exact order.
+ */
+export const listThreads = (input: {
+  readonly spaceId: SpaceId;
+  readonly folderId: FolderId | null;
+  readonly after?: ThreadListCursor | null | undefined;
+  readonly limit?: number | undefined;
+}) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    return yield* sql<ThreadSummaryRecord>`
+    const limit = input.limit ?? THREADS_PAGE_SIZE;
+    const after = input.after ?? null;
+    const hasAfter = after === null ? 0 : 1;
+    const afterPinned = after?.isPinned ?? null;
+    const afterOrder = after?.sidebarSortOrder ?? null;
+    const afterCreatedAt = after?.createdAt ?? null;
+    const afterId = after?.id ?? null;
+    const rows = yield* sql<ThreadSummaryRecord>`
       SELECT
         id,
         space_id AS "spaceId",
@@ -84,6 +116,43 @@ export const listThreads = () =>
         created_at AS "createdAt",
         updated_at AS "updatedAt"
       FROM threads
-      ORDER BY COALESCE(sidebar_sort_order, 0) ASC, COALESCE(last_activity_at, created_at) DESC, id ASC
+      WHERE space_id = ${input.spaceId}
+        AND folder_id IS ${input.folderId}
+        AND deleted_at IS NULL
+        AND (
+          ${hasAfter} = 0
+          OR is_pinned < ${afterPinned}
+          OR (
+            is_pinned = ${afterPinned}
+            AND COALESCE(sidebar_sort_order, 0) > ${afterOrder}
+          )
+          OR (
+            is_pinned = ${afterPinned}
+            AND COALESCE(sidebar_sort_order, 0) = ${afterOrder}
+            AND created_at < ${afterCreatedAt}
+          )
+          OR (
+            is_pinned = ${afterPinned}
+            AND COALESCE(sidebar_sort_order, 0) = ${afterOrder}
+            AND created_at = ${afterCreatedAt}
+            AND id > ${afterId}
+          )
+        )
+      ORDER BY is_pinned DESC, COALESCE(sidebar_sort_order, 0) ASC, created_at DESC, id ASC
+      LIMIT ${limit + 1}
     `;
+    const pageRows = rows.length > limit ? rows.slice(0, limit) : rows;
+    const last = pageRows.at(-1);
+    return {
+      threads: pageRows,
+      nextCursor:
+        rows.length > limit && last !== undefined
+          ? {
+              isPinned: last.isPinned,
+              sidebarSortOrder: last.sidebarSortOrder ?? 0,
+              createdAt: last.createdAt,
+              id: last.id,
+            }
+          : null,
+    } satisfies ThreadListPage;
   });
