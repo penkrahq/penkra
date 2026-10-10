@@ -3001,9 +3001,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await waitForLayout();
       expect(getScrollContainerDistanceFromBottom(scrollContainer)).toBeGreaterThan(0);
 
-      // A streamed token while the reader has scrolled away must not fight back.
+      // A growing tail row (a streamed token) must not fight a reader who owns
+      // the scroll: the row's ResizeObserver keeps the distance from the bottom.
       scrollUpToReader();
       await waitForLayout();
+      const heightBeforeTailGrowth = scrollContainer.scrollHeight;
       expect(getScrollContainerDistanceFromBottom(scrollContainer)).toBeGreaterThan(0);
       syncActiveThread((thread) => ({
         ...thread,
@@ -3018,7 +3020,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
         ),
         updatedAt: isoAt(1_207),
       }));
-      await waitForLayout();
+      await vi.waitFor(
+        async () => {
+          await waitForLayout();
+          expect(scrollContainer.scrollHeight).toBeGreaterThan(heightBeforeTailGrowth);
+        },
+        { timeout: 4_000, interval: 16 },
+      );
       expect(getScrollContainerDistanceFromBottom(scrollContainer)).toBeGreaterThan(0);
     } finally {
       if (patchedScrollContainer && originalScrollTo) {
@@ -3027,6 +3035,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await mounted.cleanup();
     }
   });
+
 
   beforeAll(async () => {
     fixture = buildFixture(

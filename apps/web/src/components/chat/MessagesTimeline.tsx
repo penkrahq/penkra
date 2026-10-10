@@ -899,30 +899,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   // Manual memoization kept: the main timeline component does not compile
   // under React Compiler (props-default destructuring bailout), so these
   // identities must be stabilized by hand.
-  const tailRowResizeObserverRef = useRef<ResizeObserver | null>(null);
-  // A tail row can grow after it mounts (image decode, wrapped content). Keep
-  // the transcript pinned by reacting to the row's measured size instead of
-  // guessing how long the layout will take.
-  useEffect(() => {
-    const scrollNode = resolvedListRef.current?.getScrollableNode?.() ?? null;
-    const tailRow =
-      scrollNode && tailContentRowId !== null
-        ? scrollNode.querySelector<HTMLElement>(`[data-row-key="${tailContentRowId}"]`)
-        : null;
-    if (!tailRow || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => {
-      scrollTranscriptToEnd(resolvedListRef);
-    });
-    observer.observe(tailRow);
-    tailRowResizeObserverRef.current = observer;
-    return () => {
-      observer.disconnect();
-      if (tailRowResizeObserverRef.current === observer) {
-        tailRowResizeObserverRef.current = null;
-      }
-    };
-  }, [resolvedListRef, tailContentRowId]);
-  const ignoreTimelineImageLoad = useCallback(() => {}, []);
+  // A tail row can grow after it mounts (streaming text, image decode). Keep a
+  // follower pinned by reacting to the row's measured size, but never pull a
+  // reader who owns the scroll back down.
+  const handleTailRowResize = useCallback(() => {
+    if (readTranscriptListState(resolvedListRef)?.isAtEnd !== true) return;
+    scrollTranscriptToEnd(resolvedListRef);
+  }, [resolvedListRef]);
   const previousRowCountRef = useRef(rows.length);
   useEffect(() => {
     const previousRowCount = previousRowCountRef.current;
@@ -1306,7 +1289,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                             image={image}
                             userImages={userImages}
                             onImageExpand={onImageExpand}
-                            onTimelineImageLoad={ignoreTimelineImageLoad}
                             resolvedTheme={resolvedTheme}
                           />
                         ))}
@@ -1823,6 +1805,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         renderItem={renderRowContent}
         estimatedItemSize={90}
         paddingEnd={BOTTOM_CONTENT_INSET_PX}
+        observedTailKey={tailContentRowId}
+        onObservedTailResize={handleTailRowResize}
         onClickCapture={onMessagesClickCapture}
         onMouseUp={onMessagesMouseUp}
         onPointerCancel={onMessagesPointerCancel}
@@ -1908,7 +1892,6 @@ const UserImageAttachmentThumbnail = memo(function UserImageAttachmentThumbnail(
     Extract<NonNullable<TimelineMessage["attachments"]>[number], { type: "image" }>
   >;
   onImageExpand: (preview: ExpandedImagePreview) => void;
-  onTimelineImageLoad: () => void;
   resolvedTheme: "light" | "dark";
 }) {
   return (
@@ -1928,8 +1911,6 @@ const UserImageAttachmentThumbnail = memo(function UserImageAttachmentThumbnail(
           src={props.image.previewUrl}
           alt={props.image.name}
           className="size-full object-cover"
-          onLoad={props.onTimelineImageLoad}
-          onError={props.onTimelineImageLoad}
         />
       ) : (
         <div className="flex size-full items-center justify-center">
