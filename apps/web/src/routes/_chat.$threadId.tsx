@@ -4,20 +4,10 @@
 
 import { type FolderId, ThreadId, singletonThreadDeckId } from "@penkra/contracts";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 
-import {
-  type EmptyRouteRestoreRecoveryState,
-  shouldHoldMissingThreadRouteFallback,
-  shouldStartMissingThreadRouteRecovery,
-} from "../chatRouteRestore";
-import {
-  refreshEmptyRouteRestoreSnapshot,
-  waitForEmptyRouteRestoreFallbackDelay,
-} from "../chatRouteRecovery";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { parseChatRouteSearch } from "../chatRouteSearch";
-import { readNativeApi } from "../nativeApi";
 import { isLocalThreadArchiveNavigationPending } from "../lib/threadArchiveNavigation";
 import { useStore } from "../store";
 import { createThreadExistsSelector, createThreadFolderIdSelector } from "../storeSelectors";
@@ -26,7 +16,6 @@ import { resolveSingleFolderId, shouldRedirectArchivedThreadRoute } from "./-cha
 
 function ChatThreadRouteView() {
   const threadsHydrated = useStore((store) => store.threadsHydrated);
-  const hasKnownServerThreads = useStore((store) => (store.threadIds?.length ?? 0) > 0);
   const threadId = Route.useParams({
     select: (params) => ThreadId.makeUnsafe(params.threadId),
   });
@@ -47,16 +36,6 @@ function ChatThreadRouteView() {
     draftFolderId: draftThreadState?.folderId ?? null,
   });
   const navigate = useNavigate();
-  const [missingThreadRecoveryState, setMissingThreadRecoveryState] =
-    useState<EmptyRouteRestoreRecoveryState>("idle");
-  const mountedRef = useRef(true);
-  const missingThreadRecoveryRunRef = useRef(0);
-  // Synchronous re-entry guard: the "pending" transition below is deferred (async
-  // setState), so this ref keeps the recovery from starting twice in the interim.
-  // It is cleared synchronously whenever an episode is invalidated (new thread
-  // route, or the thread appearing).
-  const recoveryStartedRef = useRef(false);
-
   useEffect(() => {
     const home = window.desktopBridge?.threadHome;
     if (!routeThreadExists || threadArchived) {
@@ -88,32 +67,6 @@ function ChatThreadRouteView() {
   }, [threadId]);
 
   useEffect(() => {
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    // Invalidate any in-flight recovery and start a fresh episode for the new
-    // thread route. The run bump + guard reset are synchronous (so a stale async
-    // completion cannot stamp "done"); the state reset is deferred async setState.
-    missingThreadRecoveryRunRef.current += 1;
-    recoveryStartedRef.current = false;
-    const timer = window.setTimeout(() => setMissingThreadRecoveryState("idle"), 0);
-    return () => window.clearTimeout(timer);
-  }, [threadId]);
-
-  useEffect(() => {
-    if (routeThreadExists && missingThreadRecoveryState !== "idle") {
-      missingThreadRecoveryRunRef.current += 1;
-      recoveryStartedRef.current = false;
-      const timer = window.setTimeout(() => setMissingThreadRecoveryState("idle"), 0);
-      return () => window.clearTimeout(timer);
-    }
-    return undefined;
-  }, [missingThreadRecoveryState, routeThreadExists]);
-
-  useEffect(() => {
     if (!threadsHydrated) {
       return;
     }
@@ -131,72 +84,15 @@ function ChatThreadRouteView() {
     }
 
     if (!routeThreadExists) {
-      if (
-        shouldStartMissingThreadRouteRecovery({
-          hasKnownServerThreads,
-          recoveryState: missingThreadRecoveryState,
-          routeThreadExists,
-        }) &&
-        !recoveryStartedRef.current
-      ) {
-        recoveryStartedRef.current = true;
-        const recoveryRun = (missingThreadRecoveryRunRef.current += 1);
-        // Defer the "pending" mark (async setState); the ref guard above prevents a
-        // second start before it lands, and the run check skips it if the episode
-        // was invalidated in the meantime.
-        const pendingTimer = window.setTimeout(() => {
-          if (missingThreadRecoveryRunRef.current === recoveryRun) {
-            setMissingThreadRecoveryState("pending");
-          }
-        }, 0);
-        void Promise.all([
-          refreshEmptyRouteRestoreSnapshot(readNativeApi()).catch(() => false),
-          waitForEmptyRouteRestoreFallbackDelay(),
-        ]).finally(() => {
-          window.clearTimeout(pendingTimer);
-          if (mountedRef.current && missingThreadRecoveryRunRef.current === recoveryRun) {
-            setMissingThreadRecoveryState("done");
-          }
-        });
-        return;
-      }
-
-      if (
-        shouldHoldMissingThreadRouteFallback({
-          hasKnownServerThreads,
-          recoveryState: missingThreadRecoveryState,
-          routeThreadExists,
-        })
-      ) {
-        return;
-      }
-    }
-
-    if (!routeThreadExists) {
       void navigate({ to: "/", replace: true });
     }
-  }, [
-    hasKnownServerThreads,
-    missingThreadRecoveryState,
-    navigate,
-    routeThreadExists,
-    threadId,
-    threadArchived,
-    threadsHydrated,
-  ]);
+  }, [navigate, routeThreadExists, threadId, threadArchived, threadsHydrated]);
 
   if (threadArchived) {
     return null;
   }
 
-  if (
-    !threadsHydrated ||
-    shouldHoldMissingThreadRouteFallback({
-      hasKnownServerThreads,
-      recoveryState: missingThreadRecoveryState,
-      routeThreadExists,
-    })
-  ) {
+  if (!threadsHydrated) {
     return null;
   }
 

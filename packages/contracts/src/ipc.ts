@@ -1160,7 +1160,6 @@ export interface NativeApi {
   };
   orchestration: {
     getSnapshot: () => Promise<OrchestrationReadModel>;
-    getShellSnapshot: () => Promise<OrchestrationShellSnapshot>;
     getThreadDetailSnapshot: (
       input: OrchestrationGetThreadDetailSnapshotInput,
     ) => Promise<OrchestrationGetThreadDetailSnapshotResult>;

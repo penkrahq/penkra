@@ -5,8 +5,8 @@ import { describe, expect, it } from "vitest";
 import { classifyWsRequest, makeWsRequestAdmission } from "./wsRequestAdmission";
 
 describe("WsRequestAdmission", () => {
-  it("keeps lightweight shell reads out of the expensive lane", () => {
-    expect(classifyWsRequest(ORCHESTRATION_WS_METHODS.getShellSnapshot)).toBe("standard");
+  it("keeps bounded folder reads out of the expensive lane", () => {
+    expect(classifyWsRequest(WS_METHODS.cleanCoreGetFolders)).toBe("standard");
     expect(classifyWsRequest(ORCHESTRATION_WS_METHODS.getThreadDetailSnapshot)).toBe(
       "expensive-read",
     );

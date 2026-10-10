@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 const updateThread = vi.fn();
 const createThread = vi.fn();
-const getShellSnapshot = vi.fn(async () => ({
+const shellFixture = {
   snapshotSequence: 1,
   spaces: [],
   decks: [
@@ -47,14 +47,11 @@ const getShellSnapshot = vi.fn(async () => ({
     },
   ],
   updatedAt: "2026-04-18T00:00:00.000Z",
-}));
+};
 
 vi.mock("../nativeApi", () => ({
   readNativeApi: () => ({
     cleanCore: { updateThread, createThread },
-    orchestration: {
-      getShellSnapshot,
-    },
   }),
 }));
 
@@ -66,7 +63,7 @@ describe("dispatchThreadRename", () => {
     createThread.mockReset().mockResolvedValue({
       thread: { id: "thread-draft" },
       created: true,
-      shell: (await getShellSnapshot()).threads[0],
+      shell: shellFixture.threads[0],
     });
 
     const outcome = await dispatchThreadRename({
@@ -91,9 +88,8 @@ describe("dispatchThreadRename", () => {
     createThread.mockReset().mockResolvedValue({
       thread: { id: "thread-draft" },
       created: true,
-      shell: (await getShellSnapshot()).threads[0],
+      shell: shellFixture.threads[0],
     });
-    getShellSnapshot.mockClear();
 
     const outcome = await dispatchThreadRename({
       threadId: "thread-draft" as never,
@@ -113,7 +109,6 @@ describe("dispatchThreadRename", () => {
 
     expect(outcome).toBe("renamed");
     expect(createThread).toHaveBeenCalledTimes(1);
-    expect(getShellSnapshot).not.toHaveBeenCalled();
     expect(createThread.mock.calls[0]?.[0]).toMatchObject({
       threadId: "thread-draft",
       deckId: "deck:thread-draft",

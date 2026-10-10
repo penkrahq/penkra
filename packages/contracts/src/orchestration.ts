@@ -22,7 +22,6 @@ import {
 
 export const ORCHESTRATION_WS_METHODS = {
   getSnapshot: "orchestration.getSnapshot",
-  getShellSnapshot: "orchestration.getShellSnapshot",
   getThreadDetailSnapshot: "orchestration.getThreadDetailSnapshot",
   getThreadTurnsPage: "orchestration.getThreadTurnsPage",
   getPendingStartOutcome: "orchestration.getPendingStartOutcome",
@@ -1750,11 +1749,6 @@ export type OrchestrationGetSnapshotInput = typeof OrchestrationGetSnapshotInput
 const OrchestrationGetSnapshotResult = OrchestrationReadModel;
 export type OrchestrationGetSnapshotResult = typeof OrchestrationGetSnapshotResult.Type;
 
-export const OrchestrationGetShellSnapshotInput = Schema.Struct({});
-export type OrchestrationGetShellSnapshotInput = typeof OrchestrationGetShellSnapshotInput.Type;
-const OrchestrationGetShellSnapshotResult = OrchestrationShellSnapshot;
-export type OrchestrationGetShellSnapshotResult = typeof OrchestrationGetShellSnapshotResult.Type;
-
 export const OrchestrationRepairStateInput = Schema.Struct({});
 export type OrchestrationRepairStateInput = typeof OrchestrationRepairStateInput.Type;
 const OrchestrationRepairStateResult = OrchestrationReadModel;
@@ -1953,10 +1947,6 @@ export const OrchestrationRpcSchemas = {
   getSnapshot: {
     input: OrchestrationGetSnapshotInput,
     output: OrchestrationGetSnapshotResult,
-  },
-  getShellSnapshot: {
-    input: OrchestrationGetShellSnapshotInput,
-    output: OrchestrationGetShellSnapshotResult,
   },
   getThreadDetailSnapshot: {
     input: OrchestrationGetThreadDetailSnapshotInput,

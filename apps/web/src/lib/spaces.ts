@@ -15,7 +15,6 @@ import {
 import type { Project } from "~/types";
 import type { ServerWorkspacePaths } from "~/lib/serverWorkspacePaths";
 import { newCommandId, newSpaceId } from "~/lib/utils";
-import { dispatchShellCommand } from "~/lib/shellMutation";
 
 /**
  * Spaces organize ordinary folders only: managed chat containers are reachable
@@ -59,7 +58,7 @@ export async function updateSpace(input: {
   name?: string | undefined;
   icon?: SpaceIconName | undefined;
 }): Promise<void> {
-  await dispatchShellCommand(input.api, {
+  await input.api.orchestration.dispatchCommand({
     type: "space.update",
     commandId: newCommandId(),
     spaceId: input.spaceId,
@@ -69,7 +68,7 @@ export async function updateSpace(input: {
 }
 
 export async function deleteSpace(input: { api: NativeApi; spaceId: SpaceId }): Promise<void> {
-  await dispatchShellCommand(input.api, {
+  await input.api.orchestration.dispatchCommand({
     type: "space.delete",
     commandId: newCommandId(),
     spaceId: input.spaceId,
@@ -77,7 +76,7 @@ export async function deleteSpace(input: { api: NativeApi; spaceId: SpaceId }): 
 }
 
 export async function archiveSpace(input: { api: NativeApi; spaceId: SpaceId }): Promise<void> {
-  await dispatchShellCommand(input.api, {
+  await input.api.orchestration.dispatchCommand({
     type: "space.archive",
     commandId: newCommandId(),
     spaceId: input.spaceId,
@@ -89,7 +88,7 @@ export async function restoreSpace(input: {
   spaceId: SpaceId;
   name?: string | undefined;
 }): Promise<void> {
-  await dispatchShellCommand(input.api, {
+  await input.api.orchestration.dispatchCommand({
     type: "space.restore",
     commandId: newCommandId(),
     spaceId: input.spaceId,
@@ -120,7 +119,7 @@ export async function moveProjectToSpace(input: {
   folderId: FolderId;
   spaceId: SpaceId;
 }): Promise<void> {
-  await dispatchShellCommand(input.api, {
+  await input.api.orchestration.dispatchCommand({
     type: "folder.move",
     commandId: newCommandId(),
     folderIds: [input.folderId],

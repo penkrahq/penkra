@@ -1835,9 +1835,6 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
     pushCleanCoreThreadChange(input.threadId);
     return null;
   }
-  if (tag === ORCHESTRATION_WS_METHODS.getShellSnapshot) {
-    return createShellSnapshotFromReadModel(fixture.snapshot);
-  }
   if (tag === ORCHESTRATION_WS_METHODS.getSnapshot) {
     return fixture.snapshot;
   }
@@ -5663,7 +5660,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
             }
             return { sequence: fixture.snapshot.snapshotSequence };
           }),
-          getShellSnapshot: vi.fn(async () => createShellSnapshotFromReadModel(fixture.snapshot)),
         },
       },
     });
@@ -7134,7 +7130,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
               }
               return { sequence: fixture.snapshot.snapshotSequence };
             }),
-            getShellSnapshot: vi.fn(async () => createShellSnapshotFromReadModel(fixture.snapshot)),
             getThreadTurnsPage: vi.fn(async ({ threadId }: { threadId: ThreadId }) => {
               if (threadId === newThreadId) {
                 useStore.setState((state) => {
@@ -7236,6 +7231,74 @@ describe("ChatView timeline estimator parity (full app)", () => {
       );
       await expect.element(page.getByText("Type path", { exact: true })).not.toBeInTheDocument();
     } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows a created Space from the command result when its stream event never arrives", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-create-space-no-event" as MessageId,
+        targetText: "create space without stream event",
+      }),
+      configureFixture: (nextFixture) => {
+        nextFixture.serverConfig = {
+          ...nextFixture.serverConfig,
+          keybindings: [
+            {
+              command: "sidebar.search",
+              shortcut: {
+                key: "k",
+                metaKey: false,
+                ctrlKey: false,
+                shiftKey: false,
+                altKey: false,
+                modKey: true,
+              },
+            },
+          ],
+        };
+      },
+    });
+    const previousNativeApi = window.nativeApi;
+    const wsNativeApi = readNativeApi();
+    Object.defineProperty(window, "nativeApi", {
+      configurable: true,
+      value: {
+        ...wsNativeApi,
+        orchestration: {
+          ...wsNativeApi?.orchestration,
+          dispatchCommand: vi.fn(async (command: unknown) => {
+            expect(recordSpaceCreateCommand(command)).toBe(true);
+            return { sequence: fixture.snapshot.snapshotSequence };
+          }),
+        },
+      },
+    });
+    try {
+      await waitForServerConfigToApply();
+      dispatchConfiguredShortcut(window, { key: "k" });
+      await page.getByText("New space", { exact: true }).click();
+      const nameInput = page.getByRole("textbox", { name: "New Space name" });
+      await nameInput.fill("No stream Space");
+      await userEvent.keyboard("{Enter}");
+      await expect.element(nameInput).not.toBeInTheDocument();
+      await expect
+        .element(page.getByText("No stream Space", { exact: true }).first())
+        .toBeInTheDocument();
+      expect(
+        useStore.getState().spaces.filter((space) => space.name === "No stream Space"),
+      ).toHaveLength(1);
+    } finally {
+      if (previousNativeApi) {
+        Object.defineProperty(window, "nativeApi", {
+          configurable: true,
+          value: previousNativeApi,
+        });
+      } else {
+        Reflect.deleteProperty(window, "nativeApi");
+      }
       await mounted.cleanup();
     }
   });
@@ -7569,7 +7632,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
         orchestration: {
           ...wsNativeApi?.orchestration,
           dispatchCommand,
-          getShellSnapshot: vi.fn(async () => createShellSnapshotFromReadModel(fixture.snapshot)),
         },
       },
     });
@@ -7638,7 +7700,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     const previousNativeApi = window.nativeApi;
     const wsNativeApi = readNativeApi();
     expect(wsNativeApi).toBeDefined();
-    const getShellSnapshot = vi.fn(async () => createShellSnapshotFromReadModel(fixture.snapshot));
     Object.defineProperty(window, "nativeApi", {
       configurable: true,
       value: {
@@ -7676,7 +7737,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
             }
             return { sequence: fixture.snapshot.snapshotSequence };
           }),
-          getShellSnapshot,
         },
       },
     });
@@ -7719,7 +7779,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await expect
         .element(page.getByText("New Project", { exact: true }).first())
         .toBeInTheDocument();
-      expect(getShellSnapshot).not.toHaveBeenCalled();
     } finally {
       if (previousNativeApi) {
         Object.defineProperty(window, "nativeApi", {

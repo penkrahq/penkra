@@ -395,7 +395,6 @@ export default function Sidebar() {
           void loadThreadPage({ spaceId: space.id, folderId: folder.id }).catch(report);
     }
   }, [spaces, folders]);
-  const syncServerShellSnapshot = useStore((store) => store.syncServerShellSnapshot);
   const markThreadVisited = useStore((store) => store.markThreadVisited);
   const markThreadUnread = useStore((store) => store.markThreadUnread);
   const persistThreadVisit = useCallback(
@@ -435,35 +434,6 @@ export default function Sidebar() {
     strict: false,
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
   });
-
-  useEffect(() => {
-    const api = readNativeApi();
-    if (!api || !threadsHydrated || folders.length > 0) {
-      return;
-    }
-
-    let cancelled = false;
-    // The sidebar is the visible empty-state owner. If startup hydrated empty
-    // before the desktop projection caught up, ask the lightweight shell endpoint once.
-    void api.orchestration
-      .getShellSnapshot()
-      .then((snapshot) => {
-        if (
-          cancelled ||
-          (snapshot.spaces.length === 0 &&
-            snapshot.folders.length === 0 &&
-            snapshot.threads.length === 0)
-        ) {
-          return;
-        }
-        syncServerShellSnapshot(snapshot);
-      })
-      .catch(() => undefined);
-
-    return () => {
-      cancelled = true;
-    };
-  }, [folders.length, syncServerShellSnapshot, threadsHydrated]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
