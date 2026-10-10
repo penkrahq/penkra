@@ -3,7 +3,7 @@ import { assert, it } from "@effect/vitest";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { dequeueNextMessage, enqueueMessage, planSend, readThreadQueue } from "./threadQueue.ts";
+import { enqueueMessage, planSend, readThreadQueue } from "./threadQueue.ts";
 import { createThread } from "./threadStore.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
@@ -68,16 +68,15 @@ it.effect("queue is a FIFO persisted on threads.queue", () =>
         (yield* readThreadQueue("thread-1")).map((m) => m.messageId),
         ["m1", "m2"],
       );
-      assert.equal((yield* dequeueNextMessage("thread-1"))?.messageId, "m1");
-      assert.equal((yield* dequeueNextMessage("thread-1"))?.messageId, "m2");
-      assert.isNull(yield* dequeueNextMessage("thread-1"));
-      assert.deepStrictEqual(yield* readThreadQueue("thread-1"), []);
 
       // The persisted column is a JSON array.
       const rows = yield* sql<{ readonly queue: string }>`
         SELECT queue FROM threads WHERE id = 'thread-1'
       `;
-      assert.equal(rows[0]?.queue, "[]");
+      assert.deepStrictEqual(
+        JSON.parse(rows[0]!.queue).map((message: { messageId: string }) => message.messageId),
+        ["m1", "m2"],
+      );
     }),
   ),
 );

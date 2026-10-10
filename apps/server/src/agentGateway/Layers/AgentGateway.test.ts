@@ -1064,6 +1064,7 @@ function makeHarnessLayer(
   ).pipe(
     Layer.provide(
       Layer.succeed(ThreadSender, {
+        editQueued: () => Effect.die("Gateway does not edit composer drafts"),
         queuedThread: () => Effect.succeed(ThreadId.makeUnsafe("thread-cancel-queued")),
         cancelQueued: (input) => Effect.succeed({ ...input, removed: true }),
         interrupt: (threadId) => Effect.succeed({ threadId, interruptRequested: true }),
