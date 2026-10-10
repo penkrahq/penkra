@@ -39,7 +39,7 @@ export class ThreadSender extends ServiceMap.Service<
       draft: string;
       updatedAt: string;
     }) => Effect.Effect<{ threadId: ThreadId; messageId: string; removed: boolean }, Error>;
-    readonly queuedThread: (messageId: string) => Effect.Effect<ThreadId | null>;
+    readonly queuedThread: (messageId: string) => Effect.Effect<ThreadId | null, Error>;
     readonly cancelQueued: (input: {
       threadId: ThreadId;
       messageId: string;
@@ -56,31 +56,7 @@ export const makeThreadSender = Effect.gen(function* () {
   const coordinator = yield* ProviderThreadSwitchCoordinator;
   const bindings = yield* ThreadProviderBindingRepository;
   const provider = yield* ProviderService;
-  const queues = new Map<string, readonly QueuedMessage[]>();
-  const blocked = new Set<string>();
-  let after: string | null = null;
   const decodeQueue = Schema.decodeUnknownSync(Schema.Array(QueuedMessage));
-  while (true) {
-    const page: readonly { id: string; queue: string; state: string }[] =
-      after === null
-        ? yield* sql<{
-            id: string;
-            queue: string;
-            state: string;
-          }>`SELECT id, queue, state FROM threads ORDER BY id LIMIT 50`
-        : yield* sql<{
-            id: string;
-            queue: string;
-            state: string;
-          }>`SELECT id, queue, state FROM threads WHERE id > ${after} ORDER BY id LIMIT 50`;
-    for (const row of page) {
-      const queue = decodeQueue(JSON.parse(row.queue));
-      queues.set(row.id, queue);
-      if (row.state === "error" && queue.length > 0) blocked.add(row.id);
-    }
-    if (page.length < 50) break;
-    after = page[page.length - 1]!.id;
-  }
   const driver: SendDriver = {
     interrupt: (threadId) =>
       provider.interruptTurn({ threadId: ThreadId.makeUnsafe(threadId) }).pipe(Effect.asVoid),
@@ -168,15 +144,15 @@ export const makeThreadSender = Effect.gen(function* () {
           ),
         );
     });
-  const deliverHead = (threadId: string, retry: boolean) =>
+  const deliverHead = (threadId: string) =>
     Effect.gen(function* () {
-      if (!retry && blocked.has(threadId)) return;
       const rows = yield* sql<{
         state: string;
+        queue: string;
         provider: string;
         archivedAt: string | null;
         deletedAt: string | null;
-      }>`SELECT state, provider, archived_at AS "archivedAt", deleted_at AS "deletedAt" FROM threads WHERE id = ${threadId}`;
+      }>`SELECT state, queue, provider, archived_at AS "archivedAt", deleted_at AS "deletedAt" FROM threads WHERE id = ${threadId}`;
       const thread = rows[0];
       if (
         thread === undefined ||
@@ -185,13 +161,9 @@ export const makeThreadSender = Effect.gen(function* () {
         thread.deletedAt !== null
       )
         return;
-      const queue = yield* readThreadQueue(threadId);
-      queues.set(threadId, queue);
+      const queue = decodeQueue(JSON.parse(thread.queue));
       const head = queue[0];
-      if (head === undefined) {
-        blocked.delete(threadId);
-        return;
-      }
+      if (head === undefined) return;
       const result = yield* deliverMessage(
         publisher,
         driver,
@@ -205,15 +177,12 @@ export const makeThreadSender = Effect.gen(function* () {
         null,
       );
       if (result.delivery === "failed") {
-        blocked.add(threadId);
         yield* setThreadState(threadId, "error", null, result.error, new Date().toISOString());
         publisher.publish({ threadId });
         return;
       }
       const remaining = queue.slice(1);
       yield* sql`UPDATE threads SET queue = ${JSON.stringify(remaining)} WHERE id = ${threadId}`;
-      queues.set(threadId, remaining);
-      blocked.delete(threadId);
       publisher.publish({ threadId });
     }).pipe(Effect.provideService(SqlClient.SqlClient, sql));
   const unsubscribe = publisher.subscribeProvider((event) => {
@@ -224,7 +193,7 @@ export const makeThreadSender = Effect.gen(function* () {
           ? event.threadIds
           : [];
     for (const threadId of threadIds)
-      Effect.runSync(Effect.forkIn(withLane(threadId, deliverHead(threadId, false)), scope));
+      Effect.runSync(Effect.forkIn(withLane(threadId, deliverHead(threadId)), scope));
   });
   yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
   const removeQueued = (
@@ -248,13 +217,9 @@ export const makeThreadSender = Effect.gen(function* () {
           }),
         );
         if (changed !== null) {
-          queues.set(input.threadId, changed);
           publisher.publish({ threadId: input.threadId });
           if (before[0]?.messageId === input.messageId)
-            yield* Effect.forkIn(
-              withLane(input.threadId, deliverHead(input.threadId, true)),
-              scope,
-            );
+            yield* Effect.forkIn(withLane(input.threadId, deliverHead(input.threadId)), scope);
         }
         return { ...input, removed: changed !== null };
       }).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
@@ -270,12 +235,28 @@ export const makeThreadSender = Effect.gen(function* () {
     });
   return {
     queuedThread: (messageId: string) =>
-      Effect.sync(() => {
-        for (const [threadId, queue] of queues) {
-          if (queue.some((message) => message.messageId === messageId))
-            return ThreadId.makeUnsafe(threadId);
+      Effect.gen(function* () {
+        let after: string | null = null;
+        while (true) {
+          const page: readonly { id: string; queue: string }[] =
+            after === null
+              ? yield* sql<{
+                  id: string;
+                  queue: string;
+                }>`SELECT id, queue FROM threads ORDER BY id LIMIT 50`
+              : yield* sql<{
+                  id: string;
+                  queue: string;
+                }>`SELECT id, queue FROM threads WHERE id > ${after} ORDER BY id LIMIT 50`;
+          for (const row of page) {
+            if (
+              decodeQueue(JSON.parse(row.queue)).some((message) => message.messageId === messageId)
+            )
+              return ThreadId.makeUnsafe(row.id);
+          }
+          if (page.length < 50) return null;
+          after = page[page.length - 1]!.id;
         }
-        return null;
       }),
     cancelQueued: (input: { threadId: ThreadId; messageId: string }) => removeQueued(input, null),
     editQueued: (input: {
@@ -346,14 +327,12 @@ export const makeThreadSender = Effect.gen(function* () {
               delivery: "failed" as const,
               error: "The thread does not exist.",
             };
-          if (current.state !== "running") yield* deliverHead(input.threadId, true);
+          if (current.state !== "running") yield* deliverHead(input.threadId);
           const result = yield* sendMessage(publisher, driver, {
             ...input,
             dispatchMode: current.state === "running" ? input.dispatchMode : "queue",
             supportsSteer: providerSupportsNativeTurnSteering(row.provider),
           });
-          if (result.delivery === "queued")
-            queues.set(input.threadId, yield* readThreadQueue(input.threadId));
           return result;
         }).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
       ),
