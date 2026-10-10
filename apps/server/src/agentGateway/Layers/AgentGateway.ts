@@ -112,9 +112,6 @@ import {
   recordGatewayConsumedFailure,
 } from "../gatewayFailureDiagnostics.ts";
 
-const TURN_INTERRUPT_CONFIRM_TIMEOUT_MS = 5_000;
-const TURN_INTERRUPT_CONFIRM_POLL_MS = 25;
-
 function isPenkraExecImage(
   value: unknown,
 ): value is { kind: "image"; data: string; mimeType: string } {
@@ -219,38 +216,6 @@ export const makeAgentGateway = Effect.gen(function* () {
         }),
       ),
     );
-
-  const awaitInterruptedTurn = Effect.fnUntraced(function* (input: {
-    readonly threadId: ThreadId;
-    readonly turnId: TurnId;
-  }) {
-    const deadline = Date.now() + TURN_INTERRUPT_CONFIRM_TIMEOUT_MS;
-    while (true) {
-      const projected = yield* projectionTurns
-        .getByTurnId(input)
-        .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
-      if (Option.isSome(projected)) {
-        const state = projected.value.state;
-        if (
-          state === "completed" ||
-          state === "error" ||
-          state === "interrupted" ||
-          state === "cancelled"
-        ) {
-          return state;
-        }
-      }
-      if (Date.now() >= deadline) {
-        const currentState = Option.isSome(projected) ? projected.value.state : "missing";
-        return yield* Effect.fail(
-          new ToolInputError(
-            `Turn "${input.turnId}" interruption was accepted but its durable state remained "${currentState}" after ${TURN_INTERRUPT_CONFIRM_TIMEOUT_MS}ms. Read the exact turn before retrying; Penkra will not report an unconfirmed terminal state.`,
-          ),
-        );
-      }
-      yield* Effect.sleep(TURN_INTERRUPT_CONFIRM_POLL_MS);
-    }
-  });
 
   // Privilege boundary shared by every tool that makes another thread execute
   // work or mutates another thread's state: a caller must not drive a thread
@@ -464,123 +429,44 @@ export const makeAgentGateway = Effect.gen(function* () {
     definition: {
       name: "penkra_interrupt_thread",
       description:
-        "Stop work in an existing Penkra Thread. Without turnId, this interrupts whatever is currently running and does not touch queued work. With the exact turnId returned by create/send, Penkra removes that turn if it is queued or interrupts it if it already started. cancelled means nothing ran; interrupted means partial output may exist.",
+        "Use threadId to request interruption of the running turn; it has no effect when idle. Use messageId to remove a queued message; it has no effect if that message is not queued. A message id never interrupts a started turn. The provider end event confirms stopping.",
       inputSchema: {
         type: "object",
         properties: {
           threadId: {
             type: "string",
-            description: "Thread whose turn should be interrupted.",
+            description: "Thread whose running turn should be interrupted.",
           },
-          turnId: {
+          messageId: {
             type: "string",
-            description: "Optional exact queued or running turn to cancel/interrupt.",
+            description:
+              "Queued message to remove. With threadId, cancellation is scoped to that thread.",
           },
         },
-        required: ["threadId"],
         additionalProperties: false,
       },
-      annotations: {
-        title: "Interrupt a Penkra thread",
-        ...DESTRUCTIVE_WRITE_TOOL_ANNOTATIONS,
-      },
+      annotations: { title: "Interrupt a Penkra thread", ...DESTRUCTIVE_WRITE_TOOL_ANNOTATIONS },
     },
     handler: (args, context) =>
       Effect.gen(function* () {
-        const threadId = readStringArg(args, "threadId", { required: true })!;
-        const requestedTurnId = readStringArg(args, "turnId");
+        const requestedThreadId = readStringArg(args, "threadId");
+        const messageId = readStringArg(args, "messageId");
+        if (!requestedThreadId && !messageId)
+          throw new ToolInputError("Supply threadId or messageId.");
         const caller = yield* requireThreadShell(context.callerThreadId);
+        const threadId =
+          requestedThreadId === undefined
+            ? yield* sender.queuedThread(messageId!)
+            : ThreadId.makeUnsafe(requestedThreadId);
+        if (threadId === null)
+          return mcpToolResultJson({ threadId: null, messageId, removed: false });
         const target = yield* requireThreadShell(threadId);
-        // Stopping a higher-privileged thread's work is still driving it.
         yield* assertCallerMayDriveThread(caller, target);
-        if (requestedTurnId) {
-          const turnId = TurnId.makeUnsafe(requestedTurnId);
-          const turn = yield* projectionTurns.getByTurnId({ threadId: target.id, turnId }).pipe(
-            Effect.mapError((error) => new ToolInputError(errorText(error))),
-            Effect.flatMap(
-              Option.match({
-                onNone: () =>
-                  Effect.fail(
-                    new ToolInputError(
-                      `Turn "${requestedTurnId}" was not found in Thread "${threadId}".`,
-                    ),
-                  ),
-                onSome: Effect.succeed,
-              }),
-            ),
-          );
-          if (turn.state === "queued") {
-            if (turn.pendingMessageId === null) {
-              throw new ToolInputError(`Queued turn "${turnId}" has no message identity.`);
-            }
-            yield* orchestrationEngine.dispatch({
-              type: "thread.turn.cancel-queued",
-              commandId: CommandId.makeUnsafe(`agent:${randomUUID()}:cancel-queued`),
-              threadId: target.id,
-              turnId,
-              messageId: turn.pendingMessageId,
-              createdAt: isoNow(),
-            });
-            // Dispatch is durably ordered with promotion, but projection and
-            // provider interruption are asynchronous. Confirm only this exact
-            // turn instead of draining the whole reactor (which could block on
-            // unrelated work), and never claim a terminal outcome from the
-            // pre-dispatch state.
-            const state = yield* awaitInterruptedTurn({
-              threadId: target.id,
-              turnId,
-            });
-            return mcpToolResultJson({
-              threadId: target.id,
-              turnId,
-              state,
-            });
-          }
-          if (
-            turn.state === "completed" ||
-            turn.state === "error" ||
-            turn.state === "interrupted" ||
-            turn.state === "cancelled"
-          ) {
-            return mcpToolResultJson({
-              threadId: target.id,
-              turnId,
-              state: turn.state,
-            });
-          }
-          yield* orchestrationEngine.dispatch({
-            type: "thread.turn.interrupt",
-            commandId: CommandId.makeUnsafe(`agent:${randomUUID()}:interrupt`),
-            threadId: target.id,
-            turnId,
-            ...(turn.startedAt === null && turn.pendingMessageId !== null
-              ? { pendingMessageId: turn.pendingMessageId }
-              : {}),
-            createdAt: isoNow(),
-          });
-          const state = yield* awaitInterruptedTurn({
-            threadId: target.id,
-            turnId,
-          });
-          return mcpToolResultJson({ threadId: target.id, turnId, state });
-        }
-        const activeTurn = yield* resolveAuthoritativeActiveTurn({
-          threadId: target.id,
-          session: target.session,
-          projectionTurns,
-        });
-        yield* orchestrationEngine.dispatch({
-          type: "thread.turn.interrupt",
-          commandId: CommandId.makeUnsafe(`agent:${randomUUID()}:interrupt`),
-          threadId: target.id,
-          ...(activeTurn ? { turnId: activeTurn.turnId } : {}),
-          createdAt: isoNow(),
-        });
-        return mcpToolResultJson({
-          threadId: target.id,
-          turnId: activeTurn?.turnId ?? null,
-          state: activeTurn ? "interrupted" : "cancelled",
-        });
+        const result =
+          messageId === undefined
+            ? yield* sender.interrupt(target.id)
+            : yield* sender.cancelQueued({ threadId: target.id, messageId });
+        return mcpToolResultJson(result);
       }).pipe(Effect.catch((error) => Effect.succeed(gatewayMcpToolErrorResult(error)))),
   };
 

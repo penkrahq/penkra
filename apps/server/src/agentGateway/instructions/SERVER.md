@@ -254,3 +254,5 @@ list complete or computing a total from it.
 `penkra diagnostics threads retry-projection` is only for the case diagnosis names: a quarantined
 provider-runtime event. It releases the preserved head event for another projection attempt. It
 does not skip the event and does not delete it.
+
+Use `penkra threads interrupt --thread-id <id>` to request stopping the running turn. Use `penkra threads interrupt --message-id <id>` to remove a queued message; a message id has no effect after delivery. Stopping is confirmed by the provider end event, not by the interrupt acknowledgement.
