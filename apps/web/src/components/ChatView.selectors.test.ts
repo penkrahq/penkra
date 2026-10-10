@@ -73,8 +73,20 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
 }
 
 describe("createThreadLineageSelector", () => {
+  it("reads parent membership from canonical rows instead of stale shell fields", () => {
+    const selectLineage = createThreadLineageSelector(childThreadId, [
+      { id: rootThreadId, parentThreadId: null },
+      { id: childThreadId, parentThreadId: null },
+    ]);
+    expect(selectLineage(makeState()).map((row) => row.id)).toEqual([childThreadId]);
+    expect(selectLineage(makeState())[0]?.parentThreadId).toBeNull();
+  });
+
   it("stays stable when only message detail slices change", () => {
-    const selectLineage = createThreadLineageSelector(childThreadId);
+    const selectLineage = createThreadLineageSelector(childThreadId, [
+      { id: rootThreadId, parentThreadId: null },
+      { id: childThreadId, parentThreadId: rootThreadId },
+    ]);
     const before = selectLineage(makeState());
     const after = selectLineage(
       makeState({
@@ -94,7 +106,10 @@ describe("createThreadLineageSelector", () => {
   });
 
   it("updates when parent activity identity hints change", () => {
-    const selectLineage = createThreadLineageSelector(childThreadId);
+    const selectLineage = createThreadLineageSelector(childThreadId, [
+      { id: rootThreadId, parentThreadId: null },
+      { id: childThreadId, parentThreadId: rootThreadId },
+    ]);
     const before = selectLineage(makeState());
     const nextActivity = {
       ...rootActivity,
@@ -115,7 +130,10 @@ describe("createThreadLineageSelector", () => {
   });
 
   it("stays stable when unrelated thread shells change", () => {
-    const selectLineage = createThreadLineageSelector(childThreadId);
+    const selectLineage = createThreadLineageSelector(childThreadId, [
+      { id: rootThreadId, parentThreadId: null },
+      { id: childThreadId, parentThreadId: rootThreadId },
+    ]);
     const before = selectLineage(makeState());
     const after = selectLineage(
       makeState({

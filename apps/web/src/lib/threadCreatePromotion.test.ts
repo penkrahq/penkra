@@ -5,15 +5,18 @@ import {
   ThreadId,
   singletonThreadDeckId,
   type CleanCoreCreateThreadInput,
+  type CleanCoreThreadSummary,
   type NativeApi,
 } from "@penkra/contracts";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useStore } from "../store";
 import { getThreadFromState } from "../threadDerivation";
+import { getThreadListById, resetThreadListForTests } from "../threadListStore";
 import { promoteThreadCreate } from "./threadCreatePromotion";
 const initialStoreState = useStore.getState();
 const initialDraftState = useComposerDraftStore.getState();
 afterEach(() => {
+  resetThreadListForTests();
   useStore.setState(initialStoreState, true);
   useComposerDraftStore.setState(initialDraftState, true);
 });
@@ -30,6 +33,40 @@ function input(): CleanCoreCreateThreadInput {
     connection: { kind: "selected", connectionId: null },
     creator: { kind: "user" },
     createdAt: "2026-05-06T20:00:00.000Z",
+  };
+}
+function makeCanonicalThread(request: CleanCoreCreateThreadInput): CleanCoreThreadSummary {
+  return {
+    id: request.threadId,
+    spaceId: SpaceId.makeUnsafe("space-test"),
+    folderId: request.folderId,
+    title: request.title,
+    provider: request.modelSelection.provider,
+    model: request.modelSelection.model,
+    modelOptions: null,
+    connectionId: null,
+    runtimeMode: request.runtimeMode,
+    workingDirectory: request.workingDirectory,
+    state: "idle",
+    activeTurnId: null,
+    lastError: null,
+    queue: "[]",
+    createdBy: "user",
+    createdByThreadId: null,
+    parentThreadId: null,
+    deckId: request.deckId,
+    deckSortOrder: 0,
+    sidebarSortOrder: null,
+    isPinned: 0,
+    lastActivityAt: null,
+    lastMessagePreview: null,
+    lastUserMessageAt: null,
+    lastVisitedAt: null,
+    openQuestionCount: 0,
+    archivedAt: null,
+    deletedAt: null,
+    createdAt: request.createdAt,
+    updatedAt: request.createdAt,
   };
 }
 function makeShellSnapshot(threadId: ThreadId, snapshotSequence = 1) {
@@ -91,7 +128,7 @@ describe("clean-core draft promotion", () => {
   it("creates through the clean-core API and installs the stored shell before admission", async () => {
     const request = input();
     const createThread = vi.fn().mockResolvedValue({
-      thread: { id: request.threadId },
+      thread: makeCanonicalThread(request),
       shell: makeShellSnapshot(request.threadId).threads[0],
       created: true,
     });
@@ -103,6 +140,8 @@ describe("clean-core draft promotion", () => {
     } as unknown as NativeApi;
     expect(await promoteThreadCreate(request, api)).toBe("created");
     expect(createThread).toHaveBeenCalledWith(request);
+    expect(getThreadShell).not.toHaveBeenCalled();
+    expect(getThreadListById().get(request.threadId)).toEqual(makeCanonicalThread(request));
     expect(getThreadFromState(useStore.getState(), request.threadId)?.title).toBe(
       "Promoted thread",
     );
@@ -110,7 +149,7 @@ describe("clean-core draft promotion", () => {
   it("uses the server's idempotent result on a repeated creation", async () => {
     const request = input();
     const createThread = vi.fn().mockResolvedValue({
-      thread: { id: request.threadId },
+      thread: makeCanonicalThread(request),
       shell: makeShellSnapshot(request.threadId).threads[0],
       created: false,
     });
@@ -143,7 +182,7 @@ describe("clean-core draft promotion", () => {
     const api = {
       cleanCore: {
         createThread: vi.fn().mockResolvedValue({
-          thread: { id: request.threadId },
+          thread: makeCanonicalThread(request),
           shell: makeShellSnapshot(request.threadId).threads[0],
           created: false,
         }),
@@ -163,12 +202,12 @@ describe("clean-core draft promotion", () => {
     const createThread = vi
       .fn()
       .mockResolvedValueOnce({
-        thread: { id: request.threadId },
+        thread: makeCanonicalThread(request),
         shell: makeShellSnapshot(request.threadId).threads[0],
         created: true,
       })
       .mockResolvedValueOnce({
-        thread: { id: request.threadId },
+        thread: makeCanonicalThread(request),
         shell: makeShellSnapshot(request.threadId).threads[0],
         created: false,
       });

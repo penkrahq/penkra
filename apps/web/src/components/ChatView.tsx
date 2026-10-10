@@ -1,8 +1,9 @@
 import { Schema } from "effect";
-import { loadThread, useThreadSummary } from "../threadListStore";
+import { loadThread, useThreadList, getThreadListById, useThreadSummary } from "../threadListStore";
 import { useThreadStop } from "../hooks/useThreadStop";
 import {
   CleanCoreQueuedMessage,
+  type CleanCoreThreadSummary,
   type ApprovalRequestId,
   DEFAULT_MODEL_BY_PROVIDER,
   MessageId,
@@ -778,7 +779,49 @@ interface LateComposerSendHandlers {
   readonly handleStandaloneSlashCommand: (trimmedPrompt: string) => Promise<boolean>;
 }
 
-export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: ChatViewProps) {
+export default function ChatView(props: ChatViewProps) {
+  const row = useThreadSummary(props.threadId);
+  const hasServerThread = useStore(
+    (state) => state.threadShellById?.[props.threadId] !== undefined,
+  );
+  const [rowReadFailed, setRowReadFailed] = useState(false);
+  const readRow = useCallback(() => {
+    setRowReadFailed(false);
+    void loadThread(props.threadId)
+      .then(() => {
+        if (!getThreadListById().has(props.threadId)) setRowReadFailed(true);
+      })
+      .catch(() => setRowReadFailed(true));
+  }, [props.threadId]);
+  useEffect(() => {
+    if (hasServerThread && row === null) readRow();
+  }, [props.threadId, hasServerThread, row === null, readRow]);
+  if (hasServerThread && row === null)
+    return (
+      <div className="flex min-h-0 flex-1 items-center justify-center">
+        <ThreadDetailHydrationState
+          state={rowReadFailed ? "failed" : "loading"}
+          onRetry={readRow}
+        />
+      </div>
+    );
+  return (
+    <ChatViewContent
+      {...props}
+      context={row === null ? { kind: "draft" } : { kind: "persisted", row }}
+    />
+  );
+}
+
+type ChatViewThreadContext = { kind: "draft" } | { kind: "persisted"; row: CleanCoreThreadSummary };
+
+function ChatViewContent({
+  threadId,
+  paneScopeId: paneScopeIdProp,
+  context,
+}: ChatViewProps & { context: ChatViewThreadContext }) {
+  const canonicalThread = context.kind === "persisted" ? context.row : null;
+  const canonicalRows = useThreadList();
   // Keep defaults out of the parameter list. Assignment-pattern parameters make
   // React Compiler skip this component, which turns every composer keystroke
   // into a full long-thread render.
@@ -1486,7 +1529,10 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
   );
   const activeThread = serverThread ?? localDraftThread;
   const runtimeMode =
-    composerDraft.runtimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
+    composerDraft.runtimeMode ??
+    (context.kind === "persisted"
+      ? Schema.decodeUnknownSync(RuntimeMode)(context.row.runtimeMode)
+      : (localDraftThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE));
   const isServerThread = serverThread !== undefined;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const threadDetailHydration = resolveThreadDetailHydration({
@@ -1680,10 +1726,13 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
   const emptyLandingParentName = activeFolderName || emptyLandingSpaceName || "this space";
   const isChatProject = isContainerLandingProject;
   const threadLineageThreads = useStore(
-    useMemo(() => createThreadLineageSelector(activeThread?.id ?? null), [activeThread?.id]),
+    useMemo(
+      () => createThreadLineageSelector(activeThread?.id ?? null, canonicalRows),
+      [activeThread?.id, canonicalRows],
+    ),
   );
   const resolvedThreadWorkingDirectory = isServerThread
-    ? (activeThread?.workingDirectory ?? null)
+    ? (canonicalThread?.workingDirectory ?? null)
     : (draftThread?.workingDirectory ?? null);
 
   useEffect(() => {
@@ -1699,7 +1748,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     if (
       !hasUnseenThreadCompletion({
         latestTurn: activeLatestTurn,
-        lastVisitedAt: activeThread.lastVisitedAt,
+        lastVisitedAt: canonicalThread?.lastVisitedAt,
       })
     ) {
       return;
@@ -1715,7 +1764,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     });
   }, [
     activeThread?.id,
-    activeThread?.lastVisitedAt,
+    canonicalThread?.lastVisitedAt,
     activeLatestTurn?.completedAt,
     markThreadVisited,
   ]);
@@ -2825,7 +2874,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
   const isCenteredEmptyLanding =
     threadDetailHydration === "ready" &&
     timelineEntries.length === 0 &&
-    !activeThread?.parentThreadId;
+    !canonicalThread?.parentThreadId;
   const isEmptyChatLanding =
     isCenteredEmptyLanding && Boolean(homeDir) && isContainerLandingProject;
 
@@ -3823,7 +3872,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         return;
       }
 
-      if (input.runtimeMode !== serverThread.runtimeMode) {
+      if (input.runtimeMode !== canonicalThread?.runtimeMode) {
         await api.cleanCore.updateThread({
           update: {
             action: "runtimeMode",
@@ -3834,7 +3883,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         });
       }
     },
-    [serverThread],
+    [serverThread, canonicalThread],
   );
 
   // Scroll helpers stay list-owned so transcript updates stop bouncing through
@@ -4576,16 +4625,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [composerMenuOpen]);
 
-  const canonicalThread = useThreadSummary(activeThreadId);
-  useEffect(() => {
-    if (activeThreadId === null || !isServerThread) return;
-    void loadThread(activeThreadId).catch((error: unknown) =>
-      setStoreThreadError(
-        activeThreadId,
-        error instanceof Error ? error.message : "Failed to load the queue.",
-      ),
-    );
-  }, [activeThreadId, isServerThread, setStoreThreadError]);
   const queuedMessages = useMemo(
     () =>
       canonicalThread === null
@@ -5898,7 +5937,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
                 ? { kind: "default" }
                 : { kind: "selected", connectionId: selectedConnectionIdForSend },
             threadId: threadIdForSend,
-            deckId: activeThread.deckId,
+            deckId: localDraftThread!.deckId,
             folderId: targetFolderIdForSend,
             title,
             modelSelection: threadCreateModelSelection,
@@ -7316,9 +7355,16 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
 
   const activeThreadDisplayTitle = resolveActiveThreadTitle({
     title: activeThread.title,
-    subagentTitle: activeThread.parentThreadId
+    subagentTitle: canonicalThread?.parentThreadId
       ? resolveSubagentPresentationForThread({
-          thread: activeThread,
+          thread: {
+            id: activeThread.id,
+            title: activeThread.title,
+            parentThreadId: canonicalThread.parentThreadId,
+            subagentAgentId: activeThread.subagentAgentId,
+            subagentNickname: activeThread.subagentNickname,
+            subagentRole: activeThread.subagentRole,
+          },
           threads: threadLineageThreads,
         }).fullLabel
       : null,
@@ -7545,7 +7591,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
                       ? activePendingProgress.activeQuestion?.options.length === 0
                         ? "Type your answer to continue"
                         : "Type your own answer, or leave this blank to use the selected option"
-                      : activeThread?.parentThreadId
+                      : canonicalThread?.parentThreadId
                         ? "Message this subagent while it works"
                         : hasLiveTurn
                           ? "Ask for follow-up changes"
