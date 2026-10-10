@@ -2,7 +2,7 @@
 // Purpose: The clean-core send queue and steer decision (0.14.4 design 2.4).
 // One FIFO per thread, persisted as threads.queue JSON so it survives restart.
 // Layer: Server clean core
-// Exports: QueuedMessage, planSend, readThreadQueue, enqueueMessage, dequeueNextMessage
+// Exports: QueuedMessage, planSend, readThreadQueue, enqueueMessage
 
 import { Schema, Effect } from "effect";
 import { ChatAttachment, MessageId, ThreadId } from "@penkra/contracts";
@@ -58,18 +58,4 @@ export const enqueueMessage = (threadId: string, message: QueuedMessage) =>
     const queue = [...decodeQueue(JSON.parse(rows[0]!.queue!)), message];
     yield* sql`UPDATE threads SET queue = ${JSON.stringify(queue)} WHERE id = ${threadId}`;
     return queue;
-  });
-
-/** Removes and returns the head of the queue, or null when it is empty. */
-export const dequeueNextMessage = (threadId: string) =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    const rows = yield* sql<{ readonly queue: string | null }>`
-      SELECT queue FROM threads WHERE id = ${threadId}
-    `;
-    const queue = decodeQueue(JSON.parse(rows[0]!.queue!));
-    const head = queue[0];
-    if (head === undefined) return null;
-    yield* sql`UPDATE threads SET queue = ${JSON.stringify(queue.slice(1))} WHERE id = ${threadId}`;
-    return head;
   });
