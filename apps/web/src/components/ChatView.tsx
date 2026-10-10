@@ -157,6 +157,7 @@ import {
   shouldConsumePendingCustomBinaryConfirmation,
 } from "./ChatView.logic";
 import { createThreadLineageSelector } from "./ChatView.selectors";
+import { useLoadThreadAncestors } from "../hooks/useLoadThreadAncestors";
 import {
   clampCollapsedComposerCursor,
   type ComposerTrigger,
@@ -1725,6 +1726,7 @@ function ChatViewContent({
   const activeFolderName = activeProject?.name.trim() || null;
   const emptyLandingParentName = activeFolderName || emptyLandingSpaceName || "this space";
   const isChatProject = isContainerLandingProject;
+  useLoadThreadAncestors(activeThread?.id ?? null, canonicalRows);
   const threadLineageThreads = useStore(
     useMemo(
       () => createThreadLineageSelector(activeThread?.id ?? null, canonicalRows),
