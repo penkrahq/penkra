@@ -121,17 +121,55 @@ export const CleanCoreListThreadsResult = Schema.Struct({
 });
 export type CleanCoreListThreadsResult = typeof CleanCoreListThreadsResult.Type;
 
-export const CleanCoreUpdateThreadInput = Schema.Struct({
-  threadId: ThreadId,
-  updatedAt: IsoDateTime,
-  sidebarSortOrder: Schema.optional(NonNegativeInt),
-  deckId: Schema.optional(Schema.NullOr(ThreadDeckId)),
-  deckSortOrder: Schema.optional(NonNegativeInt),
-  isPinned: Schema.optional(Schema.Number),
-  lastVisitedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
-  runtimeMode: Schema.optional(Schema.String),
-  workingDirectory: Schema.optional(Schema.NullOr(Schema.String)),
+export const CleanCoreThreadMovePosition = Schema.Struct({
+  type: Schema.Literals(["after", "pinned-boundary"]),
+  itemId: Schema.optional(ThreadId),
 });
+export type CleanCoreThreadMovePosition = typeof CleanCoreThreadMovePosition.Type;
+
+export const CleanCoreThreadUpdate = Schema.Union([
+  Schema.Struct({
+    action: Schema.Literal("pin"),
+    threadId: ThreadId,
+    isPinned: Schema.Boolean,
+    updatedAt: IsoDateTime,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("visit"),
+    threadId: ThreadId,
+    visitedAt: IsoDateTime,
+    updatedAt: IsoDateTime,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("runtimeMode"),
+    threadId: ThreadId,
+    runtimeMode: Schema.String,
+    updatedAt: IsoDateTime,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("workingDirectory"),
+    threadId: ThreadId,
+    workingDirectory: Schema.NullOr(Schema.String),
+    updatedAt: IsoDateTime,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("moveSidebarItem"),
+    threadId: ThreadId,
+    folderId: FolderId,
+    position: CleanCoreThreadMovePosition,
+    updatedAt: IsoDateTime,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("moveDeckThread"),
+    threadId: ThreadId,
+    deckId: ThreadDeckId,
+    position: CleanCoreThreadMovePosition,
+    updatedAt: IsoDateTime,
+  }),
+]);
+export type CleanCoreThreadUpdate = typeof CleanCoreThreadUpdate.Type;
+
+export const CleanCoreUpdateThreadInput = Schema.Struct({ update: CleanCoreThreadUpdate });
 export type CleanCoreUpdateThreadInput = typeof CleanCoreUpdateThreadInput.Type;
 
 /**

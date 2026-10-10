@@ -113,7 +113,14 @@ import { recordWsRpcFailure } from "./diagnostics/wsRpcFailure";
 import { listThreadItemsPage } from "./cleanCore/threadItemsPage.ts";
 import { listThreads } from "./cleanCore/threadList.ts";
 import { getThreadDraft, setThreadDraft } from "./cleanCore/threadDraft.ts";
-import { updateThreadFields } from "./cleanCore/threadStore.ts";
+import {
+  markThreadVisited,
+  moveDeckThread,
+  moveSidebarItem,
+  setThreadPinned,
+  setThreadRuntimeMode,
+  setThreadWorkingDirectory,
+} from "./cleanCore/threadStore.ts";
 import { ThreadPublisher } from "./cleanCore/ThreadPublisher.ts";
 import { threadChangeStream } from "./cleanCore/threadChangeStream.ts";
 import { recoverMissingFile } from "./diagnostics/missingFileRecovery";
@@ -1463,11 +1470,36 @@ const makeWsRpcHandlersLayer = () =>
           rpcEffect(listThreads(input), "Failed to load the thread list"),
         [WS_METHODS.cleanCoreUpdateThread]: (input) =>
           rpcEffect(
-            updateThreadFields(input).pipe(
-              Effect.tap(() =>
-                Effect.sync(() => threadPublisher.publish({ threadId: input.threadId })),
-              ),
-            ),
+            Effect.gen(function* () {
+              const update = input.update;
+              const publish = (threadId: string) => threadPublisher.publish({ threadId });
+              switch (update.action) {
+                case "pin": {
+                  if (yield* setThreadPinned(update)) publish(update.threadId);
+                  return;
+                }
+                case "visit": {
+                  if (yield* markThreadVisited(update)) publish(update.threadId);
+                  return;
+                }
+                case "runtimeMode": {
+                  if (yield* setThreadRuntimeMode(update)) publish(update.threadId);
+                  return;
+                }
+                case "workingDirectory": {
+                  if (yield* setThreadWorkingDirectory(update)) publish(update.threadId);
+                  return;
+                }
+                case "moveSidebarItem": {
+                  for (const threadId of yield* moveSidebarItem(update)) publish(threadId);
+                  return;
+                }
+                case "moveDeckThread": {
+                  for (const threadId of yield* moveDeckThread(update)) publish(threadId);
+                  return;
+                }
+              }
+            }),
             "Failed to update the thread",
           ),
         [WS_METHODS.cleanCoreListThreadItemsPage]: (input) =>
