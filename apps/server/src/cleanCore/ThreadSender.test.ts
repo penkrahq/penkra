@@ -158,6 +158,15 @@ it.effect(
       yield* setThreadState(threadId, "idle", null, null, "2026-10-09T00:00:03.000Z");
       assert.isFalse((yield* sender.interrupt(threadId)).interruptRequested);
       assert.deepStrictEqual(interrupts, [{ threadId }]);
+      yield* enqueueMessage(threadId, {
+        messageId: MessageId.makeUnsafe("queued-after-service-start"),
+        text: "fresh row",
+        attachments: [],
+        senderThreadId: null,
+        dispatchOrigin: "user",
+        queuedAt: "2026-10-09T00:00:04.000Z",
+      });
+      assert.equal(yield* sender.queuedThread("queued-after-service-start"), threadId);
     }).pipe(Effect.scoped, Effect.provide(NodeSqliteClient.layerMemory())),
 );
 
