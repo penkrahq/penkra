@@ -1,6 +1,5 @@
 import {
   type ModelSelection,
-  type OrchestrationShellSnapshot,
   type ProviderKind,
   type ProviderConnectionId,
   type ProviderNativeCommandDescriptor,
@@ -29,6 +28,7 @@ import { buildNextProviderOptions } from "../providerModelOptions";
 import { downloadUrlAsBlob } from "../lib/browserDownload";
 import { resolveWsHttpUrl } from "../lib/wsHttpUrl";
 import { useFeedbackDialogStore } from "../feedbackDialogStore";
+import { promoteThreadCreate } from "../lib/threadCreatePromotion";
 
 type ComposerSnapshot = {
   value: string;
@@ -59,7 +59,6 @@ export function useComposerSlashCommands(input: {
   selectedConnectionId: ProviderConnectionId | null | undefined;
   runtimeMode: RuntimeMode;
   threadId: ThreadId;
-  syncServerShellSnapshot: (snapshot: OrchestrationShellSnapshot) => void;
   navigateToThread: (threadId: ThreadId) => Promise<void>;
   handleClearConversation: () => Promise<void> | void;
   openReviewTargetPicker: () => void;
@@ -105,7 +104,6 @@ export function useComposerSlashCommands(input: {
     selectedConnectionId,
     runtimeMode,
     threadId,
-    syncServerShellSnapshot,
     navigateToThread,
     handleClearConversation,
     openReviewTargetPicker,
@@ -245,18 +243,21 @@ export function useComposerSlashCommands(input: {
       if (selectedConnectionId === undefined) {
         throw new Error("Choose a Connection before starting a review.");
       }
-      await api.cleanCore.createThread({
-        creator: { kind: "user" },
-        connection: { kind: "selected", connectionId: selectedConnectionId },
-        threadId: nextThreadId,
-        deckId: activeThread.deckId,
-        folderId: activeProject.id,
-        title: nextThreadTitle,
-        modelSelection: selectedModelSelection,
-        runtimeMode,
-        workingDirectory: nextWorkingDirectory,
-        createdAt,
-      });
+      await promoteThreadCreate(
+        {
+          creator: { kind: "user" },
+          connection: { kind: "selected", connectionId: selectedConnectionId },
+          threadId: nextThreadId,
+          deckId: activeThread.deckId,
+          folderId: activeProject.id,
+          title: nextThreadTitle,
+          modelSelection: selectedModelSelection,
+          runtimeMode,
+          workingDirectory: nextWorkingDirectory,
+          createdAt,
+        },
+        api,
+      );
       await api.orchestration.dispatchCommand({
         type: "thread.turn.start",
         commandId: newCommandId(),
@@ -275,8 +276,6 @@ export function useComposerSlashCommands(input: {
         runtimeMode,
         createdAt,
       });
-      const snapshot = await api.orchestration.getShellSnapshot();
-      syncServerShellSnapshot(snapshot);
       await navigateToThread(nextThreadId);
       return true;
     } catch (error) {
@@ -294,7 +293,7 @@ export function useComposerSlashCommands(input: {
     navigateToThread,
     runtimeMode,
     selectedModelSelection,
-    syncServerShellSnapshot,
+    selectedConnectionId,
   ]);
 
   const handleReviewTargetSelection = useCallback(
