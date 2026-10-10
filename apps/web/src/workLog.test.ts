@@ -930,7 +930,7 @@ describe("deriveWorkLogEntries", () => {
             item: {
               type: "command_execution",
               arguments: JSON.stringify({
-                command: 'rg -n "thread.create" apps/server/src',
+                command: 'rg -n "createThread" apps/server/src',
               }),
             },
           },
@@ -941,7 +941,7 @@ describe("deriveWorkLogEntries", () => {
     expect(deriveWorkLogEntries(activities, undefined)).toMatchObject([
       {
         id: "codex-command-json-args",
-        command: 'rg -n "thread.create" apps/server/src',
+        command: 'rg -n "createThread" apps/server/src',
         toolTitle: "Searching",
       },
     ]);

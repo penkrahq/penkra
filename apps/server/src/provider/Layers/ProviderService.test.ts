@@ -267,24 +267,6 @@ function makeFakeCodexAdapter(
     (_threadId: ThreadId): Effect.Effect<void, ProviderAdapterError> => Effect.void,
   );
 
-  const forkThread = vi.fn(
-    (input: { threadId: ThreadId; runtimeMode: ProviderSession["runtimeMode"] }) =>
-      Effect.sync(() => {
-        const now = new Date().toISOString();
-        const resumeCursor = { threadId: `native-fork-${input.threadId}` };
-        sessions.set(input.threadId, {
-          provider,
-          status: "ready",
-          runtimeMode: input.runtimeMode,
-          threadId: input.threadId,
-          resumeCursor,
-          createdAt: now,
-          updatedAt: now,
-        });
-        return { threadId: input.threadId, resumeCursor };
-      }),
-  );
-
   const stopAll = vi.fn(
     (): Effect.Effect<void, ProviderAdapterError> =>
       Effect.sync(() => {
@@ -315,7 +297,6 @@ function makeFakeCodexAdapter(
     readThread,
     rollbackThread,
     compactThread,
-    forkThread,
     stopAll,
     drainRuntimeEvents: Effect.suspend(() => drainRuntimeEvents()),
     streamEvents: Stream.fromPubSub(runtimeEventPubSub),
@@ -362,7 +343,6 @@ function makeFakeCodexAdapter(
     readThread,
     rollbackThread,
     compactThread,
-    forkThread,
     stopAll,
     drainRuntimeEvents,
   };
@@ -2921,92 +2901,6 @@ managedRouting.layer("ProviderService managed launch enforcement", (it) => {
       );
       assert.equal(replacement._tag, "Failure");
       assert.equal(managedRouting.claude.startSession.mock.calls.length, 0);
-    }),
-  );
-
-  it.effect("does not route a native fork through an unmanaged adapter profile", () =>
-    Effect.gen(function* () {
-      const provider = yield* ProviderService;
-      const result = yield* Effect.result(
-        provider.forkThread!({
-          sourceThreadId: asThreadId("managed-fork-source"),
-          threadId: asThreadId("managed-fork-target"),
-          runtimeMode: "full-access",
-        }),
-      );
-      assert.strictEqual(result._tag, "Failure");
-    }),
-  );
-
-  it.effect("routes a managed native fork only through its exact target generation launch", () =>
-    Effect.gen(function* () {
-      const provider = yield* ProviderService;
-      managedRouting.codex.forkThread.mockClear();
-      const targetThreadId = asThreadId("managed-fork-target-exact");
-      const result = yield* provider.forkThread!({
-        sourceThreadId: asThreadId("managed-fork-source-exact"),
-        threadId: targetThreadId,
-        sourceResumeCursor: { threadId: "source-native-session" },
-        modelSelection: { provider: "codex", model: "gpt-5.3-codex" },
-        runtimeMode: "full-access",
-        managedLaunch,
-      });
-      assert.deepStrictEqual(result, {
-        threadId: targetThreadId,
-        resumeCursor: { threadId: `native-fork-${targetThreadId}` },
-      });
-      assert.strictEqual(
-        (
-          managedRouting.codex.forkThread.mock.calls[0]?.[0] as {
-            managedLaunch?: unknown;
-          }
-        ).managedLaunch,
-        managedLaunch,
-      );
-    }),
-  );
-});
-
-routing.layer("ProviderService fork failure diagnostics", (it) => {
-  it.effect("records a failed native fork even when the caller receives null", () =>
-    Effect.gen(function* () {
-      const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-fork-diagnostics-"));
-      const diagnostics = new DiagnosticsStore({
-        stateDir,
-        appVersion: "0.14.3",
-        process: "server",
-      });
-      const uninstall = installDiagnosticsStore(diagnostics);
-      try {
-        const provider = yield* ProviderService;
-        const sourceThreadId = asThreadId("fork-source-failure");
-        yield* provider.startSession(sourceThreadId, {
-          provider: "codex",
-          threadId: sourceThreadId,
-          runtimeMode: "full-access",
-        });
-        routing.codex.forkThread.mockImplementationOnce(
-          () =>
-            Effect.fail(new Error("fixture native fork failure")) as unknown as ReturnType<
-              typeof routing.codex.forkThread
-            >,
-        );
-        const result = yield* provider.forkThread!({
-          sourceThreadId,
-          threadId: asThreadId("fork-target-failure"),
-          runtimeMode: "full-access",
-        });
-        assert.strictEqual(result, null);
-        const db = openDiagnosticsReader(stateDir)!;
-        assert.deepStrictEqual(db.prepare("SELECT code, where_name FROM incidents").all(), [
-          { code: "EXTERNAL_CALL_FAILED", where_name: "server.provider" },
-        ]);
-        db.close();
-      } finally {
-        uninstall();
-        diagnostics.close();
-        fs.rmSync(stateDir, { recursive: true, force: true });
-      }
     }),
   );
 });

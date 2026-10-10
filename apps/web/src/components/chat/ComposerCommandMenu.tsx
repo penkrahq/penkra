@@ -67,8 +67,6 @@ function commandMenuTitle(
       return "Fast Mode";
     case "review":
       return "Code Review";
-    case "fork":
-      return "Fork";
     case "status":
       return "Status";
     case "subagents":
@@ -167,13 +165,6 @@ export type ComposerCommandItem =
       type: "provider-native-command";
       provider: ProviderKind;
       command: ProviderNativeCommandDescriptor["name"];
-      label: string;
-      description: string;
-    }
-  | {
-      id: string;
-      type: "fork-target";
-      target: "local";
       label: string;
       description: string;
     }
@@ -434,7 +425,7 @@ const COMPOSER_COMMAND_ITEM_FILE_ICON_CLASSNAME =
 const COMPOSER_COMMAND_ITEM_GLYPH_CLASSNAME = "size-3.5";
 
 // Reuse the app's existing icon components for each concept so the command menu
-// stays coherent with how plan/fork/review/model/etc. appear everywhere else.
+// stays coherent with how review/model/etc. appear everywhere else.
 // Don't introduce bespoke glyphs here — map to the shared `~/lib/icons` exports.
 const SLASH_COMMAND_ICONS: Record<string, LucideIcon> = {
   clear: EraserIcon,
@@ -442,7 +433,6 @@ const SLASH_COMMAND_ICONS: Record<string, LucideIcon> = {
   model: BrainIcon,
   fast: FastModeIcon,
   review: BugIcon,
-  fork: GitForkIcon,
   side: MessageCircleIcon,
   status: InfoIcon,
   subagents: BotIcon,
@@ -469,8 +459,6 @@ function commandMenuItemGlyph(item: ComposerCommandItem, theme: "light" | "dark"
         />
       );
     case "local-root":
-      return <DeviceLaptopIcon className={cls} />;
-    case "fork-target":
       return <DeviceLaptopIcon className={cls} />;
     case "review-target":
       return <ChangesIcon className={cls} />;

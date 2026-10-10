@@ -549,29 +549,6 @@ function applyOrchestrationEvent(
   options?: ApplyOrchestrationEventOptions,
 ): AppState {
   switch (event.type) {
-    case "thread.created": {
-      // Creation is also delivered to clients which never opened this thread.
-      // Reuse shell registration without hydrating an invented transcript. A
-      // replay must not replace a newer shell/session with creation defaults.
-      const payload = event.payload;
-      if (state.threadShellById?.[payload.threadId]) return state;
-      return applyShellEvent(state, {
-        kind: "thread-upserted",
-        sequence: event.sequence,
-        thread: {
-          ...payload,
-          id: payload.threadId,
-          creationSource: payload.creationSource ?? null,
-          sourceThreadId: payload.sourceThreadId ?? null,
-          sourceTurnId: payload.sourceTurnId ?? null,
-          gatewayOperationId: payload.gatewayOperationId ?? null,
-          gatewayOperationIndex: payload.gatewayOperationIndex ?? null,
-          latestTurn: null,
-          session: null,
-          archivedAt: null,
-        },
-      });
-    }
     case "space.created":
       return upsertSpace(state, {
         id: event.payload.spaceId,
@@ -693,71 +670,6 @@ function applyOrchestrationEvent(
     case "folder.deleted": {
       return removeDeletedProjectFromClientState(state, event.payload.folderId, event.sequence);
     }
-
-    case "thread.deleted":
-      // Deletion is terminal for both active sidebar rows and archived settings rows.
-      return removeDeletedThreadFromClientState(state, event.payload.threadId, event.sequence);
-
-    case "thread.updated":
-      return applyThreadUpdate(
-        state,
-        event.payload.threadId,
-        (thread) => {
-          const modelSelection =
-            event.payload.modelSelection !== undefined
-              ? normalizeModelSelection(event.payload.modelSelection, thread.modelSelection)
-              : thread.modelSelection;
-          const connectionId =
-            event.payload.connectionId !== undefined
-              ? event.payload.connectionId
-              : thread.connectionId;
-          const nextUpdatedAt =
-            (thread.updatedAt ?? thread.createdAt) > event.payload.updatedAt
-              ? thread.updatedAt
-              : event.payload.updatedAt;
-
-          if (
-            (event.payload.title === undefined || event.payload.title === thread.title) &&
-            modelSelection === thread.modelSelection &&
-            connectionId === thread.connectionId &&
-            (event.payload.parentThreadId === undefined ||
-              (event.payload.parentThreadId ?? null) === (thread.parentThreadId ?? null)) &&
-            (event.payload.subagentAgentId === undefined ||
-              (event.payload.subagentAgentId ?? null) === (thread.subagentAgentId ?? null)) &&
-            (event.payload.subagentNickname === undefined ||
-              (event.payload.subagentNickname ?? null) === (thread.subagentNickname ?? null)) &&
-            (event.payload.subagentRole === undefined ||
-              (event.payload.subagentRole ?? null) === (thread.subagentRole ?? null)) &&
-            nextUpdatedAt === thread.updatedAt
-          ) {
-            return thread;
-          }
-
-          return {
-            ...thread,
-            ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
-            modelSelection,
-            ...(connectionId !== undefined ? { connectionId } : {}),
-            ...(event.payload.parentThreadId !== undefined
-              ? { parentThreadId: event.payload.parentThreadId }
-              : {}),
-            ...(event.payload.subagentAgentId !== undefined
-              ? { subagentAgentId: event.payload.subagentAgentId }
-              : {}),
-            ...(event.payload.subagentNickname !== undefined
-              ? { subagentNickname: event.payload.subagentNickname }
-              : {}),
-            ...(event.payload.subagentRole !== undefined
-              ? { subagentRole: event.payload.subagentRole }
-              : {}),
-            updatedAt: nextUpdatedAt,
-          };
-        },
-        {
-          ...options,
-          updateSidebarSummary: true,
-        },
-      );
 
     // Historical marker events remain decodable but no longer affect UI state.
     case "thread.marker-added":
@@ -1357,36 +1269,6 @@ function applyOrchestrationEvent(
                 : event.occurredAt,
           };
         },
-        {
-          ...options,
-          updateSidebarSummary: true,
-        },
-      );
-
-    case "thread.archived":
-      return applyThreadUpdate(
-        state,
-        event.payload.threadId,
-        (thread) => ({
-          ...thread,
-          archivedAt: event.payload.archivedAt ?? event.occurredAt,
-          updatedAt: event.payload.updatedAt ?? event.occurredAt,
-        }),
-        {
-          ...options,
-          updateSidebarSummary: true,
-        },
-      );
-
-    case "thread.unarchived":
-      return applyThreadUpdate(
-        state,
-        event.payload.threadId,
-        (thread) => ({
-          ...thread,
-          archivedAt: null,
-          updatedAt: event.payload.updatedAt ?? event.occurredAt,
-        }),
         {
           ...options,
           updateSidebarSummary: true,

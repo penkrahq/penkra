@@ -7,6 +7,7 @@ import {
   type OrchestrationReadModel,
   type OrchestrationShellSnapshot,
   type OrchestrationShellStreamEvent,
+  type OrchestrationThreadShell,
   type OrchestrationSpaceShell,
   type OrchestrationGetThreadTurnsPageResult,
   type ThreadDeckId,
@@ -96,7 +97,6 @@ function toThreadShell(thread: Thread): ThreadShell {
     subagentAgentId: thread.subagentAgentId ?? null,
     subagentNickname: thread.subagentNickname ?? null,
     subagentRole: thread.subagentRole ?? null,
-    forkSourceThreadId: thread.forkSourceThreadId ?? null,
     ...(thread.latestUserMessageAt !== undefined
       ? { latestUserMessageAt: thread.latestUserMessageAt }
       : {}),
@@ -354,8 +354,7 @@ function sidebarThreadSummariesEqual(
     left.hasPendingUserInput === right.hasPendingUserInput &&
     left.workStatus === right.workStatus &&
     left.lastMessagePreview === right.lastMessagePreview &&
-    left.lastActivityAt === right.lastActivityAt &&
-    (left.forkSourceThreadId ?? null) === (right.forkSourceThreadId ?? null)
+    left.lastActivityAt === right.lastActivityAt
   );
 }
 
@@ -392,7 +391,6 @@ function buildSidebarThreadSummary(
     workStatus: thread.workStatus ?? "idle",
     lastMessagePreview: thread.lastMessagePreview ?? null,
     lastActivityAt: thread.lastActivityAt ?? null,
-    forkSourceThreadId: thread.forkSourceThreadId ?? null,
   };
   if (previous && sidebarThreadSummariesEqual(previous, nextSummary)) {
     return previous;
@@ -582,6 +580,15 @@ function rebuildThreadShellRecords(
   const threadTurnStateById = {} as Record<ThreadId, ThreadTurnState>;
 
   for (const thread of snapshotThreads) {
+    const storedShell = previousShellById[thread.id];
+    if (storedShell?.updatedAt !== undefined && storedShell.updatedAt > thread.updatedAt) {
+      threadShellById[thread.id] = storedShell;
+      const session = previousSessionById[thread.id];
+      if (session !== undefined) threadSessionById[thread.id] = session;
+      const turn = previousTurnStateById[thread.id];
+      if (turn !== undefined) threadTurnStateById[thread.id] = turn;
+      continue;
+    }
     const next = normalizeThreadShellSnapshot(thread, getThreadFromState(state, thread.id));
     const threadId = next.shell.id;
 
@@ -659,7 +666,7 @@ export function markThreadDetailKnownEmptyInClientState(
   threadId: ThreadId,
 ): AppState {
   // Never downgrade an already-applied detail page. This transition is only
-  // the authoritative empty baseline established by an accepted thread.create.
+  // the authoritative empty baseline established by an clean-core creation.
   if (state.threadDetailSyncById?.[threadId] === "synced") {
     return state;
   }
@@ -1188,7 +1195,11 @@ export function syncServerShellSnapshot(
   const archivedSpaces = mapSpaces(snapshot.archivedSpaces ?? [], state.archivedSpaces ?? []);
   const folders = mapFolders(snapshotFolders, state.folders);
   const archivedFolders = mapFolders(snapshotArchivedFolders, state.archivedFolders ?? []);
-  const decks = deepEqualJson(state.decks, snapshot.decks) ? state.decks : [...snapshot.decks];
+  const snapshotDecks = snapshot.decks.map((deck) => {
+    const stored = state.decks.find((current) => current.id === deck.id);
+    return stored !== undefined && stored.updatedAt > deck.updatedAt ? stored : deck;
+  });
+  const decks = deepEqualJson(state.decks, snapshotDecks) ? state.decks : snapshotDecks;
   const nextThreadIds = new Set(snapshotThreads.map((thread) => thread.id));
 
   const normalizedState: AppState = {
@@ -1450,6 +1461,75 @@ export function syncServerThreadTurnsPage(
   );
 }
 
+/** Replace a whole server thread row without an orchestration sequence or receipt. */
+export function syncServerThreadShell(
+  state: AppState,
+  threadId: ThreadId,
+  thread: OrchestrationThreadShell | null,
+): AppState {
+  if (thread === null)
+    return getThreadFromState(state, threadId) === undefined
+      ? state
+      : removeThreadState(state, threadId);
+  const stored = getThreadFromState(state, threadId);
+  if (stored?.updatedAt !== undefined && stored.updatedAt > thread.updatedAt) return state;
+  let nextState = state;
+  if (
+    state.deletedFolderIdsById?.[thread.folderId] !== undefined ||
+    state.deletedThreadIdsById?.[thread.id] !== undefined
+  ) {
+    nextState = removeThreadState(state, thread.id);
+    return nextState;
+  }
+  nextState = writeThreadShellProjection(
+    state,
+    normalizeThreadShellSnapshot(thread, getThreadFromState(state, thread.id)),
+  );
+  nextState = commitThreadProjection(nextState, thread.id);
+  {
+    const currentDeck = nextState.decks.find((deck) => deck.id === thread.deckId);
+    const memberIds = getThreadsFromState(nextState)
+      .filter((thread) => thread.deckId === thread.deckId)
+      .toSorted(
+        (left, right) =>
+          left.deckSortOrder - right.deckSortOrder || left.id.localeCompare(right.id),
+      )
+      .map((thread) => thread.id);
+    if (currentDeck) {
+      nextState = {
+        ...nextState,
+        decks: nextState.decks.map((deck) =>
+          deck.id === currentDeck.id
+            ? {
+                ...deck,
+                threadIds: memberIds,
+                updatedAt: thread.updatedAt,
+              }
+            : deck,
+        ),
+      };
+    } else {
+      const folder = nextState.folders.find((candidate) => candidate.id === thread.folderId);
+      if (folder) {
+        nextState = {
+          ...nextState,
+          decks: [
+            ...nextState.decks,
+            {
+              id: thread.deckId,
+              spaceId: folder.spaceId,
+              threadIds: memberIds,
+              createdAt: thread.createdAt,
+              updatedAt: thread.updatedAt,
+            },
+          ],
+        };
+      }
+    }
+  }
+  return nextState;
+}
+
 export function applyShellEvent(state: AppState, event: OrchestrationShellStreamEvent): AppState {
   let nextState: AppState;
   switch (event.kind) {
@@ -1471,61 +1551,7 @@ export function applyShellEvent(state: AppState, event: OrchestrationShellStream
       nextState = removeDeletedProjectFromClientState(state, event.folderId, event.sequence);
       break;
     case "thread-upserted": {
-      if (
-        state.deletedFolderIdsById?.[event.thread.folderId] !== undefined ||
-        state.deletedThreadIdsById?.[event.thread.id] !== undefined
-      ) {
-        nextState = removeThreadState(state, event.thread.id);
-        break;
-      }
-      nextState = writeThreadShellProjection(
-        state,
-        normalizeThreadShellSnapshot(event.thread, getThreadFromState(state, event.thread.id)),
-      );
-      nextState = commitThreadProjection(nextState, event.thread.id);
-      {
-        const currentDeck = nextState.decks.find((deck) => deck.id === event.thread.deckId);
-        const memberIds = getThreadsFromState(nextState)
-          .filter((thread) => thread.deckId === event.thread.deckId)
-          .toSorted(
-            (left, right) =>
-              left.deckSortOrder - right.deckSortOrder || left.id.localeCompare(right.id),
-          )
-          .map((thread) => thread.id);
-        if (currentDeck) {
-          nextState = {
-            ...nextState,
-            decks: nextState.decks.map((deck) =>
-              deck.id === currentDeck.id
-                ? {
-                    ...deck,
-                    threadIds: memberIds,
-                    updatedAt: event.thread.updatedAt,
-                  }
-                : deck,
-            ),
-          };
-        } else {
-          const folder = nextState.folders.find(
-            (candidate) => candidate.id === event.thread.folderId,
-          );
-          if (folder) {
-            nextState = {
-              ...nextState,
-              decks: [
-                ...nextState.decks,
-                {
-                  id: event.thread.deckId,
-                  spaceId: folder.spaceId,
-                  threadIds: memberIds,
-                  createdAt: event.thread.createdAt,
-                  updatedAt: event.thread.updatedAt,
-                },
-              ],
-            };
-          }
-        }
-      }
+      nextState = syncServerThreadShell(state, event.thread.id, event.thread);
       break;
     }
     case "thread-removed": {
@@ -1597,7 +1623,11 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
     ),
     state.archivedFolders ?? [],
   );
-  const decks = deepEqualJson(state.decks, readModel.decks) ? state.decks : [...readModel.decks];
+  const snapshotDecks = readModel.decks.map((deck) => {
+    const stored = state.decks.find((current) => current.id === deck.id);
+    return stored !== undefined && stored.updatedAt > deck.updatedAt ? stored : deck;
+  });
+  const decks = deepEqualJson(state.decks, snapshotDecks) ? state.decks : snapshotDecks;
   const nextThreads = readModel.threads
     .filter(
       (thread) =>
@@ -1607,7 +1637,9 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
     )
     .map((thread) => {
       const existing = getThreadFromState(state, thread.id);
-      return normalizeThreadFromReadModel(thread, existing);
+      return existing?.updatedAt !== undefined && existing.updatedAt > thread.updatedAt
+        ? existing
+        : normalizeThreadFromReadModel(thread, existing);
     });
   const nextThreadIds = new Set(nextThreads.map((thread) => thread.id));
   let normalizedState: AppState = {

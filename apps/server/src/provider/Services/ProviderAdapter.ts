@@ -12,8 +12,6 @@ import type {
   ProviderComposerCapabilities,
   ProviderConnectionId,
   ProviderApprovalDecision,
-  ProviderForkThreadInput,
-  ProviderForkThreadResult,
   ProviderKind,
   ProviderListAgentsInput,
   ProviderListAgentsResult,
@@ -126,10 +124,6 @@ export interface ProviderManagedLaunchContext {
 }
 
 export type ProviderAdapterSessionStartInput = ProviderSessionStartInput & {
-  readonly managedLaunch?: ProviderManagedLaunchContext;
-};
-
-export type ProviderAdapterForkThreadInput = ProviderForkThreadInput & {
   readonly managedLaunch?: ProviderManagedLaunchContext;
 };
 
@@ -284,16 +278,6 @@ export interface ProviderAdapterShape<TError> {
    * Trigger provider-native context compaction for a thread when supported.
    */
   readonly compactThread?: (threadId: ThreadId) => Effect.Effect<void, TError>;
-
-  /**
-   * Fork one provider thread into another persisted thread cursor when supported.
-   *
-   * Adapters may omit this to signal that exact native forking is unavailable.
-   * Callers must not replace it with conversation-history reconstruction.
-   */
-  readonly forkThread?: (
-    input: ProviderAdapterForkThreadInput,
-  ) => Effect.Effect<ProviderForkThreadResult, TError>;
 
   /**
    * Stop all sessions owned by this adapter.

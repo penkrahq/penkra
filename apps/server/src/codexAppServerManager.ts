@@ -14,9 +14,7 @@ import {
   type ProviderListModelsResult,
   type ProviderListPluginsResult,
   type ProviderMentionReference,
-  type ProviderForkThreadInput,
   type ProviderReadPluginResult,
-  type ProviderForkThreadResult,
   type ProviderListSkillsResult,
   type ProviderListPluginsInput,
   type ProviderReadPluginInput,
@@ -2029,179 +2027,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     return this.parseThreadSnapshot("thread/read", response);
   }
 
-  async forkThread(
-    input: ProviderForkThreadInput & {
-      readonly managedLaunch?: ProviderManagedLaunchContext;
-    },
-  ): Promise<ProviderForkThreadResult> {
-    const threadId = input.threadId;
-    const now = new Date().toISOString();
-    let context: CodexSessionContext | undefined;
-    let gatewaySessionLease: AgentGatewaySessionLease | undefined;
-
-    try {
-      const existing = this.sessions.get(threadId);
-      if (existing) {
-        await this.stopSession(threadId);
-      }
-
-      const sourceProviderThreadId = readResumeCursorThreadId(input.sourceResumeCursor);
-      if (!sourceProviderThreadId) {
-        throw new Error("Provider fork is missing the source thread resume id.");
-      }
-
-      const resolvedCwd = input.cwd ?? ensureDurableThreadWorkspace(threadId, this.stateDir);
-      const session: ProviderSession = {
-        provider: "codex",
-        status: "connecting",
-        runtimeMode: input.runtimeMode,
-        model:
-          input.modelSelection?.provider === "codex"
-            ? normalizeCodexModelSlug(input.modelSelection.model)
-            : undefined,
-        cwd: resolvedCwd,
-        threadId,
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      const codexOptions = readCodexProviderOptions({
-        threadId,
-        ...(input.providerOptions !== undefined ? { providerOptions: input.providerOptions } : {}),
-        runtimeMode: input.runtimeMode,
-        ...(input.cwd !== undefined ? { cwd: input.cwd } : {}),
-      });
-      const codexBinaryPath = input.managedLaunch?.binaryPath ?? codexOptions.binaryPath ?? "codex";
-      const codexHomePath = codexOptions.homePath;
-      await this.assertSupportedCodexCliVersion({
-        binaryPath: codexBinaryPath,
-        cwd: resolvedCwd,
-        ...(codexHomePath ? { homePath: codexHomePath } : {}),
-      });
-      gatewaySessionLease = this.agentGatewayHostTool?.acquireSessionLease(threadId);
-      if (input.managedLaunch) {
-        await prepareManagedCodexResume(input.managedLaunch, sourceProviderThreadId);
-      }
-      const child = spawnCodexAppServer({
-        binaryPath: codexBinaryPath,
-        cwd: resolvedCwd,
-        env: await this.buildSessionProcessEnv(
-          codexHomePath,
-          gatewaySessionLease?.connection.bearerToken,
-          input.managedLaunch,
-        ),
-      });
-
-      context = {
-        ...(gatewaySessionLease ? { gatewaySessionLease } : {}),
-        session,
-        account: {
-          type: "unknown",
-          planType: null,
-          sparkEnabled: true,
-        },
-        child,
-        binaryPath: codexBinaryPath,
-        stdoutFramer: new CodexJsonlFramer(),
-        stdinWriter: new CodexJsonlWriter(child.stdin),
-        pending: new Map(),
-        pendingApprovals: new Map(),
-        pendingUserInputs: new Map(),
-        collabReceiverTurns: new Map(),
-        collabReceiverParents: new Map(),
-        reviewTurnIds: new Set(),
-        terminalTurnIds: new Set(),
-        temporaryResourcePaths: new Map(),
-        mcpStartupStatuses: new Map(),
-        reportedMcpStartupFailures: new Set(),
-        stderrLineFramer: new CodexStderrLineFramer(),
-        stderrRecordFramer: new CodexStderrRecordFramer(),
-        nextRequestId: 1,
-        stopping: false,
-      };
-
-      this.sessions.set(threadId, context);
-      this.attachProcessListeners(context);
-      this.emitLifecycleEvent(context, "session/connecting", "Starting codex app-server");
-
-      await this.sendRequest(context, "initialize", buildCodexInitializeParams());
-      await this.writeMessage(context, { method: "initialized" });
-      await this.registerPenkraSkillsRoot(context);
-      try {
-        const accountReadResponse = await this.sendRequest(context, "account/read", {});
-        context.account = readCodexAccountSnapshot(accountReadResponse);
-      } catch {
-        recordCodexManagerFailure();
-        // Fork can proceed without account metadata; model fallback will stay best-effort.
-      }
-
-      const normalizedModel =
-        input.modelSelection?.provider === "codex"
-          ? resolveCodexModelForAccount(
-              normalizeCodexModelSlug(input.modelSelection.model),
-              context.account,
-            )
-          : undefined;
-      const useFastServiceTier =
-        input.modelSelection?.provider === "codex" &&
-        getModelSelectionBooleanOptionValue(input.modelSelection, "fastMode") === true;
-      const forkParams = {
-        threadId: sourceProviderThreadId,
-        ...(normalizedModel ? { model: normalizedModel } : {}),
-        ...(useFastServiceTier ? { serviceTier: "fast" as const } : {}),
-        cwd: resolvedCwd,
-        ...mapCodexRuntimeMode(input.runtimeMode),
-      };
-
-      this.emitLifecycleEvent(
-        context,
-        "session/threadOpenRequested",
-        `Forking Codex thread ${sourceProviderThreadId}.`,
-      );
-      const response = await this.sendRequest(context, "thread/fork", forkParams);
-      const forkedProviderThreadId = this.readThreadIdFromResponse("thread/fork", response);
-
-      if (input.managedLaunch) {
-        await adoptManagedCodexRollout(input.managedLaunch, forkedProviderThreadId);
-      }
-
-      this.updateSession(context, {
-        status: "ready",
-        resumeCursor: { threadId: forkedProviderThreadId },
-      });
-      this.emitLifecycleEvent(context, "session/threadOpenResolved", "Codex thread/fork resolved.");
-      // As with thread/resume, fork resolution proves connection readiness but
-      // is not a terminal turn signal. Keep it causally distinct from a real
-      // provider `turn/completed` notification.
-      this.emitLifecycleEvent(
-        context,
-        "session/started",
-        `Connected to thread ${forkedProviderThreadId}`,
-      );
-
-      return {
-        threadId,
-        resumeCursor: {
-          threadId: forkedProviderThreadId,
-        },
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to fork Codex thread.";
-      recordCodexManagerFailure();
-      if (context) {
-        this.updateSession(context, {
-          status: "error",
-          lastError: message,
-        });
-        this.emitErrorEvent(context, "session/threadForkFailed", message);
-        await this.stopSession(threadId);
-      } else {
-        gatewaySessionLease?.release();
-      }
-      throw new Error(message, { cause: error });
-    }
-  }
-
   async revertThread(threadId: ThreadId, beforeTurnId: TurnId): Promise<CodexThreadSnapshot> {
     const context = this.requireSession(threadId);
     const providerThreadId = readResumeThreadId({
@@ -2928,7 +2753,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       supportsPluginDiscovery: true,
       supportsRuntimeModelList: true,
       supportsThreadCompaction: true,
-      supportsThreadFork: true,
       supportsThreadImport: false,
     };
   }

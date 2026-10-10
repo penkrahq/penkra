@@ -562,9 +562,6 @@ export const OrchestrationThread = Schema.Struct({
   subagentRole: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
     Schema.withDecodingDefault(() => null),
   ),
-  forkSourceThreadId: Schema.optional(Schema.NullOr(ThreadId)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   pendingTurnStartMessageId: Schema.optional(Schema.NullOr(MessageId)).pipe(
     Schema.withDecodingDefault(() => null),
@@ -629,9 +626,6 @@ export const OrchestrationThreadShell = Schema.Struct({
     Schema.withDecodingDefault(() => null),
   ),
   subagentRole: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
-  forkSourceThreadId: Schema.optional(Schema.NullOr(ThreadId)).pipe(
     Schema.withDecodingDefault(() => null),
   ),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
@@ -835,37 +829,6 @@ const FolderDeleteCommand = Schema.Struct({
   folderId: FolderId,
 });
 
-const ThreadCreateCommand = Schema.Struct({
-  type: Schema.Literal("thread.create"),
-  commandId: CommandId,
-  threadId: ThreadId,
-  deckId: ThreadDeckId,
-  folderId: FolderId,
-  title: TrimmedNonEmptyString,
-  modelSelection: ModelSelection,
-  runtimeMode: RuntimeMode,
-  workingDirectory: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  isPinned: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
-  parentThreadId: Schema.optional(Schema.NullOr(ThreadId)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
-  creationSource: Schema.optional(ThreadCreationSource),
-  sourceThreadId: Schema.optional(ThreadId),
-  sourceTurnId: Schema.optional(TurnId),
-  gatewayOperationId: Schema.optional(TrimmedNonEmptyString),
-  gatewayOperationIndex: Schema.optional(NonNegativeInt),
-  subagentAgentId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
-  subagentNickname: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
-  subagentRole: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
-  createdAt: IsoDateTime,
-});
-
 export const ThreadImportedMessage = Schema.Struct({
   messageId: MessageId,
   role: Schema.Literals(["user", "assistant"]),
@@ -876,44 +839,6 @@ export const ThreadImportedMessage = Schema.Struct({
 });
 export type ThreadImportedMessage = typeof ThreadImportedMessage.Type;
 
-const ThreadForkCreateCommand = Schema.Struct({
-  type: Schema.Literal("thread.fork.create"),
-  commandId: CommandId,
-  threadId: ThreadId,
-  deckId: ThreadDeckId,
-  sourceThreadId: ThreadId,
-  folderId: FolderId,
-  title: TrimmedNonEmptyString,
-  modelSelection: ModelSelection,
-  runtimeMode: RuntimeMode,
-  workingDirectory: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  importedMessages: Schema.Array(ThreadImportedMessage),
-  createdAt: IsoDateTime,
-});
-
-const ThreadDeleteCommand = Schema.Struct({
-  type: Schema.Literal("thread.delete"),
-  commandId: CommandId,
-  threadId: ThreadId,
-  expectedArchivedAt: Schema.optional(IsoDateTime),
-  expectedEmptyGatewayOperationId: Schema.optional(TrimmedNonEmptyString),
-});
-
-const ThreadArchiveCommand = Schema.Struct({
-  type: Schema.Literal("thread.archive"),
-  commandId: CommandId,
-  threadId: ThreadId,
-  createdAt: Schema.optional(IsoDateTime),
-  expectedUpdatedAt: Schema.optional(IsoDateTime),
-  expectedLastVisitedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
-});
-
-const ThreadUnarchiveCommand = Schema.Struct({
-  type: Schema.Literal("thread.unarchive"),
-  commandId: CommandId,
-  threadId: ThreadId,
-});
-
 export const ThreadDeckPosition = Schema.Union([
   Schema.Struct({ type: Schema.Literal("start") }),
   Schema.Struct({ type: Schema.Literal("end") }),
@@ -921,19 +846,6 @@ export const ThreadDeckPosition = Schema.Union([
   Schema.Struct({ type: Schema.Literal("after"), threadId: ThreadId }),
 ]);
 export type ThreadDeckPosition = typeof ThreadDeckPosition.Type;
-
-const ThreadUpdateCommand = Schema.Struct({
-  type: Schema.Literal("thread.update"),
-  commandId: CommandId,
-  threadId: ThreadId,
-  title: Schema.optional(TrimmedNonEmptyString),
-  modelSelection: Schema.optional(ModelSelection),
-  connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
-  parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
-  subagentAgentId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  subagentNickname: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  subagentRole: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-});
 
 export const ThreadTurnStartCommand = Schema.Struct({
   type: Schema.Literal("thread.turn.start"),
@@ -1156,12 +1068,6 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   FolderCreateCommand,
   FolderUpdateCommand,
   FolderDeleteCommand,
-  ThreadCreateCommand,
-  ThreadForkCreateCommand,
-  ThreadDeleteCommand,
-  ThreadArchiveCommand,
-  ThreadUnarchiveCommand,
-  ThreadUpdateCommand,
   ThreadTurnStartCommand,
   ThreadTurnPlayCommand,
   ThreadTurnInterruptCommand,
@@ -1188,12 +1094,6 @@ export const ClientOrchestrationCommand = Schema.Union([
   FolderCreateCommand,
   FolderUpdateCommand,
   FolderDeleteCommand,
-  ThreadCreateCommand,
-  ThreadForkCreateCommand,
-  ThreadDeleteCommand,
-  ThreadArchiveCommand,
-  ThreadUnarchiveCommand,
-  ThreadUpdateCommand,
   ClientThreadTurnStartCommand,
   ThreadTurnPlayCommand,
   ThreadTurnInterruptCommand,
@@ -1335,12 +1235,6 @@ export const OrchestrationEventType = Schema.Literals([
   "folder.updated",
   "folder.moved",
   "folder.deleted",
-  "thread.created",
-  "thread.deleted",
-  // Legacy desktop installs can still contain these rows in orchestration_events.
-  "thread.archived",
-  "thread.unarchived",
-  "thread.updated",
   "thread.marker-added",
   "thread.marker-removed",
   "thread.marker-done-set",
@@ -1439,75 +1333,6 @@ export const FolderDeletedPayload = Schema.Struct({
 export const FolderMovedPayload = Schema.Struct({
   folderId: FolderId,
   spaceId: SpaceId,
-  updatedAt: IsoDateTime,
-});
-
-export const ThreadCreatedPayload = Schema.Struct({
-  threadId: ThreadId,
-  deckId: ThreadDeckId,
-  deckSortOrder: NonNegativeInt,
-  folderId: FolderId,
-  sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
-  title: TrimmedNonEmptyString,
-  modelSelection: ModelSelection,
-  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
-  workingDirectory: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
-  isPinned: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
-  parentThreadId: Schema.optional(Schema.NullOr(ThreadId)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
-  creationSource: Schema.optional(Schema.NullOr(ThreadCreationSource)),
-  sourceThreadId: Schema.optional(Schema.NullOr(ThreadId)),
-  sourceTurnId: Schema.optional(Schema.NullOr(TurnId)),
-  gatewayOperationId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  gatewayOperationIndex: Schema.optional(Schema.NullOr(NonNegativeInt)),
-  subagentAgentId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
-  subagentNickname: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
-  subagentRole: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
-  forkSourceThreadId: Schema.optional(Schema.NullOr(ThreadId)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
-  createdAt: IsoDateTime,
-  updatedAt: IsoDateTime,
-});
-
-export const ThreadDeletedPayload = Schema.Struct({
-  threadId: ThreadId,
-  deletedAt: IsoDateTime,
-});
-
-export const ThreadArchivedPayload = Schema.Struct({
-  threadId: ThreadId,
-  // Required for new events, optional for legacy events
-  archivedAt: Schema.optional(IsoDateTime),
-  updatedAt: Schema.optional(IsoDateTime),
-});
-
-export const ThreadUnarchivedPayload = Schema.Struct({
-  threadId: ThreadId,
-  // Legacy field - kept for backward compatibility with old events
-  unarchivedAt: Schema.optional(IsoDateTime),
-  // Required for new events
-  updatedAt: Schema.optional(IsoDateTime),
-});
-
-export const ThreadUpdatedPayload = Schema.Struct({
-  threadId: ThreadId,
-  title: Schema.optional(TrimmedNonEmptyString),
-  modelSelection: Schema.optional(ModelSelection),
-  connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
-  parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
-  subagentAgentId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  subagentNickname: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  subagentRole: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   updatedAt: IsoDateTime,
 });
 
@@ -1762,31 +1587,6 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("folder.deleted"),
     payload: FolderDeletedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("thread.created"),
-    payload: ThreadCreatedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("thread.deleted"),
-    payload: ThreadDeletedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("thread.archived"),
-    payload: ThreadArchivedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("thread.unarchived"),
-    payload: ThreadUnarchivedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("thread.updated"),
-    payload: ThreadUpdatedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

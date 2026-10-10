@@ -1,3 +1,4 @@
+import { renameThread } from "../../cleanCore/threadStore.ts";
 import {
   type AssistantDeliveryMode,
   CommandId,
@@ -154,9 +155,6 @@ function completedTurnTokenUsage(
 }
 const ACTIVITY_UPDATE_FINGERPRINT_CACHE_CAPACITY = 4_096;
 const ACTIVITY_UPDATE_FINGERPRINT_TTL = Duration.minutes(360);
-const MAX_NATIVE_CHILDREN_PER_PARENT_TURN = 20;
-const NATIVE_CHILD_IDS_BY_SOURCE_TURN_CACHE_CAPACITY = 2_048;
-const NATIVE_CHILD_IDS_BY_SOURCE_TURN_TTL = Duration.minutes(360);
 const ASSISTANT_DELIVERY_MODE_BY_TURN_CACHE_CAPACITY = 2_048;
 const ASSISTANT_DELIVERY_MODE_BY_TURN_TTL = Duration.minutes(60);
 const MAX_BUFFERED_ASSISTANT_CHARS = 24_000;
@@ -275,10 +273,6 @@ type AssistantDeliveryModeBindingState = {
   readonly pendingModesByThreadId: ReadonlyMap<ThreadId, ReadonlyArray<AssistantDeliveryMode>>;
   readonly unmatchedTurnIdsByThreadId: ReadonlyMap<ThreadId, ReadonlyArray<TurnId>>;
   readonly settledUnmatchedRequestDebtByThreadId: ReadonlyMap<ThreadId, number>;
-};
-type NativeChildSlotState = {
-  initialized: boolean;
-  readonly childIds: Set<string>;
 };
 
 /**
@@ -970,11 +964,6 @@ const make = Effect.gen(function* () {
     timeToLive: ACTIVITY_UPDATE_FINGERPRINT_TTL,
     lookup: () => Effect.succeed(undefined),
   });
-  const nativeChildIdsBySourceTurn = yield* Cache.make<string, NativeChildSlotState>({
-    capacity: NATIVE_CHILD_IDS_BY_SOURCE_TURN_CACHE_CAPACITY,
-    timeToLive: NATIVE_CHILD_IDS_BY_SOURCE_TURN_TTL,
-    lookup: () => Effect.succeed({ initialized: false, childIds: new Set<string>() }),
-  });
 
   /**
    * A runtime event can span several independently committed orchestration commands before its
@@ -1057,36 +1046,6 @@ const make = Effect.gen(function* () {
           : { expectedProviderSessionOwnership }),
       })
       .pipe(Effect.ensuring(logSlowStage("dispatch", dispatchStartedAt)));
-  });
-
-  const claimNativeChildSlot = Effect.fnUntraced(function* (
-    parentThreadId: ThreadId,
-    sourceTurnId: TurnId | null,
-    childThreadId: ThreadId,
-  ) {
-    const budgetKey = `${parentThreadId}:${sourceTurnId ?? "session"}`;
-    const slotState = yield* Cache.get(nativeChildIdsBySourceTurn, budgetKey);
-    if (!slotState.initialized) {
-      const snapshot = yield* projectionSnapshotQuery.getShellSnapshot();
-      for (const thread of snapshot.threads) {
-        if (
-          thread.parentThreadId === parentThreadId &&
-          (thread.sourceTurnId ?? null) === sourceTurnId
-        ) {
-          slotState.childIds.add(thread.id);
-        }
-      }
-      slotState.initialized = true;
-    }
-    const childIds = slotState.childIds;
-    if (childIds.has(childThreadId)) {
-      return { admitted: true, budgetKey } as const;
-    }
-    if (childIds.size >= MAX_NATIVE_CHILDREN_PER_PARENT_TURN) {
-      return { admitted: false, budgetKey } as const;
-    }
-    childIds.add(childThreadId);
-    return { admitted: true, budgetKey } as const;
   });
 
   const dispatchActivityUpdate = Effect.fnUntraced(function* (
@@ -1664,130 +1623,8 @@ const make = Effect.gen(function* () {
                 yield* projectionSnapshotQuery.getThreadShellById(childThreadId),
                 threadDetailFromShell,
               );
-          const resolvedModelSelection =
-            identity?.model && identity.modelIsRequestedHint !== true
-              ? {
-                  provider: parentThread.modelSelection.provider,
-                  model: identity.model,
-                }
-              : undefined;
-
-          if (Option.isNone(existingThread)) {
-            const slot = yield* claimNativeChildSlot(parentThread.id, sourceTurnId, childThreadId);
-            if (!slot.admitted) {
-              const overflowId = EventId.makeUnsafe(
-                `provider-native-child-overflow:${slot.budgetKey}`,
-              );
-              yield* dispatchProviderCommandOnce({
-                type: "thread.activity.append",
-                commandId: CommandId.makeUnsafe(`provider:native-child-overflow:${slot.budgetKey}`),
-                threadId: parentThread.id,
-                activity: {
-                  id: overflowId,
-                  tone: "error",
-                  kind: "subagent.materialization.capped",
-                  summary: `Penkra limited this provider turn to ${MAX_NATIVE_CHILDREN_PER_PARENT_TURN} visible native subagents.`,
-                  payload: {
-                    source: "provider_native",
-                    cap: MAX_NATIVE_CHILDREN_PER_PARENT_TURN,
-                  },
-                  turnId: sourceTurnId,
-                  createdAt: now,
-                },
-                createdAt: now,
-              });
-              return undefined;
-            }
-            yield* dispatchProviderCommandOnce({
-              type: "thread.create",
-              commandId: providerCommandId(event, "subagent-thread-create", childThreadId),
-              threadId: childThreadId,
-              deckId: parentThread.deckId,
-              folderId: parentThread.folderId,
-              title: subagentThreadTitle({
-                nickname: identity?.nickname,
-                role: identity?.role,
-                providerThreadId,
-              }),
-              modelSelection: resolvedModelSelection ?? parentThread.modelSelection,
-              runtimeMode: parentThread.runtimeMode,
-              workingDirectory: parentThread.workingDirectory ?? null,
-              parentThreadId: parentThread.id,
-              creationSource: "provider_native",
-              sourceThreadId: parentThread.id,
-              ...(sourceTurnId !== null ? { sourceTurnId } : {}),
-              subagentAgentId: identity?.agentId ?? null,
-              subagentNickname: identity?.nickname ?? null,
-              subagentRole: identity?.role ?? null,
-              createdAt: now,
-            });
-          } else {
-            const existingThreadShell = existingThread.value;
-            if (
-              identity?.agentId !== undefined ||
-              identity?.nickname !== undefined ||
-              identity?.role !== undefined ||
-              (identity?.model !== undefined && identity.modelIsRequestedHint !== true)
-            ) {
-              yield* dispatchProviderCommandOnce({
-                type: "thread.update",
-                commandId: providerCommandId(event, "subagent-thread-meta-update", childThreadId),
-                threadId: childThreadId,
-                ...(identity?.nickname !== undefined || identity?.role !== undefined
-                  ? {
-                      title: subagentThreadTitle({
-                        nickname:
-                          identity?.nickname ?? existingThreadShell.subagentNickname ?? undefined,
-                        role: identity?.role ?? existingThreadShell.subagentRole ?? undefined,
-                        providerThreadId,
-                      }),
-                    }
-                  : {}),
-                parentThreadId: parentThread.id,
-                ...(resolvedModelSelection !== undefined &&
-                existingThreadShell.modelSelection.model !== resolvedModelSelection.model
-                  ? { modelSelection: resolvedModelSelection }
-                  : {}),
-                ...(identity?.agentId !== undefined ? { subagentAgentId: identity.agentId } : {}),
-                ...(identity?.nickname !== undefined
-                  ? { subagentNickname: identity.nickname }
-                  : {}),
-                ...(identity?.role !== undefined ? { subagentRole: identity.role } : {}),
-              });
-            }
-          }
-
-          return {
-            threadId: childThreadId,
-            thread: Option.match(existingThread, {
-              onSome: (thread) => thread,
-              onNone: () => ({
-                ...parentThread,
-                id: childThreadId,
-                title: subagentThreadTitle({
-                  nickname: identity?.nickname,
-                  role: identity?.role,
-                  providerThreadId,
-                }),
-                parentThreadId: parentThread.id,
-                creationSource: "provider_native" as const,
-                sourceThreadId: parentThread.id,
-                sourceTurnId,
-                gatewayOperationId: null,
-                gatewayOperationIndex: null,
-                subagentAgentId: identity?.agentId ?? null,
-                subagentNickname: identity?.nickname ?? null,
-                subagentRole: identity?.role ?? null,
-                modelSelection: resolvedModelSelection ?? parentThread.modelSelection,
-                latestTurn: null,
-                messages: [],
-                activities: [],
-                session: null,
-                createdAt: now,
-                updatedAt: now,
-              }),
-            }),
-          };
+          if (Option.isNone(existingThread)) return undefined;
+          return { threadId: childThreadId, thread: existingThread.value };
         });
 
       const collabPayload = extractCollabPayload(event);
@@ -2257,12 +2094,12 @@ const make = Effect.gen(function* () {
       }
 
       if (event.type === "thread.metadata.updated" && event.payload.name) {
-        yield* dispatchProviderCommandOnce({
-          type: "thread.update",
-          commandId: providerCommandId(event, "thread-meta-update", thread.id),
-          threadId: thread.id,
-          title: event.payload.name,
-        });
+        if (
+          yield* renameThread(thread.id, event.payload.name, now).pipe(
+            Effect.provideService(SqlClient.SqlClient, sql),
+          )
+        )
+          threadPublisher.publish({ threadId: thread.id });
       }
 
       const activityEvent =

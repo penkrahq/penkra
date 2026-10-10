@@ -1,4 +1,5 @@
-import { createThreadFromClient, updateThreadLifecycle } from "./cleanCore/threadLifecycle.ts";
+import { setThreadConnection, setThreadModel, renameThread } from "./cleanCore/threadStore.ts";
+import { createThreadFromClient, ThreadLifecycle } from "./cleanCore/threadLifecycle.ts";
 import { ThreadSender } from "./cleanCore/ThreadSender.ts";
 import { execFile } from "node:child_process";
 import { childDiagnosticSpan, startDiagnosticTrace } from "@penkra/shared/traceContext";
@@ -290,7 +291,6 @@ function isShellRelevantEvent(event: OrchestrationEvent): boolean {
     event.type === "folder.updated" ||
     event.type === "folder.moved" ||
     event.type === "folder.deleted" ||
-    event.type === "thread.deleted" ||
     (event.aggregateKind === "thread" && shouldPublishThreadShellForEvent(event))
   );
 }
@@ -303,10 +303,7 @@ function isThreadDetailEventFor(threadId: ThreadId, event: OrchestrationEvent): 
       event.type === "thread.activity-appended" ||
       event.type === "thread.activity-read-model-updated" ||
       event.type === "thread.conversation-rolled-back" ||
-      event.type === "thread.session-set" ||
-      event.type === "thread.updated" ||
-      event.type === "thread.archived" ||
-      event.type === "thread.unarchived")
+      event.type === "thread.session-set")
   );
 }
 
@@ -593,12 +590,8 @@ const makeWsRpcHandlersLayer = () =>
         if (!nextTitle) {
           return;
         }
-        yield* orchestrationEngine.dispatch({
-          type: "thread.update",
-          commandId: CommandId.makeUnsafe(`server:terminal-title-rename:${crypto.randomUUID()}`),
-          threadId: ThreadId.makeUnsafe(input.threadId),
-          title: nextTitle,
-        });
+        if (yield* renameThread(input.threadId, nextTitle, new Date().toISOString()))
+          threadPublisher.publish({ threadId: input.threadId });
       });
 
       const stopLocalServerAndTrackedProjectRun = Effect.fnUntraced(function* (input: {
@@ -765,14 +758,6 @@ const makeWsRpcHandlersLayer = () =>
                 kind: "folder-removed" as const,
                 sequence: event.sequence,
                 folderId: event.payload.folderId,
-              }),
-            );
-          case "thread.deleted":
-            return Effect.succeed(
-              Option.some({
-                kind: "thread-removed" as const,
-                sequence: event.sequence,
-                threadId: event.payload.threadId,
               }),
             );
           default:
@@ -1423,8 +1408,25 @@ const makeWsRpcHandlersLayer = () =>
             ),
             "Failed to interrupt the provider turn",
           ),
+        [WS_METHODS.cleanCoreGetThreadShell]: (input) =>
+          rpcEffect(
+            Effect.flatMap(Effect.service(ProjectionSnapshotQuery), (query) =>
+              query.getThreadShellById(input.threadId).pipe(Effect.map(Option.getOrNull)),
+            ),
+            "Failed to read the thread shell",
+          ),
         [WS_METHODS.cleanCoreCreateThread]: (input) =>
-          rpcEffect(createThreadFromClient(input), "Failed to create the thread"),
+          rpcEffect(
+            Effect.gen(function* () {
+              const result = yield* createThreadFromClient(input);
+              const query = yield* ProjectionSnapshotQuery;
+              const shell = yield* query.getThreadShellById(result.thread.id);
+              if (Option.isNone(shell))
+                return yield* Effect.fail(new Error("The created thread is not available."));
+              return { ...result, shell: shell.value };
+            }),
+            "Failed to create the thread",
+          ),
         [WS_METHODS.cleanCoreListThreads]: (input) =>
           rpcEffect(listThreads(input), "Failed to load the thread list"),
         [WS_METHODS.cleanCoreUpdateThread]: (input) =>
@@ -1433,10 +1435,18 @@ const makeWsRpcHandlersLayer = () =>
               const update = input.update;
               const publish = (threadId: string) => threadPublisher.publish({ threadId });
               switch (update.action) {
+                case "connection":
+                  if (yield* setThreadConnection(update)) publish(update.threadId);
+                  return;
+                case "model":
+                  if (yield* setThreadModel(update)) publish(update.threadId);
+                  return;
                 case "rename":
                 case "archive":
                 case "delete":
-                  yield* updateThreadLifecycle(update);
+                  yield* Effect.flatMap(Effect.service(ThreadLifecycle), (lifecycle) =>
+                    lifecycle.update(update),
+                  );
                   return;
                 case "moveFolder": {
                   const changed = yield* moveFolder(update);

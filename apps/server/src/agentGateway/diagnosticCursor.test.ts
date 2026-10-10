@@ -152,9 +152,9 @@ describe("diagnostic event shaping", () => {
       }) as OrchestrationEvent;
     const intervening = {
       ...messageEvent(2),
-      type: "thread.archived",
+      type: "thread.session-stop-requested",
       eventId: "event-2",
-      payload: { threadId: "thread-1" },
+      payload: { threadId: "thread-1", createdAt: "2026-10-10T00:00:00.000Z" },
     } as OrchestrationEvent;
 
     expect(shapeDiagnosticEvents([messageEvent(3), intervening, messageEvent(1)], "none")).toEqual([

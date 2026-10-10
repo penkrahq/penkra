@@ -104,6 +104,7 @@ export const deliverMessage = (
         status: "sent",
         text: input.message.text,
         data: JSON.stringify({
+          delivery: plan === "deliver" ? "started" : plan === "steer" ? "steered" : "interrupted",
           attachments: input.message.attachments,
           senderThreadId: input.message.senderThreadId,
           dispatchOrigin: input.message.dispatchOrigin,

@@ -24,7 +24,7 @@ layer("provider intent outbox cutover", (it) => {
           occurred_at, actor_kind, payload_json, metadata_json
         ) VALUES (
           'legacy-intent-cutover', 'thread', 'legacy-thread-cutover', 0,
-          'thread.archived', ${now}, 'client',
+          'folder.updated', ${now}, 'client',
           '{"threadId":"legacy-thread-cutover","archivedAt":"2026-09-28T00:00:00.000Z","updatedAt":"2026-09-28T00:00:00.000Z"}',
           '{"persistedEventSchemaVersion":2}'
         )
@@ -129,6 +129,7 @@ layer("removed provider data migration", (it) => {
         [174, "IndependentRuntimeWork"],
         [175, "ProviderPurgeOwnershipIndexes"],
         [176, "CleanCoreSchemaAndBackfill"],
+        [177, "ThreadHarnessCanonicalForeignKey"],
       ]);
 
       const threads = yield* sql<{ readonly threadId: string }>`
@@ -998,6 +999,7 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [174, "IndependentRuntimeWork"],
         [175, "ProviderPurgeOwnershipIndexes"],
         [176, "CleanCoreSchemaAndBackfill"],
+        [177, "ThreadHarnessCanonicalForeignKey"],
       ]);
 
       const tracker = yield* trackerRows(sql);
@@ -1290,6 +1292,7 @@ reservedProductionIdentitiesLayer("reserved Production migration identities", (i
           [174, "IndependentRuntimeWork"],
           [175, "ProviderPurgeOwnershipIndexes"],
           [176, "CleanCoreSchemaAndBackfill"],
+          [177, "ThreadHarnessCanonicalForeignKey"],
         ],
       );
       // A database already at the reserved identities is not "too new": the

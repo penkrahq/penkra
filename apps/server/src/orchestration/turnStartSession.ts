@@ -5,19 +5,6 @@ import type {
   ThreadId,
 } from "@penkra/contracts";
 
-export function deriveTurnStartModelSelection(input: {
-  readonly currentModelSelection: ModelSelection;
-  readonly requestedModelSelection: ModelSelection | undefined;
-  readonly canAdoptRequestedProvider: boolean;
-}): ModelSelection {
-  const requestedModelSelection = input.requestedModelSelection;
-  return requestedModelSelection !== undefined &&
-    (requestedModelSelection.provider === input.currentModelSelection.provider ||
-      input.canAdoptRequestedProvider)
-    ? requestedModelSelection
-    : input.currentModelSelection;
-}
-
 export function deriveTurnStartSession(input: {
   readonly threadId: ThreadId;
   readonly currentSession: OrchestrationSession | null;

@@ -4,10 +4,6 @@ export type ProviderIntentEvent = Extract<
   OrchestrationEvent,
   {
     type:
-      | "thread.created"
-      | "thread.deleted"
-      | "thread.archived"
-      | "thread.updated"
       | "thread.session-set"
       | "thread.turn-queued"
       | "thread.turn-start-requested"
@@ -25,10 +21,6 @@ export type ProviderIntentEvent = Extract<
 >;
 
 const PROVIDER_INTENT_EVENT_TYPES = new Set<ProviderIntentEvent["type"]>([
-  "thread.created",
-  "thread.deleted",
-  "thread.archived",
-  "thread.updated",
   "thread.session-set",
   "thread.turn-queued",
   "thread.turn-start-requested",
@@ -52,17 +44,11 @@ export const isProviderIntentEventType = (
 export const isProviderIntentEvent = (event: OrchestrationEvent): event is ProviderIntentEvent =>
   isProviderIntentEventType(event.type);
 
-export const isReplaySafeClaimedProviderIntent = (event: ProviderIntentEvent): boolean =>
-  event.type === "thread.created" || event.type === "thread.archived";
-
 export const isProviderSideEffectIntent = (event: ProviderIntentEvent): boolean =>
-  event.type !== "thread.created" &&
-  event.type !== "thread.deleted" &&
-  event.type !== "thread.session-set" &&
-  event.type !== "thread.turn-queued";
+  event.type !== "thread.session-set" && event.type !== "thread.turn-queued";
 
 export const isClaimedProviderIntent = (event: ProviderIntentEvent): boolean =>
-  isReplaySafeClaimedProviderIntent(event) || isProviderSideEffectIntent(event);
+  isProviderSideEffectIntent(event);
 
 /**
  * Intents that must still execute while a thread is quarantined by a blocking

@@ -182,7 +182,6 @@ export interface Thread extends ThreadWorkspaceState {
   subagentAgentId?: string | null;
   subagentNickname?: string | null;
   subagentRole?: string | null;
-  forkSourceThreadId?: ThreadId | null;
   latestUserMessageAt?: string | null;
   hasPendingApprovals?: boolean;
   hasPendingUserInput?: boolean;
@@ -217,7 +216,6 @@ export interface ThreadShell extends ThreadWorkspaceState {
   subagentAgentId?: string | null;
   subagentNickname?: string | null;
   subagentRole?: string | null;
-  forkSourceThreadId?: ThreadId | null;
   latestUserMessageAt?: string | null;
   hasPendingApprovals?: boolean;
   hasPendingUserInput?: boolean;
@@ -262,7 +260,6 @@ export interface SidebarThreadSummary {
   workStatus?: "idle" | "running" | "done" | "attention";
   lastMessagePreview?: string | null;
   lastActivityAt?: string | null;
-  forkSourceThreadId?: ThreadId | null;
 }
 
 /** Lightweight composer identity that ignores live turn/status churn. */

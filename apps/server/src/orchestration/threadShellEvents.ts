@@ -10,12 +10,7 @@ const THREAD_SHELL_SUMMARY_ACTIVITY_KINDS = new Set([
 ]);
 
 const THREAD_PROJECTION_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
-  "thread.created",
-  "thread.updated",
   "thread.turn-start-requested",
-  "thread.deleted",
-  "thread.archived",
-  "thread.unarchived",
 ]);
 
 const OTHER_THREAD_SHELL_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([

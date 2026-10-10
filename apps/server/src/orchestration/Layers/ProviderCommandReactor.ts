@@ -1,3 +1,4 @@
+import { renameThread } from "../../cleanCore/threadStore.ts";
 // FILE: ProviderCommandReactor.ts
 // Purpose: Routes orchestration intents into provider sessions and maintains replay-safe context.
 // Layer: Orchestration provider reactor
@@ -193,7 +194,6 @@ import {
   isProviderIntentEvent,
   isProviderSideEffectIntent,
   isQuarantineExemptProviderIntent,
-  isReplaySafeClaimedProviderIntent,
   type ProviderIntentEvent,
 } from "../providerIntentClassification.ts";
 import { deriveTurnStartSession } from "../turnStartSession.ts";
@@ -1287,58 +1287,6 @@ const make = Effect.gen(function* () {
     }
     const activeSession =
       options?.requiresReconstruction === true ? undefined : discoveredActiveSession;
-    if (activeSession && thread.forkSourceThreadId && thread.session === null) {
-      const persistedIdentity = providerNativeResumeIdentity(
-        desiredModelSelection.provider,
-        options?.nativeResumeCursor,
-      );
-      const activeIdentity = providerNativeResumeIdentity(
-        desiredModelSelection.provider,
-        activeSession.resumeCursor,
-      );
-      if (
-        activeSession.provider !== desiredModelSelection.provider ||
-        persistedIdentity === null ||
-        activeIdentity !== persistedIdentity
-      ) {
-        return yield* new ProviderAdapterValidationError({
-          provider: desiredModelSelection.provider,
-          operation: "thread.fork.create",
-          issue: "The admitted native fork session does not match its exact persisted identity.",
-        });
-      }
-      threadSessionModelSelections.set(threadId, desiredModelSelection);
-      if (options?.bindingRevision !== undefined) {
-        threadManagedBindingRevisions.set(threadId, options.bindingRevision);
-      }
-      yield* bindSessionToThread(activeSession);
-      return threadId;
-    }
-    if (!activeSession && thread.forkSourceThreadId && options?.nativeResumeCursor !== undefined) {
-      const resumed = yield* startProviderSession(options.nativeResumeCursor);
-      const persistedIdentity = providerNativeResumeIdentity(
-        desiredModelSelection.provider,
-        options.nativeResumeCursor,
-      );
-      const resumedIdentity = providerNativeResumeIdentity(
-        desiredModelSelection.provider,
-        resumed.resumeCursor,
-      );
-      if (persistedIdentity === null || resumedIdentity !== persistedIdentity) {
-        yield* providerService.stopSession({ threadId }).pipe(Effect.ignore);
-        return yield* new ProviderAdapterValidationError({
-          provider: desiredModelSelection.provider,
-          operation: "thread.fork.create",
-          issue: "The provider did not resume the exact admitted native fork identity.",
-        });
-      }
-      threadSessionModelSelections.set(threadId, desiredModelSelection);
-      if (options.bindingRevision !== undefined) {
-        threadManagedBindingRevisions.set(threadId, options.bindingRevision);
-      }
-      yield* bindSessionToThread(resumed);
-      return threadId;
-    }
     const existingSessionThreadId =
       thread.session && thread.session.status !== "stopped" && activeSession ? thread.id : null;
     if (existingSessionThreadId) {
@@ -1419,43 +1367,6 @@ const make = Effect.gen(function* () {
       });
       yield* bindSessionToThread(restartedSession);
       return restartedSession.threadId;
-    }
-
-    if (thread.forkSourceThreadId) {
-      if (!providerService.forkThread) {
-        return yield* new ProviderAdapterValidationError({
-          provider: preferredProvider,
-          operation: "thread.fork.create",
-          issue: "This provider does not support exact native thread forks.",
-        });
-      }
-      const forked = yield* providerService.forkThread({
-        ...providerSessionOptions,
-        sourceThreadId: thread.forkSourceThreadId,
-      });
-      if (!forked) {
-        return yield* new ProviderAdapterValidationError({
-          provider: preferredProvider,
-          operation: "thread.fork.create",
-          issue: "The provider could not create an exact native thread fork.",
-        });
-      }
-      threadSessionModelSelections.set(threadId, desiredModelSelection);
-      const forkedSession =
-        (yield* resolveActiveSession(threadId)) ??
-        ({
-          provider: preferredProvider,
-          status: "ready",
-          runtimeMode: desiredRuntimeMode,
-          ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
-          model: desiredModelSelection.model,
-          threadId,
-          ...(forked.resumeCursor !== undefined ? { resumeCursor: forked.resumeCursor } : {}),
-          createdAt,
-          updatedAt: createdAt,
-        } satisfies ProviderSession);
-      yield* bindSessionToThread(forkedSession);
-      return threadId;
     }
 
     const startedSession = yield* startProviderSession(options?.nativeResumeCursor);
@@ -2054,12 +1965,12 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    yield* orchestrationEngine.dispatch({
-      type: "thread.update",
-      commandId: serverCommandId("thread-title-rename"),
-      threadId: input.threadId,
-      title: nextTitle,
-    });
+    if (
+      yield* renameThread(input.threadId, nextTitle, new Date().toISOString()).pipe(
+        Effect.provideService(SqlClient.SqlClient, sql),
+      )
+    )
+      threadPublisher.publish({ threadId: input.threadId });
   });
 
   const processTurnStartRequestedWithoutLease = Effect.fnUntraced(function* (
@@ -4233,39 +4144,6 @@ const make = Effect.gen(function* () {
           }
           return;
         }
-        case "thread.created":
-          threadSessionModelSelections.set(event.payload.threadId, event.payload.modelSelection);
-          return;
-        case "thread.deleted":
-          // Cancel any queued/promoting turns for the deleted thread BEFORE
-          // clearing runtime caches so a concurrent drain cannot resurrect them
-          // (see cancelThread). Best-effort: the event stays unclaimed either way.
-          yield* queuedTurnPromotions.cancelThread({
-            threadId: event.payload.threadId,
-            updatedAt: event.payload.deletedAt,
-          });
-          yield* clearThreadRuntimeCaches(event.payload.threadId);
-          return;
-        case "thread.archived":
-          // Archive cleanup shares this durable, sequence-ordered provider
-          // source with later turn-start intents. An immediate unarchive/send
-          // therefore cannot race an older archive stop against the new turn.
-          yield* processThreadSessionStop({
-            threadId: event.payload.threadId,
-            // Legacy thread.archived events may omit archivedAt; fall back like the projector.
-            createdAt: event.payload.archivedAt ?? event.payload.updatedAt ?? event.occurredAt,
-          });
-          return;
-        case "thread.updated": {
-          if (event.payload.modelSelection === undefined) {
-            return;
-          }
-          // Model selection is committed atomically with the admitting turn.
-          // The following turn-start event owns the in-session switch or
-          // restart. Keep the runtime cache on the profile actually running so
-          // that turn can compare the admitted selection against live state.
-          return;
-        }
         case "thread.turn-queued":
           yield* processTurnQueued(event);
           return;
@@ -4671,33 +4549,18 @@ const make = Effect.gen(function* () {
             yield* Effect.sleep(Duration.millis(remainingMs));
           }
           const expiredOwner = existing.value.claimOwner ?? "";
-          if (!isReplaySafeClaimedProviderIntent(event)) {
-            yield* settleTerminalFailure({
-              event,
-              claimOwner: expiredOwner,
-              state: "uncertain",
-              detail:
-                "External provider command claim expired without a durable acceptance result; execution was not replayed.",
-            });
-            // This state is produced locally after process loss, so recovery
-            // begins immediately instead of waiting for another user action.
-            yield* fenceAndAbandonThreadBlockers(threadId);
-            return;
-          }
-          const requeued = yield* deliveryRepository.requeueExpired({
-            consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
-            eventSequence: event.sequence,
-            expectedClaimOwner: expiredOwner,
-            now: new Date().toISOString(),
-            error: "Replay-safe provider command claim expired before settlement.",
+
+          yield* settleTerminalFailure({
+            event,
+            claimOwner: expiredOwner,
+            state: "uncertain",
+            detail:
+              "External provider command claim expired without a durable acceptance result; execution was not replayed.",
           });
-          if (!requeued) {
-            return yield* Effect.die(
-              new Error(
-                `Replay-safe provider command delivery ${event.sequence} could not be requeued`,
-              ),
-            );
-          }
+          // This state is produced locally after process loss, so recovery
+          // begins immediately instead of waiting for another user action.
+          yield* fenceAndAbandonThreadBlockers(threadId);
+          return;
         }
       }
 
@@ -5288,8 +5151,7 @@ const make = Effect.gen(function* () {
         for (const job of expired) {
           if (job.claimOwner === null) continue;
           const safeReplay =
-            isProviderIntentEvent(job.event) &&
-            (!isClaimedProviderIntent(job.event) || isReplaySafeClaimedProviderIntent(job.event));
+            isProviderIntentEvent(job.event) && !isClaimedProviderIntent(job.event);
           const settled = yield* providerIntentOutbox.settleExpiredClaim({
             eventSequence: job.eventSequence,
             owner: job.claimOwner,

@@ -50,7 +50,6 @@ import {
   type ThreadProviderBindingRepositoryShape,
 } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { ProviderThreadSwitchOperationRepository } from "../../persistence/Services/ProviderThreadSwitchOperations.ts";
-import { ProviderNativeForkOperationRepository } from "../../persistence/Services/ProviderNativeForkOperations.ts";
 import { ManagedAttachmentRepositoryLive } from "../../persistence/Layers/ManagedAttachments.ts";
 import { QueuedTurnPromotionRepositoryLive } from "../../persistence/Layers/QueuedTurnPromotions.ts";
 import { QueuedTurnPromotionRepository } from "../../persistence/Services/QueuedTurnPromotions.ts";
@@ -127,7 +126,6 @@ interface CommandEnvelope {
   acceptedInitialProviderBinding?: Parameters<
     ThreadProviderBindingRepositoryShape["initializeThread"]
   >[0];
-  acceptedInitialProviderForkOperationId?: string;
   expectedProviderLifecycleGeneration?: string;
   expectedProviderSessionOwnership?: OrchestrationDispatchContext["expectedProviderSessionOwnership"];
   result: Deferred.Deferred<OrchestrationDispatchResult, OrchestrationDispatchError>;
@@ -242,9 +240,6 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   );
   const providerThreadSwitchOperations = Option.getOrUndefined(
     yield* Effect.serviceOption(ProviderThreadSwitchOperationRepository),
-  );
-  const providerNativeForkOperations = Option.getOrUndefined(
-    yield* Effect.serviceOption(ProviderNativeForkOperationRepository),
   );
   const projectionPipeline = yield* OrchestrationProjectionPipeline;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
@@ -532,24 +527,17 @@ const makeOrchestrationEngine = Effect.gen(function* () {
     ),
   );
 
-  const overlayThread = (
+  const replaceThread = (
     model: OrchestrationReadModel,
     thread: OrchestrationReadModel["threads"][number],
   ): OrchestrationReadModel => {
     const existingThread = model.threads.find((entry) => entry.id === thread.id);
-    const mergedThread =
-      existingThread && existingThread.messages.length > 0
-        ? {
-            ...thread,
-            messages: existingThread.messages,
-          }
-        : thread;
     const hasThread = existingThread !== undefined;
     return {
       ...model,
       threads: hasThread
-        ? model.threads.map((entry) => (entry.id === thread.id ? mergedThread : entry))
-        : [...model.threads, mergedThread],
+        ? model.threads.map((entry) => (entry.id === thread.id ? thread : entry))
+        : [...model.threads, thread],
     };
   };
 
@@ -561,8 +549,11 @@ const makeOrchestrationEngine = Effect.gen(function* () {
     projectionSnapshotQuery.getThreadDetailById(threadId).pipe(
       Effect.map((threadOption) =>
         Option.match(threadOption, {
-          onNone: () => model,
-          onSome: (thread) => overlayThread(model, thread),
+          onNone: () => ({
+            ...model,
+            threads: model.threads.filter((thread) => thread.id !== threadId),
+          }),
+          onSome: (thread) => replaceThread(model, thread),
         }),
       ),
       Effect.mapError(
@@ -581,18 +572,17 @@ const makeOrchestrationEngine = Effect.gen(function* () {
     const snapshot = commandReadModel;
     let threadId: ThreadId;
     switch (command.type) {
-      case "thread.fork.create":
-        threadId = command.sourceThreadId;
-        break;
       case "thread.conversation.rollback":
       case "thread.message.edit-and-resend":
       case "thread.message.assistant.complete":
       case "thread.turn.recover":
-      case "thread.archive":
+      case "thread.turn.start":
+      case "thread.turn.dispatch-queued":
         threadId = command.threadId;
         break;
       default:
-        return Effect.succeed(undefined);
+        if (!("threadId" in command)) return Effect.succeed(undefined);
+        threadId = command.threadId;
     }
     return loadThreadDetailForDecider(command, snapshot, threadId).pipe(
       Effect.map((model) => ({ snapshotSequence: snapshot.snapshotSequence, model })),
@@ -603,11 +593,9 @@ const makeOrchestrationEngine = Effect.gen(function* () {
     command: OrchestrationCommand,
     prepared: PreparedCommandReadModel | undefined,
   ): Effect.Effect<OrchestrationReadModel, OrchestrationDispatchError> =>
-    prepared?.snapshotSequence === commandReadModel.snapshotSequence
-      ? Effect.succeed(prepared.model)
-      : prepareCommandReadModel(command).pipe(
-          Effect.map((next) => next?.model ?? commandReadModel),
-        );
+    prepareCommandReadModel(command).pipe(
+      Effect.map((next) => (next === undefined ? commandReadModel : next.model)),
+    );
 
   // Rebuild only the folder/space projection rows and snapshot cursors.
   // Existing thread/chat projection rows stay in place so older installs do not
@@ -841,7 +829,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       const eventBase = yield* decideOrchestrationCommand({
         command,
         readModel: deciderReadModel,
-        ...(command.type === "thread.archive" || command.type === "thread.turn.dispatch-queued"
+        ...(command.type === "thread.turn.dispatch-queued"
           ? { userStopRequested: yield* userStopPending(command.threadId, sql) }
           : {}),
         workspacePaths: deciderWorkspacePaths,
@@ -857,7 +845,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         never
       > = Effect.gen(function* () {
         const committedEvents: OrchestrationEvent[] = [];
-        let nextCommandReadModel = commandReadModel;
+        let nextCommandReadModel = deciderReadModel;
         let disposition: "applied" | "skipped" = "applied";
         let admittedEventBases = eventBases;
 
@@ -957,16 +945,6 @@ const makeOrchestrationEngine = Effect.gen(function* () {
             disposition = "skipped";
           }
         }
-
-        if (
-          envelope.acceptedInitialProviderForkOperationId !== undefined &&
-          envelope.acceptedInitialProviderBinding === undefined
-        ) {
-          return yield* new OrchestrationCommandInvariantError({
-            commandType: command.type,
-            detail: "A native-fork journal may only accompany its initial provider binding.",
-          });
-        }
         if (envelope.acceptedInitialProviderBinding !== undefined) {
           if (command.type !== "thread.turn.start" || threadProviderBindings === undefined) {
             return yield* new OrchestrationCommandInvariantError({
@@ -985,34 +963,6 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                   }),
               ),
             );
-          if (envelope.acceptedInitialProviderForkOperationId !== undefined) {
-            if (providerNativeForkOperations === undefined) {
-              return yield* new OrchestrationCommandInvariantError({
-                commandType: command.type,
-                detail: "Verified native-fork persistence is unavailable.",
-              });
-            }
-            const committedFork = yield* providerNativeForkOperations
-              .markCommittedInCurrentTransaction({
-                id: envelope.acceptedInitialProviderForkOperationId,
-                updatedAt: command.createdAt,
-              })
-              .pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new OrchestrationCommandInvariantError({
-                      commandType: command.type,
-                      detail: `The native fork journal could not be committed: ${cause.message}`,
-                    }),
-                ),
-              );
-            if (Option.isNone(committedFork)) {
-              return yield* new OrchestrationCommandInvariantError({
-                commandType: command.type,
-                detail: "The verified native-fork journal entry no longer exists.",
-              });
-            }
-          }
         }
         if (envelope.acceptedProviderSwitch !== undefined) {
           if (
@@ -1108,13 +1058,6 @@ const makeOrchestrationEngine = Effect.gen(function* () {
               detail: `Managed attachment claim was rejected: ${claim.reason}.`,
             });
           }
-        }
-
-        if (command.type === "thread.archive") {
-          yield* queuedTurnPromotions.cancelThread({
-            threadId: command.threadId,
-            updatedAt: admittedEventBases[0]?.occurredAt ?? new Date().toISOString(),
-          });
         }
 
         for (const nextEvent of admittedEventBases) {
@@ -1216,16 +1159,6 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         for (const event of committedCommand.committedEvents) {
           const at = event.occurredAt;
           switch (event.type) {
-            case "thread.archived":
-            case "thread.unarchived":
-              recordDiagnosticProvenance({
-                entityKind: "thread",
-                entityId: event.payload.threadId,
-                field: "thread.archived",
-                traceId,
-                at,
-              });
-              break;
             case "thread.turn-queued":
               recordDiagnosticProvenance({
                 entityKind: "queue",
@@ -1731,12 +1664,6 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           : {}),
         ...(context?.acceptedInitialProviderBinding !== undefined
           ? { acceptedInitialProviderBinding: context.acceptedInitialProviderBinding }
-          : {}),
-        ...(context?.acceptedInitialProviderForkOperationId !== undefined
-          ? {
-              acceptedInitialProviderForkOperationId:
-                context.acceptedInitialProviderForkOperationId,
-            }
           : {}),
         ...(context?.expectedProviderLifecycleGeneration !== undefined
           ? { expectedProviderLifecycleGeneration: context.expectedProviderLifecycleGeneration }

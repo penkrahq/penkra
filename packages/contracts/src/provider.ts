@@ -81,24 +81,6 @@ export type ProviderSendTurnInput = typeof ProviderSendTurnInput.Type;
 export const ProviderSteerTurnInput = ProviderSendTurnInput;
 export type ProviderSteerTurnInput = typeof ProviderSteerTurnInput.Type;
 
-export const ProviderForkThreadInput = Schema.Struct({
-  sourceThreadId: ThreadId,
-  threadId: ThreadId,
-  sourceResumeCursor: Schema.optional(Schema.Unknown),
-  sourceCwd: Schema.optional(TrimmedNonEmptyString),
-  cwd: Schema.optional(TrimmedNonEmptyString),
-  modelSelection: Schema.optional(ModelSelection),
-  providerOptions: Schema.optional(ProviderStartOptions),
-  runtimeMode: RuntimeMode,
-});
-export type ProviderForkThreadInput = typeof ProviderForkThreadInput.Type;
-
-export const ProviderForkThreadResult = Schema.Struct({
-  threadId: ThreadId,
-  resumeCursor: Schema.optional(Schema.Unknown),
-});
-export type ProviderForkThreadResult = typeof ProviderForkThreadResult.Type;
-
 export const ProviderTurnStartResult = Schema.Struct({
   threadId: ThreadId,
   turnId: TurnId,

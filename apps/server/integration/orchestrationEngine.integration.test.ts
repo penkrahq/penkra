@@ -1,3 +1,4 @@
+import { createThreadFixture } from "../src/cleanCore/threadFixtures.ts";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -129,12 +130,10 @@ const seedProjectAndThread = (harness: OrchestrationIntegrationHarness) =>
       createdAt,
     });
 
-    yield* harness.engine.dispatch({
-      type: "thread.create",
-      commandId: CommandId.makeUnsafe("cmd-thread-create"),
+    yield* createThreadFixture(harness.sql, {
       threadId: THREAD_ID,
-      deckId: singletonThreadDeckId(THREAD_ID),
       folderId: PROJECT_ID,
+      deckId: singletonThreadDeckId(THREAD_ID),
       title: "Integration Thread",
       modelSelection: {
         provider,
@@ -142,7 +141,9 @@ const seedProjectAndThread = (harness: OrchestrationIntegrationHarness) =>
       },
       runtimeMode: "approval-required",
       workingDirectory: harness.workspaceDir,
-      createdAt,
+      createdAt: createdAt,
+      connection: { kind: "selected", connectionId: null },
+      creator: { kind: "user" },
     });
   });
 
@@ -262,12 +263,10 @@ it.live.skipIf(!process.env.CODEX_BINARY_PATH)(
           createdAt,
         });
 
-        yield* harness.engine.dispatch({
-          type: "thread.create",
-          commandId: CommandId.makeUnsafe("cmd-thread-create-real-codex"),
+        yield* createThreadFixture(harness.sql, {
           threadId: THREAD_ID,
-          deckId: singletonThreadDeckId(THREAD_ID),
           folderId: PROJECT_ID,
+          deckId: singletonThreadDeckId(THREAD_ID),
           title: "Integration Thread",
           modelSelection: {
             provider: "codex",
@@ -275,7 +274,9 @@ it.live.skipIf(!process.env.CODEX_BINARY_PATH)(
           },
           runtimeMode: "full-access",
           workingDirectory: harness.workspaceDir,
-          createdAt,
+          createdAt: createdAt,
+          connection: { kind: "selected", connectionId: null },
+          creator: { kind: "user" },
         });
 
         yield* harness.engine.dispatch({

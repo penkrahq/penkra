@@ -10,6 +10,8 @@ import type {
   OrchestrationCommand,
   ChatAttachment,
   CleanCoreThreadUpdate,
+  CleanCoreCreateThreadInput,
+  CleanCoreCreateThreadResult,
 } from "@penkra/contracts";
 import {
   CommandId,
@@ -40,7 +42,10 @@ export interface DesktopThreadCommandDependencies {
   readModel(): Promise<OrchestrationReadModel>;
   bindingRevision(threadId: string): Promise<number>;
   dispatch(command: OrchestrationCommand): Promise<unknown>;
-  updateThread(update: Extract<CleanCoreThreadUpdate, { action: "moveDeckThread" }>): Promise<void>;
+  createThread(input: CleanCoreCreateThreadInput): Promise<CleanCoreCreateThreadResult>;
+  updateThread(
+    update: Extract<CleanCoreThreadUpdate, { action: "moveDeckThread" | "archive" }>,
+  ): Promise<void>;
   dispatchTurn(
     command: Extract<OrchestrationCommand, { type: "thread.turn.start" }>,
     ownerId: string,
@@ -153,9 +158,11 @@ export class DesktopThreadCommands {
         if (!folder || folder.spaceId !== request.spaceId)
           fail("THREAD_ACCESS_DENIED", "The target folder is outside the current Space.");
         const created = threadId();
-        await this.deps.dispatch({
-          type: "thread.create",
-          commandId: commandId(),
+        if (current.workingDirectory === undefined)
+          fail("THREAD_STATE_INVALID", "The thread has no working-directory value.");
+        await this.deps.createThread({
+          creator: { kind: "user" },
+          connection: { kind: "default" },
           threadId: created,
           deckId: current.deckId,
           folderId: folder.id,
@@ -207,12 +214,14 @@ export class DesktopThreadCommands {
         );
         const selectedThreadId =
           target.id === request.threadId ? (remaining[0] ?? null) : undefined;
-        await this.deps.dispatch({
-          type: "thread.archive",
-          commandId: commandId(),
+        const updatedAt = new Date().toISOString();
+        await this.deps.updateThread({
+          action: "archive",
           threadId: target.id,
-          createdAt: new Date().toISOString(),
+          archivedAt: updatedAt,
+          updatedAt,
         });
+
         return { selectedThreadId };
       }
       case "compose": {

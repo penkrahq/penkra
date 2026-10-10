@@ -1,8 +1,10 @@
+import { seedThreadReadModelFixture } from "../cleanCore/threadFixtures.ts";
 // FILE: spaces.test.ts
 // Purpose: Covers the clean persisted-Space lifecycle and folder assignment invariants.
 
 import {
   CommandId,
+  EventId,
   FolderId,
   SpaceId,
   ThreadId,
@@ -71,18 +73,45 @@ async function addThread(input: {
   folderId: FolderId;
   parentThreadId?: ThreadId;
 }) {
-  return dispatch(input.readModel, {
-    type: "thread.create",
-    commandId: CommandId.makeUnsafe(`create-${input.id}`),
-    threadId: ThreadId.makeUnsafe(input.id),
-    deckId: singletonThreadDeckId(ThreadId.makeUnsafe(input.id)),
-    folderId: input.folderId,
-    title: input.id,
-    modelSelection: { provider: "codex", model: "gpt-5-codex" },
-    runtimeMode: "full-access",
-    ...(input.parentThreadId ? { parentThreadId: input.parentThreadId } : {}),
-    createdAt: CREATED_AT,
-  });
+  const event = {
+    sequence: input.readModel.snapshotSequence + 1,
+    eventId: EventId.makeUnsafe(`fixture-${input.id}`),
+    aggregateKind: "thread" as const,
+    aggregateId: ThreadId.makeUnsafe(input.id),
+    commandId: null,
+    causationEventId: null,
+    correlationId: null,
+    occurredAt: CREATED_AT,
+    metadata: {},
+    payload: {
+      threadId: ThreadId.makeUnsafe(input.id),
+      deckId: singletonThreadDeckId(ThreadId.makeUnsafe(input.id)),
+      deckSortOrder: 0,
+      sidebarSortOrder: 0,
+      folderId: input.folderId,
+      title: input.id,
+      modelSelection: { provider: "codex" as const, model: "gpt-5-codex" },
+      runtimeMode: "full-access" as const,
+      workingDirectory: null,
+      isPinned: false,
+      parentThreadId: input.parentThreadId === undefined ? null : input.parentThreadId,
+      subagentAgentId: null,
+      subagentNickname: null,
+      subagentRole: null,
+      createdAt: CREATED_AT,
+      updatedAt: CREATED_AT,
+    },
+  };
+  return {
+    events: [],
+    readModel: await Effect.runPromise(
+      seedThreadReadModelFixture(input.readModel, {
+        ...event.payload,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
+      }),
+    ),
+  };
 }
 
 describe("Spaces", () => {

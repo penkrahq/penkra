@@ -93,13 +93,6 @@ class FakeCodexManager extends CodexAppServerManager {
     turns: [],
   }));
 
-  public forkThreadImpl = vi.fn(
-    async (input: Parameters<CodexAppServerManager["forkThread"]>[0]) => ({
-      threadId: input.threadId,
-      resumeCursor: { threadId: "forked-native-codex-thread" },
-    }),
-  );
-
   public respondToRequestImpl = vi.fn(
     async (
       _threadId: ThreadId,
@@ -157,10 +150,6 @@ class FakeCodexManager extends CodexAppServerManager {
 
   override revertThread(threadId: ThreadId, beforeTurnId: TurnId) {
     return this.revertThreadImpl(threadId, beforeTurnId);
-  }
-
-  override forkThread(input: Parameters<CodexAppServerManager["forkThread"]>[0]) {
-    return this.forkThreadImpl(input);
   }
 
   override respondToRequest(
@@ -286,35 +275,6 @@ validationLayer("CodexAdapterLive validation", (it) => {
       yield* Effect.promise(() => rm(fixtureRoot, { recursive: true, force: true }));
       validationManager.startSessionImpl.mockClear();
       validationManager.sendTurnImpl.mockClear();
-    }),
-  );
-
-  it.effect("passes the exact managed generation through native Codex forks", () =>
-    Effect.gen(function* () {
-      validationManager.forkThreadImpl.mockClear();
-      const adapter = yield* CodexAdapter;
-      const managedLaunch = {
-        binaryPath: "/managed/codex",
-        isolationKey: "managed:fork:generation-1",
-        profileRoot: "/managed/profile",
-        nativeStateRoot: "/managed/native",
-        childEnvironment: (environment: NodeJS.ProcessEnv) => environment,
-      };
-      const result = yield* adapter.forkThread!({
-        sourceThreadId: asThreadId("source-thread"),
-        threadId: asThreadId("target-thread"),
-        sourceResumeCursor: { threadId: "source-native-codex-thread" },
-        modelSelection: { provider: "codex", model: "gpt-5.3-codex" },
-        runtimeMode: "full-access",
-        managedLaunch,
-      });
-      assert.deepStrictEqual(result.resumeCursor, {
-        threadId: "forked-native-codex-thread",
-      });
-      assert.strictEqual(
-        validationManager.forkThreadImpl.mock.calls[0]?.[0].managedLaunch,
-        managedLaunch,
-      );
     }),
   );
 

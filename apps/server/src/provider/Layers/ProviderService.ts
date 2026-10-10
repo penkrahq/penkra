@@ -12,7 +12,6 @@
 import {
   EventId,
   ProviderCompactThreadInput,
-  ProviderForkThreadInput,
   ModelSelection,
   NonNegativeInt,
   ThreadId,
@@ -1666,176 +1665,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         );
       });
 
-    const forkThread: NonNullable<ProviderServiceShape["forkThread"]> = (rawInput) =>
-      Effect.gen(function* () {
-        const input = yield* decodeInputOrValidationError({
-          operation: "ProviderService.forkThread",
-          schema: ProviderForkThreadInput,
-          payload: rawInput,
-        });
-
-        if (options?.resolveManagedLaunch) {
-          if (!rawInput.managedLaunch) {
-            return yield* toValidationError(
-              "ProviderService.forkThread",
-              "A managed native fork requires an exact target generation launch.",
-            );
-          }
-          if (!input.modelSelection) {
-            return yield* toValidationError(
-              "ProviderService.forkThread",
-              "A managed native fork requires an exact harness and model selection.",
-            );
-          }
-          const adapter = yield* registry.getByProvider(input.modelSelection.provider);
-          if (!adapter.forkThread) return null;
-          const sourceIdentity = providerNativeResumeIdentity(
-            input.modelSelection.provider,
-            input.sourceResumeCursor,
-          );
-          if (sourceIdentity === null) {
-            return yield* toValidationError(
-              "ProviderService.forkThread",
-              "The managed native fork source has no exact provider session identity.",
-            );
-          }
-          const forked = yield* adapter.forkThread({
-            ...input,
-            managedLaunch: rawInput.managedLaunch,
-          });
-          const targetIdentity = providerNativeResumeIdentity(
-            input.modelSelection.provider,
-            forked.resumeCursor,
-          );
-          if (targetIdentity === null || targetIdentity === sourceIdentity) {
-            return yield* toValidationError(
-              "ProviderService.forkThread",
-              "The provider did not return a distinct exact native fork identity.",
-            );
-          }
-          const forkedSession = (yield* adapter.listSessions()).find(
-            (session) => session.threadId === input.threadId,
-          );
-          if (!forkedSession || forkedSession.resumeCursor === undefined) {
-            return yield* toValidationError(
-              "ProviderService.forkThread",
-              "The provider did not retain the verified native fork session.",
-            );
-          }
-          yield* upsertSessionBinding(forkedSession, input.threadId, {
-            modelSelection: input.modelSelection,
-            ...(input.providerOptions !== undefined
-              ? { providerOptions: input.providerOptions }
-              : {}),
-            lastRuntimeEvent: "provider.thread.forked",
-            lastRuntimeEventAt: new Date().toISOString(),
-          });
-          yield* analytics.record("provider.thread.forked", {
-            provider: adapter.provider,
-          });
-          return forked;
-        }
-
-        const sourceBinding = Option.getOrUndefined(
-          yield* directory.getBinding(input.sourceThreadId),
-        );
-        if (!sourceBinding) {
-          return null;
-        }
-
-        if (Option.isSome(yield* directory.getBinding(input.threadId))) {
-          return null;
-        }
-
-        const effectiveProviderOptions =
-          input.providerOptions ?? readPersistedProviderOptions(sourceBinding.runtimePayload);
-        const sourceCwd = readPersistedCwd(sourceBinding.runtimePayload);
-
-        const adapter = yield* registry.getByProvider(sourceBinding.provider);
-        if (!adapter.forkThread) {
-          return null;
-        }
-
-        if (
-          input.modelSelection !== undefined &&
-          input.modelSelection.provider !== adapter.provider
-        ) {
-          return null;
-        }
-
-        const forked = yield* adapter
-          .forkThread({
-            ...input,
-            threadId: input.threadId,
-            sourceThreadId: input.sourceThreadId,
-            ...(effectiveProviderOptions !== undefined
-              ? { providerOptions: effectiveProviderOptions }
-              : {}),
-            ...(sourceBinding.resumeCursor !== null && sourceBinding.resumeCursor !== undefined
-              ? { sourceResumeCursor: sourceBinding.resumeCursor }
-              : {}),
-            ...(sourceCwd ? { sourceCwd } : {}),
-            runtimeMode: input.runtimeMode,
-          })
-          .pipe(
-            Effect.catch((error) =>
-              reportProviderServiceFailure(input.threadId).pipe(
-                Effect.andThen(
-                  Effect.logWarning("provider native fork failed", {
-                    sourceThreadId: input.sourceThreadId,
-                    targetThreadId: input.threadId,
-                    cause: error instanceof Error ? error.message : String(error),
-                  }),
-                ),
-                Effect.as(null),
-              ),
-            ),
-          );
-        if (!forked) {
-          return null;
-        }
-
-        const forkedSession = (yield* adapter.listSessions()).find(
-          (session) => session.threadId === input.threadId,
-        );
-        if (forkedSession) {
-          yield* upsertSessionBinding(forkedSession, input.threadId, {
-            ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
-            ...(effectiveProviderOptions !== undefined
-              ? { providerOptions: effectiveProviderOptions }
-              : {}),
-            lastRuntimeEvent: "provider.thread.forked",
-            lastRuntimeEventAt: new Date().toISOString(),
-          });
-        } else {
-          yield* directory.upsert({
-            threadId: input.threadId,
-            provider: adapter.provider,
-            runtimeMode: input.runtimeMode,
-            status: "stopped",
-            ...(forked.resumeCursor !== undefined ? { resumeCursor: forked.resumeCursor } : {}),
-            runtimePayload: {
-              cwd: input.cwd ?? null,
-              model: input.modelSelection?.model ?? null,
-              activeTurnId: null,
-              lastError: null,
-              ...(input.modelSelection !== undefined
-                ? { modelSelection: input.modelSelection }
-                : {}),
-              ...(effectiveProviderOptions !== undefined
-                ? { providerOptions: effectiveProviderOptions }
-                : {}),
-              lastRuntimeEvent: "provider.thread.forked",
-              lastRuntimeEventAt: new Date().toISOString(),
-            },
-          });
-        }
-        yield* analytics.record("provider.thread.forked", {
-          provider: adapter.provider,
-        });
-        return forked;
-      });
-
     const sendTurn: ProviderServiceShape["sendTurn"] = (rawInput) =>
       Effect.gen(function* () {
         const parsed = yield* decodeInputOrValidationError({
@@ -2767,7 +2596,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
 
     return {
       startSession,
-      forkThread,
       sendTurn,
       steerTurn,
       startReview,

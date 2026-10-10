@@ -1,6 +1,7 @@
 import "../index.css";
 
 import {
+  type CleanCoreThreadItem,
   EventId,
   FolderId,
   MessageId,
@@ -224,16 +225,117 @@ function observeAcknowledgement(requestBody: Record<string, unknown>): void {
   acknowledgementObservations.push({
     deliveryId: String(requestBody.deliveryId),
     appliedSequence: Number(requestBody.appliedSequence),
-    rootTitle: rootThread?.title ?? null,
+    rootTitle: useStore.getState().folders.find((folder) => folder.id === PROJECT_ID)?.name ?? null,
     rootMessageTexts: rootThread?.messages.map((message) => message.text) ?? [],
     rootDetailSync: useStore.getState().threadDetailSyncById?.[THREAD_ID] ?? null,
   });
 }
 
-function resolveUnaryRequest(method: string): unknown {
+function createThreadItemsPageFromFixtureSnapshot(threadId: ThreadId) {
+  const thread = getFixtureThread(threadId);
+  if (!thread) {
+    return { items: [], nextCursor: null };
+  }
+  const pending: Array<{ at: string; item: Omit<CleanCoreThreadItem, "seq"> }> = [];
+  for (const message of thread.messages) {
+    pending.push({
+      at: message.createdAt,
+      item: {
+        threadId,
+        sourceId: message.id,
+        turnId: message.turnId ?? null,
+        kind: message.role === "user" ? "user" : "text",
+        status: message.streaming ? "streaming" : message.role === "user" ? "sent" : "done",
+        text: message.text,
+        data:
+          message.role === "user" &&
+          ((message.attachments?.length ?? 0) > 0 ||
+            (message.skills?.length ?? 0) > 0 ||
+            (message.mentions?.length ?? 0) > 0)
+            ? JSON.stringify({
+                attachments: message.attachments ?? [],
+                skills: message.skills ?? [],
+                mentions: message.mentions ?? [],
+                ...((message as { dispatchMode?: string }).dispatchMode
+                  ? { dispatchMode: (message as { dispatchMode?: string }).dispatchMode }
+                  : {}),
+                ...((message as { dispatchOrigin?: string }).dispatchOrigin
+                  ? { dispatchOrigin: (message as { dispatchOrigin?: string }).dispatchOrigin }
+                  : {}),
+              })
+            : null,
+        createdAt: message.createdAt,
+        updatedAt:
+          (message as { updatedAt?: string }).updatedAt ??
+          (message as { completedAt?: string }).completedAt ??
+          message.createdAt,
+      },
+    });
+  }
+  for (const activity of thread.activities) {
+    const kind = activity.kind.startsWith("tool.")
+      ? "tool"
+      : activity.kind === "reasoning"
+        ? "reasoning"
+        : "notice";
+    const payload = (activity.payload ?? null) as Record<string, unknown> | null;
+    const payloadStatus =
+      typeof payload?.status === "string" ? payload.status.toLowerCase() : undefined;
+    const toolRunning =
+      activity.kind !== "tool.completed" &&
+      (payloadStatus === undefined ||
+        payloadStatus === "inprogress" ||
+        payloadStatus === "running" ||
+        payloadStatus === "started");
+    const turnState = thread.latestTurn?.state;
+    // Mirror the clean core: a running tool item settles when its turn ends.
+    const toolStatus = !toolRunning
+      ? payloadStatus === "failed" || payloadStatus === "error"
+        ? "error"
+        : "done"
+      : turnState === "interrupted"
+        ? "interrupted"
+        : turnState === "error"
+          ? "error"
+          : turnState === "completed"
+            ? "done"
+            : "running";
+    pending.push({
+      at: activity.createdAt,
+      item: {
+        threadId,
+        sourceId: activity.id,
+        turnId: activity.turnId ?? null,
+        kind,
+        status: kind === "tool" ? toolStatus : "done",
+        text: activity.summary,
+        data: JSON.stringify({
+          tone: activity.tone,
+          kind: activity.kind,
+          summary: activity.summary,
+          payload: activity.payload,
+        }),
+        createdAt: activity.createdAt,
+        updatedAt: activity.createdAt,
+      },
+    });
+  }
+  const items = pending
+    .toSorted((left, right) => left.at.localeCompare(right.at))
+    .map((entry, index) => ({ ...entry.item, seq: index + 1 })) as CleanCoreThreadItem[];
+  return { items, nextCursor: null };
+}
+
+/** Push a clean-core thread change so mounted transcripts re-read thread_items. */
+function resolveUnaryRequest(method: string, body: Record<string, unknown>): unknown {
   if (method === ORCHESTRATION_WS_METHODS.dispatchCommand) {
     return { sequence: fixture.snapshot.snapshotSequence + 1 };
   }
+  if (method === WS_METHODS.cleanCoreGetThreadDraft) return { draft: null, draftUpdatedAt: null };
+  if (method === WS_METHODS.cleanCoreListThreadItemsPage)
+    return createThreadItemsPageFromFixtureSnapshot(body.threadId as ThreadId);
+  if (method === WS_METHODS.cleanCoreGetThreadRuntime)
+    return { state: "idle", activeTurnId: null, lastError: null };
   if (method === WS_METHODS.serverGetConfig) return fixture.serverConfig;
   if (method === WS_METHODS.projectsListDevServers) return { servers: [] };
   if (method === WS_METHODS.projectsSearchEntries) return { entries: [], truncated: false };
@@ -289,6 +391,8 @@ const worker = setupWorker(
         return;
       }
       if (
+        method === WS_METHODS.cleanCoreSubscribeThread ||
+        method === WS_METHODS.cleanCoreSubscribeSidebar ||
         method === WS_METHODS.subscribeServerProviderStatuses ||
         method === WS_METHODS.subscribeServerSettings ||
         method === WS_METHODS.subscribeTerminalEvents ||
@@ -301,7 +405,7 @@ const worker = setupWorker(
         domainStreamRequestCount += 1;
         return;
       }
-      sendEffectRpcExit(client, request.id, resolveUnaryRequest(method));
+      sendEffectRpcExit(client, request.id, resolveUnaryRequest(method, requestBody));
     });
   }),
   http.get("*/attachments/:attachmentId", () => new HttpResponse(null, { status: 204 })),
@@ -333,19 +437,19 @@ function sendSyncDelivery(item: OrchestrationSyncStreamItem): void {
   sendEffectRpcChunk(syncStreamClient, syncStreamRequestId, item);
 }
 
-function createThreadUpdatedEvent(input: {
+function createFolderUpdatedEvent(input: {
   sequence: number;
   title: string;
   occurredAt: string;
 }): OrchestrationEvent {
   return {
     sequence: input.sequence,
-    eventId: EventId.makeUnsafe(`event-thread-updated-${input.sequence}`),
-    aggregateKind: "thread",
-    aggregateId: THREAD_ID,
-    type: "thread.updated",
+    eventId: EventId.makeUnsafe(`event-folder-updated-${input.sequence}`),
+    aggregateKind: "folder",
+    aggregateId: PROJECT_ID,
+    type: "folder.updated",
     payload: {
-      threadId: THREAD_ID,
+      folderId: PROJECT_ID,
       title: input.title,
       updatedAt: input.occurredAt,
     },
@@ -461,7 +565,7 @@ describe("EventRouter uniform orchestration sync", () => {
         {
           deliveryId: "sync-snapshot-1",
           appliedSequence: 1,
-          rootTitle: "Root test thread",
+          rootTitle: "Project",
           rootMessageTexts: ["root message"],
           rootDetailSync: "synced",
         },
@@ -488,7 +592,7 @@ describe("EventRouter uniform orchestration sync", () => {
       expect(acknowledgementObservations[0]).toMatchObject({
         deliveryId: "sync-snapshot-1",
         appliedSequence: 1,
-        rootTitle: "Root test thread",
+        rootTitle: "Project",
       });
     } finally {
       await mounted.cleanup();
@@ -502,12 +606,12 @@ describe("EventRouter uniform orchestration sync", () => {
     try {
       await vi.waitFor(() => expect(acknowledgementObservations).toHaveLength(1));
 
-      const firstEvent = createThreadUpdatedEvent({
+      const firstEvent = createFolderUpdatedEvent({
         sequence: 2,
         title: "First streamed title",
         occurredAt: "2026-03-04T12:00:01.000Z",
       });
-      const secondEvent = createThreadUpdatedEvent({
+      const secondEvent = createFolderUpdatedEvent({
         sequence: 3,
         title: "Second streamed title",
         occurredAt: "2026-03-04T12:00:02.000Z",
@@ -524,7 +628,7 @@ describe("EventRouter uniform orchestration sync", () => {
         appliedSequence: 3,
         rootTitle: "Second streamed title",
       });
-      expect(getThreadFromState(useStore.getState(), THREAD_ID)?.title).toBe(
+      expect(useStore.getState().folders.find((folder) => folder.id === PROJECT_ID)?.name).toBe(
         "Second streamed title",
       );
       expect(subscribeSyncRequestCount).toBe(1);
@@ -569,7 +673,7 @@ describe("EventRouter uniform orchestration sync", () => {
         sendSyncDelivery({
           kind: "event",
           deliveryId: "sync-event-failed",
-          event: createThreadUpdatedEvent({
+          event: createFolderUpdatedEvent({
             sequence: 2,
             title: "Must not partially apply",
             occurredAt: "2026-03-04T12:00:01.000Z",
@@ -577,7 +681,7 @@ describe("EventRouter uniform orchestration sync", () => {
         });
 
         await vi.waitFor(() => {
-          const samples = getChatLifecycleDiagnosticSamples(THREAD_ID);
+          const samples = getChatLifecycleDiagnosticSamples("*");
           expect(
             samples.some(
               (sample) =>
@@ -594,14 +698,16 @@ describe("EventRouter uniform orchestration sync", () => {
             ),
           ).toBe(true);
         });
-        expect(getThreadFromState(useStore.getState(), THREAD_ID)?.title).toBe("Root test thread");
+        expect(useStore.getState().folders.find((folder) => folder.id === PROJECT_ID)?.name).toBe(
+          "Project",
+        );
         expect(acknowledgementObservations.at(-1)?.appliedSequence).toBe(1);
 
         await vi.waitFor(() => expect(subscribeSyncRequestCount).toBe(2));
         sendSyncDelivery({
           kind: "event",
           deliveryId: "sync-event-recovered",
-          event: createThreadUpdatedEvent({
+          event: createFolderUpdatedEvent({
             sequence: 3,
             title: "Recovered streamed title",
             occurredAt: "2026-03-04T12:00:02.000Z",
@@ -609,7 +715,7 @@ describe("EventRouter uniform orchestration sync", () => {
         });
 
         await vi.waitFor(() => {
-          expect(getThreadFromState(useStore.getState(), THREAD_ID)?.title).toBe(
+          expect(useStore.getState().folders.find((folder) => folder.id === PROJECT_ID)?.name).toBe(
             "Recovered streamed title",
           );
           expect(acknowledgementObservations.at(-1)?.appliedSequence).toBe(3);
@@ -622,7 +728,6 @@ describe("EventRouter uniform orchestration sync", () => {
           expect(getPersistedChatSyncIncidents().map((sample) => sample.event)).toEqual([
             "sync-publication-apply-failed",
             "sync-publication-recovery-scheduled",
-            "sync-publication-recovered",
             "sync-publication-recovered",
           ]);
         });
@@ -637,8 +742,8 @@ describe("EventRouter uniform orchestration sync", () => {
     const mounted = await mountApp();
     let streamedTitleStoreUpdates = 0;
     const unsubscribeStoreUpdates = useStore.subscribe((state, previousState) => {
-      const title = getThreadFromState(state, THREAD_ID)?.title;
-      const previousTitle = getThreadFromState(previousState, THREAD_ID)?.title;
+      const title = state.folders.find((folder) => folder.id === PROJECT_ID)?.name;
+      const previousTitle = previousState.folders.find((folder) => folder.id === PROJECT_ID)?.name;
       if (title !== previousTitle && title?.startsWith("Streamed title ")) {
         streamedTitleStoreUpdates += 1;
       }
@@ -652,7 +757,7 @@ describe("EventRouter uniform orchestration sync", () => {
         sendSyncDelivery({
           kind: "event",
           deliveryId: "sync-lease-1",
-          event: createThreadUpdatedEvent({
+          event: createFolderUpdatedEvent({
             sequence,
             title: `Streamed title ${sequence}`,
             occurredAt: new Date(Date.parse(NOW_ISO) + sequence * 1_000).toISOString(),
@@ -661,7 +766,7 @@ describe("EventRouter uniform orchestration sync", () => {
       }
 
       await vi.waitFor(() => {
-        expect(getThreadFromState(useStore.getState(), THREAD_ID)?.title).toBe(
+        expect(useStore.getState().folders.find((folder) => folder.id === PROJECT_ID)?.name).toBe(
           "Streamed title 201",
         );
       });

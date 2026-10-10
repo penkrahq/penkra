@@ -12,7 +12,12 @@ import {
   TurnId,
   TrimmedNonEmptyString,
 } from "./baseSchemas";
-import { ModelSelection, RuntimeMode, ProviderUserInputAnswers } from "./orchestration";
+import {
+  ModelSelection,
+  RuntimeMode,
+  ProviderUserInputAnswers,
+  OrchestrationThreadShell,
+} from "./orchestration";
 
 /** Clean-core bounded transcript read (0.14.4 design 2.1). */
 export const CleanCoreListThreadItemsPageInput = Schema.Struct({
@@ -122,13 +127,22 @@ export const CleanCoreListThreadsResult = Schema.Struct({
 });
 export type CleanCoreListThreadsResult = typeof CleanCoreListThreadsResult.Type;
 
+export const CleanCoreGetThreadShellInput = Schema.Struct({ threadId: ThreadId });
+export type CleanCoreGetThreadShellInput = typeof CleanCoreGetThreadShellInput.Type;
+
 export const CleanCoreCreateThreadInput = Schema.Struct({
   threadId: ThreadId,
   folderId: FolderId,
   deckId: ThreadDeckId,
   title: Schema.String,
   modelSelection: ModelSelection,
-  connectionId: Schema.NullOr(ProviderConnectionId),
+  connection: Schema.Union([
+    Schema.Struct({ kind: Schema.Literal("default") }),
+    Schema.Struct({
+      kind: Schema.Literal("selected"),
+      connectionId: Schema.NullOr(ProviderConnectionId),
+    }),
+  ]),
   runtimeMode: RuntimeMode,
   workingDirectory: Schema.NullOr(Schema.String),
   createdAt: IsoDateTime,
@@ -138,6 +152,16 @@ export const CleanCoreCreateThreadInput = Schema.Struct({
   ]),
 });
 export type CleanCoreCreateThreadInput = typeof CleanCoreCreateThreadInput.Type;
+export const CleanCoreCreateThreadResult = Schema.Struct({
+  thread: CleanCoreThreadSummary,
+  created: Schema.Boolean,
+});
+export type CleanCoreCreateThreadResult = typeof CleanCoreCreateThreadResult.Type;
+export const CleanCoreCreateThreadResponse = Schema.Struct({
+  ...CleanCoreCreateThreadResult.fields,
+  shell: OrchestrationThreadShell,
+});
+export type CleanCoreCreateThreadResponse = typeof CleanCoreCreateThreadResponse.Type;
 
 export const CleanCoreThreadMovePosition = Schema.Union([
   Schema.Struct({ type: Schema.Literals(["before", "after"]), itemId: Schema.String }),
@@ -170,6 +194,25 @@ export const CleanCoreDeckMovePosition = Schema.Union([
 export type CleanCoreDeckMovePosition = typeof CleanCoreDeckMovePosition.Type;
 
 export const CleanCoreThreadUpdate = Schema.Union([
+  Schema.Struct({
+    action: Schema.Literal("connection"),
+    threadId: ThreadId,
+    connectionId: Schema.NullOr(ProviderConnectionId),
+    updatedAt: IsoDateTime,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("model"),
+    threadId: ThreadId,
+    modelSelection: ModelSelection,
+    connection: Schema.Union([
+      Schema.Struct({ kind: Schema.Literal("keep") }),
+      Schema.Struct({
+        kind: Schema.Literal("selected"),
+        connectionId: Schema.NullOr(ProviderConnectionId),
+      }),
+    ]),
+    updatedAt: IsoDateTime,
+  }),
   Schema.Struct({
     action: Schema.Literal("rename"),
     threadId: ThreadId,

@@ -438,11 +438,13 @@ export function ThreadDeckBar(props: {
         }
         const api = readNativeApi();
         if (!api) return;
-        await api.orchestration.dispatchCommand({
-          type: "thread.archive",
-          commandId: newCommandId(),
-          threadId: removedThreadId,
-          createdAt: new Date().toISOString(),
+        await api.cleanCore.updateThread({
+          update: {
+            action: "archive",
+            threadId: removedThreadId,
+            archivedAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
         });
       },
     }).catch((error: unknown) => {

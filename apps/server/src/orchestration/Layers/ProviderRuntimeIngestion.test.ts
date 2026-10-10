@@ -1,3 +1,8 @@
+import { updateThreadFixture } from "../../cleanCore/threadFixtures.ts";
+import {
+  createThreadFixture,
+  seedLegacyThreadParentFixture,
+} from "../../cleanCore/threadFixtures.ts";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -91,7 +96,6 @@ function createProviderServiceHarness() {
     sendTurn: () => unsupported(),
     steerTurn: () => unsupported(),
     startReview: () => unsupported(),
-    forkThread: () => Effect.succeed(null),
     interruptTurn: () => unsupported(),
     stopTask: () => unsupported(),
     backgroundTask: () => unsupported(),
@@ -337,12 +341,10 @@ describe("ProviderRuntimeIngestion", () => {
       }),
     );
     await Effect.runPromise(
-      engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-thread-create"),
+      createThreadFixture(sql, {
         threadId: ThreadId.makeUnsafe("thread-1"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-1")),
         folderId: asFolderId("project-1"),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-1")),
         title: "Thread",
         modelSelection: {
           provider: providerKind,
@@ -350,7 +352,9 @@ describe("ProviderRuntimeIngestion", () => {
         },
         runtimeMode: "approval-required",
         workingDirectory: workspaceRoot,
-        createdAt,
+        createdAt: createdAt,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
       }),
     );
     if (options?.seedSession !== false) {
@@ -414,17 +418,17 @@ describe("ProviderRuntimeIngestion", () => {
     const threadB = asThreadId("thread-slow-runtime-b");
     const createdAt = new Date().toISOString();
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-slow-runtime-thread-b"),
+      createThreadFixture(harness.sql, {
         threadId: threadB,
-        deckId: singletonThreadDeckId(threadB),
         folderId: asFolderId("project-1"),
+        deckId: singletonThreadDeckId(threadB),
         title: "Independent thread",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
         workingDirectory: null,
-        createdAt,
+        createdAt: createdAt,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
       }),
     );
     const eventA: ProviderRuntimeEvent = {
@@ -1140,11 +1144,11 @@ describe("ProviderRuntimeIngestion", () => {
       }),
     );
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.archive",
-        commandId: CommandId.makeUnsafe("cmd-late-archive"),
-        threadId,
-        createdAt: stoppedAt,
+      updateThreadFixture(harness.sql, {
+        action: "archive",
+        threadId: threadId,
+        updatedAt: stoppedAt,
+        archivedAt: stoppedAt,
       }),
     );
     const completion: ProviderRuntimeEvent = {
@@ -1412,16 +1416,17 @@ describe("ProviderRuntimeIngestion", () => {
     const createdAt = "2026-07-14T00:05:00.000Z";
     const thread2 = asThreadId("thread-accepted-rebuild-healthy");
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-thread-accepted-rebuild-healthy-create"),
+      createThreadFixture(harness.sql, {
         threadId: thread2,
-        deckId: singletonThreadDeckId(thread2),
         folderId: asFolderId("project-1"),
+        deckId: singletonThreadDeckId(thread2),
         title: "Accepted Rebuild Healthy Thread",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
-        createdAt,
+        workingDirectory: null,
+        createdAt: createdAt,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
       }),
     );
 
@@ -1661,16 +1666,17 @@ describe("ProviderRuntimeIngestion", () => {
     const createdAt = new Date().toISOString();
     const thread2 = asThreadId("thread-2");
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-thread-2-create"),
+      createThreadFixture(harness.sql, {
         threadId: thread2,
-        deckId: singletonThreadDeckId(thread2),
         folderId: asFolderId("project-1"),
+        deckId: singletonThreadDeckId(thread2),
         title: "Independent Thread",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
-        createdAt,
+        workingDirectory: null,
+        createdAt: createdAt,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
       }),
     );
 
@@ -4860,16 +4866,17 @@ describe("ProviderRuntimeIngestion", () => {
     const secondThreadId = asThreadId("thread-delivery-buffered");
 
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-thread-create-delivery-buffered"),
+      createThreadFixture(harness.sql, {
         threadId: secondThreadId,
-        deckId: singletonThreadDeckId(secondThreadId),
         folderId: asFolderId("project-1"),
+        deckId: singletonThreadDeckId(secondThreadId),
         title: "Buffered Thread",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
+        workingDirectory: null,
         createdAt: now,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
       }),
     );
     await Effect.runPromise(
@@ -7547,230 +7554,7 @@ describe("ProviderRuntimeIngestion", () => {
     expect(thread.runtimeMode).toBe("approval-required");
   });
 
-  it("creates and routes subagent runtime events into child threads", async () => {
-    const harness = await createHarness();
-    const now = new Date().toISOString();
-
-    harness.emit({
-      type: "item.updated",
-      eventId: asEventId("evt-collab-updated"),
-      provider: "codex",
-      createdAt: now,
-      threadId: asThreadId("thread-1"),
-      turnId: asTurnId("turn-parent"),
-      itemId: asItemId("item-collab"),
-      payload: {
-        itemType: "collab_agent_tool_call",
-        title: "Task",
-        data: {
-          item: {
-            type: "collabAgentToolCall",
-            receiverThreadIds: ["child-provider-1"],
-            receiverAgents: [
-              {
-                threadId: "child-provider-1",
-                agentNickname: "Locke",
-                agentRole: "explorer",
-                agentId: "agent-1",
-              },
-            ],
-          },
-        },
-      },
-    });
-
-    harness.emit({
-      type: "turn.started",
-      eventId: asEventId("evt-child-turn-started"),
-      provider: "codex",
-      createdAt: new Date().toISOString(),
-      threadId: asThreadId("thread-1"),
-      turnId: asTurnId("turn-child"),
-      parentTurnId: asTurnId("turn-parent"),
-      providerRefs: {
-        providerThreadId: "child-provider-1",
-        providerParentThreadId: "parent-provider-1",
-        providerTurnId: "turn-child",
-        parentProviderTurnId: "turn-parent",
-      },
-      payload: {},
-    });
-
-    const childThread = await waitForThread(
-      harness.engine,
-      (entry) =>
-        entry.parentThreadId === "thread-1" &&
-        entry.subagentNickname === "Locke" &&
-        entry.subagentRole === "explorer" &&
-        entry.session?.status === "running" &&
-        entry.session?.activeTurnId === "turn-child",
-      2000,
-      asThreadId("subagent:thread-1:child-provider-1"),
-    );
-
-    expect(childThread.title).toBe("Locke [explorer]");
-    expect(childThread.creationSource).toBe("provider_native");
-    expect(childThread.sourceThreadId).toBe("thread-1");
-    expect(childThread.sourceTurnId).toBe("turn-parent");
-
-    const parentThread = await waitForThread(harness.engine, (entry) =>
-      entry.activities.some(
-        (activity: ProviderRuntimeTestActivity) =>
-          hasOperationId(activity, "item-collab") && activity.kind === "tool.updated",
-      ),
-    );
-    expect(
-      parentThread.activities.some((activity) => activity.id === "evt-child-turn-started"),
-    ).toBe(false);
-  });
-
-  it("handles collab receiver and child provider refs on the same event without duplicate thread creation", async () => {
-    const harness = await createHarness();
-    const now = new Date().toISOString();
-
-    harness.emit({
-      type: "item.updated",
-      eventId: asEventId("evt-collab-child-thread-event"),
-      provider: "codex",
-      createdAt: now,
-      threadId: asThreadId("thread-1"),
-      turnId: asTurnId("turn-child"),
-      parentTurnId: asTurnId("turn-parent"),
-      itemId: asItemId("item-collab-child"),
-      providerRefs: {
-        providerThreadId: "child-provider-same-event",
-        providerParentThreadId: "parent-provider-1",
-        providerTurnId: "turn-child",
-        parentProviderTurnId: "turn-parent",
-      },
-      payload: {
-        itemType: "collab_agent_tool_call",
-        title: "Task",
-        data: {
-          item: {
-            type: "collabAgentToolCall",
-            receiverThreadIds: ["child-provider-same-event"],
-            receiverAgents: [
-              {
-                threadId: "child-provider-same-event",
-                agentNickname: "Noether",
-                agentRole: "explorer",
-              },
-            ],
-          },
-        },
-      },
-    });
-
-    const childThread = await waitForThread(
-      harness.engine,
-      (entry) =>
-        entry.parentThreadId === "thread-1" &&
-        entry.subagentNickname === "Noether" &&
-        entry.activities.some(
-          (activity: ProviderRuntimeTestActivity) =>
-            hasOperationId(activity, "item-collab-child") && activity.kind === "tool.updated",
-        ),
-      2000,
-      asThreadId("subagent:thread-1:child-provider-same-event"),
-    );
-
-    expect(childThread.title).toBe("Noether [explorer]");
-  });
-
-  it("materializes subagent child threads even when the collab payload only exposes receiverAgents", async () => {
-    const harness = await createHarness();
-    const now = new Date().toISOString();
-
-    harness.emit({
-      type: "item.updated",
-      eventId: asEventId("evt-collab-receiver-agents"),
-      provider: "codex",
-      createdAt: now,
-      threadId: asThreadId("thread-1"),
-      turnId: asTurnId("turn-parent"),
-      itemId: asItemId("item-collab"),
-      payload: {
-        itemType: "collab_agent_tool_call",
-        title: "Task",
-        data: {
-          item: {
-            type: "collabAgentToolCall",
-            receiverAgents: [
-              {
-                threadId: "child-provider-2",
-                agentNickname: "Harper",
-                agentRole: "reviewer",
-                requestedModel: "gpt-5.4-mini",
-              },
-            ],
-          },
-        },
-      },
-    });
-
-    const childThread = await waitForThread(
-      harness.engine,
-      (entry) =>
-        entry.id === "subagent:thread-1:child-provider-2" &&
-        entry.subagentNickname === "Harper" &&
-        entry.subagentRole === "reviewer",
-      2000,
-      asThreadId("subagent:thread-1:child-provider-2"),
-    );
-
-    expect(childThread.title).toBe("Harper [reviewer]");
-  });
-
-  it("caps native child materialization per parent turn and deduplicates replay", async () => {
-    const harness = await createHarness();
-    const receiverThreadIds = Array.from({ length: 22 }, (_, index) => `native-child-${index}`);
-    const event = {
-      type: "item.updated",
-      eventId: asEventId("evt-collab-overflow"),
-      provider: "codex",
-      createdAt: new Date().toISOString(),
-      threadId: asThreadId("thread-1"),
-      turnId: asTurnId("turn-native-budget"),
-      itemId: asItemId("item-collab-overflow"),
-      payload: {
-        itemType: "collab_agent_tool_call",
-        title: "Task",
-        data: {
-          item: {
-            type: "collabAgentToolCall",
-            receiverThreadIds,
-          },
-        },
-      },
-    } as const;
-
-    harness.emit(event);
-    await harness.drain();
-    harness.emit(event);
-    await harness.drain();
-
-    const readModel = await Effect.runPromise(harness.engine.getReadModel());
-    const nativeChildren = readModel.threads.filter(
-      (thread) =>
-        thread.parentThreadId === "thread-1" && thread.sourceTurnId === "turn-native-budget",
-    );
-    expect(nativeChildren).toHaveLength(20);
-    expect(
-      nativeChildren.every(
-        (thread) =>
-          thread.creationSource === "provider_native" &&
-          thread.sourceThreadId === "thread-1" &&
-          thread.gatewayOperationId === null,
-      ),
-    ).toBe(true);
-    const parent = readModel.threads.find((thread) => thread.id === "thread-1");
-    expect(
-      parent?.activities.filter((activity) => activity.kind === "subagent.materialization.capped"),
-    ).toHaveLength(1);
-  });
-
-  it("routes fallback-annotated child events without polluting the parent projection", async () => {
+  it("routes migrated child events without polluting the parent projection", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
     const childThreadId = asThreadId("subagent:thread-1:child-provider-unmapped");
@@ -7780,6 +7564,23 @@ describe("ProviderRuntimeIngestion", () => {
       providerParentThreadId: "parent-provider-1",
     } as const;
 
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* createThreadFixture(harness.sql, {
+          threadId: childThreadId,
+          folderId: asFolderId("project-1"),
+          deckId: singletonThreadDeckId(childThreadId),
+          title: "Migrated child",
+          modelSelection: { provider: "codex", model: "gpt-5" },
+          runtimeMode: "approval-required",
+          workingDirectory: null,
+          createdAt: now,
+          creator: { kind: "user" },
+          connection: { kind: "selected", connectionId: null },
+        });
+        yield* seedLegacyThreadParentFixture(harness.sql, childThreadId, asThreadId("thread-1"));
+      }),
+    );
     const before = await Effect.runPromise(harness.engine.getReadModel());
     const parentBefore = before.threads.find((thread) => thread.id === asThreadId("thread-1"));
     expect(parentBefore).toBeDefined();

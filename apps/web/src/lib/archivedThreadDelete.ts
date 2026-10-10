@@ -9,7 +9,7 @@ import { reconcileDeletedThreadsFromClient } from "./deletedThreadClientReconcil
 import { newCommandId } from "./utils";
 
 interface DeleteArchivedThreadFromClientInput {
-  api: Pick<NativeApi["orchestration"], "dispatchCommand">;
+  api: Pick<NativeApi["cleanCore"], "updateThread">;
   threadId: ThreadId;
   removeDeletedThreadFromClientState: (threadId: ThreadId) => void;
 }
@@ -44,10 +44,13 @@ export async function deleteArchivedThreadsFromClient(
   const deletedThreadIds: ThreadId[] = [];
   try {
     for (const threadId of threadIds) {
-      await input.api.dispatchCommand({
-        type: "thread.delete",
-        commandId: newCommandId(),
-        threadId,
+      await input.api.updateThread({
+        update: {
+          action: "delete",
+          threadId,
+          deletedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
       });
       deletedThreadIds.push(threadId);
     }

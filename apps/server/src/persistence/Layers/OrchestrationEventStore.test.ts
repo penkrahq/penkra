@@ -19,7 +19,7 @@ layer("OrchestrationEventStore", (it) => {
       const now = "2026-07-20T12:00:00.000Z";
       const threadId = ThreadId.makeUnsafe("thread-diagnostic-page");
       const first = yield* eventStore.append({
-        type: "thread.archived",
+        type: "thread.session-stop-requested",
         eventId: EventId.makeUnsafe("evt-thread-diagnostic-first"),
         aggregateKind: "thread",
         aggregateId: threadId,
@@ -28,10 +28,10 @@ layer("OrchestrationEventStore", (it) => {
         causationEventId: null,
         correlationId: null,
         metadata: {},
-        payload: { threadId, archivedAt: now, updatedAt: now },
+        payload: { threadId, createdAt: now },
       });
       const second = yield* eventStore.append({
-        type: "thread.unarchived",
+        type: "thread.session-stop-requested",
         eventId: EventId.makeUnsafe("evt-thread-diagnostic-second"),
         aggregateKind: "thread",
         aggregateId: threadId,
@@ -40,7 +40,7 @@ layer("OrchestrationEventStore", (it) => {
         causationEventId: null,
         correlationId: null,
         metadata: {},
-        payload: { threadId, updatedAt: now },
+        payload: { threadId, createdAt: now },
       });
 
       assert.equal(yield* eventStore.getThreadHighWaterSequence(threadId), second.sequence);
@@ -58,7 +58,7 @@ layer("OrchestrationEventStore", (it) => {
         throughSequenceInclusive: second.sequence,
         beforeSequenceExclusive: second.sequence,
         limit: 10,
-        eventTypes: ["thread.archived"],
+        eventTypes: ["thread.session-stop-requested"],
       });
       assert.deepEqual(
         older.map((event) => event.sequence),
@@ -171,35 +171,6 @@ layer("OrchestrationEventStore", (it) => {
           ${"{}"}
         ),
         (
-          ${EventId.makeUnsafe("evt-import-thread-created")},
-          ${"thread"},
-          ${ThreadId.makeUnsafe("thread-imported")},
-          ${0},
-          ${"thread.created"},
-          ${now},
-          ${CommandId.makeUnsafe("cmd-import-thread-created")},
-          ${null},
-          ${null},
-          ${"server"},
-          ${JSON.stringify({
-            threadId: "thread-imported",
-            folderId: "project-imported",
-            title: "Imported Thread",
-            modelSelection: {
-              provider: "codex",
-              model: "gpt-5.5",
-              options: [{ id: "reasoningEffort", value: "medium" }],
-            },
-            runtimeMode: "full-access",
-            interactionMode: "default",
-            branch: null,
-            worktreePath: null,
-            createdAt: now,
-            updatedAt: now,
-          })},
-          ${"{}"}
-        ),
-        (
           ${EventId.makeUnsafe("evt-import-turn-start")},
           ${"thread"},
           ${ThreadId.makeUnsafe("thread-imported")},
@@ -233,9 +204,6 @@ layer("OrchestrationEventStore", (it) => {
       const projectCreated = replayed.find(
         (event) => event.eventId === EventId.makeUnsafe("evt-import-project-created"),
       );
-      const threadCreated = replayed.find(
-        (event) => event.eventId === EventId.makeUnsafe("evt-import-thread-created"),
-      );
       const turnStartRequested = replayed.find(
         (event) => event.eventId === EventId.makeUnsafe("evt-import-turn-start"),
       );
@@ -248,25 +216,6 @@ layer("OrchestrationEventStore", (it) => {
           provider: "codex",
           model: "imported-project-model",
         },
-      );
-      assert.deepStrictEqual(
-        threadCreated?.type === "thread.created" ? threadCreated.payload.modelSelection : null,
-        {
-          provider: "codex",
-          model: "gpt-5.5",
-          options: {
-            reasoningEffort: "medium",
-          },
-        },
-      );
-      assert.deepStrictEqual(
-        threadCreated?.type === "thread.created"
-          ? {
-              deckId: threadCreated.payload.deckId,
-              deckSortOrder: threadCreated.payload.deckSortOrder,
-            }
-          : null,
-        { deckId: "deck:thread-imported", deckSortOrder: 0 },
       );
       assert.deepStrictEqual(
         turnStartRequested?.type === "thread.turn-start-requested"

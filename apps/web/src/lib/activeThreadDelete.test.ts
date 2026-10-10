@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const harness = vi.hoisted(() => ({
   events: [] as string[],
-  dispatchCommand: vi.fn(),
+  updateThread: vi.fn(),
   confirm: vi.fn(),
   disposeThread: vi.fn(),
   reconcile: vi.fn(),
@@ -33,7 +33,7 @@ const THREAD = {
 vi.mock("../nativeApi", () => ({
   readNativeApi: () => ({
     dialogs: { confirm: harness.confirm },
-    orchestration: { dispatchCommand: harness.dispatchCommand },
+    cleanCore: { updateThread: harness.updateThread },
   }),
 }));
 
@@ -76,9 +76,11 @@ beforeEach(() => {
   harness.threads = [THREAD];
   harness.orphanResolver.mockReset().mockImplementation(() => harness.orphanedWorktreePath);
   harness.confirm.mockReset().mockResolvedValue(false);
-  harness.dispatchCommand.mockReset().mockImplementation(async (command: { type: string }) => {
-    harness.events.push(command.type);
-  });
+  harness.updateThread
+    .mockReset()
+    .mockImplementation(async ({ update }: { update: { action: string } }) => {
+      harness.events.push(update.action);
+    });
   harness.disposeThread.mockReset().mockImplementation(() => {
     harness.events.push("terminal.dispose");
   });
@@ -105,7 +107,7 @@ describe("deleteActiveThreadFromClient", () => {
 
     expect(harness.events).toEqual([
       "prepare",
-      "thread.delete",
+      "delete",
       "terminal.dispose",
       "reconcile",
       "onDeleted",
@@ -114,9 +116,9 @@ describe("deleteActiveThreadFromClient", () => {
   });
 
   it("leaves client state untouched when the server rejects deletion", async () => {
-    harness.dispatchCommand.mockImplementation(async (command: { type: string }) => {
-      harness.events.push(command.type);
-      if (command.type === "thread.delete") throw new Error("delete rejected");
+    harness.updateThread.mockImplementation(async ({ update }: { update: { action: string } }) => {
+      harness.events.push(update.action);
+      if (update.action === "delete") throw new Error("delete rejected");
     });
     const onDeleted = vi.fn();
 

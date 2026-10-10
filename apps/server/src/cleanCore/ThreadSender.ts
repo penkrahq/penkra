@@ -5,6 +5,7 @@ import {
   ModelSelection,
   RuntimeMode,
   ThreadId,
+  TurnId,
   CleanCoreThreadRuntime,
   type CleanCoreInterruptResult,
   type CleanCoreSendResult,
@@ -32,6 +33,10 @@ export interface ThreadSendInput {
 export class ThreadSender extends ServiceMap.Service<
   ThreadSender,
   {
+    readonly runExclusive: <A, E, R>(
+      threadId: ThreadId,
+      action: Effect.Effect<A, E, R>,
+    ) => Effect.Effect<A, E, R>;
     readonly send: (input: ThreadSendInput) => Effect.Effect<CleanCoreSendResult, Error>;
     readonly editQueued: (input: {
       threadId: ThreadId;
@@ -233,7 +238,25 @@ export const makeThreadSender = Effect.gen(function* () {
       if (rows[0] === undefined) return yield* Effect.fail(new Error("The thread does not exist."));
       return Schema.decodeUnknownSync(CleanCoreThreadRuntime)(rows[0]);
     });
+  const readConfirmation = (input: ThreadSendInput) =>
+    Effect.gen(function* () {
+      const delivered = yield* sql<{
+        turnId: string;
+        data: string;
+      }>`SELECT turn_id AS "turnId", data FROM thread_items WHERE thread_id = ${input.threadId} AND source_id = ${input.message.messageId} AND kind = 'user' AND status = 'sent'`;
+      if (delivered[0] === undefined) return null;
+      const confirmation = Schema.decodeUnknownSync(
+        Schema.Struct({ delivery: Schema.Literals(["started", "steered", "interrupted"]) }),
+      )(JSON.parse(delivered[0].data));
+      return {
+        threadId: input.threadId,
+        messageId: input.message.messageId,
+        delivery: confirmation.delivery,
+        turnId: Schema.decodeUnknownSync(TurnId)(delivered[0].turnId),
+      };
+    });
   return {
+    runExclusive: withLane,
     queuedThread: (messageId: string) =>
       Effect.gen(function* () {
         let after: string | null = null;
@@ -287,6 +310,8 @@ export const makeThreadSender = Effect.gen(function* () {
       withLane(
         input.threadId,
         Effect.gen(function* () {
+          const delivered = yield* readConfirmation(input);
+          if (delivered !== null) return delivered;
           const currentRows = yield* sql<{
             provider: string;
             state: string;
@@ -328,11 +353,32 @@ export const makeThreadSender = Effect.gen(function* () {
               error: "The thread does not exist.",
             };
           if (current.state !== "running") yield* deliverHead(input.threadId);
+          const retried = yield* readConfirmation(input);
+          if (retried !== null) return retried;
+          const queue = yield* readThreadQueue(input.threadId);
+          const position = queue.findIndex(
+            (message) => message.messageId === input.message.messageId,
+          );
+          if (position !== -1 && (input.dispatchMode === "queue" || current.state !== "running")) {
+            const runtime = yield* getRuntime(input.threadId);
+            return {
+              threadId: input.threadId,
+              messageId: input.message.messageId,
+              delivery: "queued" as const,
+              position: position + 1,
+              queueLength: queue.length,
+              runningTurnId: runtime.activeTurnId,
+            };
+          }
           const result = yield* sendMessage(publisher, driver, {
             ...input,
             dispatchMode: current.state === "running" ? input.dispatchMode : "queue",
             supportsSteer: providerSupportsNativeTurnSteering(row.provider),
           });
+          if (position !== -1 && result.delivery !== "failed" && result.delivery !== "queued") {
+            yield* sql`UPDATE threads SET queue = ${JSON.stringify(queue.filter((message) => message.messageId !== input.message.messageId))} WHERE id = ${input.threadId}`;
+            publisher.publish({ threadId: input.threadId });
+          }
           return result;
         }).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
       ),

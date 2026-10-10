@@ -219,25 +219,25 @@ const makeProjectionTurnRepository = Effect.gen(function* () {
       turnIds.length > 0
         ? sql`
             SELECT
-              threads.thread_id AS "threadId",
+              threads.id AS "threadId",
               turns.turn_id AS "turnId",
               turns.assistant_message_id AS "assistantMessageId",
               turns.state
-            FROM projection_threads AS threads
+            FROM threads
             LEFT JOIN projection_turns AS turns
-              ON turns.thread_id = threads.thread_id
+              ON turns.thread_id = threads.id
              AND turns.turn_id IN ${sql.in(turnIds)}
-            WHERE threads.thread_id IN ${sql.in(threadIds)}
+            WHERE threads.id IN ${sql.in(threadIds)}
               AND threads.deleted_at IS NULL
           `
         : sql`
             SELECT
-              threads.thread_id AS "threadId",
+              threads.id AS "threadId",
               NULL AS "turnId",
               NULL AS "assistantMessageId",
               NULL AS state
-            FROM projection_threads AS threads
-            WHERE threads.thread_id IN ${sql.in(threadIds)}
+            FROM threads
+            WHERE threads.id IN ${sql.in(threadIds)}
               AND threads.deleted_at IS NULL
           `,
   });

@@ -19,6 +19,7 @@ import { describe, expect, it } from "vitest";
 
 import { applyOrchestrationEvents, applyOrchestrationEventsHotPath } from "./storeEventReducer";
 import {
+  syncServerThreadShell,
   syncServerShellSnapshot,
   syncServerReadModel,
   syncServerThreadDetailHotPath,
@@ -43,92 +44,149 @@ import { resolveThreadStatusPill } from "./components/Sidebar.logic";
 import { shouldShowComposerContinue } from "./components/ChatView.logic";
 
 describe("store event reducer", () => {
-  it("registers six external creations in the sidebar without a snapshot or opened detail", () => {
-    const initial = makeState(makeThread());
-    const folderId = FolderId.makeUnsafe("project-1");
-    const events = Array.from({ length: 6 }, (_, index) => {
-      const threadId = ThreadId.makeUnsafe(`agent-worker-${index}`);
-      return makeDomainEvent(
-        "thread.created",
-        {
-          threadId,
-          deckId: singletonThreadDeckId(threadId),
-          deckSortOrder: 0,
-          folderId,
-          title: `Worker ${index}`,
-          modelSelection: { provider: "codex", model: "gpt-5.6-sol" },
-          runtimeMode: DEFAULT_RUNTIME_MODE,
-          sidebarSortOrder: index,
-          workingDirectory: null,
-          isPinned: false,
-          parentThreadId: null,
-          creationSource: "penkra_mcp",
-          sourceThreadId: ThreadId.makeUnsafe("thread-1"),
-          subagentAgentId: null,
-          subagentNickname: null,
-          subagentRole: null,
-          forkSourceThreadId: null,
-          createdAt: "2026-09-06T00:10:00.000Z",
-          updatedAt: "2026-09-06T00:10:00.000Z",
-        },
-        { sequence: index + 1 },
-      );
+  it("keeps a broadcast row when an older in-flight snapshot reply arrives", async () => {
+    const oldRow = makeReadModelThread({
+      title: "Older reply",
+      updatedAt: "2026-02-27T00:01:00.000Z",
+      isPinned: false,
+      lastVisitedAt: null,
     });
-    const next = applyOrchestrationEvents(initial, events);
-    const rows = createSidebarTreeThreadsSelector()(next);
-    expect(rows.filter((row) => row.id.startsWith("agent-worker-"))).toHaveLength(6);
-    for (const event of events) {
-      expect(rows.find((row) => row.id === event.payload.threadId)?.folderId).toBe(folderId);
-      expect(next.threadShellById?.[event.payload.threadId]?.creationSource).toBe("penkra_mcp");
-    }
-    expect(applyOrchestrationEvents(next, events)).toBe(next);
-    const workerId = events[0]!.payload.threadId;
-    const archived = applyOrchestrationEvents(next, [
-      makeDomainEvent(
-        "thread.archived",
-        {
-          threadId: workerId,
-          archivedAt: "2026-09-06T00:10:02.000Z",
-          updatedAt: "2026-09-06T00:10:02.000Z",
-        },
-        { sequence: 8 },
-      ),
-    ]);
-    expect(createSidebarTreeThreadsSelector()(archived).some((row) => row.id === workerId)).toBe(
+    const initial = syncServerReadModel(makeState(makeThread()), makeReadModel(oldRow));
+    let resolveReply!: (snapshot: ReturnType<typeof makeShellSnapshot>) => void;
+    const inFlight = new Promise<ReturnType<typeof makeShellSnapshot>>((resolve) => {
+      resolveReply = resolve;
+    });
+    const newRow = {
+      ...oldRow,
+      title: "Newer broadcast",
+      isPinned: true,
+      lastVisitedAt: "2026-02-27T00:02:00.000Z",
+      updatedAt: "2026-02-27T00:02:00.000Z",
+    };
+    const broadcast = syncServerThreadShell(initial, oldRow.id, newRow);
+    resolveReply({ ...makeShellSnapshot(oldRow), snapshotSequence: 2 });
+    const afterReply = syncServerShellSnapshot(broadcast, await inFlight);
+    expect(threadsOf(afterReply)[0]).toMatchObject({
+      title: newRow.title,
+      isPinned: true,
+      updatedAt: newRow.updatedAt,
+      lastVisitedAt: newRow.lastVisitedAt,
+    });
+    expect(afterReply.sidebarThreadSummaryById[oldRow.id]?.title).toBe(newRow.title);
+    expect(syncServerThreadShell(broadcast, oldRow.id, oldRow)).toBe(broadcast);
+    const afterDetailReply = syncServerReadModel(broadcast, {
+      ...makeReadModel(oldRow),
+      snapshotSequence: 2,
+    });
+    expect(threadsOf(afterDetailReply)[0]?.title).toBe(newRow.title);
+  });
+
+  it("applies thread metadata immediately during live updates", () => {
+    const row = makeReadModelThread({ title: "Old title" });
+    const initial = syncServerReadModel(makeState(makeThread()), makeReadModel(row));
+    const next = syncServerThreadShell(initial, row.id, {
+      ...row,
+      title: "New title",
+      updatedAt: "2026-02-27T00:01:00.000Z",
+    });
+    expect(threadsOf(next)[0]).toMatchObject({
+      title: "New title",
+      updatedAt: "2026-02-27T00:01:00.000Z",
+    });
+    expect(next.sidebarThreadSummaryById[row.id]?.title).toBe("New title");
+  });
+  it("preserves a thread's null connection through unrelated canonical updates", () => {
+    const row = makeReadModelThread({ connectionId: null });
+    const initial = syncServerReadModel(makeState(makeThread()), makeReadModel(row));
+    const next = syncServerThreadShell(initial, row.id, { ...row, title: "Renamed thread" });
+    expect(threadsOf(next)[0]?.connectionId).toBeNull();
+  });
+  it("updates sidebar summaries when the canonical row is archived", () => {
+    const row = makeReadModelThread({ title: "Archivable thread" });
+    const initial = syncServerReadModel(makeState(makeThread()), makeReadModel(row));
+    const at = "2026-02-27T00:07:00.000Z";
+    const next = syncServerThreadShell(initial, row.id, { ...row, archivedAt: at, updatedAt: at });
+    expect(next.sidebarThreadSummaryById[row.id]?.archivedAt).toBe(at);
+    expect(createSidebarTreeThreadsSelector()(next).some((thread) => thread.id === row.id)).toBe(
       false,
     );
-    const restored = applyOrchestrationEvents(archived, [
-      makeDomainEvent(
-        "thread.unarchived",
-        {
-          threadId: workerId,
-          updatedAt: "2026-09-06T00:10:03.000Z",
-        },
-        { sequence: 9 },
-      ),
-    ]);
-    expect(createSidebarTreeThreadsSelector()(restored).some((row) => row.id === workerId)).toBe(
-      true,
+  });
+  it("removes archived threads when the canonical row is deleted", () => {
+    const row = makeReadModelThread({ archivedAt: "2026-02-27T00:05:00.000Z" });
+    const initial = syncServerReadModel(makeState(makeThread()), makeReadModel(row));
+    const next = syncServerThreadShell(initial, row.id, null);
+    expect(threadsOf(next)).toHaveLength(0);
+    expect(next.threadIds).not.toContain(row.id);
+    expect(next.threadShellById?.[row.id]).toBeUndefined();
+    expect(next.sidebarThreadSummaryById[row.id]).toBeUndefined();
+  });
+  it("updates sidebar summaries during canonical renames", () => {
+    const row = makeReadModelThread({ title: "Original title" });
+    const initial = syncServerReadModel(makeState(makeThread()), makeReadModel(row));
+    const next = syncServerThreadShell(initial, row.id, {
+      ...row,
+      title: "Renamed title",
+      updatedAt: "2026-02-27T00:03:00.000Z",
+    });
+    expect(next.sidebarThreadSummaryById[row.id]).toMatchObject({
+      title: "Renamed title",
+      updatedAt: "2026-02-27T00:03:00.000Z",
+    });
+    expect(next.threadShellById?.[row.id]?.title).toBe("Renamed title");
+  });
+  it("updates sidebar archive summaries after thread detail sync", () => {
+    const row = makeReadModelThread({ title: "Archivable thread" });
+    const shell = syncServerReadModel(makeState(makeThread()), makeReadModel(row));
+    const initial = syncServerThreadDetailHotPath(shell, {
+      ...row,
+      title: "Detail-only title",
+      updatedAt: "2026-02-27T00:05:00.000Z",
+    });
+    const at = "2026-02-27T00:07:00.000Z";
+    const next = syncServerThreadShell(initial, row.id, { ...row, archivedAt: at, updatedAt: at });
+    expect(next.sidebarThreadSummaryById[row.id]?.archivedAt).toBe(at);
+  });
+
+  it("registers canonical shell rows and applies archive, restore and deletion", () => {
+    const initial = makeState(makeThread());
+    const rows = Array.from({ length: 6 }, (_, index) =>
+      makeReadModelThread({
+        id: ThreadId.makeUnsafe(`agent-worker-${index}`),
+        title: `Worker ${index}`,
+        creationSource: "penkra_mcp",
+        sourceThreadId: ThreadId.makeUnsafe("thread-1"),
+        sidebarSortOrder: index,
+        createdAt: "2026-09-06T00:10:00.000Z",
+        updatedAt: "2026-09-06T00:10:00.000Z",
+      }),
     );
+    const next = rows.reduce((state, row) => syncServerThreadShell(state, row.id, row), initial);
     expect(
-      applyOrchestrationEvents(restored, events).sidebarThreadSummaryById[workerId]?.folderId,
-    ).toBe("project-1");
-    const deleted = applyOrchestrationEvents(next, [
-      makeDomainEvent(
-        "thread.deleted",
-        {
-          threadId: events[0]!.payload.threadId,
-          deletedAt: "2026-09-06T00:11:00.000Z",
-        },
-        { sequence: 10 },
-      ),
-    ]);
-    const replayed = applyOrchestrationEvents(deleted, [events[0]!]);
+      createSidebarTreeThreadsSelector()(next).filter((row) => row.id.startsWith("agent-worker-")),
+    ).toHaveLength(6);
+    for (const row of rows)
+      expect(next.threadShellById?.[row.id]?.creationSource).toBe("penkra_mcp");
+    const row = rows[0]!;
+    const archived = syncServerThreadShell(next, row.id, {
+      ...row,
+      archivedAt: "2026-09-06T00:10:02.000Z",
+      updatedAt: "2026-09-06T00:10:02.000Z",
+    });
     expect(
-      createSidebarTreeThreadsSelector()(replayed).some(
-        (row) => row.id === events[0]!.payload.threadId,
-      ),
+      createSidebarTreeThreadsSelector()(archived).some((thread) => thread.id === row.id),
     ).toBe(false);
+    const restored = syncServerThreadShell(archived, row.id, {
+      ...row,
+      updatedAt: "2026-09-06T00:10:03.000Z",
+    });
+    expect(
+      createSidebarTreeThreadsSelector()(restored).some((thread) => thread.id === row.id),
+    ).toBe(true);
+    const deleted = syncServerThreadShell(restored, row.id, null);
+    expect(createSidebarTreeThreadsSelector()(deleted).some((thread) => thread.id === row.id)).toBe(
+      false,
+    );
+    expect(syncServerThreadShell(deleted, row.id, null)).toBe(deleted);
   });
 
   it("keeps a session error ahead of a live queued delivery failure", () => {
@@ -527,7 +585,12 @@ describe("store event reducer", () => {
   it("keeps two subscribed renderer projections converged on queued turns and thread selection", () => {
     const threadId = ThreadId.makeUnsafe("thread-shared-queue");
     const messageId = MessageId.makeUnsafe("message-shared-queue");
-    const initial = makeState(makeThread({ id: threadId }));
+    const initial = makeState(
+      makeThread({
+        id: threadId,
+        modelSelection: { provider: "opencode", model: "openai/gpt-5.5" },
+      }),
+    );
     const admittedEvents = [
       makeDomainEvent(
         "thread.message-sent",
@@ -558,16 +621,6 @@ describe("store event reducer", () => {
           createdAt: "2026-09-26T12:00:00.000Z",
         },
         { sequence: 2 },
-      ),
-      makeDomainEvent(
-        "thread.updated",
-        {
-          threadId,
-          modelSelection: { provider: "opencode", model: "openai/gpt-5.6" },
-          connectionId: ProviderConnectionId.makeUnsafe("connection-shared"),
-          updatedAt: "2026-09-26T12:00:01.000Z",
-        },
-        { sequence: 3 },
       ),
       makeDomainEvent(
         "thread.message-sent",
@@ -601,8 +654,30 @@ describe("store event reducer", () => {
 
     const rendererA = createStore<AppState>(() => initial);
     const rendererB = createStore<AppState>(() => initial);
-    rendererA.setState((state) => applyOrchestrationEvents(state, admittedEvents.slice(0, 4)));
-    rendererB.setState((state) => applyOrchestrationEvents(state, admittedEvents.slice(0, 4)));
+    rendererA.setState((state) =>
+      syncServerThreadShell(
+        applyOrchestrationEvents(state, admittedEvents.slice(0, 3)),
+        threadId,
+        makeReadModelThread({
+          id: threadId,
+          modelSelection: { provider: "opencode", model: "openai/gpt-5.6" },
+          connectionId: ProviderConnectionId.makeUnsafe("connection-shared"),
+          updatedAt: "2026-09-26T12:00:03.000Z",
+        }),
+      ),
+    );
+    rendererB.setState((state) =>
+      syncServerThreadShell(
+        applyOrchestrationEvents(state, admittedEvents.slice(0, 3)),
+        threadId,
+        makeReadModelThread({
+          id: threadId,
+          modelSelection: { provider: "opencode", model: "openai/gpt-5.6" },
+          connectionId: ProviderConnectionId.makeUnsafe("connection-shared"),
+          updatedAt: "2026-09-26T12:00:03.000Z",
+        }),
+      ),
+    );
     const localDraftA = createStore<ComposerDraftStoreState>(
       createComposerDraftStoreState(() => {}),
     );
@@ -658,8 +733,8 @@ describe("store event reducer", () => {
     expect(localDraftA.getState().draftsByThreadId[threadId]?.prompt).toBe("window A unsent text");
     expect(localDraftB.getState().draftsByThreadId[threadId]?.prompt).toBe("window B unsent text");
 
-    rendererA.setState((state) => applyOrchestrationEvents(state, [admittedEvents[4]!]));
-    rendererB.setState((state) => applyOrchestrationEvents(state, [admittedEvents[4]!]));
+    rendererA.setState((state) => applyOrchestrationEvents(state, [admittedEvents[3]!]));
+    rendererB.setState((state) => applyOrchestrationEvents(state, [admittedEvents[3]!]));
     expect(threadsOf(rendererA.getState())[0]?.queuedMessageIds).toEqual([]);
     expect(threadsOf(rendererB.getState())[0]?.queuedMessageIds).toEqual([]);
     expect(threadsOf(rendererB.getState())[0]?.messages).toEqual(
@@ -1320,13 +1395,11 @@ describe("store event reducer", () => {
       cancelled.pendingStartCancellationByThreadId,
     );
 
-    const deleted = applyOrchestrationEvents(cancelled, [
-      makeDomainEvent(
-        "thread.deleted",
-        { threadId, deletedAt: "2026-02-27T00:00:03.000Z" },
-        { sequence: 12 },
-      ),
-    ]);
+    const deleted = (() => {
+      let next = cancelled;
+      next = syncServerThreadShell(next, threadId, null);
+      return next;
+    })();
     expect(deleted.pendingStartCancellationByThreadId).toEqual({});
   });
 
@@ -1334,29 +1407,34 @@ describe("store event reducer", () => {
     const firstThreadId = ThreadId.makeUnsafe("thread-shared-message-first");
     const secondThreadId = ThreadId.makeUnsafe("thread-shared-message-second");
     const sharedMessageId = MessageId.makeUnsafe("message-shared-across-threads");
-    const initial = applyOrchestrationEvents(makeState(makeThread({ id: firstThreadId })), [
-      makeDomainEvent("thread.created", {
-        threadId: secondThreadId,
-        deckId: singletonThreadDeckId(secondThreadId),
-        deckSortOrder: 0,
-        folderId: FolderId.makeUnsafe("project-1"),
-        title: "Second thread",
-        modelSelection: { provider: "codex", model: "gpt-5.6-sol" },
-        runtimeMode: DEFAULT_RUNTIME_MODE,
-        sidebarSortOrder: 1,
-        workingDirectory: null,
-        isPinned: false,
-        parentThreadId: null,
-        creationSource: null,
-        sourceThreadId: null,
-        subagentAgentId: null,
-        subagentNickname: null,
-        subagentRole: null,
-        forkSourceThreadId: null,
-        createdAt: "2026-09-07T00:00:00.000Z",
-        updatedAt: "2026-09-07T00:00:00.000Z",
-      }),
-    ]);
+    const initial = (() => {
+      let next = makeState(makeThread({ id: firstThreadId }));
+      next = syncServerThreadShell(
+        next,
+        secondThreadId,
+        makeReadModelThread({
+          deckId: singletonThreadDeckId(secondThreadId),
+          deckSortOrder: 0,
+          folderId: FolderId.makeUnsafe("project-1"),
+          title: "Second thread",
+          modelSelection: { provider: "codex", model: "gpt-5.6-sol" },
+          runtimeMode: DEFAULT_RUNTIME_MODE,
+          sidebarSortOrder: 1,
+          workingDirectory: null,
+          isPinned: false,
+          parentThreadId: null,
+          creationSource: null,
+          sourceThreadId: null,
+          subagentAgentId: null,
+          subagentNickname: null,
+          subagentRole: null,
+          createdAt: "2026-09-07T00:00:00.000Z",
+          updatedAt: "2026-09-07T00:00:00.000Z",
+          id: secondThreadId,
+        }),
+      );
+      return next;
+    })();
     const cancelled = applyOrchestrationEvents(initial, [
       makeDomainEvent("thread.turn-start-cancelled", {
         threadId: firstThreadId,
@@ -1382,12 +1460,11 @@ describe("store event reducer", () => {
     expect(firstAccepted.pendingStartCancellationByThreadId?.[secondThreadId]?.messageId).toBe(
       sharedMessageId,
     );
-    const firstDeleted = applyOrchestrationEvents(cancelled, [
-      makeDomainEvent("thread.deleted", {
-        threadId: firstThreadId,
-        deletedAt: "2026-09-07T00:00:04.000Z",
-      }),
-    ]);
+    const firstDeleted = (() => {
+      let next = cancelled;
+      next = syncServerThreadShell(next, firstThreadId, null);
+      return next;
+    })();
     expect(firstDeleted.pendingStartCancellationByThreadId?.[firstThreadId]).toBeUndefined();
     expect(firstDeleted.pendingStartCancellationByThreadId?.[secondThreadId]?.messageId).toBe(
       sharedMessageId,
@@ -2411,47 +2488,6 @@ describe("store event reducer", () => {
     ]);
   });
 
-  it("applies thread metadata immediately during live updates", () => {
-    const initialState = makeState(
-      makeThread({
-        title: "Old title",
-        session: {
-          provider: "codex",
-          status: "ready",
-          orchestrationStatus: "ready",
-          createdAt: "2026-02-27T00:00:00.000Z",
-          updatedAt: "2026-02-27T00:00:00.000Z",
-        },
-      }),
-    );
-
-    const next = applyOrchestrationEvents(initialState, [
-      makeDomainEvent("thread.updated", {
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        title: "New title",
-        updatedAt: "2026-02-27T00:01:00.000Z",
-      }),
-    ]);
-
-    expect(threadsOf(next)[0]).toMatchObject({
-      title: "New title",
-      updatedAt: "2026-02-27T00:01:00.000Z",
-    });
-  });
-
-  it("preserves an unset thread connection through unrelated updates", () => {
-    const initialState = makeState(makeThread());
-    const next = applyOrchestrationEvents(initialState, [
-      makeDomainEvent("thread.updated", {
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        title: "Renamed thread",
-        updatedAt: "2026-02-27T00:01:00.000Z",
-      }),
-    ]);
-
-    expect(threadsOf(next)[0]?.connectionId).toBeUndefined();
-  });
-
   it("rolls back conversation state from an edited user message", () => {
     const initialState = makeState(
       makeThread({
@@ -3066,115 +3102,6 @@ describe("store event reducer", () => {
     expect(next.sidebarThreadSummaryById["thread-1"]?.hasPendingApprovals).toBe(false);
   });
 
-  it("updates sidebar summaries during hot-path archive events", () => {
-    const initialState = syncServerReadModel(
-      makeState(makeThread({ title: "Archivable thread" })),
-      makeReadModel(
-        makeReadModelThread({
-          title: "Archivable thread",
-          updatedAt: "2026-02-27T00:00:00.000Z",
-        }),
-      ),
-    );
-
-    const next = applyOrchestrationEventsHotPath(
-      initialState,
-      [
-        makeDomainEvent("thread.archived", {
-          threadId: ThreadId.makeUnsafe("thread-1"),
-          archivedAt: "2026-02-27T00:07:00.000Z",
-          updatedAt: "2026-02-27T00:07:00.000Z",
-        }),
-      ],
-      { updateSidebarSummary: true },
-    );
-
-    expect(next.sidebarThreadSummaryById["thread-1"]?.archivedAt).toBe("2026-02-27T00:07:00.000Z");
-  });
-
-  it("removes archived threads when a delete event reaches the hot path", () => {
-    const threadId = ThreadId.makeUnsafe("thread-archived");
-    const initialState = syncServerReadModel(
-      makeState(makeThread()),
-      makeReadModel(
-        makeReadModelThread({
-          id: threadId,
-          archivedAt: "2026-02-27T00:05:00.000Z",
-        }),
-      ),
-    );
-
-    const next = applyOrchestrationEventsHotPath(
-      initialState,
-      [
-        makeDomainEvent("thread.deleted", {
-          threadId,
-          deletedAt: "2026-02-27T00:06:00.000Z",
-        }),
-      ],
-      { updateSidebarSummary: true },
-    );
-
-    expect(threadsOf(next)).toHaveLength(0);
-    expect(next.threadIds).not.toContain(threadId);
-    expect(next.threadShellById?.[threadId]).toBeUndefined();
-    expect(next.sidebarThreadSummaryById[threadId]).toBeUndefined();
-    expect(next.deletedThreadIdsById?.[threadId]).toEqual(expect.any(Number));
-
-    const afterStaleSnapshot = syncServerShellSnapshot(
-      next,
-      makeShellSnapshot({
-        id: threadId,
-        folderId: FolderId.makeUnsafe("project-1"),
-        title: "Stale archived thread",
-        modelSelection: {
-          provider: "codex",
-          model: "gpt-5.3-codex",
-        },
-        runtimeMode: DEFAULT_RUNTIME_MODE,
-        forkSourceThreadId: null,
-        latestTurn: null,
-        createdAt: "2026-02-27T00:00:00.000Z",
-        updatedAt: "2026-02-27T00:00:30.000Z",
-        session: null,
-      }),
-    );
-    expect(threadsOf(afterStaleSnapshot)).toHaveLength(0);
-    expect(afterStaleSnapshot.threadShellById?.[threadId]).toBeUndefined();
-  });
-
-  it("updates sidebar summaries during hot-path thread renames", () => {
-    const threadId = ThreadId.makeUnsafe("thread-1");
-    const initialState = syncServerReadModel(
-      makeState(makeThread({ title: "Original title" })),
-      makeReadModel(
-        makeReadModelThread({
-          title: "Original title",
-          updatedAt: "2026-02-27T00:00:00.000Z",
-        }),
-      ),
-    );
-
-    const next = applyOrchestrationEventsHotPath(
-      initialState,
-      [
-        makeDomainEvent("thread.updated", {
-          threadId,
-          title: "Renamed title",
-          updatedAt: "2026-02-27T00:03:00.000Z",
-        }),
-      ],
-      { updateSidebarSummary: true },
-    );
-
-    expect(next.sidebarThreadSummaryById[threadId]).toMatchObject({
-      title: "Renamed title",
-      updatedAt: "2026-02-27T00:03:00.000Z",
-    });
-    expect(next.threadShellById?.[threadId]?.title).toBe("Renamed title");
-    expect(threadsOf(next).find((thread) => thread.id === threadId)?.title).toBe("Renamed title");
-  });
-
   it("updates sidebar summaries when a hot-path session starts running", () => {
     const threadId = ThreadId.makeUnsafe("thread-1");
     const turnId = TurnId.makeUnsafe("turn-running");
@@ -3218,51 +3145,12 @@ describe("store event reducer", () => {
     });
   });
 
-  it("updates sidebar summaries during hot-path archive events after thread detail sync", () => {
-    const shellState = syncServerReadModel(
-      makeState(makeThread({ title: "Archivable thread" })),
-      makeReadModel(
-        makeReadModelThread({
-          title: "Archivable thread",
-          updatedAt: "2026-02-27T00:00:00.000Z",
-        }),
-      ),
-    );
-    const initialState = syncServerThreadDetailHotPath(
-      shellState,
-      makeReadModelThread({
-        title: "Detail-only title",
-        updatedAt: "2026-02-27T00:05:00.000Z",
-      }),
-    );
-
-    const next = applyOrchestrationEventsHotPath(
-      initialState,
-      [
-        makeDomainEvent("thread.archived", {
-          threadId: ThreadId.makeUnsafe("thread-1"),
-          archivedAt: "2026-02-27T00:07:00.000Z",
-          updatedAt: "2026-02-27T00:07:00.000Z",
-        }),
-      ],
-      { updateSidebarSummary: true },
-    );
-
-    expect(next.sidebarThreadSummaryById["thread-1"]?.archivedAt).toBe("2026-02-27T00:07:00.000Z");
-  });
-
   it("preserves outer normalized records when an event is a no-op", () => {
     const state = syncServerReadModel(
       makeState(makeThread()),
       makeReadModel(makeReadModelThread({ title: "Thread" })),
     );
-    const next = applyOrchestrationEvents(state, [
-      makeDomainEvent("thread.updated", {
-        threadId: ThreadId.makeUnsafe("missing-thread"),
-        title: "Ignored",
-        updatedAt: "2026-02-27T00:00:00.000Z",
-      }),
-    ]);
+    const next = syncServerThreadShell(state, ThreadId.makeUnsafe("missing-thread"), null);
 
     expect(next).toBe(state);
     expect(next.threadShellById).toBe(state.threadShellById);

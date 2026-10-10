@@ -30,9 +30,7 @@ import {
   requireSpaceNameAvailable,
   requireThread,
   requireThreadAbsent,
-  requireThreadArchived,
   requireThreadCanTakeWork,
-  requireThreadNotArchived,
   threadHasInFlightTurn,
 } from "./commandInvariants.ts";
 
@@ -167,15 +165,6 @@ function requireThreadsCanMoveAcrossSpaces(input: {
         }),
       )
     : Effect.void;
-}
-
-type CreatedThreadWorkspaceCommand = Pick<
-  Extract<OrchestrationCommand, { type: "thread.create" | "thread.fork.create" }>,
-  "workingDirectory"
->;
-
-function resolveCreatedThreadWorkspaceMetadata(command: CreatedThreadWorkspaceCommand) {
-  return { workingDirectory: command.workingDirectory ?? null };
 }
 
 function deriveConversationRollbackTarget(
@@ -586,329 +575,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "thread.create": {
-      const folder = yield* requireFolder({
-        readModel,
-        command,
-        folderId: command.folderId,
-      });
-      yield* requireThreadAbsent({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      const existingDeck = readModel.decks.find((deck) => deck.id === command.deckId);
-      if (existingDeck && existingDeck.spaceId !== folder.spaceId) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: `Thread deck '${command.deckId}' belongs to a different Space.`,
-        });
-      }
-      return {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.created",
-        payload: {
-          threadId: command.threadId,
-          deckId: command.deckId,
-          deckSortOrder: existingDeck?.threadIds.length ?? 0,
-          folderId: command.folderId,
-          title: command.title,
-          modelSelection: command.modelSelection,
-          runtimeMode: command.runtimeMode,
-          ...resolveCreatedThreadWorkspaceMetadata(command),
-          isPinned: command.isPinned,
-          parentThreadId: command.parentThreadId,
-          ...(command.creationSource !== undefined
-            ? {
-                creationSource: command.creationSource,
-                sourceThreadId: command.sourceThreadId ?? null,
-                sourceTurnId: command.sourceTurnId ?? null,
-                gatewayOperationId: command.gatewayOperationId ?? null,
-                gatewayOperationIndex: command.gatewayOperationIndex ?? null,
-              }
-            : {}),
-          subagentAgentId: command.subagentAgentId,
-          subagentNickname: command.subagentNickname,
-          subagentRole: command.subagentRole,
-          forkSourceThreadId: null,
-          createdAt: command.createdAt,
-          updatedAt: command.createdAt,
-        },
-      };
-    }
-
-    case "thread.fork.create": {
-      const folder = yield* requireFolder({
-        readModel,
-        command,
-        folderId: command.folderId,
-      });
-      yield* requireThread({
-        readModel,
-        command,
-        threadId: command.sourceThreadId,
-      });
-      yield* requireThreadAbsent({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-
-      const sourceThread = yield* requireThread({
-        readModel,
-        command,
-        threadId: command.sourceThreadId,
-      });
-      if (sourceThread.folderId !== command.folderId) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: `Source thread '${command.sourceThreadId}' belongs to a different folder.`,
-        });
-      }
-      const existingDeck = readModel.decks.find((deck) => deck.id === command.deckId);
-      if (existingDeck && existingDeck.spaceId !== folder.spaceId) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: `Thread deck '${command.deckId}' belongs to a different Space.`,
-        });
-      }
-
-      const createdEvent: Omit<OrchestrationEvent, "sequence"> = {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.created",
-        payload: {
-          threadId: command.threadId,
-          deckId: command.deckId,
-          deckSortOrder: existingDeck?.threadIds.length ?? 0,
-          folderId: command.folderId,
-          title: command.title,
-          modelSelection: command.modelSelection,
-          runtimeMode: command.runtimeMode,
-          ...resolveCreatedThreadWorkspaceMetadata(command),
-          isPinned: false,
-          parentThreadId: null,
-          subagentAgentId: null,
-          subagentNickname: null,
-          subagentRole: null,
-          forkSourceThreadId: command.sourceThreadId,
-          createdAt: command.createdAt,
-          updatedAt: command.createdAt,
-        },
-      };
-
-      const importedMessageEvents: ReadonlyArray<Omit<OrchestrationEvent, "sequence">> =
-        command.importedMessages.map((message) => ({
-          ...withEventBase({
-            aggregateKind: "thread",
-            aggregateId: command.threadId,
-            occurredAt: command.createdAt,
-            commandId: command.commandId,
-          }),
-          type: "thread.message-sent",
-          payload: {
-            threadId: command.threadId,
-            messageId: message.messageId,
-            role: message.role,
-            text: message.text,
-            ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
-            turnId: null,
-            streaming: false,
-            source: "fork-import",
-            createdAt: message.createdAt,
-            updatedAt: message.updatedAt,
-          },
-        }));
-
-      return [createdEvent, ...importedMessageEvents];
-    }
-
-    case "thread.delete": {
-      const thread = yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      if (
-        command.expectedEmptyGatewayOperationId !== undefined &&
-        (thread.gatewayOperationId !== command.expectedEmptyGatewayOperationId ||
-          thread.latestTurn !== null ||
-          thread.messages.length > 0 ||
-          thread.archivedAt !== null ||
-          thread.updatedAt !== thread.createdAt ||
-          thread.isPinned === true)
-      ) {
-        return yield* Effect.fail(
-          new OrchestrationCommandInvariantError({
-            commandType: command.type,
-            detail: `Thread '${command.threadId}' is no longer an empty gateway creation.`,
-          }),
-        );
-      }
-      if (
-        command.expectedArchivedAt !== undefined &&
-        (thread.archivedAt !== command.expectedArchivedAt || thread.isPinned === true)
-      ) {
-        return yield* Effect.fail(
-          new OrchestrationCommandInvariantError({
-            commandType: command.type,
-            detail: `Thread '${command.threadId}' archive changed before retention deletion.`,
-          }),
-        );
-      }
-      const occurredAt = nowIso();
-      return {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.deleted",
-        payload: {
-          threadId: command.threadId,
-          deletedAt: occurredAt,
-        },
-      };
-    }
-
-    case "thread.archive": {
-      const thread = yield* requireThreadNotArchived({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      if (
-        !userStopRequested &&
-        (thread.latestTurn?.state === "running" ||
-          thread.session?.status === "starting" ||
-          (thread.session?.status !== "error" && thread.session?.activeTurnId != null) ||
-          thread.pendingTurnStartMessageId != null)
-      ) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          code: "thread_running",
-          detail: "This thread is still running. Stop it before archiving.",
-        });
-      }
-      if (
-        (command.expectedUpdatedAt !== undefined &&
-          thread.updatedAt !== command.expectedUpdatedAt) ||
-        (command.expectedLastVisitedAt !== undefined &&
-          (thread.lastVisitedAt ?? null) !== command.expectedLastVisitedAt) ||
-        (command.expectedUpdatedAt !== undefined &&
-          (threadHasInFlightTurn(thread) ||
-            thread.hasPendingApprovals ||
-            thread.hasPendingUserInput))
-      ) {
-        return yield* Effect.fail(
-          new OrchestrationCommandInvariantError({
-            commandType: command.type,
-            detail: `Thread '${command.threadId}' changed before retention archive.`,
-          }),
-        );
-      }
-      const requestedAt = command.createdAt ?? nowIso();
-      const occurredAt = requestedAt < thread.updatedAt ? thread.updatedAt : requestedAt;
-      const archivedEvent: Omit<OrchestrationEvent, "sequence"> = {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.archived",
-        payload: {
-          threadId: command.threadId,
-          archivedAt: occurredAt,
-          updatedAt: occurredAt,
-        },
-      };
-      const cancelledEvents: ReadonlyArray<Omit<OrchestrationEvent, "sequence">> = (
-        thread.queuedMessageIds ?? []
-      ).map((messageId) => ({
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.turn-start-cancelled" as const,
-        payload: { threadId: command.threadId, messageId, cancelledAt: occurredAt },
-      }));
-      return cancelledEvents.length === 0 ? archivedEvent : [...cancelledEvents, archivedEvent];
-    }
-
-    case "thread.unarchive": {
-      yield* requireThreadArchived({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      const occurredAt = nowIso();
-      return {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.unarchived",
-        payload: {
-          threadId: command.threadId,
-          updatedAt: occurredAt,
-        },
-      };
-    }
-
-    case "thread.update": {
-      const thread = yield* (
-        allowArchivedProviderProjection ? requireThread : requireThreadCanTakeWork
-      )({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      const occurredAt = nowIso();
-      return {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.updated",
-        payload: {
-          threadId: command.threadId,
-          ...(command.title !== undefined ? { title: command.title } : {}),
-          ...(command.modelSelection !== undefined
-            ? { modelSelection: command.modelSelection }
-            : {}),
-          ...(command.connectionId !== undefined ? { connectionId: command.connectionId } : {}),
-          ...(command.parentThreadId !== undefined
-            ? { parentThreadId: command.parentThreadId }
-            : {}),
-          ...(command.subagentAgentId !== undefined
-            ? { subagentAgentId: command.subagentAgentId }
-            : {}),
-          ...(command.subagentNickname !== undefined
-            ? { subagentNickname: command.subagentNickname }
-            : {}),
-          ...(command.subagentRole !== undefined ? { subagentRole: command.subagentRole } : {}),
-          updatedAt: occurredAt,
-        },
-      };
-    }
-
     case "thread.turn.recover": {
       const thread = yield* requireThreadCanTakeWork({
         readModel,
@@ -985,26 +651,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       });
       const dispatchMode = command.dispatchMode ?? "queue";
       const turnId = command.turnId ?? TurnId.makeUnsafe(`turn:${command.commandId}`);
-      const modelSelectionChangedEvent: Omit<OrchestrationEvent, "sequence"> | null =
-        acceptedConnectionChange === undefined ||
-        acceptedConnectionChange.previousModelId === null ||
-        acceptedConnectionChange.modelId === acceptedConnectionChange.previousModelId ||
-        command.modelSelection === undefined
-          ? null
-          : {
-              ...withEventBase({
-                aggregateKind: "thread",
-                aggregateId: command.threadId,
-                occurredAt: command.createdAt,
-                commandId: command.commandId,
-              }),
-              type: "thread.updated",
-              payload: {
-                threadId: command.threadId,
-                modelSelection: command.modelSelection,
-                updatedAt: command.createdAt,
-              },
-            };
       const connectionChangedEvent: Omit<OrchestrationEvent, "sequence"> | null =
         acceptedConnectionChange === undefined ||
         acceptedConnectionChange.connectionId === null ||
@@ -1017,9 +663,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
                 occurredAt: command.createdAt,
                 commandId: command.commandId,
               }),
-              ...(modelSelectionChangedEvent === null
-                ? {}
-                : { causationEventId: modelSelectionChangedEvent.eventId }),
               type: "thread.activity-appended",
               payload: {
                 threadId: command.threadId,
@@ -1050,9 +693,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
                 commandId: command.commandId,
               }),
               ...(connectionChangedEvent === null
-                ? modelSelectionChangedEvent === null
-                  ? {}
-                  : { causationEventId: modelSelectionChangedEvent.eventId }
+                ? {}
                 : { causationEventId: connectionChangedEvent.eventId }),
               type: "thread.activity-appended",
               payload: {
@@ -1072,11 +713,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
                 },
               },
             };
-      const selectionChangedEvents = [
-        modelSelectionChangedEvent,
-        connectionChangedEvent,
-        modelChangedEvent,
-      ].filter((event): event is Omit<OrchestrationEvent, "sequence"> => event !== null);
+      const selectionChangedEvents = [connectionChangedEvent, modelChangedEvent].filter(
+        (event): event is Omit<OrchestrationEvent, "sequence"> => event !== null,
+      );
       const activeProvider =
         targetThread.session?.providerName ?? targetThread.modelSelection.provider;
       const hasTurnInFlight =

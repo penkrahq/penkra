@@ -176,8 +176,8 @@ export function useHandleNewThread() {
       }
       await promoteThreadCreate(
         {
-          type: "thread.create",
-          commandId: newCommandId(),
+          creator: { kind: "user" },
+          connection: { kind: "default" },
           threadId,
           deckId: creationState.deckId,
           folderId,

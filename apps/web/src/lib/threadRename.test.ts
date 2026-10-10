@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-const dispatchCommand = vi.fn<(command: unknown) => Promise<{ sequence: number }>>();
+const updateThread = vi.fn();
+const createThread = vi.fn();
 const getShellSnapshot = vi.fn(async () => ({
   snapshotSequence: 1,
   spaces: [],
@@ -38,7 +39,6 @@ const getShellSnapshot = vi.fn(async () => ({
       subagentAgentId: null,
       subagentNickname: null,
       subagentRole: null,
-      forkSourceThreadId: null,
       latestTurn: null,
       createdAt: "2026-04-18T00:00:00.000Z",
       updatedAt: "2026-04-18T00:00:00.000Z",
@@ -51,8 +51,8 @@ const getShellSnapshot = vi.fn(async () => ({
 
 vi.mock("../nativeApi", () => ({
   readNativeApi: () => ({
+    cleanCore: { updateThread, createThread },
     orchestration: {
-      dispatchCommand,
       getShellSnapshot,
     },
   }),
@@ -62,7 +62,12 @@ import { dispatchThreadRename } from "./threadRename";
 
 describe("dispatchThreadRename", () => {
   it("updates existing server threads", async () => {
-    dispatchCommand.mockReset().mockResolvedValue({ sequence: 1 });
+    updateThread.mockReset().mockResolvedValue(undefined);
+    createThread.mockReset().mockResolvedValue({
+      thread: { id: "thread-draft" },
+      created: true,
+      shell: (await getShellSnapshot()).threads[0],
+    });
 
     const outcome = await dispatchThreadRename({
       threadId: "thread-server" as never,
@@ -71,16 +76,23 @@ describe("dispatchThreadRename", () => {
     });
 
     expect(outcome).toBe("renamed");
-    expect(dispatchCommand).toHaveBeenCalledTimes(1);
-    expect(dispatchCommand.mock.calls[0]?.[0]).toMatchObject({
-      type: "thread.update",
-      threadId: "thread-server",
-      title: "Renamed server thread",
+    expect(updateThread).toHaveBeenCalledTimes(1);
+    expect(updateThread.mock.calls[0]?.[0]).toMatchObject({
+      update: {
+        action: "rename",
+        threadId: "thread-server",
+        title: "Renamed server thread",
+      },
     });
   });
 
   it("promotes local drafts by creating the thread with the chosen title", async () => {
-    dispatchCommand.mockReset().mockResolvedValue({ sequence: 1 });
+    updateThread.mockReset().mockResolvedValue(undefined);
+    createThread.mockReset().mockResolvedValue({
+      thread: { id: "thread-draft" },
+      created: true,
+      shell: (await getShellSnapshot()).threads[0],
+    });
     getShellSnapshot.mockClear();
 
     const outcome = await dispatchThreadRename({
@@ -100,10 +112,9 @@ describe("dispatchThreadRename", () => {
     });
 
     expect(outcome).toBe("renamed");
-    expect(dispatchCommand).toHaveBeenCalledTimes(1);
-    expect(getShellSnapshot).toHaveBeenCalledTimes(1);
-    expect(dispatchCommand.mock.calls[0]?.[0]).toMatchObject({
-      type: "thread.create",
+    expect(createThread).toHaveBeenCalledTimes(1);
+    expect(getShellSnapshot).not.toHaveBeenCalled();
+    expect(createThread.mock.calls[0]?.[0]).toMatchObject({
       threadId: "thread-draft",
       deckId: "deck:thread-draft",
       folderId: "project-chat",

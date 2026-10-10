@@ -1,3 +1,5 @@
+import { FolderId, singletonThreadDeckId } from "@penkra/contracts";
+import { createThreadFixture } from "../../cleanCore/threadFixtures.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   ProviderConnectionId,
@@ -724,8 +726,18 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
         VALUES ('legacy-space', 'Personal', '', 0, ${timestamp}, ${timestamp})`;
       yield* sql`INSERT INTO projection_folders (folder_id, kind, title, workspace_root, scripts_json, created_at, updated_at, space_id)
         VALUES ('legacy-folder', 'project', 'Folder', NULL, '[]', ${timestamp}, ${timestamp}, 'legacy-space')`;
-      yield* sql`INSERT INTO projection_threads (thread_id, folder_id, title, runtime_mode, created_at, updated_at)
-        VALUES (${threadId}, 'legacy-folder', 'Legacy', 'full-access', ${timestamp}, ${timestamp})`;
+      yield* createThreadFixture(sql, {
+        threadId,
+        folderId: FolderId.makeUnsafe("legacy-folder"),
+        deckId: singletonThreadDeckId(threadId),
+        title: "Legacy",
+        modelSelection: { provider: "claudeAgent", model: "claude-sonnet-4-5" },
+        runtimeMode: "full-access",
+        workingDirectory: null,
+        connection: { kind: "selected", connectionId: completed.connectionId },
+        creator: { kind: "user" },
+        createdAt: timestamp,
+      });
       const generationId = ProviderNativeStateGenerationId.makeUnsafe(
         "legacy-disconnect-generation",
       );

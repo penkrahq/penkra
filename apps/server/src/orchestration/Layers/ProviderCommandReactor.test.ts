@@ -1,3 +1,6 @@
+import { seedLegacyThreadParentFixture } from "../../cleanCore/threadFixtures.ts";
+import { updateThreadFixture } from "../../cleanCore/threadFixtures.ts";
+import { createThreadFixture } from "../../cleanCore/threadFixtures.ts";
 // FILE: ProviderCommandReactor.test.ts
 // Purpose: Verifies provider intent orchestration, queueing, rollback, and native-session flows.
 // Layer: Orchestration integration tests
@@ -12,7 +15,6 @@ import type {
   ModelSelection,
   OrchestrationCommand,
   OrchestrationEvent,
-  ProviderForkThreadResult,
   ProviderRuntimeEvent,
   ProviderSession,
 } from "@penkra/contracts";
@@ -221,7 +223,6 @@ describe("ProviderCommandReactor", () => {
     readonly strictBindingSelection?: boolean;
     readonly sessionModelSwitch?: "unsupported" | "in-session" | "restart-session";
     readonly conversationRollback?: "native" | "unsupported";
-    readonly forkThreadResult?: ProviderForkThreadResult | null;
     readonly startReactor?: boolean;
     readonly startRuntimeIngestion?: boolean;
     readonly startSession?: ProviderServiceShape["startSession"];
@@ -347,25 +348,6 @@ describe("ProviderCommandReactor", () => {
         turnId: asTurnId("turn-review-1"),
       }),
     );
-    const forkThread = vi.fn<NonNullable<ProviderServiceShape["forkThread"]>>((forkInput) =>
-      Effect.sync(() => {
-        const result = input?.forkThreadResult ?? null;
-        const forkModelSelection = forkInput.modelSelection ?? modelSelection;
-        if (result && !runtimeSessions.some((session) => session.threadId === forkInput.threadId)) {
-          runtimeSessions.push({
-            provider: forkModelSelection.provider,
-            status: "ready",
-            runtimeMode: forkInput.runtimeMode,
-            ...(forkModelSelection.model !== undefined ? { model: forkModelSelection.model } : {}),
-            threadId: forkInput.threadId,
-            ...(result.resumeCursor !== undefined ? { resumeCursor: result.resumeCursor } : {}),
-            createdAt: now,
-            updatedAt: now,
-          });
-        }
-        return result;
-      }),
-    );
     const interruptTurn = vi.fn(input?.interruptTurn ?? ((_: unknown) => Effect.void));
     const stopTask = vi.fn<ProviderServiceShape["stopTask"]>(() => Effect.void);
     const backgroundTask = vi.fn<ProviderServiceShape["backgroundTask"]>(() => Effect.void);
@@ -461,7 +443,6 @@ describe("ProviderCommandReactor", () => {
       sendTurn: sendTurn as ProviderServiceShape["sendTurn"],
       steerTurn: steerTurn as ProviderServiceShape["steerTurn"],
       startReview,
-      forkThread,
       interruptTurn: interruptTurn as ProviderServiceShape["interruptTurn"],
       stopTask,
       backgroundTask,
@@ -764,17 +745,17 @@ describe("ProviderCommandReactor", () => {
         }),
       );
       await Effect.runPromise(
-        engine.dispatch({
-          type: "thread.create",
-          commandId: CommandId.makeUnsafe("cmd-thread-create"),
+        createThreadFixture(sql, {
           threadId: ThreadId.makeUnsafe("thread-1"),
-          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-1")),
           folderId: asFolderId("project-1"),
+          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-1")),
           title: "Thread",
           modelSelection: modelSelection,
           runtimeMode: "approval-required",
           workingDirectory: "/tmp/provider-project",
           createdAt: now,
+          connection: { kind: "selected", connectionId: null },
+          creator: { kind: "user" },
         }),
       );
     }
@@ -791,7 +772,6 @@ describe("ProviderCommandReactor", () => {
       sendTurn,
       steerTurn,
       startReview,
-      forkThread,
       interruptTurn,
       stopTask,
       backgroundTask,
@@ -1344,16 +1324,17 @@ describe("ProviderCommandReactor", () => {
     const now = new Date().toISOString();
     const secondThread = ThreadId.makeUnsafe("thread-independent");
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-independent-thread-create"),
+      createThreadFixture(harness.sql, {
         threadId: secondThread,
-        deckId: singletonThreadDeckId(secondThread),
         folderId: asFolderId("project-1"),
+        deckId: singletonThreadDeckId(secondThread),
         title: "Independent thread",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
+        workingDirectory: null,
         createdAt: now,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
       }),
     );
     const startTurn = (threadId: ThreadId, suffix: string) =>
@@ -1503,39 +1484,6 @@ describe("ProviderCommandReactor", () => {
     expect(jobs[0]?.state).toBe("succeeded");
   });
 
-  it("REL-01B gate: reclaims an expired safe claim during startup replay", async () => {
-    const harness = await createHarness({ startReactor: false });
-    const events = await Effect.runPromise(
-      Stream.runCollect(harness.engine.readEvents(0)).pipe(
-        Effect.map((chunk) => Array.from(chunk)),
-      ),
-    );
-    const threadCreated = events.find((event) => event.type === "thread.created")!;
-    await Effect.runPromise(
-      harness.deliveryRepository.claim({
-        consumerName: "provider-command-reactor.v1",
-        eventSequence: threadCreated.sequence,
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        claimOwner: "crashed-process",
-        claimedAt: "2020-01-01T00:00:00.000Z",
-        claimExpiresAt: "2020-01-01T00:01:00.000Z",
-      }),
-    );
-
-    await harness.prepareLegacyCutover();
-    await harness.startReactor();
-    const delivery = await Effect.runPromise(
-      harness.deliveryRepository.getDelivery({
-        consumerName: "provider-command-reactor.v1",
-        eventSequence: threadCreated.sequence,
-      }),
-    );
-    expect(delivery.pipe(Option.getOrThrow)).toMatchObject({
-      state: "succeeded",
-      attemptCount: 2,
-    });
-  });
-
   it("REL-01B gate: fences and abandons an expired external claim at startup", async () => {
     const harness = await createHarness({ startReactor: false });
     const now = new Date().toISOString();
@@ -1644,16 +1592,17 @@ describe("ProviderCommandReactor", () => {
     );
     const secondThread = ThreadId.makeUnsafe("outbox-independent-thread");
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-outbox-independent-create"),
+      createThreadFixture(harness.sql, {
         threadId: secondThread,
-        deckId: singletonThreadDeckId(secondThread),
         folderId: asFolderId("project-1"),
+        deckId: singletonThreadDeckId(secondThread),
         title: "Independent",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
+        workingDirectory: null,
         createdAt: now,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
       }),
     );
     await Effect.runPromise(
@@ -2202,140 +2151,6 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
-  it("cancels queued promotions when its thread is deleted", async () => {
-    const harness = await createHarness();
-    const now = new Date().toISOString();
-    const threadId = ThreadId.makeUnsafe("thread-1");
-    const messageId = asMessageId("message-deleted-thread-queued");
-    const commandId = CommandId.makeUnsafe("cmd-deleted-thread-queued");
-    // Insert a real turn-queued source event WITHOUT live publication: a running
-    // reactor never observes it (so it cannot drain the promotion), but it gives
-    // the promotion row a valid FK target to reference.
-    const persisted = await harness.persistWithoutLivePublication([
-      {
-        eventId: asEventId("evt-deleted-thread-turn-queued"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: now,
-        commandId,
-        causationEventId: null,
-        correlationId: commandId,
-        metadata: {},
-        type: "thread.turn-queued",
-        payload: {
-          threadId,
-          messageId,
-          dispatchMode: "queue",
-          runtimeMode: "approval-required",
-          createdAt: now,
-        },
-      },
-    ]);
-    const queuedEvent = persisted[0]!;
-    await Effect.runPromise(
-      harness.queuedTurnPromotionRepository.enqueue({
-        queuedEventSequence: queuedEvent.sequence,
-        threadId,
-        messageId,
-        dispatchMode: "queue",
-        createdAt: now,
-      }),
-    );
-
-    // Deleting the thread must cancel its pending promotion so a stray drain can
-    // never dispatch a turn for a thread that no longer exists.
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.delete",
-        commandId: CommandId.makeUnsafe("cmd-delete-thread-queued"),
-        threadId,
-      }),
-    );
-
-    await waitFor(async () => {
-      const promotion = await Effect.runPromise(
-        harness.queuedTurnPromotionRepository.getBySequence(queuedEvent.sequence),
-      );
-      return promotion.pipe(Option.getOrThrow).state === "cancelled";
-    });
-    expect(harness.sendTurn.mock.calls.length).toBe(0);
-  });
-
-  it("cancels promotions of a soft-deleted thread during startup recovery", async () => {
-    const harness = await createHarness({ startReactor: false });
-    const now = new Date().toISOString();
-    const threadId = ThreadId.makeUnsafe("thread-1");
-    const messageId = asMessageId("message-recovery-soft-deleted");
-    const commandId = CommandId.makeUnsafe("cmd-recovery-soft-deleted");
-    const persisted = await harness.persistWithoutLivePublication([
-      {
-        eventId: asEventId("evt-recovery-soft-deleted-turn-queued"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: now,
-        commandId,
-        causationEventId: null,
-        correlationId: commandId,
-        metadata: {},
-        type: "thread.turn-queued",
-        payload: {
-          threadId,
-          messageId,
-          dispatchMode: "queue",
-          runtimeMode: "approval-required",
-          createdAt: now,
-        },
-      },
-    ]);
-    const queuedEvent = persisted[0]!;
-    await Effect.runPromise(
-      harness.queuedTurnPromotionRepository.enqueue({
-        queuedEventSequence: queuedEvent.sequence,
-        threadId,
-        messageId,
-        dispatchMode: "queue",
-        createdAt: now,
-      }),
-    );
-
-    // Soft-delete the thread while the reactor is down (this folders deleted_at
-    // on the thread row so it resolves to undefined).
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.delete",
-        commandId: CommandId.makeUnsafe("cmd-recovery-delete-thread"),
-        threadId,
-      }),
-    );
-
-    // Advance the delivery cursor past every event so live replay drains nothing
-    // on start: only startup recovery acts on the leftover promotion.
-    const allEvents = await Effect.runPromise(
-      Stream.runCollect(harness.engine.readEvents(0)).pipe(
-        Effect.map((events) => Array.from(events)),
-      ),
-    );
-    for (const event of allEvents) {
-      await Effect.runPromise(
-        harness.deliveryRepository.advanceCursor({
-          consumerName: "provider-command-reactor.v1",
-          eventSequence: event.sequence,
-          updatedAt: now,
-        }),
-      );
-    }
-
-    await harness.startReactor();
-
-    await waitFor(async () => {
-      const promotion = await Effect.runPromise(
-        harness.queuedTurnPromotionRepository.getBySequence(queuedEvent.sequence),
-      );
-      return promotion.pipe(Option.getOrThrow).state === "cancelled";
-    });
-    expect(harness.sendTurn.mock.calls.length).toBe(0);
-  });
-
   it("keeps thread mention context within the provider input limit", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
@@ -2379,17 +2194,17 @@ describe("ProviderCommandReactor", () => {
       const senderThreadId = ThreadId.makeUnsafe("sender-thread");
       const title = `Lead [A] "quoted"\n title ${"x".repeat(210)}`;
       await Effect.runPromise(
-        harness.engine.dispatch({
-          type: "thread.create",
-          commandId: CommandId.makeUnsafe(`cmd-create-sender-${provider}`),
+        createThreadFixture(harness.sql, {
           threadId: senderThreadId,
-          deckId: singletonThreadDeckId(senderThreadId),
           folderId: FolderId.makeUnsafe("project-1"),
-          title,
+          deckId: singletonThreadDeckId(senderThreadId),
+          title: title,
           modelSelection: { provider, model: "test-model" },
           runtimeMode: "approval-required",
           workingDirectory: "/tmp/provider-project",
           createdAt: now,
+          connection: { kind: "selected", connectionId: null },
+          creator: { kind: "user" },
         }),
       );
       const messageText = "Please inspect the latest changes.";
@@ -2448,80 +2263,6 @@ describe("ProviderCommandReactor", () => {
       );
     },
   );
-
-  it("does not rebootstrap an empty OpenCode fork after its first native turn", async () => {
-    const harness = await createHarness({
-      forkThreadResult: {
-        threadId: ThreadId.makeUnsafe("thread-empty-opencode-fork"),
-        resumeCursor: "native-empty-opencode-fork",
-      },
-    });
-    const now = new Date().toISOString();
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.fork.create",
-        commandId: CommandId.makeUnsafe("cmd-empty-opencode-fork-create"),
-        threadId: ThreadId.makeUnsafe("thread-empty-opencode-fork"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-empty-opencode-fork")),
-        sourceThreadId: ThreadId.makeUnsafe("thread-1"),
-        folderId: asFolderId("project-1"),
-        title: "Empty OpenCode fork",
-        modelSelection: {
-          provider: "opencode",
-          model: "openai/gpt-5",
-        },
-        runtimeMode: "approval-required",
-        importedMessages: [],
-        createdAt: now,
-      }),
-    );
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.turn.start",
-        connectionId: TEST_CONNECTION_ID,
-        bindingRevision: 0,
-        commandId: CommandId.makeUnsafe("cmd-empty-opencode-fork-first-turn"),
-        threadId: ThreadId.makeUnsafe("thread-empty-opencode-fork"),
-        message: {
-          messageId: asMessageId("empty-opencode-fork-first-user"),
-          role: "user",
-          text: "First message without prior context",
-          attachments: [],
-        },
-        runtimeMode: "approval-required",
-        createdAt: now,
-      }),
-    );
-
-    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
-    const firstInput = harness.sendTurn.mock.calls[0]?.[0] as { input?: string } | undefined;
-    expect(firstInput?.input).not.toContain("<thread_context>");
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.turn.start",
-        connectionId: TEST_CONNECTION_ID,
-        bindingRevision: 0,
-        commandId: CommandId.makeUnsafe("cmd-empty-opencode-fork-second-turn"),
-        threadId: ThreadId.makeUnsafe("thread-empty-opencode-fork"),
-        message: {
-          messageId: asMessageId("empty-opencode-fork-second-user"),
-          role: "user",
-          text: "Second message continues the native session",
-          attachments: [],
-        },
-        runtimeMode: "approval-required",
-        createdAt: now,
-      }),
-    );
-
-    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
-    const secondInput = harness.sendTurn.mock.calls[1]?.[0] as { input?: string } | undefined;
-    expect(secondInput?.input).not.toContain("<thread_context>");
-    expect(secondInput?.input).not.toContain("First message without prior context");
-    expect(secondInput?.input).toContain("Second message continues the native session");
-  });
 
   it("rolls back provider conversation state for message edits", async () => {
     const harness = await createHarness();
@@ -2720,10 +2461,10 @@ describe("ProviderCommandReactor", () => {
     };
     const storagePath = await harness.stageAttachment(imageAttachment);
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.update",
-        commandId: CommandId.makeUnsafe("cmd-managed-object-path-generic-title"),
+      updateThreadFixture(harness.sql, {
+        action: "rename",
         threadId: ThreadId.makeUnsafe("thread-1"),
+        updatedAt: new Date().toISOString(),
         title: "New thread",
       }),
     );
@@ -3423,18 +3164,26 @@ describe("ProviderCommandReactor", () => {
     const now = new Date().toISOString();
 
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-subagent-thread-create"),
+      createThreadFixture(harness.sql, {
         threadId: ThreadId.makeUnsafe("subagent:thread-1:tool-steer-1"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("subagent:thread-1:tool-steer-1")),
         folderId: asFolderId("project-1"),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("subagent:thread-1:tool-steer-1")),
         title: "Subagent",
         modelSelection: { provider: "claudeAgent", model: "claude-sonnet-4-5" },
         runtimeMode: "approval-required",
-        parentThreadId: ThreadId.makeUnsafe("thread-1"),
+        workingDirectory: null,
         createdAt: now,
-      }),
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
+      }).pipe(
+        Effect.tap(() =>
+          seedLegacyThreadParentFixture(
+            harness.sql,
+            ThreadId.makeUnsafe("subagent:thread-1:tool-steer-1"),
+            ThreadId.makeUnsafe("thread-1"),
+          ),
+        ),
+      ),
     );
 
     await Effect.runPromise(
@@ -5148,16 +4897,17 @@ describe("ProviderCommandReactor", () => {
     const now = new Date().toISOString();
     const secondThreadId = ThreadId.makeUnsafe("thread-2");
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-diagnostic-create-second-thread"),
+      createThreadFixture(harness.sql, {
         threadId: secondThreadId,
-        deckId: singletonThreadDeckId(secondThreadId),
         folderId: asFolderId("project-1"),
+        deckId: singletonThreadDeckId(secondThreadId),
         title: "Second thread",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
+        workingDirectory: null,
         createdAt: now,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
       }),
     );
     harness.startSession.mockImplementationOnce(() => Effect.never);
@@ -5242,19 +4992,20 @@ describe("ProviderCommandReactor", () => {
     );
 
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-home-thread-create"),
+      createThreadFixture(harness.sql, {
         threadId: ThreadId.makeUnsafe("thread-home"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-home")),
         folderId: asFolderId("project-home"),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-home")),
         title: "Home thread",
         modelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
         },
         runtimeMode: "approval-required",
+        workingDirectory: null,
         createdAt: now,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
       }),
     );
 
@@ -5301,10 +5052,10 @@ describe("ProviderCommandReactor", () => {
     );
 
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.update",
-        commandId: CommandId.makeUnsafe("cmd-thread-title-generic"),
+      updateThreadFixture(harness.sql, {
+        action: "rename",
         threadId: ThreadId.makeUnsafe("thread-1"),
+        updatedAt: new Date().toISOString(),
         title: "New thread",
       }),
     );
@@ -5351,10 +5102,10 @@ describe("ProviderCommandReactor", () => {
     uninstallDiagnostics = installDiagnosticsStore(diagnosticsStore);
     const now = new Date().toISOString();
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.update",
-        commandId: CommandId.makeUnsafe("cmd-title-failure-update"),
+      updateThreadFixture(harness.sql, {
+        action: "rename",
         threadId: ThreadId.makeUnsafe("thread-1"),
+        updatedAt: new Date().toISOString(),
         title: "New thread",
       }),
     );
@@ -5405,10 +5156,10 @@ describe("ProviderCommandReactor", () => {
     });
     const now = new Date().toISOString();
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.update",
-        commandId: CommandId.makeUnsafe("cmd-thread-title-opencode-generated"),
+      updateThreadFixture(harness.sql, {
+        action: "rename",
         threadId: ThreadId.makeUnsafe("thread-1"),
+        updatedAt: new Date().toISOString(),
         title: "Summarize provider startup failures without Codex",
       }),
     );
@@ -5452,10 +5203,10 @@ describe("ProviderCommandReactor", () => {
     const now = new Date().toISOString();
 
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.update",
-        commandId: CommandId.makeUnsafe("cmd-thread-title-opencode"),
+      updateThreadFixture(harness.sql, {
+        action: "rename",
         threadId: ThreadId.makeUnsafe("thread-1"),
+        updatedAt: new Date().toISOString(),
         title: "New thread",
       }),
     );
@@ -5506,10 +5257,10 @@ describe("ProviderCommandReactor", () => {
     );
 
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.update",
-        commandId: CommandId.makeUnsafe("cmd-thread-title-opencode"),
+      updateThreadFixture(harness.sql, {
+        action: "rename",
         threadId: ThreadId.makeUnsafe("thread-1"),
+        updatedAt: new Date().toISOString(),
         title: "New thread",
       }),
     );
@@ -5968,53 +5719,16 @@ describe("ProviderCommandReactor", () => {
     },
   );
 
-  it("archives immediately after Stop and cancels queued work before provider settlement", async () => {
-    const harness = await createHarness({ queuedTurnRecoveryInterval: Duration.millis(10) });
-    const threadId = ThreadId.makeUnsafe("thread-1");
-    const turnId = asTurnId("turn-stop-archive");
-    const messageId = asMessageId("msg-stop-archive");
-    await seedQueuedTurnBehindLiveTurn(harness, {
-      liveTurnId: turnId,
-      messageId,
-      text: "never run",
-    });
+  it("promotes a queued turn with the canonical thread connection", async () => {
+    const harness = await createHarness();
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.turn.interrupt",
-        commandId: CommandId.makeUnsafe("cmd-stop-archive"),
-        threadId,
-        turnId,
-        createdAt: new Date().toISOString(),
+      updateThreadFixture(harness.sql, {
+        action: "connection",
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        connectionId: TEST_CONNECTION_ID,
+        updatedAt: "2026-10-10T00:00:00.000Z",
       }),
     );
-    await expect(
-      Effect.runPromise(
-        harness.engine.dispatch({
-          type: "thread.archive",
-          commandId: CommandId.makeUnsafe("cmd-archive-after-stop"),
-          threadId,
-          createdAt: new Date().toISOString(),
-        }),
-      ),
-    ).resolves.toMatchObject({ sequence: expect.any(Number) });
-    await harness.drain();
-    await settleLiveTurn(harness, { turnId, eventId: "evt-archive-after-stop-completed" });
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(harness.sendTurn).not.toHaveBeenCalled();
-    expect(
-      await Effect.runPromise(
-        harness.queuedTurnPromotionRepository.hasPendingMessage({ threadId, messageId }),
-      ),
-    ).toBe(false);
-    const thread = (await Effect.runPromise(harness.engine.getReadModel())).threads.find(
-      (candidate) => candidate.id === threadId,
-    )!;
-    expect(thread.archivedAt).not.toBeNull();
-    expect(thread.queuedMessageIds).toEqual([]);
-  });
-
-  it("promotes a queued turn with its connection when the thread has no selection", async () => {
-    const harness = await createHarness();
     const messageId = asMessageId("msg-queued-unsaved-connection");
     const liveTurnId = asTurnId("turn-before-unsaved-connection");
     await seedQueuedTurnBehindLiveTurn(harness, {
@@ -6054,10 +5768,10 @@ describe("ProviderCommandReactor", () => {
       text: "use the current thread selection",
     });
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.update",
-        commandId: CommandId.makeUnsafe("cmd-select-anonymous-before-promotion"),
+      updateThreadFixture(harness.sql, {
+        action: "connection",
         threadId: ThreadId.makeUnsafe("thread-1"),
+        updatedAt: new Date().toISOString(),
         connectionId: null,
       }),
     );
@@ -6094,14 +5808,23 @@ describe("ProviderCommandReactor", () => {
       const nextConnectionId = ProviderConnectionId.makeUnsafe("new-managed-connection");
       const nextModelSelection = { provider: "codex" as const, model: "gpt-5.6-sol" };
       await Effect.runPromise(
-        harness.engine.dispatch({
-          type: "thread.update",
-          commandId: CommandId.makeUnsafe(`cmd-change-${selectionKind}-before-promotion`),
-          threadId: ThreadId.makeUnsafe("thread-1"),
-          ...(selectionKind === "connection"
-            ? { connectionId: nextConnectionId }
-            : { modelSelection: nextModelSelection }),
-        }),
+        updateThreadFixture(
+          harness.sql,
+          selectionKind === "connection"
+            ? {
+                action: "connection",
+                threadId: ThreadId.makeUnsafe("thread-1"),
+                connectionId: nextConnectionId,
+                updatedAt: new Date().toISOString(),
+              }
+            : {
+                action: "model",
+                threadId: ThreadId.makeUnsafe("thread-1"),
+                modelSelection: nextModelSelection,
+                connection: { kind: "keep" },
+                updatedAt: new Date().toISOString(),
+              },
+        ),
       );
       const promotionCommands: OrchestrationCommand[] = [];
       harness.interceptEngineDispatch((command) => {
@@ -6145,10 +5868,10 @@ describe("ProviderCommandReactor", () => {
     harness.setBindingRevision(1);
     const nextConnectionId = ProviderConnectionId.makeUnsafe("new-managed-connection");
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.update",
-        commandId: CommandId.makeUnsafe("cmd-change-connection-after-revision-advanced"),
+      updateThreadFixture(harness.sql, {
+        action: "connection",
         threadId: ThreadId.makeUnsafe("thread-1"),
+        updatedAt: new Date().toISOString(),
         connectionId: nextConnectionId,
       }),
     );
@@ -6367,11 +6090,12 @@ describe("ProviderCommandReactor", () => {
     });
     const modelB = { provider: "codex" as const, model: "gpt-5.6-sol" };
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.update",
-        commandId: CommandId.makeUnsafe("cmd-select-model-b-before-steer"),
+      updateThreadFixture(harness.sql, {
+        action: "model",
         threadId: ThreadId.makeUnsafe("thread-1"),
+        updatedAt: new Date().toISOString(),
         modelSelection: modelB,
+        connection: { kind: "keep" },
       }),
     );
     await harness.drain();
@@ -7639,18 +7363,26 @@ describe("ProviderCommandReactor", () => {
     const now = new Date().toISOString();
 
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-child-thread-create"),
+      createThreadFixture(harness.sql, {
         threadId: ThreadId.makeUnsafe("thread-child"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-child")),
         folderId: asFolderId("project-1"),
-        parentThreadId: ThreadId.makeUnsafe("thread-1"),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-child")),
         title: "Child",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
+        workingDirectory: null,
         createdAt: now,
-      }),
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
+      }).pipe(
+        Effect.tap(() =>
+          seedLegacyThreadParentFixture(
+            harness.sql,
+            ThreadId.makeUnsafe("thread-child"),
+            ThreadId.makeUnsafe("thread-1"),
+          ),
+        ),
+      ),
     );
 
     // The child shares the parent's provider session, which is mid-turn.
@@ -7713,18 +7445,26 @@ describe("ProviderCommandReactor", () => {
     const now = new Date().toISOString();
 
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-child-thread-create-before-parent-stop"),
+      createThreadFixture(harness.sql, {
         threadId: ThreadId.makeUnsafe("thread-child-before-parent-stop"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-child-before-parent-stop")),
         folderId: asFolderId("project-1"),
-        parentThreadId: ThreadId.makeUnsafe("thread-1"),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-child-before-parent-stop")),
         title: "Queued child",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
+        workingDirectory: null,
         createdAt: now,
-      }),
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
+      }).pipe(
+        Effect.tap(() =>
+          seedLegacyThreadParentFixture(
+            harness.sql,
+            ThreadId.makeUnsafe("thread-child-before-parent-stop"),
+            ThreadId.makeUnsafe("thread-1"),
+          ),
+        ),
+      ),
     );
 
     harness.setRuntimeSessionTurnState({
@@ -7834,18 +7574,26 @@ describe("ProviderCommandReactor", () => {
 
     for (const childId of ["thread-child-a", "thread-child-b"] as const) {
       await Effect.runPromise(
-        harness.engine.dispatch({
-          type: "thread.create",
-          commandId: CommandId.makeUnsafe(`cmd-${childId}-create`),
+        createThreadFixture(harness.sql, {
           threadId: ThreadId.makeUnsafe(childId),
-          deckId: singletonThreadDeckId(ThreadId.makeUnsafe(childId)),
           folderId: asFolderId("project-1"),
-          parentThreadId: ThreadId.makeUnsafe("thread-1"),
+          deckId: singletonThreadDeckId(ThreadId.makeUnsafe(childId)),
           title: childId,
           modelSelection: { provider: "codex", model: "gpt-5-codex" },
           runtimeMode: "approval-required",
+          workingDirectory: null,
           createdAt: now,
-        }),
+          connection: { kind: "selected", connectionId: null },
+          creator: { kind: "user" },
+        }).pipe(
+          Effect.tap(() =>
+            seedLegacyThreadParentFixture(
+              harness.sql,
+              ThreadId.makeUnsafe(childId),
+              ThreadId.makeUnsafe("thread-1"),
+            ),
+          ),
+        ),
       );
     }
 
@@ -7920,18 +7668,26 @@ describe("ProviderCommandReactor", () => {
     const now = new Date().toISOString();
 
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-direct-failure-child-create"),
+      createThreadFixture(harness.sql, {
         threadId: ThreadId.makeUnsafe("thread-direct-failure-child"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-direct-failure-child")),
         folderId: asFolderId("project-1"),
-        parentThreadId: ThreadId.makeUnsafe("thread-1"),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-direct-failure-child")),
         title: "Queued child",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
+        workingDirectory: null,
         createdAt: now,
-      }),
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
+      }).pipe(
+        Effect.tap(() =>
+          seedLegacyThreadParentFixture(
+            harness.sql,
+            ThreadId.makeUnsafe("thread-direct-failure-child"),
+            ThreadId.makeUnsafe("thread-1"),
+          ),
+        ),
+      ),
     );
 
     harness.setRuntimeSessionTurnState({
@@ -8679,10 +8435,10 @@ describe("ProviderCommandReactor", () => {
     // Restarting would resume via --resume and replay the whole conversation
     // as uncached input tokens.
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.update",
-        commandId: CommandId.makeUnsafe("cmd-thread-meta-update-claude-1m"),
+      updateThreadFixture(harness.sql, {
+        action: "model",
         threadId: ThreadId.makeUnsafe("thread-1"),
+        updatedAt: new Date().toISOString(),
         modelSelection: {
           provider: "claudeAgent",
           model: "claude-opus-4-7",
@@ -8690,15 +8446,16 @@ describe("ProviderCommandReactor", () => {
             contextWindow: "1m",
           },
         },
+        connection: { kind: "keep" },
       }),
     );
 
     // Effort is fixed at subprocess spawn, so an effort change still restarts.
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.update",
-        commandId: CommandId.makeUnsafe("cmd-thread-meta-update-claude-effort"),
+      updateThreadFixture(harness.sql, {
+        action: "model",
         threadId: ThreadId.makeUnsafe("thread-1"),
+        updatedAt: new Date().toISOString(),
         modelSelection: {
           provider: "claudeAgent",
           model: "claude-opus-4-7",
@@ -8706,6 +8463,7 @@ describe("ProviderCommandReactor", () => {
             effort: "max",
           },
         },
+        connection: { kind: "keep" },
       }),
     );
 
@@ -8724,7 +8482,7 @@ describe("ProviderCommandReactor", () => {
     const threadId = ThreadId.makeUnsafe("thread-1");
 
     // Mirrors native import: ProviderService owns the runtime start directly,
-    // while the reactor learns the original selection from thread.created.
+    // while the reactor reads the original selection from the canonical row.
     await harness.drain();
     const importedSession = await Effect.runPromise(
       harness.startSession(threadId, {
@@ -8754,15 +8512,16 @@ describe("ProviderCommandReactor", () => {
     harness.startSession.mockClear();
 
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.update",
-        commandId: CommandId.makeUnsafe("cmd-direct-claude-effort-update"),
-        threadId,
+      updateThreadFixture(harness.sql, {
+        action: "model",
+        threadId: threadId,
+        updatedAt: new Date().toISOString(),
         modelSelection: {
           provider: "claudeAgent",
           model: "claude-opus-4-7",
           options: { effort: "max" },
         },
+        connection: { kind: "keep" },
       }),
     );
 
@@ -8825,15 +8584,16 @@ describe("ProviderCommandReactor", () => {
     );
 
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.update",
-        commandId: CommandId.makeUnsafe("cmd-active-selection-effort"),
-        threadId,
+      updateThreadFixture(harness.sql, {
+        action: "model",
+        threadId: threadId,
+        updatedAt: new Date().toISOString(),
         modelSelection: {
           provider: "claudeAgent",
           model: "claude-opus-4-7",
           options: { effort: "max" },
         },
+        connection: { kind: "keep" },
       }),
     );
     await harness.drain();
@@ -8861,15 +8621,16 @@ describe("ProviderCommandReactor", () => {
     // Metadata remains projection-only; the next admitted turn compares its
     // selection with the profile that is actually live.
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.update",
-        commandId: CommandId.makeUnsafe("cmd-active-selection-context"),
-        threadId,
+      updateThreadFixture(harness.sql, {
+        action: "model",
+        threadId: threadId,
+        updatedAt: new Date().toISOString(),
         modelSelection: {
           provider: "claudeAgent",
           model: "claude-opus-4-7",
           options: { effort: "max", contextWindow: "1m" },
         },
+        connection: { kind: "keep" },
       }),
     );
 
@@ -8911,30 +8672,32 @@ describe("ProviderCommandReactor", () => {
     await harness.drain();
 
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.update",
-        commandId: CommandId.makeUnsafe("cmd-thread-meta-update-opencode-same-effort"),
+      updateThreadFixture(harness.sql, {
+        action: "model",
         threadId: ThreadId.makeUnsafe("thread-1"),
+        updatedAt: new Date().toISOString(),
         modelSelection: {
           provider: "claudeAgent",
           model: "claude-sonnet-4-6",
           options: { effort: "medium" },
         },
+        connection: { kind: "keep" },
       }),
     );
     await harness.drain();
     expect(harness.startSession).not.toHaveBeenCalled();
 
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.update",
-        commandId: CommandId.makeUnsafe("cmd-thread-meta-update-opencode-effort"),
+      updateThreadFixture(harness.sql, {
+        action: "model",
         threadId: ThreadId.makeUnsafe("thread-1"),
+        updatedAt: new Date().toISOString(),
         modelSelection: {
           provider: "claudeAgent",
           model: "claude-sonnet-4-6",
           options: { effort: "high" },
         },
+        connection: { kind: "keep" },
       }),
     );
 
@@ -8997,61 +8760,6 @@ describe("ProviderCommandReactor", () => {
         },
       },
     });
-  });
-
-  it("adopts the requested provider on a first turn before binding a session", async () => {
-    const harness = await createHarness({
-      threadModelSelection: { provider: "codex", model: "gpt-5-codex" },
-    });
-    const now = new Date().toISOString();
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.turn.start",
-        connectionId: TEST_CONNECTION_ID,
-        bindingRevision: 0,
-        commandId: CommandId.makeUnsafe("cmd-turn-start-provider-first"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        message: {
-          messageId: asMessageId("user-message-provider-first"),
-          role: "user",
-          text: "hello claude",
-          attachments: [],
-        },
-        modelSelection: {
-          provider: "claudeAgent",
-          model: "claude-opus-4-6",
-        },
-        runtimeMode: "approval-required",
-        createdAt: now,
-      }),
-    );
-
-    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
-
-    expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
-      modelSelection: {
-        provider: "claudeAgent",
-        model: "claude-opus-4-6",
-      },
-    });
-    expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
-      modelSelection: {
-        provider: "claudeAgent",
-        model: "claude-opus-4-6",
-      },
-    });
-
-    const readModel = await Effect.runPromise(harness.engine.getReadModel());
-    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
-    expect(thread?.modelSelection).toEqual({
-      provider: "claudeAgent",
-      model: "claude-opus-4-6",
-    });
-    expect(thread?.session?.providerName).toBe("claudeAgent");
-    expect(
-      thread?.activities.find((activity) => activity.kind === "provider.turn.start.failed"),
-    ).toBeUndefined();
   });
 
   it("preserves the active session model when in-session model switching is unsupported", async () => {
@@ -9493,21 +9201,29 @@ describe("ProviderCommandReactor", () => {
     );
 
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-thread-create-subagent"),
+      createThreadFixture(harness.sql, {
         threadId: ThreadId.makeUnsafe("subagent:thread-1:child-provider-1"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("subagent:thread-1:child-provider-1")),
         folderId: asFolderId("project-1"),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("subagent:thread-1:child-provider-1")),
         title: "Halley [explorer]",
         modelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
         },
         runtimeMode: "approval-required",
-        parentThreadId: ThreadId.makeUnsafe("thread-1"),
+        workingDirectory: null,
         createdAt: now,
-      }),
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
+      }).pipe(
+        Effect.tap(() =>
+          seedLegacyThreadParentFixture(
+            harness.sql,
+            ThreadId.makeUnsafe("subagent:thread-1:child-provider-1"),
+            ThreadId.makeUnsafe("thread-1"),
+          ),
+        ),
+      ),
     );
 
     await Effect.runPromise(
@@ -9568,21 +9284,29 @@ describe("ProviderCommandReactor", () => {
     );
 
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-thread-create-subagent-sessionless"),
+      createThreadFixture(harness.sql, {
         threadId: ThreadId.makeUnsafe("subagent:thread-1:child-provider-2"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("subagent:thread-1:child-provider-2")),
         folderId: asFolderId("project-1"),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("subagent:thread-1:child-provider-2")),
         title: "Halley [explorer]",
         modelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
         },
         runtimeMode: "approval-required",
-        parentThreadId: ThreadId.makeUnsafe("thread-1"),
+        workingDirectory: null,
         createdAt: now,
-      }),
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
+      }).pipe(
+        Effect.tap(() =>
+          seedLegacyThreadParentFixture(
+            harness.sql,
+            ThreadId.makeUnsafe("subagent:thread-1:child-provider-2"),
+            ThreadId.makeUnsafe("thread-1"),
+          ),
+        ),
+      ),
     );
 
     await Effect.runPromise(
@@ -9624,19 +9348,20 @@ describe("ProviderCommandReactor", () => {
     );
 
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-thread-create-subagent-fallback"),
+      createThreadFixture(harness.sql, {
         threadId: ThreadId.makeUnsafe("subagent:thread-1:child-provider-1"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("subagent:thread-1:child-provider-1")),
         folderId: asFolderId("project-1"),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("subagent:thread-1:child-provider-1")),
         title: "Agent",
         modelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
         },
         runtimeMode: "approval-required",
+        workingDirectory: null,
         createdAt: now,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
       }),
     );
 
@@ -9704,18 +9429,19 @@ describe("ProviderCommandReactor", () => {
       }),
     );
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-thread-create-synthetic-steer-child"),
+      createThreadFixture(harness.sql, {
         threadId: ThreadId.makeUnsafe("subagent:thread-1:child-provider-steer"),
+        folderId: asFolderId("project-1"),
         deckId: singletonThreadDeckId(
           ThreadId.makeUnsafe("subagent:thread-1:child-provider-steer"),
         ),
-        folderId: asFolderId("project-1"),
         title: "Synthetic child",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
+        workingDirectory: null,
         createdAt: now,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
       }),
     );
     await harness.stageAttachment(attachment, "subagent:thread-1:child-provider-steer");
@@ -10503,50 +10229,6 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.activeTurnId).toBeNull();
   });
 
-  it("serializes archive cleanup through the durable provider intent source", async () => {
-    const harness = await createHarness();
-    const now = new Date().toISOString();
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.session.set",
-        commandId: CommandId.makeUnsafe("cmd-session-set-for-archive"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        session: {
-          threadId: ThreadId.makeUnsafe("thread-1"),
-          status: "ready",
-          providerName: "codex",
-          runtimeMode: "approval-required",
-          activeTurnId: null,
-          lastError: null,
-          updatedAt: now,
-        },
-        createdAt: now,
-      }),
-    );
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.archive",
-        commandId: CommandId.makeUnsafe("cmd-archive-active-provider-session"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-      }),
-    );
-
-    await waitFor(async () => {
-      if (harness.stopSession.mock.calls.length !== 1) return false;
-      const readModel = await Effect.runPromise(harness.engine.getReadModel());
-      const thread = readModel.threads.find(
-        (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
-      );
-      return thread?.archivedAt !== null && thread?.session?.status === "stopped";
-    });
-
-    expect(harness.stopSession).toHaveBeenCalledWith({
-      threadId: ThreadId.makeUnsafe("thread-1"),
-    });
-  });
-
   it("interrupts active subagent sessions without stopping the parent provider session", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
@@ -10570,21 +10252,29 @@ describe("ProviderCommandReactor", () => {
     );
 
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-thread-create-subagent-for-stop"),
+      createThreadFixture(harness.sql, {
         threadId: ThreadId.makeUnsafe("subagent:thread-1:child-provider-1"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("subagent:thread-1:child-provider-1")),
         folderId: asFolderId("project-1"),
+        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("subagent:thread-1:child-provider-1")),
         title: "Agent",
         modelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
         },
         runtimeMode: "approval-required",
-        parentThreadId: ThreadId.makeUnsafe("thread-1"),
+        workingDirectory: null,
         createdAt: now,
-      }),
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
+      }).pipe(
+        Effect.tap(() =>
+          seedLegacyThreadParentFixture(
+            harness.sql,
+            ThreadId.makeUnsafe("subagent:thread-1:child-provider-1"),
+            ThreadId.makeUnsafe("thread-1"),
+          ),
+        ),
+      ),
     );
 
     await Effect.runPromise(

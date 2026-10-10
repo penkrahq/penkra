@@ -1,3 +1,8 @@
+import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as NodeSqliteClient from "../../persistence/NodeSqliteClient.ts";
+import { runMigrations } from "../../persistence/Migrations.ts";
+import { createThreadFixture } from "../../cleanCore/threadFixtures.ts";
+import { getThread } from "../../cleanCore/threadList.ts";
 import {
   CommandId,
   MessageId,
@@ -17,10 +22,6 @@ import { afterAll } from "vitest";
 
 import { ServerConfig } from "../../config.ts";
 import { LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL } from "../../managedAttachmentPrincipal.ts";
-import {
-  ProviderNativeForkOperationRepository,
-  type ProviderNativeForkOperationRecord,
-} from "../../persistence/Services/ProviderNativeForkOperations.ts";
 import {
   ProviderThreadSwitchOperationRepository,
   RESUME_PROBE_ATTEMPTED_JSON,
@@ -73,7 +74,6 @@ const intermediateInstallationId = ProviderInstallationId.makeUnsafe(
   "installation-opencode-intermediate",
 );
 const targetInstallationId = ProviderInstallationId.makeUnsafe("installation-opencode-new");
-const forkSourceThreadId = ThreadId.makeUnsafe("fork-source-thread");
 const runtimeStateDir = mkdtempSync(path.join(tmpdir(), "penkra-provider-switch-"));
 afterAll(() => rmSync(runtimeStateDir, { recursive: true, force: true }));
 
@@ -114,9 +114,6 @@ const selection: ResolvedProviderTurnSelection = {
 };
 
 let operation: ProviderThreadSwitchOperationRecord | undefined;
-let nativeForkOperation: ProviderNativeForkOperationRecord | undefined;
-const currentNativeForkOperation = () => nativeForkOperation;
-let projectedForkSourceThreadId: ThreadId | null = null;
 let projectedHistoricalThread = false;
 let projectionSettlementReadCount = 0;
 let projectedRunningReadsRemaining = 0;
@@ -201,6 +198,25 @@ const prepareRuntimeUpgradeWithIntermediatePredecessor = () =>
     repositoryActiveInstallationId = targetInstallationId;
   });
 
+const canonicalThreadLayer = Layer.effectDiscard(
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* runMigrations();
+    yield* sql`INSERT INTO projection_folders (folder_id, space_id, title, workspace_root, default_model_selection_json, scripts_json, created_at, updated_at) VALUES ('switch-folder', 'penkra-personal', 'Switch', NULL, NULL, '[]', ${timestamp}, ${timestamp})`;
+    yield* createThreadFixture(sql, {
+      threadId: command.threadId,
+      folderId: "switch-folder" as never,
+      deckId: "switch-deck" as never,
+      title: "Switch thread",
+      modelSelection: command.modelSelection!,
+      runtimeMode: "full-access",
+      workingDirectory: "/workspace",
+      connection: { kind: "selected", connectionId: sourceConnectionId },
+      creator: { kind: "user" },
+      createdAt: timestamp,
+    });
+  }),
+).pipe(Layer.provideMerge(NodeSqliteClient.layerMemory()));
 const dependencies = Layer.mergeAll(
   Layer.succeed(ServerConfig, { stateDir: runtimeStateDir } as never),
   Layer.succeed(ProviderInstallationRepository, {
@@ -219,13 +235,17 @@ const dependencies = Layer.mergeAll(
   }),
   Layer.succeed(ProjectionSnapshotQuery, {
     getThreadShellById: () =>
-      Effect.sync(() => {
-        if (projectedForkSourceThreadId !== null) {
-          return Option.some({ forkSourceThreadId: projectedForkSourceThreadId });
-        }
+      Effect.gen(function* () {
+        const row = yield* getThread(command.threadId);
+        const shell = {
+          id: row.id,
+          modelSelection: { provider: row.provider, model: row.model },
+          runtimeMode: row.runtimeMode,
+          workingDirectory: row.workingDirectory,
+        };
         if (projectedHistoricalThread) {
           return Option.some({
-            forkSourceThreadId: null,
+            ...shell,
             latestTurnId: "historical-turn",
             latestUserMessageAt: timestamp,
           });
@@ -234,10 +254,11 @@ const dependencies = Layer.mergeAll(
         if (projectedRunningReadsRemaining > 0) {
           projectedRunningReadsRemaining -= 1;
           return Option.some({
+            ...shell,
             session: { status: "running", activeTurnId: "projected-turn" },
           });
         }
-        return Option.none();
+        return Option.some(shell);
       }),
   } as never),
   Layer.succeed(ProviderLaunchResolver, {
@@ -259,51 +280,10 @@ const dependencies = Layer.mergeAll(
           }),
     resolve: () => Effect.die("not expected"),
   }),
-  Layer.succeed(ProviderNativeForkOperationRepository, {
-    begin: (input: ProviderNativeForkOperationRecord) =>
-      Effect.sync(() => {
-        nativeForkOperation = input;
-        order.push("fork-journal");
-        return input;
-      }),
-    get: () =>
-      Effect.succeed(nativeForkOperation ? Option.some(nativeForkOperation) : Option.none()),
-    listOpen: () => Effect.succeed([]),
-    transition: (input: {
-      state: ProviderNativeForkOperationRecord["state"];
-      failureReason: string | null;
-      forkResultJson?: string | null;
-      updatedAt: string;
-    }) =>
-      Effect.sync(() => {
-        if (!nativeForkOperation) return Option.none();
-        order.push(input.state);
-        nativeForkOperation = {
-          ...nativeForkOperation,
-          state: input.state,
-          failureReason: input.failureReason,
-          forkResultJson: input.forkResultJson ?? nativeForkOperation.forkResultJson,
-          updatedAt: input.updatedAt,
-        };
-        return Option.some(nativeForkOperation);
-      }),
-    markCommittedInCurrentTransaction: (input: { id: string; updatedAt: string }) =>
-      Effect.sync(() => {
-        if (!nativeForkOperation || nativeForkOperation.id !== input.id) return Option.none();
-        order.push("committed");
-        nativeForkOperation = {
-          ...nativeForkOperation,
-          state: "committed",
-          failureReason: null,
-          updatedAt: input.updatedAt,
-        };
-        return Option.some(nativeForkOperation);
-      }),
-  }),
   Layer.succeed(ThreadProviderBindingRepository, {
     getHarnessState: (requestedThreadId: ThreadId) =>
       Effect.succeed(
-        hasBinding || requestedThreadId === forkSourceThreadId
+        hasBinding
           ? Option.some({
               threadId: requestedThreadId,
               harness: "opencode",
@@ -320,7 +300,7 @@ const dependencies = Layer.mergeAll(
       ),
     getRuntimeBinding: (requestedThreadId: ThreadId) =>
       Effect.succeed(
-        hasBinding || requestedThreadId === forkSourceThreadId
+        hasBinding
           ? Option.some({
               threadId: requestedThreadId,
               connectionId: sourceConnectionId,
@@ -503,14 +483,6 @@ const dependencies = Layer.mergeAll(
         activeTurn = false;
         if (advanceStateRevisionOnInterrupt) resolvedStateRevision += 1;
       }),
-    forkThread: (input: { threadId: ThreadId }) =>
-      Effect.sync(() => {
-        order.push("fork-provider");
-        return {
-          threadId: input.threadId,
-          resumeCursor: { openCodeSessionId: "forked-native-session", cwd: "/workspace" },
-        };
-      }),
     stopSession: () =>
       Effect.sync(() => {
         stoppedSessionCount += 1;
@@ -561,7 +533,6 @@ const dependencies = Layer.mergeAll(
     discard: () =>
       Effect.sync(() => {
         discardCount += 1;
-        if (projectedForkSourceThreadId !== null) order.push("fork-discard-empty");
       }),
     finalize: () => Effect.void,
     discardThreadState: () => Effect.void,
@@ -589,15 +560,6 @@ const dependencies = Layer.mergeAll(
               code: "invalid_switch",
             }),
           );
-        if (context?.acceptedInitialProviderForkOperationId && nativeForkOperation) {
-          order.push("committed");
-          nativeForkOperation = {
-            ...nativeForkOperation,
-            state: "committed",
-            failureReason: null,
-            updatedAt: timestamp,
-          };
-        }
         if (context?.acceptedProviderSwitch && operation) {
           operation = { ...operation, state: "committed", updatedAt: timestamp };
         }
@@ -605,7 +567,7 @@ const dependencies = Layer.mergeAll(
         return { sequence: 42 };
       }),
   } as never),
-);
+).pipe(Layer.provideMerge(canonicalThreadLayer));
 
 const layer = it.layer(
   Layer.mergeAll(
@@ -703,7 +665,7 @@ const resolverWithDependencies = ProviderTurnSelectionResolverLive.pipe(
   Layer.provideMerge(Layer.mergeAll(dependencies, realSelectionDependencies)),
 );
 const realCoordinatorLayer = ProviderThreadSwitchCoordinatorLive.pipe(
-  Layer.provide(resolverWithDependencies),
+  Layer.provideMerge(resolverWithDependencies),
 );
 const realCoordinator = it.layer(realCoordinatorLayer);
 
@@ -1766,7 +1728,7 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
     Effect.gen(function* () {
       const { previousInstallationId: _discarded, ...legacySelection } = selection;
       activeTurn = false;
-      nativeForkOperation = undefined;
+
       discardCount = 0;
       operation = {
         id: "provider-switch:command-pre-cutover",
@@ -1800,55 +1762,6 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
       operation = undefined;
     }),
   );
-
-  it.effect("clones, natively forks, verifies, and commits the first turn crash-safely", () =>
-    Effect.gen(function* () {
-      hasBinding = false;
-      operation = undefined;
-      nativeForkOperation = undefined;
-      projectedForkSourceThreadId = forkSourceThreadId;
-      initialContext = undefined;
-      failAfterCommit = false;
-      discardCount = 0;
-      order.length = 0;
-      const coordinator = yield* ProviderThreadSwitchCoordinator;
-      const result = yield* coordinator.dispatchTurnStart({
-        command: {
-          ...command,
-          commandId: CommandId.makeUnsafe("command-native-fork"),
-          modelSelection: { provider: "opencode", model: "opencode/big-pickle" },
-          connectionId: null,
-          bindingRevision: 0,
-        },
-        attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-        cwd: "/workspace",
-      });
-
-      assert.strictEqual(result.sequence, 42);
-      assert.strictEqual(currentNativeForkOperation()?.state, "committed");
-      assert.strictEqual(
-        (initialContext as { providerSessionId: string }).providerSessionId,
-        "forked-native-session",
-      );
-      const sent = currentDispatchedCommand();
-      assert.strictEqual(sent?.type, "thread.turn.start");
-      if (sent?.type === "thread.turn.start") {
-        assert.strictEqual(sent.connectionId, null);
-        assert.strictEqual(sent.bindingRevision, 0);
-      }
-      assert.deepStrictEqual(order, [
-        "fork-journal",
-        "fork-discard-empty",
-        "fork-clone",
-        "materialized",
-        "fork-provider",
-        "forked",
-        "dispatch",
-        "committed",
-      ]);
-      projectedForkSourceThreadId = null;
-    }),
-  );
 });
 
 realCoordinator("ProviderThreadSwitchCoordinator with live selection resolution", (it) => {
@@ -1860,7 +1773,7 @@ realCoordinator("ProviderThreadSwitchCoordinator with live selection resolution"
       modelOnlySelection = false;
       runtimeUpgradeSelection = false;
       operation = undefined;
-      nativeForkOperation = undefined;
+
       dispatchedCommand = undefined;
       acceptedProviderSwitchContext = undefined;
       const coordinator = yield* ProviderThreadSwitchCoordinator;
@@ -1899,7 +1812,7 @@ realCoordinator("ProviderThreadSwitchCoordinator with live selection resolution"
       modelOnlySelection = true;
       runtimeUpgradeSelection = false;
       operation = undefined;
-      nativeForkOperation = undefined;
+
       dispatchedCommand = undefined;
       acceptedProviderSwitchContext = undefined;
       const coordinator = yield* ProviderThreadSwitchCoordinator;
@@ -1939,7 +1852,7 @@ realCoordinator("ProviderThreadSwitchCoordinator with live selection resolution"
       modelOnlySelection = false;
       runtimeUpgradeSelection = false;
       operation = undefined;
-      nativeForkOperation = undefined;
+
       dispatchedCommand = undefined;
       acceptedProviderSwitchContext = undefined;
       const coordinator = yield* ProviderThreadSwitchCoordinator;
@@ -1973,7 +1886,7 @@ realCoordinator("ProviderThreadSwitchCoordinator with live selection resolution"
       modelOnlySelection = false;
       runtimeUpgradeSelection = false;
       operation = undefined;
-      nativeForkOperation = undefined;
+
       dispatchedCommand = undefined;
       acceptedProviderSwitchContext = undefined;
       const coordinator = yield* ProviderThreadSwitchCoordinator;

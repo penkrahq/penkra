@@ -24,11 +24,7 @@ import {
 } from "../lib/threadArchiveNavigation";
 import { deleteActiveThreadFromClient } from "../lib/activeThreadDelete";
 import { reconcileDeletedThreadsFromClient } from "../lib/deletedThreadClientReconciliation";
-import {
-  archiveThreadFromClient,
-  isThreadAlreadyUnarchivedError,
-  unarchiveThreadFromClient,
-} from "../lib/threadArchive";
+import { archiveThreadFromClient, unarchiveThreadFromClient } from "../lib/threadArchive";
 import { newCommandId, randomUUID } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import { usePinnedThreadsStore } from "../pinnedThreadsStore";
@@ -40,22 +36,10 @@ import type { Project, SidebarThreadSummary } from "../types";
 
 const ARCHIVE_UNDO_TOAST_DURATION_MS = 8000;
 
-/**
- * Unarchives a thread, treating "it was already unarchived" as success.
- *
- * The undo toast can fire after the thread came back some other way (a second client, a replayed
- * command), and that race is not an error worth showing. Kept at module scope because React Compiler
- * cannot lower a `throw` inside a `try`/`catch`, and inlining this would cost the whole sidebar
- * actions hook its compilation.
- */
 async function unarchiveThreadIgnoringAlreadyRestored(threadId: ThreadId): Promise<void> {
-  try {
-    const api = readNativeApi();
-    if (!api) throw new Error("Unable to connect to the app server.");
-    await unarchiveThreadFromClient(api.orchestration, threadId);
-  } catch (error) {
-    if (!isThreadAlreadyUnarchivedError(error, threadId)) throw error;
-  }
+  const api = readNativeApi();
+  if (!api) throw new Error("Unable to connect to the app server.");
+  await unarchiveThreadFromClient(api.cleanCore, threadId);
 }
 
 interface DeleteProjectThreadsOptions {
@@ -329,7 +313,7 @@ export function useSidebarThreadActions(input: {
       pendingThreadIds.add(threadId);
       beginLocalThreadArchiveNavigation(threadId);
       const runArchive = async (): Promise<boolean> => {
-        await archiveThreadFromClient(api.orchestration, threadId);
+        await archiveThreadFromClient(api.cleanCore, threadId);
         if (routeThreadId === threadId) {
           const fallbackThreadId =
             nearestDeckThreadId ??

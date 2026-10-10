@@ -767,6 +767,23 @@ function errorDetails(error: unknown): string {
 }
 
 function EventRouter() {
+  const syncServerThreadShell = useStore((store) => store.syncServerThreadShell);
+  useEffect(() => {
+    const api = ensureNativeApi();
+    return api.cleanCore.onSidebarChange((change) => {
+      if (change.kind !== "thread") return;
+      void api.cleanCore
+        .getThreadShell({ threadId: change.threadId })
+        .then((thread) => syncServerThreadShell(change.threadId, thread))
+        .catch((error) =>
+          toastManager.add({
+            type: "error",
+            title: "Could not update thread",
+            description: error instanceof Error ? error.message : String(error),
+          }),
+        );
+    });
+  }, [syncServerThreadShell]);
   const syncServerShellSnapshot = useStore((store) => store.syncServerShellSnapshot);
   const syncServerThreadTurnsPage = useStore((store) => store.syncServerThreadTurnsPage);
   const applyOrchestrationEvents = useStore((store) => store.applyOrchestrationEvents);

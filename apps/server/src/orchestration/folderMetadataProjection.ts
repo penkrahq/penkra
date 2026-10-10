@@ -13,7 +13,6 @@ export type FolderMetadataOrchestrationEvent = Extract<
 export const FOLDER_METADATA_SNAPSHOT_PROJECTORS = [
   "projection.hot",
   "projection.folders",
-  "projection.threads",
   "projection.thread-messages",
   "projection.thread-activities",
   "projection.thread-sessions",

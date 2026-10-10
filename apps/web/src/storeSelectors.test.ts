@@ -1,3 +1,4 @@
+import { syncServerThreadShell } from "./storeProjection";
 import { describe, expect, it } from "vitest";
 
 import type { MessageId, FolderId, ThreadId } from "@penkra/contracts";
@@ -14,7 +15,12 @@ import {
   createThreadWorkspaceMetadataSelector,
 } from "./storeSelectors";
 import { applyOrchestrationEvents } from "./storeEventReducer";
-import { makeDomainEvent, makeState as makeFullState, makeThread } from "./storeTestFixtures";
+import {
+  makeDomainEvent,
+  makeState as makeFullState,
+  makeThread,
+  makeReadModelThread,
+} from "./storeTestFixtures";
 import type { SidebarThreadSummary, ThreadShell } from "./types";
 
 const threadIdA = "thread-a" as ThreadId;
@@ -176,25 +182,18 @@ describe("createAllThreadsMessagelessSelector", () => {
 });
 
 describe("thread shell route selectors", () => {
-  it("reacts to archive and unarchive events in each window's store", () => {
-    const threadId = threadIdA;
-    const archivedAt = "2026-09-26T00:00:00.000Z";
-    const initial = makeFullState(makeThread({ id: threadId }));
-    const archive = makeDomainEvent("thread.archived", {
-      threadId,
-      archivedAt,
-      updatedAt: archivedAt,
-    });
-    const firstWindow = applyOrchestrationEvents(initial, [archive]);
-    const secondWindow = applyOrchestrationEvents(initial, [archive]);
-    expect(isPersistedThreadOpenable(firstWindow, threadId)).toBe(false);
-    expect(isPersistedThreadOpenable(secondWindow, threadId)).toBe(false);
-
-    const restored = applyOrchestrationEvents(firstWindow, [
-      makeDomainEvent("thread.unarchived", { threadId, updatedAt: archivedAt }, { sequence: 2 }),
-    ]);
-    expect(isPersistedThreadOpenable(restored, threadId)).toBe(true);
-    expect(isPersistedThreadOpenable({ threadShellById: {} }, threadId)).toBe(false);
+  it("reacts to canonical archive and restore rows in each window's store", () => {
+    const row = makeReadModelThread({ id: threadIdA });
+    const initial = makeFullState(makeThread({ id: threadIdA }));
+    const at = "2026-09-26T00:00:00.000Z";
+    const archived = { ...row, archivedAt: at, updatedAt: at };
+    const firstWindow = syncServerThreadShell(initial, row.id, archived);
+    const secondWindow = syncServerThreadShell(initial, row.id, archived);
+    expect(isPersistedThreadOpenable(firstWindow, row.id)).toBe(false);
+    expect(isPersistedThreadOpenable(secondWindow, row.id)).toBe(false);
+    const restored = syncServerThreadShell(firstWindow, row.id, { ...row, updatedAt: at });
+    expect(isPersistedThreadOpenable(restored, row.id)).toBe(true);
+    expect(isPersistedThreadOpenable({ threadShellById: {} }, row.id)).toBe(false);
   });
   it("resolve existence and project id without reading detail slices", () => {
     const state = makeState({

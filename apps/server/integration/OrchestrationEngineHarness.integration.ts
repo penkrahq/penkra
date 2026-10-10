@@ -1,3 +1,4 @@
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { execFileSync } from "node:child_process";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -155,6 +156,7 @@ const tryRuntimePromise = <A>(operation: string, run: () => Promise<A>) =>
   });
 
 export interface OrchestrationIntegrationHarness {
+  readonly sql: SqlClient.SqlClient;
   readonly rootDir: string;
   readonly workspaceDir: string;
   readonly dbPath: string;
@@ -243,7 +245,7 @@ export const makeOrchestrationIntegrationHarness = (
       Layer.provide(ProviderSessionRuntimeRepositoryLive),
     );
     const durableRuntimeEventRepositoryLayer = ProviderRuntimeEventRepositoryLive.pipe(
-      Layer.provide(persistenceLayer),
+      Layer.provideMerge(persistenceLayer),
     );
     const realCodexRegistry = Layer.effect(
       ProviderAdapterRegistry,
@@ -405,7 +407,7 @@ export const makeOrchestrationIntegrationHarness = (
       Layer.provideMerge(providerCommandReactorLayer),
     );
     const layer = orchestrationReactorLayer.pipe(
-      Layer.provide(persistenceLayer),
+      Layer.provideMerge(persistenceLayer),
       Layer.provideMerge(ServerConfig.layerTest(workspaceDir, rootDir)),
       Layer.provideMerge(NodeServices.layer),
     );
@@ -414,6 +416,9 @@ export const makeOrchestrationIntegrationHarness = (
     const engine = yield* tryRuntimePromise("load OrchestrationEngine service", () =>
       runtime.runPromise(Effect.service(OrchestrationEngineService)),
     ).pipe(Effect.orDie);
+    const sql = yield* Effect.promise(() =>
+      runtime.runPromise(Effect.service(SqlClient.SqlClient)),
+    );
     const reactor = yield* tryRuntimePromise("load OrchestrationReactor service", () =>
       runtime.runPromise(Effect.service(OrchestrationReactor)),
     ).pipe(Effect.orDie);
@@ -537,6 +542,7 @@ export const makeOrchestrationIntegrationHarness = (
     });
 
     return {
+      sql,
       rootDir,
       workspaceDir,
       dbPath,
