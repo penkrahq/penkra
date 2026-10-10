@@ -214,6 +214,48 @@ export const updateThreadDraft = (id: string, draft: string | null, updatedAt: s
     `;
   });
 
+/**
+ * Idempotent set-state for the sidebar/deck writers (2.2): move/reorder
+ * (sidebar_sort_order, deck_id, deck_sort_order), pin, mark visited, runtime
+ * mode and working directory. Only the provided fields change; repeating the
+ * same value changes nothing.
+ */
+export interface UpdateThreadFieldsInput {
+  readonly threadId: string;
+  readonly updatedAt: string;
+  readonly sidebarSortOrder?: number | undefined;
+  readonly deckId?: string | null | undefined;
+  readonly deckSortOrder?: number | undefined;
+  readonly isPinned?: number | undefined;
+  readonly lastVisitedAt?: string | null | undefined;
+  readonly runtimeMode?: string | undefined;
+  readonly workingDirectory?: string | null | undefined;
+}
+
+export const updateThreadFields = (input: UpdateThreadFieldsInput) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const hasSidebarSortOrder = input.sidebarSortOrder !== undefined ? 1 : 0;
+    const hasDeckId = input.deckId !== undefined ? 1 : 0;
+    const hasDeckSortOrder = input.deckSortOrder !== undefined ? 1 : 0;
+    const hasIsPinned = input.isPinned !== undefined ? 1 : 0;
+    const hasLastVisitedAt = input.lastVisitedAt !== undefined ? 1 : 0;
+    const hasRuntimeMode = input.runtimeMode !== undefined ? 1 : 0;
+    const hasWorkingDirectory = input.workingDirectory !== undefined ? 1 : 0;
+    yield* sql`
+      UPDATE threads SET
+        sidebar_sort_order = CASE WHEN ${hasSidebarSortOrder} THEN ${input.sidebarSortOrder ?? 0} ELSE sidebar_sort_order END,
+        deck_id = CASE WHEN ${hasDeckId} THEN ${input.deckId ?? null} ELSE deck_id END,
+        deck_sort_order = CASE WHEN ${hasDeckSortOrder} THEN ${input.deckSortOrder ?? 0} ELSE deck_sort_order END,
+        is_pinned = CASE WHEN ${hasIsPinned} THEN ${input.isPinned ?? 0} ELSE is_pinned END,
+        last_visited_at = CASE WHEN ${hasLastVisitedAt} THEN ${input.lastVisitedAt ?? null} ELSE last_visited_at END,
+        runtime_mode = CASE WHEN ${hasRuntimeMode} THEN ${input.runtimeMode ?? "full-access"} ELSE runtime_mode END,
+        working_directory = CASE WHEN ${hasWorkingDirectory} THEN ${input.workingDirectory ?? null} ELSE working_directory END,
+        updated_at = ${input.updatedAt}
+      WHERE id = ${input.threadId}
+    `;
+  });
+
 /** Answering a question updates the same row in place. */
 export const answerQuestion = (
   threadId: string,

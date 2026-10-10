@@ -102,6 +102,7 @@ import type {
   CleanCoreListThreadItemsPageResult,
   CleanCoreListThreadsInput,
   CleanCoreListThreadsResult,
+  CleanCoreUpdateThreadInput,
   CleanCoreSetThreadDraftInput,
   CleanCoreSubscribeThreadInput,
   CleanCoreThreadChange,
@@ -1107,6 +1108,7 @@ export interface NativeApi {
   };
   cleanCore: {
     listThreads: (input: CleanCoreListThreadsInput) => Promise<CleanCoreListThreadsResult>;
+    updateThread: (input: CleanCoreUpdateThreadInput) => Promise<void>;
     listThreadItemsPage: (
       input: CleanCoreListThreadItemsPageInput,
     ) => Promise<CleanCoreListThreadItemsPageResult>;

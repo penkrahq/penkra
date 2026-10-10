@@ -121,6 +121,19 @@ export const CleanCoreListThreadsResult = Schema.Struct({
 });
 export type CleanCoreListThreadsResult = typeof CleanCoreListThreadsResult.Type;
 
+export const CleanCoreUpdateThreadInput = Schema.Struct({
+  threadId: ThreadId,
+  updatedAt: IsoDateTime,
+  sidebarSortOrder: Schema.optional(NonNegativeInt),
+  deckId: Schema.optional(Schema.NullOr(ThreadDeckId)),
+  deckSortOrder: Schema.optional(NonNegativeInt),
+  isPinned: Schema.optional(Schema.Number),
+  lastVisitedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  runtimeMode: Schema.optional(Schema.String),
+  workingDirectory: Schema.optional(Schema.NullOr(Schema.String)),
+});
+export type CleanCoreUpdateThreadInput = typeof CleanCoreUpdateThreadInput.Type;
+
 /**
  * A clean-core answer to an open `question` item (0.14.4 design 2.5). The item
  * row is updated in place by the provider stream consumer; this call delivers
