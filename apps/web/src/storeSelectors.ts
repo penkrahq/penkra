@@ -270,27 +270,6 @@ export function createComposerThreadMentionSourcesSelector(): (
   };
 }
 
-// Projection metadata selector retained for projection reducer coverage.
-// Visible sidebar rows come from threadListStore.
-export function createSidebarTreeThreadsSelector(): (
-  state: AppState,
-) => readonly SidebarThreadSummary[] {
-  const selectSidebarSummaries = createSidebarThreadSummariesSelector();
-  let previousSummaries: readonly SidebarThreadSummary[] | undefined;
-  let previousTreeSummaries: readonly SidebarThreadSummary[] = [];
-
-  return (state) => {
-    const sidebarSummaries = selectSidebarSummaries(state);
-    if (sidebarSummaries === previousSummaries) {
-      return previousTreeSummaries;
-    }
-
-    previousSummaries = sidebarSummaries;
-    previousTreeSummaries = sidebarSummaries.filter((thread) => thread.archivedAt == null);
-    return previousTreeSummaries;
-  };
-}
-
 export function createFirstProjectSelector(): (state: AppState) => Project | undefined {
   let previousFolders: readonly Project[] | undefined;
   let previousFirstProject: Project | undefined;

@@ -37,7 +37,6 @@ import {
   threadsOf,
 } from "./storeTestFixtures";
 import { DEFAULT_RUNTIME_MODE } from "./types";
-import { createSidebarTreeThreadsSelector } from "./storeSelectors";
 import { createComposerDraftStoreState } from "./composerDraftActions";
 import type { ComposerDraftStoreState } from "./composerDraftDomain";
 import { resolveThreadStatusPill } from "./components/Sidebar.logic";
@@ -107,9 +106,6 @@ describe("store event reducer", () => {
     const at = "2026-02-27T00:07:00.000Z";
     const next = syncServerThreadShell(initial, row.id, { ...row, archivedAt: at, updatedAt: at });
     expect(next.sidebarThreadSummaryById[row.id]?.archivedAt).toBe(at);
-    expect(createSidebarTreeThreadsSelector()(next).some((thread) => thread.id === row.id)).toBe(
-      false,
-    );
   });
   it("removes archived threads when the canonical row is deleted", () => {
     const row = makeReadModelThread({ archivedAt: "2026-02-27T00:05:00.000Z" });
@@ -161,9 +157,7 @@ describe("store event reducer", () => {
       }),
     );
     const next = rows.reduce((state, row) => syncServerThreadShell(state, row.id, row), initial);
-    expect(
-      createSidebarTreeThreadsSelector()(next).filter((row) => row.id.startsWith("agent-worker-")),
-    ).toHaveLength(6);
+    expect(rows.filter((row) => next.threadShellById?.[row.id])).toHaveLength(6);
     for (const row of rows)
       expect(next.threadShellById?.[row.id]?.creationSource).toBe("penkra_mcp");
     const row = rows[0]!;
@@ -172,20 +166,14 @@ describe("store event reducer", () => {
       archivedAt: "2026-09-06T00:10:02.000Z",
       updatedAt: "2026-09-06T00:10:02.000Z",
     });
-    expect(
-      createSidebarTreeThreadsSelector()(archived).some((thread) => thread.id === row.id),
-    ).toBe(false);
+    expect(archived.threadShellById?.[row.id]?.archivedAt).toBe("2026-09-06T00:10:02.000Z");
     const restored = syncServerThreadShell(archived, row.id, {
       ...row,
       updatedAt: "2026-09-06T00:10:03.000Z",
     });
-    expect(
-      createSidebarTreeThreadsSelector()(restored).some((thread) => thread.id === row.id),
-    ).toBe(true);
+    expect(restored.threadShellById?.[row.id]?.archivedAt).toBeNull();
     const deleted = syncServerThreadShell(restored, row.id, null);
-    expect(createSidebarTreeThreadsSelector()(deleted).some((thread) => thread.id === row.id)).toBe(
-      false,
-    );
+    expect(deleted.threadShellById?.[row.id]).toBeUndefined();
     expect(syncServerThreadShell(deleted, row.id, null)).toBe(deleted);
   });
 

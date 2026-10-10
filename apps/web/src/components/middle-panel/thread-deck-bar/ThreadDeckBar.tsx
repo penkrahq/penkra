@@ -41,7 +41,11 @@ import { newCommandId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { useStore } from "~/store";
 import { loadThread, loadDeckThreads, useThreadSummary } from "~/threadListStore";
-import { selectDeckThreadRows, useSidebarThreadRows } from "~/sidebarThreadRows";
+import {
+  selectDeckThreadRows,
+  useSidebarThreadRows,
+  useSidebarThreadRowsById,
+} from "~/sidebarThreadRows";
 import type { Thread } from "~/types";
 import { useVoiceSessionCoordinatorStore } from "~/voiceSessionCoordinator";
 import { CentralIcon } from "~/lib/central-icons";
@@ -183,7 +187,7 @@ function CanonicalThreadDeckBar(props: ThreadDeckBarProps & { deckId: ThreadDeck
   const { handleNewThread } = useHandleNewThread();
   const folders = useStore((state) => state.folders);
   const rows = useSidebarThreadRows();
-  const rowsById = useMemo(() => Object.fromEntries(rows.map((row) => [row.id, row])), [rows]);
+  const rowsById = useSidebarThreadRowsById();
   const threadTurnStateById = useStore((state) => state.threadTurnStateById ?? {});
   const draftThreadsByThreadId = useComposerDraftStore((state) => state.draftThreadsByThreadId);
   const composerDraftsByThreadId = useComposerDraftStore((state) => state.draftsByThreadId);
@@ -213,10 +217,10 @@ function CanonicalThreadDeckBar(props: ThreadDeckBarProps & { deckId: ThreadDeck
   const draggedSidebarData = readSidebarDndData(dragOperation.source?.data);
   const draggedThread =
     draggedSidebarData?.type === "item" && draggedSidebarData.item.kind === "thread"
-      ? rowsById[draggedSidebarData.item.id]
+      ? rowsById.get(draggedSidebarData.item.id)
       : null;
   const activeSpaceId =
-    rowsById[props.activeThread.id]?.spaceId ??
+    rowsById.get(props.activeThread.id)?.spaceId ??
     folders.find((folder) => folder.id === props.activeThread.folderId)?.spaceId ??
     null;
   const draggedSpaceId =
@@ -332,7 +336,7 @@ function CanonicalThreadDeckBar(props: ThreadDeckBarProps & { deckId: ThreadDeck
       ) {
         return;
       }
-      const thread = rowsById[source.item.id];
+      const thread = rowsById.get(source.item.id);
       const sourceSpaceId =
         thread?.spaceId ??
         folders.find((folder) => folder.id === thread?.folderId)?.spaceId ??
@@ -440,7 +444,7 @@ function CanonicalThreadDeckBar(props: ThreadDeckBarProps & { deckId: ThreadDeck
   const archive = async (threadId: ThreadId) => {
     const draftThread = draftThreadsByThreadId[threadId];
     if (!draftThread) {
-      const thread = rowsById[threadId];
+      const thread = rowsById.get(threadId);
       if (!thread) return;
       if (tabs.find((tab) => tab.id === threadId)?.workStatus === "running") {
         toastManager.add({

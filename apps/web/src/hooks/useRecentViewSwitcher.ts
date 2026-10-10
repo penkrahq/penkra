@@ -1,9 +1,9 @@
-import { useSidebarThreadRows } from "../sidebarThreadRows";
 // FILE: useRecentViewSwitcher.ts
 // Purpose: Own the Ctrl+Tab recent-primary-view MRU wiring for the chat shell.
 // Layer: UI hook
 // Exports: useRecentViewSwitcher
 
+import { useSidebarThreadRows } from "../sidebarThreadRows";
 import { ThreadId } from "@penkra/contracts";
 import { useLocation, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useMemo, useEffect, useRef, useState } from "react";

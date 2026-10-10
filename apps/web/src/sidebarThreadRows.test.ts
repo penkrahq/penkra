@@ -1,6 +1,10 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { FolderId, ThreadDeckId, ThreadId, type CleanCoreThreadSummary } from "@penkra/contracts";
-import { buildSidebarThreadRows, selectDeckThreadRows } from "./sidebarThreadRows";
+import {
+  buildSidebarThreadRows,
+  selectDeckThreadRows,
+  createSidebarThreadRowsSelector,
+} from "./sidebarThreadRows";
 import {
   sortThreadsForSidebar,
   resolveSidebarThreadSummaryStatus,
@@ -141,4 +145,30 @@ it("derives deck membership and ordering only from canonical rows, including pub
     {},
   );
   expect(selectDeckThreadRows(moved, deckId).map((row) => row.id)).toEqual([second.id]);
+});
+
+it("shares one row derivation and by-id lookup across consumers for each source snapshot", () => {
+  const core = {
+    ...row("[]", "2026-10-10T00:00:01.000Z"),
+    folderId: FolderId.makeUnsafe("folder"),
+    modelOptions: JSON.stringify({ reasoningEffort: "high" }),
+  };
+  const rows = [core];
+  const details = {};
+  const select = createSidebarThreadRowsSelector();
+  const parse = vi.spyOn(JSON, "parse");
+  try {
+    const first = select(rows, details);
+    for (let index = 0; index < 100; index++) {
+      expect(select(rows, details)).toBe(first);
+      expect(select(rows, details).byId.get(core.id)).toBe(first.rows[0]);
+    }
+    expect(parse).toHaveBeenCalledTimes(1);
+    const next = select([{ ...core, title: "Renamed" }], details);
+    expect(next).not.toBe(first);
+    expect(next.byId.get(core.id)?.title).toBe("Renamed");
+    expect(select([], details).byId.has(core.id)).toBe(false);
+  } finally {
+    parse.mockRestore();
+  }
 });

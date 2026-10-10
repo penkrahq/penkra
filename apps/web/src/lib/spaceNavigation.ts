@@ -1,4 +1,3 @@
-import type { SidebarThreadRow } from "../sidebarThreadRows";
 // FILE: spaceNavigation.ts
 // Purpose: Where selecting a Space lands, and which threads a Space is allowed to land on.
 // Layer: Spaces domain helper
@@ -7,6 +6,7 @@ import type { SidebarThreadRow } from "../sidebarThreadRows";
 //      "/" restore landing both make that judgement, and spelling it out separately is exactly
 //      how selecting an empty Space ended up restoring another Space's thread.
 
+import type { SidebarThreadRow } from "../sidebarThreadRows";
 import type { FolderId, SpaceId, ThreadId } from "@penkra/contracts";
 
 import type { ServerWorkspacePaths } from "~/lib/serverWorkspacePaths";

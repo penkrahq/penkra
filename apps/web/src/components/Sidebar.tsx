@@ -1,10 +1,10 @@
-import { SidebarThreadPageEnd } from "./SidebarThreadPageEnd";
-import { useSidebarThreadRows, type SidebarThreadRow } from "../sidebarThreadRows";
-import { loadThread, loadThreadPage } from "../threadListStore";
 // FILE: Sidebar.tsx
 // Purpose: Renders the project/thread sidebar, including row status, sorting, and thread actions.
 // Exports: Sidebar
 
+import { SidebarThreadPageEnd } from "./SidebarThreadPageEnd";
+import { useSidebarThreadRows, type SidebarThreadRow } from "../sidebarThreadRows";
+import { loadThread, loadThreadPage } from "../threadListStore";
 import {
   MAX_PINNED_PROJECTS,
   FolderId,
@@ -402,8 +402,6 @@ export default function Sidebar() {
         title: "Could not load threads",
         description: error instanceof Error ? error.message : String(error),
       });
-    for (const space of spaces)
-      void loadThreadPage({ spaceId: space.id, folderId: null }).catch(report);
     for (const folder of folders) {
       if (folder.spaceId !== null && folder.spaceId !== undefined)
         void loadThreadPage({ spaceId: folder.spaceId, folderId: folder.id }).catch(report);

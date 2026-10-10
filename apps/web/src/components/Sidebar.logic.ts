@@ -1,8 +1,8 @@
-import type { SidebarThreadRow } from "../sidebarThreadRows";
 // FILE: Sidebar.logic.ts
 // Purpose: Shared sidebar sorting and status helpers used by the thread list UI.
 // Exports: Sidebar row state derivation, sort utilities, and visibility helpers.
 
+import type { SidebarThreadRow } from "../sidebarThreadRows";
 import {
   MAX_PINNED_PROJECTS,
   type KeybindingCommand,

@@ -7,7 +7,6 @@ import {
   type ThreadId,
 } from "@penkra/contracts";
 import { Schema } from "effect";
-import { useMemo } from "react";
 import { useStore } from "./store";
 import { useThreadList } from "./threadListStore";
 import type { SidebarThreadSummary } from "./types";
@@ -88,10 +87,41 @@ export function buildSidebarThreadRows(
   });
 }
 
-export function useSidebarThreadRows(): readonly SidebarThreadRow[] {
+export function createSidebarThreadRowsSelector() {
+  let previousRows: readonly CleanCoreThreadSummary[] | undefined;
+  let previousDetails: Readonly<Record<string, SidebarThreadSummary>> | undefined;
+  let snapshot: {
+    rows: readonly SidebarThreadRow[];
+    byId: ReadonlyMap<string, SidebarThreadRow>;
+  } = { rows: [], byId: new Map() };
+  return (
+    rows: readonly CleanCoreThreadSummary[],
+    details: Readonly<Record<string, SidebarThreadSummary>>,
+  ) => {
+    if (rows !== previousRows || details !== previousDetails) {
+      previousRows = rows;
+      previousDetails = details;
+      const derived = buildSidebarThreadRows(rows, details);
+      snapshot = { rows: derived, byId: new Map(derived.map((row) => [row.id, row])) };
+    }
+    return snapshot;
+  };
+}
+
+// All consumers share one derivation of the current source snapshots.
+const selectSidebarRows = createSidebarThreadRowsSelector();
+function useSidebarRowsSnapshot() {
   const rows = useThreadList();
   const details = useStore((state) => state.sidebarThreadSummaryById);
-  return useMemo(() => buildSidebarThreadRows(rows, details), [rows, details]);
+  return selectSidebarRows(rows, details);
+}
+
+export function useSidebarThreadRows(): readonly SidebarThreadRow[] {
+  return useSidebarRowsSnapshot().rows;
+}
+
+export function useSidebarThreadRowsById(): ReadonlyMap<string, SidebarThreadRow> {
+  return useSidebarRowsSnapshot().byId;
 }
 
 export function selectDeckThreadRows(

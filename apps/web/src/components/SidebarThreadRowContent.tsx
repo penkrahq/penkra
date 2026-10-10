@@ -1,8 +1,8 @@
-import { useSidebarThreadRows, type SidebarThreadRow } from "../sidebarThreadRows";
 // FILE: SidebarThreadRowContent.tsx
 // Purpose: Owns the shared identity and status content rendered by every Sidebar thread row.
 // Exports: SidebarThreadRowContent and its terminal-status presentation type.
 
+import { useSidebarThreadRowsById, type SidebarThreadRow } from "../sidebarThreadRows";
 import { type ReactNode } from "react";
 
 import { isGenericChatThreadTitle } from "@penkra/shared/chatThreads";
@@ -121,7 +121,9 @@ function SidebarSubagentLabel({
   thread: SidebarThreadRow;
   roleClassName?: string | undefined;
 }) {
-  const parentThread = useSidebarThreadRows().find((row) => row.id === thread.parentThreadId);
+  const rowsById = useSidebarThreadRowsById();
+  const parentThread =
+    thread.parentThreadId === null ? undefined : rowsById.get(thread.parentThreadId);
 
   return renderSubagentLabel({
     thread,
