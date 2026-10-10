@@ -232,12 +232,11 @@ export interface ProjectionSnapshotQueryShape {
     workspaceRoot: string,
   ) => Effect.Effect<Option.Option<OrchestrationFolder>, ProjectionRepositoryError>;
 
-  /**
-   * Read a single active folder shell row by id.
-   */
+  /** Read up to THREADS_PAGE_SIZE active (not archived, not deleted) folder shell rows by id in one SELECT; rejects larger batches. */
   readonly getFolderShellsByIds: (
     folderIds: ReadonlyArray<FolderId>,
   ) => Effect.Effect<ReadonlyArray<OrchestrationFolderShell>, ProjectionRepositoryError>;
+  /** Read a single active folder shell row by id. */
   readonly getFolderShellById: (
     folderId: FolderId,
   ) => Effect.Effect<Option.Option<OrchestrationFolderShell>, ProjectionRepositoryError>;
