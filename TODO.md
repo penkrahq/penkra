@@ -27,7 +27,7 @@ One working tree, one implementer (operator, 2026-10-10): all work happens in `p
 
 ### 2.1 Data model
 
-Tables kept unchanged: `projection_spaces`, `projection_folders`, `projection_thread_decks` (plus one new column, 2.12), `space_navigation_state`, `auth_sessions`, `auth_pairing_links`, `provider_connections`, `provider_credential_profiles`, `provider_installations`, `managed_attachment_blobs`, `managed_attachment_cleanup_jobs`, `connection_usage_daily`, `connection_usage_turn_events`, `thread_harness_states`, `effect_sql_migrations`. They are not renamed.
+Tables kept unchanged: `projection_spaces`, `projection_folders`, `projection_thread_decks` (plus one new column, 2.12), `space_navigation_state`, `auth_sessions`, `auth_pairing_links`, `provider_connections`, `provider_credential_profiles`, `provider_installations`, `managed_attachment_blobs`, `managed_attachment_cleanup_jobs`, `connection_usage_daily`, `connection_usage_turn_events`, `thread_harness_states` (its `thread_id` foreign key moves from `projection_threads` to `threads`, because `projection_threads` is dropped), `effect_sql_migrations`. They are not renamed.
 
 ```sql
 CREATE TABLE threads (
