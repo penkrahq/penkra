@@ -253,3 +253,17 @@ export const CleanCoreSendResult = Schema.Union([
   }),
 ]);
 export type CleanCoreSendResult = typeof CleanCoreSendResult.Type;
+
+export const CleanCoreThreadRuntimeInput = Schema.Struct({ threadId: ThreadId });
+export type CleanCoreThreadRuntimeInput = typeof CleanCoreThreadRuntimeInput.Type;
+export const CleanCoreThreadRuntime = Schema.Struct({
+  state: Schema.Literals(["idle", "running", "error"]),
+  activeTurnId: Schema.NullOr(TurnId),
+});
+export type CleanCoreThreadRuntime = typeof CleanCoreThreadRuntime.Type;
+export const CleanCoreInterruptResult = Schema.Struct({
+  threadId: ThreadId,
+  interruptRequested: Schema.Boolean,
+  interruptedTurnId: Schema.NullOr(TurnId),
+});
+export type CleanCoreInterruptResult = typeof CleanCoreInterruptResult.Type;

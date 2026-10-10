@@ -1,3 +1,4 @@
+import { useThreadStop } from "../hooks/useThreadStop";
 import {
   type ApprovalRequestId,
   DEFAULT_MODEL_BY_PROVIDER,
@@ -285,7 +286,6 @@ import {
   getComposerDispatchedSendOwner,
   isComposerImageOwnedBySendPreflight,
   markComposerSendPreflightDispatching,
-  markComposerSendPreflightActiveRunStopRequested,
   setComposerSendPreflightProjection,
   settleComposerSendPreflightRecovery,
   updateComposerSendPreflightResolvedAdmission,
@@ -437,7 +437,6 @@ import {
   type LocalDispatchSnapshot,
   shouldRenderProviderHealthBanner,
   resolveRuntimeModeAfterApprovalDecision,
-  resolveInterruptTurnId,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
 } from "./ChatView.logic";
@@ -515,10 +514,6 @@ function composerDraftContentOwnershipKey(draft: ComposerThreadDraftState | unde
 const DRAFT_PROJECT_SYNC_MAX_ATTEMPTS = 6;
 const DRAFT_PROJECT_SYNC_DELAY_MS = 50;
 const COMPOSER_INPUT_BURST_IDLE_MS = 50;
-
-class PendingTurnStartCancelled extends Error {
-  override readonly name = "PendingTurnStartCancelled";
-}
 
 function waitForDraftProjectSyncDelay(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -1060,7 +1055,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     ((pendingTurn: QueuedComposerChatTurn) => Promise<boolean>) | null
   >(null);
   const pendingStartRecoveryRegistryRef = useRef(pendingStartRecoveryRegistry);
-  const cancelPendingTurnStartMessageIdsRef = useRef<Set<MessageId>>(new Set());
   const settlePendingStartRecoveryDurably = useCallback(
     async (input: {
       messageId: MessageId;
@@ -1137,7 +1131,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     async (messageId: MessageId, cancellationSequence?: number) => {
       const restoration = pendingStartRecoveryRegistryRef.current.get(threadId, messageId);
       if (!restoration || restoration.threadId !== threadId) return;
-      cancelPendingTurnStartMessageIdsRef.current.delete(messageId);
+
       const durableRecovery =
         useComposerDraftStore.getState().draftsByThreadId[threadId]
           ?.pendingStartRecoveriesByMessageId?.[messageId];
@@ -1292,7 +1286,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       } else {
         pendingStartRecoveryRegistryRef.current.release(threadId, message.id);
       }
-      cancelPendingTurnStartMessageIdsRef.current.delete(message.id);
     }
   }, [
     markPendingStartRecoveryAccepted,
@@ -2830,7 +2823,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     }
     const pendingMessageId = pendingTurnStartMessageRef.current?.messageId;
     if (pendingMessageId) {
-      cancelPendingTurnStartMessageIdsRef.current.delete(pendingMessageId);
       pendingTurnStartMessageRef.current = null;
     }
   }, [hasPendingTurnStart, isSendBusy, phase]);
@@ -3676,11 +3668,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
 
   const continueInFlightRef = useRef(false);
   const pendingContinueCommandIdRef = useRef<string | null>(null);
-  const pendingQaStopRef = useRef<{
-    threadId: string;
-    turnId: string;
-    trace: ReturnType<typeof startDiagnosticTrace>;
-  } | null>(null);
   const pendingQaPlayRef = useRef<{
     threadId: string;
     turnId: string;
@@ -3694,29 +3681,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     seenQueued: boolean;
   } | null>(null);
   useEffect(() => {
-    const stop = pendingQaStopRef.current;
-    if (
-      stop &&
-      matchesRequestedTurnOutcome({
-        requestedThreadId: stop.threadId,
-        requestedTurnId: stop.turnId,
-        activeThreadId,
-        activeTurnId: activeLatestTurn?.turnId ?? null,
-        actualState: activeLatestTurn?.state ?? null,
-        expectedState: "interrupted",
-      })
-    ) {
-      pendingQaStopRef.current = null;
-      void window.desktopBridge
-        ?.recordDiagnosticCheckpoint?.({
-          ...stop.trace,
-          threadId: stop.threadId,
-          flow: "stop",
-          step: "turn.terminal",
-          outcome: "ok",
-        })
-        .catch(() => undefined);
-    }
     const play = pendingQaPlayRef.current;
     if (
       play &&
@@ -5265,9 +5229,15 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     terminalWorkspaceOpen,
   ]);
 
+  const { stopping, stop: stopProviderTurn } = useThreadStop(activeThreadId, (error) => {
+    if (activeThreadId !== null)
+      setThreadError(
+        activeThreadId,
+        error instanceof Error ? error.message : "Failed to interrupt the provider turn.",
+      );
+  });
   const onInterrupt = useCallback(async () => {
-    const api = readNativeApi();
-    if (!api || !activeThread) return;
+    if (!activeThread) return;
     const preparationOwner = getActiveComposerSendPreparation(activeThread.id);
     const dispatchedOwner = getComposerDispatchedSendOwner(activeThread.id);
     const hasDispatchedRun =
@@ -5280,178 +5250,8 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       scheduleComposerFocus();
       return;
     }
-    if (preparationOwner && hasDispatchedRun) {
-      markComposerSendPreflightActiveRunStopRequested(preparationOwner);
-    }
-    const isPreAcceptanceStop =
-      dispatchedOwner !== null || phase === "connecting" || isSendBusy || hasPendingTurnStart;
-    const candidatePendingMessageId = isPreAcceptanceStop
-      ? (localDispatch?.expectedUserMessageId ??
-        dispatchedOwner?.messageId ??
-        pendingTurnStartMessageRef.current?.messageId ??
-        authoritativePendingTurnStartMessageId ??
-        undefined)
-      : undefined;
-    const candidatePendingMessage = candidatePendingMessageId
-      ? activeThread.messages.find((message) => message.id === candidatePendingMessageId)
-      : undefined;
-    const pendingMessageId =
-      candidatePendingMessage?.delivery?.state === "accepted"
-        ? undefined
-        : candidatePendingMessageId;
-    if (pendingMessageId) {
-      cancelPendingTurnStartMessageIdsRef.current.add(pendingMessageId);
-      const pending = pendingTurnStartMessageRef.current ?? dispatchedOwner?.pendingTurn;
-      const pendingMessage = candidatePendingMessage;
-      const hasExactPendingSnapshot = pending != null && pending.messageId === pendingMessageId;
-      const restoredPrompt = hasExactPendingSnapshot
-        ? pending.prompt
-        : pendingMessage
-          ? pendingMessage.text
-          : "";
-      const currentDraftPrompt =
-        useComposerDraftStore.getState().draftsByThreadId[activeThread.id]?.prompt ?? "";
-      const durableRecovery =
-        useComposerDraftStore.getState().draftsByThreadId[activeThread.id]
-          ?.pendingStartRecoveriesByMessageId?.[pendingMessageId];
-      if (
-        durableRecovery &&
-        "pendingTurn" in durableRecovery &&
-        durableRecovery.messageId === pendingMessageId &&
-        durableRecovery.settlement === "unresolved"
-      ) {
-        pendingStartRecoveryRegistryRef.current.register({
-          threadId: activeThread.id,
-          messageId: pendingMessageId,
-          previewUrls: durableRecovery.pendingTurn.images.map((image) => image.previewUrl),
-          pendingTurn: durableRecovery.pendingTurn,
-          restore: async () => undefined,
-        });
-      } else if (hasExactPendingSnapshot) {
-        const restorePendingTurnStart = restorePendingTurnStartRef.current;
-        pendingStartRecoveryRegistryRef.current.register({
-          threadId: activeThread.id,
-          messageId: pendingMessageId,
-          previewUrls: pending.images.map((image) => image.previewUrl),
-          pendingTurn: pending,
-          restore: async () => {
-            if (restorePendingTurnStart) {
-              if (!(await restorePendingTurnStart(pending))) {
-                throw new Error("Pending start restoration remains unresolved.");
-              }
-              return;
-            }
-            // Component-local callbacks do not survive a remount. The exact
-            // store-owned snapshot remains sufficient to restore either into
-            // an empty composer or as a paused editable row beside newer work.
-            recoverCancelledQueuedTurn(activeThread.id, pending);
-          },
-        });
-      } else if (restoredPrompt.length > 0 && currentDraftPrompt.length === 0) {
-        pendingStartRecoveryRegistryRef.current.register({
-          threadId: activeThread.id,
-          messageId: pendingMessageId,
-          previewUrls: pendingMessage ? collectUserMessageBlobPreviewUrls(pendingMessage) : [],
-          restore: () => {
-            const livePrompt =
-              useComposerDraftStore.getState().draftsByThreadId[activeThread.id]?.prompt ?? "";
-            if (livePrompt.length === 0) {
-              setComposerDraftPrompt(activeThread.id, restoredPrompt);
-            }
-            return Promise.resolve();
-          },
-        });
-      }
-    }
-    // A provider can start the projected turn before session.activeTurnId is
-    // published. The visible latest turn is still the exact stop target.
-    const diagnosticActiveTurnId = resolveInterruptTurnId(
-      activeLatestTurn,
-      activeThread.session?.activeTurnId,
-    );
-    const interruptCommand = {
-      type: "thread.turn.interrupt" as const,
-      commandId: newCommandId(),
-      threadId: activeThread.id,
-      ...(diagnosticActiveTurnId ? { turnId: diagnosticActiveTurnId } : {}),
-      ...(pendingMessageId ? { pendingMessageId } : {}),
-      createdAt: new Date().toISOString(),
-    };
-    const diagnosticActiveTurnStartedAt = activeLatestTurn?.startedAt ?? null;
-    const diagnosticPendingMessageId = pendingMessageId ?? null;
-    recordChatLifecycleUiDiagnostic({
-      event: "interrupt-dispatched",
-      threadId: activeThread.id,
-      activeTurnId: diagnosticActiveTurnId,
-      activeTurnStartedAt: diagnosticActiveTurnStartedAt,
-      isWorking,
-      commandId: interruptCommand.commandId,
-      pendingMessageId: diagnosticPendingMessageId,
-    });
-    const stopTrace = startDiagnosticTrace();
-    if (diagnosticActiveTurnId)
-      pendingQaStopRef.current = {
-        threadId: activeThread.id,
-        turnId: diagnosticActiveTurnId,
-        trace: stopTrace,
-      };
-    try {
-      // Receipt records interrupt intent only. Shared projection decides whether
-      // the pending message was cancelled before acceptance or reached history.
-      const receipt = await api.orchestration.dispatchCommand(interruptCommand, stopTrace);
-      recordChatLifecycleUiDiagnostic({
-        event: "interrupt-receipt",
-        threadId: activeThread.id,
-        activeTurnId: diagnosticActiveTurnId,
-        activeTurnStartedAt: diagnosticActiveTurnStartedAt,
-        isWorking,
-        commandId: interruptCommand.commandId,
-        pendingMessageId: diagnosticPendingMessageId,
-        receiptSequence: receipt.sequence,
-      });
-      if (pendingMessageId) {
-        pendingStartRecoveryRegistryRef.current.setFrontier(
-          activeThread.id,
-          pendingMessageId,
-          receipt.sequence,
-        );
-        void revalidatePendingStartOutcome(pendingMessageId, receipt.sequence);
-      }
-    } catch (error) {
-      pendingQaStopRef.current = null;
-      recordChatLifecycleUiDiagnostic({
-        event: "interrupt-dispatch-failed",
-        threadId: activeThread.id,
-        activeTurnId: diagnosticActiveTurnId,
-        activeTurnStartedAt: diagnosticActiveTurnStartedAt,
-        isWorking,
-        commandId: interruptCommand.commandId,
-        pendingMessageId: diagnosticPendingMessageId,
-      });
-      if (pendingMessageId) {
-        pendingStartRecoveryRegistryRef.current.release(activeThread.id, pendingMessageId);
-        cancelPendingTurnStartMessageIdsRef.current.delete(pendingMessageId);
-      }
-      setThreadError(
-        activeThread.id,
-        error instanceof Error ? error.message : "Failed to interrupt the pending message.",
-      );
-    }
-  }, [
-    activeThread,
-    activeLatestTurn,
-    authoritativePendingTurnStartMessageId,
-    hasPendingTurnStart,
-    localDispatch?.expectedUserMessageId,
-    recoverCancelledQueuedTurn,
-    isSendBusy,
-    isWorking,
-    phase,
-    revalidatePendingStartOutcome,
-    scheduleComposerFocus,
-    setComposerDraftPrompt,
-    setThreadError,
-  ]);
+    await stopProviderTurn?.();
+  }, [activeThread, phase, hasPendingTurnStart, scheduleComposerFocus, stopProviderTurn]);
 
   const onStopWorkflowRun = useCallback(async () => {
     const api = readNativeApi();
@@ -6816,11 +6616,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     ) {
       return abortCancelledCapturedSend();
     }
-    const throwIfPendingTurnStartCancelled = () => {
-      if (cancelPendingTurnStartMessageIdsRef.current.has(messageIdForSend)) {
-        throw new PendingTurnStartCancelled();
-      }
-    };
     const outgoingTextSeed =
       messageTextForSend || (composerImagesSnapshot.length > 0 ? IMAGE_ONLY_BOOTSTRAP_PROMPT : "");
     const outgoingMessageText = formatOutgoingComposerPrompt({
@@ -6915,7 +6710,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     let startCommandDispatched = false;
     let preDispatchRecoveryPrepared = false;
     await (async () => {
-      throwIfPendingTurnStartCancelled();
       const threadCreateModelSelection: ModelSelection = buildModelSelection(
         selectedModelSelectionForSend.provider,
         selectedModelSelectionForSend.model ||
@@ -6943,7 +6737,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
           { force: true },
         );
         createdServerThreadForLocalDraft = promotionResult === "created";
-        throwIfPendingTurnStartCancelled();
       }
 
       if (isServerThread) {
@@ -6952,14 +6745,13 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
           createdAt: messageCreatedAt,
           runtimeMode: nextRuntimeModeForSend,
         });
-        throwIfPendingTurnStartCancelled();
       }
 
       if (!isFollowUpToActiveTurn) {
         beginLocalDispatch();
       }
       const stagedTurnAttachments = await turnAttachmentsPromise;
-      throwIfPendingTurnStartCancelled();
+
       rememberCustomBinaryPathForDispatch({
         threadId: threadIdForSend,
         provider: selectedModelSelectionForSend.provider,
@@ -7031,35 +6823,9 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
         delete next[selectedModelSelectionForSend.provider];
         return next;
       });
-      if (cancelPendingTurnStartMessageIdsRef.current.delete(messageIdForSend)) {
-        await api.orchestration.dispatchCommand({
-          type: "thread.turn.interrupt",
-          commandId: newCommandId(),
-          threadId: threadIdForSend,
-          pendingMessageId: messageIdForSend,
-          createdAt: new Date().toISOString(),
-        });
-      }
     })().catch(async (err: unknown) => {
-      const wasCancelled = err instanceof PendingTurnStartCancelled;
-      if (!wasCancelled) recordChatSendFailure("COMMAND_REJECTED", sendTrace);
-      const pendingRestoration = wasCancelled
-        ? pendingStartRecoveryRegistryRef.current.get(threadIdForSend, messageIdForSend)
-        : undefined;
-      if (pendingRestoration) {
-        setOptimisticUserMessages((existing) => {
-          const removed = existing.filter((message) => message.id === messageIdForSend);
-          for (const message of removed) {
-            revokeUserMessagePreviewUrls(message);
-          }
-          const next = existing.filter((message) => message.id !== messageIdForSend);
-          return next.length === existing.length ? existing : next;
-        });
-        await pendingRestoration.restore();
-        composerOwnershipTransferred = false;
-        pendingStartRecoveryRegistryRef.current.release(threadIdForSend, messageIdForSend);
-      }
-      if (!wasCancelled && capturedDurableRecovery && !startCommandDispatched) {
+      recordChatSendFailure("COMMAND_REJECTED", sendTrace);
+      if (capturedDurableRecovery && !startCommandDispatched) {
         await settlePendingStartRecoveryDurably({
           messageId: messageIdForSend,
           settlement: "restored",
@@ -7079,12 +6845,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
           },
         }).catch(() => recordChatSendFailure("EXTERNAL_CALL_FAILED", sendTrace));
       }
-      if (
-        !wasCancelled &&
-        capturedDurableRecovery &&
-        startCommandDispatched &&
-        !turnStartSucceeded
-      ) {
+      if (capturedDurableRecovery && startCommandDispatched && !turnStartSucceeded) {
         pendingStartRecoveryRegistryRef.current.activateForUncertainty(
           threadIdForSend,
           messageIdForSend,
@@ -7110,7 +6871,6 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       if (
         queuedChatTurn === null &&
         !turnStartSucceeded &&
-        pendingRestoration === undefined &&
         !startCommandDispatched &&
         !sendPreflightOwner.cancelled
       ) {
@@ -7126,19 +6886,17 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
           restoreTransferredComposer();
         }
       }
-      if (!wasCancelled) {
-        setThreadError(
-          threadIdForSend,
-          err instanceof Error ? err.message : "Failed to send message.",
-        );
-      }
+      setThreadError(
+        threadIdForSend,
+        err instanceof Error ? err.message : "Failed to send message.",
+      );
     });
     sendInFlightRef.current = false;
     if (!turnStartSucceeded) {
       releaseSendPreflight();
       resetLocalDispatch();
     }
-    cancelPendingTurnStartMessageIdsRef.current.delete(messageIdForSend);
+
     return turnStartSucceeded;
   };
 
@@ -8708,7 +8466,8 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
                             />
                           </>
                         ) : null}
-                        {isVoiceRecording || isVoiceTranscribing ? null : activePendingProgress ? (
+                        {isVoiceRecording || isVoiceTranscribing ? null : activePendingProgress &&
+                          !stopping ? (
                           <Button
                             type="submit"
                             size="sm"
@@ -8726,14 +8485,14 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
                                 ? "Submit answers"
                                 : "Next question"}
                           </Button>
-                        ) : hasControllableTurn ? (
+                        ) : hasControllableTurn || stopping ? (
                           <>
                             {idleComposerVoiceControl}
                             <ButtonSend
                               type="button"
-                              visualState="stop"
+                              visualState={stopping ? "stopping" : "stop"}
                               onClick={() => void onInterrupt()}
-                              aria-label="Stop generation"
+                              aria-label={stopping ? "Stopping…" : "Stop generation"}
                               data-thread-id={activeThreadId}
                               data-turn-id={activeLatestTurn?.turnId}
                               data-turn-state={activeLatestTurn?.state}

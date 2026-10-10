@@ -108,6 +108,9 @@ import type {
   CleanCoreThreadChange,
   CleanCoreSidebarChange,
   CleanCoreThreadDraft,
+  CleanCoreThreadRuntimeInput,
+  CleanCoreThreadRuntime,
+  CleanCoreInterruptResult,
   CleanCoreAnswerThreadQuestionInput,
 } from "./cleanCore";
 import type { EditorId } from "./editor";
@@ -1108,6 +1111,8 @@ export interface NativeApi {
     terminateConnection: (input: TerminateProviderConnectionInput) => Promise<ProviderConnection>;
   };
   cleanCore: {
+    getThreadRuntime: (input: CleanCoreThreadRuntimeInput) => Promise<CleanCoreThreadRuntime>;
+    interruptThread: (input: CleanCoreThreadRuntimeInput) => Promise<CleanCoreInterruptResult>;
     listThreads: (input: CleanCoreListThreadsInput) => Promise<CleanCoreListThreadsResult>;
     updateThread: (input: CleanCoreUpdateThreadInput) => Promise<void>;
     listThreadItemsPage: (

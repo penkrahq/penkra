@@ -18,7 +18,6 @@ export interface ComposerSendPreflightOwner {
   admissionReceiptSequence: number | null;
   optimisticMessage: ChatMessage | null;
   readonly claimedImageIds: ReadonlySet<string>;
-  activeRunStopRequested: boolean;
 }
 
 const owners = new Map<ThreadId, ComposerSendPreflightOwner[]>();
@@ -60,7 +59,6 @@ export function claimComposerSendPreflight(
     admissionReceiptSequence: null,
     optimisticMessage: null,
     claimedImageIds: new Set(claimedImageIds),
-    activeRunStopRequested: false,
   };
   owners.set(threadId, [...threadOwners, owner]);
   recordComposerSendPreflightDiagnostic({
@@ -277,12 +275,6 @@ export function updateComposerSendPreflightImages(
 ): void {
   if (owner.phase !== "preflight") return;
   owner.capturedSubmission.images = [...images];
-}
-
-export function markComposerSendPreflightActiveRunStopRequested(
-  owner: ComposerSendPreflightOwner,
-): void {
-  owner.activeRunStopRequested = true;
 }
 
 export function updateComposerSendPreflightResolvedAdmission(

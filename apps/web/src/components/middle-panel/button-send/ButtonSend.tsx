@@ -8,7 +8,14 @@ import { forwardRef, type ButtonHTMLAttributes } from "react";
 
 import { cn } from "~/lib/utils";
 
-export type ButtonSendState = "ready" | "hover" | "disabled" | "sending" | "stop" | "play";
+export type ButtonSendState =
+  | "ready"
+  | "hover"
+  | "disabled"
+  | "sending"
+  | "stop"
+  | "stopping"
+  | "play";
 
 export interface ButtonSendProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   visualState?: ButtonSendState;
@@ -26,16 +33,22 @@ export const ButtonSend = forwardRef<HTMLButtonElement, ButtonSendProps>(functio
   ref,
 ) {
   const visualState = visualStateProp ?? (disabled ? "disabled" : "ready");
-  const isUnavailable = disabled || visualState === "disabled" || visualState === "sending";
+  const isUnavailable =
+    disabled ||
+    visualState === "disabled" ||
+    visualState === "sending" ||
+    visualState === "stopping";
   const resolvedAriaLabel =
     ariaLabel ??
-    (visualState === "stop"
-      ? "Stop generation"
-      : visualState === "play"
-        ? "Continue"
-        : visualState === "sending"
-          ? "Sending"
-          : "Send message");
+    (visualState === "stopping"
+      ? "Stopping…"
+      : visualState === "stop"
+        ? "Stop generation"
+        : visualState === "play"
+          ? "Continue"
+          : visualState === "sending"
+            ? "Sending"
+            : "Send message");
 
   return (
     <button
@@ -51,6 +64,9 @@ export const ButtonSend = forwardRef<HTMLButtonElement, ButtonSendProps>(functio
         visualState === "disabled" || visualState === "sending"
           ? "bg-[color-mix(in_srgb,var(--color-text-foreground)_12%,transparent)] text-[var(--color-text-foreground-tertiary)]"
           : null,
+        visualState === "stopping"
+          ? "w-auto px-2 text-xs bg-[var(--color-background-button-primary)] text-[var(--color-text-button-primary)]"
+          : null,
         className,
       )}
       data-pencil-component="eFqUm"
@@ -60,7 +76,9 @@ export const ButtonSend = forwardRef<HTMLButtonElement, ButtonSendProps>(functio
       type={type}
       {...props}
     >
-      {visualState === "sending" ? (
+      {visualState === "stopping" ? (
+        "Stopping…"
+      ) : visualState === "sending" ? (
         <IconLoader2 aria-hidden="true" className="size-3.5 animate-spin" />
       ) : visualState === "stop" ? (
         <IconSquareFilled aria-hidden="true" className="size-2" />

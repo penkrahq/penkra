@@ -1064,10 +1064,16 @@ function makeHarnessLayer(
   ).pipe(
     Layer.provide(
       Layer.succeed(ThreadSender, {
+        getRuntime: () => Effect.succeed({ state: "idle", activeTurnId: null }),
         editQueued: () => Effect.die("Gateway does not edit composer drafts"),
         queuedThread: () => Effect.succeed(ThreadId.makeUnsafe("thread-cancel-queued")),
         cancelQueued: (input) => Effect.succeed({ ...input, removed: true }),
-        interrupt: (threadId) => Effect.succeed({ threadId, interruptRequested: true }),
+        interrupt: (threadId) =>
+          Effect.succeed({
+            threadId,
+            interruptRequested: true,
+            interruptedTurnId: TurnId.makeUnsafe("native-turn"),
+          }),
         send: (input: ThreadSendInput) =>
           Effect.sync(() => {
             sent.push(input);

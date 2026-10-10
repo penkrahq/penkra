@@ -143,7 +143,10 @@ it.effect(
       );
       assert.deepStrictEqual(changes, [threadId]);
       assert.deepStrictEqual(interrupts, []);
-      assert.isTrue((yield* sender.interrupt(threadId)).interruptRequested);
+      const stopped = yield* sender.interrupt(threadId);
+      assert.isTrue(stopped.interruptRequested);
+      assert.equal(stopped.interruptedTurnId, TurnId.makeUnsafe("started-message"));
+      assert.equal((yield* sender.getRuntime(threadId)).state, "running");
       assert.deepStrictEqual(interrupts, [{ threadId }]);
       const sql = yield* SqlClient.SqlClient;
       const rows = yield* sql<{

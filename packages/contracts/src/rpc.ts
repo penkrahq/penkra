@@ -112,6 +112,9 @@ import {
   TerminalWriteInput,
 } from "./terminal";
 import {
+  CleanCoreThreadRuntimeInput,
+  CleanCoreThreadRuntime,
+  CleanCoreInterruptResult,
   CleanCoreAnswerThreadQuestionInput,
   CleanCoreGetThreadDraftInput,
   CleanCoreListThreadItemsPageInput,
@@ -686,6 +689,16 @@ export const WsCleanCoreSubscribeSidebarRpc = Rpc.make(WS_METHODS.cleanCoreSubsc
   error: WsRpcError,
   stream: true,
 });
+export const WsCleanCoreGetThreadRuntimeRpc = Rpc.make(WS_METHODS.cleanCoreGetThreadRuntime, {
+  payload: CleanCoreThreadRuntimeInput,
+  success: CleanCoreThreadRuntime,
+  error: WsRpcError,
+});
+export const WsCleanCoreInterruptThreadRpc = Rpc.make(WS_METHODS.cleanCoreInterruptThread, {
+  payload: CleanCoreThreadRuntimeInput,
+  success: CleanCoreInterruptResult,
+  error: WsRpcError,
+});
 export const WsCleanCoreUpdateThreadRpc = Rpc.make(WS_METHODS.cleanCoreUpdateThread, {
   payload: CleanCoreUpdateThreadInput,
   success: Schema.Void,
@@ -730,6 +743,8 @@ export const WsBootstrapRpcGroup = RpcGroup.make(WsBootstrapNegotiateRpc);
 
 export const WsFeatureRpcGroup = RpcGroup.make(
   WsCleanCoreListThreadsRpc,
+  WsCleanCoreGetThreadRuntimeRpc,
+  WsCleanCoreInterruptThreadRpc,
   WsCleanCoreUpdateThreadRpc,
   WsCleanCoreSubscribeSidebarRpc,
   WsCleanCoreListThreadItemsPageRpc,
