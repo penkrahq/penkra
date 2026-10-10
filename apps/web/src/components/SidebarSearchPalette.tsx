@@ -643,6 +643,7 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                       {props.hasNextThreadPage ? (
                         <SidebarThreadPageEnd
                           loading={props.loadingThreads}
+                          hasNextPage={props.hasNextThreadPage}
                           onLoadNextPage={props.onLoadNextThreadPage}
                         />
                       ) : null}
