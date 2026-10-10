@@ -9,6 +9,7 @@ import {
   TurnId,
   CleanCoreThreadRuntime,
   QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR,
+  QueuedEditDraftNotEmptyError,
   type CleanCoreInterruptResult,
   type CleanCoreSendResult,
   type ProviderConnectionId,
@@ -300,7 +301,11 @@ export const makeThreadSender = Effect.gen(function* () {
                   content.attachments.length > 0 ||
                   content.files.length > 0
                 )
-                  return yield* Effect.fail(new Error(QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR));
+                  return yield* Effect.fail(
+                    new QueuedEditDraftNotEmptyError({
+                      message: QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR,
+                    }),
+                  );
               }
               const reference = (attachment: { id: string; name: string; mimeType: string }) => ({
                 id: attachment.id,

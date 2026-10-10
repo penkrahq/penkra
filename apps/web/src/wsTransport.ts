@@ -22,6 +22,7 @@ import {
   WsCompatibilityError,
   WsFeatureRpcGroup,
   WsRpcError,
+  QueuedEditDraftNotEmptyError,
   type OrchestrationEvent,
   type OrchestrationShellStreamItem,
   type OrchestrationSyncStreamItem,
@@ -653,7 +654,8 @@ export class WsTransport {
               !abortScope.didTimeout() &&
               !requestOptions.signal?.aborted &&
               !isTerminalCompatibilityFailure(error) &&
-              !Schema.is(WsRpcError)(error)
+              !Schema.is(WsRpcError)(error) &&
+              !Schema.is(QueuedEditDraftNotEmptyError)(error)
             ) {
               recordWsTransportFailure("browser.socket_rpc");
             }

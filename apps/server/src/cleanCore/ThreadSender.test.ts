@@ -2,7 +2,13 @@ import { ManagedAttachmentRepository } from "../persistence/Services/ManagedAtta
 import { CurrentManagedAttachmentPrincipal } from "../managedAttachmentPrincipal.ts";
 import { ManagedAttachmentRepositoryLive } from "../persistence/Layers/ManagedAttachments.ts";
 import { assert, it } from "@effect/vitest";
-import { MessageId, ThreadId, TurnId } from "@penkra/contracts";
+import {
+  MessageId,
+  ThreadId,
+  TurnId,
+  QueuedEditDraftNotEmptyError,
+  QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR,
+} from "@penkra/contracts";
 import { Cause, Deferred, Effect, Option } from "effect";
 import { makeThreadSender, type ThreadSendInput } from "./ThreadSender.ts";
 import { ThreadPublisher } from "./ThreadPublisher.ts";
@@ -652,11 +658,15 @@ for (const content of [
           }),
         );
         assert.equal(result._tag, "Failure");
-        if (result._tag === "Failure")
-          assert.include(
-            Cause.pretty(result.cause),
-            "Clear or send your message before editing a queued one.",
+        if (result._tag === "Failure") {
+          const error = Option.getOrThrow(Cause.findErrorOption(result.cause));
+          assert.instanceOf(error, QueuedEditDraftNotEmptyError);
+          assert.equal(
+            (error as QueuedEditDraftNotEmptyError)._tag,
+            "QueuedEditDraftNotEmptyError",
           );
+          assert.equal(error.message, QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR);
+        }
         assert.deepStrictEqual(yield* read, before);
         assert.deepStrictEqual(changes, []);
       }).pipe(Effect.scoped, Effect.provide(NodeSqliteClient.layerMemory())),
