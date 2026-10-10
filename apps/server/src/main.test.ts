@@ -807,6 +807,7 @@ it.layer(testLayer)("server CLI command", (it) => {
           listStreamingAssistantMessages: () => Effect.succeed([]),
           searchThreadMessages: () => Effect.die("unused"),
           getThreadMessageContext: () => Effect.die("unused"),
+          hasActiveProviderThread: () => Effect.die("unused provider admission method"),
           getShellSnapshot: () => Effect.die("unused"),
           getActiveFolderByWorkspaceRoot: () => Effect.die("unused"),
           getFolderShellById: () => Effect.die("unused"),

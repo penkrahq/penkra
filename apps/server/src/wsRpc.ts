@@ -67,7 +67,6 @@ import { OrchestrationEngineService } from "./orchestration/Services/Orchestrati
 import { ProviderCommandReactor } from "./orchestration/Services/ProviderCommandReactor";
 import { ProviderThreadSwitchCoordinator } from "./orchestration/Services/ProviderThreadSwitchCoordinator";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
-import { hasActiveProviderThread } from "./provider/providerUpdateCoordinator";
 import { shouldPublishThreadShellForEvent } from "./orchestration/threadShellEvents";
 import { listProviderConnectionManifests } from "./provider/providerConnectionManifests";
 import { ProviderDiscoveryService } from "./provider/Services/ProviderDiscoveryService";
@@ -1559,9 +1558,9 @@ const makeWsRpcHandlersLayer = () =>
             "Failed to refresh providers",
           ),
         [WS_METHODS.serverUpdateProvider]: (input) =>
-          projectionReadModelQuery.getShellSnapshot().pipe(
-            Effect.flatMap((snapshot) =>
-              hasActiveProviderThread(input.provider, snapshot.threads)
+          projectionReadModelQuery.hasActiveProviderThread(input.provider).pipe(
+            Effect.flatMap((active) =>
+              active
                 ? Effect.fail(
                     new ServerProviderUpdateError({
                       provider: input.provider,

@@ -103,6 +103,7 @@ function makeHarness() {
     listStreamingAssistantMessages: () => Effect.die("unused snapshot method"),
     searchThreadMessages: () => Effect.die("unused snapshot method"),
     getThreadMessageContext: () => Effect.die("unused snapshot method"),
+    hasActiveProviderThread: () => Effect.die("unused provider admission method"),
     getShellSnapshot: () => Effect.die("unused snapshot method"),
     getActiveFolderByWorkspaceRoot: () => Effect.die("unused snapshot method"),
     getFolderShellById: () => Effect.succeed(Option.some(FOLDER)),

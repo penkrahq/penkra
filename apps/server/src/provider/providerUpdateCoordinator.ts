@@ -7,12 +7,7 @@
  * narrow so managed, versioned runtimes can replace external package-manager
  * updates without changing Settings or notification behavior.
  */
-import type {
-  OrchestrationThreadShell,
-  ProviderKind,
-  ServerSettings,
-  ServerProviderStatus,
-} from "@penkra/contracts";
+import type { ProviderKind, ServerSettings, ServerProviderStatus } from "@penkra/contracts";
 import { ProviderInstallationId } from "@penkra/contracts";
 import {
   Cause,
@@ -100,27 +95,6 @@ interface ProviderUpdateHistoryEntry {
   readonly finishedAt: string;
   readonly status: ProviderUpdateHistoryStatus;
   readonly message: string;
-}
-
-export function isProviderUpdateBlockedByActiveThread(
-  provider: ProviderKind,
-  thread: OrchestrationThreadShell,
-): boolean {
-  if (thread.modelSelection.provider !== provider || thread.session === null) {
-    return false;
-  }
-  return (
-    thread.session.activeTurnId !== null ||
-    thread.session.status === "starting" ||
-    thread.session.status === "running"
-  );
-}
-
-export function hasActiveProviderThread(
-  provider: ProviderKind,
-  threads: ReadonlyArray<OrchestrationThreadShell>,
-): boolean {
-  return threads.some((thread) => isProviderUpdateBlockedByActiveThread(provider, thread));
 }
 
 function isAutomaticUpdateCandidate(status: ServerProviderStatus): boolean {
@@ -353,8 +327,7 @@ export function runAutomaticProviderUpdateCycle(input: ManagedProviderCoordinato
       if (!release || !targetVersion) {
         continue;
       }
-      const shell = yield* input.projectionSnapshotQuery.getShellSnapshot();
-      if (hasActiveProviderThread(candidate.provider, shell.threads)) {
+      if (yield* input.projectionSnapshotQuery.hasActiveProviderThread(candidate.provider)) {
         yield* Effect.logInfo("provider update deferred for active session", {
           provider: candidate.provider,
         });
