@@ -1,5 +1,5 @@
 import { EventId, MessageId, ThreadId, TurnId } from "@penkra/contracts";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AppState } from "../store";
 import type { ChatMessage, Thread, ThreadShell } from "../types";
@@ -147,4 +147,84 @@ describe("createThreadLineageSelector", () => {
 
     expect(after).toBe(before);
   });
+});
+
+const ancestorHarness = vi.hoisted(() => {
+  let key: string | undefined;
+  return {
+    loadThread: vi.fn(),
+    toast: vi.fn(),
+    reset() {
+      key = undefined;
+    },
+    useEffect(effect: () => void, dependencies: string[]) {
+      if (key !== dependencies[0]) {
+        key = dependencies[0];
+        effect();
+      }
+    },
+  };
+});
+vi.mock("react", () => ({
+  useMemo: (compute: () => unknown) => compute(),
+  useEffect: ancestorHarness.useEffect,
+}));
+vi.mock("../threadListStore", () => ({ loadThread: ancestorHarness.loadThread }));
+vi.mock("./ui/toast", () => ({ toastManager: { add: ancestorHarness.toast } }));
+import { useLoadThreadAncestors } from "../hooks/useLoadThreadAncestors";
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  ancestorHarness.reset();
+});
+it("loads a missing grandparent by ID and continues the lineage when it arrives", async () => {
+  const grandparentId = ThreadId.makeUnsafe("grandparent");
+  const rows: { id: ThreadId; parentThreadId: ThreadId | null }[] = [
+    { id: childThreadId, parentThreadId: rootThreadId },
+    { id: rootThreadId, parentThreadId: grandparentId },
+  ];
+  const state = makeState({
+    threadShellById: {
+      ...threadShellById,
+      [grandparentId]: { ...rootShell, id: grandparentId, title: "Grandparent" },
+    },
+  });
+  expect(createThreadLineageSelector(childThreadId, rows)(state).map((row) => row.id)).toEqual([
+    rootThreadId,
+    childThreadId,
+  ]);
+  let finish!: () => void;
+  const reply = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  ancestorHarness.loadThread.mockImplementation(async () => {
+    await reply;
+    rows.push({ id: grandparentId, parentThreadId: null });
+  });
+  useLoadThreadAncestors(childThreadId, rows);
+  expect(ancestorHarness.loadThread).toHaveBeenCalledExactlyOnceWith(grandparentId);
+  useLoadThreadAncestors(childThreadId, [...rows]);
+  expect(ancestorHarness.loadThread).toHaveBeenCalledTimes(1);
+  finish();
+  await ancestorHarness.loadThread.mock.results[0]!.value;
+  useLoadThreadAncestors(childThreadId, [...rows]);
+  expect(createThreadLineageSelector(childThreadId, rows)(state).map((row) => row.title)).toEqual([
+    "Grandparent",
+    "Root thread",
+    "Child thread",
+  ]);
+  expect(ancestorHarness.loadThread).toHaveBeenCalledTimes(1);
+});
+it("shows a failed ancestor read without retrying the same missing IDs", async () => {
+  const rows = [{ id: childThreadId, parentThreadId: rootThreadId }];
+  ancestorHarness.loadThread.mockRejectedValue(new Error("read failed"));
+  useLoadThreadAncestors(childThreadId, rows);
+  await Promise.resolve();
+  expect(ancestorHarness.toast).toHaveBeenCalledWith({
+    type: "error",
+    title: "Could not load thread",
+    description: "read failed",
+  });
+  useLoadThreadAncestors(childThreadId, [...rows]);
+  expect(ancestorHarness.loadThread).toHaveBeenCalledTimes(1);
 });
