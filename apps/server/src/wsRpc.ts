@@ -113,6 +113,7 @@ import { recordWsRpcFailure } from "./diagnostics/wsRpcFailure";
 import { listThreadItemsPage } from "./cleanCore/threadItemsPage.ts";
 import { listThreads } from "./cleanCore/threadList.ts";
 import { getThreadDraft, setThreadDraft } from "./cleanCore/threadDraft.ts";
+import { updateThreadFields } from "./cleanCore/threadStore.ts";
 import { ThreadPublisher } from "./cleanCore/ThreadPublisher.ts";
 import { threadChangeStream } from "./cleanCore/threadChangeStream.ts";
 import { recoverMissingFile } from "./diagnostics/missingFileRecovery";
@@ -1460,6 +1461,15 @@ const makeWsRpcHandlersLayer = () =>
           rpcEffect(loadServerConfig, "Failed to load server config"),
         [WS_METHODS.cleanCoreListThreads]: (input) =>
           rpcEffect(listThreads(input), "Failed to load the thread list"),
+        [WS_METHODS.cleanCoreUpdateThread]: (input) =>
+          rpcEffect(
+            updateThreadFields(input).pipe(
+              Effect.tap(() =>
+                Effect.sync(() => threadPublisher.publish({ threadId: input.threadId })),
+              ),
+            ),
+            "Failed to update the thread",
+          ),
         [WS_METHODS.cleanCoreListThreadItemsPage]: (input) =>
           rpcEffect(listThreadItemsPage(input), "Failed to load a thread items page"),
         [WS_METHODS.cleanCoreGetThreadDraft]: (input) =>

@@ -7,6 +7,7 @@ import {
   createThread,
   makeThreadPublisher,
   setThreadArchived,
+  updateThreadFields,
   upsertThreadItem,
 } from "./threadStore.ts";
 import { THREAD_ITEM_DATA_LIMIT_BYTES } from "./threadItemData.ts";
@@ -179,6 +180,44 @@ it.effect("stores last_message_preview unchanged (no fixed truncation)", () =>
         SELECT last_message_preview AS preview FROM threads WHERE id = 'thread-1'
       `;
       assert.deepStrictEqual(rows, [{ preview: longText }]);
+    }),
+  ),
+);
+
+it.effect("updateThreadFields sets only the provided fields", () =>
+  withDb(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations();
+      yield* createThread(baseThread);
+      yield* updateThreadFields({
+        threadId: "thread-1",
+        updatedAt: "2026-10-09T00:00:05.000Z",
+        sidebarSortOrder: 7,
+        isPinned: 1,
+        runtimeMode: "read-only",
+      });
+      const rows = yield* sql<{
+        readonly sidebarSortOrder: number;
+        readonly isPinned: number;
+        readonly runtimeMode: string;
+        readonly deckId: string | null;
+        readonly lastVisitedAt: string | null;
+      }>`
+        SELECT sidebar_sort_order AS "sidebarSortOrder", is_pinned AS "isPinned",
+               runtime_mode AS "runtimeMode", deck_id AS "deckId",
+               last_visited_at AS "lastVisitedAt"
+        FROM threads WHERE id = 'thread-1'
+      `;
+      assert.deepStrictEqual(rows, [
+        {
+          sidebarSortOrder: 7,
+          isPinned: 1,
+          runtimeMode: "read-only",
+          deckId: null,
+          lastVisitedAt: null,
+        },
+      ]);
     }),
   ),
 );
