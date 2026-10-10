@@ -706,11 +706,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         },
       };
 
-      // Imported messages keep their source-thread timestamps so the transcript still
-      // reads chronologically. They are not activity in this thread: the retention
-      // clock floors on the new thread's own createdAt/updatedAt (see
-      // `threadRetention.getThreadLastActivityMs`) so a fork of an old conversation
-      // is never born past the retention cutoff.
       const importedMessageEvents: ReadonlyArray<Omit<OrchestrationEvent, "sequence">> =
         command.importedMessages.map((message) => ({
           ...withEventBase({
@@ -782,34 +777,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           deletedAt: occurredAt,
-        },
-      };
-    }
-
-    case "thread.retention-recover": {
-      const thread = findThreadById(readModel, command.threadId);
-      if (!thread || thread.deletedAt !== command.expectedDeletedAt) {
-        return yield* Effect.fail(
-          new OrchestrationCommandInvariantError({
-            commandType: command.type,
-            detail: `Thread '${command.threadId}' changed before retention recovery.`,
-          }),
-        );
-      }
-      const occurredAt = nowIso();
-      return {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.archived",
-        payload: {
-          threadId: command.threadId,
-          archivedAt: occurredAt,
-          updatedAt: occurredAt,
-          restoredFromRetention: true,
         },
       };
     }
@@ -937,7 +904,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             ? { subagentNickname: command.subagentNickname }
             : {}),
           ...(command.subagentRole !== undefined ? { subagentRole: command.subagentRole } : {}),
-          ...(command.lastOpenedAt !== undefined ? { lastOpenedAt: command.lastOpenedAt } : {}),
           updatedAt: occurredAt,
         },
       };

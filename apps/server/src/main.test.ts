@@ -30,13 +30,6 @@ import { makeServerShutdownController } from "./serverShutdown";
 import { openDiagnosticsReader, type DiagnosticsStore } from "./diagnostics/store";
 import { installDiagnosticsStore } from "./diagnostics/recorder";
 
-vi.mock("./threadRetention", async () => {
-  const Effect = await import("effect/Effect");
-  return {
-    startThreadRetentionJob: () => Effect.void,
-  };
-});
-
 import {
   CliConfig,
   makeServerStartupLogData,

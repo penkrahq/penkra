@@ -6,7 +6,6 @@ import { ThreadPurge } from "../../threadPurge";
 import { ProviderService } from "../../provider/Services/ProviderService";
 import { ProviderNativeStateDeletionCoordinator } from "../../provider/Services/ProviderNativeStateDeletionCoordinator";
 import { TerminalManager } from "../../terminal/Services/Manager";
-import { THREAD_RETENTION_COMMAND_ID_PREFIX } from "../../threadRetention";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery";
 import {
@@ -166,12 +165,7 @@ const make = Effect.gen(function* () {
     return false;
   });
 
-  // Retention deletes only hide the thread. Explicit deletes hard-delete the
-  // thread's rows after every recovery consumer has crossed the purge fence.
   const purgeThreadData = (event: ThreadDeletedEvent) => {
-    if (event.commandId?.startsWith(THREAD_RETENTION_COMMAND_ID_PREFIX)) {
-      return Effect.void;
-    }
     return waitForThreadPurgeFence(event.payload.threadId).pipe(
       Effect.flatMap((canPurge) =>
         canPurge ? threadPurge.purge(event.payload.threadId) : Effect.succeed(false),
