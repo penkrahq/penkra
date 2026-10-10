@@ -3,7 +3,8 @@
 // the in-memory per-thread change publisher (0.14.4 design 2.1/2.2).
 // Layer: Server persistence (clean core)
 // Exports: makeThreadPublisher, upsertThreadItem, createThread, setThreadArchived,
-//   renameThread, setThreadDeleted, setThreadState, updateThreadDraft, answerQuestion
+//   renameThread, setThreadDeleted, setThreadState, updateThreadDraft, answerQuestion,
+//   settleRunningItems
 
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -181,6 +182,35 @@ export const answerQuestion = (
       SET status = 'answered', data = ${answerData}, updated_at = ${answeredAt}
       WHERE thread_id = ${threadId} AND source_id = ${sourceId}
     `;
+  });
+
+/**
+ * A turn's outcome is the only thing that settles its still-running items (TODO
+ * 2.3): when the turn ends, or the provider exits / startup cuts off a running
+ * thread, every `running` item of that turn becomes terminal in the same write.
+ * No reconciler, no UI inference from turn state.
+ */
+export const settleRunningItems = (
+  threadId: string,
+  status: string,
+  at: string,
+  turnId?: string | null,
+) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    if (turnId === undefined || turnId === null) {
+      yield* sql`
+        UPDATE thread_items
+        SET status = ${status}, updated_at = ${at}
+        WHERE thread_id = ${threadId} AND status = 'running'
+      `;
+    } else {
+      yield* sql`
+        UPDATE thread_items
+        SET status = ${status}, updated_at = ${at}
+        WHERE thread_id = ${threadId} AND status = 'running' AND turn_id = ${turnId}
+      `;
+    }
   });
 
 /**
