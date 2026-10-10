@@ -2774,6 +2774,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
 
 
+
   beforeAll(async () => {
     fixture = buildFixture(
       createSnapshotForTargetUser({

@@ -12,6 +12,7 @@ import {
   answerQuestion,
   appendThreadItemText,
   setThreadState,
+  settleRunningItems,
   upsertThreadItem,
   type ThreadItemInput,
   type ThreadPublisher,
@@ -81,6 +82,13 @@ export const applyProviderEvent = (publisher: ThreadPublisher, event: CleanCoreP
           event.state === "error" ? (event.error ?? "Turn failed") : null,
           event.at,
         );
+        // The turn's outcome settles its still-running items in the same write.
+        yield* settleRunningItems(
+          event.threadId,
+          event.state === "completed" ? "done" : event.state === "error" ? "error" : "interrupted",
+          event.at,
+          event.turnId,
+        );
         publisher.publish({ threadId: event.threadId });
         return;
       }
@@ -111,6 +119,8 @@ export const applyProviderEvent = (publisher: ThreadPublisher, event: CleanCoreP
           (threadId) =>
             Effect.gen(function* () {
               yield* setThreadState(threadId, "idle", null, null, event.at);
+              // A cut-off turn leaves no running items behind.
+              yield* settleRunningItems(threadId, "interrupted", event.at);
               yield* upsertThreadItem({
                 threadId,
                 sourceId: `provider-cutoff:${event.at}`,

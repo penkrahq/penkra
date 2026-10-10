@@ -50,9 +50,12 @@ function normalizeTone(value: unknown, itemKind: string): ActivityTone {
 }
 
 function normalizeKind(value: unknown, itemKind: string, status: string): string {
+  // A tool item's lifecycle is its item status, so a settled item derives
+  // tool.completed even if its original data still says tool.started.
+  if (itemKind === "tool") return status === "running" ? "tool.updated" : "tool.completed";
   if (typeof value === "string" && value.length > 0) return value;
   if (itemKind === "notice") return "runtime.warning";
-  return status === "running" ? "tool.updated" : "tool.completed";
+  return "tool.completed";
 }
 
 function normalizeSummary(value: unknown, text: string | null): string {
@@ -64,6 +67,33 @@ function normalizeSummary(value: unknown, text: string | null): string {
  * non-JSON `data` copy (an old OpenCode task result) still renders through
  * TimelineWorkEntryRow with the item text as its detail.
  */
+const TERMINAL_TOOL_STATUSES = new Set(["interrupted", "error", "done", "failed", "cancelled"]);
+
+/**
+ * The clean core settles a running tool item to a terminal status when its turn
+ * ends (TODO 2.3), but the tool payload's own status can still read "inProgress".
+ * Surface the settled item status on the payload so the work row shows the
+ * terminal state (Cancelled/Failed/Completed) without UI inference from turn state.
+ */
+function reconcileToolPayloadStatus(
+  payload: unknown,
+  item: CleanCoreThreadItem,
+): unknown {
+  if (item.kind !== "tool" || !TERMINAL_TOOL_STATUSES.has(item.status)) return payload;
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) return payload;
+  const record = payload as Record<string, unknown>;
+  const current = typeof record.status === "string" ? record.status.toLowerCase() : "";
+  if (
+    current.length > 0 &&
+    ["error", "failed", "failure", "cancelled", "canceled", "declined", "interrupted", "killed", "stopped", "aborted"].includes(
+      current,
+    )
+  ) {
+    return payload;
+  }
+  return { ...record, status: item.status };
+}
+
 export function threadItemToActivity(item: CleanCoreThreadItem): OrchestrationThreadActivity {
   const data = parseThreadItemData(item.data);
   const hasActivityShape =
@@ -74,7 +104,7 @@ export function threadItemToActivity(item: CleanCoreThreadItem): OrchestrationTh
     tone: normalizeTone(data?.tone, item.kind),
     kind: normalizeKind(data?.kind, item.kind, item.status),
     summary: normalizeSummary(data?.summary, item.text),
-    payload: payload as OrchestrationThreadActivity["payload"],
+    payload: reconcileToolPayloadStatus(payload, item) as OrchestrationThreadActivity["payload"],
     turnId: item.turnId === null ? null : TurnId.makeUnsafe(item.turnId),
     sequence: item.seq,
     createdAt: item.createdAt,

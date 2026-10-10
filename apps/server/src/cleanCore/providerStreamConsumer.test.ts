@@ -265,3 +265,117 @@ it.effect("a replay of the same item event does not create a second row", () =>
     }),
   ),
 );
+
+it.effect("turn end settles that turn's running items to a terminal status", () =>
+  withDb(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const publisher = makeThreadPublisher();
+      yield* runMigrations();
+      yield* createThread(baseThread);
+      const running = (sourceId: string, turnId: string) => ({
+        threadId: "thread-1",
+        sourceId,
+        turnId,
+        kind: "tool" as const,
+        status: "running",
+        text: sourceId,
+        createdAt: "2026-10-09T00:00:01.000Z",
+        updatedAt: "2026-10-09T00:00:01.000Z",
+      });
+      yield* upsertThreadItem(running("tool-turn-1", "turn-1"));
+      yield* upsertThreadItem(running("tool-turn-2", "turn-2"));
+
+      yield* applyProviderEvent(publisher, {
+        type: "turn.ended",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        state: "interrupted",
+        at: "2026-10-09T00:00:02.000Z",
+      });
+
+      const rows = yield* sql<{ readonly sourceId: string; readonly status: string }>`
+        SELECT source_id AS "sourceId", status FROM thread_items WHERE thread_id = 'thread-1' ORDER BY seq
+      `;
+      assert.deepStrictEqual(rows, [
+        { sourceId: "tool-turn-1", status: "interrupted" },
+        { sourceId: "tool-turn-2", status: "running" },
+      ]);
+    }),
+  ),
+);
+
+it.effect("turn end maps completed to done and error to error", () =>
+  withDb(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const publisher = makeThreadPublisher();
+      yield* runMigrations();
+      yield* createThread(baseThread);
+      const running = (sourceId: string) => ({
+        threadId: "thread-1",
+        sourceId,
+        turnId: "turn-1",
+        kind: "tool" as const,
+        status: "running",
+        text: sourceId,
+        createdAt: "2026-10-09T00:00:01.000Z",
+        updatedAt: "2026-10-09T00:00:01.000Z",
+      });
+      yield* upsertThreadItem(running("tool-done"));
+      yield* applyProviderEvent(publisher, {
+        type: "turn.ended",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        state: "completed",
+        at: "2026-10-09T00:00:02.000Z",
+      });
+      yield* upsertThreadItem(running("tool-error"));
+      yield* applyProviderEvent(publisher, {
+        type: "turn.ended",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        state: "error",
+        error: "boom",
+        at: "2026-10-09T00:00:03.000Z",
+      });
+      const rows = yield* sql<{ readonly sourceId: string; readonly status: string }>`
+        SELECT source_id AS "sourceId", status FROM thread_items WHERE thread_id = 'thread-1' ORDER BY seq
+      `;
+      assert.deepStrictEqual(rows, [
+        { sourceId: "tool-done", status: "done" },
+        { sourceId: "tool-error", status: "error" },
+      ]);
+    }),
+  ),
+);
+
+it.effect("provider exit settles every running item to interrupted", () =>
+  withDb(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const publisher = makeThreadPublisher();
+      yield* runMigrations();
+      yield* createThread(baseThread);
+      yield* upsertThreadItem({
+        threadId: "thread-1",
+        sourceId: "tool-open",
+        kind: "tool",
+        status: "running",
+        text: "tool-open",
+        createdAt: "2026-10-09T00:00:01.000Z",
+        updatedAt: "2026-10-09T00:00:01.000Z",
+      });
+      yield* applyProviderEvent(publisher, {
+        type: "provider.exited",
+        threadIds: ["thread-1"],
+        at: "2026-10-09T00:00:02.000Z",
+      });
+      const rows = yield* sql<{ readonly sourceId: string; readonly status: string }>`
+        SELECT source_id AS "sourceId", status FROM thread_items
+        WHERE thread_id = 'thread-1' AND kind = 'tool'
+      `;
+      assert.deepStrictEqual(rows, [{ sourceId: "tool-open", status: "interrupted" }]);
+    }),
+  ),
+);
