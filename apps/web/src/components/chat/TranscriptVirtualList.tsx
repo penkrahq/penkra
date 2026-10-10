@@ -54,6 +54,10 @@ interface TranscriptVirtualListProps<TItem> extends Omit<
   onNearStart?: () => void;
   /** In-memory identity used to restore a detached viewport after switching transcripts. */
   viewportMemoryKey?: string;
+  /** Row key whose measured size should be observed (the live tail). */
+  observedTailKey?: string | null;
+  /** Called when the observed tail row's size changes; the caller decides follow. */
+  onObservedTailResize?: () => void;
 }
 
 const END_THRESHOLD_PX = 80;
@@ -96,6 +100,8 @@ function TranscriptVirtualListInner<TItem>(
     paddingEnd,
     onNearStart,
     viewportMemoryKey,
+    observedTailKey,
+    onObservedTailResize,
     onKeyDown,
     onPointerDown,
     onScroll,
@@ -403,6 +409,35 @@ function TranscriptVirtualListInner<TItem>(
     scrollOwnerRef.current === "reader" &&
     readerAnchorIndexRef.current !== null &&
     item.index < readerAnchorIndexRef.current;
+  // Observe the live tail row's measured size. Attaching from the row element
+  // means mount/unmount (or the tail key changing) drives the observer, so a
+  // tail row that is not yet rendered is still observed once it appears.
+  const onObservedTailResizeRef = useRef(onObservedTailResize);
+  onObservedTailResizeRef.current = onObservedTailResize;
+  const tailResizeObserverRef = useRef<ResizeObserver | null>(null);
+  const observedTailSizeRef = useRef<number | null>(null);
+  const setObservedTailRowRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      virtualizer.measureElement(node);
+      tailResizeObserverRef.current?.disconnect();
+      tailResizeObserverRef.current = null;
+      observedTailSizeRef.current = null;
+      if (!node) return;
+      const observer = new ResizeObserver((entries) => {
+        const height = entries[0]?.contentRect.height ?? null;
+        if (height === null) return;
+        const previous = observedTailSizeRef.current;
+        observedTailSizeRef.current = height;
+        // The first delivery reports the size at attach time; only a later
+        // change is growth that the caller may need to react to.
+        if (previous === null || Math.abs(height - previous) < GEOMETRY_EPSILON_PX) return;
+        onObservedTailResizeRef.current?.();
+      });
+      observer.observe(node);
+      tailResizeObserverRef.current = observer;
+    },
+    [virtualizer],
+  );
   const diagnosticTimeoutsRef = useRef<number[]>([]);
   const isAtRenderedTail = useCallback(
     (threshold = END_THRESHOLD_PX) => {
@@ -1204,7 +1239,11 @@ function TranscriptVirtualListInner<TItem>(
         {virtualItems.map((virtualItem) => (
           <div
             key={virtualItem.key}
-            ref={virtualizer.measureElement}
+            ref={
+              String(virtualItem.key) === observedTailKey
+                ? setObservedTailRowRef
+                : virtualizer.measureElement
+            }
             data-index={virtualItem.index}
             data-row-key={String(virtualItem.key)}
             style={{ position: "absolute", top: 0, left: 0, width: "100%" }}
