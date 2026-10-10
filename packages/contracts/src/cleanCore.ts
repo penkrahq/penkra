@@ -405,3 +405,6 @@ export const CleanCoreInterruptResult = Schema.Struct({
   interruptedTurnId: Schema.NullOr(TurnId),
 });
 export type CleanCoreInterruptResult = typeof CleanCoreInterruptResult.Type;
+
+export const QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR =
+  "Clear or send your message before editing a queued one.";
