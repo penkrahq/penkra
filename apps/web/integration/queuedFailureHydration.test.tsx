@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { OrchestrationProjectionSnapshotQueryLive } from "../../server/src/orchestration/Layers/ProjectionSnapshotQuery.ts";
 import { ProjectionSnapshotQuery } from "../../server/src/orchestration/Services/ProjectionSnapshotQuery.ts";
 import { SqlitePersistenceMemory } from "../../server/src/persistence/Layers/Sqlite.ts";
+import { createShellSnapshotFromReadModel } from "../src/test/effectRpcWebSocketMock";
 import { ThreadErrorBanner } from "../src/components/chat/ThreadErrorBanner";
 import { syncServerShellSnapshot, syncServerThreadTurnsPage } from "../src/storeProjection";
 import { makeState, makeThread, threadsOf } from "../src/storeTestFixtures";
@@ -49,7 +50,7 @@ describe("failed queued delivery hydration", () => {
 
       const snapshot = await runtime.runPromise(query.getSnapshot());
       expect(snapshot.threads[0]?.messages[0]?.delivery?.failureDetail).toBe(reason);
-      const shell = await runtime.runPromise(query.getShellSnapshot());
+      const shell = createShellSnapshotFromReadModel(snapshot);
       const page = await runtime.runPromise(query.getThreadTurnsPage({ threadId }));
       expect(page.messages[0]?.delivery?.failureDetail).toBe(reason);
 

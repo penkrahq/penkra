@@ -188,15 +188,6 @@ export const WsOrchestrationGetSnapshotRpc = Rpc.make(ORCHESTRATION_WS_METHODS.g
   error: WsRpcError,
 });
 
-export const WsOrchestrationGetShellSnapshotRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.getShellSnapshot,
-  {
-    payload: OrchestrationRpcSchemas.getShellSnapshot.input,
-    success: OrchestrationRpcSchemas.getShellSnapshot.output,
-    error: WsRpcError,
-  },
-);
-
 export const WsOrchestrationRepairStateRpc = Rpc.make(ORCHESTRATION_WS_METHODS.repairState, {
   payload: OrchestrationRpcSchemas.repairState.input,
   success: OrchestrationRpcSchemas.repairState.output,
@@ -827,7 +818,6 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsOrchestrationDispatchCommandRpc,
   WsOrchestrationImportThreadRpc,
   WsOrchestrationGetSnapshotRpc,
-  WsOrchestrationGetShellSnapshotRpc,
   WsOrchestrationGetThreadDetailSnapshotRpc,
   WsOrchestrationGetThreadTurnsPageRpc,
   WsOrchestrationGetPendingStartOutcomeRpc,
