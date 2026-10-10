@@ -2895,10 +2895,19 @@ describe("ChatView timeline estimator parity (full app)", () => {
         if (typeof normalized.top === "number") scrollContainer.scrollTop = normalized.top;
         scrollContainer.dispatchEvent(new Event("scroll"));
       }) as typeof scrollContainer.scrollTo;
-      // Let mount-time tail/image expansion retries (max 260ms) settle before
-      // isolating the state transitions below.
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 300));
-      await waitForLayout();
+      // Let mount-time tail/image expansion retries settle by observing that the
+      // tail stopped growing instead of guessing a duration: wait until the
+      // transcript is pinned to the bottom and its scrollHeight is stable.
+      await vi.waitFor(
+        async () => {
+          await waitForLayout();
+          const heightBefore = scrollContainer.scrollHeight;
+          await waitForLayout();
+          expect(getScrollContainerDistanceFromBottom(scrollContainer)).toBeLessThanOrEqual(16);
+          expect(scrollContainer.scrollHeight).toBe(heightBefore);
+        },
+        { timeout: 4_000, interval: 16 },
+      );
 
       const activeTurnId = TurnId.makeUnsafe("turn-auto-follow-wiring");
       const liveAssistantMessage = {
@@ -2990,7 +2999,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
         updatedAt: isoAt(1_205),
       }));
       await waitForLayout();
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 80));
       expect(getScrollContainerDistanceFromBottom(scrollContainer)).toBeGreaterThan(0);
 
       // A streamed token while the reader has scrolled away must not fight back.
