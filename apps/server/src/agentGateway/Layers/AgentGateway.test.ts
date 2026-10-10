@@ -1064,6 +1064,9 @@ function makeHarnessLayer(
   ).pipe(
     Layer.provide(
       Layer.succeed(ThreadSender, {
+        queuedThread: () => Effect.succeed(ThreadId.makeUnsafe("thread-cancel-queued")),
+        cancelQueued: (input) => Effect.succeed({ ...input, removed: true }),
+        interrupt: (threadId) => Effect.succeed({ threadId, interruptRequested: true }),
         send: (input: ThreadSendInput) =>
           Effect.sync(() => {
             sent.push(input);
@@ -3730,7 +3733,7 @@ describe("AgentGateway", () => {
     }).pipe(Effect.provide(gatewayLayer));
   });
 
-  it.effect("targets one queued turn for cancellation by its stable handle", () => {
+  it.effect("cancels a queued message by message id without a turn handle", () => {
     const target = makeThreadShell("thread-cancel-queued");
     const { gatewayLayer, makeHarness } = makeHarnessLayer([
       makeThreadShell("thread-parent"),
@@ -3738,28 +3741,17 @@ describe("AgentGateway", () => {
     ]);
     return Effect.gen(function* () {
       const harness = yield* makeHarness;
-      harness.setProjectionTurn({
-        threadId: target.id,
-        turnId: "turn-cancel-queued",
-        state: "queued",
-        pendingMessageId: "message-cancel-queued",
-      });
       const response = yield* harness.callTool({
         token: "token-parent",
         name: "penkra_interrupt_thread",
-        args: { threadId: target.id, turnId: "turn-cancel-queued" },
+        args: { messageId: "message-cancel-queued" },
       });
       assert.deepInclude(toolResultJson(response.result), {
         threadId: target.id,
-        turnId: "turn-cancel-queued",
-        state: "cancelled",
+        messageId: "message-cancel-queued",
+        removed: true,
       });
-      const command = harness.dispatched[0];
-      assert.equal(command?.type, "thread.turn.cancel-queued");
-      if (command?.type === "thread.turn.cancel-queued") {
-        assert.equal(command.turnId, "turn-cancel-queued");
-        assert.equal(command.messageId, "message-cancel-queued");
-      }
+      assert.equal(harness.dispatched.length, 0);
     }).pipe(Effect.provide(gatewayLayer));
   });
 
