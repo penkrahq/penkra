@@ -1,6 +1,16 @@
 import { Schema } from "effect";
 
-import { IsoDateTime, NonNegativeInt, ThreadId, TurnId, TrimmedNonEmptyString } from "./baseSchemas";
+import {
+  FolderId,
+  IsoDateTime,
+  NonNegativeInt,
+  ProviderConnectionId,
+  SpaceId,
+  ThreadDeckId,
+  ThreadId,
+  TurnId,
+  TrimmedNonEmptyString,
+} from "./baseSchemas";
 import { ProviderUserInputAnswers } from "./orchestration";
 
 /** Clean-core bounded transcript read (0.14.4 design 2.1). */
@@ -55,6 +65,44 @@ export type CleanCoreThreadChange = typeof CleanCoreThreadChange.Type;
 
 export const CleanCoreSubscribeThreadInput = Schema.Struct({ threadId: ThreadId });
 export type CleanCoreSubscribeThreadInput = typeof CleanCoreSubscribeThreadInput.Type;
+
+export const CleanCoreThreadSummary = Schema.Struct({
+  id: ThreadId,
+  spaceId: SpaceId,
+  folderId: Schema.NullOr(FolderId),
+  title: Schema.String,
+  provider: Schema.String,
+  connectionId: Schema.NullOr(ProviderConnectionId),
+  model: Schema.String,
+  modelOptions: Schema.NullOr(Schema.String),
+  runtimeMode: Schema.String,
+  workingDirectory: Schema.NullOr(Schema.String),
+  state: Schema.String,
+  activeTurnId: Schema.NullOr(TurnId),
+  lastError: Schema.NullOr(Schema.String),
+  createdBy: Schema.String,
+  createdByThreadId: Schema.NullOr(ThreadId),
+  parentThreadId: Schema.NullOr(ThreadId),
+  deckId: Schema.NullOr(ThreadDeckId),
+  deckSortOrder: Schema.Number,
+  sidebarSortOrder: Schema.NullOr(Schema.Number),
+  isPinned: Schema.Number,
+  lastActivityAt: Schema.NullOr(IsoDateTime),
+  lastMessagePreview: Schema.NullOr(Schema.String),
+  lastUserMessageAt: Schema.NullOr(IsoDateTime),
+  lastVisitedAt: Schema.NullOr(IsoDateTime),
+  openQuestionCount: NonNegativeInt,
+  archivedAt: Schema.NullOr(IsoDateTime),
+  deletedAt: Schema.NullOr(IsoDateTime),
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+export type CleanCoreThreadSummary = typeof CleanCoreThreadSummary.Type;
+
+export const CleanCoreListThreadsResult = Schema.Struct({
+  threads: Schema.Array(CleanCoreThreadSummary),
+});
+export type CleanCoreListThreadsResult = typeof CleanCoreListThreadsResult.Type;
 
 /**
  * A clean-core answer to an open `question` item (0.14.4 design 2.5). The item

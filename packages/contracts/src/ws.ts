@@ -128,6 +128,7 @@ export const WS_METHODS = {
   terminalClose: "terminal.close",
 
   // Server meta
+  cleanCoreListThreads: "cleanCore.listThreads",
   cleanCoreListThreadItemsPage: "cleanCore.listThreadItemsPage",
   cleanCoreGetThreadDraft: "cleanCore.getThreadDraft",
   cleanCoreSetThreadDraft: "cleanCore.setThreadDraft",
@@ -269,6 +270,7 @@ const WebSocketRequestBody = Schema.Union([
 
   // Server meta
   tagRequestBody(WS_METHODS.serverGetConfig, Schema.Struct({})),
+  tagRequestBody(WS_METHODS.cleanCoreListThreads, Schema.Struct({})),
   tagRequestBody(WS_METHODS.cleanCoreListThreadItemsPage, CleanCoreListThreadItemsPageInput),
   tagRequestBody(WS_METHODS.cleanCoreGetThreadDraft, CleanCoreGetThreadDraftInput),
   tagRequestBody(WS_METHODS.cleanCoreSetThreadDraft, CleanCoreSetThreadDraftInput),

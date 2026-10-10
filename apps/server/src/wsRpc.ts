@@ -111,6 +111,7 @@ import { armQaProviderSwitch, clearQaProviderSwitch } from "./diagnostics/qaProv
 import { recordServerQaAction } from "./diagnostics/qaProofBuild";
 import { recordWsRpcFailure } from "./diagnostics/wsRpcFailure";
 import { listThreadItemsPage } from "./cleanCore/threadItemsPage.ts";
+import { listThreads } from "./cleanCore/threadList.ts";
 import { getThreadDraft, setThreadDraft } from "./cleanCore/threadDraft.ts";
 import { ThreadPublisher } from "./cleanCore/ThreadPublisher.ts";
 import { threadChangeStream } from "./cleanCore/threadChangeStream.ts";
@@ -1457,6 +1458,11 @@ const makeWsRpcHandlersLayer = () =>
 
         [WS_METHODS.serverGetConfig]: () =>
           rpcEffect(loadServerConfig, "Failed to load server config"),
+        [WS_METHODS.cleanCoreListThreads]: () =>
+          rpcEffect(
+            listThreads().pipe(Effect.map((threads) => ({ threads }))),
+            "Failed to load the thread list",
+          ),
         [WS_METHODS.cleanCoreListThreadItemsPage]: (input) =>
           rpcEffect(listThreadItemsPage(input), "Failed to load a thread items page"),
         [WS_METHODS.cleanCoreGetThreadDraft]: (input) =>
