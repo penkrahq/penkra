@@ -109,8 +109,10 @@ import type {
   CleanCoreEditQueuedMessageInput,
   CleanCoreGetThreadShellInput,
   CleanCoreListThreadsInput,
+  CleanCoreListDeckThreadsInput,
   CleanCoreCreateThreadResponse,
   CleanCoreListThreadsResult,
+  CleanCoreListDeckThreadsResult,
   CleanCoreUpdateThreadInput,
   CleanCoreSetThreadDraftInput,
   CleanCoreSubscribeThreadInput,
@@ -1135,6 +1137,9 @@ export interface NativeApi {
     ) => Promise<import("./orchestration").OrchestrationThreadShell | null>;
     createThread: (input: CleanCoreCreateThreadInput) => Promise<CleanCoreCreateThreadResponse>;
     listThreads: (input: CleanCoreListThreadsInput) => Promise<CleanCoreListThreadsResult>;
+    listDeckThreads: (
+      input: CleanCoreListDeckThreadsInput,
+    ) => Promise<CleanCoreListDeckThreadsResult>;
     updateThread: (input: CleanCoreUpdateThreadInput) => Promise<void>;
     listThreadItemsPage: (
       input: CleanCoreListThreadItemsPageInput,

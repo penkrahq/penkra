@@ -1,10 +1,17 @@
-import { ThreadId, type ProviderKind } from "@penkra/contracts";
+import { ThreadId, type ThreadDeckId, type ProviderKind } from "@penkra/contracts";
 import { OptimisticSortingPlugin } from "@dnd-kit/dom/sortable";
 import { useDragDropMonitor, useDragOperation, useDroppable } from "@dnd-kit/react";
 import type { DragOverEvent } from "@dnd-kit/react";
 import { useSortable } from "@dnd-kit/react/sortable";
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useMemo, useState, type PointerEvent, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type PointerEvent,
+  type ReactNode,
+} from "react";
 
 import {
   SurfaceTabChip,
@@ -33,6 +40,8 @@ import {
 import { newCommandId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { useStore } from "~/store";
+import { loadThread, loadDeckThreads, useThreadSummary } from "~/threadListStore";
+import { selectDeckThreadRows, useSidebarThreadRows } from "~/sidebarThreadRows";
 import type { Thread } from "~/types";
 import { useVoiceSessionCoordinatorStore } from "~/voiceSessionCoordinator";
 import { CentralIcon } from "~/lib/central-icons";
@@ -81,7 +90,7 @@ function SortableDeckThread(props: {
     accept: [DECK_THREAD_DRAG_TYPE],
     data,
     // The normalized store owns visible order. Disable dnd-kit's transient DOM
-    // transform so drop can move directly from preview to the local projection.
+    // transform so committed canonical rows own the visible order.
     plugins: (defaults) => defaults.filter((plugin) => plugin !== OptimisticSortingPlugin),
   });
   const dropPlacement =
@@ -141,21 +150,41 @@ interface DeckTab {
   readonly hasTurn: boolean;
 }
 
-export function ThreadDeckBar(props: {
+interface ThreadDeckBarProps {
   activeThread: Thread;
   activeComposerProvider: ProviderKind;
   defaultComposerProvider: ProviderKind;
   leftRailCollapsed: boolean;
   onRestoreLeftRail: () => void;
   className?: string;
-}) {
+}
+export function ThreadDeckBar(props: ThreadDeckBarProps) {
+  const row = useThreadSummary(props.activeThread.id);
+  const draft = useComposerDraftStore(
+    (state) => state.draftThreadsByThreadId[props.activeThread.id],
+  );
+  useEffect(() => {
+    if (row !== null || draft !== undefined) return;
+    void loadThread(props.activeThread.id).catch((error: unknown) =>
+      toastManager.add({
+        type: "error",
+        title: "Could not load thread",
+        description: error instanceof Error ? error.message : String(error),
+      }),
+    );
+  }, [props.activeThread.id, row, draft]);
+  const deckId = row !== null ? row.deckId : draft?.deckId;
+  if (deckId === null || deckId === undefined) return null;
+  return <CanonicalThreadDeckBar {...props} deckId={deckId} />;
+}
+
+function CanonicalThreadDeckBar(props: ThreadDeckBarProps & { deckId: ThreadDeckId }) {
   const navigate = useNavigate();
   const { handleNewThread } = useHandleNewThread();
-  const decks = useStore((state) => state.decks);
   const folders = useStore((state) => state.folders);
-  const threadShellById = useStore((state) => state.threadShellById ?? {});
+  const rows = useSidebarThreadRows();
+  const rowsById = useMemo(() => Object.fromEntries(rows.map((row) => [row.id, row])), [rows]);
   const threadTurnStateById = useStore((state) => state.threadTurnStateById ?? {});
-  const sidebarThreadSummaryById = useStore((state) => state.sidebarThreadSummaryById);
   const draftThreadsByThreadId = useComposerDraftStore((state) => state.draftThreadsByThreadId);
   const composerDraftsByThreadId = useComposerDraftStore((state) => state.draftsByThreadId);
   const localSendOwnerThreadIds = useComposerSendActivityThreadIds();
@@ -163,7 +192,16 @@ export function ThreadDeckBar(props: {
   const recordingThreadId = useVoiceSessionCoordinatorStore(
     (state) => state.capture?.origin.threadId ?? null,
   );
-  const deckId = props.activeThread.deckId;
+  const deckId = props.deckId;
+  useEffect(() => {
+    void loadDeckThreads(deckId).catch((error: unknown) =>
+      toastManager.add({
+        type: "error",
+        title: "Could not load deck",
+        description: error instanceof Error ? error.message : String(error),
+      }),
+    );
+  }, [deckId]);
   const dropTargetId = `thread-deck:${deckId}`;
   const droppable = useDroppable({
     id: dropTargetId,
@@ -175,10 +213,10 @@ export function ThreadDeckBar(props: {
   const draggedSidebarData = readSidebarDndData(dragOperation.source?.data);
   const draggedThread =
     draggedSidebarData?.type === "item" && draggedSidebarData.item.kind === "thread"
-      ? threadShellById[draggedSidebarData.item.id]
+      ? rowsById[draggedSidebarData.item.id]
       : null;
   const activeSpaceId =
-    props.activeThread.spaceId ??
+    rowsById[props.activeThread.id]?.spaceId ??
     folders.find((folder) => folder.id === props.activeThread.folderId)?.spaceId ??
     null;
   const draggedSpaceId =
@@ -294,7 +332,7 @@ export function ThreadDeckBar(props: {
       ) {
         return;
       }
-      const thread = threadShellById[source.item.id];
+      const thread = rowsById[source.item.id];
       const sourceSpaceId =
         thread?.spaceId ??
         folders.find((folder) => folder.id === thread?.folderId)?.spaceId ??
@@ -320,37 +358,30 @@ export function ThreadDeckBar(props: {
   });
 
   const tabs = useMemo(() => {
-    const deck = decks.find((candidate) => candidate.id === deckId);
-    const persisted = (deck?.threadIds ?? [])
-      .map((threadId): DeckTab | null => {
-        const thread = threadShellById[threadId];
-        if (!thread || thread.archivedAt != null) return null;
-        const summary = sidebarThreadSummaryById[threadId];
-        const status = summary
-          ? resolveSidebarThreadSummaryStatus({
-              thread: summary,
-              lastVisitedAt: thread.lastVisitedAt,
-              dismissedStatusKey: readSidebarUiState().dismissedThreadStatusKeyByThreadId[threadId],
-              isPromotedDraftPending: draftThreadsByThreadId[threadId]?.promotedTo !== undefined,
-              hasLocalSendOwner: localSendOwnerThreadIds.has(threadId),
-            })
-          : null;
-        return {
-          id: thread.id,
-          folderId: thread.folderId,
-          title: thread.title,
-          harness: thread.modelSelection.provider,
-          pinned: thread.isPinned ?? false,
-          workStatus: resolveVisibleThreadWorkStatus({
-            status,
-            isRecording: thread.id === recordingThreadId,
-            projectedWorkStatus: summary?.workStatus,
-          }),
-          createdAt: thread.createdAt,
-          hasTurn: threadTurnStateById[thread.id]?.latestTurn != null,
-        };
-      })
-      .filter((tab): tab is DeckTab => tab !== null);
+    const persisted = selectDeckThreadRows(rows, deckId).map((thread): DeckTab => {
+      const threadId = thread.id;
+      const status = resolveSidebarThreadSummaryStatus({
+        thread,
+        lastVisitedAt: thread.lastVisitedAt,
+        dismissedStatusKey: readSidebarUiState().dismissedThreadStatusKeyByThreadId[threadId],
+        isPromotedDraftPending: draftThreadsByThreadId[threadId]?.promotedTo !== undefined,
+        hasLocalSendOwner: localSendOwnerThreadIds.has(threadId),
+      });
+      return {
+        id: thread.id,
+        folderId: thread.folderId,
+        title: thread.title,
+        harness: thread.modelSelection.provider,
+        pinned: thread.isPinned,
+        workStatus: resolveVisibleThreadWorkStatus({
+          status,
+          isRecording: thread.id === recordingThreadId,
+          projectedWorkStatus: thread.workStatus,
+        }),
+        createdAt: thread.createdAt,
+        hasTurn: threadTurnStateById[thread.id]?.latestTurn != null,
+      };
+    });
     const persistedIds = new Set(persisted.map((tab) => tab.id));
     const drafts = Object.entries(draftThreadsByThreadId)
       .filter(
@@ -382,13 +413,12 @@ export function ThreadDeckBar(props: {
     return [...persisted, ...drafts];
   }, [
     deckId,
-    decks,
+    rows,
     composerDraftsByThreadId,
     draftThreadsByThreadId,
     localSendOwnerThreadIds,
     recordingThreadId,
-    sidebarThreadSummaryById,
-    threadShellById,
+    rowsById,
     threadTurnStateById,
     props.activeComposerProvider,
     props.activeThread.id,
@@ -410,7 +440,7 @@ export function ThreadDeckBar(props: {
   const archive = async (threadId: ThreadId) => {
     const draftThread = draftThreadsByThreadId[threadId];
     if (!draftThread) {
-      const thread = threadShellById[threadId];
+      const thread = rowsById[threadId];
       if (!thread) return;
       if (tabs.find((tab) => tab.id === threadId)?.workStatus === "running") {
         toastManager.add({

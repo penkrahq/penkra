@@ -93,3 +93,14 @@ export function useSidebarThreadRows(): readonly SidebarThreadRow[] {
   const details = useStore((state) => state.sidebarThreadSummaryById);
   return useMemo(() => buildSidebarThreadRows(rows, details), [rows, details]);
 }
+
+export function selectDeckThreadRows(
+  rows: readonly SidebarThreadRow[],
+  deckId: ThreadDeckId,
+): readonly SidebarThreadRow[] {
+  return rows
+    .filter((row) => row.deckId === deckId && row.archivedAt === null)
+    .toSorted(
+      (left, right) => left.deckSortOrder - right.deckSortOrder || left.id.localeCompare(right.id),
+    );
+}

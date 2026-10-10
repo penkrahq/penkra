@@ -3,6 +3,7 @@ import { ThreadId, type CleanCoreThreadSummary } from "@penkra/contracts";
 import {
   getThreadListById,
   loadThread,
+  loadDeckThreads,
   loadThreadPage,
   loadNextThreadPage,
   getThreadListPages,
@@ -14,6 +15,7 @@ import {
 const api = vi.hoisted(() => ({
   getThread: vi.fn(),
   listThreads: vi.fn(),
+  listDeckThreads: vi.fn(),
   onSidebarChange: vi.fn(),
 }));
 vi.mock("./nativeApi", () => ({ ensureNativeApi: () => ({ cleanCore: api }) }));
@@ -152,4 +154,35 @@ it("keeps a newer pin, move and visit when an older page reply arrives after a b
   await pending;
   expect(getThreadListById().get(old.id)).toEqual(current);
   unsubscribe();
+});
+
+it("loads deck members beyond sidebar pages and preserves newer broadcasts during paging", async () => {
+  const deckId = "deck" as import("@penkra/contracts").ThreadDeckId;
+  const old = { ...row("[]", "2026-10-10T00:00:01.000Z"), deckId };
+  const latest = { ...old, deckSortOrder: 3, isPinned: 1, updatedAt: "2026-10-10T00:00:02.000Z" };
+  const outside = { ...old, id: ThreadId.makeUnsafe("outside-sidebar") };
+  let release!: (page: { threads: CleanCoreThreadSummary[]; nextCursor: null }) => void;
+  const cursor = { deckSortOrder: 0, id: old.id };
+  api.listDeckThreads
+    .mockResolvedValueOnce({ threads: [old], nextCursor: cursor })
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+  const pending = loadDeckThreads(deckId);
+  expect(loadDeckThreads(deckId)).toBe(pending);
+  await vi.waitFor(() => expect(api.listDeckThreads).toHaveBeenCalledTimes(2));
+  api.getThread.mockResolvedValueOnce(latest);
+  await loadThread(latest.id);
+  release({ threads: [old, outside], nextCursor: null });
+  await pending;
+  expect(api.listDeckThreads.mock.calls).toEqual([
+    [{ deckId, after: null }],
+    [{ deckId, after: cursor }],
+  ]);
+  expect(api.listThreads).not.toHaveBeenCalled();
+  expect(getThreadListById().get(old.id)).toEqual(latest);
+  expect(getThreadListById().get(outside.id)).toEqual(outside);
 });
