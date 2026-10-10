@@ -3,7 +3,7 @@ import { CurrentManagedAttachmentPrincipal } from "../managedAttachmentPrincipal
 import { ManagedAttachmentRepositoryLive } from "../persistence/Layers/ManagedAttachments.ts";
 import { assert, it } from "@effect/vitest";
 import { MessageId, ThreadId, TurnId } from "@penkra/contracts";
-import { Deferred, Effect, Option } from "effect";
+import { Cause, Deferred, Effect, Option } from "effect";
 import { makeThreadSender, type ThreadSendInput } from "./ThreadSender.ts";
 import { ThreadPublisher } from "./ThreadPublisher.ts";
 import { createThread, makeThreadPublisher, setThreadState } from "./threadStore.ts";
@@ -517,7 +517,7 @@ it.effect(
         queuedAt: "2026-10-10T00:00:02.000Z",
       };
       yield* enqueueMessage(threadId, message);
-      yield* sql`UPDATE threads SET draft = '{"prompt":"old draft"}' WHERE id = ${threadId}`;
+      yield* sql`UPDATE threads SET draft = '{"prompt":"","attachments":[],"files":[]}' WHERE id = ${threadId}`;
       const publisher = makeThreadPublisher();
       const changes: string[] = [];
       publisher.subscribe(threadId, (change) => changes.push(change.threadId));
@@ -544,7 +544,7 @@ it.effect(
       assert.deepStrictEqual(yield* readThreadQueue(threadId), [message]);
       assert.equal(
         (yield* sql<{ draft: string }>`SELECT draft FROM threads WHERE id = ${threadId}`)[0]!.draft,
-        '{"prompt":"old draft"}',
+        '{"prompt":"","attachments":[],"files":[]}',
       );
       assert.deepStrictEqual(changes, []);
       yield* sql`DROP TRIGGER reject_edit`;
@@ -578,3 +578,87 @@ it.effect(
       );
     }).pipe(Effect.scoped, Effect.provide(NodeSqliteClient.layerMemory())),
 );
+
+for (const content of [
+  { name: "text", prompt: "unsent text", attachments: [], files: [] },
+  {
+    name: "image",
+    prompt: "",
+    attachments: [{ id: "image", name: "image.png", mimeType: "image/png" }],
+    files: [],
+  },
+  {
+    name: "file",
+    prompt: "",
+    attachments: [],
+    files: [{ id: "file", name: "file.txt", mimeType: "text/plain" }],
+  },
+]) {
+  it.effect(
+    `refuses queued Edit with a draft containing ${content.name}, without a write or broadcast`,
+    () =>
+      Effect.gen(function* () {
+        yield* runMigrations();
+        const sql = yield* SqlClient.SqlClient;
+        const threadId = ThreadId.makeUnsafe("edit-nonempty");
+        yield* createThread({
+          id: threadId,
+          spaceId: "space",
+          title: "Edit",
+          provider: "codex",
+          model: "gpt-5.5",
+          runtimeMode: "full-access",
+          createdBy: "user",
+          createdAt: "2026-10-10T00:00:00.000Z",
+        });
+        yield* setThreadState(threadId, "running", "turn", null, "2026-10-10T00:00:01.000Z");
+        yield* enqueueMessage(threadId, {
+          messageId: MessageId.makeUnsafe("queued"),
+          text: "queued text",
+          attachments: [],
+          senderThreadId: null,
+          dispatchOrigin: "user",
+          queuedAt: "2026-10-10T00:00:02.000Z",
+        });
+        const draft = JSON.stringify({
+          prompt: content.prompt,
+          attachments: content.attachments,
+          files: content.files,
+        });
+        yield* sql`UPDATE threads SET draft = ${draft}, draft_updated_at = '2026-10-10T00:00:03.000Z' WHERE id = ${threadId}`;
+        const read = sql`SELECT queue, draft, draft_updated_at, updated_at FROM threads WHERE id = ${threadId}`;
+        const before = yield* read;
+        const publisher = makeThreadPublisher();
+        const changes: string[] = [];
+        publisher.subscribe(threadId, (change) => changes.push(change.threadId));
+        const sender = yield* makeThreadSender.pipe(
+          Effect.provide(ManagedAttachmentRepositoryLive),
+          Effect.provideService(ThreadPublisher, publisher),
+          Effect.provideService(
+            ProviderThreadSwitchCoordinator,
+            {} as typeof ProviderThreadSwitchCoordinator.Service,
+          ),
+          Effect.provideService(
+            ThreadProviderBindingRepository,
+            {} as typeof ThreadProviderBindingRepository.Service,
+          ),
+          Effect.provideService(ProviderService, {} as typeof ProviderService.Service),
+        );
+        const result = yield* Effect.exit(
+          sender.editQueued({
+            threadId,
+            messageId: "queued",
+            updatedAt: "2026-10-10T00:00:04.000Z",
+          }),
+        );
+        assert.equal(result._tag, "Failure");
+        if (result._tag === "Failure")
+          assert.include(
+            Cause.pretty(result.cause),
+            "Clear or send your message before editing a queued one.",
+          );
+        assert.deepStrictEqual(yield* read, before);
+        assert.deepStrictEqual(changes, []);
+      }).pipe(Effect.scoped, Effect.provide(NodeSqliteClient.layerMemory())),
+  );
+}

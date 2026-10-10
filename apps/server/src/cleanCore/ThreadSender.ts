@@ -8,6 +8,7 @@ import {
   ThreadId,
   TurnId,
   CleanCoreThreadRuntime,
+  QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR,
   type CleanCoreInterruptResult,
   type CleanCoreSendResult,
   type ProviderConnectionId,
@@ -60,6 +61,13 @@ export const makeThreadSender = Effect.gen(function* () {
   const bindings = yield* ThreadProviderBindingRepository;
   const provider = yield* ProviderService;
   const managedAttachments = yield* ManagedAttachmentRepository;
+  const decodeDraftContent = Schema.decodeUnknownSync(
+    Schema.Struct({
+      prompt: Schema.String,
+      attachments: Schema.Array(Schema.Unknown),
+      files: Schema.Array(Schema.Unknown),
+    }),
+  );
   const decodeQueue = Schema.decodeUnknownSync(Schema.Array(QueuedMessage));
   const attachmentPrincipal = (input: Parameters<SendDriver["dispatch"]>[0]) =>
     Effect.gen(function* () {
@@ -282,6 +290,18 @@ export const makeThreadSender = Effect.gen(function* () {
             if (draftUpdatedAt === null)
               yield* sql`UPDATE threads SET queue = ${JSON.stringify(remaining)}, updated_at = ${new Date().toISOString()} WHERE id = ${input.threadId}`;
             else {
+              const stored = yield* sql<{
+                draft: string | null;
+              }>`SELECT draft FROM threads WHERE id = ${input.threadId}`;
+              if (stored[0]!.draft !== null) {
+                const content = decodeDraftContent(JSON.parse(stored[0]!.draft));
+                if (
+                  content.prompt.length > 0 ||
+                  content.attachments.length > 0 ||
+                  content.files.length > 0
+                )
+                  return yield* Effect.fail(new Error(QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR));
+              }
               const reference = (attachment: { id: string; name: string; mimeType: string }) => ({
                 id: attachment.id,
                 name: attachment.name,

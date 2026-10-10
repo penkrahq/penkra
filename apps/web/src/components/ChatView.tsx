@@ -3,6 +3,7 @@ import { loadThread, useThreadList, getThreadListById, useThreadSummary } from "
 import { useThreadStop } from "../hooks/useThreadStop";
 import {
   CleanCoreQueuedMessage,
+  QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR,
   type CleanCoreThreadSummary,
   type ApprovalRequestId,
   DEFAULT_MODEL_BY_PROVIDER,
@@ -6402,6 +6403,17 @@ function ChatViewContent({
   );
   const editQueuedMessage = useCallback(
     (message: CleanCoreQueuedMessage) => {
+      const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
+      if (
+        draft !== undefined &&
+        (draft.prompt.length > 0 ||
+          draft.images.length > 0 ||
+          draft.persistedAttachments.length > 0 ||
+          draft.files.length > 0)
+      ) {
+        toastManager.add({ type: "error", title: QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR });
+        return;
+      }
       void runQueuedActionWhilePending(message, "edit", async () => {
         const api = readNativeApi();
         if (!api) return;
@@ -6435,6 +6447,10 @@ function ChatViewContent({
         } catch (error) {
           const description =
             error instanceof Error ? error.message : "Failed to edit the queued message.";
+          if (description === QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR) {
+            toastManager.add({ type: "error", title: QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR });
+            return;
+          }
           setThreadError(threadId, description);
           toastManager.add({ type: "error", title: "Couldn't edit queued message", description });
         }

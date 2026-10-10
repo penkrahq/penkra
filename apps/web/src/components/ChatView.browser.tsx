@@ -5,6 +5,7 @@ import { resetThreadListForTests } from "../threadListStore";
 import "../index.css";
 
 import {
+  QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR,
   type CleanCoreThreadItem,
   type CleanCoreQueuedMessage,
   type CleanCoreCreateThreadInput,
@@ -1674,6 +1675,22 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
     const thread = fixture.snapshot.threads.find((thread) => thread.id === body.threadId);
     const removed = thread?.queuedMessageIds?.includes(body.messageId as MessageId) === true;
     if (removed) {
+      if (tag === WS_METHODS.cleanCoreEditQueuedMessage) {
+        const stored = fixtureDrafts.get(body.threadId as string);
+        if (stored?.draft !== null && stored?.draft !== undefined) {
+          const content = JSON.parse(stored.draft) as {
+            prompt: string;
+            attachments: unknown[];
+            files: unknown[];
+          };
+          if (
+            content.prompt.length > 0 ||
+            content.attachments.length > 0 ||
+            content.files.length > 0
+          )
+            throw new Error(QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR);
+        }
+      }
       const message = summarizeFixtureThread(thread!).queue;
       const entry = (JSON.parse(message) as CleanCoreQueuedMessage[]).find(
         (entry) => entry.messageId === body.messageId,
@@ -6085,120 +6102,143 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("edits a server queue message with an image and terminal context beside a nonempty draft", async () => {
-    const queuedMessageId = "msg-server-authoritative-edit" as MessageId;
-    const queuedPrompt = appendTerminalContextsToPrompt("edit this durable queued prompt", [
-      createTerminalContext({
-        id: "edit-terminal",
-        terminalLabel: "Terminal 1",
-        lineStart: 1,
-        lineEnd: 2,
-        text: "queued terminal output",
-      }),
-    ]);
-    const queuedImageId = "attqueuededitimage";
-    const base = createSnapshotForTargetUser({
-      targetMessageId: "msg-user-running-server-edit" as MessageId,
-      targetText: "running server edit target",
-      sessionStatus: "running",
-    });
-    const snapshot: OrchestrationReadModel = {
-      ...base,
-      threads: base.threads.map((thread) =>
-        thread.id === THREAD_ID
-          ? {
-              ...thread,
-              queuedMessageIds: [queuedMessageId],
-              messages: [
-                ...thread.messages,
-                {
-                  id: queuedMessageId,
-                  role: "user" as const,
-                  text: queuedPrompt,
-                  attachments: [
-                    {
-                      type: "image" as const,
-                      id: queuedImageId,
-                      name: "queued.png",
-                      mimeType: "image/png",
-                      sizeBytes: 4,
-                    },
-                  ],
-                  dispatchMode: "queue" as const,
-                  delivery: {
-                    state: "queued" as const,
-                    queued: true,
-                    sequence: 200,
-                  },
-                  turnId: null,
-                  streaming: false,
-                  source: "native" as const,
-                  createdAt: NOW_ISO,
-                  updatedAt: NOW_ISO,
-                },
-              ],
-            }
-          : thread,
-      ),
-    };
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot,
-    });
-    const api = readNativeApi()!;
-    const editSpy = vi.spyOn(api.cleanCore, "editQueuedMessage");
-    const originalFetch = globalThis.fetch;
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
-      if (String(input).includes(queuedImageId))
-        return Promise.resolve(
-          new Response(new Uint8Array([1, 2, 3, 4]), {
-            status: 200,
-            headers: { "Content-Type": "image/png" },
-          }),
-        );
-      return originalFetch(input, init);
-    });
-
-    try {
-      useComposerDraftStore.getState().setPrompt(THREAD_ID, "existing draft");
-      const actionsButton = await waitForElement(
-        () =>
-          document.querySelector<HTMLButtonElement>(
-            'button[aria-label="Queued follow-up actions"]',
-          ),
-        "Unable to find queued actions button.",
-      );
-      actionsButton.click();
-      const editMenuItem = await waitForElement(
-        () =>
-          Array.from(document.querySelectorAll<HTMLElement>('[data-slot="menu-item"]')).find(
-            (item) => item.textContent?.trim() === "Edit queued prompt",
-          ) ?? null,
-        "Unable to find edit queued prompt menu item.",
-      );
-      editMenuItem.click();
-
-      await vi.waitFor(() => {
-        const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
-        expect(draft?.prompt).toBe(queuedPrompt);
-        expect(draft?.prompt).toContain("queued terminal output");
-        expect(draft?.images[0]?.name).toBe("queued.png");
-        expect(draft?.images[0]?.file.size).toBe(4);
-        expect(editSpy).toHaveBeenCalledOnce();
-        expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
-        expect(
-          (
-            document.querySelector('[data-testid="composer-editor"]') as HTMLElement
-          )?.textContent?.split("edit this durable queued prompt"),
-        ).toHaveLength(2);
+  it.each(["empty", "text"] as const)(
+    "handles queued Edit with an image and terminal context when the composer has %s",
+    async (composerContent) => {
+      const queuedMessageId = "msg-server-authoritative-edit" as MessageId;
+      const queuedPrompt = appendTerminalContextsToPrompt("edit this durable queued prompt", [
+        createTerminalContext({
+          id: "edit-terminal",
+          terminalLabel: "Terminal 1",
+          lineStart: 1,
+          lineEnd: 2,
+          text: "queued terminal output",
+        }),
+      ]);
+      const queuedImageId = "attqueuededitimage";
+      const base = createSnapshotForTargetUser({
+        targetMessageId: "msg-user-running-server-edit" as MessageId,
+        targetText: "running server edit target",
+        sessionStatus: "running",
       });
-      expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
-    } finally {
-      fetchSpy.mockRestore();
-      editSpy.mockRestore();
-      await mounted.cleanup();
-    }
-  });
+      const snapshot: OrchestrationReadModel = {
+        ...base,
+        threads: base.threads.map((thread) =>
+          thread.id === THREAD_ID
+            ? {
+                ...thread,
+                queuedMessageIds: [queuedMessageId],
+                messages: [
+                  ...thread.messages,
+                  {
+                    id: queuedMessageId,
+                    role: "user" as const,
+                    text: queuedPrompt,
+                    attachments: [
+                      {
+                        type: "image" as const,
+                        id: queuedImageId,
+                        name: "queued.png",
+                        mimeType: "image/png",
+                        sizeBytes: 4,
+                      },
+                    ],
+                    dispatchMode: "queue" as const,
+                    delivery: {
+                      state: "queued" as const,
+                      queued: true,
+                      sequence: 200,
+                    },
+                    turnId: null,
+                    streaming: false,
+                    source: "native" as const,
+                    createdAt: NOW_ISO,
+                    updatedAt: NOW_ISO,
+                  },
+                ],
+              }
+            : thread,
+        ),
+      };
+      const mounted = await mountChatView({
+        viewport: DEFAULT_VIEWPORT,
+        snapshot,
+      });
+      const api = readNativeApi()!;
+      const editSpy = vi.spyOn(api.cleanCore, "editQueuedMessage");
+      const toastSpy = vi.spyOn(toastManager, "add");
+      const originalFetch = globalThis.fetch;
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+        if (String(input).includes(queuedImageId))
+          return Promise.resolve(
+            new Response(new Uint8Array([1, 2, 3, 4]), {
+              status: 200,
+              headers: { "Content-Type": "image/png" },
+            }),
+          );
+        return originalFetch(input, init);
+      });
+
+      try {
+        if (composerContent === "text")
+          useComposerDraftStore.getState().setPrompt(THREAD_ID, "existing draft");
+        const actionsButton = await waitForElement(
+          () =>
+            document.querySelector<HTMLButtonElement>(
+              'button[aria-label="Queued follow-up actions"]',
+            ),
+          "Unable to find queued actions button.",
+        );
+        actionsButton.click();
+        const editMenuItem = await waitForElement(
+          () =>
+            Array.from(document.querySelectorAll<HTMLElement>('[data-slot="menu-item"]')).find(
+              (item) => item.textContent?.trim() === "Edit queued prompt",
+            ) ?? null,
+          "Unable to find edit queued prompt menu item.",
+        );
+        editMenuItem.click();
+        if (composerContent === "text") {
+          await vi.waitFor(() => {
+            expect(toastSpy).toHaveBeenCalledWith(
+              expect.objectContaining({
+                title: "Clear or send your message before editing a queued one.",
+              }),
+            );
+            expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
+              "existing draft",
+            );
+            expect(editSpy).not.toHaveBeenCalled();
+            expect(
+              fixture.snapshot.threads.find((row) => row.id === THREAD_ID)?.queuedMessageIds,
+            ).toEqual([queuedMessageId]);
+            expect(document.querySelector('[data-testid="queued-follow-up-row"]')).not.toBeNull();
+          });
+          return;
+        }
+        await vi.waitFor(() => {
+          const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
+          expect(draft?.prompt).toBe(queuedPrompt);
+          expect(draft?.prompt).toContain("queued terminal output");
+          expect(draft?.images[0]?.name).toBe("queued.png");
+          expect(draft?.images[0]?.file.size).toBe(4);
+          expect(editSpy).toHaveBeenCalledOnce();
+          expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
+          expect(
+            (
+              document.querySelector('[data-testid="composer-editor"]') as HTMLElement
+            )?.textContent?.split("edit this durable queued prompt"),
+          ).toHaveLength(2);
+        });
+        expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
+      } finally {
+        toastSpy.mockRestore();
+        fetchSpy.mockRestore();
+        editSpy.mockRestore();
+        await mounted.cleanup();
+      }
+    },
+  );
 
   it("keeps the composer intact when Edit loses the race to queue promotion", async () => {
     const queuedMessageId = "msg-promoted-before-edit" as MessageId;
@@ -6235,6 +6275,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       ),
     };
     const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const draftBeforeEdit = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
     const api = readNativeApi()!;
     const toastSpy = vi.spyOn(toastManager, "add");
     const editSpy = vi
@@ -6255,7 +6296,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
         return { threadId: input.threadId, messageId: input.messageId, removed: false };
       });
     try {
-      useComposerDraftStore.getState().setPrompt(THREAD_ID, "unsent draft");
       const actionsButton = await waitForElement(
         () =>
           document.querySelector<HTMLButtonElement>(
@@ -6273,8 +6313,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
       );
       editMenuItem.click();
       await vi.waitFor(() => {
-        expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
-          "unsent draft",
+        expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]).toEqual(
+          draftBeforeEdit,
         );
         expect(toastSpy).toHaveBeenCalledWith(
           expect.objectContaining({ description: "This message is no longer queued." }),
