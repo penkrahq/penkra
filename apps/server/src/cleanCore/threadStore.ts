@@ -92,7 +92,7 @@ export const upsertThreadItem = (input: ThreadItemInput) =>
           UPDATE threads SET
             last_activity_at = ${input.updatedAt},
             last_message_preview = CASE
-              WHEN ${input.kind} IN ('user', 'text') THEN substr(${input.text ?? ""}, 1, 200)
+              WHEN ${input.kind} IN ('user', 'text') THEN ${input.text ?? null}
               ELSE last_message_preview END,
             last_user_message_at = CASE
               WHEN ${input.kind} = 'user' THEN ${input.updatedAt}
