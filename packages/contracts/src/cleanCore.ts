@@ -171,6 +171,22 @@ export const CleanCoreListThreadsResult = Schema.Struct({
 });
 export type CleanCoreListThreadsResult = typeof CleanCoreListThreadsResult.Type;
 
+export const CleanCoreDeckThreadCursor = Schema.Struct({
+  deckSortOrder: Schema.Number,
+  id: ThreadId,
+});
+export type CleanCoreDeckThreadCursor = typeof CleanCoreDeckThreadCursor.Type;
+export const CleanCoreListDeckThreadsInput = Schema.Struct({
+  deckId: ThreadDeckId,
+  after: Schema.NullOr(CleanCoreDeckThreadCursor),
+});
+export type CleanCoreListDeckThreadsInput = typeof CleanCoreListDeckThreadsInput.Type;
+export const CleanCoreListDeckThreadsResult = Schema.Struct({
+  threads: Schema.Array(CleanCoreThreadSummary),
+  nextCursor: Schema.NullOr(CleanCoreDeckThreadCursor),
+});
+export type CleanCoreListDeckThreadsResult = typeof CleanCoreListDeckThreadsResult.Type;
+
 export const CleanCoreGetThreadShellInput = Schema.Struct({ threadId: ThreadId });
 export type CleanCoreGetThreadShellInput = typeof CleanCoreGetThreadShellInput.Type;
 

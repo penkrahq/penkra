@@ -130,6 +130,7 @@ layer("removed provider data migration", (it) => {
         [175, "ProviderPurgeOwnershipIndexes"],
         [176, "CleanCoreSchemaAndBackfill"],
         [177, "ThreadHarnessCanonicalForeignKey"],
+        [178, "ThreadDeckOrderIndex"],
       ]);
 
       const threads = yield* sql<{ readonly threadId: string }>`
@@ -1000,6 +1001,7 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [175, "ProviderPurgeOwnershipIndexes"],
         [176, "CleanCoreSchemaAndBackfill"],
         [177, "ThreadHarnessCanonicalForeignKey"],
+        [178, "ThreadDeckOrderIndex"],
       ]);
 
       const tracker = yield* trackerRows(sql);
@@ -1293,6 +1295,7 @@ reservedProductionIdentitiesLayer("reserved Production migration identities", (i
           [175, "ProviderPurgeOwnershipIndexes"],
           [176, "CleanCoreSchemaAndBackfill"],
           [177, "ThreadHarnessCanonicalForeignKey"],
+          [178, "ThreadDeckOrderIndex"],
         ],
       );
       // A database already at the reserved identities is not "too new": the

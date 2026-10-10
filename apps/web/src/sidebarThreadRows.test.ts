@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
-import { FolderId, ThreadId, type CleanCoreThreadSummary } from "@penkra/contracts";
-import { buildSidebarThreadRows } from "./sidebarThreadRows";
+import { FolderId, ThreadDeckId, ThreadId, type CleanCoreThreadSummary } from "@penkra/contracts";
+import { buildSidebarThreadRows, selectDeckThreadRows } from "./sidebarThreadRows";
 import {
   sortThreadsForSidebar,
   resolveSidebarThreadSummaryStatus,
@@ -117,4 +117,28 @@ it("uses the canonical visit for unread completion even when the projection deta
   expect(
     resolveSidebarThreadSummaryStatus({ thread: visited, lastVisitedAt: visited.lastVisitedAt }),
   ).toBeNull();
+});
+
+it("derives deck membership and ordering only from canonical rows, including published moves", () => {
+  const deckId = ThreadDeckId.makeUnsafe("deck");
+  const first = {
+    ...row("[]", "2026-10-10T00:00:01.000Z"),
+    folderId: FolderId.makeUnsafe("folder"),
+    deckId,
+    deckSortOrder: 2,
+  };
+  const second = { ...first, id: ThreadId.makeUnsafe("second"), deckSortOrder: 1, isPinned: 1 };
+  const archived = { ...first, id: ThreadId.makeUnsafe("archived"), archivedAt: first.updatedAt };
+  const other = {
+    ...first,
+    id: ThreadId.makeUnsafe("other"),
+    deckId: ThreadDeckId.makeUnsafe("other-deck"),
+  };
+  const rows = buildSidebarThreadRows([first, second, archived, other], {});
+  expect(selectDeckThreadRows(rows, deckId).map((row) => row.id)).toEqual([second.id, first.id]);
+  const moved = buildSidebarThreadRows(
+    [{ ...first, deckId: other.deckId }, second, archived, other],
+    {},
+  );
+  expect(selectDeckThreadRows(moved, deckId).map((row) => row.id)).toEqual([second.id]);
 });

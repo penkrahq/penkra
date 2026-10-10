@@ -1704,6 +1704,18 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
       ) ?? null
     );
   }
+  if (tag === WS_METHODS.cleanCoreListDeckThreads) {
+    return {
+      threads: fixture.snapshot.threads
+        .filter((thread) => thread.deckId === body.deckId)
+        .map(summarizeFixtureThread)
+        .toSorted(
+          (left, right) =>
+            left.deckSortOrder - right.deckSortOrder || left.id.localeCompare(right.id),
+        ),
+      nextCursor: null,
+    };
+  }
   if (tag === WS_METHODS.cleanCoreListThreads) {
     return { threads: fixture.snapshot.threads.map(summarizeFixtureThread), nextCursor: null };
   }
@@ -3578,6 +3590,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
       markThreadsAsHavingCompletedTurns(
         {
           ...extendedSnapshot,
+          threads: extendedSnapshot.threads.map((thread) => ({
+            ...thread,
+            deckSortOrder: [OTHER_THREAD_ID, THREAD_ID, DESTINATION_THREAD_ID].indexOf(thread.id),
+          })),
           decks: extendedSnapshot.decks.map((deck) =>
             deck.id === DECK_ID
               ? { ...deck, threadIds: [OTHER_THREAD_ID, THREAD_ID, DESTINATION_THREAD_ID] }

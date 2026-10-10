@@ -381,6 +381,18 @@ function resolveUnaryRequest(method: string, body: Record<string, unknown>): unk
     const thread = fixture.snapshot.threads.find((thread) => thread.id === body.threadId);
     return thread === undefined ? null : summarizeFixtureThread(thread);
   }
+  if (method === WS_METHODS.cleanCoreListDeckThreads) {
+    return {
+      threads: fixture.snapshot.threads
+        .filter((thread) => thread.deckId === body.deckId)
+        .map(summarizeFixtureThread)
+        .toSorted(
+          (left, right) =>
+            left.deckSortOrder - right.deckSortOrder || left.id.localeCompare(right.id),
+        ),
+      nextCursor: null,
+    };
+  }
   if (method === WS_METHODS.cleanCoreListThreads)
     return {
       threads: fixture.snapshot.threads

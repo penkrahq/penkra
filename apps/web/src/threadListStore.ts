@@ -13,6 +13,8 @@ import type {
   FolderId,
   SpaceId,
   ThreadId,
+  ThreadDeckId,
+  CleanCoreDeckThreadCursor,
 } from "@penkra/contracts";
 import { useSyncExternalStore } from "react";
 
@@ -120,6 +122,28 @@ function readThreadPage(
   return request;
 }
 
+/** Read every member of the displayed deck as bounded indexed pages. */
+const pendingDecks = new Map<ThreadDeckId, Promise<void>>();
+export function loadDeckThreads(deckId: ThreadDeckId): Promise<void> {
+  const pending = pendingDecks.get(deckId);
+  if (pending !== undefined) return pending;
+  const request = (async () => {
+    let after: CleanCoreDeckThreadCursor | null = null;
+    do {
+      const page = await ensureNativeApi().cleanCore.listDeckThreads({ deckId, after });
+      const next = new Map(byId);
+      for (const row of page.threads) {
+        const stored = next.get(row.id);
+        if (stored === undefined || stored.updatedAt <= row.updatedAt) next.set(row.id, row);
+      }
+      setThreads(next);
+      after = page.nextCursor;
+    } while (after !== null);
+  })().finally(() => pendingDecks.delete(deckId));
+  pendingDecks.set(deckId, request);
+  return request;
+}
+
 /** Read one indexed row, including its canonical queue. */
 export async function loadThread(threadId: ThreadId): Promise<void> {
   const thread = await ensureNativeApi().cleanCore.getThread({ threadId });
@@ -161,4 +185,5 @@ export function resetThreadListForTests(): void {
   listeners.clear();
   pages = new Map();
   pendingPages.clear();
+  pendingDecks.clear();
 }

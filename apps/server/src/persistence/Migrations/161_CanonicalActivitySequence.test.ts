@@ -15,6 +15,10 @@ layer("161_CanonicalActivitySequence", (it) => {
         yield* runMigrations({ toMigrationInclusive: 160 });
         // Isolate migration of activity identities from unrelated parent Thread fixtures.
         yield* sql`PRAGMA foreign_keys = OFF`;
+        // Migration 177 keeps notices only when their canonical owner exists.
+        yield* sql`INSERT INTO projection_threads (thread_id, folder_id, title, created_at, updated_at)
+          VALUES ('thread-sequence', 'folder-sequence', 'Sequence owner',
+            '2026-09-07T00:00:00.000Z', '2026-09-07T00:00:00.000Z')`;
         yield* sql`
         INSERT INTO operations (
           operation_id, provider_operation_id, thread_id, turn_id, provider, item_type,
