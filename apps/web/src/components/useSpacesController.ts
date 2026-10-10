@@ -68,7 +68,6 @@ export function useSpacesController(input: {
 
   const navigate = useNavigate();
   const spaces = useStore((store) => store.spaces);
-  const reorderSpacesLocally = useStore((store) => store.reorderSpacesLocally);
   const threadsHydrated = useStore((store) => store.threadsHydrated);
   const shellSnapshotSequence = useStore((store) => store.shellSnapshotSequence ?? 0);
   const activeSpaceId = useSpacesUiStore((store) => store.activeSpaceId);
@@ -452,24 +451,7 @@ export function useSpacesController(input: {
     (orderedSpaceIds: ReadonlyArray<SpaceId>, movedSpaceId: SpaceId) => {
       const api = readNativeApi();
       if (!api) return;
-      reorderSpacesLocally(orderedSpaceIds);
       void reorderSpaces({ api, movedSpaceId, orderedSpaceIds }).catch(async (error) => {
-        try {
-          // A transport error can arrive after the command committed. Re-read the authoritative
-          // shell instead of blindly rolling back a reorder the server may already have stored.
-          const snapshot = await api.orchestration.getShellSnapshot();
-          useStore.getState().syncServerShellSnapshot(snapshot);
-          const confirmedSpaceIds = snapshot.spaces.map((space) => space.id);
-          if (
-            confirmedSpaceIds.length === orderedSpaceIds.length &&
-            confirmedSpaceIds.every((spaceId, index) => spaceId === orderedSpaceIds[index])
-          ) {
-            return;
-          }
-        } catch {
-          // Keep the optimistic order when authority cannot be reached; the next shell snapshot
-          // will reconcile it without risking a false rollback after a successful commit.
-        }
         toastManager.add({
           type: "error",
           title: "Unable to confirm space order",
@@ -477,7 +459,7 @@ export function useSpacesController(input: {
         });
       });
     },
-    [reorderSpacesLocally],
+    [],
   );
 
   const handleMoveProjectToSpace = useCallback(

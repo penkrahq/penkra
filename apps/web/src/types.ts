@@ -151,10 +151,6 @@ export interface ThreadWorkspaceState {
   workingDirectory?: string | null;
 }
 
-export interface ThreadWorkspacePatch {
-  workingDirectory?: string | null;
-}
-
 export interface Thread extends ThreadWorkspaceState {
   id: ThreadId;
   deckId: ThreadDeckId;

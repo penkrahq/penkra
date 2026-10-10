@@ -103,11 +103,15 @@ export async function reorderSpaces(input: {
 }): Promise<void> {
   const movedIndex = input.orderedSpaceIds.indexOf(input.movedSpaceId);
   if (movedIndex < 0) return;
-  await dispatchShellCommand(input.api, {
-    type: "space.update",
-    commandId: newCommandId(),
-    spaceId: input.movedSpaceId,
-    sortOrder: movedIndex,
+  const previous = input.orderedSpaceIds[movedIndex - 1];
+  await input.api.cleanCore.updateThread({
+    update: {
+      action: "moveSpace",
+      spaceId: input.movedSpaceId,
+      position:
+        previous === undefined ? { type: "pinned-boundary" } : { type: "after", itemId: previous },
+      updatedAt: new Date().toISOString(),
+    },
   });
 }
 

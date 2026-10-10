@@ -4,12 +4,7 @@ import type {
   OrchestrationReadModel,
   OrchestrationThread,
 } from "@penkra/contracts";
-import {
-  EventId,
-  MAX_PINNED_PROJECTS,
-  SPACES_MAX_COUNT,
-  TurnId,
-} from "@penkra/contracts";
+import { EventId, MAX_PINNED_PROJECTS, SPACES_MAX_COUNT, TurnId } from "@penkra/contracts";
 import {
   collectTailTurnIds,
   resolveTailUserMessageEditTarget,
@@ -174,25 +169,6 @@ function requireThreadsCanMoveAcrossSpaces(input: {
     : Effect.void;
 }
 
-function collectThreadTreeIds(
-  readModel: OrchestrationReadModel,
-  rootThreadId: OrchestrationThread["id"],
-): Set<OrchestrationThread["id"]> {
-  const ids = new Set<OrchestrationThread["id"]>([rootThreadId]);
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const thread of readModel.threads) {
-      if (thread.deletedAt !== null || !thread.parentThreadId || ids.has(thread.id)) continue;
-      if (ids.has(thread.parentThreadId)) {
-        ids.add(thread.id);
-        changed = true;
-      }
-    }
-  }
-  return ids;
-}
-
 type CreatedThreadWorkspaceCommand = Pick<
   Extract<OrchestrationCommand, { type: "thread.create" | "thread.fork.create" }>,
   "workingDirectory"
@@ -200,16 +176,6 @@ type CreatedThreadWorkspaceCommand = Pick<
 
 function resolveCreatedThreadWorkspaceMetadata(command: CreatedThreadWorkspaceCommand) {
   return { workingDirectory: command.workingDirectory ?? null };
-}
-
-function resolveThreadWorkspaceMetadataPatch(
-  command: Extract<OrchestrationCommand, { type: "thread.update" }>,
-) {
-  return {
-    ...(command.workingDirectory !== undefined
-      ? { workingDirectory: command.workingDirectory }
-      : {}),
-  };
 }
 
 function deriveConversationRollbackTarget(
@@ -308,21 +274,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command.icon !== undefined && command.icon !== existingSpace.icon
           ? command.icon
           : undefined;
-      const activeSpaces = listActiveSpaces(readModel);
-      const currentIndex = activeSpaces.findIndex((space) => space.id === command.spaceId);
-      const targetIndex =
-        command.sortOrder === undefined
-          ? currentIndex
-          : Math.min(command.sortOrder, Math.max(activeSpaces.length - 1, 0));
-      const orderedSpaceIds = activeSpaces.map((space) => space.id);
-      if (targetIndex !== currentIndex) {
-        orderedSpaceIds.splice(currentIndex, 1);
-        orderedSpaceIds.splice(targetIndex, 0, command.spaceId);
-      }
-      if (nextName === undefined && nextIcon === undefined && targetIndex === currentIndex) {
+      if (nextName === undefined && nextIcon === undefined) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
-          detail: "Space update must change a name, icon, or sort order.",
+          detail: "Space update must change a name or icon.",
         });
       }
       if (nextName !== undefined) {
@@ -346,7 +301,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           spaceId: command.spaceId,
           ...(nextName !== undefined ? { name: nextName } : {}),
           ...(nextIcon !== undefined ? { icon: nextIcon } : {}),
-          ...(targetIndex !== currentIndex ? { orderedSpaceIds } : {}),
           updatedAt: occurredAt,
         },
       };
@@ -506,236 +460,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       return events;
     }
 
-    case "sidebar.item.move": {
-      const targetProject =
-        command.target.kind === "folder"
-          ? yield* requireFolder({
-              readModel,
-              command,
-              folderId: command.target.folderId,
-            })
-          : null;
-      const targetSpace =
-        command.target.kind === "space"
-          ? yield* requireSpace({
-              readModel,
-              command,
-              spaceId: command.target.spaceId,
-            })
-          : yield* requireSpace({
-              readModel,
-              command,
-              spaceId: targetProject!.spaceId,
-            });
-
-      const movedProject =
-        command.item.kind === "folder"
-          ? yield* requireFolder({
-              readModel,
-              command,
-              folderId: command.item.id,
-            })
-          : null;
-      const movedThread =
-        command.item.kind === "thread"
-          ? yield* requireThread({
-              readModel,
-              command,
-              threadId: command.item.id,
-            })
-          : null;
-      if (movedProject && command.target.kind !== "space") {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "Folders cannot be nested inside other folders.",
-        });
-      }
-      if (movedProject) {
-        yield* requireFolderNameAvailable({
-          readModel,
-          command,
-          name: movedProject.title,
-          spaceId: targetSpace.id,
-          excludeFolderId: movedProject.id,
-        });
-      }
-      if (movedThread && movedThread.parentThreadId !== null) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "Nested child threads move together with their root thread.",
-        });
-      }
-      if (movedThread && command.target.kind === "space") {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "Threads must be moved into a folder, not directly into a Space.",
-        });
-      }
-      if (movedThread && !isLiveSidebarThread(movedThread)) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "Archived or deleted threads cannot be moved in the sidebar.",
-        });
-      }
-
-      const movedAcrossSpaces =
-        (movedProject !== null && movedProject.spaceId !== targetSpace.id) ||
-        (movedThread !== null &&
-          readModel.folders.find((folder) => folder.id === movedThread.folderId)?.spaceId !==
-            targetSpace.id);
-      if (movedAcrossSpaces) {
-        const movedThreadIds = movedProject
-          ? new Set(
-              readModel.threads
-                .filter(
-                  (thread) => thread.deletedAt === null && thread.folderId === movedProject.id,
-                )
-                .map((thread) => thread.id),
-            )
-          : collectThreadTreeIds(readModel, movedThread!.id);
-        yield* requireThreadsCanMoveAcrossSpaces({
-          command,
-          readModel,
-          threadIds: movedThreadIds,
-        });
-      }
-
-      const destinationItems = (
-        command.target.kind === "space"
-          ? [
-              ...readModel.folders
-                .filter(
-                  (folder) =>
-                    folder.deletedAt === null &&
-                    folder.spaceId === targetSpace.id &&
-                    folder.id !== movedProject?.id,
-                )
-                .map((folder) => ({
-                  item: { kind: "folder" as const, id: folder.id },
-                  pinned: folder.isPinned === true,
-                  sidebarSortOrder: folder.sidebarSortOrder ?? 0,
-                  createdAt: folder.createdAt,
-                })),
-            ]
-          : readModel.threads
-              .filter(
-                (thread) =>
-                  isLiveSidebarThread(thread) &&
-                  thread.parentThreadId === null &&
-                  thread.folderId === targetProject!.id &&
-                  thread.id !== movedThread?.id,
-              )
-              .map((thread) => ({
-                item: { kind: "thread" as const, id: thread.id },
-                pinned: thread.isPinned === true,
-                sidebarSortOrder: thread.sidebarSortOrder ?? 0,
-                createdAt: thread.createdAt,
-              }))
-      ).toSorted((left, right) => {
-        const byPinned = Number(right.pinned) - Number(left.pinned);
-        if (byPinned !== 0) return byPinned;
-        const byManualOrder = left.sidebarSortOrder - right.sidebarSortOrder;
-        if (byManualOrder !== 0) return byManualOrder;
-        const byCreatedAt = right.createdAt.localeCompare(left.createdAt);
-        if (byCreatedAt !== 0) return byCreatedAt;
-        return left.item.id.localeCompare(right.item.id);
-      });
-      const movedItemPinned = (movedProject ?? movedThread)?.isPinned === true;
-      const orderedItems = destinationItems.map(({ item }) => item);
-      let insertionIndex = destinationItems.filter(({ pinned }) => pinned).length;
-      if (command.position.type !== "pinned-boundary") {
-        const anchorItem = command.position.item;
-        const anchorIndex = destinationItems.findIndex(
-          ({ item }) => item.kind === anchorItem.kind && item.id === anchorItem.id,
-        );
-        if (anchorIndex < 0) {
-          return yield* new OrchestrationCommandInvariantError({
-            commandType: command.type,
-            detail: "The drop anchor is no longer in the destination.",
-          });
-        }
-        if (destinationItems[anchorIndex]!.pinned !== movedItemPinned) {
-          return yield* new OrchestrationCommandInvariantError({
-            commandType: command.type,
-            detail: "Pinned and unpinned items cannot be interleaved.",
-          });
-        }
-        insertionIndex = anchorIndex + (command.position.type === "after" ? 1 : 0);
-      }
-      orderedItems.splice(insertionIndex, 0, command.item);
-
-      const folderUpdates = new Map<
-        string,
-        {
-          folderId: OrchestrationReadModel["folders"][number]["id"];
-          sidebarSortOrder?: number;
-        }
-      >();
-      const threadUpdates = new Map<
-        string,
-        {
-          threadId: OrchestrationThread["id"];
-          folderId?: OrchestrationReadModel["folders"][number]["id"];
-          sidebarSortOrder?: number;
-        }
-      >();
-      orderedItems.forEach((item, sidebarSortOrder) => {
-        if (item.kind === "folder") {
-          folderUpdates.set(item.id, { folderId: item.id, sidebarSortOrder });
-        } else {
-          threadUpdates.set(item.id, { threadId: item.id, sidebarSortOrder });
-        }
-      });
-
-      if (movedThread) {
-        const destinationProject = targetProject!;
-        const treeIds = collectThreadTreeIds(readModel, movedThread.id);
-        for (const threadId of treeIds) {
-          threadUpdates.set(threadId, {
-            ...threadUpdates.get(threadId),
-            threadId,
-            folderId: destinationProject.id,
-          });
-        }
-      }
-
-      const occurredAt = nowIso();
-      const layoutUpdatedEvent = {
-        ...withEventBase({
-          aggregateKind: "space",
-          aggregateId: targetSpace.id,
-          occurredAt,
-          commandId: command.commandId,
-        }),
-        type: "sidebar.layout-updated" as const,
-        payload: {
-          folderUpdates: [...folderUpdates.values()],
-          threadUpdates: [...threadUpdates.values()],
-          updatedAt: occurredAt,
-        },
-      };
-      if (movedProject && movedProject.spaceId !== targetSpace.id) {
-        return [
-          {
-            ...withEventBase({
-              aggregateKind: "folder",
-              aggregateId: movedProject.id,
-              occurredAt,
-              commandId: command.commandId,
-            }),
-            type: "folder.moved" as const,
-            payload: {
-              folderId: movedProject.id,
-              spaceId: targetSpace.id,
-              updatedAt: occurredAt,
-            },
-          },
-          layoutUpdatedEvent,
-        ];
-      }
-      return layoutUpdatedEvent;
-    }
-
     case "folder.create": {
       yield* requireFolderAbsent({
         readModel,
@@ -829,10 +553,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             : {}),
           ...(command.scripts !== undefined ? { scripts: command.scripts } : {}),
           ...(command.iconDataUrl !== undefined ? { iconDataUrl: command.iconDataUrl } : {}),
-          ...(command.isPinned !== undefined ? { isPinned: command.isPinned } : {}),
-          ...(command.isPinned !== undefined && command.isPinned !== existingProject.isPinned
-            ? { sidebarSortOrder: 0 }
-            : {}),
           ...(command.archivedAt !== undefined ? { archivedAt: command.archivedAt } : {}),
           updatedAt: occurredAt,
         },
@@ -1017,137 +737,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       return [createdEvent, ...importedMessageEvents];
     }
 
-    case "thread.deck.move": {
-      const thread = yield* requireThreadNotArchived({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      const sourceDeck = readModel.decks.find((deck) => deck.id === thread.deckId);
-      const destinationDeck = readModel.decks.find((deck) => deck.id === command.deckId);
-      if (!sourceDeck || !destinationDeck) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: `Both source and destination Thread Decks must exist.`,
-        });
-      }
-      if (!sourceDeck.threadIds.includes(thread.id)) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: `Thread '${thread.id}' is not present in its recorded source Thread Deck '${sourceDeck.id}'.`,
-        });
-      }
-      if (sourceDeck.spaceId !== destinationDeck.spaceId) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: `Threads cannot move between Thread Decks in different Spaces.`,
-        });
-      }
-
-      const withoutMoved = destinationDeck.threadIds.filter((threadId) => threadId !== thread.id);
-      let insertionIndex = withoutMoved.length;
-      if (command.position.type === "start") insertionIndex = 0;
-      if (command.position.type === "before" || command.position.type === "after") {
-        const anchorIndex = withoutMoved.indexOf(command.position.threadId);
-        if (anchorIndex < 0) {
-          return yield* new OrchestrationCommandInvariantError({
-            commandType: command.type,
-            detail: `Thread Deck order anchor '${command.position.threadId}' is not in the destination deck.`,
-          });
-        }
-        insertionIndex = anchorIndex + (command.position.type === "after" ? 1 : 0);
-      }
-      const destinationThreadIds = [
-        ...withoutMoved.slice(0, insertionIndex),
-        thread.id,
-        ...withoutMoved.slice(insertionIndex),
-      ];
-      const occurredAt = nowIso();
-
-      if (sourceDeck.id === destinationDeck.id) {
-        return {
-          ...withEventBase({
-            aggregateKind: "deck",
-            aggregateId: destinationDeck.id,
-            occurredAt,
-            commandId: command.commandId,
-          }),
-          type: "thread.deck-reordered",
-          payload: {
-            deckId: destinationDeck.id,
-            spaceId: destinationDeck.spaceId,
-            threadIds: destinationThreadIds,
-            updatedAt: occurredAt,
-          },
-        };
-      }
-
-      return {
-        ...withEventBase({
-          aggregateKind: "deck",
-          aggregateId: destinationDeck.id,
-          occurredAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.deck-moved",
-        payload: {
-          threadId: thread.id,
-          sourceDeckId: sourceDeck.id,
-          destinationDeckId: destinationDeck.id,
-          spaceId: destinationDeck.spaceId,
-          sourceThreadIds: sourceDeck.threadIds.filter((threadId) => threadId !== thread.id),
-          destinationThreadIds,
-          updatedAt: occurredAt,
-        },
-      };
-    }
-
-    case "thread.deck.leave": {
-      const thread = yield* requireThreadNotArchived({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      const sourceDeck = readModel.decks.find((deck) => deck.id === thread.deckId);
-      if (!sourceDeck || sourceDeck.threadIds.length <= 1) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: `A Thread can leave only a deck containing more than one Thread.`,
-        });
-      }
-      if (!sourceDeck.threadIds.includes(thread.id)) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: `Thread '${thread.id}' is not present in its recorded source Thread Deck '${sourceDeck.id}'.`,
-        });
-      }
-      if (readModel.decks.some((deck) => deck.id === command.deckId)) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: `Destination Thread Deck '${command.deckId}' already exists.`,
-        });
-      }
-      const occurredAt = nowIso();
-      return {
-        ...withEventBase({
-          aggregateKind: "deck",
-          aggregateId: command.deckId,
-          occurredAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.deck-moved",
-        payload: {
-          threadId: thread.id,
-          sourceDeckId: sourceDeck.id,
-          destinationDeckId: command.deckId,
-          spaceId: sourceDeck.spaceId,
-          sourceThreadIds: sourceDeck.threadIds.filter((threadId) => threadId !== thread.id),
-          destinationThreadIds: [thread.id],
-          updatedAt: occurredAt,
-        },
-      };
-    }
-
     case "thread.delete": {
       const thread = yield* requireThread({
         readModel,
@@ -1322,20 +911,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
-      if (
-        command.workingDirectory !== undefined &&
-        command.workingDirectory !== thread.workingDirectory &&
-        thread.messages.length > 0
-      ) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "A thread's physical folder cannot change after the thread has started.",
-        });
-      }
       const occurredAt = nowIso();
-      const visitAcknowledgementOnly = Object.keys(command).every((key) =>
-        ["type", "commandId", "threadId", "lastVisitedAt"].includes(key),
-      );
       return {
         ...withEventBase({
           aggregateKind: "thread",
@@ -1351,11 +927,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             ? { modelSelection: command.modelSelection }
             : {}),
           ...(command.connectionId !== undefined ? { connectionId: command.connectionId } : {}),
-          ...resolveThreadWorkspaceMetadataPatch(command),
-          ...(command.isPinned !== undefined ? { isPinned: command.isPinned } : {}),
-          ...(command.isPinned !== undefined && command.isPinned !== thread.isPinned
-            ? { sidebarSortOrder: 0 }
-            : {}),
           ...(command.parentThreadId !== undefined
             ? { parentThreadId: command.parentThreadId }
             : {}),
@@ -1366,31 +937,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             ? { subagentNickname: command.subagentNickname }
             : {}),
           ...(command.subagentRole !== undefined ? { subagentRole: command.subagentRole } : {}),
-          ...(command.lastVisitedAt !== undefined ? { lastVisitedAt: command.lastVisitedAt } : {}),
           ...(command.lastOpenedAt !== undefined ? { lastOpenedAt: command.lastOpenedAt } : {}),
-          updatedAt: visitAcknowledgementOnly ? thread.updatedAt : occurredAt,
-        },
-      };
-    }
-
-    case "thread.runtime-mode.set": {
-      yield* requireThreadCanTakeWork({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      const occurredAt = nowIso();
-      return {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.runtime-mode-set",
-        payload: {
-          threadId: command.threadId,
-          runtimeMode: command.runtimeMode,
           updatedAt: occurredAt,
         },
       };

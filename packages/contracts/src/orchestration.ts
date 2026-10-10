@@ -701,17 +701,7 @@ export const OrchestrationShellStreamEvent = Schema.Union([
       Schema.withDecodingDefault(() => false),
     ),
   }),
-  Schema.Struct({
-    kind: Schema.Literal("space-order-updated"),
-    sequence: NonNegativeInt,
-    orderedSpaceIds: Schema.Array(SpaceId),
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("sidebar-layout-updated"),
-    sequence: NonNegativeInt,
-    folders: Schema.Array(OrchestrationFolderShell),
-    threads: Schema.Array(OrchestrationThreadShell),
-  }),
+
   Schema.Struct({
     kind: Schema.Literal("folder-upserted"),
     sequence: NonNegativeInt,
@@ -731,16 +721,6 @@ export const OrchestrationShellStreamEvent = Schema.Union([
     kind: Schema.Literal("thread-removed"),
     sequence: NonNegativeInt,
     threadId: ThreadId,
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("deck-layout-updated"),
-    sequence: NonNegativeInt,
-    sourceDeckId: ThreadDeckId,
-    destinationDeckId: ThreadDeckId,
-    spaceId: SpaceId,
-    sourceThreadIds: Schema.Array(ThreadId),
-    destinationThreadIds: Schema.Array(ThreadId).check(Schema.isMinLength(1)),
-    updatedAt: IsoDateTime,
   }),
 ]);
 export type OrchestrationShellStreamEvent = typeof OrchestrationShellStreamEvent.Type;
@@ -769,7 +749,6 @@ export const SpaceUpdateCommand = Schema.Struct({
   spaceId: SpaceId,
   name: Schema.optional(SpaceName),
   icon: Schema.optional(SpaceIconName),
-  sortOrder: Schema.optional(NonNegativeInt),
 });
 
 export const SpaceDeleteCommand = Schema.Struct({
@@ -820,14 +799,6 @@ export const SidebarItemMovePosition = Schema.Union([
   Schema.Struct({ type: Schema.Literal("pinned-boundary") }),
 ]);
 export type SidebarItemMovePosition = typeof SidebarItemMovePosition.Type;
-
-export const SidebarItemMoveCommand = Schema.Struct({
-  type: Schema.Literal("sidebar.item.move"),
-  commandId: CommandId,
-  item: SidebarItemReference,
-  target: SidebarItemParent,
-  position: SidebarItemMovePosition,
-});
 
 export const FolderCreateCommand = Schema.Struct({
   type: Schema.Literal("folder.create"),
@@ -958,21 +929,6 @@ export const ThreadDeckPosition = Schema.Union([
 ]);
 export type ThreadDeckPosition = typeof ThreadDeckPosition.Type;
 
-const ThreadDeckMoveCommand = Schema.Struct({
-  type: Schema.Literal("thread.deck.move"),
-  commandId: CommandId,
-  threadId: ThreadId,
-  deckId: ThreadDeckId,
-  position: ThreadDeckPosition,
-});
-
-const ThreadDeckLeaveCommand = Schema.Struct({
-  type: Schema.Literal("thread.deck.leave"),
-  commandId: CommandId,
-  threadId: ThreadId,
-  deckId: ThreadDeckId,
-});
-
 const ThreadUpdateCommand = Schema.Struct({
   type: Schema.Literal("thread.update"),
   commandId: CommandId,
@@ -980,22 +936,11 @@ const ThreadUpdateCommand = Schema.Struct({
   title: Schema.optional(TrimmedNonEmptyString),
   modelSelection: Schema.optional(ModelSelection),
   connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
-  workingDirectory: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  isPinned: Schema.optional(Schema.Boolean),
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   subagentAgentId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   subagentNickname: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   subagentRole: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  lastVisitedAt: Schema.optional(IsoDateTime),
   lastOpenedAt: Schema.optional(IsoDateTime),
-});
-
-const ThreadRuntimeModeSetCommand = Schema.Struct({
-  type: Schema.Literal("thread.runtime-mode.set"),
-  commandId: CommandId,
-  threadId: ThreadId,
-  runtimeMode: RuntimeMode,
-  createdAt: IsoDateTime,
 });
 
 export const ThreadTurnStartCommand = Schema.Struct({
@@ -1216,7 +1161,6 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   SpaceRestoreCommand,
   SpaceDeleteCommand,
   FolderMoveCommand,
-  SidebarItemMoveCommand,
   FolderCreateCommand,
   FolderUpdateCommand,
   FolderDeleteCommand,
@@ -1225,10 +1169,7 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadDeleteCommand,
   ThreadArchiveCommand,
   ThreadUnarchiveCommand,
-  ThreadDeckMoveCommand,
-  ThreadDeckLeaveCommand,
   ThreadUpdateCommand,
-  ThreadRuntimeModeSetCommand,
   ThreadTurnStartCommand,
   ThreadTurnPlayCommand,
   ThreadTurnInterruptCommand,
@@ -1252,7 +1193,6 @@ export const ClientOrchestrationCommand = Schema.Union([
   SpaceRestoreCommand,
   SpaceDeleteCommand,
   FolderMoveCommand,
-  SidebarItemMoveCommand,
   FolderCreateCommand,
   FolderUpdateCommand,
   FolderDeleteCommand,
@@ -1261,10 +1201,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadDeleteCommand,
   ThreadArchiveCommand,
   ThreadUnarchiveCommand,
-  ThreadDeckMoveCommand,
-  ThreadDeckLeaveCommand,
   ThreadUpdateCommand,
-  ThreadRuntimeModeSetCommand,
   ClientThreadTurnStartCommand,
   ThreadTurnPlayCommand,
   ThreadTurnInterruptCommand,
@@ -1403,7 +1340,6 @@ export const OrchestrationEventType = Schema.Literals([
   "space.archived",
   "space.restored",
   "space.deleted",
-  "sidebar.layout-updated",
   "folder.created",
   "folder.updated",
   "folder.moved",
@@ -1413,14 +1349,11 @@ export const OrchestrationEventType = Schema.Literals([
   // Legacy desktop installs can still contain these rows in orchestration_events.
   "thread.archived",
   "thread.unarchived",
-  "thread.deck-moved",
-  "thread.deck-reordered",
   "thread.updated",
   "thread.marker-added",
   "thread.marker-removed",
   "thread.marker-done-set",
   "thread.marker-label-set",
-  "thread.runtime-mode-set",
   "thread.message-sent",
   "thread.message-delivery-set",
   "thread.turn-queued",
@@ -1461,9 +1394,6 @@ export const SpaceUpdatedPayload = Schema.Struct({
   spaceId: SpaceId,
   name: Schema.optional(SpaceName),
   icon: Schema.optional(SpaceIconName),
-  orderedSpaceIds: Schema.optional(
-    Schema.Array(SpaceId).check(Schema.isMaxLength(SPACES_MAX_COUNT)),
-  ),
   updatedAt: IsoDateTime,
 });
 
@@ -1521,23 +1451,6 @@ export const FolderMovedPayload = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 
-export const SidebarLayoutUpdatedPayload = Schema.Struct({
-  folderUpdates: Schema.Array(
-    Schema.Struct({
-      folderId: FolderId,
-      sidebarSortOrder: Schema.optional(NonNegativeInt),
-    }),
-  ).check(Schema.isMaxLength(SIDEBAR_ITEMS_MAX_COUNT)),
-  threadUpdates: Schema.Array(
-    Schema.Struct({
-      threadId: ThreadId,
-      folderId: Schema.optional(FolderId),
-      sidebarSortOrder: Schema.optional(NonNegativeInt),
-    }),
-  ).check(Schema.isMaxLength(SIDEBAR_ITEMS_MAX_COUNT)),
-  updatedAt: IsoDateTime,
-});
-
 export const ThreadCreatedPayload = Schema.Struct({
   threadId: ThreadId,
   deckId: ThreadDeckId,
@@ -1580,23 +1493,6 @@ export const ThreadDeletedPayload = Schema.Struct({
   deletedAt: IsoDateTime,
 });
 
-export const ThreadDeckMovedPayload = Schema.Struct({
-  threadId: ThreadId,
-  sourceDeckId: ThreadDeckId,
-  destinationDeckId: ThreadDeckId,
-  spaceId: SpaceId,
-  sourceThreadIds: Schema.Array(ThreadId),
-  destinationThreadIds: Schema.Array(ThreadId).check(Schema.isMinLength(1)),
-  updatedAt: IsoDateTime,
-});
-
-export const ThreadDeckReorderedPayload = Schema.Struct({
-  deckId: ThreadDeckId,
-  spaceId: SpaceId,
-  threadIds: Schema.Array(ThreadId).check(Schema.isMinLength(1)),
-  updatedAt: IsoDateTime,
-});
-
 export const ThreadArchivedPayload = Schema.Struct({
   threadId: ThreadId,
   restoredFromRetention: Schema.optional(Schema.Boolean),
@@ -1618,25 +1514,15 @@ export const ThreadUpdatedPayload = Schema.Struct({
   title: Schema.optional(TrimmedNonEmptyString),
   modelSelection: Schema.optional(ModelSelection),
   connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
-  workingDirectory: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  isPinned: Schema.optional(Schema.Boolean),
-  sidebarSortOrder: Schema.optional(NonNegativeInt),
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   subagentAgentId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   subagentNickname: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   subagentRole: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  lastVisitedAt: Schema.optional(IsoDateTime),
   lastOpenedAt: Schema.optional(IsoDateTime),
   updatedAt: IsoDateTime,
 });
 
 const HistoricalThreadMarkerPayload = Schema.Record(Schema.String, Schema.Unknown);
-
-export const ThreadRuntimeModeSetPayload = Schema.Struct({
-  threadId: ThreadId,
-  runtimeMode: RuntimeMode,
-  updatedAt: IsoDateTime,
-});
 
 export const ThreadMessageSentPayload = Schema.Struct({
   threadId: ThreadId,
@@ -1870,11 +1756,6 @@ export const OrchestrationEvent = Schema.Union([
   }),
   Schema.Struct({
     ...EventBaseFields,
-    type: Schema.Literal("sidebar.layout-updated"),
-    payload: SidebarLayoutUpdatedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
     type: Schema.Literal("folder.created"),
     payload: FolderCreatedPayload,
   }),
@@ -1902,16 +1783,6 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.deleted"),
     payload: ThreadDeletedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("thread.deck-moved"),
-    payload: ThreadDeckMovedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("thread.deck-reordered"),
-    payload: ThreadDeckReorderedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,
@@ -1948,11 +1819,6 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.marker-label-set"),
     payload: HistoricalThreadMarkerPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("thread.runtime-mode-set"),
-    payload: ThreadRuntimeModeSetPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

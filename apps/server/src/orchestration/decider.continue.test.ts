@@ -205,7 +205,6 @@ describe("archived thread admission", () => {
 
   it.each([
     "thread.update",
-    "thread.runtime-mode.set",
     "thread.turn.steer-queued",
     "thread.task.background",
     "thread.approval.respond",

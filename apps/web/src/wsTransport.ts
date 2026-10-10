@@ -1,3 +1,4 @@
+import type { CleanCoreSidebarChange } from "@penkra/contracts";
 // FILE: wsTransport.ts
 // Purpose: Browser-side Effect RPC transport over the Penkra WebSocket endpoint.
 // Layer: Web transport
@@ -1189,6 +1190,9 @@ export class WsTransport {
         if (this.shellSubscribed) {
           this.startShellStream(client);
         }
+        for (const [threadId, input] of this.cleanCoreThreadSubscriptions) {
+          await this.startCleanCoreThreadStream(client, threadId, input);
+        }
         for (const [threadId, input] of this.threadSubscriptions) {
           await this.startThreadStream(client, threadId, input);
         }
@@ -1244,7 +1248,16 @@ export class WsTransport {
           }
         };
 
-        if (isServerLifecyclePushChannel(channel)) {
+        if (channel === CLEAN_CORE_WS_CHANNELS.sidebarChange) {
+          this.startStream(
+            client,
+            "cleanCore.sidebar",
+            client[WS_METHODS.cleanCoreSubscribeSidebar]({}),
+            (change: CleanCoreSidebarChange) =>
+              this.emit(CLEAN_CORE_WS_CHANNELS.sidebarChange, change),
+            restartChannel,
+          );
+        } else if (isServerLifecyclePushChannel(channel)) {
           this.startLifecycleStream(client);
         } else if (channel === WS_CHANNELS.serverConfigUpdated) {
           this.startStream(

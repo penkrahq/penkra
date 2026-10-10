@@ -145,6 +145,12 @@ export const CleanCoreSidebarChange = Schema.Union([
 ]);
 export type CleanCoreSidebarChange = typeof CleanCoreSidebarChange.Type;
 
+export const CleanCoreDeckMovePosition = Schema.Union([
+  Schema.Struct({ type: Schema.Literals(["start", "end"]) }),
+  Schema.Struct({ type: Schema.Literals(["before", "after"]), itemId: ThreadId }),
+]);
+export type CleanCoreDeckMovePosition = typeof CleanCoreDeckMovePosition.Type;
+
 export const CleanCoreThreadUpdate = Schema.Union([
   Schema.Struct({
     action: Schema.Literal("moveFolder"),
@@ -194,7 +200,7 @@ export const CleanCoreThreadUpdate = Schema.Union([
     action: Schema.Literal("moveDeckThread"),
     threadId: ThreadId,
     deckId: ThreadDeckId,
-    position: CleanCoreThreadMovePosition,
+    position: CleanCoreDeckMovePosition,
     updatedAt: IsoDateTime,
   }),
 ]);

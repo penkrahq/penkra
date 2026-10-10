@@ -9,6 +9,7 @@ import type {
   OrchestrationReadModel,
   OrchestrationCommand,
   ChatAttachment,
+  CleanCoreThreadUpdate,
 } from "@penkra/contracts";
 import {
   CommandId,
@@ -39,6 +40,7 @@ export interface DesktopThreadCommandDependencies {
   readModel(): Promise<OrchestrationReadModel>;
   bindingRevision(threadId: string): Promise<number>;
   dispatch(command: OrchestrationCommand): Promise<unknown>;
+  updateThread(update: Extract<CleanCoreThreadUpdate, { action: "moveDeckThread" }>): Promise<void>;
   dispatchTurn(
     command: Extract<OrchestrationCommand, { type: "thread.turn.start" }>,
     ownerId: string,
@@ -171,25 +173,26 @@ export class DesktopThreadCommands {
         if (request.method === "reorder" && target.deckId !== request.deckId)
           fail("THREAD_NOT_IN_DECK", "Only a member of this Deck can be reordered.");
         const position = request.input.position ?? { type: "end" as const };
-        await this.deps.dispatch({
-          type: "thread.deck.move",
-          commandId: commandId(),
+        await this.deps.updateThread({
+          action: "moveDeckThread",
           threadId: target.id,
           deckId: ThreadDeckId.makeUnsafe(request.deckId),
           position:
             position.type === "before" || position.type === "after"
-              ? { type: position.type, threadId: ThreadId.makeUnsafe(position.threadId) }
+              ? { type: position.type, itemId: ThreadId.makeUnsafe(position.threadId) }
               : position,
+          updatedAt: new Date().toISOString(),
         });
         return null;
       }
       case "leave": {
         const target = requireMember(request.input.threadId);
-        await this.deps.dispatch({
-          type: "thread.deck.leave",
-          commandId: commandId(),
+        await this.deps.updateThread({
+          action: "moveDeckThread",
           threadId: target.id,
           deckId: singletonThreadDeckId(target.id),
+          position: { type: "end" },
+          updatedAt: new Date().toISOString(),
         });
         return null;
       }

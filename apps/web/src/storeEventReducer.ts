@@ -572,28 +572,6 @@ function applyOrchestrationEvent(
         },
       });
     }
-    case "thread.deck-moved":
-      return applyShellEvent(state, {
-        kind: "deck-layout-updated",
-        sequence: event.sequence,
-        sourceDeckId: event.payload.sourceDeckId,
-        destinationDeckId: event.payload.destinationDeckId,
-        spaceId: event.payload.spaceId,
-        sourceThreadIds: event.payload.sourceThreadIds,
-        destinationThreadIds: event.payload.destinationThreadIds,
-        updatedAt: event.payload.updatedAt,
-      });
-    case "thread.deck-reordered":
-      return applyShellEvent(state, {
-        kind: "deck-layout-updated",
-        sequence: event.sequence,
-        sourceDeckId: event.payload.deckId,
-        destinationDeckId: event.payload.deckId,
-        spaceId: event.payload.spaceId,
-        sourceThreadIds: event.payload.threadIds,
-        destinationThreadIds: event.payload.threadIds,
-        updatedAt: event.payload.updatedAt,
-      });
     case "space.created":
       return upsertSpace(state, {
         id: event.payload.spaceId,
@@ -614,9 +592,7 @@ function applyOrchestrationEvent(
             updatedAt: event.payload.updatedAt,
           })
         : state;
-      return event.payload.orderedSpaceIds === undefined
-        ? updatedState
-        : applySpaceOrder(updatedState, event.payload.orderedSpaceIds, event.payload.updatedAt);
+      return updatedState;
     }
 
     case "space.archived":
@@ -718,57 +694,6 @@ function applyOrchestrationEvent(
       return removeDeletedProjectFromClientState(state, event.payload.folderId, event.sequence);
     }
 
-    case "sidebar.layout-updated": {
-      let next = state;
-      for (const update of event.payload.folderUpdates) {
-        next = {
-          ...next,
-          folders: next.folders.map((folder) =>
-            folder.id === update.folderId
-              ? {
-                  ...folder,
-                  ...(update.sidebarSortOrder !== undefined
-                    ? { sidebarSortOrder: update.sidebarSortOrder }
-                    : {}),
-                  updatedAt:
-                    folder.updatedAt !== undefined && folder.updatedAt > event.payload.updatedAt
-                      ? folder.updatedAt
-                      : event.payload.updatedAt,
-                }
-              : folder,
-          ),
-        };
-      }
-      for (const update of event.payload.threadUpdates) {
-        next = applyThreadUpdate(
-          next,
-          update.threadId,
-          (thread) => ({
-            ...thread,
-            folderId: update.folderId ?? thread.folderId,
-            ...(update.sidebarSortOrder !== undefined
-              ? { sidebarSortOrder: update.sidebarSortOrder }
-              : {}),
-            updatedAt: resolveEventUpdatedAt(thread, event.payload.updatedAt),
-          }),
-          { updateSidebarSummary: true },
-        );
-      }
-      return next;
-    }
-
-    case "thread.runtime-mode-set":
-      return applyThreadUpdate(
-        state,
-        event.payload.threadId,
-        (thread) => ({
-          ...thread,
-          runtimeMode: event.payload.runtimeMode,
-          updatedAt: resolveEventUpdatedAt(thread, event.payload.updatedAt),
-        }),
-        { updateSidebarSummary: true },
-      );
-
     case "thread.deleted":
       // Deletion is terminal for both active sidebar rows and archived settings rows.
       return removeDeletedThreadFromClientState(state, event.payload.threadId, event.sequence);
@@ -786,23 +711,15 @@ function applyOrchestrationEvent(
             event.payload.connectionId !== undefined
               ? event.payload.connectionId
               : thread.connectionId;
-          const nextWorkingDirectory =
-            event.payload.workingDirectory !== undefined
-              ? event.payload.workingDirectory
-              : (thread.workingDirectory ?? null);
           const nextUpdatedAt =
             (thread.updatedAt ?? thread.createdAt) > event.payload.updatedAt
               ? thread.updatedAt
               : event.payload.updatedAt;
-          const cwdChanged = (thread.workingDirectory ?? null) !== nextWorkingDirectory;
 
           if (
             (event.payload.title === undefined || event.payload.title === thread.title) &&
             modelSelection === thread.modelSelection &&
             connectionId === thread.connectionId &&
-            nextWorkingDirectory === (thread.workingDirectory ?? null) &&
-            (event.payload.isPinned === undefined ||
-              event.payload.isPinned === (thread.isPinned ?? false)) &&
             (event.payload.parentThreadId === undefined ||
               (event.payload.parentThreadId ?? null) === (thread.parentThreadId ?? null)) &&
             (event.payload.subagentAgentId === undefined ||
@@ -811,8 +728,6 @@ function applyOrchestrationEvent(
               (event.payload.subagentNickname ?? null) === (thread.subagentNickname ?? null)) &&
             (event.payload.subagentRole === undefined ||
               (event.payload.subagentRole ?? null) === (thread.subagentRole ?? null)) &&
-            (event.payload.lastVisitedAt === undefined ||
-              event.payload.lastVisitedAt === thread.lastVisitedAt) &&
             nextUpdatedAt === thread.updatedAt
           ) {
             return thread;
@@ -823,8 +738,6 @@ function applyOrchestrationEvent(
             ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
             modelSelection,
             ...(connectionId !== undefined ? { connectionId } : {}),
-            workingDirectory: nextWorkingDirectory,
-            ...(event.payload.isPinned !== undefined ? { isPinned: event.payload.isPinned } : {}),
             ...(event.payload.parentThreadId !== undefined
               ? { parentThreadId: event.payload.parentThreadId }
               : {}),
@@ -837,11 +750,7 @@ function applyOrchestrationEvent(
             ...(event.payload.subagentRole !== undefined
               ? { subagentRole: event.payload.subagentRole }
               : {}),
-            ...(event.payload.lastVisitedAt !== undefined
-              ? { lastVisitedAt: event.payload.lastVisitedAt }
-              : {}),
             updatedAt: nextUpdatedAt,
-            ...(cwdChanged ? { session: null } : {}),
           };
         },
         {

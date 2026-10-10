@@ -7,6 +7,8 @@ import {
   createThread,
   makeThreadPublisher,
   moveSidebarItem,
+  moveDeckThread,
+  setThreadWorkingDirectory,
   moveFolder,
   moveSpace,
   publishSidebarRows,
@@ -223,6 +225,8 @@ it.effect("moveSidebarItem renumbers its folder siblings in one transaction", ()
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations();
+      yield* sql`INSERT INTO projection_folders (folder_id, title, scripts_json, space_id, created_at, updated_at)
+        VALUES ('folder-1', 'Folder', '[]', 'space-1', ${baseThread.createdAt}, ${baseThread.createdAt})`;
       for (const [id, createdAt] of [
         ["a", "2026-10-09T00:00:03.000Z"],
         ["b", "2026-10-09T00:00:02.000Z"],
@@ -344,6 +348,9 @@ it.effect(
       Effect.gen(function* () {
         const sql = yield* SqlClient.SqlClient;
         yield* runMigrations();
+        yield* sql`INSERT INTO projection_spaces (space_id, name, icon, sort_order, created_at, updated_at)
+          VALUES ('source', 'Source', '', 0, ${baseThread.createdAt}, ${baseThread.createdAt}),
+          ('destination', 'Destination', '', 1, ${baseThread.createdAt}, ${baseThread.createdAt})`;
         for (const [id, spaceId, order] of [
           ["a", "source", 0],
           ["b", "destination", 0],
@@ -363,8 +370,8 @@ it.effect(
           updatedAt: "2026-10-09T00:00:09.000Z",
         };
         const changed = yield* moveFolder(input);
-        assert.deepStrictEqual(changed, ["a", "c"]);
-        yield* publishSidebarRows(publisher, "folder", changed);
+        assert.deepStrictEqual(changed, { folderIds: ["a", "c"], threadIds: [] });
+        yield* publishSidebarRows(publisher, "folder", changed.folderIds);
         assert.deepStrictEqual(seen, [
           {
             kind: "folder",
@@ -382,8 +389,8 @@ it.effect(
           },
         ]);
         const repeat = yield* moveFolder({ ...input, updatedAt: "2026-10-09T00:00:10.000Z" });
-        assert.deepStrictEqual(repeat, []);
-        yield* publishSidebarRows(publisher, "folder", repeat);
+        assert.deepStrictEqual(repeat, { folderIds: [], threadIds: [] });
+        yield* publishSidebarRows(publisher, "folder", repeat.folderIds);
         assert.equal(seen.length, 2);
         const rows = yield* sql<{
           readonly id: string;
@@ -445,6 +452,111 @@ it.effect("moveSpace renumbers active siblings and repeats without writes or bro
         { id: "b", order: 0, updatedAt: input.updatedAt },
         { id: "c", order: 1, updatedAt: input.updatedAt },
         { id: "a", order: 2, updatedAt: input.updatedAt },
+      ]);
+    }),
+  ),
+);
+
+it.effect("deck moves ignore sidebar pins, renumber both decks and repeat without writes", () =>
+  withDb(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations();
+      for (const [id, deckId, order, pinned] of [
+        ["a", "one", 0, 0],
+        ["b", "one", 1, 1],
+        ["c", "two", 0, 1],
+      ] as const) {
+        yield* createThread({ ...baseThread, id, deckId, deckSortOrder: order, isPinned: pinned });
+      }
+      for (const id of ["one", "two"])
+        yield* sql`INSERT INTO projection_thread_decks
+      (deck_id, space_id, created_at, updated_at) VALUES (${id}, 'space-1', ${baseThread.createdAt}, ${baseThread.createdAt})`;
+      const input = {
+        threadId: "a",
+        deckId: "two",
+        position: { type: "after", itemId: "c" as never } as const,
+        updatedAt: "2026-10-09T00:00:09.000Z",
+      };
+      assert.deepStrictEqual(yield* moveDeckThread(input), ["a", "b"]);
+      assert.deepStrictEqual(
+        yield* moveDeckThread({ ...input, updatedAt: "2026-10-09T00:00:10.000Z" }),
+        [],
+      );
+      const rows = yield* sql<{
+        readonly id: string;
+        readonly deckId: string;
+        readonly order: number;
+      }>`
+      SELECT id, deck_id AS "deckId", deck_sort_order AS "order" FROM threads ORDER BY deck_id, deck_sort_order`;
+      assert.deepStrictEqual(rows, [
+        { id: "b", deckId: "one", order: 0 },
+        { id: "c", deckId: "two", order: 0 },
+        { id: "a", deckId: "two", order: 1 },
+      ]);
+      assert.deepStrictEqual(
+        yield* moveDeckThread({ ...input, threadId: "b", position: { type: "start" } }),
+        ["b", "c", "a"],
+      );
+      assert.deepStrictEqual(
+        yield* sql`SELECT deck_id FROM projection_thread_decks ORDER BY deck_id`,
+        [{ deck_id: "two" }],
+      );
+    }),
+  ),
+);
+
+it.effect("rejects cross-space deck moves without changing the rows", () =>
+  withDb(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations();
+      yield* createThread({ ...baseThread, deckId: "one" });
+      yield* sql`INSERT INTO projection_thread_decks (deck_id, space_id, created_at, updated_at)
+      VALUES ('two', 'space-2', ${baseThread.createdAt}, ${baseThread.createdAt})`;
+      const result = yield* Effect.exit(
+        moveDeckThread({
+          threadId: baseThread.id,
+          deckId: "two",
+          position: { type: "end" },
+          updatedAt: baseThread.createdAt,
+        }),
+      );
+      assert.equal(result._tag, "Failure");
+      assert.deepStrictEqual(yield* sql`SELECT deck_id FROM threads`, [{ deck_id: "one" }]);
+    }),
+  ),
+);
+
+it.effect("workspace writes preserve the directory once the thread has started", () =>
+  withDb(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations();
+      yield* createThread(baseThread);
+      const input = {
+        threadId: baseThread.id,
+        workingDirectory: "/repo",
+        updatedAt: baseThread.createdAt,
+      };
+      assert.equal(yield* setThreadWorkingDirectory(input), true);
+      assert.equal(yield* setThreadWorkingDirectory(input), false);
+      yield* upsertThreadItem({
+        threadId: baseThread.id,
+        sourceId: "message",
+        kind: "user",
+        status: "sent",
+        text: "hello",
+        createdAt: baseThread.createdAt,
+        updatedAt: baseThread.createdAt,
+      });
+      assert.equal(
+        (yield* Effect.exit(setThreadWorkingDirectory({ ...input, workingDirectory: "/other" })))
+          ._tag,
+        "Failure",
+      );
+      assert.deepStrictEqual(yield* sql`SELECT working_directory FROM threads`, [
+        { working_directory: "/repo" },
       ]);
     }),
   ),

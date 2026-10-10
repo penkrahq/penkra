@@ -86,28 +86,6 @@ async function addThread(input: {
 }
 
 describe("Spaces", () => {
-  it("reorders by a stable neighboring Space anchor", async () => {
-    const first = SpaceId.makeUnsafe("first");
-    const second = SpaceId.makeUnsafe("second");
-    const third = SpaceId.makeUnsafe("third");
-    let readModel = (await addSpace(createEmptyReadModel(CREATED_AT), first, "First")).readModel;
-    ({ readModel } = await addSpace(readModel, second, "Second"));
-    ({ readModel } = await addSpace(readModel, third, "Third"));
-
-    const reordered = await dispatch(readModel, {
-      type: "space.update",
-      commandId: CommandId.makeUnsafe("move-third-before-first"),
-      spaceId: third,
-      sortOrder: 0,
-    });
-
-    expect(
-      reordered.readModel.spaces
-        .toSorted((left, right) => left.sortOrder - right.sortOrder)
-        .map((space) => space.id),
-    ).toEqual([third, first, second]);
-  });
-
   it("requires every ordinary folder to be born in a persisted Space", async () => {
     let readModel = (await addSpace(createEmptyReadModel(CREATED_AT), "personal", "Personal"))
       .readModel;
@@ -133,48 +111,6 @@ describe("Spaces", () => {
 
     await expect(addNamedFolder(readModel, "second", " product ", personal)).rejects.toThrow(
       /already exists in this Space/i,
-    );
-  });
-
-  it("allows the same folder name in different Spaces but rejects rename and move collisions", async () => {
-    const personal = SpaceId.makeUnsafe("personal");
-    const work = SpaceId.makeUnsafe("work");
-    let readModel = (await addSpace(createEmptyReadModel(CREATED_AT), personal, "Personal"))
-      .readModel;
-    ({ readModel } = await addSpace(readModel, work, "Work"));
-    ({ readModel } = await addNamedFolder(readModel, "personal-product", "Product", personal));
-    ({ readModel } = await addNamedFolder(readModel, "work-product", "Product", work));
-    ({ readModel } = await addNamedFolder(readModel, "work-research", "Research", work));
-
-    await expect(
-      dispatch(readModel, {
-        type: "folder.update",
-        commandId: CommandId.makeUnsafe("rename-to-product"),
-        folderId: FolderId.makeUnsafe("work-research"),
-        title: "PRODUCT",
-      }),
-    ).rejects.toThrow(/already exists in this Space/i);
-
-    await expect(
-      dispatch(readModel, {
-        type: "folder.move",
-        commandId: CommandId.makeUnsafe("move-product-to-work"),
-        spaceId: work,
-        folderIds: [FolderId.makeUnsafe("personal-product")],
-      }),
-    ).rejects.toThrow(/already exists in this Space/i);
-
-    await expect(
-      dispatch(readModel, {
-        type: "sidebar.item.move",
-        commandId: CommandId.makeUnsafe("drag-product-to-work"),
-        item: { kind: "folder", id: FolderId.makeUnsafe("personal-product") },
-        target: { kind: "space", spaceId: work },
-        position: { type: "pinned-boundary" },
-      }),
-    ).rejects.toThrow(/already exists in this Space/i);
-    expect(readModel.folders.find((folder) => folder.id === "personal-product")?.spaceId).toBe(
-      personal,
     );
   });
 
@@ -319,125 +255,6 @@ describe("Spaces", () => {
     });
     expect(moved.events).toHaveLength(1);
     expect(moved.readModel.folders.map((project) => project.spaceId)).toEqual([work, work]);
-  });
-
-  it("atomically moves and orders a folder across Spaces", async () => {
-    const personal = SpaceId.makeUnsafe("personal");
-    const work = SpaceId.makeUnsafe("work");
-    let readModel = (await addSpace(createEmptyReadModel(CREATED_AT), personal, "Personal"))
-      .readModel;
-    ({ readModel } = await addSpace(readModel, work, "Work"));
-    ({ readModel } = await addFolder(readModel, "first", personal));
-    ({ readModel } = await addFolder(readModel, "second", work));
-    // This row was not part of the drag-start snapshot. Anchor intent must preserve it.
-    ({ readModel } = await addFolder(readModel, "third", work));
-
-    const moved = await dispatch(readModel, {
-      type: "sidebar.item.move",
-      commandId: CommandId.makeUnsafe("move-and-order-first-after-second"),
-      item: { kind: "folder", id: FolderId.makeUnsafe("first") },
-      target: { kind: "space", spaceId: work },
-      position: {
-        type: "after",
-        item: { kind: "folder", id: FolderId.makeUnsafe("second") },
-      },
-    });
-
-    expect(moved.events.map((event) => event.type)).toEqual([
-      "folder.moved",
-      "sidebar.layout-updated",
-    ]);
-    expect(
-      moved.readModel.folders.map(({ id, spaceId, sidebarSortOrder }) => ({
-        id,
-        spaceId,
-        sidebarSortOrder,
-      })),
-    ).toEqual([
-      { id: "first", spaceId: work, sidebarSortOrder: 1 },
-      { id: "second", spaceId: work, sidebarSortOrder: 0 },
-      { id: "third", spaceId: work, sidebarSortOrder: 2 },
-    ]);
-  });
-
-  it("moves a root thread and its child tree into a folder atomically", async () => {
-    const personal = SpaceId.makeUnsafe("personal");
-    let readModel = (await addSpace(createEmptyReadModel(CREATED_AT), personal, "Personal"))
-      .readModel;
-    ({ readModel } = await addFolder(readModel, "source", personal));
-    ({ readModel } = await addFolder(readModel, "destination", personal));
-    ({ readModel } = await addThread({
-      readModel,
-      id: "root-thread",
-      folderId: FolderId.makeUnsafe("source"),
-    }));
-    ({ readModel } = await addThread({
-      readModel,
-      id: "child-thread",
-      folderId: FolderId.makeUnsafe("source"),
-      parentThreadId: ThreadId.makeUnsafe("root-thread"),
-    }));
-    const moved = await dispatch(readModel, {
-      type: "sidebar.item.move",
-      commandId: CommandId.makeUnsafe("move-thread-tree"),
-      item: { kind: "thread", id: ThreadId.makeUnsafe("root-thread") },
-      target: { kind: "folder", folderId: FolderId.makeUnsafe("destination") },
-      position: { type: "pinned-boundary" },
-    });
-
-    expect(moved.readModel.threads.map(({ id, folderId }) => ({ id, folderId }))).toEqual([
-      { id: "root-thread", folderId: "destination" },
-      { id: "child-thread", folderId: "destination" },
-    ]);
-  });
-
-  it("rejects creating or moving a thread directly under a Space", async () => {
-    const personal = SpaceId.makeUnsafe("personal");
-    let readModel = (await addSpace(createEmptyReadModel(CREATED_AT), personal, "Personal"))
-      .readModel;
-    ({ readModel } = await addFolder(readModel, "folder", personal));
-
-    ({ readModel } = await addThread({
-      readModel,
-      id: "filed-thread",
-      folderId: FolderId.makeUnsafe("folder"),
-    }));
-    await expect(
-      dispatch(readModel, {
-        type: "sidebar.item.move",
-        commandId: CommandId.makeUnsafe("move-thread-to-space"),
-        item: { kind: "thread", id: ThreadId.makeUnsafe("filed-thread") },
-        target: { kind: "space", spaceId: personal },
-        position: { type: "pinned-boundary" },
-      }),
-    ).rejects.toThrow(/into a folder/i);
-  });
-
-  it("rejects positioning an unpinned item inside the pinned block", async () => {
-    const personal = SpaceId.makeUnsafe("personal");
-    let readModel = (await addSpace(createEmptyReadModel(CREATED_AT), personal, "Personal"))
-      .readModel;
-    ({ readModel } = await addFolder(readModel, "pinned", personal));
-    ({ readModel } = await addFolder(readModel, "regular", personal));
-    ({ readModel } = await dispatch(readModel, {
-      type: "folder.update",
-      commandId: CommandId.makeUnsafe("pin-folder"),
-      folderId: FolderId.makeUnsafe("pinned"),
-      isPinned: true,
-    }));
-
-    await expect(
-      dispatch(readModel, {
-        type: "sidebar.item.move",
-        commandId: CommandId.makeUnsafe("cross-pin-boundary"),
-        item: { kind: "folder", id: FolderId.makeUnsafe("regular") },
-        target: { kind: "space", spaceId: personal },
-        position: {
-          type: "before",
-          item: { kind: "folder", id: FolderId.makeUnsafe("pinned") },
-        },
-      }),
-    ).rejects.toThrow(/cannot be interleaved/i);
   });
 
   it("archives and restores a folder without changing its threads", async () => {

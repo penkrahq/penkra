@@ -1,5 +1,5 @@
 import { assert, it } from "@effect/vitest";
-import { Effect, Fiber, Stream } from "effect";
+import { Deferred, Effect, Fiber, Stream } from "effect";
 
 import { applyProviderEvent } from "./providerStreamConsumer.ts";
 import { threadChangeStream } from "./threadChangeStream.ts";
@@ -10,13 +10,21 @@ import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
 it.live("emits a change for the subscribed thread only", () =>
   Effect.gen(function* () {
     const publisher = makeThreadPublisher();
+    const acquired = yield* Deferred.make<void>();
+    const tracked = {
+      ...publisher,
+      subscribe: (threadId: string, listener: Parameters<typeof publisher.subscribe>[1]) => {
+        const unsubscribe = publisher.subscribe(threadId, listener);
+        Effect.runSync(Deferred.succeed(acquired, undefined));
+        return unsubscribe;
+      },
+    };
     const collected = yield* Effect.scoped(
       Effect.gen(function* () {
         const fiber = yield* Effect.forkScoped(
-          Stream.runCollect(Stream.take(threadChangeStream(publisher, "thread-1"), 1)),
+          Stream.runCollect(Stream.take(threadChangeStream(tracked, "thread-1"), 1)),
         );
-        // Let the stream acquire its subscription before publishing.
-        yield* Effect.sleep("20 millis");
+        yield* Deferred.await(acquired);
         publisher.publish({ threadId: "thread-2" });
         publisher.publish({ threadId: "thread-1" });
         return yield* Fiber.join(fiber);
@@ -43,12 +51,21 @@ it.live("an event applied by the consumer reaches the subscribeThread stream", (
       createdAt: "2026-10-09T00:00:00.000Z",
     });
     const publisher = makeThreadPublisher();
+    const acquired = yield* Deferred.make<void>();
+    const tracked = {
+      ...publisher,
+      subscribe: (threadId: string, listener: Parameters<typeof publisher.subscribe>[1]) => {
+        const unsubscribe = publisher.subscribe(threadId, listener);
+        Effect.runSync(Deferred.succeed(acquired, undefined));
+        return unsubscribe;
+      },
+    };
     const collected = yield* Effect.scoped(
       Effect.gen(function* () {
         const fiber = yield* Effect.forkScoped(
-          Stream.runCollect(Stream.take(threadChangeStream(publisher, "thread-1"), 1)),
+          Stream.runCollect(Stream.take(threadChangeStream(tracked, "thread-1"), 1)),
         );
-        yield* Effect.sleep("20 millis");
+        yield* Deferred.await(acquired);
         yield* applyProviderEvent(publisher, {
           type: "turn.started",
           threadId: "thread-1",

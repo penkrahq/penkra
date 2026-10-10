@@ -10,8 +10,6 @@ import {
   OrchestrationSession,
   OrchestrationThread,
   ThreadMessageDeliverySetPayload,
-  ThreadDeckMovedPayload,
-  ThreadDeckReorderedPayload,
 } from "@penkra/contracts";
 import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
 import { shouldInterruptProvisionalCompletion } from "@penkra/shared/turnContinuation";
@@ -35,7 +33,6 @@ import {
   ThreadDeletedPayload,
   ThreadUpdatedPayload,
   ThreadConversationRolledBackPayload,
-  ThreadRuntimeModeSetPayload,
   ThreadUnarchivedPayload,
   ThreadSessionSetPayload,
   ThreadTurnStartRequestedPayload,
@@ -281,25 +278,18 @@ export function projectEvent(
     case "space.updated":
       return decodeForEvent(SpaceUpdatedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => {
-          const orderBySpaceId = new Map(
-            (payload.orderedSpaceIds ?? []).map((spaceId, index) => [spaceId, index] as const),
-          );
           return {
             ...nextBase,
             spaces: nextBase.spaces.map((space) => {
-              const sortOrder = orderBySpaceId.get(space.id);
               if (space.id === payload.spaceId) {
                 return {
                   ...space,
                   ...(payload.name !== undefined ? { name: payload.name } : {}),
                   ...(payload.icon !== undefined ? { icon: payload.icon } : {}),
-                  ...(sortOrder !== undefined ? { sortOrder } : {}),
                   updatedAt: payload.updatedAt,
                 };
               }
-              return sortOrder === undefined || sortOrder === space.sortOrder
-                ? space
-                : { ...space, sortOrder, updatedAt: payload.updatedAt };
+              return space;
             }),
           };
         }),
@@ -353,54 +343,6 @@ export function projectEvent(
           ),
         })),
       );
-
-    case "sidebar.layout-updated": {
-      const folderUpdates = new Map(
-        event.payload.folderUpdates.map((update) => [update.folderId, update] as const),
-      );
-      const threadUpdates = new Map(
-        event.payload.threadUpdates.map((update) => [update.threadId, update] as const),
-      );
-      const folders = nextBase.folders.map((folder) => {
-        const update = folderUpdates.get(folder.id);
-        return update
-          ? {
-              ...folder,
-              ...(update.sidebarSortOrder !== undefined
-                ? { sidebarSortOrder: update.sidebarSortOrder }
-                : {}),
-              updatedAt: event.payload.updatedAt,
-            }
-          : folder;
-      });
-      const threads = nextBase.threads.map((thread) => {
-        const update = threadUpdates.get(thread.id);
-        return update
-          ? {
-              ...thread,
-              ...(update.folderId !== undefined ? { folderId: update.folderId } : {}),
-              ...(update.sidebarSortOrder !== undefined
-                ? { sidebarSortOrder: update.sidebarSortOrder }
-                : {}),
-              updatedAt: event.payload.updatedAt,
-            }
-          : thread;
-      });
-      const folderById = new Map(folders.map((folder) => [folder.id, folder] as const));
-      return Effect.succeed({
-        ...nextBase,
-        folders,
-        threads,
-        decks: nextBase.decks.map((deck) => {
-          if (deck.threadIds.length !== 1) return deck;
-          const member = threads.find((thread) => thread.id === deck.threadIds[0]);
-          const spaceId = member ? folderById.get(member.folderId)?.spaceId : undefined;
-          return spaceId && spaceId !== deck.spaceId
-            ? { ...deck, spaceId, updatedAt: event.payload.updatedAt }
-            : deck;
-        }),
-      });
-    }
 
     case "folder.created":
       return decodeForEvent(FolderCreatedPayload, event.payload, event.type, "payload").pipe(
@@ -627,85 +569,6 @@ export function projectEvent(
         }),
       );
 
-    case "thread.deck-moved":
-      return decodeForEvent(ThreadDeckMovedPayload, event.payload, event.type, "payload").pipe(
-        Effect.flatMap((payload) => {
-          const sourceDeck = nextBase.decks.find((deck) => deck.id === payload.sourceDeckId);
-          if (payload.sourceThreadIds.length > 0 && !sourceDeck) {
-            return Effect.fail(
-              new OrchestrationProjectorDecodeError({
-                eventType: event.type,
-                issue: `source Thread Deck '${payload.sourceDeckId}' is missing`,
-              }),
-            );
-          }
-          return Effect.succeed({
-            ...nextBase,
-            decks: [
-              ...nextBase.decks.filter(
-                (deck) => deck.id !== payload.sourceDeckId && deck.id !== payload.destinationDeckId,
-              ),
-              ...(payload.sourceThreadIds.length === 0
-                ? []
-                : [
-                    {
-                      ...sourceDeck!,
-                      threadIds: payload.sourceThreadIds,
-                      updatedAt: payload.updatedAt,
-                    },
-                  ]),
-              {
-                ...(nextBase.decks.find((deck) => deck.id === payload.destinationDeckId) ?? {
-                  id: payload.destinationDeckId,
-                  spaceId: payload.spaceId,
-                  createdAt: payload.updatedAt,
-                }),
-                threadIds: payload.destinationThreadIds,
-                updatedAt: payload.updatedAt,
-              },
-            ],
-            threads: nextBase.threads.map((thread) => {
-              const sourceIndex = payload.sourceThreadIds.indexOf(thread.id);
-              if (sourceIndex >= 0) {
-                return {
-                  ...thread,
-                  deckId: payload.sourceDeckId,
-                  deckSortOrder: sourceIndex,
-                };
-              }
-              const destinationIndex = payload.destinationThreadIds.indexOf(thread.id);
-              return destinationIndex < 0
-                ? thread
-                : {
-                    ...thread,
-                    deckId: payload.destinationDeckId,
-                    deckSortOrder: destinationIndex,
-                  };
-            }),
-          });
-        }),
-      );
-
-    case "thread.deck-reordered":
-      return decodeForEvent(ThreadDeckReorderedPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => ({
-          ...nextBase,
-          decks: nextBase.decks.map((deck) =>
-            deck.id === payload.deckId
-              ? {
-                  ...deck,
-                  threadIds: payload.threadIds,
-                  updatedAt: payload.updatedAt,
-                }
-              : deck,
-          ),
-          threads: nextBase.threads.map((thread) => {
-            const index = payload.threadIds.indexOf(thread.id);
-            return index < 0 ? thread : { ...thread, deckSortOrder: index };
-          }),
-        })),
-      );
-
     case "thread.archived":
       return decodeForEvent(ThreadArchivedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => {
@@ -778,13 +641,6 @@ export function projectEvent(
                 ? { modelSelection: payload.modelSelection }
                 : {}),
               ...(payload.connectionId !== undefined ? { connectionId: payload.connectionId } : {}),
-              ...(payload.workingDirectory !== undefined
-                ? { workingDirectory: payload.workingDirectory }
-                : {}),
-              ...(payload.isPinned !== undefined ? { isPinned: payload.isPinned } : {}),
-              ...(payload.sidebarSortOrder !== undefined
-                ? { sidebarSortOrder: payload.sidebarSortOrder }
-                : {}),
               ...(payload.parentThreadId !== undefined
                 ? { parentThreadId: payload.parentThreadId }
                 : {}),
@@ -795,9 +651,6 @@ export function projectEvent(
                 ? { subagentNickname: payload.subagentNickname }
                 : {}),
               ...(payload.subagentRole !== undefined ? { subagentRole: payload.subagentRole } : {}),
-              ...(payload.lastVisitedAt !== undefined
-                ? { lastVisitedAt: payload.lastVisitedAt }
-                : {}),
               updatedAt: payload.updatedAt,
             }),
           };
@@ -810,17 +663,6 @@ export function projectEvent(
     case "thread.marker-done-set":
     case "thread.marker-label-set":
       return Effect.succeed(nextBase);
-
-    case "thread.runtime-mode-set":
-      return decodeForEvent(ThreadRuntimeModeSetPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => ({
-          ...nextBase,
-          threads: updateThread(nextBase.threads, payload.threadId, {
-            runtimeMode: payload.runtimeMode,
-            updatedAt: payload.updatedAt,
-          }),
-        })),
-      );
 
     case "thread.turn-start-requested":
       return decodeForEvent(

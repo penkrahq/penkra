@@ -4225,33 +4225,6 @@ const make = Effect.gen(function* () {
           // that turn can compare the admitted selection against live state.
           return;
         }
-        case "thread.runtime-mode-set": {
-          const thread = yield* resolveThread(event.payload.threadId);
-          if (!thread?.session || thread.session.status === "stopped") {
-            return;
-          }
-          if (thread.session.activeTurnId !== null) {
-            // Restarting to apply a runtime-mode change would kill the active
-            // turn. The next turn's normal session ensure applies the new mode.
-            return;
-          }
-          const cachedProviderOptions = threadProviderOptions.get(event.payload.threadId);
-          const managedRuntime = yield* resolveCurrentManagedRuntime({
-            threadId: event.payload.threadId,
-            modelSelection: thread.modelSelection,
-          });
-          yield* ensureSessionForThread(event.payload.threadId, event.occurredAt, {
-            ...(cachedProviderOptions !== undefined
-              ? { providerOptions: cachedProviderOptions }
-              : {}),
-            modelSelection: thread.modelSelection,
-            runtimeMode: event.payload.runtimeMode,
-            managedLaunch: managedRuntime.managedLaunch,
-            nativeResumeCursor: managedRuntime.resumeCursor,
-            bindingRevision: managedRuntime.bindingRevision,
-          });
-          return;
-        }
         case "thread.turn-queued":
           yield* processTurnQueued(event);
           return;
@@ -5101,15 +5074,6 @@ const make = Effect.gen(function* () {
 
     const fenceOutboxLane = (job: ProviderIntentOutboxJob) =>
       Effect.gen(function* () {
-        if (
-          job.event.type === "thread.runtime-mode-set" &&
-          !(yield* providerIntentOutbox.hasLaterTurnStart({
-            laneKey: job.laneKey,
-            afterSequence: job.eventSequence,
-          }))
-        ) {
-          return;
-        }
         // A failed auxiliary command must not kill an unrelated turn that is
         // still active on this session. Preserve the blocker for an explicit
         // reconciliation or a later recovery sweep after that turn settles.

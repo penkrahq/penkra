@@ -99,7 +99,6 @@ export function useSidebarThreadActions(input: {
 
   const archivePendingThreadIdsRef = useRef<Set<ThreadId>>(new Set());
   const archiveUndoPendingThreadIdsRef = useRef<Set<ThreadId>>(new Set());
-  const legacyPinMigrationThreadIdsRef = useRef(new Set<ThreadId>());
   const optimisticPinnedStateByThreadIdRef = useRef(new Map<ThreadId, boolean>());
   const latestPinnedMutationVersionByThreadIdRef = useRef(new Map<ThreadId, number>());
   const sidebarThreadSummaryByIdRef = useRef(sidebarThreadSummaryById);
@@ -143,11 +142,8 @@ export function useSidebarThreadActions(input: {
   const dispatchThreadPinnedState = useCallback(async (threadId: ThreadId, isPinned: boolean) => {
     const api = readNativeApi();
     if (!api) return;
-    await api.orchestration.dispatchCommand({
-      type: "thread.update",
-      commandId: newCommandId(),
-      threadId,
-      isPinned,
+    await api.cleanCore.updateThread({
+      update: { action: "pin", threadId, isPinned, updatedAt: new Date().toISOString() },
     });
   }, []);
   const setThreadPinned = useCallback(
@@ -233,30 +229,6 @@ export function useSidebarThreadActions(input: {
     if (!threadsHydrated) return;
     prunePinnedThreads(sidebarThreads.map((thread) => thread.id));
   }, [sidebarThreads, threadsHydrated, prunePinnedThreads]);
-
-  useEffect(() => {
-    if (!threadsHydrated || persistedPinnedThreadIds.length === 0) return;
-    const threadsById = new Map(sidebarThreads.map((thread) => [thread.id, thread] as const));
-    for (const threadId of persistedPinnedThreadIds) {
-      const thread = threadsById.get(threadId);
-      if (
-        !thread ||
-        thread.isPinned === true ||
-        optimisticPinnedStateByThreadIdRef.current.has(threadId) ||
-        legacyPinMigrationThreadIdsRef.current.has(threadId)
-      ) {
-        continue;
-      }
-      legacyPinMigrationThreadIdsRef.current.add(threadId);
-      void dispatchThreadPinnedState(threadId, true)
-        .catch((error) => {
-          console.error("Failed to migrate pinned thread state", { threadId, error });
-        })
-        .finally(() => {
-          legacyPinMigrationThreadIdsRef.current.delete(threadId);
-        });
-    }
-  }, [dispatchThreadPinnedState, sidebarThreads, threadsHydrated, persistedPinnedThreadIds]);
 
   const deleteThread = useCallback(
     async (

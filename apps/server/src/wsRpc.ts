@@ -125,7 +125,7 @@ import {
   setThreadWorkingDirectory,
 } from "./cleanCore/threadStore.ts";
 import { ThreadPublisher } from "./cleanCore/ThreadPublisher.ts";
-import { threadChangeStream } from "./cleanCore/threadChangeStream.ts";
+import { sidebarChangeStream, threadChangeStream } from "./cleanCore/threadChangeStream.ts";
 import { recoverMissingFile } from "./diagnostics/missingFileRecovery";
 import { WorkspaceWatcher } from "./workspaceWatcher";
 import { makeWsRequestAdmission } from "./wsRequestAdmission";
@@ -284,14 +284,11 @@ function isShellRelevantEvent(event: OrchestrationEvent): boolean {
     event.type === "space.archived" ||
     event.type === "space.restored" ||
     event.type === "space.deleted" ||
-    event.type === "sidebar.layout-updated" ||
     event.type === "folder.created" ||
     event.type === "folder.updated" ||
     event.type === "folder.moved" ||
     event.type === "folder.deleted" ||
     event.type === "thread.deleted" ||
-    event.type === "thread.deck-moved" ||
-    event.type === "thread.deck-reordered" ||
     (event.aggregateKind === "thread" && shouldPublishThreadShellForEvent(event))
   );
 }
@@ -719,26 +716,18 @@ const makeWsRpcHandlersLayer = () =>
               ),
             );
           case "space.updated":
-            return event.payload.orderedSpaceIds !== undefined
-              ? Effect.succeed(
-                  Option.some({
-                    kind: "space-order-updated" as const,
-                    sequence: event.sequence,
-                    orderedSpaceIds: event.payload.orderedSpaceIds,
-                  }),
-                )
-              : projectionReadModelQuery.getSpaceShellById(event.payload.spaceId).pipe(
-                  Effect.map((space) =>
-                    Option.map(space, (nextSpace) => ({
-                      kind: "space-upserted" as const,
-                      sequence: event.sequence,
-                      space: nextSpace,
-                    })),
-                  ),
-                  Effect.mapError((cause) =>
-                    toWsRpcError(cause, "Failed to read a Space shell update"),
-                  ),
-                );
+            return projectionReadModelQuery.getSpaceShellById(event.payload.spaceId).pipe(
+              Effect.map((space) =>
+                Option.map(space, (nextSpace) => ({
+                  kind: "space-upserted" as const,
+                  sequence: event.sequence,
+                  space: nextSpace,
+                })),
+              ),
+              Effect.mapError((cause) =>
+                toWsRpcError(cause, "Failed to read a Space shell update"),
+              ),
+            );
           case "space.deleted":
           case "space.archived":
             return Effect.succeed(
@@ -752,31 +741,6 @@ const makeWsRpcHandlersLayer = () =>
                     : event.payload.archivedAt,
                 preserveAssignments: event.type === "space.archived",
               }),
-            );
-          case "sidebar.layout-updated":
-            return Effect.all({
-              folders: Effect.forEach(event.payload.folderUpdates, (update) =>
-                projectionReadModelQuery
-                  .getFolderShellById(update.folderId)
-                  .pipe(Effect.map(Option.getOrNull)),
-              ),
-              threads: Effect.forEach(event.payload.threadUpdates, (update) =>
-                projectionReadModelQuery
-                  .getThreadShellById(update.threadId)
-                  .pipe(Effect.map(Option.getOrNull)),
-              ),
-            }).pipe(
-              Effect.map(({ folders, threads }) =>
-                Option.some({
-                  kind: "sidebar-layout-updated" as const,
-                  sequence: event.sequence,
-                  folders: folders.filter((project) => project !== null),
-                  threads: threads.filter((thread) => thread !== null),
-                }),
-              ),
-              Effect.mapError((cause) =>
-                toWsRpcError(cause, "Failed to read a sidebar layout update"),
-              ),
             );
           case "folder.created":
           case "folder.updated":
@@ -809,33 +773,6 @@ const makeWsRpcHandlersLayer = () =>
                 threadId: event.payload.threadId,
               }),
             );
-          case "thread.deck-moved":
-            return Effect.succeed(
-              Option.some({
-                kind: "deck-layout-updated" as const,
-                sequence: event.sequence,
-                sourceDeckId: event.payload.sourceDeckId,
-                destinationDeckId: event.payload.destinationDeckId,
-                spaceId: event.payload.spaceId,
-                sourceThreadIds: event.payload.sourceThreadIds,
-                destinationThreadIds: event.payload.destinationThreadIds,
-                updatedAt: event.payload.updatedAt,
-              }),
-            );
-          case "thread.deck-reordered": {
-            return Effect.succeed(
-              Option.some({
-                kind: "deck-layout-updated" as const,
-                sequence: event.sequence,
-                sourceDeckId: event.payload.deckId,
-                destinationDeckId: event.payload.deckId,
-                spaceId: event.payload.spaceId,
-                sourceThreadIds: event.payload.threadIds,
-                destinationThreadIds: event.payload.threadIds,
-                updatedAt: event.payload.updatedAt,
-              }),
-            );
-          }
           default:
             if (event.aggregateKind !== "thread") return Effect.succeed(Option.none());
             return projectionReadModelQuery
@@ -1469,6 +1406,7 @@ const makeWsRpcHandlersLayer = () =>
 
         [WS_METHODS.serverGetConfig]: () =>
           rpcEffect(loadServerConfig, "Failed to load server config"),
+        [WS_METHODS.cleanCoreSubscribeSidebar]: () => sidebarChangeStream(threadPublisher),
         [WS_METHODS.cleanCoreListThreads]: (input) =>
           rpcEffect(listThreads(input), "Failed to load the thread list"),
         [WS_METHODS.cleanCoreUpdateThread]: (input) =>
@@ -1478,7 +1416,9 @@ const makeWsRpcHandlersLayer = () =>
               const publish = (threadId: string) => threadPublisher.publish({ threadId });
               switch (update.action) {
                 case "moveFolder": {
-                  yield* publishSidebarRows(threadPublisher, "folder", yield* moveFolder(update));
+                  const changed = yield* moveFolder(update);
+                  yield* publishSidebarRows(threadPublisher, "folder", changed.folderIds);
+                  for (const threadId of changed.threadIds) publish(threadId);
                   return;
                 }
                 case "moveSpace": {

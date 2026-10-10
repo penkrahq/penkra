@@ -21,6 +21,7 @@ import {
   type OrchestrationShellStreamItem,
   type OrchestrationSyncStreamItem,
   type CleanCoreThreadChange,
+  type CleanCoreSidebarChange,
   type OrchestrationThreadStreamItem,
   type ProjectDevServerEvent,
   type ProjectWorkspaceChangeEvent,
@@ -126,10 +127,12 @@ const orchestrationDomainEventListeners = createListenerRegistry<OrchestrationEv
 const orchestrationSyncEventListeners = createListenerRegistry<OrchestrationSyncStreamItem>();
 const orchestrationShellEventListeners = createListenerRegistry<OrchestrationShellStreamItem>();
 const orchestrationThreadEventListeners = createListenerRegistry<OrchestrationThreadStreamItem>();
+const cleanCoreSidebarChangeListeners = createListenerRegistry<CleanCoreSidebarChange>();
 const cleanCoreThreadChangeListeners = createListenerRegistry<CleanCoreThreadChange>();
 const threadStreamFailureListeners = createListenerRegistry<WsThreadStreamFailure>();
 
 function clearWsNativeApiListeners(): void {
+  cleanCoreSidebarChangeListeners.clear();
   welcomeListeners.clear();
   serverConfigUpdatedListeners.clear();
   serverProviderStatusesUpdatedListeners.clear();
@@ -339,6 +342,9 @@ export function createWsNativeApi(): NativeApi {
   });
   transport.subscribe(ORCHESTRATION_WS_CHANNELS.threadEvent, (message) => {
     orchestrationThreadEventListeners.emit(message.data);
+  });
+  transport.subscribe(CLEAN_CORE_WS_CHANNELS.sidebarChange, (message) => {
+    cleanCoreSidebarChangeListeners.emit(message.data);
   });
   transport.subscribe(CLEAN_CORE_WS_CHANNELS.threadChange, (message) => {
     cleanCoreThreadChangeListeners.emit(message.data);
@@ -552,6 +558,7 @@ export function createWsNativeApi(): NativeApi {
       answerThreadQuestion: (input) =>
         transport.request(WS_METHODS.cleanCoreAnswerThreadQuestion, input),
       onThreadChange: cleanCoreThreadChangeListeners.subscribe,
+      onSidebarChange: cleanCoreSidebarChangeListeners.subscribe,
     },
     orchestration: {
       getSnapshot: () => transport.request(ORCHESTRATION_WS_METHODS.getSnapshot),

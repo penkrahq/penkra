@@ -106,6 +106,7 @@ import type {
   CleanCoreSetThreadDraftInput,
   CleanCoreSubscribeThreadInput,
   CleanCoreThreadChange,
+  CleanCoreSidebarChange,
   CleanCoreThreadDraft,
   CleanCoreAnswerThreadQuestionInput,
 } from "./cleanCore";
@@ -1117,6 +1118,7 @@ export interface NativeApi {
     subscribeThread: (input: CleanCoreSubscribeThreadInput) => Promise<void>;
     unsubscribeThread: (input: CleanCoreSubscribeThreadInput) => Promise<void>;
     answerThreadQuestion: (input: CleanCoreAnswerThreadQuestionInput) => Promise<void>;
+    onSidebarChange: (callback: (change: CleanCoreSidebarChange) => void) => () => void;
     onThreadChange: (callback: (change: CleanCoreThreadChange) => void) => () => void;
   };
   orchestration: {
