@@ -132,7 +132,7 @@ describe("composerDraftStore queued edit reconciliation", () => {
     store.setPrompt(threadId, "newer prompt");
     store.addImage(threadId, newerImage);
     expect(
-      store.recoverCancelledQueuedTurn(threadId, {
+      store.restoreFailedComposerSubmission(threadId, {
         ...queuedTurn,
         prompt: "queued prompt",
         images: [image],

@@ -264,7 +264,7 @@ import {
   type ComposerAssistantSelectionAttachment,
   type ComposerThreadDraftState,
   type PersistedComposerImageAttachment,
-  type QueuedComposerChatTurn,
+  type ComposerSubmission,
   captureComposerPromptHistorySavedDraft,
   useComposerDraftStore,
   useComposerThreadDraft,
@@ -5057,7 +5057,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
     (
       e?: { preventDefault: () => void },
       dispatchMode?: "queue" | "steer",
-      queuedTurn?: QueuedComposerChatTurn,
+      queuedTurn?: ComposerSubmission,
     ) => Promise<boolean>
   >(async () => false);
 
@@ -5097,7 +5097,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
   const onSend = async (
     e?: { preventDefault: () => void },
     dispatchMode: "queue" | "steer" = "queue",
-    queuedTurn?: QueuedComposerChatTurn,
+    queuedTurn?: ComposerSubmission,
   ): Promise<boolean> => {
     e?.preventDefault();
     const sendTrace = startDiagnosticTrace();
@@ -5298,7 +5298,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       }
       return "none";
     };
-    const capturedRecoveryTurn: QueuedComposerChatTurn = {
+    const capturedRecoveryTurn: ComposerSubmission = {
       id: randomUUID(),
       kind: "chat",
       createdAt: new Date().toISOString(),
@@ -5357,7 +5357,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       composerOwnershipTransferred = false;
       const restoredToComposer = useComposerDraftStore
         .getState()
-        .recoverCancelledQueuedTurn(activeThread.id, sendPreflightOwner.capturedSubmission);
+        .restoreFailedComposerSubmission(activeThread.id, sendPreflightOwner.capturedSubmission);
       if (restoredToComposer && capturedPersistedAttachments.length > 0) {
         useComposerDraftStore.setState((state) => {
           const current = state.draftsByThreadId[activeThread.id];
@@ -5741,7 +5741,7 @@ export default function ChatView({ threadId, paneScopeId: paneScopeIdProp }: Cha
       ),
       composerPastedTextsSnapshot,
     );
-    const ownedPendingTurn: QueuedComposerChatTurn & { messageId: MessageId } = {
+    const ownedPendingTurn: ComposerSubmission & { messageId: MessageId } = {
       id: messageIdForSend,
       kind: "chat",
       createdAt: messageCreatedAt,

@@ -35,11 +35,7 @@ export type {
   ComposerPromptHistorySavedDraft,
   ComposerThreadDraftState,
   DraftThreadState,
-  PendingStartRecovery,
-  PendingStartRecoveryRecord,
-  PendingStartRecoverySettlement,
-  QueuedComposerChatTurn,
-  QueuedComposerTurn,
+  ComposerSubmission,
 } from "./composerDraftDomain";
 export {
   deriveEffectiveComposerModelState,

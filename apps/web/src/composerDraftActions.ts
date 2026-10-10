@@ -2,12 +2,7 @@
 // Purpose: Constructs the ComposerDraftStoreState actions while preserving granular thread identity.
 // Exports: Zustand state creator consumed by the public facade.
 
-import {
-  type MessageId,
-  type ModelSelection,
-  type ProviderKind,
-  ThreadId,
-} from "@penkra/contracts";
+import { type ModelSelection, type ProviderKind, ThreadId } from "@penkra/contracts";
 import { getDefaultModel, normalizeModelSlug } from "@penkra/shared/model";
 import * as Equal from "effect/Equal";
 import type { StateCreator } from "zustand";
@@ -23,7 +18,7 @@ import {
   revokeDraftPreviewUrls,
   revokeObjectPreviewUrl,
   revokePromptHistorySavedDraftPreviewUrls,
-  persistQueuedComposerImages,
+  persistComposerSubmissionImages,
   syncPersistedAttachmentsForSlot,
 } from "./composerDraftAttachments";
 import { deleteComposerAsset } from "./lib/composerAssetStore";
@@ -32,8 +27,7 @@ import {
   type ComposerFileAttachment,
   type ComposerThreadDraftState,
   type DraftThreadState,
-  type PendingStartRecovery,
-  type QueuedComposerTurn,
+  type ComposerSubmission,
   assistantSelectionDedupKey,
   buildDraftThreadState,
   buildTransferredComposerDraft,
@@ -71,19 +65,7 @@ import { DEFAULT_RUNTIME_MODE } from "./types";
 function draftReferencesComposerAsset(draft: ComposerThreadDraftState, assetKey: string): boolean {
   if (draft.files.some((file) => file.assetKey === assetKey)) return true;
   if (draft.promptHistorySavedDraft?.files.some((file) => file.assetKey === assetKey)) return true;
-  if (
-    Object.values(draft.pendingStartRecoveriesByMessageId ?? {}).some(
-      (recovery) => recovery && "raw" in recovery,
-    )
-  ) {
-    return true;
-  }
-  return Object.values(draft.pendingStartRecoveriesByMessageId ?? {}).some(
-    (recovery) =>
-      recovery &&
-      "pendingTurn" in recovery &&
-      recovery.pendingTurn.files.some((file) => file.assetKey === assetKey),
-  );
+  return false;
 }
 
 function deleteUnreferencedComposerFileAssets(
@@ -104,13 +86,9 @@ function deleteUnreferencedComposerFileAssets(
 
 function composerFileAssetKeys(draft: ComposerThreadDraftState | undefined): string[] {
   if (!draft) return [];
-  return [
-    ...draft.files,
-    ...(draft.promptHistorySavedDraft?.files ?? []),
-    ...Object.values(draft.pendingStartRecoveriesByMessageId ?? {}).flatMap((recovery) =>
-      recovery && "pendingTurn" in recovery ? recovery.pendingTurn.files : [],
-    ),
-  ].flatMap((file) => (file.assetKey ? [file.assetKey] : []));
+  return [...draft.files, ...(draft.promptHistorySavedDraft?.files ?? [])].flatMap((file) =>
+    file.assetKey ? [file.assetKey] : [],
+  );
 }
 
 function removeDraftThreadIfUnmapped(input: {
@@ -159,7 +137,7 @@ function removeDraftThreadIfUnmapped(input: {
 
 function mergeRecoveredTurnIntoDraft(
   current: ComposerThreadDraftState,
-  turn: QueuedComposerTurn,
+  turn: ComposerSubmission,
   threadId: ThreadId,
 ): ComposerThreadDraftState {
   const join = (left: string, right: string) =>
@@ -183,7 +161,7 @@ function mergeRecoveredTurnIntoDraft(
     files: appendUnique(current.files, turn.files, (item) => item.id),
     persistedAttachments: appendUnique(
       current.persistedAttachments,
-      persistQueuedComposerImages(turn.images),
+      persistComposerSubmissionImages(turn.images),
       (item) => item.id,
     ),
     assistantSelections: appendUnique(
@@ -1144,236 +1122,18 @@ export const createComposerDraftStoreState =
         return { draftsByThreadId: nextDraftsByThreadId };
       });
     },
-    recoverCancelledQueuedTurn: (threadId, queuedTurnSnapshot) => {
+    restoreFailedComposerSubmission: (threadId, queuedTurnSnapshot) => {
       if (threadId.length === 0 || queuedTurnSnapshot.id.length === 0) return false;
       set((state) => {
         const current = state.draftsByThreadId[threadId] ?? createEmptyThreadDraft();
-        const {
-          serverAcceptedAt: _acceptedAt,
-          serverMessageId: _messageId,
-          dispatchAttempt: _dispatchAttempt,
-          dispatchBindingRevision: _dispatchBindingRevision,
-          ...turnContent
-        } = queuedTurnSnapshot;
         return {
           draftsByThreadId: {
             ...state.draftsByThreadId,
-            [threadId]: mergeRecoveredTurnIntoDraft(current, turnContent, threadId),
+            [threadId]: mergeRecoveredTurnIntoDraft(current, queuedTurnSnapshot, threadId),
           },
         };
       });
       return true;
-    },
-    capturePendingStartRecovery: (threadId, recovery: PendingStartRecovery) => {
-      if (
-        threadId.length === 0 ||
-        recovery.threadId !== threadId ||
-        recovery.messageId !== recovery.pendingTurn.id
-      ) {
-        return false;
-      }
-      let captured = false;
-      set((state) => {
-        const existing = state.draftsByThreadId[threadId] ?? createEmptyThreadDraft();
-        const current = existing.pendingStartRecoveriesByMessageId?.[recovery.messageId];
-        if (current) {
-          captured = false;
-          return state;
-        }
-        captured = true;
-        return {
-          draftsByThreadId: {
-            ...state.draftsByThreadId,
-            [threadId]: {
-              ...existing,
-              pendingStartRecoveriesByMessageId: {
-                ...(existing.pendingStartRecoveriesByMessageId ?? {}),
-                [recovery.messageId]: recovery,
-              },
-            },
-          },
-        };
-      });
-      return captured;
-    },
-    markPendingStartRecoveryAccepted: (threadId, messageId: MessageId, sequence: number) => {
-      if (threadId.length === 0 || !Number.isSafeInteger(sequence) || sequence < 0) return false;
-      let marked = false;
-      set((state) => {
-        const current = state.draftsByThreadId[threadId];
-        const recovery = current?.pendingStartRecoveriesByMessageId?.[messageId];
-        if (
-          !current ||
-          !recovery ||
-          !("pendingTurn" in recovery) ||
-          recovery.messageId !== messageId ||
-          recovery.settlement !== "unresolved"
-        ) {
-          return state;
-        }
-        marked = true;
-        return {
-          draftsByThreadId: {
-            ...state.draftsByThreadId,
-            [threadId]: {
-              ...current,
-              pendingStartRecoveriesByMessageId: {
-                ...(current.pendingStartRecoveriesByMessageId ?? {}),
-                [messageId]: {
-                  ...recovery,
-                  settlement: "accepted",
-                  receiptSequence: Math.max(recovery.receiptSequence ?? 0, sequence),
-                },
-              },
-            },
-          },
-        };
-      });
-      return marked;
-    },
-    restorePendingStartRecovery: (
-      threadId,
-      messageId: MessageId,
-      sequence: number,
-      appliedAt: string,
-    ) => {
-      if (
-        threadId.length === 0 ||
-        !Number.isSafeInteger(sequence) ||
-        sequence < 0 ||
-        appliedAt.length === 0
-      ) {
-        return false;
-      }
-      let restored = false;
-      set((state) => {
-        const current = state.draftsByThreadId[threadId];
-        const recovery = current?.pendingStartRecoveriesByMessageId?.[messageId];
-        if (
-          !current ||
-          !recovery ||
-          !("pendingTurn" in recovery) ||
-          recovery.messageId !== messageId ||
-          (recovery.settlement !== "unresolved" && recovery.settlement !== "restored")
-        ) {
-          return state;
-        }
-        if (recovery.settlement === "restored" && recovery.restorationReceipt) {
-          restored = true;
-          return state;
-        }
-        const {
-          serverAcceptedAt: _serverAcceptedAt,
-          serverMessageId: _serverMessageId,
-          dispatchAttempt: _dispatchAttempt,
-          dispatchBindingRevision: _dispatchBindingRevision,
-          messageId: _pendingMessageId,
-          ...turnContent
-        } = recovery.pendingTurn;
-        const recoveredTurn = turnContent as QueuedComposerTurn;
-        const restoredDraft = mergeRecoveredTurnIntoDraft(current, recoveredTurn, threadId);
-        const nextDraft: ComposerThreadDraftState = {
-          ...restoredDraft,
-          pendingStartRecoveriesByMessageId: {
-            ...(current.pendingStartRecoveriesByMessageId ?? {}),
-            [messageId]: {
-              ...recovery,
-              settlement: "restored",
-              restorationReceipt: { sequence, rowId: "composer", appliedAt },
-            },
-          },
-        };
-        restored = true;
-        return {
-          draftsByThreadId: {
-            ...state.draftsByThreadId,
-            [threadId]: nextDraft,
-          },
-        };
-      });
-      return restored;
-    },
-    discardPendingStartRecovery: (threadId, messageId: MessageId) => {
-      return get().markPendingStartRecoveryFailed(threadId, messageId);
-    },
-    markPendingStartRecoveryFailed: (threadId, messageId: MessageId) => {
-      if (threadId.length === 0) return false;
-      let markedFailed = false;
-      set((state) => {
-        const current = state.draftsByThreadId[threadId];
-        const recovery = current?.pendingStartRecoveriesByMessageId?.[messageId];
-        if (
-          !current ||
-          !recovery ||
-          !("pendingTurn" in recovery) ||
-          recovery.messageId !== messageId ||
-          (recovery.settlement !== "unresolved" && recovery.settlement !== "failed")
-        ) {
-          return state;
-        }
-        markedFailed = true;
-        if (recovery.settlement === "failed") return state;
-        return {
-          draftsByThreadId: {
-            ...state.draftsByThreadId,
-            [threadId]: {
-              ...current,
-              pendingStartRecoveriesByMessageId: {
-                ...(current.pendingStartRecoveriesByMessageId ?? {}),
-                [messageId]: { ...recovery, settlement: "failed" },
-              },
-            },
-          },
-        };
-      });
-      return markedFailed;
-    },
-    clearPendingStartRecovery: (threadId, messageId: MessageId) => {
-      if (threadId.length === 0) return false;
-      let cleared = false;
-      let clearedRecovery: PendingStartRecovery | undefined;
-      set((state) => {
-        const current = state.draftsByThreadId[threadId];
-        const recovery = current?.pendingStartRecoveriesByMessageId?.[messageId];
-        if (
-          !current ||
-          !recovery ||
-          !("pendingTurn" in recovery) ||
-          recovery.messageId !== messageId ||
-          (recovery.settlement !== "accepted" &&
-            recovery.settlement !== "restored" &&
-            recovery.settlement !== "failed")
-        ) {
-          return state;
-        }
-        cleared = true;
-        clearedRecovery = recovery;
-        const nextRecoveries = {
-          ...(current.pendingStartRecoveriesByMessageId ?? {}),
-        };
-        delete nextRecoveries[messageId];
-        const nextDraft = {
-          ...current,
-          pendingStartRecoveriesByMessageId: nextRecoveries,
-        };
-        const nextDraftsByThreadId = { ...state.draftsByThreadId };
-        if (shouldRemoveDraft(nextDraft)) delete nextDraftsByThreadId[threadId];
-        else nextDraftsByThreadId[threadId] = nextDraft;
-        return { draftsByThreadId: nextDraftsByThreadId };
-      });
-      if (clearedRecovery) {
-        deletePersistedComposerImageBlobs(
-          clearedRecovery.persistedImages ?? [],
-          () => get().draftsByThreadId,
-        );
-        deleteUnreferencedComposerFileAssets(
-          clearedRecovery.pendingTurn.files.flatMap((file) =>
-            file.assetKey ? [file.assetKey] : [],
-          ),
-          () => get().draftsByThreadId,
-        );
-      }
-      return cleared;
     },
     addImage: (threadId, image) => {
       if (threadId.length === 0) {
