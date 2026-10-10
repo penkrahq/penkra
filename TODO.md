@@ -122,7 +122,12 @@ CREATE VIRTUAL TABLE thread_items_search USING fts5(text, content='thread_items'
 ### 2.10 Provider credentials
 
 - Read an API key only when a provider process is launched, and pass it into that process's environment. Today `ProviderService.resolveRoutableSession` calls `resolveManagedLaunch` on every `sendTurn`, even for a live session, only to compare an isolation key. Each message makes a server→desktop pipe round trip with a 10 s deadline (`providerCredentialBroker.ts`), so a busy desktop fails the send. Account switches are explicit (2.2, `threads.connection_id`), so they restart the process; nothing needs re-checking per message.
+- No fixed timeouts as guesses (operator, 2026-10-10). `TIMEOUT_MS = 10_000` arrived in the 0.10.0 release squash (`47ff2f5a7`) with no stated reason. Once the key is read only at launch, the request waits for the vault's own answer or for the pipe to close (desktop gone); it does not race a timer. Apply the same rule to every other hard-coded wait touched by this work: each one either has a measured, written reason or is removed.
 - Investigate before implementing: confirm, with a dev build and the diagnostics machinery removed, that no other main-thread work still delays the vault (time each `providers.credentials.*` request on both sides). Report the measurement.
+
+### 2.11 Agent-facing writing
+
+- Review every text an agent reads about Penkra: the host prompt (`penkra` server instructions), `penkra --help` and each operation's help, `SERVER.md`, and the client `CLAUDE.md` template (that one changes only with operator approval, per its own rule). Operator, 2026-10-10: much of it is unclear. For each, check that every statement is true for the code as built, says what a result means and what to do next, and does not repeat another text. Example today: the `threads send` help says "queued means not yet delivered" but not what position counts or when it moves, and the numbers it returns are wrong (2.4). Do this last, after 2.3 and 2.4 land, so the text describes the final behavior. Report the changes as a diff for review.
 
 ## 3. Migration of Production (in place, keep every chat)
 
@@ -151,13 +156,13 @@ Rehearse on a copy made from the read-only source. Report before/after counts, d
 8. Web client: paged transcript by `seq`, draft sync, removal of approval UI (2.1, 2.6).
 9. OpenCode image transform (2.7).
     9b. Right-panel App tabs: one shared state (operator decision, 2026-10-09). Today the open tabs per Thread Deck live in each window's localStorage (`apps/web/src/rightDockStore.ts:84-110`) with no cross-window sync, so closing a tab in one window leaves it open in another. Store the deck's open tabs and active tab on the server with the deck (`projection_thread_decks`, kept in 4.1), push changes to every window, and delete the localStorage persistence; dock width may stay per window. Also: an agent `penkra open --url` always creates a new tab (`apps/desktop/src/main.ts` `openPenkraResource` calls `appTabs.openInstalled` without `presentExisting`), so repeated opens pile up tabs; reuse the deck's existing tab for the same App (present it and navigate) instead.
-    Agent tab activation (operator, 2026-10-10): decks are shared, so activation works in any window currently showing the tab's deck, not only the window the thread was opened in. If no window is showing that deck, fail immediately with a message that names the deck and says to open it. Never leave the request waiting: today the renderer silently ignores a request for a deck or Space it is not showing (`SingleChatSurface.tsx:219`) and `appTabActivation.request` has no deadline, so the call hangs.
+    Agent tab activation (operator, 2026-10-10): target the window the thread was opened in. If that window is showing another deck, use a window that is showing the tab's deck (decks are shared). If no window shows it, fail immediately with a message that names the deck and says to open it. Focus rule: pending operator answer (does activation skip a window where the person is using the right panel?). Never leave the request waiting: today the renderer silently ignores a request for a deck or Space it is not showing (`SingleChatSurface.tsx:219`) and `appTabActivation.request` has no deadline, so the call hangs.
 10. Startup never fatal, diagnostics to file (2.9).
 11. Delete the old pipeline and its tables (2.2). The codebase should shrink substantially; report lines removed. Removing the legacy pump also removes the `Effect.catchCause`/`logWarning` swallow around the clean-core apply in `ProviderRuntimeIngestion.processRuntimeEvent` (step 6 part 4): once the clean core is the only transcript writer, a write failure must surface, not be silently logged.
 
     Also delete the dead approval symbols here (they live in the projection tables this step drops whole, so a migration now would be wasted work): `ApprovalRequestId` (rename to a neutral request id or remove with the legacy contracts), `hasPendingApprovals`, `pendingApprovals`, `pending_approval_count`, `ProviderApprovalDecision`, `respondToRequest`, `thread.approval.respond`. Done-criterion: `grep` finds 0 of them outside historical migrations (`apps/server/src/persistence/Migrations/**`), and the clean-core code imports none of them.
 
-12. Release docs (section 5).
+12. Release docs (section 5), then the agent-facing writing review (2.11).
 
 ### 4.1 Production tables (from `sqlite_master` and row counts, read-only, 2026-10-09; code users from grep)
 
