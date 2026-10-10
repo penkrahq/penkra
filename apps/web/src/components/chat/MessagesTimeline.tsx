@@ -896,36 +896,32 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }
     return null;
   }, [rows]);
-  const tailScrollFrameRef = useRef<number | null>(null);
-  const tailScrollTimeoutsRef = useRef<number[]>([]);
-  const clearTailExpansionScrollTimers = useCallback(() => {
-    if (tailScrollFrameRef.current !== null) {
-      window.cancelAnimationFrame(tailScrollFrameRef.current);
-      tailScrollFrameRef.current = null;
-    }
-    for (const timeoutId of tailScrollTimeoutsRef.current) {
-      window.clearTimeout(timeoutId);
-    }
-    tailScrollTimeoutsRef.current = [];
-  }, []);
   // Manual memoization kept: the main timeline component does not compile
   // under React Compiler (props-default destructuring bailout), so these
   // identities must be stabilized by hand.
-  const scrollTailExpansionToEnd = useCallback(() => {
-    clearTailExpansionScrollTimers();
-    const scrollToEnd = () => {
+  const tailRowResizeObserverRef = useRef<ResizeObserver | null>(null);
+  // A tail row can grow after it mounts (image decode, wrapped content). Keep
+  // the transcript pinned by reacting to the row's measured size instead of
+  // guessing how long the layout will take.
+  useEffect(() => {
+    const scrollNode = resolvedListRef.current?.getScrollableNode?.() ?? null;
+    const tailRow =
+      scrollNode && tailContentRowId !== null
+        ? scrollNode.querySelector<HTMLElement>(`[data-row-key="${tailContentRowId}"]`)
+        : null;
+    if (!tailRow || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
       scrollTranscriptToEnd(resolvedListRef);
-    };
-    tailScrollFrameRef.current = window.requestAnimationFrame(() => {
-      tailScrollFrameRef.current = null;
-      scrollToEnd();
     });
-    for (const delay of [80, 180, 260]) {
-      const timeoutId = window.setTimeout(scrollToEnd, delay);
-      tailScrollTimeoutsRef.current.push(timeoutId);
-    }
-  }, [clearTailExpansionScrollTimers, resolvedListRef]);
-  useEffect(() => clearTailExpansionScrollTimers, [clearTailExpansionScrollTimers]);
+    observer.observe(tailRow);
+    tailRowResizeObserverRef.current = observer;
+    return () => {
+      observer.disconnect();
+      if (tailRowResizeObserverRef.current === observer) {
+        tailRowResizeObserverRef.current = null;
+      }
+    };
+  }, [resolvedListRef, tailContentRowId]);
   const ignoreTimelineImageLoad = useCallback(() => {}, []);
   const previousRowCountRef = useRef(rows.length);
   useEffect(() => {
@@ -1213,7 +1209,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               fileCommentCount: renderedFileComments.length,
               pastedTextCount: renderedPastedTexts.length,
             });
-            const isTailContentRow = row.id === tailContentRowId;
             const showCrossTaskOrigin =
               crossTaskOrigin !== null && row.message.id === firstUserMessageId;
             return (
@@ -1311,9 +1306,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                             image={image}
                             userImages={userImages}
                             onImageExpand={onImageExpand}
-                            onTimelineImageLoad={
-                              isTailContentRow ? scrollTailExpansionToEnd : ignoreTimelineImageLoad
-                            }
+                            onTimelineImageLoad={ignoreTimelineImageLoad}
                             resolvedTheme={resolvedTheme}
                           />
                         ))}
