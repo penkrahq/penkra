@@ -57,6 +57,8 @@ function makeLayer(input: {
         listStreamingAssistantMessages: () => unsupported(),
         searchThreadMessages: () => unsupported(),
         getThreadMessageContext: () => unsupported(),
+        listFolderShellPage: () => unsupported(),
+        listThreadShellPage: () => unsupported(),
         hasActiveProviderThread: () => unsupported(),
         getShellSnapshot: () => unsupported(),
         getActiveFolderByWorkspaceRoot: () => unsupported(),

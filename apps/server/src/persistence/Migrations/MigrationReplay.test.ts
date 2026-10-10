@@ -55,6 +55,7 @@ const replayedEntries: ReadonlyArray<readonly [id: number, name: string]> = [
   [178, "ThreadDeckOrderIndex"],
   [179, "RemoveFolderPinning"],
   [180, "ThreadProviderLookupIndex"],
+  [181, "AgentThreadReadIndexes"],
 ];
 
 const schemaObjects = (sql: SqlClient.SqlClient) =>

@@ -1,5 +1,6 @@
 import {
   PENKRA_GATEWAY_MAX_THREADS_PER_OPERATION,
+  FolderId,
   MessageId,
   SpaceId,
   ThreadId,
@@ -12,8 +13,9 @@ import {
   type ServerSettings,
 } from "@penkra/contracts";
 import { POSSIBLE_MODEL_CATALOG } from "@penkra/shared/possibleModels";
-import { Effect, Option } from "effect";
+import { Effect, Option, Schema } from "effect";
 
+import type { ProjectionFolderPageCursor } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import type { ProjectionTurnRepositoryShape } from "../persistence/Services/ProjectionTurns.ts";
 import type { QueuedTurnPromotionRepositoryShape } from "../persistence/Services/QueuedTurnPromotions.ts";
@@ -52,8 +54,6 @@ import { READ_ONLY_TOOL_ANNOTATIONS, type ToolEntry } from "./toolRuntime.ts";
 
 import { gatewayMcpToolErrorResult } from "./gatewayFailureDiagnostics.ts";
 
-const LIST_THREADS_DEFAULT_LIMIT = 50;
-const LIST_THREADS_MAX_PAGE_SIZE = 100;
 const MODELS_RESPONSE_MAX_CHARS = 40_000;
 const AGENT_THREAD_STATUSES = [
   "working",
@@ -220,28 +220,37 @@ function readTranscriptIncludes(value: string | undefined): ReadonlySet<AgentTra
   return new Set(requested as AgentTranscriptInclude[]);
 }
 
-function encodeThreadListCursor(cursor: ThreadListCursor): string {
+function encodeListCursor(cursor: unknown): string {
   return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
 }
 
-function decodeThreadListCursor(value: string | undefined): ThreadListCursor | undefined {
+function decodeListCursor<A>(
+  value: string | undefined,
+  decode: (input: unknown) => A,
+  kind: "thread" | "folder",
+): A | undefined {
   if (value === undefined) return undefined;
   try {
-    const decoded = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as unknown;
-    if (
-      !decoded ||
-      typeof decoded !== "object" ||
-      Array.isArray(decoded) ||
-      typeof (decoded as ThreadListCursor).updatedAt !== "string" ||
-      typeof (decoded as ThreadListCursor).threadId !== "string"
-    ) {
-      throw new Error("invalid shape");
-    }
-    return decoded as ThreadListCursor;
+    return decode(JSON.parse(Buffer.from(value, "base64url").toString("utf8")));
   } catch {
-    throw new ToolInputError('Argument "cursor" is not a valid thread-list cursor.');
+    throw new ToolInputError(`Argument "cursor" is not a valid ${kind}-list cursor.`);
   }
 }
+
+const decodeThreadListCursor = (value: string | undefined): ThreadListCursor | undefined =>
+  decodeListCursor(
+    value,
+    Schema.decodeUnknownSync(Schema.Struct({ updatedAt: Schema.String, threadId: Schema.String })),
+    "thread",
+  );
+const decodeFolderListCursor = (
+  value: string | undefined,
+): ProjectionFolderPageCursor | undefined =>
+  decodeListCursor(
+    value,
+    Schema.decodeUnknownSync(Schema.Struct({ createdAt: Schema.String, folderId: FolderId })),
+    "folder",
+  );
 
 export interface ThreadReadToolsInput {
   readonly loadConnections: Effect.Effect<ReadonlyArray<ProviderConnection>, unknown>;
@@ -587,7 +596,12 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
         "Use to resolve a Penkra folder id and workspace root before creating or filtering Threads in another folder. Returns folder metadata only; use `penkra threads list` to discover conversations and `penkra context` for the caller's current folder.",
       inputSchema: {
         type: "object",
-        properties: {},
+        properties: {
+          cursor: {
+            type: "string",
+            description: "Opaque nextCursor from the preceding folder page.",
+          },
+        },
         additionalProperties: false,
       },
       annotations: {
@@ -595,19 +609,22 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
         ...READ_ONLY_TOOL_ANNOTATIONS,
       },
     },
-    handler: (_args, context) =>
+    handler: (args, context) =>
       Effect.gen(function* () {
         yield* requireThreadShell(context.callerThreadId);
-        const snapshot = yield* snapshotQuery.getShellSnapshot();
-        const spaceById = new Map(snapshot.spaces.map((space) => [space.id, space]));
+        const after = decodeFolderListCursor(readStringArg(args, "cursor")) ?? null;
+        const page = yield* snapshotQuery.listFolderShellPage(after);
         return mcpToolResultJson({
-          folders: snapshot.folders.map((folder) => ({
+          folders: page.folders.map((folder) => ({
             folderId: folder.id,
             spaceId: folder.spaceId,
-            spaceTitle: spaceById.get(folder.spaceId)?.name ?? null,
+            spaceTitle: folder.spaceTitle,
             title: folder.title,
             workspaceRoot: folder.workspaceRoot,
           })),
+          pageInfo: {
+            nextCursor: page.nextCursor === null ? null : encodeListCursor(page.nextCursor),
+          },
         });
       }).pipe(Effect.catch((error) => Effect.succeed(gatewayMcpToolErrorResult(error)))),
   };
@@ -673,10 +690,6 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
             type: "boolean",
             description: "Include archived threads.",
           },
-          limit: {
-            type: "number",
-            description: "Items per page (default 50, max 100).",
-          },
           cursor: {
             type: "string",
             description: "Opaque nextCursor from the preceding page.",
@@ -692,7 +705,6 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
     handler: (args, context) =>
       Effect.gen(function* () {
         const exactThreadIds = readStringArrayArg(args, "threadId");
-        const exactThreadIdSet = exactThreadIds ? new Set(exactThreadIds) : undefined;
         const folderId = readStringArg(args, "folderId");
         const requestedSpaceId = readStringArg(args, "spaceId");
         const parentThreadId = readStringArg(args, "parentThreadId");
@@ -704,50 +716,28 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
         const updatedAfter = readIsoTimestampArg(args, "updatedAfter");
         const updatedBefore = readIsoTimestampArg(args, "updatedBefore");
         const includeArchived = readBooleanArg(args, "includeArchived") ?? false;
-        const limit = Math.max(
-          1,
-          Math.min(
-            readNumberArg(args, "limit") ?? LIST_THREADS_DEFAULT_LIMIT,
-            LIST_THREADS_MAX_PAGE_SIZE,
-          ),
-        );
         const cursor = decodeThreadListCursor(readStringArg(args, "cursor"));
         const caller = yield* requireThreadShell(context.callerThreadId);
         const callerSpaceId = yield* requireThreadSpaceId(snapshotQuery, caller);
         const spaceId = requestedSpaceId ? SpaceId.makeUnsafe(requestedSpaceId) : callerSpaceId;
-        const snapshot = yield* snapshotQuery
-          .getShellSnapshot()
+        const result = yield* snapshotQuery
+          .listThreadShellPage({
+            spaceId,
+            threadIds: exactThreadIds ?? null,
+            folderId: folderId ?? null,
+            parentThreadId: parentThreadId ?? null,
+            provider: provider ?? null,
+            model: model ?? null,
+            createdBy: createdBy ?? null,
+            updatedAfter: updatedAfter ?? null,
+            updatedBefore: updatedBefore ?? null,
+            includeArchived,
+            after: cursor ?? null,
+            titleContains: titleContains ?? null,
+            status: status ?? null,
+          })
           .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
-        const matching = snapshot.threads
-          .filter((thread) => (exactThreadIdSet ? exactThreadIdSet.has(thread.id) : true))
-          .filter((thread) => {
-            const folder = snapshot.folders.find((candidate) => candidate.id === thread.folderId);
-            return folder?.spaceId === spaceId;
-          })
-          .filter((thread) => (folderId ? thread.folderId === folderId : true))
-          .filter((thread) => (parentThreadId ? thread.parentThreadId === parentThreadId : true))
-          .filter((thread) => (provider ? thread.modelSelection.provider === provider : true))
-          .filter((thread) => (model ? thread.modelSelection.model === model : true))
-          .filter((thread) => (status ? deriveAgentThreadStatus(thread) === status : true))
-          .filter((thread) =>
-            titleContains ? thread.title.toLocaleLowerCase().includes(titleContains) : true,
-          )
-          .filter((thread) => {
-            if (!createdBy) return true;
-            if (createdBy === "human") return (thread.creationSource ?? null) === null;
-            return thread.creationSource === createdBy.replace("-", "_");
-          })
-          .filter((thread) => (updatedAfter ? thread.updatedAt >= updatedAfter : true))
-          .filter((thread) => (updatedBefore ? thread.updatedAt <= updatedBefore : true))
-          .filter((thread) => (includeArchived ? true : (thread.archivedAt ?? null) === null))
-          .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.id.localeCompare(a.id))
-          .filter((thread) =>
-            cursor
-              ? thread.updatedAt < cursor.updatedAt ||
-                (thread.updatedAt === cursor.updatedAt && thread.id < cursor.threadId)
-              : true,
-          );
-        const page = matching.slice(0, limit);
+        const page = result.threads;
         const pendingCounts = yield* queuedTurnPromotions
           .countPendingByThreadIds(page.map((thread) => thread.id))
           .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
@@ -761,17 +751,10 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
             queuedCountByThread.get(thread.id) ?? 0,
           ),
         );
-        const last = page.at(-1);
         return mcpToolResultJson({
           threads,
           pageInfo: {
-            nextCursor:
-              matching.length > page.length && last
-                ? encodeThreadListCursor({
-                    updatedAt: last.updatedAt,
-                    threadId: last.id,
-                  })
-                : null,
+            nextCursor: result.nextCursor === null ? null : encodeListCursor(result.nextCursor),
           },
         });
       }).pipe(Effect.catch((error) => Effect.succeed(gatewayMcpToolErrorResult(error)))),
@@ -1109,14 +1092,6 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           });
         }
         if (isSearch) {
-          const snapshot = yield* snapshotQuery.getShellSnapshot();
-          const folderById = new Map(snapshot.folders.map((folder) => [folder.id, folder]));
-          const candidates = (shell ? [shell] : snapshot.threads)
-            .filter(
-              (candidate) => folderById.get(candidate.folderId)?.spaceId === requestedScopeSpaceId,
-            )
-            .filter((candidate) => (folderId ? candidate.folderId === folderId : true))
-            .filter((candidate) => (shell ? true : (candidate.archivedAt ?? null) === null));
           const searchScope = {
             queries,
             queryMode,
@@ -1130,12 +1105,11 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
             spaceId: requestedScopeSpaceId as string,
           };
           const searchCursor = decodeThreadSearchCursor(cursorValue, searchScope);
-          const candidateById = new Map(
-            candidates.map((candidate) => [candidate.id as string, candidate]),
-          );
           const result = yield* snapshotQuery
             .searchThreadMessages({
-              threadIds: candidates.map((candidate) => candidate.id),
+              spaceId: SpaceId.makeUnsafe(requestedScopeSpaceId),
+              folderId: folderId === undefined ? null : FolderId.makeUnsafe(folderId),
+              threadId: threadId === undefined ? null : ThreadId.makeUnsafe(threadId),
               queries,
               queryMode,
               ...(roleValues.length > 0 ? { roles: roleValues } : {}),
@@ -1147,6 +1121,9 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
               limit,
             })
             .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
+          const providerByThread = new Map(
+            result.messages.map((message) => [message.threadId as string, message.threadProvider]),
+          );
           const matches = result.messages.flatMap((message) => {
             const ranges = findLiteralRanges(message.text, queries);
             const matchingQueryCount = new Set(ranges.map((range) => range.queryIndex)).size;
@@ -1163,7 +1140,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
               {
                 type: "message" as const,
                 threadId: message.threadId,
-                threadTitle: candidateById.get(message.threadId)?.title ?? "",
+                threadTitle: message.threadTitle,
                 messageId: message.messageId,
                 turnId: message.turnId,
                 role: message.role,
@@ -1209,7 +1186,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
             ...normalizeTranscriptTurnIdentity(
               item.turnId,
               identityByThread.get(item.threadId) ?? new Map(),
-              candidateById.get(item.threadId)?.modelSelection.provider,
+              providerByThread.get(item.threadId),
             ),
           }));
           return mcpToolResultJson({

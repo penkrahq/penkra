@@ -18,6 +18,7 @@ import {
   SpaceId,
   ThreadId,
   TurnId,
+  ProviderKind,
   type OrchestrationLatestTurn,
   type OrchestrationMessage,
   type OrchestrationFolder,
@@ -39,6 +40,7 @@ import {
   toPersistenceSqlError,
   type ProjectionRepositoryError,
 } from "../../persistence/Errors.ts";
+import { THREADS_PAGE_SIZE } from "../../cleanCore/threadList.ts";
 import { normalizePersistedModelSelection } from "../../persistence/modelSelectionCompatibility.ts";
 import { deriveThreadSummaryMetadata } from "@penkra/shared/threadSummary";
 import { ProjectionFolder } from "../../persistence/Services/ProjectionFolders.ts";
@@ -61,7 +63,6 @@ import {
   type ProjectionSnapshotSequence,
   type ProjectionSnapshotQueryShape,
   type ProjectionThreadMessageContextInput,
-  type ProjectionTranscriptSearchInput,
   type ProjectionTranscriptSearchResult,
 } from "../Services/ProjectionSnapshotQuery.ts";
 
@@ -710,6 +711,91 @@ function computeSnapshotSequence(
   return Number.isFinite(minSequence) ? minSequence : 0;
 }
 
+const THREAD_SHELL_COLUMNS = `
+          t.id AS "threadId",
+          t.deck_id AS "deckId",
+          t.deck_sort_order AS "deckSortOrder",
+          t.folder_id AS "folderId",
+          t.title,
+          json_patch(json_object('provider', t.provider, 'model', t.model), CASE WHEN t.model_options IS NULL THEN '{}' ELSE json_object('options', json(t.model_options)) END) AS "modelSelection",
+          t.connection_id AS "connectionId",
+          1 AS "connectionSelectionExplicit",
+          t.runtime_mode AS "runtimeMode",
+          t.working_directory AS "workingDirectory",
+          COALESCE(t.sidebar_sort_order, 0) AS "sidebarSortOrder",
+          t.parent_thread_id AS "parentThreadId",
+          CASE t.created_by WHEN 'agent' THEN 'penkra_mcp' WHEN 'provider_native' THEN 'provider_native' ELSE NULL END AS "creationSource",
+          t.created_by_thread_id AS "sourceThreadId",
+          NULL AS "sourceTurnId",
+          NULL AS "gatewayOperationId",
+          NULL AS "gatewayOperationIndex",
+          NULL AS "subagentAgentId",
+          NULL AS "subagentNickname",
+          NULL AS "subagentRole",
+          t.active_turn_id AS "latestTurnId",
+          t.last_user_message_at AS "latestUserMessageAt",
+          t.last_visited_at AS "lastVisitedAt",
+          0 AS "pendingApprovalCount",
+          t.open_question_count AS "pendingUserInputCount",
+          CASE WHEN t.state = 'running' THEN 'running' WHEN t.state = 'error' OR t.open_question_count > 0 THEN 'attention' WHEN t.last_activity_at > COALESCE(t.last_visited_at, '') THEN 'done' ELSE 'idle' END AS "workStatus",
+          t.last_message_preview AS "lastMessagePreview",
+          t.last_activity_at AS "lastActivityAt",
+          t.created_at AS "createdAt",
+          t.updated_at AS "updatedAt",
+          t.archived_at AS "archivedAt",
+          t.deleted_at AS "deletedAt"`;
+const THREAD_SHELL_JOINS = `
+  LEFT JOIN projection_thread_sessions s ON s.thread_id = t.id
+  LEFT JOIN projection_turns lt ON lt.thread_id = t.id AND lt.turn_id = (
+    SELECT turns.turn_id FROM projection_turns turns
+    LEFT JOIN projection_thread_sessions sessions ON sessions.thread_id = turns.thread_id
+    WHERE turns.thread_id = t.id
+    ORDER BY CASE WHEN sessions.status = 'running' AND sessions.active_turn_id IS NOT NULL
+      AND (turns.turn_id = sessions.active_turn_id OR turns.provider_turn_id = sessions.active_turn_id) THEN 0 ELSE 1 END,
+      CASE WHEN turns.state = 'queued' THEN 1 ELSE 0 END,
+      turns.requested_at DESC, turns.turn_id DESC LIMIT 1
+  )`;
+const THREAD_SHELL_CONTEXT_COLUMNS = `
+  CASE WHEN s.thread_id IS NULL THEN NULL ELSE json_object(
+    'threadId', s.thread_id, 'status', s.status, 'providerName', s.provider_name,
+    'runtimeMode', s.runtime_mode, 'activeTurnId', s.active_turn_id,
+    'lastError', s.last_error, 'updatedAt', s.updated_at) END AS sessionJson,
+  CASE WHEN lt.turn_id IS NULL THEN NULL ELSE json_object(
+    'threadId', lt.thread_id, 'turnId', lt.turn_id, 'providerTurnId', lt.provider_turn_id,
+    'pendingMessageId', lt.pending_message_id, 'state', lt.state, 'requestedAt', lt.requested_at,
+    'startedAt', lt.started_at, 'completedAt', lt.completed_at,
+    'assistantMessageId', lt.assistant_message_id) END AS latestTurnJson`;
+const THREAD_AGENT_STATUS = `CASE
+  WHEN t.open_question_count > 0 THEN 'waiting-for-user-input'
+  WHEN lt.state NOT IN ('error', 'interrupted', 'completed', 'cancelled')
+    OR s.status IN ('running', 'starting') THEN 'working'
+  WHEN lt.state = 'error' OR s.status = 'error' THEN 'error'
+  WHEN lt.state = 'interrupted' THEN 'interrupted'
+  ELSE 'idle' END`;
+const ThreadPageRowSchema = Schema.Struct({
+  ...ProjectionThreadShellDbRowSchema.fields,
+  sessionJson: Schema.NullOr(Schema.fromJsonString(ProjectionThreadSessionDbRowSchema)),
+  latestTurnJson: Schema.NullOr(Schema.fromJsonString(ProjectionLatestTurnDbRowSchema)),
+});
+const decodeThreadPageRows = (rows: readonly unknown[]) =>
+  Schema.decodeUnknownEffect(Schema.Array(ThreadPageRowSchema))(rows).pipe(
+    Effect.flatMap((rows) =>
+      Effect.forEach(rows, (row) =>
+        decodeProjectionThreadShellRow(row).pipe(
+          Effect.map((threadRow) =>
+            toProjectedThreadShellFromStoredSummary({
+              threadRow,
+              session: row.sessionJson === null ? null : toProjectedSession(row.sessionJson),
+              latestTurn:
+                row.latestTurnJson === null ? null : toProjectedLatestTurn(row.latestTurnJson),
+            }),
+          ),
+        ),
+      ),
+    ),
+    Effect.mapError(toPersistenceDecodeError("ProjectionSnapshotQuery.threadPage:decodeRows")),
+  );
+
 const makeProjectionSnapshotQuery = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const PendingStartOutcomeRow = Schema.Struct({
@@ -849,39 +935,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     execute: (after) =>
       sql`
         SELECT
-          id AS "threadId",
-          deck_id AS "deckId",
-          deck_sort_order AS "deckSortOrder",
-          folder_id AS "folderId",
-          title,
-          json_patch(json_object('provider', provider, 'model', model), CASE WHEN model_options IS NULL THEN '{}' ELSE json_object('options', json(model_options)) END) AS "modelSelection",
-          connection_id AS "connectionId",
-          1 AS "connectionSelectionExplicit",
-          runtime_mode AS "runtimeMode",
-          working_directory AS "workingDirectory",
-          COALESCE(sidebar_sort_order, 0) AS "sidebarSortOrder",
-          parent_thread_id AS "parentThreadId",
-          CASE created_by WHEN 'agent' THEN 'penkra_mcp' WHEN 'provider_native' THEN 'provider_native' ELSE NULL END AS "creationSource",
-          created_by_thread_id AS "sourceThreadId",
-          NULL AS "sourceTurnId",
-          NULL AS "gatewayOperationId",
-          NULL AS "gatewayOperationIndex",
-          NULL AS "subagentAgentId",
-          NULL AS "subagentNickname",
-          NULL AS "subagentRole",
-          active_turn_id AS "latestTurnId",
-          last_user_message_at AS "latestUserMessageAt",
-          last_visited_at AS "lastVisitedAt",
-          0 AS "pendingApprovalCount",
-          open_question_count AS "pendingUserInputCount",
-          CASE WHEN state = 'running' THEN 'running' WHEN state = 'error' OR open_question_count > 0 THEN 'attention' WHEN last_activity_at > COALESCE(last_visited_at, '') THEN 'done' ELSE 'idle' END AS "workStatus",
-          last_message_preview AS "lastMessagePreview",
-          last_activity_at AS "lastActivityAt",
-          created_at AS "createdAt",
-          updated_at AS "updatedAt",
-          archived_at AS "archivedAt",
-          deleted_at AS "deletedAt"
-        FROM threads
+          ${sql.literal(THREAD_SHELL_COLUMNS)}
+        FROM threads t
         WHERE (${after} IS NULL OR id > ${after})
         ORDER BY id ASC
         LIMIT 50
@@ -2679,6 +2734,91 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         }),
       );
 
+  const listFolderShellPage: ProjectionSnapshotQueryShape["listFolderShellPage"] = (after) =>
+    Effect.gen(function* () {
+      const rows =
+        yield* sql`SELECT f.folder_id AS "folderId", f.title, f.workspace_root AS "workspaceRoot",
+        f.default_model_selection_json AS "defaultModelSelection", f.scripts_json AS scripts,
+        f.icon_data_url AS "iconDataUrl", f.space_id AS "spaceId", f.sidebar_sort_order AS "sidebarSortOrder",
+        f.created_at AS "createdAt", f.updated_at AS "updatedAt", f.archived_at AS "archivedAt", f.deleted_at AS "deletedAt",
+        s.name AS "spaceTitle"
+        FROM projection_folders f LEFT JOIN projection_spaces s ON s.space_id = f.space_id
+          AND s.deleted_at IS NULL AND s.archived_at IS NULL
+        WHERE f.deleted_at IS NULL AND f.archived_at IS NULL
+          AND (${after === null ? 0 : 1} = 0 OR f.created_at > ${after?.createdAt ?? null}
+            OR (f.created_at = ${after?.createdAt ?? null} AND f.folder_id > ${after?.folderId ?? null}))
+        ORDER BY f.created_at, f.folder_id LIMIT ${THREADS_PAGE_SIZE + 1}`;
+      const decoded = yield* Schema.decodeUnknownEffect(
+        Schema.Array(
+          Schema.Struct({
+            ...ProjectionFolderDbRowSchema.fields,
+            spaceTitle: Schema.NullOr(Schema.String),
+          }),
+        ),
+      )(rows);
+      const folders = yield* Effect.forEach(decoded.slice(0, THREADS_PAGE_SIZE), (row) =>
+        decodeProjectionFolderRow(row).pipe(
+          Effect.map((folder) => ({
+            ...toProjectedProjectShell(folder),
+            spaceTitle: row.spaceTitle,
+          })),
+        ),
+      );
+      const last = folders.at(-1);
+      return {
+        folders,
+        nextCursor:
+          rows.length > THREADS_PAGE_SIZE && last !== undefined
+            ? { createdAt: last.createdAt, folderId: last.id }
+            : null,
+      };
+    }).pipe(
+      Effect.mapError((error) =>
+        isPersistenceError(error)
+          ? error
+          : toPersistenceSqlError("ProjectionSnapshotQuery.listFolderShellPage:query")(error),
+      ),
+    );
+
+  const listThreadShellPage: ProjectionSnapshotQueryShape["listThreadShellPage"] = (input) =>
+    Effect.gen(function* () {
+      const rows =
+        yield* sql`SELECT ${sql.literal(THREAD_SHELL_COLUMNS)}, ${sql.literal(THREAD_SHELL_CONTEXT_COLUMNS)}
+        FROM threads t JOIN projection_folders f ON f.folder_id = t.folder_id
+        ${sql.literal(THREAD_SHELL_JOINS)}
+        WHERE t.space_id = ${input.spaceId} AND f.space_id = ${input.spaceId}
+          AND t.deleted_at IS NULL AND f.deleted_at IS NULL AND f.archived_at IS NULL
+          AND (${input.includeArchived ? 1 : 0} = 1 OR t.archived_at IS NULL)
+          AND (${input.threadIds === null ? 0 : 1} = 0 OR t.id IN (SELECT value FROM json_each(${JSON.stringify(input.threadIds)})))
+          AND (${input.folderId} IS NULL OR t.folder_id = ${input.folderId})
+          AND (${input.parentThreadId} IS NULL OR t.parent_thread_id = ${input.parentThreadId})
+          AND (${input.provider} IS NULL OR t.provider = ${input.provider})
+          AND (${input.model} IS NULL OR t.model = ${input.model})
+          AND (${input.createdBy} IS NULL OR CASE t.created_by WHEN 'user' THEN 'human' WHEN 'agent' THEN 'penkra-mcp' WHEN 'provider_native' THEN 'provider-native' END = ${input.createdBy})
+          AND (${input.updatedAfter} IS NULL OR t.updated_at >= ${input.updatedAfter})
+          AND (${input.updatedBefore} IS NULL OR t.updated_at <= ${input.updatedBefore})
+          AND (${input.titleContains} IS NULL OR instr(lower(t.title), lower(${input.titleContains})) > 0)
+          AND (${input.status} IS NULL OR ${sql.literal(THREAD_AGENT_STATUS)} = ${input.status})
+          AND (${input.after === null ? 0 : 1} = 0 OR t.updated_at < ${input.after?.updatedAt ?? null}
+            OR (t.updated_at = ${input.after?.updatedAt ?? null} AND t.id < ${input.after?.threadId ?? null}))
+        ORDER BY t.updated_at DESC, t.id DESC LIMIT ${THREADS_PAGE_SIZE + 1}`;
+      const threads = yield* decodeThreadPageRows(rows.slice(0, THREADS_PAGE_SIZE));
+      const last = threads.at(-1);
+      return {
+        threads,
+        nextCursor:
+          rows.length > THREADS_PAGE_SIZE && last !== undefined
+            ? { updatedAt: last.updatedAt, threadId: last.id }
+            : null,
+      };
+    }).pipe(
+      Effect.mapError((error) =>
+        isPersistenceError(error)
+          ? error
+          : toPersistenceSqlError("ProjectionSnapshotQuery.listThreadShellPage:query")(error),
+      ),
+    );
+
   const listOpenTurnCounts: ProjectionSnapshotQueryShape["listOpenTurnCounts"] = () =>
     listOpenTurnCountRows(undefined).pipe(
       Effect.map((rows) => rows satisfies ReadonlyArray<ProjectionOpenTurnCount>),
@@ -3102,7 +3242,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
   const searchThreadMessages: ProjectionSnapshotQueryShape["searchThreadMessages"] = (input) =>
     Effect.gen(function* () {
       const startedAt = Date.now();
-      if (input.threadIds.length === 0 || input.queries.length === 0) {
+      if (input.queries.length === 0) {
         return {
           messages: [],
           hasMore: false,
@@ -3111,8 +3251,25 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       }
 
       const useIndex = input.queries.every((query) => Array.from(query).length >= 3);
-      const baseConditions: string[] = ["messages.thread_id IN (SELECT value FROM json_each(?))"];
-      const baseParameters: unknown[] = [JSON.stringify(input.threadIds)];
+      const baseConditions: string[] = [
+        "t.space_id = ?",
+        "f.space_id = ?",
+        "t.deleted_at IS NULL",
+        "f.deleted_at IS NULL",
+        "f.archived_at IS NULL",
+        "(? IS NULL OR t.id = ?)",
+        "(? IS NULL OR t.folder_id = ?)",
+        "(? IS NOT NULL OR t.archived_at IS NULL)",
+      ];
+      const baseParameters: unknown[] = [
+        input.spaceId,
+        input.spaceId,
+        input.threadId,
+        input.threadId,
+        input.folderId,
+        input.folderId,
+        input.threadId,
+      ];
 
       if (useIndex) {
         const quoteFtsLiteral = (query: string) => `"${query.replaceAll('"', '""')}"`;
@@ -3143,14 +3300,19 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         ? `JOIN projection_thread_messages_search
              ON projection_thread_messages_search.rowid = messages.rowid`
         : "";
-      const batchSize = useIndex ? Math.max(50, Math.min(250, Math.floor(input.limit) * 2)) : 250;
+      const batchSize = THREADS_PAGE_SIZE;
       const normalizedQueries = input.queries.map((query) => query.toLocaleLowerCase());
       const matchesLiteralQuery = (text: string) => {
         const normalizedText = text.toLocaleLowerCase();
         const matches = normalizedQueries.map((query) => normalizedText.includes(query));
         return input.queryMode === "all" ? matches.every(Boolean) : matches.some(Boolean);
       };
-      const matchedRows: ProjectionThreadMessageDbRow[] = [];
+      const SearchMessageRowSchema = Schema.Struct({
+        ...ProjectionThreadMessageDbRowSchema.fields,
+        threadTitle: Schema.String,
+        threadProvider: ProviderKind,
+      });
+      const matchedRows: Schema.Schema.Type<typeof SearchMessageRowSchema>[] = [];
       let pageAnchor = input.anchor;
       let candidateCount = 0;
       let exhaustedCandidates = false;
@@ -3184,6 +3346,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             `SELECT DISTINCT
              messages.message_id AS "messageId",
              messages.thread_id AS "threadId",
+             t.title AS "threadTitle", t.provider AS "threadProvider",
              messages.turn_id AS "turnId",
              messages.role,
              messages.text,
@@ -3204,6 +3367,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
              messages.created_at AS "createdAt",
              messages.updated_at AS "updatedAt"
            FROM projection_thread_messages AS messages
+           JOIN threads t ON t.id = messages.thread_id
+           JOIN projection_folders f ON f.folder_id = t.folder_id
            ${join}
            WHERE ${conditions.join(" AND ")}
            ORDER BY
@@ -3218,9 +3383,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               toPersistenceSqlError("ProjectionSnapshotQuery.searchThreadMessages:query"),
             ),
           );
-        const decodedRows = yield* Schema.decodeUnknownEffect(
-          Schema.Array(ProjectionThreadMessageDbRowSchema),
-        )(rows).pipe(
+        const decodedRows = yield* Schema.decodeUnknownEffect(Schema.Array(SearchMessageRowSchema))(
+          rows,
+        ).pipe(
           Effect.mapError(
             toPersistenceDecodeError("ProjectionSnapshotQuery.searchThreadMessages:decodeRows"),
           ),
@@ -3241,6 +3406,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       const result: ProjectionTranscriptSearchResult = {
         messages: selected.map((row) => ({
           threadId: row.threadId,
+          threadTitle: row.threadTitle,
+          threadProvider: row.threadProvider,
           messageId: row.messageId,
           turnId: row.turnId,
           role: row.role,
@@ -3255,7 +3422,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           durationMs: Date.now() - startedAt,
           path: result.path,
           queryCount: input.queries.length,
-          threadCount: input.threadIds.length,
+          spaceId: input.spaceId,
+          threadId: input.threadId,
           candidateCount,
           returnedCount: result.messages.length,
           order: input.order,
@@ -3421,6 +3589,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getSnapshot,
     getShellSnapshot,
     hasActiveProviderThread,
+    listFolderShellPage,
+    listThreadShellPage,
     getCounts,
     getSnapshotSequence,
     listStaleInFlightThreadIds,

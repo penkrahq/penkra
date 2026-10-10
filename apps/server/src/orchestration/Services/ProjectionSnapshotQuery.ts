@@ -40,7 +40,9 @@ export interface ProjectionTranscriptSearchAnchor {
 }
 
 export interface ProjectionTranscriptSearchInput {
-  readonly threadIds: ReadonlyArray<ThreadId>;
+  readonly spaceId: SpaceId;
+  readonly folderId: FolderId | null;
+  readonly threadId: ThreadId | null;
   readonly queries: ReadonlyArray<string>;
   readonly queryMode: "any" | "all";
   readonly roles?: ReadonlyArray<string>;
@@ -57,6 +59,8 @@ export interface ProjectionTranscriptSearchMessage {
   readonly messageId: MessageId;
   readonly turnId: TurnId | null;
   readonly role: string;
+  readonly threadTitle: string;
+  readonly threadProvider: ProviderKind;
   readonly text: string;
   readonly createdAt: string;
 }
@@ -94,6 +98,27 @@ export interface ProjectionStreamingAssistantMessage {
   readonly turnId: TurnId | null;
 }
 
+export interface ProjectionFolderPageCursor {
+  readonly createdAt: string;
+  readonly folderId: FolderId;
+}
+
+export interface ProjectionThreadShellPageInput {
+  readonly spaceId: SpaceId;
+  readonly threadIds: ReadonlyArray<string> | null;
+  readonly folderId: string | null;
+  readonly parentThreadId: string | null;
+  readonly provider: string | null;
+  readonly model: string | null;
+  readonly createdBy: string | null;
+  readonly updatedAfter: string | null;
+  readonly updatedBefore: string | null;
+  readonly titleContains: string | null;
+  readonly status: string | null;
+  readonly includeArchived: boolean;
+  readonly after: { readonly updatedAt: string; readonly threadId: string } | null;
+}
+
 /**
  * ProjectionSnapshotQueryShape - Service API for read-model snapshots.
  */
@@ -114,6 +139,24 @@ export interface ProjectionSnapshotQueryShape {
    * projector cursor state.
    */
   readonly getSnapshot: () => Effect.Effect<OrchestrationReadModel, ProjectionRepositoryError>;
+
+  readonly listFolderShellPage: (after: ProjectionFolderPageCursor | null) => Effect.Effect<
+    {
+      readonly folders: ReadonlyArray<
+        OrchestrationFolderShell & { readonly spaceTitle: string | null }
+      >;
+      readonly nextCursor: ProjectionFolderPageCursor | null;
+    },
+    ProjectionRepositoryError
+  >;
+
+  readonly listThreadShellPage: (input: ProjectionThreadShellPageInput) => Effect.Effect<
+    {
+      readonly threads: ReadonlyArray<OrchestrationThreadShell>;
+      readonly nextCursor: ProjectionThreadShellPageInput["after"];
+    },
+    ProjectionRepositoryError
+  >;
 
   /** Indexed existence check retaining provider-update session admission rules. */
   readonly hasActiveProviderThread: (

@@ -33,6 +33,13 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { OrchestrationCommandInvariantError } from "../../orchestration/Errors.ts";
+import { deriveAgentThreadStatus } from "../threadSummary.ts";
+import { THREADS_PAGE_SIZE } from "../../cleanCore/threadList.ts";
+import type {
+  ProjectionThreadShellPageInput,
+  ProjectionFolderPageCursor,
+  ProjectionTranscriptSearchInput,
+} from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { QueuedTurnPromotionRepository } from "../../persistence/Services/QueuedTurnPromotions.ts";
@@ -495,24 +502,84 @@ function makeHarnessLayer(
 
   let parentShellReads = 0;
   const snapshotLayer = Layer.succeed(ProjectionSnapshotQuery, {
-    getShellSnapshot: () =>
-      Effect.succeed({
-        snapshotSequence: 1,
-        spaces: [
-          {
-            id: SPACE_ID,
-            name: "Personal",
-            icon: "home",
-            sortOrder: 0,
-            createdAt: NOW,
-            updatedAt: NOW,
-          },
-        ],
-        archivedSpaces: [],
-        folders: [makeProjectShell(options.projectScripts), ...(options.extraFolders ?? [])],
-        archivedFolders: [],
-        threads: [...threadsById.values()],
-        updatedAt: NOW,
+    listFolderShellPage: (after: ProjectionFolderPageCursor | null) =>
+      Effect.sync(() => {
+        const matching = [makeProjectShell(options.projectScripts), ...(options.extraFolders ?? [])]
+          .filter(
+            (folder) =>
+              after === null ||
+              folder.createdAt > after.createdAt ||
+              (folder.createdAt === after.createdAt && folder.id > after.folderId),
+          )
+          .toSorted((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+        const folders = matching.slice(0, THREADS_PAGE_SIZE).map((folder) => ({
+          ...folder,
+          spaceTitle: folder.spaceId === SPACE_ID ? "Personal" : null,
+        }));
+        const last = folders.at(-1);
+        return {
+          folders,
+          nextCursor:
+            matching.length > THREADS_PAGE_SIZE && last !== undefined
+              ? { createdAt: last.createdAt, folderId: last.id }
+              : null,
+        };
+      }),
+    listThreadShellPage: (input: ProjectionThreadShellPageInput) =>
+      Effect.sync(() => {
+        const folders = [makeProjectShell(options.projectScripts), ...(options.extraFolders ?? [])];
+        const matching = [...threadsById.values()]
+          .filter(
+            (thread) =>
+              folders.find((folder) => folder.id === thread.folderId)?.spaceId === input.spaceId,
+          )
+          .filter((thread) => input.threadIds === null || input.threadIds.includes(thread.id))
+          .filter((thread) => input.folderId === null || thread.folderId === input.folderId)
+          .filter(
+            (thread) =>
+              input.parentThreadId === null || thread.parentThreadId === input.parentThreadId,
+          )
+          .filter(
+            (thread) =>
+              input.provider === null || thread.modelSelection.provider === input.provider,
+          )
+          .filter((thread) => input.model === null || thread.modelSelection.model === input.model)
+          .filter(
+            (thread) =>
+              input.createdBy === null ||
+              (input.createdBy === "human"
+                ? thread.creationSource === null
+                : thread.creationSource === input.createdBy.replace("-", "_")),
+          )
+          .filter((thread) => input.updatedAfter === null || thread.updatedAt >= input.updatedAfter)
+          .filter(
+            (thread) => input.updatedBefore === null || thread.updatedAt <= input.updatedBefore,
+          )
+          .filter(
+            (thread) =>
+              input.titleContains === null ||
+              thread.title.toLowerCase().includes(input.titleContains.toLowerCase()),
+          )
+          .filter(
+            (thread) => input.status === null || deriveAgentThreadStatus(thread) === input.status,
+          )
+          .filter((thread) => input.includeArchived || thread.archivedAt === null)
+          .filter(
+            (thread) =>
+              input.after === null ||
+              thread.updatedAt < input.after.updatedAt ||
+              (thread.updatedAt === input.after.updatedAt && thread.id < input.after.threadId),
+          )
+          .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.id.localeCompare(a.id));
+        const threads = matching.slice(0, THREADS_PAGE_SIZE);
+        const last = threads.at(-1);
+        return {
+          threads,
+          nextCursor:
+            matching.length > THREADS_PAGE_SIZE && last !== undefined
+              ? { updatedAt: last.updatedAt, threadId: last.id }
+              : null,
+        };
       }),
     getThreadShellById: (threadId: ThreadIdType) =>
       Effect.sync(() => {
@@ -609,21 +676,19 @@ function makeHarnessLayer(
           nextCursor: null,
         };
       }),
-    searchThreadMessages: (input: {
-      threadIds: ReadonlyArray<ThreadIdType>;
-      queries: ReadonlyArray<string>;
-      queryMode: "any" | "all";
-      roles?: ReadonlyArray<string>;
-      turnId?: string;
-      createdAfter?: string;
-      createdBefore?: string;
-      order: "recent" | "oldest";
-      anchor?: { createdAt: string; threadId: string; messageId: string };
-      limit: number;
-    }) =>
+    searchThreadMessages: (input: ProjectionTranscriptSearchInput) =>
       Effect.sync(() => {
         const direction = input.order === "recent" ? -1 : 1;
-        const messages = input.threadIds
+        const folders = [makeProjectShell(options.projectScripts), ...(options.extraFolders ?? [])];
+        const messages = [...threadsById.values()]
+          .filter(
+            (thread) =>
+              folders.find((folder) => folder.id === thread.folderId)?.spaceId === input.spaceId,
+          )
+          .filter((thread) => input.threadId === null || thread.id === input.threadId)
+          .filter((thread) => input.folderId === null || thread.folderId === input.folderId)
+          .filter((thread) => input.threadId !== null || thread.archivedAt === null)
+          .map((thread) => thread.id)
           .flatMap((threadId) => {
             const thread =
               threadDetailsById.get(threadId as string) ??
@@ -635,6 +700,8 @@ function makeHarnessLayer(
               );
             return (thread?.messages ?? []).map((message) => ({
               threadId,
+              threadTitle: thread!.title,
+              threadProvider: thread!.modelSelection.provider,
               messageId: message.id,
               turnId: message.turnId ?? null,
               role: message.role,
@@ -2496,6 +2563,56 @@ describe("AgentGateway", () => {
     }).pipe(Effect.provide(gatewayLayer));
   });
 
+  it.effect(
+    "pages folders with shared opaque cursors, no duplicates and a specific invalid-cursor error",
+    () => {
+      const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
+        extraFolders: Array.from({ length: THREADS_PAGE_SIZE + 3 }, (_, i) => ({
+          ...makeProjectShell(),
+          id: FolderId.makeUnsafe("folder-page-" + String(i).padStart(2, "0")),
+        })),
+      });
+      return Effect.gen(function* () {
+        const harness = yield* makeHarness;
+        const first = toolResultJson(
+          (yield* harness.callTool({
+            token: "token-parent",
+            name: "penkra_list_folders",
+            args: {},
+          })).result,
+        );
+        const rows = first.folders as Array<{ folderId: string }>;
+        assert.lengthOf(rows, THREADS_PAGE_SIZE);
+        const cursor = (first.pageInfo as { nextCursor: string }).nextCursor;
+        assert.isString(cursor);
+        const second = toolResultJson(
+          (yield* harness.callTool({
+            token: "token-parent",
+            name: "penkra_list_folders",
+            args: { cursor },
+          })).result,
+        );
+        const rest = second.folders as Array<{ folderId: string }>;
+        assert.lengthOf(rest, 4);
+        assert.isNull((second.pageInfo as { nextCursor: string | null }).nextCursor);
+        assert.equal(
+          new Set([...rows, ...rest].map((row) => row.folderId)).size,
+          THREADS_PAGE_SIZE + 4,
+        );
+        const invalid = yield* harness.callTool({
+          token: "token-parent",
+          name: "penkra_list_folders",
+          args: { cursor: "invalid" },
+        });
+        assert.isTrue(isToolError(invalid.result));
+        assert.include(
+          toolErrorText(invalid.result),
+          'Argument "cursor" is not a valid folder-list cursor.',
+        );
+      }).pipe(Effect.provide(gatewayLayer));
+    },
+  );
+
   it.effect("lists threads hiding archived ones and marking the caller", () => {
     const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
     return Effect.gen(function* () {
@@ -2514,18 +2631,21 @@ describe("AgentGateway", () => {
     }).pipe(Effect.provide(gatewayLayer));
   });
 
-  it.effect("returns a durable cursor when the limit truncates the thread list", () => {
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
+  it.effect("returns a durable cursor when the 50-row page truncates the thread list", () => {
+    const { gatewayLayer, makeHarness } = makeHarnessLayer([
+      makeThreadShell("thread-parent"),
+      ...Array.from({ length: 51 }, (_, i) => makeThreadShell("thread-page-" + i)),
+    ]);
     return Effect.gen(function* () {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
         name: "penkra_list_threads",
-        args: { limit: 1 },
+        args: {},
       });
       const payload = toolResultJson(response.result);
       const threads = payload.threads as Array<Record<string, unknown>>;
-      assert.equal(threads.length, 1);
+      assert.equal(threads.length, THREADS_PAGE_SIZE);
       assert.isString((payload.pageInfo as { nextCursor: string | null }).nextCursor);
     }).pipe(Effect.provide(gatewayLayer));
   });

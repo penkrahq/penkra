@@ -2012,6 +2012,11 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
       const sql = yield* SqlClient.SqlClient;
       const threadId = asThreadId("thread-transcript-search");
+      yield* sql`INSERT OR IGNORE INTO projection_folders(folder_id, title, workspace_root, scripts_json, space_id, created_at, updated_at)
+        VALUES ('folder-transcript-search', 'Search', '/repo', '[]', 'penkra-personal', '2026-09-01T00:00:00.000Z', '2026-09-01T00:00:00.000Z')`;
+      yield* sql`INSERT OR IGNORE INTO threads(id, space_id, folder_id, title, provider, model, runtime_mode, state, created_by, created_at, updated_at)
+        VALUES (${threadId}, 'penkra-personal', 'folder-transcript-search', 'Search', 'codex', 'gpt-5.5', 'full-access', 'idle', 'user', '2026-09-01T00:00:00.000Z', '2026-09-01T00:00:00.000Z')`;
+
       yield* sql`DELETE FROM projection_thread_messages`;
       yield* sql`DELETE FROM projection_thread_activities`;
       yield* sql`
@@ -2049,7 +2054,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
 
       const indexed = yield* snapshotQuery.searchThreadMessages({
-        threadIds: [threadId],
+        spaceId: SpaceId.makeUnsafe("penkra-personal"),
+        folderId: null,
+        threadId,
         queries: ["grouping", "one panel"],
         queryMode: "all",
         roles: ["assistant"],
@@ -2065,7 +2072,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       );
 
       const fallback = yield* snapshotQuery.searchThreadMessages({
-        threadIds: [threadId],
+        spaceId: SpaceId.makeUnsafe("penkra-personal"),
+        folderId: null,
+        threadId,
         queries: ["x"],
         queryMode: "any",
         order: "oldest",
@@ -2078,7 +2087,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       );
 
       const unicodeFallback = yield* snapshotQuery.searchThreadMessages({
-        threadIds: [threadId],
+        spaceId: SpaceId.makeUnsafe("penkra-personal"),
+        folderId: null,
+        threadId,
         queries: ["é"],
         queryMode: "any",
         order: "oldest",
