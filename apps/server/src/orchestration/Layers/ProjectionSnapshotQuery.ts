@@ -871,18 +871,16 @@ export function buildTranscriptSearchQuery(input: ProjectionTranscriptSearchInpu
     input.threadId,
   ];
 
+  const joiner = input.queryMode === "all" ? " AND " : " OR ";
   if (useIndex) {
     const quoteFtsLiteral = (query: string) => `"${query.replaceAll('"', '""')}"`;
-    const joiner = input.queryMode === "all" ? " AND " : " OR ";
     conditions.push("projection_thread_messages_search MATCH ?");
     parameters.push(input.queries.map(quoteFtsLiteral).join(joiner));
-  } else {
-    const joiner = input.queryMode === "all" ? " AND " : " OR ";
-    conditions.push(
-      `(${input.queries.map(() => "instr(lower(messages.text), lower(?)) > 0").join(joiner)})`,
-    );
-    parameters.push(...input.queries);
   }
+  conditions.push(
+    `(${input.queries.map(() => "instr(lower(messages.text), lower(?)) > 0").join(joiner)})`,
+  );
+  parameters.push(...input.queries);
 
   if (input.roles && input.roles.length > 0) {
     conditions.push("messages.role IN (SELECT value FROM json_each(?))");

@@ -171,23 +171,21 @@ function decodeThreadSearchCursor(
   }
 }
 
+const foldAsciiCase = (text: string) => text.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
+
 const findLiteralRanges = (text: string, queries: ReadonlyArray<string>) => {
-  const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const foldedText = foldAsciiCase(text);
   return queries.flatMap((query, queryIndex) => {
     const ranges: Array<{
       readonly queryIndex: number;
       readonly start: number;
       readonly end: number;
     }> = [];
-    const pattern = new RegExp(`(?=(${escapeRegExp(query)}))`, "giu");
-    for (const match of text.matchAll(pattern)) {
-      const matchedText = match[1];
-      if (matchedText === undefined) continue;
-      ranges.push({
-        queryIndex,
-        start: match.index,
-        end: match.index + matchedText.length,
-      });
+    const foldedQuery = foldAsciiCase(query);
+    let start = foldedText.indexOf(foldedQuery);
+    while (start !== -1) {
+      ranges.push({ queryIndex, start, end: start + query.length });
+      start = foldedText.indexOf(foldedQuery, start + 1);
     }
     return ranges;
   });
@@ -888,11 +886,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           throw new ToolInputError('Argument "queries" must not be empty.');
         }
         const queries = [
-          ...new Set(
-            (multipleQueries ?? (singleQuery ? [singleQuery] : [])).map((value) =>
-              value.replace(/[A-Z]/gu, (letter) => letter.toLowerCase()),
-            ),
-          ),
+          ...new Set((multipleQueries ?? (singleQuery ? [singleQuery] : [])).map(foldAsciiCase)),
         ];
         if (queries.length > 10) {
           throw new ToolInputError('Argument "queries" accepts at most 10 values.');

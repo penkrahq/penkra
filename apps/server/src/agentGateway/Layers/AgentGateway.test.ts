@@ -2812,6 +2812,50 @@ describe("AgentGateway", () => {
     },
   );
 
+  it.effect("finds mixed-case ASCII literals and overlapping ranges", () => {
+    const shell = makeThreadShell("thread-search-ascii", { title: "ASCII search" });
+    const detail: OrchestrationThread = {
+      ...makeThreadDetail(shell),
+      messages: [
+        {
+          id: MessageId.makeUnsafe("message-search-ascii"),
+          role: "user",
+          text: "elan banana",
+          turnId: TurnId.makeUnsafe("turn-search-ascii"),
+          streaming: false,
+          source: "native",
+          createdAt: "2026-09-02T12:00:00.000Z",
+          updatedAt: "2026-09-02T12:00:00.000Z",
+        },
+      ],
+    };
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(
+      [makeThreadShell("thread-parent"), shell],
+      { threadDetails: new Map([[shell.id, detail]]) },
+    );
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const payload = toolResultJson(
+        (yield* harness.callTool({
+          token: "token-parent",
+          name: "penkra_read_thread",
+          args: { threadId: shell.id, queries: ["ELAN", "ANA"], queryMode: "all" },
+        })).result,
+      );
+      const items = payload.items as Array<{
+        messageId: string;
+        matches: Array<{ queryIndex: number; start: number; end: number }>;
+      }>;
+      assert.lengthOf(items, 1);
+      assert.equal(items[0]?.messageId, "message-search-ascii");
+      assert.deepEqual(items[0]?.matches, [
+        { queryIndex: 0, start: 0, end: 4 },
+        { queryIndex: 1, start: 6, end: 9 },
+        { queryIndex: 1, start: 8, end: 11 },
+      ]);
+    }).pipe(Effect.provide(gatewayLayer));
+  });
+
   it.effect("reads and deduplicates context around several exact message anchors", () => {
     const shell = makeThreadShell("thread-context", { title: "Context" });
     const detail: OrchestrationThread = {
