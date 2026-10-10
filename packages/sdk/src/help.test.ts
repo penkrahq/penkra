@@ -64,13 +64,14 @@ describe("generated App help", () => {
       operation: "issues.create",
     });
     expect(help).not.toContain("[--input '<json>']");
-    expect(help).toContain("title <string>  required.");
-    expect(help).toContain('priority <string>  optional; default "low"; one of "low", "high".');
+    expect(help).toContain("--title <string>  required.");
+    expect(help).toContain('--priority <string>  optional; default "low"; one of "low", "high".');
     expect(help).toContain('"command": "linear issues create --input');
     expect(help).toContain('\\"title\\":\\"Fix redirect\\"');
     expect(help).toContain('"required": [');
     expect(help).toContain("Validated output schema");
     expect(help).toContain("Invocation\n  Send one ordinary command string.");
+    expect(help).toContain("A bare value without its --name");
     expect(help).toContain("--input   Complete JSON operation input");
     expect(help).toContain("How to use this operation");
     expect(help).toContain("Confirm the destination project");

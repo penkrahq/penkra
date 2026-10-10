@@ -126,8 +126,9 @@ export function generateOperationHelp(input: GenerateOperationHelpInput): string
     ...operationFlagHelp(input.input),
     "",
     "Invocation",
-    "  Send one ordinary command string. Use --name value for scalar fields and",
-    '  --input "{...}" for a complete JSON value.',
+    "  Send one ordinary command string. Pass each input field by name exactly as listed",
+    "  under Input fields (for example --thread-id <id>). A bare value without its --name",
+    '  is rejected. Use --input "{...}" to pass the complete input as one JSON value.',
     "  --input   Complete JSON operation input validated against the schema below.",
     ...(input.parentHelp ? ["", "Operating manual", `  ${input.parentHelp}`] : []),
     ...(input.permissions
@@ -175,7 +176,8 @@ function operationFlagHelp(schema: Readonly<Record<string, unknown>>): string[] 
         : []),
     ];
     const description = typeof property.description === "string" ? ` ${property.description}` : "";
-    return `  ${name} <${type}>  ${details.join("; ")}.${description}`;
+    const flag = name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+    return `  --${flag} <${type}>  ${details.join("; ")}.${description}`;
   });
 }
 

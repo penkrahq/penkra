@@ -628,10 +628,7 @@ export async function executePenkraExecCommand(
       if (!declaration)
         throw new Error(`Unknown Thread Deck command ${action ?? ""}. Run penkra deck --help.`);
       const parsed = structuredArguments(args.slice(3), parsedRequest);
-      if (parsed.positionals.length > 0 || parsed.tabId !== undefined)
-        throw new Error(
-          `Invalid arguments for ${declaration.command}. Run ${declaration.command} --help.`,
-        );
+      rejectUnacceptedArguments(declaration.command, parsed, { acceptsTabId: false });
       if (parsed.help) {
         if (parsed.input !== undefined || Object.keys(parsed.named).length > 0)
           throw new Error(`${declaration.command} --help does not accept operation input.`);
@@ -657,10 +654,7 @@ export async function executePenkraExecCommand(
         throw new Error(`Unknown Penkra tabs command ${action}. Run penkra tabs --help.`);
       }
       const parsed = structuredArguments(args.slice(3), parsedRequest);
-      if (parsed.positionals.length > 0)
-        throw new Error(
-          `Invalid arguments for ${declaration.command}. Run ${declaration.command} --help.`,
-        );
+      rejectUnacceptedArguments(declaration.command, parsed, { acceptsTabId: true });
       if (parsed.help) {
         if (
           parsed.input !== undefined ||
@@ -698,8 +692,11 @@ export async function executePenkraExecCommand(
     }
     if (args[1] === "open") {
       const parsed = structuredArguments(args.slice(2), parsedRequest);
-      if (parsed.positionals.length > 0 || parsed.help || parsed.tabId)
-        throw new Error("Invalid arguments for penkra open. Run penkra open --help.");
+      rejectUnacceptedArguments("penkra open", parsed, { acceptsTabId: false });
+      if (parsed.help)
+        throw new Error(
+          "penkra open --help does not accept other arguments. Run penkra open --help on its own.",
+        );
       const supplied = parseOperationInput(
         OPEN_OPERATION.input,
         parsed.input,
@@ -998,11 +995,7 @@ async function executeAppDeveloperCommand(
   }
   const declaration = APP_DEVELOPER_OPERATIONS[operationKey]!;
   const parsed = structuredArguments(operationArguments, requestInput);
-  if (parsed.positionals.length > 0 || parsed.tabId !== undefined) {
-    throw new Error(
-      `Invalid arguments for ${declaration.command}. Run ${declaration.command} --help.`,
-    );
-  }
+  rejectUnacceptedArguments(declaration.command, parsed, { acceptsTabId: false });
   if (parsed.help) {
     if (parsed.input !== undefined || Object.keys(parsed.named).length > 0)
       throw new Error(`${declaration.command} --help does not accept operation input.`);
@@ -1228,6 +1221,26 @@ export function tokenizePenkraCommand(command: string): string[] {
   }
   finishToken();
   return tokens;
+}
+
+/**
+ * Rejects tokens a structured command does not accept, naming the exact token and the fix.
+ * Every input field is passed by name (--field-name value), never as a bare value.
+ */
+export function rejectUnacceptedArguments(
+  command: string,
+  parsed: { readonly positionals: ReadonlyArray<string>; readonly tabId?: string },
+  options: { readonly acceptsTabId: boolean },
+): void {
+  const stray = parsed.positionals[0];
+  if (stray !== undefined)
+    throw new Error(
+      `${command} received the bare value "${stray}". Every input field is passed by name as --field-name value (for example --thread-id <id>, not <id> alone). Run ${command} --help for its input fields.`,
+    );
+  if (!options.acceptsTabId && parsed.tabId !== undefined)
+    throw new Error(
+      `${command} does not accept --tab-id. Run ${command} --help for its input fields.`,
+    );
 }
 
 export function structuredArguments(
