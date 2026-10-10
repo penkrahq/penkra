@@ -8,7 +8,7 @@ import {
   useComposerDraftStore,
   type ComposerFileAttachment,
   type ComposerImageAttachment,
-  type QueuedComposerTurn,
+  type ComposerSubmission,
 } from "./composerDraftStore";
 import type { TerminalContextDraft } from "./lib/terminalContext";
 
@@ -84,14 +84,14 @@ export function makeTerminalContext(input: {
   };
 }
 
-export function makeQueuedTurn(id: string): QueuedComposerTurn {
+export function makeQueuedTurn(id: string): ComposerSubmission {
   return makeQueuedChatTurn(id);
 }
 
 export function makeQueuedChatTurn(
   id: string,
   image?: ComposerImageAttachment,
-): QueuedComposerTurn {
+): ComposerSubmission {
   return {
     id,
     kind: "chat",

@@ -144,29 +144,12 @@ export function isComposerImageBlobReferenced(
   if (blobKey.length === 0) return false;
   for (const draft of Object.values(draftsByThreadId)) {
     if (!draft) continue;
-    if (
-      Object.values(draft.pendingStartRecoveriesByMessageId ?? {}).some(
-        (recovery) => recovery && "raw" in recovery,
-      )
-    ) {
-      return true;
-    }
     if (draft.persistedAttachments.some((attachment) => attachment.blobKey === blobKey)) {
       return true;
     }
     if (
       draft.promptHistorySavedDraft?.persistedAttachments.some(
         (attachment) => attachment.blobKey === blobKey,
-      )
-    ) {
-      return true;
-    }
-    if (
-      Object.values(draft.pendingStartRecoveriesByMessageId ?? {}).some(
-        (recovery) =>
-          recovery &&
-          "pendingTurn" in recovery &&
-          recovery.persistedImages?.some((attachment) => attachment.blobKey === blobKey),
       )
     ) {
       return true;
@@ -278,7 +261,7 @@ function persistImageAttachmentFromDataUrl(input: {
   return normalizePersistedAttachment(input);
 }
 
-export function persistQueuedComposerImages(
+export function persistComposerSubmissionImages(
   images: ReadonlyArray<ComposerImageAttachment>,
 ): PersistedComposerImageAttachment[] {
   return images.flatMap((image) => {

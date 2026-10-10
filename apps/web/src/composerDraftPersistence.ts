@@ -3,7 +3,6 @@
 // Exports: Persist middleware transitions and persisted state type.
 
 import {
-  MessageId,
   ModelSelection,
   FolderId,
   ProviderConnectionId,
@@ -34,7 +33,6 @@ import {
   PersistedComposerImageAttachment,
   type ComposerPromptHistorySavedDraft,
   type ComposerThreadDraftState,
-  type PendingStartRecoveryRecord,
 } from "./composerDraftDomain";
 import {
   LegacyCodexFields,
@@ -143,7 +141,6 @@ const PersistedComposerThreadDraftState = Schema.Struct({
   pastedTexts: Schema.optionalKey(Schema.Array(PersistedPastedTextDraft)),
   skills: Schema.optionalKey(Schema.Array(ProviderSkillReference)),
   mentions: Schema.optionalKey(Schema.Array(ProviderMentionReference)),
-  pendingStartRecoveriesByMessageId: Schema.optionalKey(Schema.Unknown),
   modelSelectionByProvider: Schema.optionalKey(
     Schema.Record(ProviderKind, Schema.optionalKey(ModelSelection)),
   ),
@@ -229,51 +226,6 @@ function normalizePersistedFiles(value: unknown): Array<PersistedComposerFileAtt
   return Array.isArray(value)
     ? value.filter(Schema.is(PersistedComposerFileAttachment)).map((file) => ({ ...file }))
     : [];
-}
-
-function hydratePendingStartRecoveries(
-  threadId: ThreadId,
-  raw: unknown,
-): NonNullable<ComposerThreadDraftState["pendingStartRecoveriesByMessageId"]> {
-  const hydrated: NonNullable<ComposerThreadDraftState["pendingStartRecoveriesByMessageId"]> = {};
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return hydrated;
-  for (const [messageId, value] of Object.entries(raw)) {
-    if (!value || typeof value !== "object") continue;
-    const candidate = value as Record<string, unknown>;
-    const pendingTurn = candidate.pendingTurn;
-    if (candidate.schemaVersion !== 1 || !pendingTurn || typeof pendingTurn !== "object") {
-      hydrated[MessageId.makeUnsafe(messageId)] = {
-        schemaVersion: typeof candidate.schemaVersion === "number" ? candidate.schemaVersion : 0,
-        threadId,
-        messageId: MessageId.makeUnsafe(messageId),
-        raw: value,
-      };
-      continue;
-    }
-    const turn = pendingTurn as Record<string, unknown>;
-    const images = Array.isArray(turn.images)
-      ? hydrateImagesFromPersisted(
-          turn.images.flatMap((image) => {
-            const normalized = normalizePersistedAttachment(image);
-            return normalized ? [normalized] : [];
-          }),
-        )
-      : [];
-    hydrated[MessageId.makeUnsafe(messageId)] = {
-      ...(candidate as unknown as Extract<PendingStartRecoveryRecord, { schemaVersion: 1 }>),
-      threadId,
-      messageId: MessageId.makeUnsafe(messageId),
-      pendingTurn: {
-        ...(turn as unknown as Extract<
-          PendingStartRecoveryRecord,
-          { schemaVersion: 1 }
-        >["pendingTurn"]),
-        images,
-        files: hydrateFilesFromPersisted(normalizePersistedFiles(turn.files)),
-      },
-    };
-  }
-  return hydrated;
 }
 
 function normalizePersistedPromptHistorySavedDraft(
@@ -682,9 +634,6 @@ function normalizePersistedDraftsByThreadId(
       fileComments.length === 0 &&
       pastedTexts.length === 0 &&
       !hasReferenceData &&
-      (!draftCandidate.pendingStartRecoveriesByMessageId ||
-        typeof draftCandidate.pendingStartRecoveriesByMessageId !== "object" ||
-        Object.keys(draftCandidate.pendingStartRecoveriesByMessageId).length === 0) &&
       !hasModelData &&
       !runtimeMode
     ) {
@@ -701,10 +650,6 @@ function normalizePersistedDraftsByThreadId(
       ...(pastedTexts.length > 0 ? { pastedTexts } : {}),
       ...(skills.length > 0 ? { skills } : {}),
       ...(mentions.length > 0 ? { mentions } : {}),
-      ...(draftCandidate.pendingStartRecoveriesByMessageId &&
-      typeof draftCandidate.pendingStartRecoveriesByMessageId === "object"
-        ? { pendingStartRecoveriesByMessageId: draftCandidate.pendingStartRecoveriesByMessageId }
-        : {}),
       ...(hasModelData ? { modelSelectionByProvider, activeProvider } : {}),
       ...(runtimeMode ? { runtimeMode } : {}),
     };
@@ -849,10 +794,6 @@ export function toHydratedThreadDraft(
     pastedTexts: hydratePastedTextsFromPersisted(persistedDraft.pastedTexts),
     skills: [...(persistedDraft.skills ?? [])],
     mentions: [...(persistedDraft.mentions ?? [])],
-    pendingStartRecoveriesByMessageId: hydratePendingStartRecoveries(
-      threadId,
-      persistedDraft.pendingStartRecoveriesByMessageId,
-    ),
     modelSelectionByProvider,
     activeProvider,
     runtimeMode: persistedDraft.runtimeMode ?? null,

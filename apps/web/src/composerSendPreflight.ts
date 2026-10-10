@@ -1,6 +1,6 @@
 import type { MessageId, ThreadId } from "@penkra/contracts";
 import { useSyncExternalStore } from "react";
-import type { QueuedComposerTurn } from "./composerDraftStore";
+import type { ComposerSubmission } from "./composerDraftStore";
 import type { ChatMessage } from "./types";
 import {
   recordComposerSendPreflightDiagnostic,
@@ -10,11 +10,11 @@ import {
 export interface ComposerSendPreflightOwner {
   readonly id: string;
   readonly threadId: ThreadId;
-  readonly capturedSubmission: QueuedComposerTurn;
+  readonly capturedSubmission: ComposerSubmission;
   cancelled: boolean;
   phase: "preflight" | "dispatching";
   messageId: MessageId | null;
-  pendingTurn: (QueuedComposerTurn & { messageId: MessageId }) | null;
+  pendingTurn: (ComposerSubmission & { messageId: MessageId }) | null;
   admissionReceiptSequence: number | null;
   optimisticMessage: ChatMessage | null;
   readonly claimedImageIds: ReadonlySet<string>;
@@ -42,7 +42,7 @@ function publish(): void {
 
 export function claimComposerSendPreflight(
   threadId: ThreadId,
-  capturedSubmission: QueuedComposerTurn,
+  capturedSubmission: ComposerSubmission,
   claimedImageIds: readonly string[] = capturedSubmission.images.map((image) => image.id),
   claimedMessageId: MessageId | null = null,
 ): ComposerSendPreflightOwner | null {
@@ -246,7 +246,7 @@ export function advanceComposerSendPreflightAppliedSequence(sequence: number): v
 export function markComposerSendPreflightDispatching(
   owner: ComposerSendPreflightOwner,
   messageId: MessageId,
-  pendingTurn: QueuedComposerTurn & { messageId: MessageId },
+  pendingTurn: ComposerSubmission & { messageId: MessageId },
 ): boolean {
   if (
     !owners
@@ -271,7 +271,7 @@ export function markComposerSendPreflightDispatching(
 
 export function updateComposerSendPreflightImages(
   owner: ComposerSendPreflightOwner,
-  images: QueuedComposerTurn["images"],
+  images: ComposerSubmission["images"],
 ): void {
   if (owner.phase !== "preflight") return;
   owner.capturedSubmission.images = [...images];
@@ -279,8 +279,8 @@ export function updateComposerSendPreflightImages(
 
 export function updateComposerSendPreflightResolvedAdmission(
   owner: ComposerSendPreflightOwner,
-  connectionId: QueuedComposerTurn["connectionId"],
-  providerOptionsForDispatch: QueuedComposerTurn["providerOptionsForDispatch"],
+  connectionId: ComposerSubmission["connectionId"],
+  providerOptionsForDispatch: ComposerSubmission["providerOptionsForDispatch"],
 ): void {
   owner.capturedSubmission.connectionId = connectionId;
   if (providerOptionsForDispatch === undefined) {

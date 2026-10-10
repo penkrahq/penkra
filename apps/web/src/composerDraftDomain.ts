@@ -15,7 +15,6 @@ import {
   type SpaceId,
   type ThreadDeckId,
   type ThreadId,
-  type MessageId,
   singletonThreadDeckId,
 } from "@penkra/contracts";
 import * as Schema from "effect/Schema";
@@ -84,16 +83,10 @@ export interface ComposerPromptHistorySavedDraft {
 
 export type ComposerAssistantSelectionAttachment = ChatAssistantSelectionAttachment;
 
-export interface QueuedComposerChatTurn {
+export interface ComposerSubmission {
   id: string;
   kind: "chat";
   createdAt: string;
-  serverAcceptedAt?: string;
-  serverMessageId?: import("@penkra/contracts").MessageId;
-  /** Durable semantic-attempt identity for crash-safe command retries. */
-  dispatchAttempt?: number;
-  /** Exact binding revision captured for the current semantic attempt. */
-  dispatchBindingRevision?: number;
   dispatchMode?: "queue" | "steer";
   previewText: string;
   prompt: string;
@@ -113,35 +106,6 @@ export interface QueuedComposerChatTurn {
   providerOptionsForDispatch?: ProviderStartOptions | undefined;
   runtimeMode: RuntimeMode;
 }
-export type QueuedComposerTurn = QueuedComposerChatTurn;
-
-export type PendingStartRecoverySettlement = "unresolved" | "accepted" | "restored" | "failed";
-
-export interface PendingStartRecoveryReceipt {
-  sequence: number;
-  rowId: string;
-  appliedAt: string;
-}
-
-export interface PendingStartRecovery {
-  schemaVersion: 1;
-  threadId: ThreadId;
-  messageId: MessageId;
-  pendingTurn: QueuedComposerChatTurn & { messageId?: MessageId };
-  persistedImages?: PersistedComposerImageAttachment[];
-  settlement: PendingStartRecoverySettlement;
-  receiptSequence?: number;
-  restorationReceipt?: PendingStartRecoveryReceipt;
-}
-
-export interface UnknownPendingStartRecovery {
-  schemaVersion: number;
-  threadId: ThreadId;
-  messageId: MessageId;
-  raw: unknown;
-}
-
-export type PendingStartRecoveryRecord = PendingStartRecovery | UnknownPendingStartRecovery;
 
 export interface ComposerThreadDraftState {
   prompt: string;
@@ -161,7 +125,6 @@ export interface ComposerThreadDraftState {
   pastedTexts: PastedTextDraft[];
   skills: ProviderSkillReference[];
   mentions: ProviderMentionReference[];
-  pendingStartRecoveriesByMessageId?: Partial<Record<MessageId, PendingStartRecoveryRecord>>;
   modelSelectionByProvider: Partial<Record<ProviderKind, ModelSelection>>;
   activeProvider: ProviderKind | null;
   runtimeMode: RuntimeMode | null;
@@ -289,22 +252,7 @@ export interface ComposerDraftStoreState {
     },
   ) => void;
   setRuntimeMode: (threadId: ThreadId, runtimeMode: RuntimeMode | null | undefined) => void;
-  recoverCancelledQueuedTurn: (threadId: ThreadId, queuedTurn: QueuedComposerTurn) => boolean;
-  capturePendingStartRecovery: (threadId: ThreadId, recovery: PendingStartRecovery) => boolean;
-  markPendingStartRecoveryAccepted: (
-    threadId: ThreadId,
-    messageId: MessageId,
-    sequence: number,
-  ) => boolean;
-  restorePendingStartRecovery: (
-    threadId: ThreadId,
-    messageId: MessageId,
-    sequence: number,
-    appliedAt: string,
-  ) => boolean;
-  discardPendingStartRecovery: (threadId: ThreadId, messageId: MessageId) => boolean;
-  markPendingStartRecoveryFailed: (threadId: ThreadId, messageId: MessageId) => boolean;
-  clearPendingStartRecovery: (threadId: ThreadId, messageId: MessageId) => boolean;
+  restoreFailedComposerSubmission: (threadId: ThreadId, queuedTurn: ComposerSubmission) => boolean;
   addImage: (threadId: ThreadId, image: ComposerImageAttachment) => void;
   addImages: (threadId: ThreadId, images: ComposerImageAttachment[]) => void;
   removeImage: (threadId: ThreadId, imageId: string) => void;
@@ -472,7 +420,6 @@ export function createEmptyThreadDraft(): ComposerThreadDraftState {
     pastedTexts: [],
     skills: [],
     mentions: [],
-    pendingStartRecoveriesByMessageId: {},
     modelSelectionByProvider: {},
     activeProvider: null,
     runtimeMode: null,
@@ -764,7 +711,6 @@ export function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
     draft.pastedTexts.length === 0 &&
     draft.skills.length === 0 &&
     draft.mentions.length === 0 &&
-    Object.keys(draft.pendingStartRecoveriesByMessageId ?? {}).length === 0 &&
     Object.keys(draft.modelSelectionByProvider).length === 0 &&
     draft.activeProvider === null &&
     draft.runtimeMode === null
@@ -810,7 +756,6 @@ const EMPTY_THREAD_DRAFT = Object.freeze<ComposerThreadDraftState>({
   pastedTexts: EMPTY_PASTED_TEXTS,
   skills: EMPTY_SKILLS,
   mentions: EMPTY_MENTIONS,
-  pendingStartRecoveriesByMessageId: {},
   modelSelectionByProvider: EMPTY_MODEL_SELECTION_BY_PROVIDER,
   activeProvider: null,
   runtimeMode: null,
