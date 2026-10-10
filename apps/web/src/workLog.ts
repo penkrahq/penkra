@@ -679,7 +679,7 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
       requestKind,
       command: commandPreview.command,
       payload,
-      isRunning: activity.kind !== "tool.completed",
+      ...(toolStatus ? { status: toolStatus } : {}),
     });
   if (readableTitle) {
     entry.toolTitle = readableTitle;

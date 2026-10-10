@@ -23,6 +23,7 @@ import { EventId, ThreadId, TurnId } from "@penkra/contracts";
 import type { CleanCoreThreadItem } from "@penkra/contracts";
 
 import type { PendingUserInput } from "../../pendingInteractionDerivation";
+import type { PenkraMcpToolStatus } from "../../lib/toolCallLabel";
 import type { ChatMessage } from "../../types";
 import type { ChatAttachment } from "../../types";
 import { deriveWorkLogEntries, type TimelineEntry, type WorkLogEntry } from "../../workLog";
@@ -67,44 +68,33 @@ function normalizeSummary(value: unknown, text: string | null): string {
  * non-JSON `data` copy (an old OpenCode task result) still renders through
  * TimelineWorkEntryRow with the item text as its detail.
  */
-const TERMINAL_TOOL_STATUSES = new Set(["interrupted", "error", "done", "failed", "cancelled"]);
-
-/**
- * The clean core settles a running tool item to a terminal status when its turn
- * ends (TODO 2.3), but the tool payload's own status can still read "inProgress".
- * Surface the settled item status on the payload so the work row shows the
- * terminal state (Cancelled/Failed/Completed) without UI inference from turn state.
- */
-function reconcileToolPayloadStatus(
-  payload: unknown,
-  item: CleanCoreThreadItem,
-): unknown {
-  if (item.kind !== "tool" || !TERMINAL_TOOL_STATUSES.has(item.status)) return payload;
-  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) return payload;
-  const record = payload as Record<string, unknown>;
-  const current = typeof record.status === "string" ? record.status.toLowerCase() : "";
-  if (
-    current.length > 0 &&
-    ["error", "failed", "failure", "cancelled", "canceled", "declined", "interrupted", "killed", "stopped", "aborted"].includes(
-      current,
-    )
-  ) {
-    return payload;
-  }
-  return { ...record, status: item.status };
-}
+const TOOL_STATUS_BY_ITEM_STATUS: Record<string, PenkraMcpToolStatus> = {
+  running: "running",
+  done: "completed",
+  error: "failed",
+  interrupted: "cancelled",
+};
 
 export function threadItemToActivity(item: CleanCoreThreadItem): OrchestrationThreadActivity {
   const data = parseThreadItemData(item.data);
   const hasActivityShape =
     data !== null && ("payload" in data || "kind" in data || "tone" in data);
-  const payload = hasActivityShape ? (data?.payload ?? null) : (data ?? { detail: item.text ?? null });
+  const rawPayload = hasActivityShape
+    ? (data?.payload ?? null)
+    : (data ?? { detail: item.text ?? null });
+  // The item status is the only tool lifecycle source: write it as the tool
+  // status so the derivation and the command label follow it.
+  const toolStatus = item.kind === "tool" ? TOOL_STATUS_BY_ITEM_STATUS[item.status] : undefined;
+  const payload =
+    toolStatus !== undefined && rawPayload !== null && typeof rawPayload === "object" && !Array.isArray(rawPayload)
+      ? { ...(rawPayload as Record<string, unknown>), status: toolStatus }
+      : rawPayload;
   return {
     id: EventId.makeUnsafe(item.sourceId),
     tone: normalizeTone(data?.tone, item.kind),
     kind: normalizeKind(data?.kind, item.kind, item.status),
     summary: normalizeSummary(data?.summary, item.text),
-    payload: reconcileToolPayloadStatus(payload, item) as OrchestrationThreadActivity["payload"],
+    payload: payload as OrchestrationThreadActivity["payload"],
     turnId: item.turnId === null ? null : TurnId.makeUnsafe(item.turnId),
     sequence: item.seq,
     createdAt: item.createdAt,
@@ -112,7 +102,10 @@ export function threadItemToActivity(item: CleanCoreThreadItem): OrchestrationTh
 }
 
 export function threadItemToWorkLogEntry(item: CleanCoreThreadItem): WorkLogEntry | null {
-  return deriveWorkLogEntries([threadItemToActivity(item)], undefined)[0] ?? null;
+  const entry = deriveWorkLogEntries([threadItemToActivity(item)], undefined)[0] ?? null;
+  if (entry === null || item.kind !== "tool") return entry;
+  const toolStatus = TOOL_STATUS_BY_ITEM_STATUS[item.status];
+  return toolStatus ? { ...entry, toolStatus } : entry;
 }
 
 function stripQuestionPrefix(sourceId: string): string {
