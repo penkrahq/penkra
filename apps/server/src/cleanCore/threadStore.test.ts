@@ -159,6 +159,30 @@ it.effect("upsertThreadItem maintains open_question_count from question items", 
   ),
 );
 
+it.effect("stores last_message_preview unchanged (no fixed truncation)", () =>
+  withDb(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations();
+      yield* createThread(baseThread);
+      const longText = "x".repeat(500);
+      yield* upsertThreadItem({
+        threadId: "thread-1",
+        sourceId: "msg-long",
+        kind: "user",
+        status: "sent",
+        text: longText,
+        createdAt: "2026-10-09T00:00:01.000Z",
+        updatedAt: "2026-10-09T00:00:01.000Z",
+      });
+      const rows = yield* sql<{ readonly preview: string }>`
+        SELECT last_message_preview AS preview FROM threads WHERE id = 'thread-1'
+      `;
+      assert.deepStrictEqual(rows, [{ preview: longText }]);
+    }),
+  ),
+);
+
 it.effect("archive and answer are plain idempotent updates", () =>
   withDb(
     Effect.gen(function* () {
