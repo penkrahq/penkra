@@ -17,6 +17,7 @@ import {
   WsBootstrapRpcGroup,
   WsFeatureRpcGroup,
   WsRpcError,
+  QueuedEditDraftNotEmptyError,
   type OrchestrationCommand,
   type OrchestrationEvent,
   type ProjectDevServerEvent,
@@ -1426,13 +1427,16 @@ const makeWsRpcHandlersLayer = () =>
             "Failed to remove the queued message",
           ),
         [WS_METHODS.cleanCoreEditQueuedMessage]: (input) =>
-          rpcEffect(
-            Effect.flatMap(Effect.service(ThreadSender), (sender) =>
-              sender
-                .editQueued(input)
-                .pipe(Effect.map((result) => ({ ...result, messageId: input.messageId }))),
+          Effect.flatMap(Effect.service(ThreadSender), (sender) =>
+            sender
+              .editQueued(input)
+              .pipe(Effect.map((result) => ({ ...result, messageId: input.messageId }))),
+          ).pipe(
+            Effect.mapError((error) =>
+              Schema.is(QueuedEditDraftNotEmptyError)(error)
+                ? error
+                : toWsRpcError(error, "Failed to edit the queued message"),
             ),
-            "Failed to edit the queued message",
           ),
         [WS_METHODS.cleanCoreGetThreadShell]: (input) =>
           rpcEffect(

@@ -127,6 +127,7 @@ import {
   CleanCoreQueuedMessageInput,
   CleanCoreQueuedMessageResult,
   CleanCoreEditQueuedMessageInput,
+  QueuedEditDraftNotEmptyError,
   CleanCoreGetThreadShellInput,
   CleanCoreListThreadsInput,
   CleanCoreListDeckThreadsInput,
@@ -707,7 +708,7 @@ export const WsCleanCoreCancelQueuedMessageRpc = Rpc.make(WS_METHODS.cleanCoreCa
 export const WsCleanCoreEditQueuedMessageRpc = Rpc.make(WS_METHODS.cleanCoreEditQueuedMessage, {
   payload: CleanCoreEditQueuedMessageInput,
   success: CleanCoreQueuedMessageResult,
-  error: WsRpcError,
+  error: Schema.Union([WsRpcError, QueuedEditDraftNotEmptyError]),
 });
 export const WsCleanCoreGetThreadShellRpc = Rpc.make(WS_METHODS.cleanCoreGetThreadShell, {
   payload: CleanCoreGetThreadShellInput,

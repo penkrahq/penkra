@@ -4,6 +4,7 @@ import { useThreadStop } from "../hooks/useThreadStop";
 import {
   CleanCoreQueuedMessage,
   QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR,
+  QueuedEditDraftNotEmptyError,
   type CleanCoreThreadSummary,
   type ApprovalRequestId,
   DEFAULT_MODEL_BY_PROVIDER,
@@ -6447,7 +6448,7 @@ function ChatViewContent({
         } catch (error) {
           const description =
             error instanceof Error ? error.message : "Failed to edit the queued message.";
-          if (description === QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR) {
+          if (Schema.is(QueuedEditDraftNotEmptyError)(error)) {
             toastManager.add({ type: "error", title: QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR });
             return;
           }

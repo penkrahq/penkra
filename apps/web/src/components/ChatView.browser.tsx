@@ -1,3 +1,4 @@
+import { Schema } from "effect";
 import { promoteThreadCreate } from "../lib/threadCreatePromotion";
 import { toastManager } from "./ui/toast";
 import { resetThreadListForTests } from "../threadListStore";
@@ -5,7 +6,7 @@ import { resetThreadListForTests } from "../threadListStore";
 import "../index.css";
 
 import {
-  QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR,
+  QueuedEditDraftNotEmptyError,
   type CleanCoreThreadItem,
   type CleanCoreQueuedMessage,
   type CleanCoreCreateThreadInput,
@@ -1687,7 +1688,8 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
             content.attachments.length > 0 ||
             content.files.length > 0
           )
-            throw new Error(QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR);
+            // Use distinct wording to prove the toast branches on the tag, not the message.
+            throw new QueuedEditDraftNotEmptyError({ message: "The server draft is not empty." });
         }
       }
       const message = summarizeFixtureThread(thread!).queue;
@@ -2284,7 +2286,26 @@ const worker = setupWorker(
         });
         return;
       }
-      sendEffectRpcExit(client, parsed.request.id, resolveWsRpc(requestBody));
+      try {
+        sendEffectRpcExit(client, parsed.request.id, resolveWsRpc(requestBody));
+      } catch (error) {
+        if (!Schema.is(QueuedEditDraftNotEmptyError)(error)) throw error;
+        client.send(
+          JSON.stringify({
+            _tag: "Exit",
+            requestId: parsed.request.id,
+            exit: {
+              _tag: "Failure",
+              cause: [
+                {
+                  _tag: "Fail",
+                  error: Schema.encodeUnknownSync(QueuedEditDraftNotEmptyError)(error),
+                },
+              ],
+            },
+          }),
+        );
+      }
     });
   }),
   http.post(`*${ATTACHMENT_UPLOAD_ROUTE_PATH}`, async ({ request }) => {
@@ -6099,7 +6120,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it.each(["empty", "text"] as const)(
+  it.each(["empty", "text", "server-text"] as const)(
     "handles queued Edit with an image and terminal context when the composer has %s",
     async (composerContent) => {
       const queuedMessageId = "msg-server-authoritative-edit" as MessageId;
@@ -6162,7 +6183,18 @@ describe("ChatView timeline estimator parity (full app)", () => {
         snapshot,
       });
       const api = readNativeApi()!;
+      const originalEdit = api.cleanCore.editQueuedMessage;
       const editSpy = vi.spyOn(api.cleanCore, "editQueuedMessage");
+      if (composerContent === "server-text") {
+        editSpy.mockImplementationOnce((input) => {
+          // Another window saves a draft after this window's local emptiness check.
+          fixtureDrafts.set(THREAD_ID, {
+            draft: JSON.stringify({ prompt: "other window draft", attachments: [], files: [] }),
+            draftUpdatedAt: NOW_ISO,
+          });
+          return originalEdit(input);
+        });
+      }
       const toastSpy = vi.spyOn(toastManager, "add");
       const originalFetch = globalThis.fetch;
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
@@ -6211,6 +6243,30 @@ describe("ChatView timeline estimator parity (full app)", () => {
             ).toEqual([queuedMessageId]);
             expect(document.querySelector('[data-testid="queued-follow-up-row"]')).not.toBeNull();
           });
+          return;
+        }
+        if (composerContent === "server-text") {
+          await vi.waitFor(() =>
+            expect(toastSpy).toHaveBeenCalledWith(
+              expect.objectContaining({
+                title: "Clear or send your message before editing a queued one.",
+              }),
+            ),
+          );
+          await expect(editSpy.mock.results[0]!.value).rejects.toMatchObject({
+            _tag: "QueuedEditDraftNotEmptyError",
+            message: "The server draft is not empty.",
+          });
+          expect(JSON.parse(fixtureDrafts.get(THREAD_ID)!.draft!).prompt).toBe(
+            "other window draft",
+          );
+          expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt ?? "").toBe(
+            "",
+          );
+          expect(
+            fixture.snapshot.threads.find((row) => row.id === THREAD_ID)?.queuedMessageIds,
+          ).toEqual([queuedMessageId]);
+          expect(document.querySelector('[data-testid="queued-follow-up-row"]')).not.toBeNull();
           return;
         }
         await vi.waitFor(() => {

@@ -400,3 +400,10 @@ export type CleanCoreInterruptResult = typeof CleanCoreInterruptResult.Type;
 
 export const QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR =
   "Clear or send your message before editing a queued one.";
+
+export class QueuedEditDraftNotEmptyError extends Schema.TaggedErrorClass<QueuedEditDraftNotEmptyError>()(
+  "QueuedEditDraftNotEmptyError",
+  {
+    message: Schema.String,
+  },
+) {}
