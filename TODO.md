@@ -2,10 +2,12 @@
 
 Status: APPROVED by the operator on 2026-10-09 for all steps, 1 through 12. Proceed step by step without waiting between steps. Stop and report only when the evidence contradicts this plan or a decision is not covered by it.
 
+One working tree, one implementer (operator, 2026-10-10): all work happens here, in `release-0143`, by the implementation thread. The local 0.14.3 interaction-freeze correction that an external Codex chat left uncommitted here is preserved as tag `archive/local-0143-freeze-correction` and removed from the tree; it is installed in Production, and steps 10-11 supersede it.
+
 ## 0. Rules for whoever implements this
 
 - Work directly on `main`, in `penkra-worktrees/release-0143` (that worktree is switched to `main` in step 1). Do not create worktrees or branches. Mark releases with tags. Never run a bare `git stash`.
-- Never write to the Production database (`~/Penkra/.penkra/userdata/state.sqlite`) or `/Applications/Penkra.app`. Read Production only through `file:<path>?mode=ro&immutable=1`. Do not push, publish, install, or tag.
+- Never write to the Production database (`~/Penkra/.penkra/userdata/state.sqlite`) or `/Applications/Penkra.app` by hand. Read Production only through `file:<path>?mode=ro&immutable=1`. Do not push, publish, or tag. Production on this Mac is updated locally after major changes, before any public release, so the operator can use them first (operator, 2026-10-10); that update goes only through the procedure in 5.A, when the operator asks for it.
 - Clean cuts: no legacy compatibility code, no flags that bring back the old path, no patches on top of the old design. Code that the new design no longer calls gets deleted, together with its tests.
 - Process for every step: investigate, then implement exactly as written, then report with evidence (file:line, command output, test results) in the commit message and in the thread. If something here turns out to be wrong or ambiguous, stop and report it. Do not interpret.
 - Make one commit per numbered step. Each commit has its tests and passes `bun typecheck`, `bun lint`, and the affected test suites.
@@ -79,6 +81,7 @@ CREATE VIRTUAL TABLE thread_items_search USING fts5(text, content='thread_items'
 
 - Each adapter (Codex, Claude, OpenCode) already emits ordered events per thread. One consumer per thread applies them directly: `turn started` sets `threads.state='running', active_turn_id`; each item event goes through the upsert; `turn ended` (completed/interrupted/error) sets `state='idle'|'error', active_turn_id=NULL`.
 - A turn can only be marked finished by an end event from the provider. If the provider process exits, or Penkra quits or crashes mid-turn, that event never arrives; today this is what leaves chats stuck as "running" and unarchivable (the 14 chats). Rule: when a provider process exits, and once at startup, every thread it was running gets `state='idle'` plus a `notice` item "This turn was cut off because the provider stopped." The work is not resumed automatically; send a new message to continue. No reconciler, no "realigned" notice, no restart-recovery tables.
+- A turn that fails to start (credential, launch or validation error) never becomes running: the send returns the error, the thread stays in its previous state, and the message stays in the composer or the queue. Evidence (Production, read-only, 2026-10-10): 59 turns across 28 threads are stuck `running` and 508 stuck `queued` in `projection_turns`; the implementation thread alone has 5 `running`, four of them sends that failed on a credential timeout.
 - Archive is allowed unless `threads.state='running'`. Stop sets the state immediately and asks the provider to interrupt.
 - Delete: `ProviderRuntimeReconciler`, `restartTurnRecovery.ts`, `startupTurnReconciliation.ts`, `turnLifecycle.ts` (whatever remains unused), and the `provider_runtime_*`, `restart_turn_recoveries`, and `queued_turn_promotions` tables.
 
@@ -88,6 +91,7 @@ CREATE VIRTUAL TABLE thread_items_search USING fts5(text, content='thread_items'
 - Send without "now": if idle, deliver; otherwise append to the queue. On turn end, deliver the next message.
 - Send with "now": native steer where the provider supports it (Codex, Claude); otherwise interrupt and deliver this message first.
 - Delivery inserts the `user` item (2.1).
+- Send returns a real result, not a guess (operator, 2026-10-10). It resolves when exactly one of these is true: the provider accepted the message and its turn started streaming (`started`, or `steered`/`interrupted` with "now"); the message was appended to `threads.queue` (`queued`, with `position` = its 1-based index in that queue, and the id of the running turn it waits behind); or delivery failed (`failed`, with the provider's error). Today's `AgentGateway.ts:454-540` infers the result from projection snapshots taken before and after the dispatch, so it reports `started` for a turn that then fails to launch, and counts stale `projection_turns` rows as the queue position. Both go away with this design. The agent-facing text (`SERVER.md`, the send operation's help) says in one sentence what each result means and what to do next.
 - No editing of sent user messages (operator decision, 2026-10-09): delete the edit-and-rerun feature (`packages/shared/src/conversationEdit.ts`, `resolveTailUserMessageEditTarget` and its ChatView wiring). Stop + returning the message to the composer is the correction path. Editing a *queued* message stays; after the queue moves server-side, check that it does not duplicate the message in the composer (operator-reported bug).
 - No pinned messages and no thread notes (operator decision, 2026-10-09; the side panel is already gone, only the pin toggle on transcript messages remains): delete `pinnedMessages.ts`, `usePinnedMessageActions.ts`, `@penkra/shared/pinnedMessages`, the `PinnedMessage` contracts and pin/notes commands, and the `onTogglePinMessage`/`pinnedMessageIds` wiring through ChatView, ChatTranscriptPane and MessagesTimeline. `projection_threads.pinned_messages_json`/`notes` are not migrated. Not the same as pinned chats in the sidebar (`pinnedThreadsStore`), which stay.
 
@@ -113,6 +117,12 @@ CREATE VIRTUAL TABLE thread_items_search USING fts5(text, content='thread_items'
 ### 2.9 Startup and diagnostics
 
 - The app never refuses to start. Migration failure: restore the pre-migration copy automatically, start on it, and show a banner with the error. Diagnostics are written to a log file; a diagnostics failure is logged and ignored, never fatal.
+- Delete the diagnostics machinery outright: `packages/shared/src/diagnostics/store.ts` (`DiagnosticsStore`, `DiagnosticsSpoolWriter`, the cross-process `.lifecycle-lock`, the health sampler, the process watchdog, expectations, spool import), `apps/desktop/src/diagnosticsWorker.ts`, `desktopDiagnosticsQueue.ts`, `desktopDiagnosticsMonitors.ts`, `apps/server/src/diagnostics/recorder.ts`, and `diagnostics.sqlite`. Why (verified 2026-10-10): in installed 0.14.3 every desktop diagnostics write took the cross-process lock on the Electron main thread and slept up to 5 s (`Atomics.wait`) while the server held it. That froze typing and clicks, and made the desktop miss the server's 10 s credential deadline, which is the cause of the failed sends. The health sampler recorded data, fixed nothing, failed 1,164 times with the error swallowed, and could only observe its own thread. A stale, empty `.lifecycle-lock` (no pid file, so never reclaimed) has existed since 2026-10-10 02:46:58Z, and every write since then waits 5 s and is dropped. Nothing replaces it but the log file.
+
+### 2.10 Provider credentials
+
+- Read an API key only when a provider process is launched, and pass it into that process's environment. Today `ProviderService.resolveRoutableSession` calls `resolveManagedLaunch` on every `sendTurn`, even for a live session, only to compare an isolation key. Each message makes a server→desktop pipe round trip with a 10 s deadline (`providerCredentialBroker.ts`), so a busy desktop fails the send. Account switches are explicit (2.2, `threads.connection_id`), so they restart the process; nothing needs re-checking per message.
+- Investigate before implementing: confirm, with a dev build and the diagnostics machinery removed, that no other main-thread work still delays the vault (time each `providers.credentials.*` request on both sides). Report the measurement.
 
 ## 3. Migration of Production (in place, keep every chat)
 
@@ -131,13 +141,7 @@ Rehearse on a copy made from the read-only source. Report before/after counts, d
 
 ## 4. Steps (each one: investigate, report, decide, implement, commit)
 
-1. **Git:**
-   - Fast-forward local `main` to `origin/main` (`v0.14.3`).
-   - Switch the `release-0143` worktree to `main`.
-   - Cherry-pick only `b290d3edd` (browser upload paths), `6323eb759` (explicit tab activation), and `01f55ca36` (registers Production migrations 173-175 so Production opens), plus this `TODO.md`.
-   - Drop `6ed13bbc8`, `db2e633f8`, `9e2aa7753`, and `5396168e1`. The new design replaces them, and the migration normalizes old `<task_result>` wrappers into plain text.
-   - `prod-complete-candidate` (`fix/prod-complete-candidate-20260929`, 18 commits on top of v0.14.3 plus 455 uncommitted files, almost all in `apps/server/src/persistence`, `provider`, `orchestration`): this is the durable-runtime machinery the rebuild deletes, and the source of Production's migrations 173-175 (already covered by `01f55ca36`). Nothing from it is carried forward. Preserve it: `git add -A` plus one commit "WIP snapshot" on its own branch, tag it `archive/prod-complete-candidate`, then remove that worktree.
-   - Delete branches: every local branch except `main`. Tag each one not merged into `main` first as `archive/<branch>` so nothing is lost. Remove every other worktree under `penkra-worktrees/` the same way.
+1. Git: done (main = v0.14.3 + the three cherry-picks; old branches archived as `archive/*` tags). Open: a clean, detached worktree of this repository remains at `~/Desktop/Workspace/PenkraHQ/Base/penkra-host` (44f577dfe); the operator decides whether it goes.
 2. **Inventory check:** confirm, against the code, the classification in 4.1. Report any difference before continuing.
 3. Bounded queries + per-query timing (2.8).
 4. Schema + migration + rehearsal on a copy (3).
@@ -147,6 +151,7 @@ Rehearse on a copy made from the read-only source. Report before/after counts, d
 8. Web client: paged transcript by `seq`, draft sync, removal of approval UI (2.1, 2.6).
 9. OpenCode image transform (2.7).
     9b. Right-panel App tabs: one shared state (operator decision, 2026-10-09). Today the open tabs per Thread Deck live in each window's localStorage (`apps/web/src/rightDockStore.ts:84-110`) with no cross-window sync, so closing a tab in one window leaves it open in another. Store the deck's open tabs and active tab on the server with the deck (`projection_thread_decks`, kept in 4.1), push changes to every window, and delete the localStorage persistence; dock width may stay per window. Also: an agent `penkra open --url` always creates a new tab (`apps/desktop/src/main.ts` `openPenkraResource` calls `appTabs.openInstalled` without `presentExisting`), so repeated opens pile up tabs; reuse the deck's existing tab for the same App (present it and navigate) instead.
+    Agent tab activation (operator, 2026-10-10): decks are shared, so activation works in any window currently showing the tab's deck, not only the window the thread was opened in. If no window is showing that deck, fail immediately with a message that names the deck and says to open it. Never leave the request waiting: today the renderer silently ignores a request for a deck or Space it is not showing (`SingleChatSurface.tsx:219`) and `appTabActivation.request` has no deadline, so the call hangs.
 10. Startup never fatal, diagnostics to file (2.9).
 11. Delete the old pipeline and its tables (2.2). The codebase should shrink substantially; report lines removed. Removing the legacy pump also removes the `Effect.catchCause`/`logWarning` swallow around the clean-core apply in `ProviderRuntimeIngestion.processRuntimeEvent` (step 6 part 4): once the clean core is the only transcript writer, a write failure must surface, not be silently logged.
 
@@ -182,6 +187,7 @@ Rehearse on a copy made from the read-only source. Report before/after counts, d
 Review every existing release doc and script: `docs/release.md`, `docs/release-0.14.3-notes.md`, `docs/npm-package-release.md`, `scripts/penkra-release-verify.mjs`, `scripts/release-smoke.ts`, `scripts/verify-release-source-provenance.ts`, `scripts/write-release-artifact-provenance.ts`, `scripts/update-release-package-versions.ts`, and the desktop updater (`githubUpdateFeed.ts`, `main.ts` updater setup). Report what is wrong or missing. Then replace them with one doc, `docs/release.md`, with every step grounded in a script or command:
 
 - **A. Update Production in place:** quit Penkra; copy the database; replace the whole signed and notarized `.app` (never patch the ASAR, because that breaks notarization); launch; check the version, migration result, thread count, and one chat of each provider.
+  - It must be runnable from a Penkra thread, even though quitting Penkra ends that thread's turn (operator, 2026-10-10). A script starts a detached updater (outside Penkra's process tree) that waits for Penkra to quit, keeps the old `.app` and the database copy, installs the new one, verifies the signature, launches it, checks that the server answers and reports the version, and rolls back to the kept `.app` automatically if any check fails. It writes each step to a log file. After relaunch, the thread reads that log and reports. Test the rollback path once with a deliberately broken build.
 - **B. Publish:** bump the version, tag, build, sign, notarize, staple, `spctl --assess` passes, verify on Production via A, publish the GitHub release (prerelease first if the channel requires it), and confirm electron-updater sees it.
 
 ## 6. Done when
