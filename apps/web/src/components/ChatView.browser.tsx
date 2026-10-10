@@ -43,12 +43,6 @@ import {
   AUTO_SCROLL_BOTTOM_THRESHOLD_PX,
   getScrollContainerDistanceFromBottom,
 } from "../chat-scroll";
-import {
-  disableChatScrollDiagnostics,
-  enableChatScrollDiagnostics,
-  getChatScrollDiagnosticSamples,
-  resetChatScrollDiagnostics,
-} from "../chatScrollDiagnostics";
 import { useLatestProjectStore } from "../latestProjectStore";
 import {
   INLINE_TERMINAL_CONTEXT_PLACEHOLDER,
@@ -2833,6 +2827,198 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
 
 
+
+  it("auto-follows a new message item and does not re-stick on activity-only changes", async () => {
+    let currentSnapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-auto-follow-wiring" as MessageId,
+      targetText: "auto-follow wiring target",
+    });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: currentSnapshot,
+    });
+    let patchedScrollContainer: HTMLElement | null = null;
+    let originalScrollTo: HTMLElement["scrollTo"] | null = null;
+
+    const syncActiveThread = (
+      update: (
+        thread: OrchestrationReadModel["threads"][number],
+      ) => OrchestrationReadModel["threads"][number],
+    ) => {
+      currentSnapshot = {
+        ...currentSnapshot,
+        snapshotSequence: currentSnapshot.snapshotSequence + 1,
+        threads: currentSnapshot.threads.map((thread) =>
+          thread.id === THREAD_ID ? update(thread) : thread,
+        ),
+        updatedAt: isoAt(currentSnapshot.snapshotSequence + 1_200),
+      };
+      syncReadModelForTest(currentSnapshot);
+    };
+
+    try {
+      const scrollContainer = await waitForElement(
+        () => document.querySelector<HTMLElement>("[data-chat-scroll-container='true']"),
+        "Unable to find message scroll container.",
+      );
+      const scrollToBottom = () => {
+        scrollContainer.scrollTop = scrollContainer.scrollHeight;
+        scrollContainer.dispatchEvent(new Event("scroll"));
+      };
+      const scrollUpToReader = () => {
+        scrollContainer.dispatchEvent(
+          new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -120 }),
+        );
+        scrollContainer.scrollTop = Math.max(
+          0,
+          scrollContainer.scrollHeight - scrollContainer.clientHeight - 160,
+        );
+        scrollContainer.dispatchEvent(new Event("scroll"));
+      };
+
+      scrollToBottom();
+      await waitForLayout();
+
+      // Apply programmatic scrolls so the virtualizer's own end-scroll is
+      // observable through the DOM geometry the user would see.
+      patchedScrollContainer = scrollContainer;
+      originalScrollTo = scrollContainer.scrollTo;
+      scrollContainer.scrollTo = ((options?: ScrollToOptions | number, y?: number) => {
+        const normalized: ScrollToOptions =
+          typeof options === "object" && options !== null
+            ? options
+            : {
+                ...(typeof options === "number" ? { left: options } : {}),
+                ...(typeof y === "number" ? { top: y } : {}),
+              };
+        if (typeof normalized.left === "number") scrollContainer.scrollLeft = normalized.left;
+        if (typeof normalized.top === "number") scrollContainer.scrollTop = normalized.top;
+        scrollContainer.dispatchEvent(new Event("scroll"));
+      }) as typeof scrollContainer.scrollTo;
+      // Let mount-time tail/image expansion retries (max 260ms) settle before
+      // isolating the state transitions below.
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 300));
+      await waitForLayout();
+
+      const activeTurnId = TurnId.makeUnsafe("turn-auto-follow-wiring");
+      const liveAssistantMessage = {
+        ...createAssistantMessage({
+          id: MessageId.makeUnsafe("msg-assistant-auto-follow-live"),
+          text: "A real live assistant tail with enough content to overflow the viewport. ".repeat(
+            80,
+          ),
+          offsetSeconds: 1_206,
+        }),
+        turnId: activeTurnId,
+        streaming: true,
+      };
+
+      // A new transcript message item returns the follower to the live tail.
+      syncActiveThread((thread) => ({
+        ...thread,
+        latestTurn: {
+          turnId: activeTurnId,
+          state: "running",
+          requestedAt: isoAt(1_202),
+          startedAt: isoAt(1_203),
+          completedAt: null,
+          assistantMessageId: null,
+        },
+        session: thread.session
+          ? {
+              ...thread.session,
+              status: "running",
+              activeTurnId,
+              updatedAt: isoAt(1_204),
+            }
+          : null,
+        messages: [...thread.messages, liveAssistantMessage],
+        updatedAt: isoAt(1_206),
+      }));
+      await vi.waitFor(
+        () => expect(getScrollContainerDistanceFromBottom(scrollContainer)).toBeLessThanOrEqual(16),
+        {
+          timeout: 4_000,
+          interval: 16,
+        },
+      );
+
+      // A real upward gesture hands scroll ownership to the reader.
+      scrollUpToReader();
+      await waitForLayout();
+      expect(getScrollContainerDistanceFromBottom(scrollContainer)).toBeGreaterThan(0);
+
+      // Activity-only changes (approval and tool rows) must not drag a reader
+      // who has scrolled up back to the live edge.
+      syncActiveThread((thread) => ({
+        ...thread,
+        activities: [
+          ...thread.activities,
+          {
+            id: EventId.makeUnsafe("activity-auto-follow-approval"),
+            createdAt: isoAt(1_204),
+            kind: "approval.requested",
+            summary: "Command approval requested",
+            tone: "approval",
+            turnId: activeTurnId,
+            payload: {
+              requestId: "request-auto-follow",
+              requestKind: "command",
+              detail: "inspect the unchanged transcript tail",
+            },
+          },
+        ],
+        updatedAt: isoAt(1_204),
+      }));
+      syncActiveThread((thread) => ({
+        ...thread,
+        activities: [
+          ...thread.activities,
+          {
+            id: EventId.makeUnsafe("activity-auto-follow-tool"),
+            createdAt: isoAt(1_205),
+            kind: "tool.completed",
+            summary: "scroll-only tool activity",
+            tone: "tool",
+            turnId: activeTurnId,
+            payload: {
+              itemType: "dynamic_tool_call",
+              toolName: "inspect-scroll-tail",
+            },
+          },
+        ],
+        updatedAt: isoAt(1_205),
+      }));
+      await waitForLayout();
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 80));
+      expect(getScrollContainerDistanceFromBottom(scrollContainer)).toBeGreaterThan(0);
+
+      // A streamed token while the reader has scrolled away must not fight back.
+      scrollUpToReader();
+      await waitForLayout();
+      expect(getScrollContainerDistanceFromBottom(scrollContainer)).toBeGreaterThan(0);
+      syncActiveThread((thread) => ({
+        ...thread,
+        messages: thread.messages.map((message) =>
+          message.id === liveAssistantMessage.id
+            ? {
+                ...message,
+                text: `${message.text} with another streamed token`,
+                updatedAt: isoAt(1_207),
+              }
+            : message,
+        ),
+        updatedAt: isoAt(1_207),
+      }));
+      await waitForLayout();
+      expect(getScrollContainerDistanceFromBottom(scrollContainer)).toBeGreaterThan(0);
+    } finally {
+      if (patchedScrollContainer && originalScrollTo) {
+        patchedScrollContainer.scrollTo = originalScrollTo;
+      }
+      await mounted.cleanup();
+    }
+  });
 
   beforeAll(async () => {
     fixture = buildFixture(

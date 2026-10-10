@@ -967,10 +967,8 @@ function TranscriptVirtualListInner<TItem>(
     const preservedFirstIndex =
       previousFirstKey === null ? -1 : currentKeys.indexOf(previousFirstKey);
     recordDiagnostic("data-committed", {
-      hasSemanticAppend,
       hasLeadingPrepend,
       shouldEndAnchor,
-      virtualizerAnchorTo,
       wasAtEnd: wasAtEndRef.current,
       memoryKey: viewportMemoryKey ?? null,
       previousDataCount: previousKeys.length,
@@ -986,11 +984,9 @@ function TranscriptVirtualListInner<TItem>(
   }, [
     data,
     hasLeadingPrepend,
-    hasSemanticAppend,
     keyExtractor,
     recordDiagnostic,
     shouldEndAnchor,
-    virtualizerAnchorTo,
     viewportMemoryKey,
   ]);
 
