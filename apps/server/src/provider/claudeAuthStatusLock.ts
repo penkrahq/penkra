@@ -6,17 +6,11 @@
 // Why this exists
 // ----------------
 // `claude auth status` can redeem a single-use rotating OAuth refresh token when the
-// stored access token is at/near expiry. If two invocations race (e.g. the macOS
-// credential keepalive timer firing at the same moment as a provider-health probe, or
-// either racing a Claude session start), the loser observes the token has already been
-// rotated out from under it and reports `{"loggedIn":false}` even though the account is
-// authenticated. Funneling every `claude auth status` call through this FIFO mutex
-// ensures at most one invocation is in flight at a time within this process, which
-// removes the race entirely.
+// stored access token is at/near expiry. Concurrent provider-health probes must
+// not redeem the same token: the loser would report `{"loggedIn":false}` after
+// the other probe rotates it. This FIFO mutex serializes those invocations.
 //
-// This is intentionally a plain, dependency-free promise chain (no Effect import) so it
-// can be shared as-is by both the plain-Node keepalive job and the Effect-based health
-// check.
+// The dependency-free promise chain holds the lock until the command completes.
 
 let tail: Promise<unknown> = Promise.resolve();
 
