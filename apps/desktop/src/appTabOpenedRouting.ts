@@ -25,10 +25,12 @@ export class AppTabWindowFocusOrder {
   }
   order(windows: readonly AppTabRoutingWindow[]): AppTabRoutingWindow[] {
     const byId = new Map(windows.map((window) => [window.id, window]));
-    return this.#ids.flatMap((id) => {
+    const focused = this.#ids.flatMap((id) => {
       const window = byId.get(id);
       return window ? [window] : [];
     });
+    const focusedIds = new Set(this.#ids);
+    return [...focused, ...windows.filter((window) => !focusedIds.has(window.id))];
   }
 }
 
