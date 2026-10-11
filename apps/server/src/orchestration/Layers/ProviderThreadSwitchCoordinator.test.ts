@@ -536,7 +536,6 @@ const dependencies = Layer.mergeAll(
       context?: {
         acceptedProviderSwitch?: unknown;
         acceptedInitialProviderBinding?: unknown;
-        acceptedInitialProviderForkOperationId?: string;
       },
     ) =>
       Effect.gen(function* () {
