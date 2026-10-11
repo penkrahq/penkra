@@ -265,7 +265,7 @@ globalThis.penkra.operations.handle("verification.smoke", async (input) => {
           app: "verification",
           operation: "verification.smoke",
           threadId: "verification-thread",
-          deckId: "verification-deck",
+          folderId: "verification-folder",
           spaceId: "verification-space",
         },
         caller: { kind: "user" },
