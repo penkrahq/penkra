@@ -2,8 +2,6 @@ import * as Crypto from "node:crypto";
 
 import { WS_STREAM_LIMITS, WsRpcError } from "@penkra/contracts";
 import { Cause, Effect, Exit, Ref, Stream } from "effect";
-import { startDiagnosticTrace } from "@penkra/shared/traceContext";
-import { recordDiagnosticIncident } from "./diagnostics/recorder";
 
 export const MAX_STREAMS_PER_RPC_CLIENT = WS_STREAM_LIMITS.totalPerClient;
 const STREAM_CAPACITY_RETRY_AFTER_MS = 1_000;
@@ -66,17 +64,7 @@ function activeThreadCount(leases: ReadonlyMap<string, WsStreamLease>): number {
   ).size;
 }
 
-export const makeWsStreamAdmission = (
-  options: {
-    readonly recordRejection?: (input: {
-      readonly threadId?: string;
-      readonly reason: "duplicate" | "stream-capacity";
-      readonly errorCode: string;
-      readonly active: number;
-      readonly activeThreads: number;
-    }) => Effect.Effect<void, never>;
-  } = {},
-) =>
+export const makeWsStreamAdmission = () =>
   Effect.gen(function* () {
     const ledgerRef = yield* Ref.make<AdmissionLedger>(initialLedger());
 
@@ -141,19 +129,6 @@ export const makeWsStreamAdmission = (
           outcome._tag === "Admitted"
             ? Effect.succeed(outcome.lease)
             : Effect.gen(function* () {
-                yield* Effect.sync(() =>
-                  recordDiagnosticIncident({
-                    ...startDiagnosticTrace(),
-                    ...(subscription.threadId ? { threadId: subscription.threadId } : {}),
-                    kind: "command.rejected",
-                    code: "REJECTED_STREAMING_RPC_ADMISSION",
-                    where: "server.stream_admission",
-                    severity: "warn",
-                    expected: { accepted: true },
-                    actual: { accepted: false, clientId, count: outcome.active },
-                    context: { reason: outcome.reason },
-                  }),
-                );
                 yield* Effect.logDebug("Rejected streaming RPC admission.").pipe(
                   Effect.annotateLogs({
                     reason: outcome.reason,
@@ -163,21 +138,6 @@ export const makeWsStreamAdmission = (
                     requestedThreadId: subscription.threadId ?? null,
                   }),
                 );
-                if (options.recordRejection) {
-                  const recordRejection = options.recordRejection;
-                  yield* Effect.sync(() => {
-                    Effect.runFork(
-                      recordRejection({
-                        ...(subscription.threadId ? { threadId: subscription.threadId } : {}),
-                        reason: outcome.reason,
-                        errorCode: outcome.error.code ?? "STREAM_ADMISSION_REJECTED",
-                        active: outcome.active,
-                        activeThreads: outcome.activeThreads,
-                      }),
-                    );
-                  });
-                }
-                // diagnostics-covered: REJECTED_STREAMING_RPC_ADMISSION server.stream_admission
                 return yield* Effect.fail(outcome.error);
               }),
         ),
