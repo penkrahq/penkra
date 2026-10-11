@@ -5,10 +5,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CSSProperties } from "react";
 import { render } from "vitest-browser-react";
 
-import { Sidebar, SidebarProvider, SidebarRail } from "./sidebar";
+import { Sidebar, SidebarProvider, SidebarRail, type SidebarResizableOptions } from "./sidebar";
 
 afterEach(() => {
   document.body.innerHTML = "";
+  vi.restoreAllMocks();
 });
 
 describe("live sidebar resizing", () => {
@@ -52,10 +53,10 @@ describe("live sidebar resizing", () => {
 
 async function renderResizableSidebar(
   onResize?: (width: number) => void,
-  shouldAcceptWidth?: (context: { nextWidth: number }) => boolean | number,
+  shouldAcceptWidth?: SidebarResizableOptions["shouldAcceptWidth"],
 ) {
   await page.viewport(1_280, 720);
-  await render(
+  const screen = await render(
     <SidebarProvider open style={{ "--sidebar-width": "320px" } as CSSProperties}>
       <Sidebar
         positioning="inline"
@@ -82,11 +83,13 @@ async function renderResizableSidebar(
     capturedPointerId = pointerId;
   };
   rail.hasPointerCapture = (pointerId) => capturedPointerId === pointerId;
-  rail.releasePointerCapture = () => {
+  const release = vi.fn((pointerId: number) => {
     capturedPointerId = null;
-  };
+    rail.dispatchEvent(new PointerEvent("lostpointercapture", { bubbles: true, pointerId }));
+  });
+  rail.releasePointerCapture = release;
 
-  return { rail, wrapper };
+  return { screen, rail, wrapper, release };
 }
 
 function dispatchPointer(
@@ -100,3 +103,109 @@ function dispatchPointer(
 function nextAnimationFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
+
+const POINTER_ID = 7;
+
+async function startResize(shouldAcceptWidth?: SidebarResizableOptions["shouldAcceptWidth"]) {
+  const onResize = vi.fn();
+  const result = await renderResizableSidebar(onResize, shouldAcceptWidth);
+  dispatchPointer(result.rail, "pointerdown", { button: 0, pointerId: POINTER_ID, clientX: 200 });
+  expect(document.body.style.cursor).toBe("col-resize");
+  expect(document.body.style.userSelect).toBe("none");
+  return { ...result, onResize };
+}
+
+function expectReleased() {
+  expect(document.body.style.cursor).toBe("");
+  expect(document.body.style.userSelect).toBe("");
+  for (const element of document.querySelectorAll<HTMLElement>(
+    "[data-slot='sidebar-gap'], [data-slot='sidebar-container']",
+  )) {
+    expect(element.style.transitionDuration).toBe("");
+  }
+}
+
+describe("sidebar resize cleanup", () => {
+  it("clears the cursor on lost capture and commits the width once under re-entry", async () => {
+    const { screen, rail, onResize, release } = await startResize();
+    try {
+      rail.dispatchEvent(
+        new PointerEvent("lostpointercapture", { bubbles: true, pointerId: POINTER_ID }),
+      );
+      expectReleased();
+      expect(onResize).toHaveBeenCalledTimes(1);
+      expect(release).toHaveBeenCalledTimes(1);
+      rail.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: POINTER_ID }));
+      window.dispatchEvent(new Event("blur"));
+      expect(onResize).toHaveBeenCalledTimes(1);
+      expect(release).toHaveBeenCalledTimes(1);
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("finishes the pending width on window blur and ignores later pointer events", async () => {
+    const { screen, rail, onResize } = await startResize();
+    try {
+      rail.dispatchEvent(
+        new PointerEvent("pointermove", { bubbles: true, pointerId: POINTER_ID, clientX: 260 }),
+      );
+      window.dispatchEvent(new Event("blur"));
+      expectReleased();
+      expect(onResize).toHaveBeenCalledTimes(1);
+      const wrapper = rail.closest<HTMLElement>("[data-slot='sidebar-wrapper']");
+      expect(wrapper?.style.getPropertyValue("--sidebar-width")).toBe(
+        `${onResize.mock.calls[0]![0]}px`,
+      );
+      window.dispatchEvent(new Event("blur"));
+      rail.dispatchEvent(
+        new PointerEvent("pointercancel", { bubbles: true, pointerId: POINTER_ID }),
+      );
+      expect(onResize).toHaveBeenCalledTimes(1);
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("does not commit twice when the width validator synchronously loses window focus", async () => {
+    const { screen, rail, onResize } = await startResize(() => {
+      window.dispatchEvent(new Event("blur"));
+      return true;
+    });
+    try {
+      rail.dispatchEvent(
+        new PointerEvent("pointermove", { bubbles: true, pointerId: POINTER_ID, clientX: 260 }),
+      );
+      rail.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: POINTER_ID }));
+      expectReleased();
+      expect(onResize).toHaveBeenCalledTimes(1);
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("ignores capture loss for another pointer", async () => {
+    const { screen, rail, onResize } = await startResize();
+    try {
+      rail.dispatchEvent(
+        new PointerEvent("lostpointercapture", { bubbles: true, pointerId: POINTER_ID + 1 }),
+      );
+      expect(document.body.style.cursor).toBe("col-resize");
+      expect(onResize).not.toHaveBeenCalled();
+      window.dispatchEvent(new Event("blur"));
+      expectReleased();
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("releases capture and cursor on unmount without committing a discarded drag", async () => {
+    const { screen, release, onResize } = await startResize();
+    await screen.unmount();
+    expectReleased();
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(onResize).not.toHaveBeenCalled();
+    window.dispatchEvent(new Event("blur"));
+    expect(onResize).not.toHaveBeenCalled();
+  });
+});
