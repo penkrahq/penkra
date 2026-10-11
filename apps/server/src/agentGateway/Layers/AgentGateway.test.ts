@@ -9,7 +9,6 @@ import type {
   OrchestrationThread,
   OrchestrationThreadShell as ContractThreadShell,
   ProviderKind,
-  ThreadRuntimeBinding,
   ServerProviderStatus,
   ThreadId as ThreadIdType,
 } from "@penkra/contracts";
@@ -47,7 +46,6 @@ import { connectionFixture } from "../../provider/defaultConnection.test-fixture
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
-import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 
 import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
 import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
@@ -230,7 +228,6 @@ function makeHarnessLayer(
   threads: ReadonlyArray<OrchestrationThreadShell>,
   options: {
     readonly threadDetails?: ReadonlyMap<string, OrchestrationThread>;
-    readonly existingBinding?: ThreadRuntimeBinding;
     readonly resolveConnection?: (input: unknown) => void;
     readonly discoverModels?: (input: unknown) => void;
     readonly failDispatch?: (command: OrchestrationCommand) => boolean;
@@ -977,11 +974,6 @@ function makeHarnessLayer(
     Layer.provide(providerDiscoveryLayer),
     Layer.provide(providerHealthLayer),
     Layer.provide(ServerSettingsService.layerTest()),
-    Layer.provide(
-      Layer.succeed(ThreadProviderBindingRepository, {
-        getRuntimeBinding: () => Effect.succeed(Option.fromNullishOr(options.existingBinding)),
-      } as unknown as (typeof ThreadProviderBindingRepository)["Service"]),
-    ),
     Layer.provide(
       Layer.succeed(ProviderConnectionRepository, {
         list: () =>
@@ -2819,60 +2811,53 @@ describe("AgentGateway", () => {
     },
   );
 
-  it.effect("preserves an existing creation binding instead of resolving a changed default", () => {
-    const originalAccount = ProviderConnectionId.makeUnsafe("original-account");
-    const discoveryInputs: unknown[] = [];
-    const existingIds = makeAgentCreationIds(
-      `gateway:create:${stableGatewayDigest({ principalKind: "provider-session", principalId: "thread-parent", requestId: "retry-existing" })}`,
-    );
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(
-      [...baseThreads, makeThreadShell(existingIds.threadId, { connectionId: originalAccount })],
-      {
-        existingBinding: {
-          threadId: ThreadId.makeUnsafe("existing-created-thread"),
-          connectionId: originalAccount,
-          installationId: ProviderInstallationId.makeUnsafe("installation"),
-          internalProviderId: null,
-          modelId: "gpt-5.5",
-          revision: 0,
-          createdAt: NOW,
-          updatedAt: NOW,
+  it.effect(
+    "preserves the existing thread connection instead of resolving a changed default",
+    () => {
+      const originalAccount = ProviderConnectionId.makeUnsafe("original-account");
+      const discoveryInputs: unknown[] = [];
+      const existingIds = makeAgentCreationIds(
+        `gateway:create:${stableGatewayDigest({ principalKind: "provider-session", principalId: "thread-parent", requestId: "retry-existing" })}`,
+      );
+      const { gatewayLayer, makeHarness } = makeHarnessLayer(
+        [...baseThreads, makeThreadShell(existingIds.threadId, { connectionId: originalAccount })],
+        {
+          resolveConnection: () => assert.fail("A creation retry must not select a new default"),
+          discoverModels: (input) => discoveryInputs.push(input),
         },
-        resolveConnection: () => assert.fail("A creation retry must not select a new default"),
-        discoverModels: (input) => discoveryInputs.push(input),
-      },
-    );
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const args = {
-        requestId: "retry-existing",
-        prompt: "Analyze the feature",
-        target: { provider: "codex", model: "gpt-5.5" },
-      };
-      const response = yield* harness.callTool({
-        token: "token-parent",
-        name: "penkra_create_thread",
-        args,
-      });
-      assert.isFalse(isToolError(response.result), toolErrorText(response.result));
-      assert.equal(toolResultJson(response.result).connectionId, originalAccount);
-      assert.deepInclude(discoveryInputs[0], {
-        provider: "codex",
-        connectionId: originalAccount,
-      });
-      assert.equal(harness.getThread(existingIds.threadId)!.connectionId, originalAccount);
-      assert.equal(harness.sent.length, 1);
-      const count = harness.dispatched.length;
-      const conflict = yield* harness.callTool({
-        token: "token-parent",
-        name: "penkra_create_thread",
-        args: { ...args, connectionId: CONNECTION_ID },
-      });
-      assert.isTrue(isToolError(conflict.result));
-      assert.include(toolErrorText(conflict.result), "different Connection");
-      assert.equal(harness.dispatched.length, count);
-    }).pipe(Effect.provide(gatewayLayer));
-  });
+      );
+      return Effect.gen(function* () {
+        const harness = yield* makeHarness;
+        const args = {
+          requestId: "retry-existing",
+          prompt: "Analyze the feature",
+          target: { provider: "codex", model: "gpt-5.5" },
+        };
+        const response = yield* harness.callTool({
+          token: "token-parent",
+          name: "penkra_create_thread",
+          args,
+        });
+        assert.isFalse(isToolError(response.result), toolErrorText(response.result));
+        assert.equal(toolResultJson(response.result).connectionId, originalAccount);
+        assert.deepInclude(discoveryInputs[0], {
+          provider: "codex",
+          connectionId: originalAccount,
+        });
+        assert.equal(harness.getThread(existingIds.threadId)!.connectionId, originalAccount);
+        assert.equal(harness.sent.length, 1);
+        const count = harness.dispatched.length;
+        const conflict = yield* harness.callTool({
+          token: "token-parent",
+          name: "penkra_create_thread",
+          args: { ...args, connectionId: CONNECTION_ID },
+        });
+        assert.isTrue(isToolError(conflict.result));
+        assert.include(toolErrorText(conflict.result), "different Connection");
+        assert.equal(harness.dispatched.length, count);
+      }).pipe(Effect.provide(gatewayLayer));
+    },
+  );
 
   it.effect("forwards an explicit Connection before discovering or creating a thread", () => {
     const selections: unknown[] = [];

@@ -1,5 +1,5 @@
 // FILE: providerConnections.ts
-// Purpose: Public, secret-free contracts for managed provider Connections and thread bindings.
+// Purpose: Public, secret-free contracts for managed provider Connections.
 
 import { Schema } from "effect";
 
@@ -7,8 +7,6 @@ import {
   IsoDateTime,
   ProviderConnectionId,
   ProviderInstallationId,
-  ProviderNativeStateGenerationId,
-  ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas";
 import { ProviderKind } from "./orchestration";
@@ -70,30 +68,6 @@ export const ProviderInstallation = Schema.Struct({
   retiredAt: Schema.NullOr(IsoDateTime),
 });
 export type ProviderInstallation = typeof ProviderInstallation.Type;
-
-export const ThreadRuntimeBinding = Schema.Struct({
-  threadId: ThreadId,
-  connectionId: Schema.NullOr(ProviderConnectionId),
-  installationId: ProviderInstallationId,
-  internalProviderId: Schema.NullOr(TrimmedNonEmptyString),
-  modelId: Schema.NullOr(TrimmedNonEmptyString),
-  revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
-  createdAt: IsoDateTime,
-  updatedAt: IsoDateTime,
-});
-export type ThreadRuntimeBinding = typeof ThreadRuntimeBinding.Type;
-
-export const ThreadHarnessState = Schema.Struct({
-  threadId: ThreadId,
-  harness: ProviderKind,
-  nativeStateGenerationId: ProviderNativeStateGenerationId,
-  providerSessionId: Schema.NullOr(TrimmedNonEmptyString),
-  lastVerifiedResumeAt: Schema.NullOr(IsoDateTime),
-  revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
-  createdAt: IsoDateTime,
-  updatedAt: IsoDateTime,
-});
-export type ThreadHarnessState = typeof ThreadHarnessState.Type;
 
 export const ProviderConnectionsSnapshotInput = Schema.Struct({
   includeTerminated: Schema.optional(Schema.Boolean),

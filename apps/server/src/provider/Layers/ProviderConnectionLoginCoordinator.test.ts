@@ -18,14 +18,12 @@ import { makeProviderConnectionLogins } from "../../persistence/Layers/ProviderC
 import { ProviderConnectionRepositoryLive } from "../../persistence/Layers/ProviderConnections.ts";
 import { ConnectionRateLimitsLive } from "../../providerUsage/ConnectionRateLimits.ts";
 import { ProviderInstallationRepositoryLive } from "../../persistence/Layers/ProviderInstallations.ts";
-import { ThreadProviderBindingRepositoryLive } from "../../persistence/Layers/ThreadProviderBindings.ts";
 import { runMigrations } from "../../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../../persistence/NodeSqliteClient.ts";
 import { ProviderConnectionLoginRepository } from "../../persistence/Services/ProviderConnectionLogins.ts";
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 import { ConnectionRateLimits } from "../../providerUsage/ConnectionRateLimits.ts";
 import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
-import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import type {
   CodexManagedAccountSnapshot,
   CodexManagedLoginHandle,
@@ -163,7 +161,6 @@ const repositories = Layer.mergeAll(
   ProviderConnectionRepositoryLive.pipe(Layer.provide(sqlLayer)),
   ProviderInstallationRepositoryLive.pipe(Layer.provide(sqlLayer)),
   ConnectionRateLimitsLive,
-  ThreadProviderBindingRepositoryLive.pipe(Layer.provide(sqlLayer)),
 );
 const releasedAuthBlocks: ProviderConnectionId[] = [];
 const authCircuitsLayer = Layer.effect(
@@ -651,7 +648,6 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
       yield* activateClaude;
       const coordinator = yield* ProviderConnectionLoginCoordinator;
       const connections = yield* ProviderConnectionRepository;
-      const bindings = yield* ThreadProviderBindingRepository;
       const sql = yield* SqlClient.SqlClient;
       const config = yield* ServerConfig;
       const threadId = ThreadId.makeUnsafe("legacy-disconnect-thread");
@@ -698,27 +694,7 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
       const generationId = ProviderNativeStateGenerationId.makeUnsafe(
         "legacy-disconnect-generation",
       );
-      yield* bindings.createNativeStateGeneration({
-        id: generationId,
-        ownerThreadId: threadId,
-        harness: "claudeAgent",
-        adapterSchemaVersion: "1",
-        stateManifestJson: "{}",
-        createdAt: timestamp,
-      });
-      yield* bindings.bindThread({
-        threadId,
-        harness: "claudeAgent",
-        nativeStateGenerationId: generationId,
-        providerSessionId: sessionId,
-        nativeStateLocatorJson: "{}",
-        connectionId: completed.connectionId,
-        installationId: ProviderInstallationId.makeUnsafe("managed-claude-installation"),
-        internalProviderId: null,
-        modelId: "claude-sonnet",
-        createdAt: timestamp,
-      });
-      yield* sql`UPDATE threads SET native_state_id = ${generationId} WHERE id = ${threadId}`;
+      yield* sql`UPDATE threads SET native_state_id = ${generationId}, provider_session_id = ${sessionId} WHERE id = ${threadId}`;
       yield* coordinator.terminateProfile({
         connectionId: completed.connectionId,
         reason: "disconnected",

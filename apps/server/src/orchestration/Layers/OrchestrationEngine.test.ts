@@ -29,7 +29,6 @@ import {
   type OrchestrationEventStoreShape,
 } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
-import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
@@ -111,7 +110,6 @@ const createTestSpace = (engine: OrchestrationEngineShape) =>
   });
 
 async function createOrchestrationSystem(options?: {
-  readonly withRuntimeBinding?: boolean;
   readonly onLog?: (message: string, annotations: Record<string, unknown>) => void;
   readonly beforeThreadDetail?: (threadId: ThreadId) => Effect.Effect<void>;
 }) {
@@ -137,42 +135,32 @@ async function createOrchestrationSystem(options?: {
     Layer.provideMerge(ServerConfigLayer),
     Layer.provideMerge(NodeServices.layer),
   );
-  const configuredLayer = options?.withRuntimeBinding
-    ? orchestrationLayer.pipe(
-        Layer.provideMerge(
-          Layer.succeed(ThreadProviderBindingRepository, {
-            getRuntimeBinding: (threadId: ThreadId) =>
-              Effect.succeed(
-                Option.some({
-                  threadId,
-                  connectionId: null,
-                  installationId: "test-installation",
-                  internalProviderId: null,
-                  modelId: "gpt-5-codex",
-                  revision: 0,
-                  createdAt: now(),
-                  updatedAt: now(),
-                }),
-              ),
-          } as never),
-        ),
-      )
-    : orchestrationLayer;
   const runtime = ManagedRuntime.make(
     options?.onLog
-      ? configuredLayer.pipe(
+      ? orchestrationLayer.pipe(
           Layer.provideMerge(
             Logger.layer(
               [
                 Logger.make(({ message, fiber }) =>
-                  options.onLog?.(String(message), fiber.getRef(References.CurrentLogAnnotations)),
+                  options.onLog?.(
+                    Array.isArray(message)
+                      ? message
+                          .map((entry) =>
+                            typeof entry === "string" ? entry : JSON.stringify(entry),
+                          )
+                          .join(" ")
+                      : typeof message === "string"
+                        ? message
+                        : JSON.stringify(message),
+                    fiber.getRef(References.CurrentLogAnnotations),
+                  ),
                 ),
               ],
               { mergeWithExisting: false },
             ),
           ),
         )
-      : configuredLayer,
+      : orchestrationLayer,
   );
   const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
 
@@ -367,7 +355,7 @@ describe("OrchestrationEngine", () => {
   it.each(["assistant", "delivery"] as const)(
     "projects a %s completion before an interrupted session as interrupted",
     async (completion) => {
-      const system = await createOrchestrationSystem({ withRuntimeBinding: true });
+      const system = await createOrchestrationSystem();
       const threadId = ThreadId.makeUnsafe(`thread-${completion}-interrupted-order`);
       const folderId = asFolderId(`folder-${completion}-interrupted-order`);
       const turnId = asTurnId(`turn-${completion}-interrupted-order`);
@@ -498,7 +486,7 @@ describe("OrchestrationEngine", () => {
     },
   );
   it("refuses a send to an archived canonical thread without creating a turn", async () => {
-    const system = await createOrchestrationSystem({ withRuntimeBinding: true });
+    const system = await createOrchestrationSystem();
     const threadId = ThreadId.makeUnsafe("thread-archived-engine-guard");
     const folderId = asFolderId("folder-archived-engine-guard");
     const createdAt = now();
@@ -775,7 +763,7 @@ describe("OrchestrationEngine", () => {
 
   it("rejects Play through the engine with a pending question", async () => {
     const blocker = "pending question";
-    const system = await createOrchestrationSystem({ withRuntimeBinding: true });
+    const system = await createOrchestrationSystem();
     const threadId = ThreadId.makeUnsafe(`thread-play-${blocker}`);
     const turnId = asTurnId(`turn-play-${blocker}`);
     const createdAt = now();
@@ -858,7 +846,7 @@ describe("OrchestrationEngine", () => {
     }
   });
   it("admits at most one of two concurrent Play commands for the same latest turn", async () => {
-    const system = await createOrchestrationSystem({ withRuntimeBinding: true });
+    const system = await createOrchestrationSystem();
     const threadId = ThreadId.makeUnsafe("thread-concurrent-play");
     const folderId = asFolderId("project-concurrent-play");
     const turnId = asTurnId("turn-concurrent-play");

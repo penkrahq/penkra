@@ -59,8 +59,8 @@ import { makeProviderCommandReactorLive } from "../orchestration/Layers/Provider
 import { ProviderCommandReactor } from "../orchestration/Services/ProviderCommandReactor.ts";
 import { ProviderThreadSwitchCoordinator } from "../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
 import { ProviderTurnSelectionResolver } from "./Services/ProviderTurnSelectionResolver.ts";
+import { providerNativeStateRoot } from "./providerNativeStatePaths.ts";
 import { ProviderLaunchResolver } from "./Services/ProviderLaunchResolver.ts";
-import { ThreadProviderBindingRepository } from "../persistence/Services/ThreadProviderBindings.ts";
 import { TextGeneration } from "../textGeneration/Services/TextGeneration.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import { OrchestrationEventDeliveryRepositoryLive } from "../persistence/Layers/OrchestrationEventDeliveries.ts";
@@ -296,6 +296,7 @@ async function makeProviderRuntime(
   probe?: () => Effect.Effect<boolean, Error>,
   startReactor = true,
 ) {
+  const serverConfigLayer = ServerConfig.layerTest(process.cwd(), path.dirname(dbPath));
   const fixtureProfileRoot = path.join(path.dirname(dbPath), "profile");
   const fixtureNativeStateRoot = path.join(path.dirname(dbPath), "native");
   const persistence = makeSqlitePersistenceLive(dbPath).pipe(Layer.provide(NodeServices.layer));
@@ -303,7 +304,7 @@ async function makeProviderRuntime(
   const sessionRuntimeLayer = ProviderSessionRuntimeRepositoryLive.pipe(Layer.provide(persistence));
   const directoryLayer = ProviderSessionDirectoryLive.pipe(Layer.provide(sessionRuntimeLayer));
   const adapterLayer = makeCodexAdapterLive({ manager }).pipe(
-    Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
+    Layer.provideMerge(serverConfigLayer),
     Layer.provideMerge(directoryLayer),
     Layer.provideMerge(NodeServices.layer),
   );
@@ -342,22 +343,6 @@ async function makeProviderRuntime(
   const managedBindingLayer = Layer.mergeAll(
     Layer.succeed(ProviderTurnSelectionResolver, {
       resolveNewThreadConnection: () => Effect.succeed(CONNECTION_ID),
-      resolveInitial: () =>
-        Effect.succeed({
-          threadId: THREAD_ID,
-          harness: "codex",
-          connectionId: CONNECTION_ID,
-          connectionLabel: "Fixture",
-          previousConnectionId: CONNECTION_ID,
-          previousModelId: MODEL_SELECTION.model,
-          installationId: "fixture-installation",
-          internalProviderId: null,
-          modelId: MODEL_SELECTION.model,
-          modelLabel: MODEL_SELECTION.model,
-          stateRevision: 0,
-          bindingRevision: 0,
-          changed: false,
-        }),
       resolveExisting: (input: {
         readonly threadId: ThreadId;
         readonly modelSelection?: ModelSelection;
@@ -367,7 +352,7 @@ async function makeProviderRuntime(
         Effect.succeed({
           threadId: input.threadId,
           harness: "codex",
-          connectionId: input.connectionId ?? CONNECTION_ID,
+          connectionId: input.connectionId === undefined ? CONNECTION_ID : input.connectionId,
           connectionLabel: "Fixture",
           previousConnectionId: CONNECTION_ID,
           previousModelId: input.modelSelection?.model ?? MODEL_SELECTION.model,
@@ -375,8 +360,8 @@ async function makeProviderRuntime(
           internalProviderId: null,
           modelId: input.modelSelection?.model ?? MODEL_SELECTION.model,
           modelLabel: input.modelSelection?.model ?? MODEL_SELECTION.model,
-          stateRevision: 0,
-          bindingRevision: input.bindingRevision ?? 0,
+          nativeStateId: "fixture-generation",
+          providerSessionId: "native-fixture-thread",
           changed: false,
         }),
     } as never),
@@ -399,35 +384,6 @@ async function makeProviderRuntime(
           connectionId: CONNECTION_ID,
           childEnvironment: (baseEnv: NodeJS.ProcessEnv) => ({ ...baseEnv }),
         }),
-    } as never),
-    Layer.succeed(ThreadProviderBindingRepository, {
-      getRuntimeBinding: (threadId: ThreadId) =>
-        Effect.succeed(
-          Option.some({
-            threadId,
-            connectionId: CONNECTION_ID,
-            installationId: "fixture-installation",
-            internalProviderId: null,
-            modelId: MODEL_SELECTION.model,
-            revision: 0,
-            createdAt: "2026-09-07T10:00:00.000Z",
-            updatedAt: "2026-09-07T10:00:00.000Z",
-          }),
-        ),
-      getHarnessState: (threadId: ThreadId) =>
-        Effect.succeed(
-          Option.some({
-            threadId,
-            harness: "codex",
-            nativeStateGenerationId: "fixture-generation",
-            providerSessionId: null,
-            nativeStateLocatorJson: "null",
-            lastVerifiedResumeAt: null,
-            revision: 0,
-            createdAt: "2026-09-07T10:00:00.000Z",
-            updatedAt: "2026-09-07T10:00:00.000Z",
-          }),
-        ),
     } as never),
   );
   const switchCoordinatorLayer = Layer.effect(
@@ -455,7 +411,7 @@ async function makeProviderRuntime(
     Layer.provideMerge(providerLayer),
     Layer.provideMerge(runtimeEventsLayer),
     Layer.provide(persistence),
-    Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
+    Layer.provideMerge(serverConfigLayer),
     Layer.provideMerge(NodeServices.layer),
   );
   const freezeClock = await Effect.runPromise(Deferred.make<void>());
@@ -514,7 +470,7 @@ async function makeProviderRuntime(
       } as never),
     ),
     Layer.provideMerge(ServerSettingsService.layerTest()),
-    Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
+    Layer.provideMerge(serverConfigLayer),
     Layer.provideMerge(NodeServices.layer),
     Layer.provideMerge(OrchestrationEventDeliveryRepositoryLive),
     Layer.provideMerge(persistence),
@@ -590,9 +546,19 @@ async function makeProviderRuntime(
       modelSelection: MODEL_SELECTION,
       runtimeMode: "full-access",
       createdAt: now,
-      connection: { kind: "selected", connectionId: probe ? CONNECTION_ID : null },
+      connection: { kind: "selected", connectionId: CONNECTION_ID },
       creator: { kind: "user" },
     }),
+  );
+  const config = await runtime.runPromise(Effect.service(ServerConfig));
+  const nativeRoot = providerNativeStateRoot(config.stateDir, "fixture-generation");
+  await mkdir(path.join(nativeRoot, "codex-rollouts"), { recursive: true });
+  await writeFile(
+    path.join(nativeRoot, "codex-rollouts", "rollout-native-fixture-thread.jsonl"),
+    "fixture conversation",
+  );
+  await runtime.runPromise(
+    sql`UPDATE threads SET native_state_id='fixture-generation', provider_session_id='native-fixture-thread' WHERE id=${THREAD_ID}`,
   );
   if (probe)
     await runtime.runPromise(
