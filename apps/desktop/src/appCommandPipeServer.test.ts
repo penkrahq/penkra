@@ -124,6 +124,7 @@ describe("AppCommandPipeServer", () => {
       route: "/issues",
       status: "ready" as const,
       documentUrl: "penkra-app://linear/index.html#penkra-tab=tab-1",
+      presentationTitle: "Issues",
     };
     const secondTab = {
       ...current,
@@ -152,6 +153,7 @@ describe("AppCommandPipeServer", () => {
       appId: "com.penkra.canvas",
       slug: "canvas",
       name: "Canvas",
+      presentationTitle: null,
       threadId: "thread-2",
     };
     const snapshot = vi.fn(async () => ({ snapshot: "" }));
@@ -182,13 +184,23 @@ describe("AppCommandPipeServer", () => {
       broker: { invoke } as never,
       tabs: {
         list: () => [current, secondTab, otherThreadTab, soleSalesTab, soleCanvasTab],
+        hostedPageState: (tabId) => ({
+          page: tabId === secondTab.id ? ({ url: "https://example.test/issues" } as never) : null,
+        }),
         current: () => current,
         close: vi.fn(),
         currentFor: (_spaceId, folderId, surfaceId) =>
           folderId === "folder-1" ? (surfaceId === 202 ? secondTab : current) : null,
       },
       activate,
-      presentation: (tab) => ({ state: tab.id === current.id ? "active" : "background" }),
+      presentation: (tab) => ({
+        state:
+          tab.id === current.id
+            ? "active"
+            : tab.id === soleCanvasTab.id
+              ? "window-hidden"
+              : "background",
+      }),
       runOnThread: async (threadId, operation) => {
         presentationThreads.push(threadId);
         return operation();
@@ -428,8 +440,13 @@ describe("AppCommandPipeServer", () => {
       ok: true,
       id: "request-tabs",
       result: [current, secondTab, otherThreadTab, soleSalesTab, soleCanvasTab].map((tab) => ({
-        ...tab,
-        presentation: { state: tab.id === current.id ? "active" : "background" },
+        tabId: tab.id,
+        appId: tab.appId,
+        appName: tab.name,
+        title: tab.id === soleCanvasTab.id ? "Canvas" : "Issues",
+        status: "ready",
+        visible: tab.id === current.id,
+        ...(tab.id === secondTab.id ? { url: "https://example.test/issues" } : {}),
       })),
     });
 
@@ -444,8 +461,13 @@ describe("AppCommandPipeServer", () => {
       ok: true,
       id: "request-tabs-other-thread",
       result: [current, secondTab, otherThreadTab, soleSalesTab, soleCanvasTab].map((tab) => ({
-        ...tab,
-        presentation: { state: tab.id === current.id ? "active" : "background" },
+        tabId: tab.id,
+        appId: tab.appId,
+        appName: tab.name,
+        title: tab.id === soleCanvasTab.id ? "Canvas" : "Issues",
+        status: "ready",
+        visible: tab.id === current.id,
+        ...(tab.id === secondTab.id ? { url: "https://example.test/issues" } : {}),
       })),
     });
 
@@ -777,7 +799,13 @@ describe("AppCommandPipeServer", () => {
       token: "secret",
       catalog: {} as never,
       broker: { invoke } as never,
-      tabs: { list: () => [current], current: () => current, close: vi.fn() },
+      tabs: {
+        list: () => [current],
+        current: () => current,
+        close: vi.fn(),
+        hostedPageState: () => ({ page: null }),
+      },
+      presentation: () => ({ state: "background" }),
       observer: {} as never,
       providerCredentialVault: {} as never,
     });
