@@ -22,7 +22,6 @@ import {
   type ProviderStartOptions,
   type ProviderSkillReference,
   type ProviderTurnStartResult,
-  type ProviderUserInputAnswers,
   type OrchestrationSession,
   type OrchestrationFolderShell,
   type OrchestrationThread,
@@ -56,7 +55,6 @@ import {
   formatProviderDeliveryBlockDetail,
   PROVIDER_DELIVERY_BLOCK_SUMMARY,
 } from "@penkra/shared/providerDeliveryBlock";
-import { PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE } from "@penkra/shared/threadSummary";
 
 import {
   ProviderAdapterRequestError,
@@ -622,19 +620,13 @@ const make = Effect.gen(function* () {
       | "provider.turn.interrupt.failed"
       | "provider.task.stop.failed"
       | "provider.task.background.failed"
-      | "provider.approval.respond.failed"
-      | "provider.user-input.respond.failed"
       | "provider.session.stop.failed";
     readonly summary: string;
     readonly detail: string;
     readonly turnId: TurnId | null;
     readonly createdAt: string;
-    readonly requestId?: string;
-    readonly lifecycleGeneration?: string;
     readonly responseCommandId?: CommandId;
     readonly settlementStatus?: "retryable" | "uncertain";
-    readonly failureCode?: typeof PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE;
-    readonly answers?: ProviderUserInputAnswers;
   }) =>
     orchestrationEngine.dispatch({
       type: "thread.activity.append",
@@ -647,12 +639,8 @@ const make = Effect.gen(function* () {
         summary: input.summary,
         payload: {
           detail: input.detail,
-          ...(input.requestId ? { requestId: input.requestId } : {}),
-          ...(input.lifecycleGeneration ? { lifecycleGeneration: input.lifecycleGeneration } : {}),
           ...(input.responseCommandId ? { responseCommandId: input.responseCommandId } : {}),
           ...(input.settlementStatus ? { settlementStatus: input.settlementStatus } : {}),
-          ...(input.failureCode ? { failureCode: input.failureCode } : {}),
-          ...(input.answers === undefined ? {} : { answers: input.answers }),
         },
         turnId: input.turnId,
         createdAt: input.createdAt,
@@ -748,9 +736,6 @@ const make = Effect.gen(function* () {
 
   const resolveProviderSessionThread = (threadId: ThreadId) =>
     resolveProviderSessionThreadFromProjection(projectionSnapshotQuery, threadId);
-
-  const withProviderSessionLease = <A, E, R>(_threadId: ThreadId, effect: Effect.Effect<A, E, R>) =>
-    effect;
 
   const enqueueQueuedTurnStart = (event: QueuedTurnSourceEvent) =>
     queuedTurnPromotions.enqueue({
@@ -1515,7 +1500,7 @@ const make = Effect.gen(function* () {
       threadPublisher.publish({ threadId: input.threadId });
   });
 
-  const processTurnStartRequestedWithoutLease = Effect.fnUntraced(function* (
+  const processTurnStartRequested = Effect.fnUntraced(function* (
     event: Extract<ProviderIntentEvent, { type: "thread.turn-start-requested" }>,
   ) {
     const sessionThreadId =
@@ -1996,11 +1981,6 @@ const make = Effect.gen(function* () {
     );
   });
 
-  const processTurnStartRequested = (
-    event: Extract<ProviderIntentEvent, { type: "thread.turn-start-requested" }>,
-  ) =>
-    withProviderSessionLease(event.payload.threadId, processTurnStartRequestedWithoutLease(event));
-
   const processTurnQueued = Effect.fnUntraced(function* (
     event: Extract<ProviderIntentEvent, { type: "thread.turn-queued" }>,
   ) {
@@ -2040,127 +2020,124 @@ const make = Effect.gen(function* () {
   const processQueuedTurnSteerRequested = (
     event: Extract<ProviderIntentEvent, { type: "thread.turn-steer-queued-requested" }>,
   ) =>
-    withProviderSessionLease(
-      event.payload.threadId,
-      Effect.gen(function* () {
-        const pending = yield* claimQueuedTurnAction({
-          ...event.payload,
-          actionKind: "steer",
-          actionEventId: event.eventId,
-        });
-        if (Option.isNone(pending)) {
-          return;
-        }
-        const sourceEvent = yield* readOrchestrationEventAtSequence(
-          pending.value.queuedEventSequence,
+    Effect.gen(function* () {
+      const pending = yield* claimQueuedTurnAction({
+        ...event.payload,
+        actionKind: "steer",
+        actionEventId: event.eventId,
+      });
+      if (Option.isNone(pending)) {
+        return;
+      }
+      const sourceEvent = yield* readOrchestrationEventAtSequence(
+        pending.value.queuedEventSequence,
+      );
+      if (sourceEvent?.type !== "thread.turn-queued") {
+        return yield* Effect.fail(
+          new Error(`Queued message '${event.payload.messageId}' has no source turn.`),
         );
-        if (sourceEvent?.type !== "thread.turn-queued") {
-          return yield* Effect.fail(
-            new Error(`Queued message '${event.payload.messageId}' has no source turn.`),
-          );
-        }
-        const thread = yield* resolveThread(event.payload.threadId);
-        if (!thread) {
-          return yield* Effect.fail(
-            new Error(`Queued thread '${event.payload.threadId}' is missing.`),
-          );
-        }
-        const canonical = yield* readThreadNativeState(event.payload.threadId).pipe(
-          Effect.provideService(SqlClient.SqlClient, sql),
+      }
+      const thread = yield* resolveThread(event.payload.threadId);
+      if (!thread) {
+        return yield* Effect.fail(
+          new Error(`Queued thread '${event.payload.threadId}' is missing.`),
         );
-        if (Option.isNone(canonical))
-          return yield* Effect.fail(
-            new Error(`Queued thread '${event.payload.threadId}' is missing.`),
-          );
-        const currentSelection = yield* providerTurnSelectionResolver
-          .resolveExisting({
-            threadId: event.payload.threadId,
-            modelSelection: thread.modelSelection,
-            connectionId: canonical.value.connectionId,
-          })
-          .pipe(
-            Effect.mapError(
-              (cause) =>
-                new ProviderAdapterValidationError({
-                  provider: thread.modelSelection.provider,
-                  operation: "thread.turn.start",
-                  issue: cause.message,
-                  cause,
-                }),
-            ),
-          );
-        const message = thread.messages.find(
-          (candidate) => candidate.id === event.payload.messageId && candidate.role === "user",
+      }
+      const canonical = yield* readThreadNativeState(event.payload.threadId).pipe(
+        Effect.provideService(SqlClient.SqlClient, sql),
+      );
+      if (Option.isNone(canonical))
+        return yield* Effect.fail(
+          new Error(`Queued thread '${event.payload.threadId}' is missing.`),
         );
-        if (!message) {
-          return yield* Effect.fail(
-            new Error(`Queued message '${event.payload.messageId}' has no projected message.`),
-          );
-        }
-        const readModel = yield* orchestrationEngine.getCommandReadModel();
-        const cwd =
-          readModel.folders.find((project) => project.id === thread.folderId)?.workspaceRoot ??
-          ensureDurableThreadWorkspace(thread.id, serverConfig.stateDir);
-        const providerName = thread.session?.providerName ?? thread.modelSelection.provider;
-        const providerThread = yield* resolveProviderSessionThread(event.payload.threadId);
-        const sessionThreadId = providerThread?.id ?? event.payload.threadId;
-        const liveTurnId = yield* resolveLiveProviderTurnId(event.payload.threadId);
-        const addedSteerInterruptBarrier =
-          providerName === "opencode" &&
-          liveTurnId !== undefined &&
-          !openCodeSteerInterruptBarriers.has(sessionThreadId);
-        if (addedSteerInterruptBarrier) {
-          openCodeSteerInterruptBarriers.set(sessionThreadId, liveTurnId);
-        }
-        yield* providerThreadSwitchCoordinator
-          .dispatchTurnStart({
-            command: {
-              type: "thread.turn.start",
-              commandId: replaySafeServerCommandId("steer-queued-turn", event.eventId),
-              threadId: sourceEvent.payload.threadId,
-              message: {
-                messageId: sourceEvent.payload.messageId,
-                role: "user",
-                text: message.text,
-                attachments: message.attachments ?? [],
-                ...(message.skills !== undefined ? { skills: message.skills } : {}),
-                ...(message.mentions !== undefined ? { mentions: message.mentions } : {}),
-              },
-              modelSelection: thread.modelSelection,
-              connectionId: currentSelection.connectionId,
-              ...(sourceEvent.payload.providerOptions !== undefined
-                ? { providerOptions: sourceEvent.payload.providerOptions }
-                : {}),
-              ...(sourceEvent.payload.reviewTarget !== undefined
-                ? { reviewTarget: sourceEvent.payload.reviewTarget }
-                : {}),
-              ...(sourceEvent.payload.assistantDeliveryMode !== undefined
-                ? { assistantDeliveryMode: sourceEvent.payload.assistantDeliveryMode }
-                : {}),
-              dispatchMode: "steer",
-              ...(sourceEvent.payload.dispatchOrigin !== undefined
-                ? { dispatchOrigin: sourceEvent.payload.dispatchOrigin }
-                : {}),
-              ...(sourceEvent.payload.senderThreadId !== undefined
-                ? { senderThreadId: sourceEvent.payload.senderThreadId }
-                : {}),
-              runtimeMode: sourceEvent.payload.runtimeMode,
-              createdAt: event.payload.createdAt,
-            },
-            attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-            ...(cwd === null ? {} : { cwd }),
-          })
-          .pipe(
-            Effect.onError(() =>
-              Effect.sync(() => {
-                if (addedSteerInterruptBarrier) {
-                  openCodeSteerInterruptBarriers.delete(sessionThreadId);
-                }
+      const currentSelection = yield* providerTurnSelectionResolver
+        .resolveExisting({
+          threadId: event.payload.threadId,
+          modelSelection: thread.modelSelection,
+          connectionId: canonical.value.connectionId,
+        })
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new ProviderAdapterValidationError({
+                provider: thread.modelSelection.provider,
+                operation: "thread.turn.start",
+                issue: cause.message,
+                cause,
               }),
-            ),
-          );
-      }),
-    );
+          ),
+        );
+      const message = thread.messages.find(
+        (candidate) => candidate.id === event.payload.messageId && candidate.role === "user",
+      );
+      if (!message) {
+        return yield* Effect.fail(
+          new Error(`Queued message '${event.payload.messageId}' has no projected message.`),
+        );
+      }
+      const readModel = yield* orchestrationEngine.getCommandReadModel();
+      const cwd =
+        readModel.folders.find((project) => project.id === thread.folderId)?.workspaceRoot ??
+        ensureDurableThreadWorkspace(thread.id, serverConfig.stateDir);
+      const providerName = thread.session?.providerName ?? thread.modelSelection.provider;
+      const providerThread = yield* resolveProviderSessionThread(event.payload.threadId);
+      const sessionThreadId = providerThread?.id ?? event.payload.threadId;
+      const liveTurnId = yield* resolveLiveProviderTurnId(event.payload.threadId);
+      const addedSteerInterruptBarrier =
+        providerName === "opencode" &&
+        liveTurnId !== undefined &&
+        !openCodeSteerInterruptBarriers.has(sessionThreadId);
+      if (addedSteerInterruptBarrier) {
+        openCodeSteerInterruptBarriers.set(sessionThreadId, liveTurnId);
+      }
+      yield* providerThreadSwitchCoordinator
+        .dispatchTurnStart({
+          command: {
+            type: "thread.turn.start",
+            commandId: replaySafeServerCommandId("steer-queued-turn", event.eventId),
+            threadId: sourceEvent.payload.threadId,
+            message: {
+              messageId: sourceEvent.payload.messageId,
+              role: "user",
+              text: message.text,
+              attachments: message.attachments ?? [],
+              ...(message.skills !== undefined ? { skills: message.skills } : {}),
+              ...(message.mentions !== undefined ? { mentions: message.mentions } : {}),
+            },
+            modelSelection: thread.modelSelection,
+            connectionId: currentSelection.connectionId,
+            ...(sourceEvent.payload.providerOptions !== undefined
+              ? { providerOptions: sourceEvent.payload.providerOptions }
+              : {}),
+            ...(sourceEvent.payload.reviewTarget !== undefined
+              ? { reviewTarget: sourceEvent.payload.reviewTarget }
+              : {}),
+            ...(sourceEvent.payload.assistantDeliveryMode !== undefined
+              ? { assistantDeliveryMode: sourceEvent.payload.assistantDeliveryMode }
+              : {}),
+            dispatchMode: "steer",
+            ...(sourceEvent.payload.dispatchOrigin !== undefined
+              ? { dispatchOrigin: sourceEvent.payload.dispatchOrigin }
+              : {}),
+            ...(sourceEvent.payload.senderThreadId !== undefined
+              ? { senderThreadId: sourceEvent.payload.senderThreadId }
+              : {}),
+            runtimeMode: sourceEvent.payload.runtimeMode,
+            createdAt: event.payload.createdAt,
+          },
+          attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+          ...(cwd === null ? {} : { cwd }),
+        })
+        .pipe(
+          Effect.onError(() =>
+            Effect.sync(() => {
+              if (addedSteerInterruptBarrier) {
+                openCodeSteerInterruptBarriers.delete(sessionThreadId);
+              }
+            }),
+          ),
+        );
+    });
 
   // Promote the next queued message only after the active provider turn settles.
   const drainQueuedTurnsForThread = Effect.fnUntraced(function* (
@@ -2820,7 +2797,7 @@ const make = Effect.gen(function* () {
       );
   });
 
-  const processConversationRollbackRequestedWithoutLease = Effect.fnUntraced(function* (
+  const processConversationRollbackRequested = Effect.fnUntraced(function* (
     event: Extract<ProviderIntentEvent, { type: "thread.conversation-rollback-requested" }>,
   ) {
     const thread = yield* resolveThread(event.payload.threadId);
@@ -2866,14 +2843,6 @@ const make = Effect.gen(function* () {
       createdAt: event.payload.createdAt,
     });
   });
-
-  const processConversationRollbackRequested = (
-    event: Extract<ProviderIntentEvent, { type: "thread.conversation-rollback-requested" }>,
-  ) =>
-    withProviderSessionLease(
-      event.payload.threadId,
-      processConversationRollbackRequestedWithoutLease(event),
-    );
 
   const processThreadSessionStop = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
