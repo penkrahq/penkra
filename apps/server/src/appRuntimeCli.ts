@@ -270,21 +270,6 @@ const TAB_OPERATIONS: Readonly<Record<string, HostOperationDeclaration>> = {
       },
     ],
   },
-  diff: {
-    command: "penkra tabs diff",
-    summary: "Snapshot one document and report lines added or removed since its prior snapshot.",
-    instructions: "Diff is loader-aware and addresses d1 and d2 independently.",
-    input: {
-      type: "object",
-      properties: { tabId: TAB_ID, document: DOCUMENT },
-      required: ["tabId", "document"],
-      additionalProperties: false,
-    },
-    output: GENERIC_RESULT_SCHEMA,
-    examples: [
-      { name: "Read changes", command: "penkra tabs diff --tab-id <tab-id> --document d2" },
-    ],
-  },
   act: {
     command: "penkra tabs act",
     summary: "Run an ordered sequence of actions against d1 and d2.",

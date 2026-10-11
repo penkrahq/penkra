@@ -55,7 +55,6 @@ type Request = {
     | "tabs.activate"
     | "tabs.close"
     | "tabs.snapshot"
-    | "tabs.diff"
     | "tabs.act"
     | "tabs.evaluate"
     | "tabs.screenshot"
@@ -116,7 +115,6 @@ interface AppTabObserverBridge {
       outputPath?: string;
     },
   ): Promise<unknown>;
-  diff(tabId: string, document?: "d1" | "d2"): Promise<unknown>;
   act(
     tabId: string,
     steps: ReadonlyArray<import("./appTabObserver").AppTabActStep>,
@@ -489,14 +487,6 @@ export class AppCommandPipeServer {
           id: request.id,
           result: await this.#observe(params, () =>
             this.#observer.snapshot(this.#tab(params).id, observationOptions(params)),
-          ),
-        };
-      case "tabs.diff":
-        return {
-          ok: true,
-          id: request.id,
-          result: await this.#observe(params, () =>
-            this.#observer.diff(this.#tab(params).id, observationDocument(params)),
           ),
         };
       case "tabs.act":
