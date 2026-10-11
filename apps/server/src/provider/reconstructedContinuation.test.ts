@@ -1,55 +1,49 @@
 import { describe, expect, it } from "vitest";
-import {
-  EventId,
-  MessageId,
-  TurnId,
-  type OrchestrationMessage,
-  type OrchestrationThreadActivity,
-} from "@penkra/contracts";
+import { ThreadId, TurnId } from "@penkra/contracts";
+import type { ThreadItemRecord } from "../cleanCore/threadItemsPage.ts";
 
 import {
   formatReconstructedContinuation,
   selectReconstructedContinuation,
 } from "./reconstructedContinuation.ts";
 
-const message = (
-  id: string,
-  turnId: string,
-  sequence: number,
-  text = id,
-): OrchestrationMessage => ({
-  id: MessageId.makeUnsafe(id),
-  role: sequence % 2 === 0 ? "assistant" : "user",
+const message = (id: string, turnId: string, sequence: number, text = id): ThreadItemRecord => ({
+  threadId: ThreadId.makeUnsafe("thread-1"),
+  sourceId: id,
+  kind: sequence % 2 === 0 ? "text" : "user",
+  status: sequence % 2 === 0 ? "done" : "sent",
   text,
+  data: null,
   turnId: TurnId.makeUnsafe(turnId),
-  streaming: false,
-  source: "native",
-  sequence,
+  seq: sequence,
   createdAt: `2026-09-01T00:00:${String(sequence).padStart(2, "0")}.000Z`,
   updatedAt: `2026-09-01T00:00:${String(sequence).padStart(2, "0")}.000Z`,
 });
 
-const compaction = (sequence: number, turnId: string): OrchestrationThreadActivity => ({
-  id: EventId.makeUnsafe(`compact-${sequence}`),
-  tone: "info",
-  kind: "context-compaction",
-  summary: "Context compacted automatically",
-  payload: { trigger: "auto" },
-  turnId: TurnId.makeUnsafe(turnId),
-  sequence,
-  createdAt: `2026-09-01T00:00:${String(sequence).padStart(2, "0")}.000Z`,
+const compaction = (sequence: number, turnId: string): ThreadItemRecord => ({
+  ...message(`compact-${sequence}`, turnId, sequence),
+  kind: "notice",
+  status: "done",
+  text: "Context compacted automatically",
+  data: JSON.stringify({
+    kind: "context-compaction",
+    tone: "info",
+    summary: "Context compacted automatically",
+    payload: { trigger: "auto" },
+  }),
 });
 
 describe("reconstructed continuation", () => {
   it("replays from the first turn after the latest completed compaction", () => {
     const selected = selectReconstructedContinuation({
-      messages: [
+      items: [
         message("before", "turn-1", 1),
         message("same-turn", "turn-compact-new", 8),
         message("after", "turn-3", 9),
         message("current", "turn-4", 10),
+        compaction(2, "turn-compact-old"),
+        compaction(7, "turn-compact-new"),
       ],
-      activities: [compaction(2, "turn-compact-old"), compaction(7, "turn-compact-new")],
       currentMessageId: "current",
     });
 
@@ -63,8 +57,7 @@ describe("reconstructed continuation", () => {
 
   it("replays from the first message when there is no compaction", () => {
     const selected = selectReconstructedContinuation({
-      messages: [message("second", "turn-2", 2), message("first", "turn-1", 1)],
-      activities: [],
+      items: [message("second", "turn-2", 2), message("first", "turn-1", 1)],
       currentMessageId: "not-present",
     });
     expect(selected.boundary).toEqual({ kind: "thread-start" });
@@ -73,8 +66,7 @@ describe("reconstructed continuation", () => {
 
   it("keeps retained text exact and tells the agent how to retrieve older context", () => {
     const continuation = selectReconstructedContinuation({
-      messages: [message("first", "turn-1", 1, "Exact retained text")],
-      activities: [],
+      items: [message("first", "turn-1", 1, "Exact retained text")],
       currentMessageId: "current",
     });
     const prompt = formatReconstructedContinuation({

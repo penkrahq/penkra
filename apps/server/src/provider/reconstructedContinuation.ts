@@ -1,4 +1,4 @@
-import type { OrchestrationMessage, OrchestrationThreadActivity } from "@penkra/contracts";
+import type { ThreadItemRecord } from "../cleanCore/threadItemsPage.ts";
 
 export interface ReconstructedContinuation {
   readonly boundary:
@@ -8,69 +8,58 @@ export interface ReconstructedContinuation {
         readonly activityId: string;
         readonly turnId: string | null;
       };
-  readonly messages: ReadonlyArray<OrchestrationMessage>;
+  readonly messages: ReadonlyArray<{
+    readonly id: string;
+    readonly turnId: string | null;
+    readonly role: "user" | "assistant";
+    readonly text: string | null;
+    readonly createdAt: string;
+  }>;
 }
 
-const compareTranscriptOrder = (
-  left: Pick<OrchestrationMessage, "sequence" | "createdAt" | "id">,
-  right: Pick<OrchestrationMessage, "sequence" | "createdAt" | "id">,
-) => {
-  if (
-    left.sequence !== undefined &&
-    right.sequence !== undefined &&
-    left.sequence !== right.sequence
-  ) {
-    return left.sequence - right.sequence;
-  }
-  return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
-};
+export function isContextCompaction(item: ThreadItemRecord): boolean {
+  if (item.kind !== "notice" || item.data === null) return false;
+  const data: unknown = JSON.parse(item.data);
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    "kind" in data &&
+    data.kind === "context-compaction"
+  );
+}
 
-const compareActivityOrder = (
-  left: Pick<OrchestrationThreadActivity, "sequence" | "createdAt" | "id">,
-  right: Pick<OrchestrationThreadActivity, "sequence" | "createdAt" | "id">,
-) => {
-  if (
-    left.sequence !== undefined &&
-    right.sequence !== undefined &&
-    left.sequence !== right.sequence
-  ) {
-    return left.sequence - right.sequence;
-  }
-  return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
-};
-
-/** Select deterministic replay history without estimating a model token budget. */
+/** Select retained history in canonical item order without estimating a token budget. */
 export function selectReconstructedContinuation(input: {
-  readonly messages: ReadonlyArray<OrchestrationMessage>;
-  readonly activities: ReadonlyArray<OrchestrationThreadActivity>;
+  readonly items: ReadonlyArray<ThreadItemRecord>;
   readonly currentMessageId: string;
 }): ReconstructedContinuation {
-  const latestCompaction = input.activities
-    .filter((activity) => activity.kind === "context-compaction")
-    .toSorted(compareActivityOrder)
-    .at(-1);
-  const uniqueMessages = new Map(
-    input.messages
-      .filter((message) => message.id !== input.currentMessageId)
-      .map((message) => [message.id as string, message] as const),
-  );
-  const ordered = [...uniqueMessages.values()].toSorted(compareTranscriptOrder);
-  if (!latestCompaction) {
-    return { boundary: { kind: "thread-start" }, messages: ordered };
-  }
-  const messages = ordered.filter((message) => {
-    if (message.turnId !== null && message.turnId === latestCompaction.turnId) return false;
-    if (message.sequence !== undefined && latestCompaction.sequence !== undefined) {
-      return message.sequence > latestCompaction.sequence;
-    }
-    return message.createdAt > latestCompaction.createdAt;
-  });
+  const ordered = input.items.toSorted((left, right) => left.seq - right.seq);
+  const latestCompaction = ordered.findLast(isContextCompaction);
+  const messages = ordered
+    .filter(
+      (item) =>
+        (item.kind === "user" || item.kind === "text") &&
+        item.sourceId !== input.currentMessageId &&
+        (latestCompaction === undefined ||
+          (item.seq > latestCompaction.seq &&
+            (item.turnId === null || item.turnId !== latestCompaction.turnId))),
+    )
+    .map((item) => ({
+      id: item.sourceId,
+      turnId: item.turnId,
+      role: item.kind === "user" ? ("user" as const) : ("assistant" as const),
+      text: item.text,
+      createdAt: item.createdAt,
+    }));
   return {
-    boundary: {
-      kind: "compaction",
-      activityId: latestCompaction.id,
-      turnId: latestCompaction.turnId,
-    },
+    boundary:
+      latestCompaction === undefined
+        ? { kind: "thread-start" }
+        : {
+            kind: "compaction",
+            activityId: latestCompaction.sourceId,
+            turnId: latestCompaction.turnId,
+          },
     messages,
   };
 }
