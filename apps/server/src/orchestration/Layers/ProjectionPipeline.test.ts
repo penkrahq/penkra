@@ -559,7 +559,7 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("penkra-message-ide
   },
 );
 
-it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("penkra-approval-identity-scope-")))(
+it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("penkra-question-identity-scope-")))(
   "OrchestrationProjectionPipeline",
   (it) => {
     it.effect("keeps reused provider request ids thread-scoped through replay", () =>
@@ -592,10 +592,10 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("penkra-approval-id
               threadId: input.threadId,
               activity: {
                 id: EventId.makeUnsafe(input.activityId),
-                tone: "approval" as const,
-                kind: "approval.requested" as const,
-                summary: "Approval requested",
-                payload: { requestId, requestKind: "command" },
+                tone: "info" as const,
+                kind: "user-input.requested" as const,
+                summary: "User input requested",
+                payload: { requestId, requestKind: "user_input" },
                 turnId: null,
                 createdAt: input.occurredAt,
               },
@@ -617,7 +617,7 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("penkra-approval-id
           occurredAt: "2026-07-14T12:30:01.000Z",
         });
         yield* eventStore.append({
-          type: "thread.approval-response-requested",
+          type: "thread.user-input-response-requested",
           eventId: EventId.makeUnsafe("evt-shared-provider-request-a-response"),
           aggregateKind: "thread",
           aggregateId: firstThreadId,
@@ -629,7 +629,7 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("penkra-approval-id
           payload: {
             threadId: firstThreadId,
             requestId,
-            decision: "accept",
+            answers: { answer: "continue" },
             createdAt: "2026-07-14T12:30:02.000Z",
           },
         });
@@ -642,11 +642,11 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("penkra-approval-id
           }>`
           SELECT thread_id AS "threadId", status, decision
           FROM projection_pending_interactions
-          WHERE interaction_kind = 'approval' AND request_id = ${requestId}
+          WHERE interaction_kind = 'userInput' AND request_id = ${requestId}
           ORDER BY thread_id ASC
         `;
         const expectedRows = [
-          { threadId: firstThreadId, status: "responding", decision: "accept" },
+          { threadId: firstThreadId, status: "responding", decision: null },
           { threadId: secondThreadId, status: "pending", decision: null },
         ];
 
@@ -686,10 +686,10 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("penkra-approval-id
               threadId,
               activity: {
                 id: EventId.makeUnsafe(`activity-request-${suffix}`),
-                tone: "approval" as const,
-                kind: "approval.requested" as const,
-                summary: "Approval requested",
-                payload: { requestId, requestKind: "command", lifecycleGeneration: generation },
+                tone: "info" as const,
+                kind: "user-input.requested" as const,
+                summary: "User input requested",
+                payload: { requestId, requestKind: "user_input", lifecycleGeneration: generation },
                 turnId: null,
                 createdAt: occurredAt,
               },
@@ -697,7 +697,7 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("penkra-approval-id
           });
         const appendResponse = (generation: string, suffix: string, occurredAt: string) =>
           eventStore.append({
-            type: "thread.approval-response-requested",
+            type: "thread.user-input-response-requested",
             eventId: EventId.makeUnsafe(`evt-response-${suffix}`),
             aggregateKind: "thread",
             aggregateId: threadId,
@@ -710,7 +710,7 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("penkra-approval-id
               threadId,
               requestId,
               lifecycleGeneration: generation,
-              decision: "accept" as const,
+              answers: { answer: "continue" },
               createdAt: occurredAt,
             },
           });
@@ -726,7 +726,7 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("penkra-approval-id
             decision
           FROM projection_pending_interactions
           WHERE thread_id = ${threadId}
-            AND interaction_kind = 'approval'
+            AND interaction_kind = 'userInput'
             AND request_id = ${requestId}
         `;
 
@@ -742,7 +742,7 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("penkra-approval-id
         yield* appendResponse("generation-b", "current-b", "2026-07-14T13:00:03.000Z");
         yield* projectionPipeline.bootstrap;
         assert.deepEqual(yield* readRow(), [
-          { lifecycleGeneration: "generation-b", status: "responding", decision: "accept" },
+          { lifecycleGeneration: "generation-b", status: "responding", decision: null },
         ]);
 
         yield* eventStore.append({
@@ -759,13 +759,13 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("penkra-approval-id
             threadId,
             activity: {
               id: EventId.makeUnsafe("activity-response-confirmed-b"),
-              tone: "approval",
-              kind: "approval.resolved",
-              summary: "Approval resolved",
+              tone: "info",
+              kind: "user-input.resolved",
+              summary: "User input resolved",
               payload: {
                 requestId,
                 lifecycleGeneration: "generation-b",
-                decision: "accept",
+                decision: null,
               },
               turnId: null,
               createdAt: "2026-07-14T13:00:04.000Z",
@@ -774,7 +774,7 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("penkra-approval-id
         });
         yield* projectionPipeline.bootstrap;
         assert.deepEqual(yield* readRow(), [
-          { lifecycleGeneration: "generation-b", status: "confirmed", decision: "accept" },
+          { lifecycleGeneration: "generation-b", status: "confirmed", decision: null },
         ]);
       }),
     );

@@ -500,9 +500,7 @@ describe("ProviderCommandReactor", () => {
               (input?.strictBindingSelection ? bindingModelId : "gpt-5.5"),
             modelLabel: selection.modelSelection?.model ?? "GPT-5.5",
             stateRevision: 0,
-            bindingRevision: input?.strictBindingSelection
-              ? bindingRevision
-              : (selection.bindingRevision ?? 0),
+            bindingRevision,
             changed:
               input?.strictBindingSelection === true &&
               ((selection.connectionId !== undefined &&
@@ -535,7 +533,7 @@ describe("ProviderCommandReactor", () => {
               installationId: TEST_INSTALLATION_ID,
               internalProviderId: null,
               modelId: input?.strictBindingSelection ? bindingModelId : modelSelection.model,
-              revision: input?.strictBindingSelection ? bindingRevision : 0,
+              revision: bindingRevision,
               createdAt: "2026-08-08T00:00:00.000Z",
               updatedAt: "2026-08-08T00:00:00.000Z",
             }),
@@ -8324,6 +8322,8 @@ describe("ProviderCommandReactor", () => {
       return undefined;
     });
 
+    harness.setBindingRevision(1);
+
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.turn.start",
@@ -8445,97 +8445,6 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
-  it("reacts to thread.approval.respond by forwarding provider approval response", async () => {
-    const harness = await createHarness();
-    const now = new Date().toISOString();
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.session.set",
-        commandId: CommandId.makeUnsafe("cmd-session-set-for-approval"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        session: {
-          threadId: ThreadId.makeUnsafe("thread-1"),
-          status: "running",
-          providerName: "codex",
-          activeTurnId: null,
-          lastError: null,
-          updatedAt: now,
-        },
-        createdAt: now,
-      }),
-    );
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.activity.append",
-        commandId: CommandId.makeUnsafe("cmd-approval-request-before-response"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        activity: {
-          id: EventId.makeUnsafe("activity-approval-request-before-response"),
-          tone: "approval",
-          kind: "approval.requested",
-          summary: "Command approval requested",
-          payload: {
-            requestId: "approval-request-1",
-            requestKind: "command",
-            lifecycleGeneration: "approval-generation-1",
-          },
-          turnId: null,
-          createdAt: now,
-        },
-        createdAt: now,
-      }),
-    );
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.approval.respond",
-        commandId: CommandId.makeUnsafe("cmd-approval-respond"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        requestId: asApprovalRequestId("approval-request-1"),
-        lifecycleGeneration: "approval-generation-1",
-        decision: "accept",
-        createdAt: now,
-      }),
-    );
-
-    await waitFor(() => harness.respondToRequest.mock.calls.length === 1);
-    expect(harness.respondToRequest.mock.calls[0]?.[0]).toEqual({
-      threadId: "thread-1",
-      requestId: "approval-request-1",
-      lifecycleGeneration: "approval-generation-1",
-      decision: "accept",
-    });
-    const respondingApproval = await Effect.runPromise(
-      harness.pendingInteractionRepository.getByIdentity({
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        interactionKind: "approval",
-        requestId: asApprovalRequestId("approval-request-1"),
-      }),
-    );
-    expect(Option.getOrUndefined(respondingApproval)).toMatchObject({
-      status: "responding",
-      responseCommandId: "cmd-approval-respond",
-      decision: "accept",
-      resolvedAt: null,
-    });
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.approval.respond",
-        commandId: CommandId.makeUnsafe("cmd-approval-respond-duplicate"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        requestId: asApprovalRequestId("approval-request-1"),
-        lifecycleGeneration: "approval-generation-1",
-        decision: "decline",
-        createdAt: now,
-      }),
-    );
-    await harness.drain();
-    expect(harness.respondToRequest).toHaveBeenCalledTimes(1);
-  });
-
   it("reacts to thread.user-input.respond by forwarding structured user input answers", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
@@ -8631,25 +8540,6 @@ describe("ProviderCommandReactor", () => {
     expect(harness.respondToUserInput).toHaveBeenCalledTimes(1);
   });
 
-  it("does not forward approval responses without a durable pending claim", async () => {
-    const harness = await createHarness();
-    const now = new Date().toISOString();
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.approval.respond",
-        commandId: CommandId.makeUnsafe("cmd-approval-respond-early"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        requestId: asApprovalRequestId("approval-request-early"),
-        decision: "accept",
-        createdAt: now,
-      }),
-    );
-
-    await harness.drain();
-    expect(harness.respondToRequest).not.toHaveBeenCalled();
-  });
-
   it("does not forward user-input responses without a durable pending claim", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
@@ -8669,86 +8559,6 @@ describe("ProviderCommandReactor", () => {
 
     await harness.drain();
     expect(harness.respondToUserInput).not.toHaveBeenCalled();
-  });
-
-  it("does not forward approval responses when the projected session is stopped", async () => {
-    const harness = await createHarness();
-    const now = new Date().toISOString();
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.session.set",
-        commandId: CommandId.makeUnsafe("cmd-session-set-stopped-approval"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        session: {
-          threadId: ThreadId.makeUnsafe("thread-1"),
-          status: "stopped",
-          providerName: "codex",
-          activeTurnId: null,
-          lastError: null,
-          updatedAt: now,
-        },
-        createdAt: now,
-      }),
-    );
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.activity.append",
-        commandId: CommandId.makeUnsafe("cmd-approval-requested-stopped"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        activity: {
-          id: EventId.makeUnsafe("activity-approval-requested-stopped"),
-          tone: "approval",
-          kind: "approval.requested",
-          summary: "Command approval requested",
-          payload: {
-            requestId: "approval-request-stopped",
-            requestKind: "command",
-          },
-          turnId: null,
-          createdAt: now,
-        },
-        createdAt: now,
-      }),
-    );
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.approval.respond",
-        commandId: CommandId.makeUnsafe("cmd-approval-respond-stopped"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        requestId: asApprovalRequestId("approval-request-stopped"),
-        decision: "accept",
-        createdAt: now,
-      }),
-    );
-
-    await waitFor(async () => {
-      const readModel = await Effect.runPromise(harness.engine.getReadModel());
-      const thread = readModel.threads.find(
-        (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
-      );
-      return (
-        thread?.activities.some(
-          (activity) => activity.kind === "provider.approval.respond.failed",
-        ) ?? false
-      );
-    });
-    expect(harness.respondToRequest).not.toHaveBeenCalled();
-    const retryableApproval = await Effect.runPromise(
-      harness.pendingInteractionRepository.getByIdentity({
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        interactionKind: "approval",
-        requestId: asApprovalRequestId("approval-request-stopped"),
-      }),
-    );
-    expect(Option.getOrUndefined(retryableApproval)).toMatchObject({
-      status: "retryable",
-      responseCommandId: "cmd-approval-respond-stopped",
-      decision: "accept",
-      resolvedAt: null,
-    });
   });
 
   it("does not forward user-input responses when the projected session is stopped", async () => {
@@ -8894,124 +8704,6 @@ describe("ProviderCommandReactor", () => {
         rating: "Solid",
       },
     });
-  });
-
-  it("surfaces stale provider approval request failures without faking approval resolution", async () => {
-    const harness = await createHarness();
-    const now = new Date().toISOString();
-    harness.respondToRequest.mockImplementation(() =>
-      Effect.fail(
-        new ProviderAdapterRequestError({
-          provider: "codex",
-          method: "session/request_permission",
-          code: "PENDING_INTERACTION_NOT_FOUND",
-          detail: "Unknown pending permission request: approval-request-1",
-        }),
-      ),
-    );
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.session.set",
-        commandId: CommandId.makeUnsafe("cmd-session-set-for-approval-error"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        session: {
-          threadId: ThreadId.makeUnsafe("thread-1"),
-          status: "running",
-          providerName: "codex",
-          activeTurnId: null,
-          lastError: null,
-          updatedAt: now,
-        },
-        createdAt: now,
-      }),
-    );
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.activity.append",
-        commandId: CommandId.makeUnsafe("cmd-approval-requested"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        activity: {
-          id: EventId.makeUnsafe("activity-approval-requested"),
-          tone: "approval",
-          kind: "approval.requested",
-          summary: "Command approval requested",
-          payload: {
-            requestId: "approval-request-1",
-            requestKind: "command",
-          },
-          turnId: null,
-          createdAt: now,
-        },
-        createdAt: now,
-      }),
-    );
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.approval.respond",
-        commandId: CommandId.makeUnsafe("cmd-approval-respond-stale"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        requestId: asApprovalRequestId("approval-request-1"),
-        decision: "acceptForSession",
-        createdAt: now,
-      }),
-    );
-
-    await waitFor(
-      async () =>
-        (await readHarnessThread(harness))?.activities.some(
-          (activity) => activity.kind === "provider.approval.respond.failed",
-        ) === true,
-    );
-
-    const thread = await readHarnessThread(harness);
-    expect(thread).toBeDefined();
-
-    const failureActivity = thread?.activities.find(
-      (activity) => activity.kind === "provider.approval.respond.failed",
-    );
-    expect(failureActivity).toBeDefined();
-    expect(failureActivity?.payload).toMatchObject({
-      requestId: "approval-request-1",
-      responseCommandId: "cmd-approval-respond-stale",
-      settlementStatus: "uncertain",
-      failureCode: "PENDING_INTERACTION_NOT_FOUND",
-      detail: expect.stringContaining("Stale pending approval request: approval-request-1"),
-    });
-    const settledApproval = await Effect.runPromise(
-      harness.pendingInteractionRepository.getByIdentity({
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        interactionKind: "approval",
-        requestId: asApprovalRequestId("approval-request-1"),
-      }),
-    );
-    expect(Option.getOrUndefined(settledApproval)).toMatchObject({
-      status: "confirmed",
-      responseCommandId: "cmd-approval-respond-stale",
-      decision: "acceptForSession",
-      resolvedAt: now,
-    });
-    const responseEvents = await Effect.runPromise(
-      Stream.runCollect(harness.engine.readEvents(0)).pipe(
-        Effect.map((events) => Array.from(events)),
-      ),
-    );
-    const responseEvent = responseEvents.find(
-      (event) => event.commandId === "cmd-approval-respond-stale",
-    );
-    expect(responseEvent).toBeDefined();
-    expect((await harness.getOutboxJob(responseEvent!.sequence))?.state).toBe("succeeded");
-
-    const resolvedActivity = thread?.activities.find(
-      (activity) =>
-        activity.kind === "approval.resolved" &&
-        typeof activity.payload === "object" &&
-        activity.payload !== null &&
-        (activity.payload as Record<string, unknown>).requestId === "approval-request-1",
-    );
-    expect(resolvedActivity).toBeUndefined();
   });
 
   it("surfaces stale provider user-input failures without faking user-input resolution", async () => {

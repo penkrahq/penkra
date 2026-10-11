@@ -894,35 +894,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "thread.approval.respond": {
-      yield* requireThreadCanTakeWork({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      return {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-          metadata: {
-            requestId: command.requestId,
-          },
-        }),
-        type: "thread.approval-response-requested",
-        payload: {
-          threadId: command.threadId,
-          requestId: command.requestId,
-          ...(command.lifecycleGeneration !== undefined
-            ? { lifecycleGeneration: command.lifecycleGeneration }
-            : {}),
-          decision: command.decision,
-          createdAt: command.createdAt,
-        },
-      };
-    }
-
     case "thread.user-input.respond": {
       yield* requireThreadCanTakeWork({
         readModel,

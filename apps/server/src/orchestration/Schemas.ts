@@ -14,7 +14,6 @@ import {
   ThreadTurnStartRequestedPayload as ContractsThreadTurnStartRequestedPayloadSchema,
   ThreadTurnInterruptRequestedPayload as ContractsThreadTurnInterruptRequestedPayloadSchema,
   ThreadTurnStartCancelledPayload as ContractsThreadTurnStartCancelledPayloadSchema,
-  ThreadApprovalResponseRequestedPayload as ContractsThreadApprovalResponseRequestedPayloadSchema,
   ThreadConversationRolledBackPayload as ContractsThreadConversationRolledBackPayloadSchema,
   ThreadConversationRollbackRequestedPayload as ContractsThreadConversationRollbackRequestedPayloadSchema,
   ThreadMessageEditResendRequestedPayload as ContractsThreadMessageEditResendRequestedPayloadSchema,
@@ -40,8 +39,6 @@ export const ThreadTurnStartRequestedPayload = ContractsThreadTurnStartRequested
 export const ThreadTurnInterruptRequestedPayload =
   ContractsThreadTurnInterruptRequestedPayloadSchema;
 export const ThreadTurnStartCancelledPayload = ContractsThreadTurnStartCancelledPayloadSchema;
-export const ThreadApprovalResponseRequestedPayload =
-  ContractsThreadApprovalResponseRequestedPayloadSchema;
 export const ThreadConversationRollbackRequestedPayload =
   ContractsThreadConversationRollbackRequestedPayloadSchema;
 export const ThreadConversationRolledBackPayload =

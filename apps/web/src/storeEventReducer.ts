@@ -51,10 +51,6 @@ type ThreadActivityAppendedEvent = Extract<
   OrchestrationEvent,
   { type: "thread.activity-appended" }
 >;
-type ThreadApprovalResponseRequestedEvent = Extract<
-  OrchestrationEvent,
-  { type: "thread.approval-response-requested" }
->;
 type ThreadUserInputResponseRequestedEvent = Extract<
   OrchestrationEvent,
   { type: "thread.user-input-response-requested" }
@@ -93,13 +89,12 @@ function threadMessageUpdatesSidebarSummary(event: ThreadMessageSentEvent): bool
 
 function markInteractionResponding(
   thread: Thread,
-  event: ThreadUserInputResponseRequestedEvent | ThreadApprovalResponseRequestedEvent,
+  event: ThreadUserInputResponseRequestedEvent,
 ): Thread["pendingInteractions"] {
   if (thread.pendingInteractions === undefined || event.commandId === null) {
     return thread.pendingInteractions;
   }
-  const interactionKind =
-    event.type === "thread.approval-response-requested" ? "approval" : "userInput";
+  const interactionKind = "userInput";
   const lifecycleGeneration = event.payload.lifecycleGeneration ?? null;
   let changed = false;
   const next = thread.pendingInteractions.map((interaction) => {
@@ -115,7 +110,7 @@ function markInteractionResponding(
     return {
       ...interaction,
       status: "responding" as const,
-      decision: event.type === "thread.approval-response-requested" ? event.payload.decision : null,
+      decision: null,
       responseCommandId: event.commandId,
       responseRequestedAt: event.payload.createdAt,
       resolvedAt: null,
@@ -1062,27 +1057,6 @@ function applyOrchestrationEvent(
       );
 
     case "thread.user-input-response-requested":
-      return applyThreadUpdate(
-        state,
-        event.payload.threadId,
-        (thread) => {
-          const pendingInteractions = markInteractionResponding(thread, event);
-          return {
-            ...thread,
-            ...(pendingInteractions !== undefined ? { pendingInteractions } : {}),
-            updatedAt:
-              (thread.updatedAt ?? thread.createdAt) > event.payload.createdAt
-                ? thread.updatedAt
-                : event.payload.createdAt,
-          };
-        },
-        {
-          ...options,
-          updateSidebarSummary: true,
-        },
-      );
-
-    case "thread.approval-response-requested":
       return applyThreadUpdate(
         state,
         event.payload.threadId,

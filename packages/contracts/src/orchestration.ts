@@ -916,16 +916,6 @@ const ThreadTurnPlayCommand = Schema.Struct({
   interruptedTurnId: TurnId,
 });
 
-const ThreadApprovalRespondCommand = Schema.Struct({
-  type: Schema.Literal("thread.approval.respond"),
-  commandId: CommandId,
-  threadId: ThreadId,
-  requestId: ApprovalRequestId,
-  lifecycleGeneration: Schema.optional(TrimmedNonEmptyString),
-  decision: ProviderApprovalDecision,
-  createdAt: IsoDateTime,
-});
-
 const ThreadUserInputRespondCommand = Schema.Struct({
   type: Schema.Literal("thread.user-input.respond"),
   commandId: CommandId,
@@ -1000,7 +990,6 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadQueuedTurnSteerCommand,
   ThreadTaskStopCommand,
   ThreadTaskBackgroundCommand,
-  ThreadApprovalRespondCommand,
   ThreadUserInputRespondCommand,
   ThreadMessageEditAndResendCommand,
   ThreadActivityAppendCommand,
@@ -1025,7 +1014,6 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadQueuedTurnSteerCommand,
   ThreadTaskStopCommand,
   ThreadTaskBackgroundCommand,
-  ThreadApprovalRespondCommand,
   ThreadUserInputRespondCommand,
   ThreadMessageEditAndResendCommand,
   ThreadActivityAppendCommand,
@@ -1161,7 +1149,6 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.turn-start-cancelled",
   "thread.task-stop-requested",
   "thread.task-background-requested",
-  "thread.approval-response-requested",
   "thread.user-input-response-requested",
   "thread.conversation-rollback-requested",
   "thread.conversation-rolled-back",
@@ -1336,14 +1323,6 @@ export const ThreadTaskStopRequestedPayload = Schema.Struct({
 export const ThreadTaskBackgroundRequestedPayload = Schema.Struct({
   threadId: ThreadId,
   toolUseId: TrimmedNonEmptyString,
-  createdAt: IsoDateTime,
-});
-
-export const ThreadApprovalResponseRequestedPayload = Schema.Struct({
-  threadId: ThreadId,
-  requestId: ApprovalRequestId,
-  lifecycleGeneration: Schema.optional(TrimmedNonEmptyString),
-  decision: ProviderApprovalDecision,
   createdAt: IsoDateTime,
 });
 
@@ -1563,11 +1542,6 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.task-background-requested"),
     payload: ThreadTaskBackgroundRequestedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("thread.approval-response-requested"),
-    payload: ThreadApprovalResponseRequestedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,
