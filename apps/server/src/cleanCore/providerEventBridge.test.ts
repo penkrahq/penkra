@@ -196,3 +196,17 @@ it("maps runtime errors to notices and ignores unrelated events", () => {
   assert.equal(notice.item.text, "Aborted");
   assert.deepStrictEqual(bridge({ ...base, type: "account.rate-limits.updated", payload: {} }), []);
 });
+
+it("preserves the question lifecycle generation needed to answer from clean-core", () => {
+  const event = bridge({
+    ...base,
+    type: "user-input.requested",
+    requestId: "req-mobile",
+    lifecycleGeneration: "generation-mobile",
+    payload: {
+      questions: [{ id: "tone", header: "Tone", question: "Playful or formal?", options: [] }],
+    },
+  })[0] as { item: { sourceId: string; data: string } };
+  assert.equal(event.item.sourceId, "req-mobile");
+  assert.equal(JSON.parse(event.item.data).lifecycleGeneration, "generation-mobile");
+});

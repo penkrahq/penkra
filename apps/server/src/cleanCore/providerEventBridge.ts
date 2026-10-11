@@ -197,7 +197,7 @@ export function toCleanCoreProviderEvents(
             kind: "question",
             status: "open",
             text: questions.map((question) => question.question).join("\n") || "Question",
-            data: JSON.stringify({ questions }),
+            data: JSON.stringify({ questions, lifecycleGeneration: event.lifecycleGeneration }),
             createdAt: event.createdAt,
             updatedAt: event.createdAt,
           },
