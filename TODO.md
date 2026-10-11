@@ -463,17 +463,17 @@ Rehearsal (part of step 4, repeated in step 11 after the drop is added): on a co
 
 | step | content | status |
 |---|---|---|
-| 4 | Schema + backfill (3) | committed (`cb85c5280`, columns `d616dac97`, `53e9f675c`). Done: clean-core `listThreads` + web `threadListStore` (`7af069da7`, `1bca9f78d`); every set-state writer and move on clean-core, old commands deleted (`3e7845416`, `7a81cf508`, `bf71db5dd`); create/rename/archive/delete on clean-core, `/fork` and automatic retention removed, foreign keys moved to `threads` (`dc65ad980`, `e80275005`, `7df1c254f`). fallback shell re-reads deleted (`f956713cd`, 2.15); parent threads removed (`3aa76a2a4`, 2.16); unloaded thread opens (`2f20fc0d6`, 2.17). Rehearsal on the 3.0 copy recorded (`efe3658ec`, addendum (c)); folders own threads, migration 183 (`e40f18009`, 2.18); readers moved to canonical rows (`31aef38a0`). **Open, in this order:** (c) startup snapshot per 2.19 A, in progress (the two `wsRpc.ts` calls were the last production callers at `31aef38a0`; the other callers once listed here were already gone); then 2.19 B (folder directory) and 2.19 C (memory-only draft tab) as separate commits. |
+| 4 | Schema + backfill (3) | committed. Schema/backfill `cb85c5280`, `d616dac97`, `53e9f675c`; readers and writers on clean-core (`7af069da7` … `31aef38a0`); 2.15 `f956713cd`, 2.16 `3aa76a2a4`, 2.17 `2f20fc0d6`, 2.18 `e40f18009`, rehearsal `efe3658ec`; 2.19 A `f75b71c65`, B `7bf747979`, C `9d7f00e7d`; 2.20 retention `ed1815a2d`. |
 | 6 | Stream consumer, turn state, queue/steer; delete reconciler (2.3, 2.4) | committed (parts 1-5; send results, interrupt/cancel, queue-head rule, Stopping… in `0a6593d2b`, `67773958a`, `567eca023`, `2f32eec80`, `5de7ba21d`) |
 | 7 | Questions, approvals removed, subagents disabled (2.5) | committed (parts 1-5b) |
-| 8 | Web client: transcript from items, draft sync, approval UI removed (2.1, 2.6) | in progress (tail-follow `18b0c50da`, `f60c94786`; terminal-pills warning `fd3c33935`). **Open:** composer queue on clean-core, queued-message Edit, delete `QueuedComposerTurn` / `thread.turn.cancel-queued` (2.4). |
+| 8 | Web client: transcript from items, draft sync, approval UI removed (2.1, 2.6) | committed (canonical queue `bea25fd60`, queued Edit `7d4d06b76`, `a0f96f6f1`, `86aad66cc`; `QueuedComposerTurn` gone). **Open:** `thread.turn.cancel-queued` still referenced in 6 files outside migrations; delete it (2.4). |
 | 9 | OpenCode image transform (2.7) | committed (`8ef20ddcb`, `bdf3513be`). The real 25-image run is in the operator check in 6. |
-| 10 | Right-panel App tabs (2.12) | |
-| 11 | Startup and logging; delete diagnostics (2.9); credentials at launch (2.10) | |
-| 12 | Delete the old pipeline and its tables (2.2, 4.1); repeat the rehearsal with the drop | |
+| 10 | Right-panel App tabs (2.12) | in progress: (a) `627e8d43b`, (b) `8ddd40c4b`, (c) `65e09f634`, (d) shared tab list / per-window selection `d5f5bf889`. **Open, in this order:** (e) window routing (2.12 cases 1-3), uncommitted at 2026-10-11 08:10; (f) Explorer 2.21 as its own commit(s). |
+| 11 | Startup and logging; delete diagnostics (2.9); credentials at launch (2.10) | committed: (a)-(v), `65ba441ec` … `02831b3cf`; credentials at launch in step 12 (e) `3f1dcf589`. |
+| 12 | Delete the old pipeline and its tables (2.2, 4.1); repeat the rehearsal with the drop | in progress: (a)-(e) `359fd7dea` … `3f1dcf589`. **Open:** files outside migrations still naming dropped/deleted things at 2026-10-11: `orchestration_events` 17, `provider_intent_outbox` 5, `thread_runtime_bindings` 8, `binding_revision` 13, `ApprovalRequestId` 30, `respondToRequest` 17. Done when each is 0 and the rehearsal with the drop is recorded. |
 | 13 | Release documentation and the Production updater (5) | |
-| 14 | Agent-facing text (2.11) | |
-| 15 | Agent tool results and App tab ops (2.13) | |
+| 14 | Agent-facing text (2.11) | not started |
+| 15 | Agent tool results and App tab ops (2.13) | committed: (a)-(f), `4063d90a4` … `69b2ff47c`. |
 
 Step 12 details: the codebase should shrink substantially; report lines removed. Removing the legacy pump also removes the `Effect.catchCause`/`logWarning` swallow around the clean-core apply in `ProviderRuntimeIngestion.processRuntimeEvent`: a write failure must surface. Delete these symbols (remove, do not rename): `ApprovalRequestId`, `hasPendingApprovals`, `pendingApprovals`, `pending_approval_count`, `ProviderApprovalDecision`, `respondToRequest`, `thread.approval.respond`. Done when `grep` finds none of them outside `apps/server/src/persistence/Migrations/**`.
 
@@ -498,6 +498,12 @@ Step 12 details: the codebase should shrink substantially; report lines removed.
 ### 4.2 Investigate (report only, after step 14)
 
 - "Reconnect this account to see usage." comes from `connectionUsageEmptyMessage` (`apps/web/src/lib/providerUsageSnapshot.ts:24`) when the snapshot status is `needs-auth`, reported when no credential is found or the usage endpoint answers 401/403 (`providerUsage/providers/codex.ts:155,179`, `claude.ts:409,497`, `http.ts:60`). The operator sees it appear and clear on a second click. Reproduce it, record the status code and the credential read result, and report the cause. Do not change code for it.
+
+## 4.3 Decided by the operator, outside 0.14.4 (record only; do not implement here)
+
+- **Remote access / mobile (2026-10-11):** native iPhone app; Tailscale embedded in desktop and phone (no separate install); our own Headscale + relay on the Penkra backend Hetzner server (49.13.149.60, deployed like `penkra-backend` behind `nginx-proxy`); names `connect.penkra.com` (Headscale) and `relay.penkra.com` (relay, TLS via 443); firewall adds UDP 3478 only when the relay is deployed; push notifications in v1; sign-in with Penkra accounts (`api.penkra.com/auth`). The plan and screens come to the operator for approval before a thread starts.
+- **Keep awake (2026-10-11):** a "Power → Keep awake" row in Settings General (Always / While agents run, default / Never); no Live pill. Mock: `/tmp/ka/*.png`. Not scheduled.
+- **Operator to decide:** `firewall-1` on 49.13.149.60 allows TCP 27017 (MongoDB) from anywhere; it is not Penkra's.
 
 ## 5. Release documentation and Production updater (step 13)
 
