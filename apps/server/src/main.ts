@@ -34,6 +34,7 @@ import { Open } from "./open";
 import { ServerAuth } from "./auth/Services/ServerAuth";
 import * as SqlitePersistence from "./persistence/Layers/Sqlite";
 import { makeServerApplicationLayers } from "./serverLayers";
+import { startThreadRetentionJob } from "./threadRetention.ts";
 import { startServerMemoryDiagnostics } from "./memoryDiagnostics";
 import { startServerEventLoopDiagnostics } from "./eventLoopDiagnostics";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
@@ -547,6 +548,8 @@ const makeServerProgram = (input: CliInput) => {
         bootTimedOut,
       ),
     );
+
+    yield* startThreadRetentionJob();
 
     const localUrl = `http://localhost:${config.port}`;
     const bindUrl =

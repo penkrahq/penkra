@@ -35,6 +35,7 @@ const folderId = FolderId.makeUnsafe("archive-folder");
 const icon = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4=";
 const chat = (n: number): CleanCoreArchivedChat => ({
   id: ThreadId.makeUnsafe(`chat-${n}`),
+  deletesInActiveDays: 30,
   folderId,
   spaceId,
   title: `Archived chat ${n}`,
@@ -90,6 +91,7 @@ describe("Settings Archive", () => {
     const chatRow = page.getByText("Archived chat 0", { exact: true }).element()
       .parentElement?.parentElement;
     expect(chatRow?.querySelector("svg")).not.toBeNull();
+    expect(chatRow?.textContent).toContain("deletes in 30 active days");
     await page.getByRole("button", { name: "Show 1 more" }).click();
     await expect.element(page.getByText("Archived chat 50", { exact: true })).toBeVisible();
     expect(harness.chats.mock.calls).toEqual([

@@ -52,6 +52,8 @@ it.effect(
         resolveExisting: () => Effect.die("unused existing resolver"),
       };
       const lifecycle: typeof ThreadLifecycle.Service = {
+        archiveInactive: () => Effect.die("unused retention archive"),
+        deleteExpired: () => Effect.die("unused retention delete"),
         get: (id) => findThread(id).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
         create: (input) =>
           createThreadFromClient(input).pipe(

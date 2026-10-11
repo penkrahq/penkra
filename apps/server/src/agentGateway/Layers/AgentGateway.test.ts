@@ -420,6 +420,8 @@ function makeHarnessLayer(
     updatedAt: thread.updatedAt,
   });
   const lifecycleLayer = Layer.succeed(ThreadLifecycle, {
+    archiveInactive: () => Effect.die("unused retention archive"),
+    deleteExpired: () => Effect.die("unused retention delete"),
     get: (threadId) =>
       Effect.sync(() => {
         const thread = threadsById.get(threadId);

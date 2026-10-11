@@ -1445,7 +1445,8 @@ const makeWsRpcHandlersLayer = () =>
         [WS_METHODS.cleanCoreRestoreThread]: (input) =>
           rpcEffect(
             Effect.gen(function* () {
-              if (yield* restoreThread(input))
+              const sender = yield* ThreadSender;
+              if (yield* sender.runExclusive(input.threadId, restoreThread(input)))
                 threadPublisher.publish({ threadId: input.threadId });
             }),
             "Failed to restore the chat",

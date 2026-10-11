@@ -397,6 +397,7 @@ export const CleanCoreArchivedFolder = Schema.Struct({
   iconDataUrl: Schema.NullOr(Schema.String),
 });
 export const CleanCoreArchivedChat = Schema.Struct({
+  deletesInActiveDays: NonNegativeInt,
   id: ThreadId,
   folderId: FolderId,
   spaceId: SpaceId,

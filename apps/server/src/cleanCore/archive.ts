@@ -1,5 +1,5 @@
 // FILE: archive.ts
-// Purpose: Archive navigation, indexed chat pages, and atomic ancestor restoration.
+// Purpose: Archive navigation, indexed chat pages, and single-chat restoration.
 import type {
   CleanCoreArchivedChat,
   CleanCoreListArchivedNavigationResult,
@@ -9,6 +9,7 @@ import type {
 import { THREADS_PAGE_SIZE } from "@penkra/contracts";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { archivedDaysRemainingSql } from "../threadRetention.ts";
 
 export const listArchivedNavigation = () =>
   Effect.gen(function* () {
@@ -32,7 +33,7 @@ export const listArchivedNavigation = () =>
   });
 
 export const buildArchivedThreadsQuery = (input: CleanCoreListArchivedThreadsInput) => ({
-  sql: `SELECT t.id, t.folder_id AS "folderId", t.space_id AS "spaceId", t.title, t.provider,
+  sql: `SELECT t.id, t.folder_id AS "folderId", t.space_id AS "spaceId", t.title, t.provider, ${archivedDaysRemainingSql("t.archived_at")} AS "deletesInActiveDays",
     t.archived_at AS "archivedAt", f.title AS folder, s.name AS space,
     (f.archived_at IS NOT NULL) AS "restoresFolder", (s.archived_at IS NOT NULL) AS "restoresSpace"
     FROM threads t INDEXED BY idx_threads_archived JOIN projection_folders f ON f.folder_id = t.folder_id JOIN projection_spaces s ON s.space_id = t.space_id

@@ -90,7 +90,7 @@ it.effect("web creation is idempotent and a send on its running thread is queued
       assert.equal(result.position, 1);
       assert.equal(result.queueLength, 1);
     }
-    const archiveFailure = yield* setThreadArchived(input.threadId, at, at).pipe(Effect.flip);
+    const archiveFailure = yield* setThreadArchived(input.threadId, at, at, null).pipe(Effect.flip);
     assert.include(archiveFailure.message, "still running");
     yield* setThreadState(input.threadId, "idle", null, null, at);
     const updates = [
