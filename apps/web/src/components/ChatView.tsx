@@ -18,7 +18,6 @@ import {
   type ProviderConnectionId,
   type ProjectEntry,
   type FolderId,
-  type ProviderApprovalDecision,
   type ProviderMentionReference,
   type ProviderNativeCommandDescriptor,
   type ProviderPluginDescriptor,
@@ -419,7 +418,6 @@ import {
   LastInvokedScriptByProjectSchema,
   type LocalDispatchSnapshot,
   shouldRenderProviderHealthBanner,
-  resolveRuntimeModeAfterApprovalDecision,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
 } from "./ChatView.logic";

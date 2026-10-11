@@ -3,7 +3,6 @@ import {
   ThreadId,
   type ModelSelection,
   type ModelSlug,
-  type ProviderApprovalDecision,
   type RuntimeMode,
   type ServerProviderAuthStatus,
 } from "@penkra/contracts";
@@ -34,25 +33,6 @@ export const PROMPT_HISTORY_MAX_ENTRIES = 100;
 
 export const LastInvokedScriptByProjectSchema = Schema.Record(FolderId, Schema.String);
 export const DismissedProviderHealthBannersSchema = Schema.Array(Schema.String);
-
-const ALWAYS_ALLOW_RUNTIME_MODE: RuntimeMode = "full-access";
-
-/**
- * "Always allow" (acceptForSession) only auto-approves the live provider turn.
- * Because the client is the source of truth for runtime mode (it sends it with
- * every turn), the choice must also flip the thread to full-access so it survives
- * idle-stop and runtime restarts instead of reverting to approval-required on the
- * next turn. Returns the runtime mode to persist, or null when nothing changes.
- */
-export function resolveRuntimeModeAfterApprovalDecision(
-  currentRuntimeMode: RuntimeMode,
-  decision: ProviderApprovalDecision,
-): RuntimeMode | null {
-  if (decision === "acceptForSession" && currentRuntimeMode !== ALWAYS_ALLOW_RUNTIME_MODE) {
-    return ALWAYS_ALLOW_RUNTIME_MODE;
-  }
-  return null;
-}
 
 export function shouldRenderProviderHealthBanner(input: {
   threadEntryPoint: ThreadPrimarySurface;
