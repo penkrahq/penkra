@@ -60,7 +60,9 @@ it.effect("drops unused tables and their schema objects without changing chats o
     const items = yield* sql`SELECT * FROM thread_items ORDER BY thread_id, seq`;
     const folders = yield* sql`SELECT * FROM projection_folders ORDER BY folder_id`;
     const spaces = yield* sql`SELECT * FROM projection_spaces ORDER BY space_id`;
-    assert.deepStrictEqual(yield* runMigrations(), [[188, "DropUnusedBookkeeping"]]);
+    assert.deepStrictEqual(yield* runMigrations({ toMigrationInclusive: 188 }), [
+      [188, "DropUnusedBookkeeping"],
+    ]);
     assert.deepStrictEqual(yield* sql`SELECT * FROM threads ORDER BY id`, threads);
     assert.deepStrictEqual(yield* sql`SELECT * FROM thread_items ORDER BY thread_id, seq`, items);
     assert.deepStrictEqual(
@@ -76,6 +78,7 @@ it.effect("drops unused tables and their schema objects without changing chats o
       [],
     );
     assert.deepStrictEqual(yield* sql`PRAGMA foreign_key_check`, []);
+    yield* runMigrations();
     assert.deepStrictEqual(yield* runMigrations(), []);
   }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
 );
