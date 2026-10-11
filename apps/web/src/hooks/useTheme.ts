@@ -6,7 +6,6 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { isElectron } from "../env";
 import { isMacPlatform } from "../lib/utils";
-import { recordWebConsumedFailure } from "../webFailureCoverage";
 import {
   DEFAULT_THEME_STATE,
   type ChromeTheme,
@@ -68,7 +67,6 @@ function readStoredThemeState(): ThemeState {
   try {
     return parseStoredThemeState(localStorage.getItem(STORAGE_KEY));
   } catch {
-    recordWebConsumedFailure("state");
     return DEFAULT_THEME_STATE;
   }
 }

@@ -7,7 +7,6 @@
 // Exports: usePdfDocument, PdfDocumentState
 
 import { useEffect, useState } from "react";
-import { recordWebConsumedFailure } from "../../webFailureCoverage";
 
 import { loadPdfDocument, type PDFDocumentProxy } from "./pdfEngine";
 import type { PdfPageIntrinsicSize } from "./pdfZoom";
@@ -132,7 +131,6 @@ async function loadPdfIntoState(
     if (session.cancelled || abortController.signal.aborted) {
       return;
     }
-    recordWebConsumedFailure("runtime");
     destroySessionDocument(session);
     setState({
       status: "error",

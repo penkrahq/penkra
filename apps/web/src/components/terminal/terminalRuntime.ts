@@ -22,7 +22,6 @@ import {
 } from "@penkra/contracts";
 import type { TerminalSessionSnapshot } from "@penkra/contracts";
 import { Terminal } from "@xterm/xterm";
-import { recordWebConsumedFailure } from "../../webFailureCoverage";
 
 import { readNativeApi } from "~/nativeApi";
 import { suppressQueryResponses } from "~/lib/suppressQueryResponses";
@@ -587,7 +586,6 @@ function maybeLoadWebglAddon(entry: TerminalRuntimeEntry): void {
       entry.terminal.loadAddon(nextWebglAddon);
       entry.webglAddon = nextWebglAddon;
     } catch {
-      recordWebConsumedFailure("runtime");
       suggestedRendererType = "dom";
       entry.webglAddon = null;
     }

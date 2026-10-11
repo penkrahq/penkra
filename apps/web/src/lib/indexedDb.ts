@@ -2,8 +2,6 @@
 // Purpose: Shared promise wrappers for the IndexedDB-backed browser storage adapters.
 // Layer: Browser storage adapter support
 
-import { recordWebConsumedFailure } from "../webFailureCoverage";
-
 /** Opens (creating/upgrading if needed) a single-store IndexedDB database. */
 export function openIndexedDbDatabase(input: {
   name: string;
@@ -14,7 +12,6 @@ export function openIndexedDbDatabase(input: {
   label: string;
 }): Promise<IDBDatabase> {
   if (typeof indexedDB === "undefined") {
-    recordWebConsumedFailure("state");
     return Promise.reject(new Error("IndexedDB is unavailable."));
   }
   return new Promise((resolve, reject) => {

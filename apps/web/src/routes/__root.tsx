@@ -24,7 +24,6 @@ import { useMemo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { APP_DISPLAY_NAME, APP_VERSION } from "../branding";
-import { recordWebConsumedFailure } from "../webFailureCoverage";
 import { DesktopWindowControls } from "../components/DesktopWindowControls";
 import { DesktopActiveWorkPowerSync } from "../components/DesktopActiveWorkPowerSync";
 import { DesktopThreadApiBridge } from "../components/DesktopThreadApiBridge";
@@ -978,7 +977,6 @@ function EventRouter() {
         }
       } catch (error) {
         syncApplicationFailed = true;
-        recordWebConsumedFailure("runtime");
         recordPublicationBatch("sync-publication-apply-failed", {
           failureName: error instanceof Error ? error.name : "UnknownError",
         });

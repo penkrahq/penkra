@@ -19,7 +19,6 @@ import { normalizeHandle } from "./profileFormatting";
 import { PROFILE_AVATAR_COLORS } from "./useProfileAvatarColor";
 import { AvatarImageError, compressAvatarImage } from "./avatarImage";
 import { ProfileAvatar } from "./ProfileAvatar";
-import { recordWebConsumedFailure } from "../../webFailureCoverage";
 
 // Inputs and footer buttons share one fixed height + radius so every control in
 // the dialog reads as the same size. The visible border keeps the fields legible
@@ -100,7 +99,6 @@ function EditProfileDialogContent({
     try {
       setDraftImage(await compressAvatarImage(file));
     } catch (cause) {
-      recordWebConsumedFailure("runtime");
       setError(cause instanceof AvatarImageError ? cause.message : "Could not process that image.");
     } finally {
       setProcessing(false);

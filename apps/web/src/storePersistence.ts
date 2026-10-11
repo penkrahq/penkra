@@ -6,7 +6,6 @@ import { normalizeWorkspaceRootForComparison } from "@penkra/shared/threadWorksp
 
 import type { AppState } from "./storeState";
 import type { Project } from "./types";
-import { recordWebConsumedFailure } from "./webFailureCoverage";
 
 const PERSISTED_STATE_KEY = "penkra:renderer-state:v9";
 const persistedExpandedFolderIds = new Set<string>();
@@ -110,7 +109,6 @@ export function readPersistedState(initialState: AppState): AppState {
     }
     return { ...initialState };
   } catch {
-    recordWebConsumedFailure("state");
     return initialState;
   }
 }
@@ -131,7 +129,6 @@ export function persistState(state: AppState): void {
       }),
     );
   } catch {
-    recordWebConsumedFailure("state");
     // Ignore quota/storage errors to avoid breaking chat UX.
   }
 }

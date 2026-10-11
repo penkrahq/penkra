@@ -11,7 +11,6 @@
 // Exports: usePdfPageRender, PdfPageRenderState
 
 import { type RefObject, useEffect, useRef, useState } from "react";
-import { recordWebConsumedFailure } from "../../webFailureCoverage";
 
 import type { PDFDocumentProxy, PageViewport, RenderedTextLayer } from "./pdfEngine";
 import { type PDFPageProxy, renderPageTextLayer } from "./pdfEngine";
@@ -197,7 +196,6 @@ export function usePdfPageRender(input: {
         if (cancelled || isRenderCancellation(caught)) {
           return;
         }
-        recordWebConsumedFailure("runtime");
         // A failed single page should not blank the whole document, but it also
         // must not be a silent white sheet — log it and surface a marker.
         const message = caught instanceof Error ? caught.message : "Failed to render page";
