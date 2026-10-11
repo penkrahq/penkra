@@ -97,7 +97,7 @@ import type { ProviderManagedLaunchContext } from "../../provider/Services/Provi
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { resolveProviderDispatchAttachments } from "../../provider/providerAttachmentPaths.ts";
 import { providerNativeResumeIdentity } from "../../provider/nativeResumeIdentity.ts";
-import { claudeThreadHasConversation } from "../../provider/claudeThreadNativeState.ts";
+import { resolveAdmittedThreadRuntime } from "../../provider/admittedThreadRuntime.ts";
 import { buildReconstructedTurnInput } from "../../cleanCore/ThreadSender.ts";
 import { OrchestrationEventDeliveryRepositoryLive } from "../../persistence/Layers/OrchestrationEventDeliveries.ts";
 import { ProviderIntentOutboxLive } from "../../persistence/Layers/ProviderIntentOutbox.ts";
@@ -490,6 +490,12 @@ const make = Effect.gen(function* () {
   const serverSettings = yield* ServerSettingsService;
   const managedAttachments = yield* ManagedAttachmentRepository;
   const serverConfig = yield* ServerConfig;
+  const admittedRuntimeDependencies = {
+    stateDir: serverConfig.stateDir,
+    threadProviderBindings,
+    providerTurnSelectionResolver,
+    providerLaunchResolver,
+  };
   const handledTurnStartKeys = yield* Cache.make<string, true>({
     capacity: HANDLED_TURN_START_KEY_MAX,
     timeToLive: HANDLED_TURN_START_KEY_TTL,
@@ -902,115 +908,6 @@ const make = Effect.gen(function* () {
     });
   });
 
-  const resolveManagedTurnRuntime = Effect.fnUntraced(function* (input: {
-    readonly threadId: ThreadId;
-    readonly modelSelection?: ModelSelection;
-    readonly connectionId?: ProviderConnectionId | null;
-    readonly bindingRevision?: number;
-  }) {
-    if (input.connectionId === undefined || input.bindingRevision === undefined) {
-      return yield* new ProviderAdapterValidationError({
-        provider: input.modelSelection?.provider ?? "codex",
-        operation: "thread.turn.start",
-        issue: "The turn is missing its exact managed Connection binding.",
-      });
-    }
-    const selection = yield* providerTurnSelectionResolver
-      .resolveExisting({
-        threadId: input.threadId,
-        ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
-        ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
-      })
-      .pipe(
-        Effect.mapError(
-          (cause) =>
-            new ProviderAdapterValidationError({
-              provider: input.modelSelection?.provider ?? "codex",
-              operation: "thread.turn.start",
-              issue: cause.message,
-              cause,
-            }),
-        ),
-      );
-    if (selection.changed) {
-      return yield* new ProviderAdapterValidationError({
-        provider: selection.harness,
-        operation: "thread.turn.start",
-        issue: "A Connection change requires verified transactional switch admission.",
-      });
-    }
-    const state = Option.getOrUndefined(
-      yield* threadProviderBindings.getHarnessState(input.threadId),
-    );
-    if (!state || state.revision !== selection.stateRevision) {
-      return yield* new ProviderAdapterValidationError({
-        provider: selection.harness,
-        operation: "thread.turn.start",
-        issue: "The thread native state changed before managed runtime launch.",
-      });
-    }
-    const resumeCursor = yield* Effect.try({
-      try: () => JSON.parse(state.nativeStateLocatorJson) as unknown,
-      catch: (cause) =>
-        new ProviderAdapterValidationError({
-          provider: selection.harness,
-          operation: "thread.turn.start",
-          issue: "The thread native-state locator is invalid.",
-          cause,
-        }),
-    });
-    const launch = yield* providerLaunchResolver
-      .resolve({
-        threadId: input.threadId,
-        connectionId: selection.connectionId,
-        internalProviderId: selection.internalProviderId,
-      })
-      .pipe(
-        Effect.mapError(
-          (cause) =>
-            new ProviderAdapterValidationError({
-              provider: selection.harness,
-              operation: "thread.turn.start",
-              issue: cause.message,
-              cause,
-            }),
-        ),
-      );
-    const missingClaudeConversation =
-      selection.harness === "claudeAgent" &&
-      state.providerSessionId !== null &&
-      !(yield* Effect.tryPromise(() =>
-        claudeThreadHasConversation(
-          serverConfig.stateDir,
-          state.nativeStateGenerationId,
-          state.providerSessionId!,
-        ),
-      ));
-    const requiresReconstruction =
-      missingClaudeConversation ||
-      (state.providerSessionId === null &&
-        typeof resumeCursor === "object" &&
-        resumeCursor !== null &&
-        (resumeCursor as { readonly penkraReconstruction?: unknown }).penkraReconstruction ===
-          true);
-    return {
-      bindingRevision: selection.bindingRevision,
-      // A first binding owns an empty managed generation but has no native
-      // session identity yet. Start fresh; JSON null is a persisted sentinel,
-      // not a provider resume cursor.
-      resumeCursor:
-        state.providerSessionId === null || missingClaudeConversation ? undefined : resumeCursor,
-      requiresReconstruction,
-      managedLaunch: {
-        binaryPath: launch.binaryPath,
-        isolationKey: launch.isolationKey,
-        profileRoot: launch.profileRoot,
-        nativeStateRoot: launch.nativeStateRoot,
-        childEnvironment: (baseEnv: NodeJS.ProcessEnv) => launch.childEnvironment(baseEnv),
-      } satisfies ProviderManagedLaunchContext,
-    };
-  });
-
   const resolveCurrentManagedRuntime = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
     readonly modelSelection: ModelSelection;
@@ -1031,12 +928,16 @@ const make = Effect.gen(function* () {
             }),
         ),
       );
-    return yield* resolveManagedTurnRuntime({
-      threadId: input.threadId,
-      modelSelection: input.modelSelection,
-      connectionId: current.connectionId,
-      bindingRevision: current.bindingRevision,
-    });
+    return yield* resolveAdmittedThreadRuntime(
+      {
+        threadId: input.threadId,
+        provider: input.modelSelection.provider,
+        modelSelection: input.modelSelection,
+        connectionId: current.connectionId,
+        bindingRevision: current.bindingRevision,
+      },
+      admittedRuntimeDependencies,
+    );
   });
 
   const ensureSessionForThread = Effect.fnUntraced(function* (
@@ -1363,12 +1264,16 @@ const make = Effect.gen(function* () {
       projectionSnapshotQuery,
     );
     const providerMentions = promptContext.providerMentions;
-    const managedRuntime = yield* resolveManagedTurnRuntime({
-      threadId: input.threadId,
-      ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
-      ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
-      ...(input.bindingRevision !== undefined ? { bindingRevision: input.bindingRevision } : {}),
-    });
+    const managedRuntime = yield* resolveAdmittedThreadRuntime(
+      {
+        threadId: input.threadId,
+        provider: input.modelSelection?.provider ?? thread.modelSelection.provider,
+        modelSelection: input.modelSelection,
+        connectionId: input.connectionId,
+        bindingRevision: input.bindingRevision,
+      },
+      admittedRuntimeDependencies,
+    );
     yield* ensureSessionForThread(input.threadId, input.createdAt, {
       ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
       ...(input.providerOptions !== undefined ? { providerOptions: input.providerOptions } : {}),
@@ -1680,12 +1585,16 @@ const make = Effect.gen(function* () {
     if (!textGenerationInput) {
       return;
     }
-    const managedRuntime = yield* resolveManagedTurnRuntime({
-      threadId: input.threadId,
-      ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
-      ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
-      ...(input.bindingRevision !== undefined ? { bindingRevision: input.bindingRevision } : {}),
-    });
+    const managedRuntime = yield* resolveAdmittedThreadRuntime(
+      {
+        threadId: input.threadId,
+        provider: input.modelSelection?.provider ?? thread.modelSelection.provider,
+        modelSelection: input.modelSelection,
+        connectionId: input.connectionId,
+        bindingRevision: input.bindingRevision,
+      },
+      admittedRuntimeDependencies,
+    );
     const textGenerationSelection = textGenerationInput.modelSelection;
     const textGenerationLogContext = {
       threadId: input.threadId,
