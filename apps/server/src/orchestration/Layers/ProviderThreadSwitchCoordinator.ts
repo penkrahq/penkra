@@ -61,7 +61,7 @@ type TurnAdmissionCommand = Extract<
 >;
 
 const isRetryableOperationFailure = (failure: ProviderThreadSwitchCoordinatorError): boolean => {
-  if (failure.code === "switch_wait_timeout" || failure.code === "binding_revision_stale") {
+  if (failure.code === "switch_wait_timeout") {
     return true;
   }
   let current: unknown = failure.cause;
@@ -307,7 +307,6 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
               ...(input.command.connectionId === undefined
                 ? {}
                 : { connectionId: input.command.connectionId }),
-              bindingRevision: selection.bindingRevision,
             })
             .pipe(
               Effect.mapError(
@@ -348,7 +347,6 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           ...(input.command.connectionId === undefined
             ? {}
             : { connectionId: input.command.connectionId }),
-          bindingRevision: input.selection.bindingRevision,
         })
         .pipe(
           Effect.mapError(
@@ -735,9 +733,6 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           ...(input.command.connectionId === undefined
             ? {}
             : { connectionId: input.command.connectionId }),
-          ...(input.command.bindingRevision === undefined
-            ? {}
-            : { bindingRevision: input.command.bindingRevision }),
         })
         .pipe(
           Effect.mapError(

@@ -169,7 +169,6 @@ const TERMINAL_PROMOTION_CODES = new Set([
   "connection_unavailable",
   "model_unavailable",
   "thread_binding_missing",
-  "binding_revision_required",
   "switch_operation_failed",
 ]);
 
@@ -950,7 +949,6 @@ const make = Effect.gen(function* () {
         threadId: input.threadId,
         ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
         ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
-        ...(input.bindingRevision !== undefined ? { bindingRevision: input.bindingRevision } : {}),
       })
       .pipe(
         Effect.mapError(
@@ -2380,7 +2378,6 @@ const make = Effect.gen(function* () {
               thread.connectionId === undefined
                 ? runtimeBinding.value.connectionId
                 : thread.connectionId,
-            bindingRevision: runtimeBinding.value.revision,
           })
           .pipe(
             Effect.mapError(

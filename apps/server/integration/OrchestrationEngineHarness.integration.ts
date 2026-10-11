@@ -323,7 +323,7 @@ export const makeOrchestrationIntegrationHarness = (
           modelId: selection.modelSelection?.model ?? "integration-model",
           modelLabel: selection.modelSelection?.model ?? "Integration model",
           stateRevision: 0,
-          bindingRevision: selection.bindingRevision ?? 0,
+          bindingRevision: 0,
           changed: false,
           requiresNativeStateMaterialization: false,
         }),
