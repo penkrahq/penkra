@@ -1,7 +1,9 @@
+import { dirname } from "node:path";
 import { Effect, Layer, FileSystem, Path } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { runMigrations } from "../Migrations.ts";
+import { withClaudeNativeStateBackfill } from "../ClaudeNativeStateBackfill.ts";
 import {
   inspectPendingMigrationRecovery,
   reclaimOrphanedMigrationArtifacts,
@@ -118,11 +120,18 @@ const makeSetup = (dbPath?: string, pendingRecovery: MigrationRecoveryMarker | n
       // A pending marker means an earlier startup was interrupted mid-migration.
       // Resuming reuses that attempt's snapshot instead of taking a second one,
       // so the fallback stays the last known-good database.
+      // deriveServerPaths always places state.sqlite directly in stateDir.
+      // Native folder moves share the migration's SQL transaction and rollback.
+      const migration = dbPath
+        ? withClaudeNativeStateBackfill(dirname(dbPath), runMigrations()).pipe(
+            Effect.map((result) => result.migrations),
+          )
+        : runMigrations();
       const migrations = dbPath
         ? pendingRecovery
-          ? resumeMarkedMigration(dbPath, pendingRecovery, runMigrations())
-          : runWithPreMigrationBackup(dbPath, runMigrations())
-        : runMigrations();
+          ? resumeMarkedMigration(dbPath, pendingRecovery, migration)
+          : runWithPreMigrationBackup(dbPath, migration)
+        : migration;
       yield* migrations;
     }),
   );

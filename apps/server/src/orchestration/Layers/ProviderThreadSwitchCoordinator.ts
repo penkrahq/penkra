@@ -12,20 +12,12 @@ import {
 } from "@penkra/contracts";
 import { Effect, Layer, Option, Result, Schema } from "effect";
 
-import { ServerConfig } from "../../config.ts";
 import {
   LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
   type ManagedAttachmentPrincipal,
 } from "../../managedAttachmentPrincipal.ts";
 import { ProviderThreadSwitchOperationRepository } from "../../persistence/Services/ProviderThreadSwitchOperations.ts";
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
-import { providerNativeResumeIdentity } from "../../provider/nativeResumeIdentity.ts";
-import {
-  discardClaudeThreadAccountTransition,
-  revokeClaudeThreadAccountTransitionLinks,
-  stageClaudeThreadAccountTransition,
-} from "../../provider/claudeThreadNativeState.ts";
-import type { ProviderManagedLaunchContext } from "../../provider/Services/ProviderAdapter.ts";
 import { ProviderLaunchResolver } from "../../provider/Services/ProviderLaunchResolver.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import {
@@ -90,7 +82,6 @@ const isRetryableOperationFailure = (failure: ProviderThreadSwitchCoordinatorErr
 };
 
 export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
-  const config = yield* ServerConfig;
   const engine = yield* OrchestrationEngineService;
   const operations = yield* ProviderThreadSwitchOperationRepository;
   const threadBindings = yield* ThreadProviderBindingRepository;
@@ -243,29 +234,6 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
     // wait, so restart recovery resumes the same requested message and route.
     waitForTurnToSettle(threadId, null);
 
-  const stageClaudeTransition = (selection: ResolvedProviderTurnSelection, commandId: string) =>
-    selection.claudeAccountTransition === undefined || selection.connectionId === null
-      ? Effect.void
-      : Effect.tryPromise({
-          try: () =>
-            stageClaudeThreadAccountTransition({
-              stateDir: config.stateDir,
-              threadId: selection.threadId,
-              transition: {
-                commandId,
-                connectionId: selection.connectionId!,
-                bindingRevision: selection.bindingRevision + 1,
-                source: selection.claudeAccountTransition!.source,
-                target: selection.claudeAccountTransition!.target,
-              },
-            }),
-          catch: (cause) =>
-            new ProviderThreadSwitchCoordinatorError({
-              detail: "Could not stage the Claude account transition.",
-              cause,
-            }),
-        });
-
   const finishFailedCleanup = (operation: {
     readonly id: string;
     readonly threadId: ThreadId;
@@ -274,22 +242,6 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
     readonly failureReason: string | null;
   }) =>
     Effect.gen(function* () {
-      // The journal remains recoverable until both resources are removed. A
-      // crash after the pending write must never leave a terminal failed row
-      // with a still-linked target profile.
-      yield* Effect.tryPromise({
-        try: () =>
-          discardClaudeThreadAccountTransition({
-            stateDir: config.stateDir,
-            threadId: operation.threadId,
-            commandId: operation.commandId,
-          }),
-        catch: (cause) =>
-          new ProviderThreadSwitchCoordinatorError({
-            detail: "Could not discard the failed Claude account transition.",
-            cause,
-          }),
-      });
       if (operation.targetNativeStateGenerationId !== null) {
         yield* materializer
           .discard(operation.targetNativeStateGenerationId)
@@ -454,20 +406,6 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
               }),
           ),
         );
-      if (selection.requiresNativeStateMaterialization) {
-        if (input.targetGenerationId === null) {
-          return yield* fail("The native provider switch has no target state generation.");
-        }
-        const preparation =
-          input.verificationJson === null
-            ? null
-            : yield* decodeVerification(input.verificationJson);
-        if (preparation?.kind !== "reconstructed") {
-          yield* materializer
-            .finalize(input.targetGenerationId)
-            .pipe(mapOperationError("Could not finalize the committed provider-switch state."));
-        }
-      }
       return result;
     }
 
@@ -500,7 +438,6 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           targetConnectionId: selection.connectionId,
           targetGenerationId: input.targetGenerationId,
         });
-        yield* stageClaudeTransition(selection, input.command.commandId);
         if (selection.claudeAccountTransition !== undefined) {
           const marked = yield* operations
             .markResumeProbeAttempted({
@@ -528,11 +465,6 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
                 }),
             ),
           );
-        if (selection.claudeAccountTransition !== undefined) {
-          // The completed verification prompt ran only against the disposable
-          // target copy. Restore the exact settled source before binding it.
-          yield* stageClaudeTransition(selection, input.command.commandId);
-        }
         verificationJson = JSON.stringify(verified);
       }
       yield* operations
@@ -618,16 +550,6 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
             }),
         ),
       );
-    if (selection.requiresNativeStateMaterialization) {
-      if (input.targetGenerationId === null) {
-        return yield* fail("The native provider switch has no target state generation.");
-      }
-      if (verified?.kind !== "reconstructed") {
-        yield* materializer
-          .finalize(input.targetGenerationId)
-          .pipe(mapOperationError("Could not finalize the committed provider-switch state."));
-      }
-    }
     return result;
   });
 
@@ -648,17 +570,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
                 if (current.state === "failed-cleanup-pending") {
                   return finishFailedCleanup(current).pipe(Effect.andThen(Effect.fail(cause)));
                 }
-                if (isRetryableOperationFailure(cause)) {
-                  return Effect.tryPromise({
-                    try: () =>
-                      revokeClaudeThreadAccountTransitionLinks({
-                        stateDir: config.stateDir,
-                        threadId: input.command.threadId,
-                        commandId: input.command.commandId,
-                      }),
-                    catch: () => cause,
-                  }).pipe(Effect.ignore, Effect.andThen(Effect.fail(cause)));
-                }
+                if (isRetryableOperationFailure(cause)) return Effect.fail(cause);
                 return operations
                   .transition({
                     id: input.operationId,
@@ -909,19 +821,6 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
               decodeSelection(operation.selectionJson),
             ]).pipe(Effect.result);
             if (Result.isFailure(decoded)) {
-              yield* Effect.tryPromise({
-                try: () =>
-                  discardClaudeThreadAccountTransition({
-                    stateDir: config.stateDir,
-                    threadId: operation.threadId,
-                    commandId: operation.commandId,
-                  }),
-                catch: (cause) =>
-                  new ProviderThreadSwitchCoordinatorError({
-                    detail: "Could not clean up an incompatible Claude account transition.",
-                    cause,
-                  }),
-              });
               if (operation.targetNativeStateGenerationId !== null) {
                 yield* materializer.discard(operation.targetNativeStateGenerationId);
               }
@@ -946,31 +845,13 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
             });
           }).pipe(
             Effect.catch((cause) =>
-              operations.get(operation.id).pipe(
-                Effect.flatMap((current) =>
-                  Option.isSome(current) && current.value.state !== "committed"
-                    ? Effect.tryPromise({
-                        try: () =>
-                          revokeClaudeThreadAccountTransitionLinks({
-                            stateDir: config.stateDir,
-                            threadId: operation.threadId,
-                            commandId: operation.commandId,
-                          }),
-                        catch: () => cause,
-                      })
-                    : Effect.void,
-                ),
-                Effect.catch(() => Effect.void),
-                Effect.andThen(
-                  Effect.sync(() => {
-                    console.error("provider thread switch recovery failed", {
-                      operationId: operation.id,
-                      threadId: operation.threadId,
-                      cause: cause.message,
-                    });
-                  }),
-                ),
-              ),
+              Effect.sync(() => {
+                console.error("provider thread switch recovery failed", {
+                  operationId: operation.id,
+                  threadId: operation.threadId,
+                  cause: cause.message,
+                });
+              }),
             ),
           ),
         { concurrency: 1, discard: true },

@@ -15,7 +15,7 @@ import {
 import { assert, it } from "@effect/vitest";
 import { Effect, Fiber, Layer, Option } from "effect";
 import { TestClock } from "effect/testing";
-import { existsSync, mkdtempSync, mkdirSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll } from "vitest";
@@ -54,9 +54,7 @@ import { ProviderTurnSelectionResolverLive } from "../../provider/Layers/Provide
 import {
   prepareClaudeThreadProject,
   readClaudeThreadAccount,
-  claudeThreadStateRoot,
-  claudeThreadProjectName,
-  stageClaudeThreadAccountTransition,
+  claudeNativeStateRoot,
 } from "../../provider/claudeThreadNativeState.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
@@ -531,8 +529,6 @@ const dependencies = Layer.mergeAll(
       Effect.sync(() => {
         discardCount += 1;
       }),
-    finalize: () => Effect.void,
-    discardThreadState: () => Effect.void,
   }),
   Layer.succeed(OrchestrationEngineService, {
     dispatch: (
@@ -895,6 +891,12 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
         (initialContext as { nativeStateLocatorJson: string }).nativeStateLocatorJson,
         "null",
       );
+      assert.strictEqual(
+        (initialContext as { providerSessionId: string | null }).providerSessionId,
+        null,
+      );
+      assert.notInclude(order, "verify");
+      assert.notInclude(order, "fork-clone");
       const sent = currentDispatchedCommand();
       assert.strictEqual(sent?.type, "thread.turn.start");
       if (sent?.type === "thread.turn.start") {
@@ -1082,77 +1084,61 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
     }),
   );
 
-  it.effect(
-    "interrupts and stages a revision-bound Claude account transition before dispatch",
-    () =>
-      Effect.gen(function* () {
-        hasBinding = true;
-        operation = undefined;
-        activeTurn = true;
-        order.length = 0;
-        claudeAccountSwitchSelection = true;
-        const source = {
-          authenticationMethodId: "claude-account",
-          providerIdentityId: "alice@example.com",
-        };
-        const target = {
-          authenticationMethodId: "claude-account",
-          providerIdentityId: "bob@example.com",
-        };
-        const sourceConfig = path.join(runtimeStateDir, "claude-source-profile");
-        const targetConfig = path.join(runtimeStateDir, "claude-target-profile");
-        rmSync(claudeThreadStateRoot(runtimeStateDir, threadId), { recursive: true, force: true });
-        yield* Effect.promise(() =>
-          prepareClaudeThreadProject({
-            stateDir: runtimeStateDir,
-            threadId,
-            configDir: sourceConfig,
-            account: source,
-          }),
-        );
-        try {
-          const coordinator = yield* ProviderThreadSwitchCoordinator;
-          yield* coordinator.dispatchTurnStart({
-            command: {
-              ...command,
-              commandId: CommandId.makeUnsafe("claude-account-steer"),
-              dispatchMode: "steer",
-            },
-            attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-          });
-          assert.deepStrictEqual(order.slice(0, 8), [
-            "journal",
-            "interrupt",
-            "interrupted",
-            "stop-session",
-            "probe-attempted",
-            "verify",
-            "verified",
-            "dispatch",
-          ]);
-          assert.deepStrictEqual(
-            yield* Effect.promise(() => readClaudeThreadAccount(runtimeStateDir, threadId)),
-            source,
-          );
+  it.effect("interrupts before a Claude account switch and leaves the source owner unchanged", () =>
+    Effect.gen(function* () {
+      hasBinding = true;
+      operation = undefined;
+      activeTurn = true;
+      order.length = 0;
+      claudeAccountSwitchSelection = true;
+      const source = {
+        authenticationMethodId: "claude-account",
+        providerIdentityId: "alice@example.com",
+      };
+      const sourceConfig = path.join(runtimeStateDir, "claude-source-profile");
+      rmSync(claudeNativeStateRoot(runtimeStateDir, "source-generation"), {
+        recursive: true,
+        force: true,
+      });
+      yield* Effect.promise(() =>
+        prepareClaudeThreadProject({
+          stateDir: runtimeStateDir,
+          threadId,
+          nativeStateId: "source-generation",
+          configDir: sourceConfig,
+          account: source,
+        }),
+      );
+      try {
+        const coordinator = yield* ProviderThreadSwitchCoordinator;
+        yield* coordinator.dispatchTurnStart({
+          command: {
+            ...command,
+            commandId: CommandId.makeUnsafe("claude-account-steer"),
+            dispatchMode: "steer",
+          },
+          attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+        });
+        assert.deepStrictEqual(order.slice(0, 8), [
+          "journal",
+          "interrupt",
+          "interrupted",
+          "stop-session",
+          "probe-attempted",
+          "verify",
+          "verified",
+          "dispatch",
+        ]);
+        assert.deepStrictEqual(
           yield* Effect.promise(() =>
-            prepareClaudeThreadProject({
-              stateDir: runtimeStateDir,
-              threadId,
-              configDir: targetConfig,
-              account: target,
-              connectionId: targetConnectionId,
-              bindingConnectionId: targetConnectionId,
-              bindingRevision: 5,
-            }),
-          );
-          assert.deepStrictEqual(
-            yield* Effect.promise(() => readClaudeThreadAccount(runtimeStateDir, threadId)),
-            { ...target, projectRevision: 5 },
-          );
-        } finally {
-          claudeAccountSwitchSelection = false;
-        }
-      }),
+            readClaudeThreadAccount(runtimeStateDir, "source-generation"),
+          ),
+          source,
+        );
+      } finally {
+        claudeAccountSwitchSelection = false;
+      }
+    }),
   );
 
   it.effect("rejects an unavailable steering target before interrupting the old turn", () =>
@@ -1224,11 +1210,15 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
       activeTurn = true;
       order.length = 0;
       claudeAccountSwitchSelection = true;
-      rmSync(claudeThreadStateRoot(runtimeStateDir, threadId), { recursive: true, force: true });
+      rmSync(claudeNativeStateRoot(runtimeStateDir, "source-generation"), {
+        recursive: true,
+        force: true,
+      });
       yield* Effect.promise(() =>
         prepareClaudeThreadProject({
           stateDir: runtimeStateDir,
           threadId,
+          nativeStateId: "source-generation",
           configDir: path.join(runtimeStateDir, "claude-queued-source-profile"),
           account: {
             authenticationMethodId: "claude-account",
@@ -1271,7 +1261,7 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
     }),
   );
 
-  it.effect("discards the settled account transition when dispatch fails", () =>
+  it.effect("a failed account switch leaves the source owner unchanged", () =>
     Effect.gen(function* () {
       hasBinding = true;
       operation = undefined;
@@ -1280,11 +1270,15 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
       selectionResolveCount = 0;
       claudeTransitionAfterSettle = true;
       dispatchFailsBeforeCommit = true;
-      rmSync(claudeThreadStateRoot(runtimeStateDir, threadId), { recursive: true, force: true });
+      rmSync(claudeNativeStateRoot(runtimeStateDir, "source-generation"), {
+        recursive: true,
+        force: true,
+      });
       yield* Effect.promise(() =>
         prepareClaudeThreadProject({
           stateDir: runtimeStateDir,
           threadId,
+          nativeStateId: "source-generation",
           configDir: path.join(runtimeStateDir, "settled-source-profile"),
           account: {
             authenticationMethodId: "claude-account",
@@ -1307,11 +1301,11 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
         assert.strictEqual(result._tag, "Failure");
         assert.strictEqual(currentOperation()?.state, "failed");
         assert.ok(JSON.parse(currentOperation()!.selectionJson).claudeAccountTransition);
-        assert.strictEqual(
-          existsSync(
-            path.join(claudeThreadStateRoot(runtimeStateDir, threadId), "account-transition.json"),
+        assert.deepStrictEqual(
+          yield* Effect.promise(() =>
+            readClaudeThreadAccount(runtimeStateDir, "source-generation"),
           ),
-          false,
+          { authenticationMethodId: "claude-account", providerIdentityId: "alice@example.com" },
         );
       } finally {
         claudeTransitionAfterSettle = false;
@@ -1528,58 +1522,10 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
     }),
   );
 
-  it.effect("removes a staged account copy when crash recovery fails before commit", () =>
+  it.effect("discards the target native folder when crash recovery fails before commit", () =>
     Effect.gen(function* () {
       const commandId = CommandId.makeUnsafe("claude-crash-recovery-fails");
-      const source = {
-        authenticationMethodId: "claude-account",
-        providerIdentityId: "alice@example.com",
-      };
-      const target = {
-        authenticationMethodId: "claude-account",
-        providerIdentityId: "bob@example.com",
-      };
-      const targetConfig = path.join(
-        runtimeStateDir,
-        "provider-connections",
-        "crash-target",
-        "claude-config",
-      );
-      const projectLink = path.join(targetConfig, "projects", claudeThreadProjectName(threadId));
-      rmSync(claudeThreadStateRoot(runtimeStateDir, threadId), { recursive: true, force: true });
-      yield* Effect.promise(() =>
-        prepareClaudeThreadProject({
-          stateDir: runtimeStateDir,
-          threadId,
-          configDir: path.join(runtimeStateDir, "crash-source-profile"),
-          account: source,
-        }),
-      );
-      yield* Effect.promise(() =>
-        stageClaudeThreadAccountTransition({
-          stateDir: runtimeStateDir,
-          threadId,
-          transition: {
-            commandId,
-            connectionId: targetConnectionId,
-            bindingRevision: 5,
-            source,
-            target,
-          },
-        }),
-      );
-      yield* Effect.promise(() =>
-        prepareClaudeThreadProject({
-          stateDir: runtimeStateDir,
-          threadId,
-          configDir: targetConfig,
-          account: target,
-          connectionId: targetConnectionId,
-          bindingConnectionId: sourceConnectionId,
-          bindingRevision: 4,
-        }),
-      );
-      const abandonedCopy = readlinkSync(projectLink);
+      const beforeDiscards = discardCount;
       const recoveryCommand = { ...command, commandId };
       operation = {
         id: `provider-switch:${commandId}`,
@@ -1595,7 +1541,6 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
         selectionJson: JSON.stringify({
           ...selection,
           harness: "claudeAgent",
-          claudeAccountTransition: { source, target },
         }),
         commandJson: JSON.stringify(recoveryCommand),
         cwd: null,
@@ -1616,9 +1561,7 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
         const coordinator = yield* ProviderThreadSwitchCoordinator;
         yield* coordinator.recoverOpen;
         assert.strictEqual(currentOperation()?.state, "failed");
-        assert.strictEqual(existsSync(projectLink), false);
-        assert.throws(() => readlinkSync(projectLink));
-        assert.strictEqual(existsSync(abandonedCopy), false);
+        assert.strictEqual(discardCount, beforeDiscards + 1);
       } finally {
         dispatchFailsBeforeCommit = false;
         operation = undefined;
@@ -1626,59 +1569,11 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
     }),
   );
 
-  it.effect("recovers cleanup after a crash between failure journal and link removal", () =>
+  it.effect("recovers native-folder cleanup after a failure-journal crash", () =>
     Effect.gen(function* () {
       order.length = 0;
       const commandId = CommandId.makeUnsafe("claude-crash-cleanup-pending");
-      const source = {
-        authenticationMethodId: "claude-account",
-        providerIdentityId: "alice@example.com",
-      };
-      const target = {
-        authenticationMethodId: "claude-account",
-        providerIdentityId: "bob@example.com",
-      };
-      const targetConfig = path.join(
-        runtimeStateDir,
-        "provider-connections",
-        "crash-target",
-        "claude-config",
-      );
-      const projectLink = path.join(targetConfig, "projects", claudeThreadProjectName(threadId));
-      rmSync(claudeThreadStateRoot(runtimeStateDir, threadId), { recursive: true, force: true });
-      yield* Effect.promise(() =>
-        prepareClaudeThreadProject({
-          stateDir: runtimeStateDir,
-          threadId,
-          configDir: path.join(runtimeStateDir, "crash-source-profile"),
-          account: source,
-        }),
-      );
-      yield* Effect.promise(() =>
-        stageClaudeThreadAccountTransition({
-          stateDir: runtimeStateDir,
-          threadId,
-          transition: {
-            commandId,
-            connectionId: targetConnectionId,
-            bindingRevision: 5,
-            source,
-            target,
-          },
-        }),
-      );
-      yield* Effect.promise(() =>
-        prepareClaudeThreadProject({
-          stateDir: runtimeStateDir,
-          threadId,
-          configDir: targetConfig,
-          account: target,
-          connectionId: targetConnectionId,
-          bindingConnectionId: sourceConnectionId,
-          bindingRevision: 4,
-        }),
-      );
-      const abandonedCopy = readlinkSync(projectLink);
+      const beforeDiscards = discardCount;
       const recoveryCommand = { ...command, commandId };
       operation = {
         id: `provider-switch:${commandId}`,
@@ -1694,7 +1589,6 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
         selectionJson: JSON.stringify({
           ...selection,
           harness: "claudeAgent",
-          claudeAccountTransition: { source, target },
         }),
         commandJson: JSON.stringify(recoveryCommand),
         cwd: null,
@@ -1715,9 +1609,7 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
         yield* coordinator.recoverOpen;
         assert.strictEqual(currentOperation()?.state, "failed");
         assert.notInclude(order, "dispatch");
-        assert.strictEqual(existsSync(projectLink), false);
-        assert.throws(() => readlinkSync(projectLink));
-        assert.strictEqual(existsSync(abandonedCopy), false);
+        assert.strictEqual(discardCount, beforeDiscards + 1);
       } finally {
         operation = undefined;
       }

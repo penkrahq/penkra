@@ -114,13 +114,8 @@ export const makeProviderNativeContinuationVerifier = Effect.gen(function* () {
         .clone({
           harness: input.selection.harness,
           providerSessionId: sourceIdentity,
-          sourceStorage: input.sourceStorage,
-          sourceConnectionId: input.selection.previousConnectionId,
-          targetConnectionId: input.selection.connectionId,
           sourceGenerationId: state.value.nativeStateGenerationId,
           targetGenerationId: input.targetGenerationId,
-          sourceThreadId: input.selection.threadId,
-          targetThreadId: input.selection.threadId,
         })
         .pipe(
           Effect.mapError(

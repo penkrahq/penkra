@@ -6,6 +6,11 @@ import {
 } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { ServerConfig } from "../../config.ts";
+import { makeProviderNativeStateMaterializer } from "./ProviderNativeStateMaterializer.ts";
 
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
@@ -13,7 +18,10 @@ import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
 import { ProviderNativeContinuationVerifier } from "../Services/ProviderNativeContinuationVerifier.ts";
 import { ProviderNativeStateMaterializer } from "../Services/ProviderNativeStateMaterializer.ts";
 import type { ResolvedProviderTurnSelection } from "../Services/ProviderTurnSelectionResolver.ts";
-import { ProviderNativeContinuationVerifierLive } from "./ProviderNativeContinuationVerifier.ts";
+import {
+  makeProviderNativeContinuationVerifier,
+  ProviderNativeContinuationVerifierLive,
+} from "./ProviderNativeContinuationVerifier.ts";
 
 const timestamp = "2026-08-08T00:00:00.000Z";
 const threadId = ThreadId.makeUnsafe("verify-thread");
@@ -71,8 +79,6 @@ const dependencies = Layer.mergeAll(
   Layer.succeed(ProviderNativeStateMaterializer, {
     clone: () => Effect.succeed("/native/target"),
     discard: () => Effect.sync(() => void (discarded = true)),
-    finalize: () => Effect.void,
-    discardThreadState: () => Effect.void,
   }),
   Layer.succeed(ProviderLaunchResolver, {
     resolveProfile: () => Effect.die("not used"),
@@ -119,6 +125,42 @@ const verifierLayer = ProviderNativeContinuationVerifierLive.pipe(Layer.provide(
 const layer = it.layer(Layer.mergeAll(dependencies, verifierLayer));
 
 layer("ProviderNativeContinuationVerifier", (it) => {
+  it.effect(
+    "switches a Claude account with no native folder to a fresh reconstructed session",
+    () =>
+      Effect.gen(function* () {
+        currentHarness = "claudeAgent";
+        const stateDir = mkdtempSync(join(tmpdir(), "penkra-missing-native-switch-"));
+        try {
+          const materializer = yield* makeProviderNativeStateMaterializer.pipe(
+            Effect.provideService(ServerConfig, { stateDir } as typeof ServerConfig.Service),
+          );
+          const verifier = yield* makeProviderNativeContinuationVerifier.pipe(
+            Effect.provideService(ProviderNativeStateMaterializer, materializer),
+          );
+          verifiedWithModel = undefined;
+          const result = yield* verifier.verifySwitch({
+            selection: {
+              ...selection,
+              harness: "claudeAgent",
+              modelId: "claude-sonnet-5",
+              modelLabel: "Claude Sonnet",
+            },
+            sourceStorage: "connection-profile",
+            targetGenerationId,
+            runtimeMode: "full-access",
+          });
+          assert.equal(result.kind, "reconstructed");
+          assert.equal(result.providerSessionId, null);
+          assert.equal(result.nativeStateLocatorJson, '{"penkraReconstruction":true}');
+          assert.equal(verifiedWithModel, undefined);
+        } finally {
+          rmSync(stateDir, { recursive: true, force: true });
+          currentHarness = "opencode";
+        }
+      }),
+  );
+
   it.effect("accepts only the same exact native identity and discards rejected clones", () =>
     Effect.gen(function* () {
       const verifier = yield* ProviderNativeContinuationVerifier;

@@ -226,7 +226,7 @@ const coordinatorLayer = Layer.effect(
       probedAccount = null;
     },
   }),
-).pipe(Layer.provide(dependencies));
+).pipe(Layer.provide(dependencies), Layer.provide(sqlLayer));
 const layer = it.layer(
   Layer.mergeAll(sqlLayer, NodeServices.layer, dependencies, coordinatorLayer),
 );
@@ -561,6 +561,7 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
       const connections = yield* ProviderConnectionRepository;
       const config = yield* ServerConfig;
       const threadId = "claude-disconnect-thread";
+      const nativeStateId = "claude-disconnect-native";
       const sessionId = "550e8400-e29b-41d4-a716-446655440011";
       const first = yield* coordinator.begin({
         harness: "claudeAgent",
@@ -579,9 +580,14 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
       )!;
       const firstConfig = path.join(firstProfile, "claude-config");
       const projectName = yield* Effect.promise(() =>
-        prepareClaudeThreadProject({ stateDir: config.stateDir, threadId, configDir: firstConfig }),
+        prepareClaudeThreadProject({
+          stateDir: config.stateDir,
+          threadId,
+          nativeStateId,
+          configDir: firstConfig,
+        }),
       );
-      const transcript = claudeThreadTranscriptPath(config.stateDir, threadId, sessionId);
+      const transcript = claudeThreadTranscriptPath(config.stateDir, nativeStateId, sessionId);
       const bytes = '{"type":"user","message":{"role":"user","content":"hello"}}\n';
       yield* Effect.promise(() => writeFile(transcript, bytes));
 
@@ -624,6 +630,7 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
         prepareClaudeThreadProject({
           stateDir: config.stateDir,
           threadId,
+          nativeStateId,
           configDir: path.join(newProfile, "claude-config"),
         }),
       );
@@ -711,20 +718,21 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
         modelId: "claude-sonnet",
         createdAt: timestamp,
       });
+      yield* sql`UPDATE threads SET native_state_id = ${generationId} WHERE id = ${threadId}`;
       yield* coordinator.terminateProfile({
         connectionId: completed.connectionId,
         reason: "disconnected",
       });
       assert.isFalse(
         yield* Effect.promise(() =>
-          access(claudeThreadTranscriptPath(config.stateDir, threadId, sessionId)).then(
+          access(claudeThreadTranscriptPath(config.stateDir, generationId, sessionId)).then(
             () => true,
             () => false,
           ),
         ),
       );
       assert.deepStrictEqual(
-        yield* Effect.promise(() => readClaudeThreadAccount(config.stateDir, threadId)),
+        yield* Effect.promise(() => readClaudeThreadAccount(config.stateDir, generationId)),
         { authenticationMethodId: "claude-account", providerIdentityId: "legacy@example.com" },
       );
       assert.isTrue(

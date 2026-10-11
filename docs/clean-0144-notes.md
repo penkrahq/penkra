@@ -278,3 +278,140 @@ The harness is not committed. External audit evidence remains in
   executed migrations, duration, integrity and captured migration logs.
 - `result-183-failure.json`, `run-5.log`: rollback counts, injected cause and hashes.
 - `MigrationRehearsal.183.local.test.ts`: audit copy of the deleted harness.
+
+
+## Addendum (e): native-folder rehearsal stopped on migration failure (2026-10-11)
+
+This attempted rehearsal used the same valid, immutable `state-copy.sqlite`
+source as addendum (d). A fresh `run-6.sqlite` was made with the authorized
+read-only `VACUUM INTO` command; its initial `PRAGMA integrity_check` returned
+`ok`. The real server migration runner through 187 was called inside the
+native-folder backfill transaction. No SQL migrations were hand-applied.
+
+Nine existing Claude conversation folders were copied into a disposable state
+directory, preserving symlinks and timestamps. Five used account-scoped project
+revisions. These folders totalled approximately 7.7 GiB. Their filesystem source
+was the current native-state directory, not an atomic snapshot taken alongside
+the historical database copy. Each source was hashed before and immediately
+after copying, and each disposable copy matched those hashes. Production files
+were neither moved nor modified.
+
+The migration action failed after **167,125.753584 ms**. The whole harness ran
+for **480.45 seconds**. The propagated error was:
+
+```text
+Error: Failed to execute statement
+  at apps/server/src/persistence/NodeSqliteClient.ts:121
+  cause: Error: cannot rollback - no transaction is active
+```
+
+No completed migration was logged. The original statement failure is not
+identified by this propagated error. Available disk space was measured at
+6.1 GiB during the run; that observation alone does not establish its cause.
+
+After failure, the copy retained **581** source threads, **86,052** source
+user/assistant messages, **zero** open pending interactions and **75** source
+parent relationships. Canonical `threads` and `thread_items` remained absent,
+and the migration tracker was unchanged. Size remained **8,289,067,008 bytes**;
+`page_count` was **2,023,698** and `freelist_count` was **0**. Final integrity
+was **ok** and `foreign_key_check` returned no rows. All nine disposable native
+folders retained their original paths and file hashes. No byte-for-byte database
+hash was collected for this success-mode attempt, so unchanged counts are not
+claimed as proof of byte identity.
+
+The first failed check was reported and the rehearsal stopped, as required.
+No success counts, migration-182 completion count or injected-failure result are
+claimed for this attempt. It does not supersede addendum (d)'s successful
+183-only rehearsal. The native-folder code remains uncommitted pending review.
+No second run or workaround was attempted. The disposable database and native
+folder tree, and the temporary repository harness, were removed.
+
+Audit evidence is outside the repository in
+`/Users/emmanuelgyekyeatta-penkra/penkra-rehearsal/`:
+
+- `result-native-187-success.json`: failed outcome, before/after counts, tracker,
+  native-folder hashes, duration and integrity results.
+- `run-6-native.log`: full harness result and exact error.
+- `MigrationRehearsal.native-187.local.test.ts`: preserved harness; regular-file
+  hashing was changed to an equivalent streaming SHA-256 implementation after
+  this run started, for a future run only.
+
+
+## Addendum (f): native-folder rehearsal and disk cleanup (2026-10-11)
+
+This successful rerun supersedes addendum (e)'s stopped native-folder attempt.
+Addendum (b)'s corrupt-copy numbers remain superseded by the valid-copy rehearsals.
+The immutable `state-copy.sqlite` (8,331,603,968 bytes) was opened read-only for
+`VACUUM INTO` to a fresh `run-7.sqlite`. The resulting starting database was
+8,289,067,008 bytes, with integrity `ok`. The real migration runner executed
+176 through 187 inside the native-folder backfill transaction.
+
+| Check | Before | After |
+|---|---:|---:|
+| Source projection threads / canonical threads | 581 | 581 |
+| Source user+assistant messages / user+text items | 86,052 | 86,052 |
+| Open pending interactions / open question items | 0 | 0 |
+| Total canonical items | absent | 634,498 |
+| Parent links removed (migration 182 log) | 75 | 75 removed |
+| Claude native folders moved | 9 staged copies | 9 canonical folders |
+
+All per-thread message counts matched; mismatch list was empty. All nine native
+folder file hashes matched after moving; five folders used account-scoped project
+revisions. The originals in Production were read and copied, never moved or
+modified. These filesystem copies came from current native files, not from an
+atomic filesystem snapshot contemporaneous with the retained database.
+
+The whole migration/backfill action took **385,155.252333 ms**. The complete
+harness, including copies and post-run validation, took **675.72 seconds**.
+Final database size was **11,343,409,152 bytes**; `page_count` was **2,769,387**
+and `freelist_count` **587**. Final integrity was `ok`; `foreign_key_check`
+returned no rows. This run injected no failure. The injected rollback evidence
+in addendum (d) and the native-backfill rollback unit tests are separate checks;
+they are not claimed as a new injected-failure rehearsal through 187.
+
+Disk was measured before cleanup at **20,759,695,360 bytes free**. The first
+cleanup raised that to **30,215,024,640 bytes**, exceeding the precondition
+**24,837,019,109 bytes** (twice the retained database plus native-file copies).
+71 disposable/cache directories were removed, with **22,640,033,792 bytes**
+of measured allocated data: npm `_cacache` and generated Build, CompilationCache,
+Index, ModuleCache and SDKStatCaches children in 14 stale temporary Xcode
+DerivedData roots. `xcrun simctl delete unavailable` completed successfully.
+SourcePackages, logs, source trees, dependencies, Production data and applications
+were preserved. After saving the run's results and deleting its disposable
+database and native tree, free space was **41,235,800,064 bytes**.
+
+The requested extra-space breakdown uses the fresh starting `run-7.sqlite`
+size (8,289,067,008 bytes) as 1×. These are observed maxima, not a continuously
+sampled guarantee of the absolute peak. The copy row means the disposable
+rehearsal copy in addition to the retained source; this harness created no
+Production pre-upgrade backup (that startup work is assigned to step 11).
+
+| Extra data | Bytes | Multiple of starting database |
+|---|---:|---:|
+| Fresh rehearsal database copy | 8,289,067,008 | 1.000000× |
+| WAL | 0 | 0.000000× |
+| SQLite TEMP (`etilqs`), highest observed aggregate | 10,652,899,305 | 1.285175× |
+| Disposable native-folder copies (regular-file bytes) | 8,173,811,173 | 0.986095× |
+| Sum of the four observed category maxima | 27,115,777,486 | 3.271270× |
+
+SQLite used a rollback journal rather than WAL in this harness; its highest
+observed journal size was 22,016 bytes (0.000003×), outside the WAL row.
+Database growth itself was another 3,054,342,144 bytes (0.368478×), outside the
+four requested extra categories. TEMP files explained additional disk demand
+beyond the precondition estimate. They support a disk-pressure explanation for
+run 6 but do not prove its original SQLite error, which had been masked.
+
+Largest `du -sh` observations during the investigation (nested paths overlap,
+and measurements span cleanup/copy creation): `~/Library` 246G, `~/Penkra` 152G,
+`/tmp` 63G before cleanup, Downloads 60G, Desktop 58G, Penkra_Dev 26G,
+CoreSimulator 19G, Xcode 18G, `~/.codex` 18G, rehearsal 16G after copy creation,
+`/private/var/folders` 8.8G, Documents 7.7G, Arc cache 7.4G, `.android` 4.9G,
+and development 3.8G. Some protected directories were unreadable to `du`.
+Worktree dependencies/build outputs and mobile-mock source were not deleted.
+
+Audit evidence remains outside the repository under `~/penkra-rehearsal`:
+`result-native-187-run-7.sqlite-success.json`, `run-7-native.log`,
+`run-7-integrity.log`, `MigrationRehearsal.native-187-run7.local.test.ts`,
+`disk-cleanup-2026-10-11.json`, the disk surveys and space reports, and
+`run-7-transient-sql-files.log`. The temporary repository harness and disposable
+run database/native tree were removed; the immutable source was preserved.
