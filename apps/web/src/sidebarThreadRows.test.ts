@@ -57,7 +57,6 @@ it("takes sidebar ordering, workspace and rollups exclusively from canonical row
     session: null,
     createdAt: core.createdAt,
     latestTurn: null,
-    hasPendingApprovals: false,
     hasPendingUserInput: false,
   };
   const rows = buildSidebarThreadRows([core], { [core.id]: detail });
@@ -98,7 +97,6 @@ it("uses the canonical visit for unread completion even when the projection deta
       startedAt: core.createdAt,
       completedAt,
     },
-    hasPendingApprovals: false,
     hasPendingUserInput: false,
   };
   const unread = buildSidebarThreadRows([core], { [core.id]: detail })[0]!;

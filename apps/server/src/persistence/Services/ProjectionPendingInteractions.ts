@@ -3,7 +3,6 @@ import {
   ApprovalRequestId,
   CommandId,
   IsoDateTime,
-  NonNegativeInt,
   ProjectionPendingInteractionDecision,
   ProjectionPendingInteractionKind,
   ProjectionPendingInteractionStatus,
@@ -33,12 +32,6 @@ export type ProjectionPendingInteraction = typeof ProjectionPendingInteraction.T
 export const ListProjectionPendingInteractionsInput = Schema.Struct({
   threadId: ThreadId,
 });
-
-export const ProjectionPendingInteractionCounts = Schema.Struct({
-  pendingApprovalCount: NonNegativeInt,
-  pendingUserInputCount: NonNegativeInt,
-});
-export type ProjectionPendingInteractionCounts = typeof ProjectionPendingInteractionCounts.Type;
 
 export const GetProjectionPendingInteractionInput = Schema.Struct({
   threadId: ThreadId,
@@ -70,9 +63,6 @@ export interface ProjectionPendingInteractionRepositoryShape {
     ReadonlyArray<ProjectionPendingInteraction>,
     ProjectionRepositoryError
   >;
-  readonly getPendingCountsByThreadId: (
-    input: typeof ListProjectionPendingInteractionsInput.Type,
-  ) => Effect.Effect<ProjectionPendingInteractionCounts, ProjectionRepositoryError>;
   readonly getByIdentity: (
     input: typeof GetProjectionPendingInteractionInput.Type,
   ) => Effect.Effect<Option.Option<ProjectionPendingInteraction>, ProjectionRepositoryError>;

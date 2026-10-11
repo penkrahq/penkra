@@ -30,7 +30,6 @@ describe("threadDetailSubscriptionRetention", () => {
           updatedAt: "2026-01-01T00:00:00.000Z",
           latestTurn: null,
 
-          hasPendingApprovals: false,
           hasPendingUserInput: false,
         },
       },
@@ -147,7 +146,6 @@ describe("threadDetailSubscriptionRetention", () => {
           updatedAt: "2026-01-01T00:00:00.000Z",
           latestTurn: null,
 
-          hasPendingApprovals: false,
           hasPendingUserInput: false,
         },
       },

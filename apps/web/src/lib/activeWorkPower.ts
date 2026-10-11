@@ -28,7 +28,7 @@ export function hasActiveThreadLifecycle(thread: SidebarThreadSummary): boolean 
 export function activeThreadExecutionIds(state: ActiveWorkProjection): ReadonlyArray<ThreadId> {
   return (state.threadIds ?? []).filter((threadId: ThreadId) => {
     const thread = state.sidebarThreadSummaryById[threadId];
-    if (!thread || thread.archivedAt || thread.hasPendingApprovals || thread.hasPendingUserInput) {
+    if (!thread || thread.archivedAt || thread.hasPendingUserInput) {
       return false;
     }
 

@@ -94,7 +94,7 @@ describe("composer Continue eligibility", () => {
     expect(shouldShowComposerContinue({ ...baseline, ...change })).toBe(false);
   });
 
-  it("shows Play with queued work and hides it for pending approval or an archived thread", () => {
+  it("shows Play with queued work and hides it for pending questions or an archived thread", () => {
     expect(
       shouldShowComposerContinue({
         ...baseline,
@@ -102,7 +102,6 @@ describe("composer Continue eligibility", () => {
       }),
     ).toBe(true);
     for (const change of [
-      { hasPendingApprovals: true },
       { hasPendingUserInput: true },
       { pendingTurnStartMessageId: "pending-start" },
       { archivedAt: "2026-09-26T00:00:00.000Z" },

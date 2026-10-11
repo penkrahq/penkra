@@ -24,7 +24,6 @@ const thread = {
   pendingInteractions: [],
   archivedAt: null,
   deletedAt: null,
-  hasPendingApprovals: false,
   hasPendingUserInput: false,
 } as unknown as OrchestrationThread;
 const command = {

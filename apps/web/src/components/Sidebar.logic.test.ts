@@ -473,9 +473,8 @@ describe("resolveThreadStatusPill", () => {
   };
 
   it.each([
-    { hasPendingApprovals: true, hasPendingUserInput: true, label: "Pending Approval" },
-    { hasPendingApprovals: false, hasPendingUserInput: true, label: "Awaiting Input" },
-    { hasPendingApprovals: false, hasPendingUserInput: false, label: "Working" },
+    { hasPendingUserInput: true, label: "Awaiting Input" },
+    { hasPendingUserInput: false, label: "Working" },
   ])("keeps $label priority for a running canonical summary", (status) => {
     expect(
       resolveSidebarThreadSummaryStatus({
@@ -487,7 +486,6 @@ describe("resolveThreadStatusPill", () => {
           modelSelection: { provider: "codex", model: "gpt-5.5" },
           createdAt: baseThread.updatedAt,
           workStatus: "running",
-          hasPendingApprovals: status.hasPendingApprovals,
           hasPendingUserInput: status.hasPendingUserInput,
         },
         lastVisitedAt: undefined,
@@ -495,21 +493,10 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: status.label });
   });
 
-  it("shows pending approval before all other statuses", () => {
-    expect(
-      resolveThreadStatusPill({
-        thread: baseThread,
-        hasPendingApprovals: true,
-        hasPendingUserInput: true,
-      }),
-    ).toMatchObject({ label: "Pending Approval", pulse: false });
-  });
-
   it("shows awaiting input when the thread is blocked on user answers", () => {
     expect(
       resolveThreadStatusPill({
         thread: baseThread,
-        hasPendingApprovals: false,
         hasPendingUserInput: true,
       }),
     ).toMatchObject({ label: "Awaiting Input", pulse: false });
@@ -519,7 +506,6 @@ describe("resolveThreadStatusPill", () => {
     expect(
       resolveThreadStatusPill({
         thread: baseThread,
-        hasPendingApprovals: false,
         hasPendingUserInput: false,
       }),
     ).toMatchObject({ label: "Working", pulse: true });
@@ -539,7 +525,6 @@ describe("resolveThreadStatusPill", () => {
             orchestrationStatus: "starting",
           },
         },
-        hasPendingApprovals: false,
         hasPendingUserInput: false,
       }),
     ).toMatchObject({ label: "Working", pulse: true });
@@ -553,7 +538,6 @@ describe("resolveThreadStatusPill", () => {
           latestTurn: null,
           session: null,
         },
-        hasPendingApprovals: false,
         hasPendingUserInput: false,
         isPromotedDraftPending: true,
       }),
@@ -568,7 +552,6 @@ describe("resolveThreadStatusPill", () => {
           latestTurn: null,
           session: null,
         },
-        hasPendingApprovals: false,
         hasPendingUserInput: false,
         isPromotedDraftPending: true,
         hasLocalSendOwner: false,
@@ -581,7 +564,6 @@ describe("resolveThreadStatusPill", () => {
     expect(
       resolveThreadStatusPill({
         thread: { ...baseThread, latestTurn: null, session: null },
-        hasPendingApprovals: false,
         hasPendingUserInput: false,
         isPromotedDraftPending: false,
         hasLocalSendOwner: true,
@@ -598,7 +580,6 @@ describe("resolveThreadStatusPill", () => {
           session: null,
           pendingTurnStartMessageId: MessageId.makeUnsafe("message-admitted"),
         },
-        hasPendingApprovals: false,
         hasPendingUserInput: false,
       }),
     ).toMatchObject({ label: "Working", pulse: true });
@@ -625,7 +606,6 @@ describe("resolveThreadStatusPill", () => {
           },
           pendingTurnStartMessageId: MessageId.makeUnsafe("new-admitted-message"),
         },
-        hasPendingApprovals: false,
         hasPendingUserInput: false,
       }),
     ).toMatchObject({ label: "Working", pulse: true });
@@ -642,7 +622,6 @@ describe("resolveThreadStatusPill", () => {
             orchestrationStatus: "error",
           },
         },
-        hasPendingApprovals: true,
         hasPendingUserInput: true,
       }),
     ).toMatchObject({ label: "Needs Attention", pulse: false, dismissible: false });
@@ -659,7 +638,6 @@ describe("resolveThreadStatusPill", () => {
             orchestrationStatus: "ready",
           },
         },
-        hasPendingApprovals: false,
         hasPendingUserInput: false,
       }),
     ).toBeNull();
@@ -677,7 +655,6 @@ describe("resolveThreadStatusPill", () => {
             orchestrationStatus: "ready",
           },
         },
-        hasPendingApprovals: false,
         hasPendingUserInput: false,
       }),
     ).toMatchObject({ label: "Completed", pulse: false });
@@ -696,7 +673,6 @@ describe("resolveThreadStatusPill", () => {
             orchestrationStatus: "ready",
           },
         },
-        hasPendingApprovals: false,
         hasPendingUserInput: false,
       }),
     ).toMatchObject({ label: "Completed", pulse: false });
@@ -716,7 +692,6 @@ describe("resolveThreadStatusPill", () => {
             orchestrationStatus: "ready",
           },
         },
-        hasPendingApprovals: false,
         hasPendingUserInput: false,
       }),
     ).toMatchObject({ label: "Completed", pulse: false });
@@ -768,9 +743,9 @@ describe("resolveProjectStatusIndicator", () => {
           pulse: false,
         },
         {
-          label: "Pending Approval",
-          colorClass: "text-amber-600",
-          dotClass: "bg-amber-500",
+          label: "Awaiting Input",
+          colorClass: "text-indigo-600",
+          dotClass: "bg-indigo-500",
           pulse: false,
         },
         {
@@ -780,7 +755,7 @@ describe("resolveProjectStatusIndicator", () => {
           pulse: true,
         },
       ]),
-    ).toMatchObject({ label: "Pending Approval", dotClass: "bg-amber-500" });
+    ).toMatchObject({ label: "Awaiting Input", dotClass: "bg-indigo-500" });
   });
 
   it("prefers awaiting input over completed when action is needed", () => {
@@ -1363,7 +1338,6 @@ function makeSidebarThreadRow(overrides: Partial<SidebarThreadRow> = {}): Sideba
     updatedAt: "2026-03-09T10:00:00.000Z",
     latestTurn: null,
     latestUserMessageAt: null,
-    hasPendingApprovals: false,
     hasPendingUserInput: false,
     ...overrides,
   };
@@ -1462,7 +1436,7 @@ describe("deriveSidebarProjectData", () => {
     const threadOne = makeSidebarThreadRow({
       id: ThreadId.makeUnsafe("thread-1"),
       title: "One",
-      hasPendingApprovals: true,
+      hasPendingUserInput: true,
     });
 
     const data = deriveSidebarProjectData({
@@ -1694,7 +1668,7 @@ describe("sortThreadsForSidebar", () => {
           id: ThreadId.makeUnsafe("thread-attention"),
           createdAt: "2026-03-09T12:00:00.000Z",
           updatedAt: "2026-03-09T12:05:00.000Z",
-          hasPendingApprovals: true,
+          hasPendingUserInput: true,
         }),
         {
           ...makeThread({

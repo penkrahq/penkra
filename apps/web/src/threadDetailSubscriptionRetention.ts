@@ -52,7 +52,7 @@ function isThreadDetailEvictionUnsafe(threadId: ThreadId): boolean {
   const sidebarThread = state.sidebarThreadSummaryById[threadId];
 
   if (sidebarThread) {
-    if (sidebarThread.hasPendingApprovals || sidebarThread.hasPendingUserInput) {
+    if (sidebarThread.hasPendingUserInput) {
       return true;
     }
 

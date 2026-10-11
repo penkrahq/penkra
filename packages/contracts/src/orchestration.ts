@@ -549,7 +549,6 @@ export const OrchestrationThread = Schema.Struct({
   pendingTurnStartMessageId: Schema.optional(Schema.NullOr(MessageId)).pipe(
     Schema.withDecodingDefault(() => null),
   ),
-  hasPendingApprovals: Schema.optional(Schema.Boolean),
   hasPendingUserInput: Schema.optional(Schema.Boolean),
   workStatus: Schema.optional(Schema.Literals(["idle", "running", "done", "attention"])),
   createdAt: IsoDateTime,
@@ -597,7 +596,6 @@ export const OrchestrationThreadShell = Schema.Struct({
     Schema.withDecodingDefault(() => null),
   ),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
-  hasPendingApprovals: Schema.optional(Schema.Boolean),
   hasPendingUserInput: Schema.optional(Schema.Boolean),
   workStatus: Schema.optional(Schema.Literals(["idle", "running", "done", "attention"])),
   createdAt: IsoDateTime,
