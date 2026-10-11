@@ -471,6 +471,12 @@ function runImmediatelyWithRelease<T>(
   return result.finally(release);
 }
 
+// Keep synchronous rejection outside React's compiled handlers; their existing
+// catch blocks still own composer cleanup and the user-facing error.
+function failChatOperation(message: string): never {
+  throw new Error(message);
+}
+
 function composerDraftContentOwnershipKey(draft: ComposerThreadDraftState | undefined): string {
   if (!draft) return "";
   return JSON.stringify({
@@ -5893,7 +5899,7 @@ function ChatViewContent({
         applyThreadCreationResponse(result);
         return result.sendResult;
       });
-      if (sendResult.delivery === "failed") throw new Error(sendResult.error);
+      if (sendResult.delivery === "failed") failChatOperation(sendResult.error);
       turnStartSucceeded = true;
       releaseSendPreflight();
       if (sendResult.delivery === "queued") {
@@ -6260,7 +6266,7 @@ function ChatViewContent({
             message,
             dispatchMode: "steer",
           });
-          if (result.delivery === "failed") throw new Error(result.error);
+          if (result.delivery === "failed") failChatOperation(result.error);
           setThreadError(threadId, null);
         } catch (error) {
           setThreadError(
@@ -6298,7 +6304,7 @@ function ChatViewContent({
                   toAttachmentPreviewUrl(`/attachments/${encodeURIComponent(attachment.id)}`),
                 );
                 if (!response.ok)
-                  throw new Error("Failed to prepare the queued attachment for editing.");
+                  failChatOperation("Failed to prepare the queued attachment for editing.");
                 const blob = await response.blob();
                 await persistComposerAsset({
                   threadId,
@@ -6312,7 +6318,7 @@ function ChatViewContent({
             messageId: message.messageId,
             updatedAt: new Date().toISOString(),
           });
-          if (!result.removed) throw new Error("This message is no longer queued.");
+          if (!result.removed) failChatOperation("This message is no longer queued.");
           setThreadError(threadId, null);
           scheduleComposerFocus();
         } catch (error) {
