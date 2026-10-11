@@ -14,7 +14,6 @@ const THREAD_PROJECTION_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
 ]);
 
 const OTHER_THREAD_SHELL_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
-  "thread.approval-response-requested",
   "thread.user-input-response-requested",
   "thread.conversation-rolled-back",
   "thread.turn-start-cancelled",
@@ -29,7 +28,6 @@ export function shouldRefreshThreadShellSummary(event: OrchestrationEvent): bool
   switch (event.type) {
     case "thread.message-sent":
       return event.payload.role === "user";
-    case "thread.approval-response-requested":
     case "thread.user-input-response-requested":
     case "thread.conversation-rolled-back":
     case "thread.turn-start-cancelled":
@@ -55,7 +53,6 @@ export function shouldApplyDeferredThreadShellSummary(event: OrchestrationEvent)
   }
   return (
     event.type !== "thread.activity-appended" &&
-    event.type !== "thread.approval-response-requested" &&
     event.type !== "thread.user-input-response-requested"
   );
 }

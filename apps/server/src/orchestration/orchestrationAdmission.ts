@@ -50,7 +50,6 @@ export function usesReservedCommandAdmission(type: OrchestrationCommand["type"])
     // they must stay admissible when the queue is saturated with data traffic.
     case "thread.task.stop":
     case "thread.task.background":
-    case "thread.approval.respond":
     case "thread.user-input.respond":
     case "thread.session.stop":
     case "thread.turn.dispatch-queued":

@@ -210,7 +210,7 @@ const isStoppedQueueAdmission = (failure: unknown): boolean => {
 type InteractionResponseEvent = Extract<
   ProviderIntentEvent,
   {
-    type: "thread.approval-response-requested" | "thread.user-input-response-requested";
+    type: "thread.user-input-response-requested";
   }
 >;
 
@@ -2968,7 +2968,6 @@ const make = Effect.gen(function* () {
   const appendInteractionResponseFailure = (
     event: InteractionResponseEvent,
     input: {
-      readonly interactionKind: "approval" | "userInput";
       readonly detail: string;
       readonly settlementStatus: "retryable" | "uncertain";
       readonly failureCode?: typeof PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE;
@@ -2978,22 +2977,14 @@ const make = Effect.gen(function* () {
       ? Effect.void
       : appendProviderFailureActivity({
           threadId: event.payload.threadId,
-          kind:
-            input.interactionKind === "approval"
-              ? "provider.approval.respond.failed"
-              : "provider.user-input.respond.failed",
-          summary:
-            input.interactionKind === "approval"
-              ? "Provider approval response failed"
-              : "Provider user input response failed",
+          kind: "provider.user-input.respond.failed",
+          summary: "Provider user input response failed",
           detail: input.detail,
           turnId: null,
           createdAt: event.payload.createdAt,
           requestId: event.payload.requestId,
           responseCommandId: event.commandId,
-          ...(event.type === "thread.user-input-response-requested"
-            ? { answers: event.payload.answers }
-            : {}),
+          answers: event.payload.answers,
           settlementStatus: input.settlementStatus,
           ...(input.failureCode ? { failureCode: input.failureCode } : {}),
           ...(event.payload.lifecycleGeneration === undefined
@@ -3003,14 +2994,13 @@ const make = Effect.gen(function* () {
 
   const claimInteractionResponse = Effect.fnUntraced(function* (input: {
     readonly event: InteractionResponseEvent;
-    readonly interactionKind: "approval" | "userInput";
     readonly decision: Parameters<typeof pendingInteractions.claimResponse>[0]["decision"];
   }) {
     const { event } = input;
     if (event.commandId === null) return null;
     const claimed = yield* pendingInteractions.claimResponse({
       threadId: event.payload.threadId,
-      interactionKind: input.interactionKind,
+      interactionKind: "userInput",
       requestId: event.payload.requestId,
       lifecycleGeneration: event.payload.lifecycleGeneration ?? null,
       responseCommandId: event.commandId,
@@ -3019,7 +3009,7 @@ const make = Effect.gen(function* () {
     });
     const pending = yield* pendingInteractions.getByIdentity({
       threadId: event.payload.threadId,
-      interactionKind: input.interactionKind,
+      interactionKind: "userInput",
       requestId: event.payload.requestId,
     });
     if (
@@ -3034,48 +3024,10 @@ const make = Effect.gen(function* () {
     if (!providerThread) return null;
     if (providerThread.session?.status !== "stopped") return providerThread.id;
     yield* appendInteractionResponseFailure(event, {
-      interactionKind: input.interactionKind,
       detail: "No active provider session is bound to this thread.",
       settlementStatus: "retryable",
     });
     return null;
-  });
-
-  const processApprovalResponseRequested = Effect.fnUntraced(function* (
-    event: Extract<ProviderIntentEvent, { type: "thread.approval-response-requested" }>,
-  ) {
-    const providerThreadId = yield* claimInteractionResponse({
-      event,
-      interactionKind: "approval",
-      decision: event.payload.decision,
-    });
-    if (providerThreadId === null) return;
-
-    yield* providerService
-      .respondToRequest({
-        threadId: providerThreadId,
-        requestId: event.payload.requestId,
-        ...(event.payload.lifecycleGeneration !== undefined
-          ? { lifecycleGeneration: event.payload.lifecycleGeneration }
-          : {}),
-        decision: event.payload.decision,
-      })
-      .pipe(
-        Effect.asVoid,
-        Effect.catchCause((cause) => {
-          const unknownPendingRequest = isUnknownPendingInteractionError(cause);
-          return appendInteractionResponseFailure(event, {
-            interactionKind: "approval",
-            detail: unknownPendingRequest
-              ? buildStalePendingRequestFailureDetail("approval", event.payload.requestId)
-              : Cause.pretty(cause),
-            settlementStatus: interactionFailureSettlementStatus(cause, unknownPendingRequest),
-            ...(unknownPendingRequest
-              ? { failureCode: PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE }
-              : {}),
-          });
-        }),
-      );
   });
 
   const processUserInputResponseRequested = Effect.fnUntraced(function* (
@@ -3083,7 +3035,6 @@ const make = Effect.gen(function* () {
   ) {
     const providerThreadId = yield* claimInteractionResponse({
       event,
-      interactionKind: "userInput",
       decision: null,
     });
     if (providerThreadId === null) return;
@@ -3102,7 +3053,6 @@ const make = Effect.gen(function* () {
         Effect.catchCause((cause) => {
           const unknownPendingRequest = isUnknownPendingInteractionError(cause);
           return appendInteractionResponseFailure(event, {
-            interactionKind: "userInput",
             detail: unknownPendingRequest
               ? buildStalePendingRequestFailureDetail("user-input", event.payload.requestId)
               : Cause.pretty(cause),
@@ -3584,9 +3534,6 @@ const make = Effect.gen(function* () {
           return;
         case "thread.task-background-requested":
           yield* processTaskBackgroundRequested(event);
-          return;
-        case "thread.approval-response-requested":
-          yield* processApprovalResponseRequested(event);
           return;
         case "thread.user-input-response-requested":
           yield* processUserInputResponseRequested(event);

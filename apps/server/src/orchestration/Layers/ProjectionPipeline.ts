@@ -156,7 +156,6 @@ function shouldApplyThreadTurnsProjection(event: OrchestrationEvent): boolean {
 
 function shouldApplyPendingInteractionsProjection(event: OrchestrationEvent): boolean {
   return (
-    event.type === "thread.approval-response-requested" ||
     event.type === "thread.user-input-response-requested" ||
     (event.type === "thread.activity-appended" &&
       (event.payload.activity.kind === "approval.requested" ||
@@ -1436,13 +1435,11 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           return;
         }
 
-        case "thread.approval-response-requested":
         case "thread.user-input-response-requested": {
           if (event.commandId === null) {
             return;
           }
-          const interactionKind =
-            event.type === "thread.approval-response-requested" ? "approval" : "userInput";
+          const interactionKind = "userInput";
           const existingRow = yield* projectionPendingInteractionRepository.getByIdentity({
             threadId: event.payload.threadId,
             interactionKind,
@@ -1458,8 +1455,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               requestId: event.payload.requestId,
               lifecycleGeneration: event.payload.lifecycleGeneration ?? null,
               responseCommandId: event.commandId,
-              decision:
-                event.type === "thread.approval-response-requested" ? event.payload.decision : null,
+              decision: null,
               requestedAt: event.payload.createdAt,
             })
           ) {

@@ -206,7 +206,6 @@ describe("archived thread admission", () => {
   it.each([
     "thread.turn.steer-queued",
     "thread.task.background",
-    "thread.approval.respond",
     "thread.user-input.respond",
     "thread.messages.import",
     "thread.message.assistant.delta",
