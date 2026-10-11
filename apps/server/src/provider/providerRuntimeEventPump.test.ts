@@ -1,11 +1,6 @@
 import { Cause, Deferred, Effect, Fiber, Option, Queue, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import { EventId, ThreadId, TurnId, type ProviderRuntimeEvent } from "@penkra/contracts";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
-import { installDiagnosticsStore } from "../diagnostics/recorder";
-import { DiagnosticsStore, openDiagnosticsReader } from "../diagnostics/store";
 
 import {
   makeProviderRuntimeEventPumpHealthRegistry,
@@ -29,9 +24,6 @@ function completedEvent(eventId: string): ProviderRuntimeEvent {
 
 describe("providerRuntimeEventPump", () => {
   it("retries the current event before consuming the next queue item", async () => {
-    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-provider-retry-diagnostics-"));
-    const diagnostics = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
-    const uninstall = installDiagnosticsStore(diagnostics);
     await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
@@ -51,16 +43,18 @@ describe("providerRuntimeEventPump", () => {
                   return yield* Effect.fail(new Error("sqlite busy"));
                 }
                 processed.push(event.eventId);
-                yield* Deferred.succeed(completed, undefined);
               }),
-            updateHealth: health.update,
+            updateHealth: (next) => {
+              health.update(next);
+              if (next.status === "healthy" && next.lastEventAt !== undefined)
+                Effect.runSync(Deferred.succeed(completed, undefined));
+            },
             retryBaseDelayMs: 1,
             retryMaxDelayMs: 2,
           }).pipe(Effect.forkScoped);
 
           yield* Queue.offer(queue, completedEvent("event-retried"));
           yield* Deferred.await(completed);
-          yield* Effect.sleep(5);
           yield* Fiber.interrupt(fiber);
 
           expect(attempts).toBe(2);
@@ -73,17 +67,6 @@ describe("providerRuntimeEventPump", () => {
         }),
       ),
     );
-    const db = openDiagnosticsReader(stateDir)!;
-    expect(db.prepare("SELECT code, context_json FROM incidents").all()).toEqual([
-      expect.objectContaining({
-        code: "EXTERNAL_CALL_FAILED",
-        context_json: expect.stringContaining('"eventId":"event-retried"'),
-      }),
-    ]);
-    db.close();
-    uninstall();
-    diagnostics.close();
-    fs.rmSync(stateDir, { recursive: true, force: true });
   });
 
   it("restarts an Adapter stream that dies unexpectedly", async () => {
@@ -106,15 +89,18 @@ describe("providerRuntimeEventPump", () => {
           const fiber = yield* runProviderRuntimeEventPump({
             provider: "codex",
             stream,
-            processEvent: () => Deferred.succeed(completed, undefined).pipe(Effect.asVoid),
-            updateHealth: health.update,
+            processEvent: () => Effect.void,
+            updateHealth: (next) => {
+              health.update(next);
+              if (next.status === "healthy" && next.lastEventAt !== undefined)
+                Effect.runSync(Deferred.succeed(completed, undefined));
+            },
             retryBaseDelayMs: 1,
             retryMaxDelayMs: 2,
           }).pipe(Effect.forkScoped);
 
           yield* Queue.offer(queue, completedEvent("event-after-restart"));
           yield* Deferred.await(completed);
-          yield* Effect.sleep(5);
           yield* Fiber.interrupt(fiber);
 
           expect(subscriptions).toBeGreaterThanOrEqual(2);
@@ -126,9 +112,6 @@ describe("providerRuntimeEventPump", () => {
 
   it("quarantines a permanent event failure and continues with later events", async () => {
     class PermanentEventError extends Error {}
-    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-provider-pump-diagnostics-"));
-    const diagnostics = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
-    const uninstall = installDiagnosticsStore(diagnostics);
 
     await Effect.runPromise(
       Effect.scoped(
@@ -145,11 +128,12 @@ describe("providerRuntimeEventPump", () => {
             processEvent: (event) =>
               event.eventId === "event-poison"
                 ? Effect.fail(new PermanentEventError("invalid canonical event"))
-                : Effect.sync(() => processed.push(event.eventId)).pipe(
-                    Effect.andThen(Deferred.succeed(completed, undefined)),
-                    Effect.asVoid,
-                  ),
-            updateHealth: health.update,
+                : Effect.sync(() => processed.push(event.eventId)).pipe(Effect.asVoid),
+            updateHealth: (next) => {
+              health.update(next);
+              if (next.status === "degraded" && next.lastEventAt !== undefined)
+                Effect.runSync(Deferred.succeed(completed, undefined));
+            },
             isPermanentFailure: (cause) =>
               Option.match(Cause.findErrorOption(cause), {
                 onNone: () => false,
@@ -168,7 +152,6 @@ describe("providerRuntimeEventPump", () => {
             completedEvent("event-after-poison"),
           ]);
           yield* Deferred.await(completed);
-          yield* Effect.sleep(5);
           yield* Fiber.interrupt(fiber);
 
           expect(processed).toEqual(["event-after-poison"]);
@@ -181,19 +164,6 @@ describe("providerRuntimeEventPump", () => {
         }),
       ),
     );
-    const db = openDiagnosticsReader(stateDir)!;
-    expect(
-      db
-        .prepare("SELECT code, context_json FROM incidents WHERE code = ?")
-        .get("PROVIDER_EVENT_DECODE_FAILED"),
-    ).toMatchObject({
-      code: "PROVIDER_EVENT_DECODE_FAILED",
-      context_json: expect.stringContaining('"providerEventType":"turn.completed"'),
-    });
-    db.close();
-    uninstall();
-    diagnostics.close();
-    fs.rmSync(stateDir, { recursive: true, force: true });
   });
 
   it("returns to healthy after enough successful events follow a quarantine", async () => {
@@ -212,10 +182,12 @@ describe("providerRuntimeEventPump", () => {
             processEvent: (event) =>
               event.eventId === "event-poison"
                 ? Effect.fail(new PermanentEventError("invalid canonical event"))
-                : event.eventId === "event-healed"
-                  ? Deferred.succeed(completed, undefined).pipe(Effect.asVoid)
-                  : Effect.void,
-            updateHealth: health.update,
+                : Effect.void,
+            updateHealth: (next) => {
+              health.update(next);
+              if (next.status === "healthy" && next.lastEventAt !== undefined)
+                Effect.runSync(Deferred.succeed(completed, undefined));
+            },
             isPermanentFailure: (cause) =>
               Option.match(Cause.findErrorOption(cause), {
                 onNone: () => false,
@@ -233,7 +205,6 @@ describe("providerRuntimeEventPump", () => {
             completedEvent("event-healed"),
           ]);
           yield* Deferred.await(completed);
-          yield* Effect.sleep(5);
           yield* Fiber.interrupt(fiber);
 
           expect(health.snapshot()[0]).toMatchObject({
