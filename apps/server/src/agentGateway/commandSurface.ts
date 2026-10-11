@@ -1,7 +1,5 @@
 import { Effect } from "effect";
-import { startDiagnosticTrace } from "@penkra/shared/traceContext";
-import { recordDiagnosticIncident } from "../diagnostics/recorder.ts";
-import { recordMcpScopeDenied } from "./mcpWriteDiagnostics.ts";
+
 import {
   assembleInstructions,
   generateOperationHelp,
@@ -140,12 +138,6 @@ export function invokeResolvedAgentGatewayCommand(input: {
 }): Effect.Effect<McpToolCallResult> {
   const { entry } = input.resolution;
   if (!input.context.callerCapabilities.has(entry.tool.requiredCapability)) {
-    recordMcpScopeDenied({
-      trace: input.context.diagnosticTrace,
-      threadId: input.context.callerThreadId,
-      turnId: input.context.callerTurnId,
-      capability: entry.tool.requiredCapability,
-    });
     return Effect.succeed(
       gatewayToolErrorResult(
         new GatewayToolError(
@@ -171,19 +163,6 @@ export function invokeResolvedAgentGatewayCommand(input: {
       : invoke;
   return authorized.pipe(
     Effect.catch((error) => {
-      if (error.code === "caller_session_inactive" || error.code === "caller_thread_inactive") {
-        recordDiagnosticIncident({
-          ...(input.context.diagnosticTrace ?? startDiagnosticTrace()),
-          threadId: input.context.callerThreadId,
-          ...(callerTurnId ? { turnId: callerTurnId } : {}),
-          kind: "command.rejected",
-          code: "COMMAND_REJECTED",
-          where: "agent.mcp_write",
-          severity: "error",
-          expected: { accepted: true },
-          actual: { accepted: false },
-        });
-      }
       return Effect.succeed(gatewayToolErrorResult(error));
     }),
   );
