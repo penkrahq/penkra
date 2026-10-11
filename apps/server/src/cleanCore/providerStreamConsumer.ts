@@ -5,8 +5,12 @@
 // Layer: Server clean core
 // Exports: CleanCoreProviderEvent, PROVIDER_CUTOFF_NOTICE, applyProviderEvent
 
+import type { ProviderRuntimeEvent } from "@penkra/contracts";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
+
+import { toCleanCoreProviderEvents } from "./providerEventBridge.ts";
+import { writeProviderConnectionFacts } from "./providerConnectionFacts.ts";
 
 import {
   answerQuestion,
@@ -138,17 +142,44 @@ const writeProviderEvent = (event: CleanCoreProviderEvent) =>
   });
 
 /** Publish only committed row/item state; a failed write publishes nothing. */
+const publishProviderEvent = (
+  publisher: ThreadPublisher,
+  event: CleanCoreProviderEvent,
+  changedThreadIds: ReadonlyArray<string>,
+) => {
+  for (const threadId of changedThreadIds) publisher.publish({ threadId });
+  if (
+    event.type === "turn.started" ||
+    event.type === "turn.ended" ||
+    event.type === "provider.exited"
+  ) {
+    publisher.publishProvider(event);
+  }
+};
+
 export const applyProviderEvent = (publisher: ThreadPublisher, event: CleanCoreProviderEvent) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const changedThreadIds = yield* sql.withTransaction(writeProviderEvent(event));
-    for (const threadId of changedThreadIds) publisher.publish({ threadId });
-    if (
-      event.type === "turn.started" ||
-      event.type === "turn.ended" ||
-      event.type === "provider.exited"
-    ) {
-      publisher.publishProvider(event);
+    publishProviderEvent(publisher, event, changedThreadIds);
+  });
+
+/** A runtime event's usage, items and turn state commit before its broadcasts. */
+export const applyProviderRuntimeEvent = (
+  publisher: ThreadPublisher,
+  event: ProviderRuntimeEvent,
+) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const events = toCleanCoreProviderEvents(event);
+    const changes = yield* sql.withTransaction(
+      Effect.gen(function* () {
+        yield* writeProviderConnectionFacts(event);
+        return yield* Effect.forEach(events, writeProviderEvent);
+      }),
+    );
+    for (let index = 0; index < events.length; index++) {
+      publishProviderEvent(publisher, events[index]!, changes[index]!);
     }
   });
 

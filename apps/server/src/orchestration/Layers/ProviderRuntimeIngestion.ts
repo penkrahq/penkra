@@ -1,7 +1,6 @@
 import { renameThread } from "../../cleanCore/threadStore.ts";
 import {
   type AssistantDeliveryMode,
-  ProviderConnectionId,
   CommandId,
   EventId,
   isToolLifecycleItemType,
@@ -44,8 +43,7 @@ import {
 } from "@penkra/shared/subagents";
 
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
-import { applyProviderEvent } from "../../cleanCore/providerStreamConsumer.ts";
-import { toCleanCoreProviderEvents } from "../../cleanCore/providerEventBridge.ts";
+import { applyProviderRuntimeEvent } from "../../cleanCore/providerStreamConsumer.ts";
 import { setThreadRuntimeMode } from "../../cleanCore/threadStore.ts";
 import { ThreadPublisher } from "../../cleanCore/ThreadPublisher.ts";
 import { classifyProviderAuthFailure } from "../../provider/providerAuthFailure.ts";
@@ -115,42 +113,6 @@ const BUFFERED_TOOL_OUTPUT_BY_KEY_TTL = Duration.minutes(60);
 const BUFFERED_REASONING_SUMMARY_BY_KEY_CACHE_CAPACITY = 2_048;
 const BUFFERED_REASONING_SUMMARY_BY_KEY_TTL = Duration.minutes(60);
 
-function usageRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object" ? (value as Record<string, unknown>) : null;
-}
-
-function nonNegativeTokenCount(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.round(value) : 0;
-}
-
-function completedTurnTokenUsage(
-  event: Extract<ProviderRuntimeEvent, { readonly type: "turn.completed" }>,
-): {
-  readonly inputTokens: number;
-  readonly outputTokens: number;
-  readonly reasoningOutputTokens: number;
-} {
-  const usage = usageRecord(event.payload.usage);
-  if (!usage) return { inputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0 };
-  const outputDetails = usageRecord(usage.output_tokens_details ?? usage.outputTokensDetails);
-  const baseInput = nonNegativeTokenCount(usage.input_tokens ?? usage.inputTokens);
-  const inputTokens =
-    event.provider === "claudeAgent"
-      ? baseInput +
-        nonNegativeTokenCount(usage.cache_creation_input_tokens) +
-        nonNegativeTokenCount(usage.cache_read_input_tokens)
-      : baseInput;
-  return {
-    inputTokens,
-    outputTokens: nonNegativeTokenCount(usage.output_tokens ?? usage.outputTokens),
-    reasoningOutputTokens: nonNegativeTokenCount(
-      usage.reasoning_output_tokens ??
-        usage.reasoningOutputTokens ??
-        outputDetails?.reasoning_tokens ??
-        outputDetails?.reasoningTokens,
-    ),
-  };
-}
 const ACTIVITY_UPDATE_FINGERPRINT_CACHE_CAPACITY = 4_096;
 const ACTIVITY_UPDATE_FINGERPRINT_TTL = Duration.minutes(360);
 const ASSISTANT_DELIVERY_MODE_BY_TURN_CACHE_CAPACITY = 2_048;
@@ -663,75 +625,6 @@ const make = Effect.gen(function* () {
     });
   };
 
-  const resolveEventConnectionId = (event: ProviderRuntimeEvent) =>
-    sql<{ readonly connectionId: string }>`
-      SELECT connection_id AS "connectionId"
-      FROM thread_runtime_bindings
-      WHERE thread_id = ${event.threadId} AND connection_id IS NOT NULL
-      LIMIT 1
-    `.pipe(Effect.map((rows) => rows[0]?.connectionId));
-
-  const materializeConnectionFacts = (event: ProviderRuntimeEvent) =>
-    Effect.gen(function* () {
-      if (event.type !== "account.rate-limits.updated" && event.type !== "turn.completed") {
-        return;
-      }
-      const connectionId = yield* resolveEventConnectionId(event);
-      if (connectionId === undefined) {
-        yield* Effect.logWarning("provider account fact has no bound connection", {
-          threadId: event.threadId,
-          eventType: event.type,
-          eventId: event.eventId,
-        });
-        return;
-      }
-      const utcDay = event.createdAt.slice(0, 10);
-
-      if (event.type === "account.rate-limits.updated") {
-        const rateLimits = event.payload.rateLimits;
-        const status =
-          rateLimits !== null && typeof rateLimits === "object" && "status" in rateLimits
-            ? String((rateLimits as { readonly status?: unknown }).status ?? "") || null
-            : null;
-        yield* connectionRateLimits.update({
-          connectionId: ProviderConnectionId.makeUnsafe(connectionId),
-          provider: event.provider,
-          limitsJson: JSON.stringify(rateLimits),
-          status,
-          sourceEventId: event.eventId,
-          updatedAt: event.createdAt,
-        });
-        return;
-      }
-
-      const tokenUsage = completedTurnTokenUsage(event);
-      yield* Effect.gen(function* () {
-        const inserted = yield* sql<{ readonly sourceEventId: string }>`
-            INSERT INTO connection_usage_turn_events (source_event_id, connection_id, utc_day)
-            VALUES (${event.eventId}, ${connectionId}, ${utcDay})
-            ON CONFLICT(source_event_id) DO NOTHING
-            RETURNING source_event_id AS "sourceEventId"
-          `;
-        if (inserted.length === 0) return;
-        yield* sql`
-            INSERT INTO connection_usage_daily (
-              utc_day, connection_id, provider, input_tokens, output_tokens,
-              reasoning_output_tokens, turns, updated_at
-            ) VALUES (
-              ${utcDay}, ${connectionId}, ${event.provider}, ${tokenUsage.inputTokens},
-              ${tokenUsage.outputTokens}, ${tokenUsage.reasoningOutputTokens}, 1,
-              ${event.createdAt}
-            )
-            ON CONFLICT(utc_day, connection_id) DO UPDATE SET
-              input_tokens = connection_usage_daily.input_tokens + excluded.input_tokens,
-              output_tokens = connection_usage_daily.output_tokens + excluded.output_tokens,
-              reasoning_output_tokens =
-                connection_usage_daily.reasoning_output_tokens + excluded.reasoning_output_tokens,
-              turns = connection_usage_daily.turns + 1,
-              updated_at = excluded.updated_at
-          `;
-      });
-    });
   const outstandingTurnIdsByThreadRef = yield* Ref.make<ReadonlyMap<ThreadId, ReadonlySet<TurnId>>>(
     new Map(),
   );
@@ -1511,7 +1404,6 @@ const make = Effect.gen(function* () {
           : null;
       yield* materializeCanonicalOperation(event, presentationSequence);
       yield* materializeCanonicalNotice(event, presentationSequence);
-      yield* materializeConnectionFacts(event);
     });
 
   const commitCanonicalRuntimeEvent = (event: ProviderRuntimeEvent) =>
@@ -1546,21 +1438,9 @@ const make = Effect.gen(function* () {
           return;
         }
       }
-      // Clean core (0.14.4): apply every provider event to threads/thread_items
-      // through the single consumer. Coexists with the legacy projection path
-      // until step 11 removes it; a clean-core failure is logged and must not
-      // take down the legacy pump.
-      yield* Effect.forEach(
-        toCleanCoreProviderEvents(event),
-        (cleanEvent) =>
-          applyProviderEvent(threadPublisher, cleanEvent).pipe(
-            Effect.provideService(SqlClient.SqlClient, sql),
-          ),
-        { discard: true },
-      ).pipe(
-        Effect.catchCause((cause) =>
-          Effect.logWarning("clean-core provider event apply failed", { cause }),
-        ),
+      yield* applyProviderRuntimeEvent(threadPublisher, event).pipe(
+        Effect.provideService(SqlClient.SqlClient, sql),
+        Effect.provideService(ConnectionRateLimits, connectionRateLimits),
       );
       // Load the full (heavy) detail only when this event's handlers actually read
       // thread.messages; otherwise use the cheap
