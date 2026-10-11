@@ -4,7 +4,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import { assert, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Cause, Effect, Exit } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { describe, expect } from "vitest";
 
@@ -51,6 +51,39 @@ layer("NodeSqliteClient", (it) => {
 });
 
 describe("fatal SQLite result handling", () => {
+  it.each([false, true])(
+    "preserves SQLITE_FULL and its statement after automatic rollback (nested=%s)",
+    async (nested) => {
+      const result = await Effect.runPromise(
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          yield* sql`CREATE TABLE full_entries(payload BLOB)`;
+          const [pages] = yield* sql<{ page_count: number }>`PRAGMA page_count`;
+          const [pageSize] = yield* sql<{ page_size: number }>`PRAGMA page_size`;
+          // Existing pages admit the first small insert, but not a page-sized blob.
+          yield* sql.unsafe(`PRAGMA max_page_count = ${pages!.page_count}`);
+          const writes = Effect.gen(function* () {
+            yield* sql`INSERT INTO full_entries(payload) VALUES ('first')`;
+            yield* sql`INSERT INTO full_entries(payload) VALUES (zeroblob(${pageSize!.page_size}))`;
+          });
+          const failure = yield* Effect.exit(
+            sql.withTransaction(nested ? sql.withTransaction(writes) : writes),
+          );
+          const rows = yield* sql`SELECT * FROM full_entries`;
+          return { failure, rows };
+        }).pipe(Effect.provide(SqliteClient.layerMemory())),
+      );
+      expect(Exit.isFailure(result.failure)).toBe(true);
+      if (!Exit.isFailure(result.failure)) throw new Error("Expected SQLITE_FULL");
+      const error = Cause.squash(result.failure.cause);
+      expect(error).toMatchObject({ cause: { errcode: 13 } });
+      expect((error as Error).message).toContain("INSERT INTO full_entries(payload)");
+      expect(Cause.pretty(result.failure.cause)).not.toContain("cannot rollback");
+      expect(Cause.pretty(result.failure.cause)).not.toContain("no such savepoint");
+      expect(result.rows).toEqual([]);
+    },
+  );
+
   it("returns failure for an invalid SQL statement", async () => {
     const result = await Effect.runPromise(
       Effect.gen(function* () {
