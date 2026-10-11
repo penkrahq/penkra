@@ -21,7 +21,7 @@ import {
   type TestTurnResponse,
 } from "./TestProviderAdapter.integration.ts";
 import {
-  codexTurnApprovalFixture,
+  codexTurnContinuationFixture,
   codexTurnToolFixture,
   codexTurnTextFixture,
 } from "./fixtures/providerRuntime.ts";
@@ -176,7 +176,7 @@ it.effect("replays file-changing fixture turn events", () =>
   }).pipe(Effect.provide(NodeServices.layer)),
 );
 
-it.effect("runs multi-turn tool/approval flow", () =>
+it.effect("runs multi-turn tool and continuation flow", () =>
   Effect.gen(function* () {
     const fixture = yield* makeIntegrationFixture;
     const { join } = yield* Path.Path;
@@ -222,9 +222,9 @@ it.effect("runs multi-turn tool/approval flow", () =>
         provider,
         harness: fixture.harness,
         threadId: session.threadId,
-        userText: "turn 2 approval",
+        userText: "turn 2 continuation",
         response: {
-          events: codexTurnApprovalFixture,
+          events: codexTurnContinuationFixture,
           mutateWorkspace: ({ cwd }) =>
             writeFileString(join(cwd, "README.md"), "v3\n").pipe(Effect.asVoid, Effect.ignore),
         },
@@ -233,11 +233,11 @@ it.effect("runs multi-turn tool/approval flow", () =>
       assert.deepEqual(secondSnapshot.turns[1]?.items, [
         {
           type: "userMessage",
-          content: [{ type: "text", text: "turn 2 approval" }],
+          content: [{ type: "text", text: "turn 2 continuation" }],
         },
         {
           type: "agentMessage",
-          text: "Approval received and command executed.\n",
+          text: "Continuation completed.\n",
         },
       ]);
     }).pipe(Effect.provide(fixture.layer));
@@ -279,9 +279,9 @@ it.effect("rolls back provider conversation state only", () =>
         provider,
         harness: fixture.harness,
         threadId: session.threadId,
-        userText: "turn 2 approval",
+        userText: "turn 2 continuation",
         response: {
-          events: codexTurnApprovalFixture,
+          events: codexTurnContinuationFixture,
           mutateWorkspace: ({ cwd }) =>
             writeFileString(join(cwd, "README.md"), "v3\n").pipe(Effect.asVoid, Effect.ignore),
         },

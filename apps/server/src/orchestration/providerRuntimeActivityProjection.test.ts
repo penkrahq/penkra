@@ -90,45 +90,6 @@ describe("projected activities satisfy the orchestration command schema", () => 
     expect(activity).not.toHaveProperty("providerTurnId");
   });
 
-  it("omits an absent approval request id instead of emitting an explicit undefined", () => {
-    expectSchemaValidActivities(
-      runtimeEvent({
-        type: "request.opened",
-        eventId: "approval-without-request-id",
-        turnId: TURN_ID,
-        payload: { requestType: "command_execution_approval", detail: "rm -rf build" },
-      }),
-    );
-    expectSchemaValidActivities(
-      runtimeEvent({
-        type: "request.resolved",
-        eventId: "approval-resolved-without-request-id",
-        turnId: TURN_ID,
-        payload: { requestType: "command_execution_approval", decision: "approved" },
-      }),
-    );
-    const [opened] = projectProviderRuntimeActivities(
-      runtimeEvent({
-        type: "request.opened",
-        eventId: "approval-without-request-id",
-        turnId: TURN_ID,
-        payload: { requestType: "command_execution_approval" },
-      }),
-    );
-    expect(Object.keys(opened?.payload as Record<string, unknown>)).not.toContain("requestId");
-
-    const [padded] = projectProviderRuntimeActivities(
-      runtimeEvent({
-        type: "request.opened",
-        eventId: "approval-padded-request-id",
-        turnId: TURN_ID,
-        requestId: "  approval-7  ",
-        payload: { requestType: "command_execution_approval" },
-      }),
-    );
-    expect(padded?.payload).toMatchObject({ requestId: "approval-7" });
-  });
-
   it("never derives a blank summary from a blank tool name or title", () => {
     expectSchemaValidActivities(
       runtimeEvent({
@@ -412,28 +373,7 @@ describe("provider runtime activity projection", () => {
     expect(providerActivityUpdateFingerprint(activity!)).toContain('"kind":"tool.updated"');
   });
 
-  it("maps canonical approvals and structured user input", () => {
-    const approval = projectProviderRuntimeActivities(
-      runtimeEvent({
-        type: "request.opened",
-        eventId: "approval-request",
-        lifecycleGeneration: "generation-1",
-        requestId: "request-1",
-        payload: { requestType: "command_execution_approval", detail: "pwd" },
-      }),
-    )[0];
-    expect(approval).toMatchObject({
-      kind: "approval.requested",
-      summary: "Command approval requested",
-      payload: {
-        requestId: "request-1",
-        lifecycleGeneration: "generation-1",
-        requestKind: "command",
-        requestType: "command_execution_approval",
-        detail: "pwd",
-      },
-    });
-
+  it("maps structured user input", () => {
     const userInput = [
       runtimeEvent({
         type: "user-input.requested",

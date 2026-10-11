@@ -2332,9 +2332,9 @@ describe("store projection", () => {
   it("keeps pending interaction activities outside the latest activity window", () => {
     const activities = [
       makeActivity({
-        id: "approval-old",
-        kind: "approval.requested",
-        tone: "approval",
+        id: "question-old",
+        kind: "user-input.requested",
+        tone: "info",
         payload: { requestId: "approval-1", requestKind: "command" },
         sequence: 0,
       }),
@@ -2353,23 +2353,23 @@ describe("store projection", () => {
     );
 
     expect(threadsOf(next)[0]?.activities).toHaveLength(2001);
-    expect(threadsOf(next)[0]?.activities[0]?.id).toBe(EventId.makeUnsafe("approval-old"));
+    expect(threadsOf(next)[0]?.activities[0]?.id).toBe(EventId.makeUnsafe("question-old"));
     expect(threadsOf(next)[0]?.activities[1]?.id).toBe(EventId.makeUnsafe("activity-5"));
   });
 
   it("does not keep resolved interaction activities outside the latest activity window", () => {
     const activities = [
       makeActivity({
-        id: "approval-old",
-        kind: "approval.requested",
-        tone: "approval",
+        id: "question-old",
+        kind: "user-input.requested",
+        tone: "info",
         payload: { requestId: "approval-1", requestKind: "command" },
         sequence: 0,
       }),
       makeActivity({
-        id: "approval-resolved-old",
-        kind: "approval.resolved",
-        tone: "approval",
+        id: "question-resolved-old",
+        kind: "user-input.resolved",
+        tone: "info",
         payload: { requestId: "approval-1", decision: "accept" },
         sequence: 1,
       }),

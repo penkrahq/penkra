@@ -7,25 +7,7 @@ import {
 } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
-import {
-  approvalRequestKindFromRequestType,
-  derivePendingThreadRequestIds,
-  deriveThreadSummaryMetadata,
-} from "./threadSummary";
-
-describe("approvalRequestKindFromRequestType", () => {
-  it.each([
-    ["command_execution_approval", "command"],
-    ["exec_command_approval", "command"],
-    ["file_read_approval", "file-read"],
-    ["file_change_approval", "file-change"],
-    ["apply_patch_approval", "file-change"],
-    ["unknown", null],
-    [null, null],
-  ] as const)("maps %s to %s", (requestType, expected) => {
-    expect(approvalRequestKindFromRequestType(requestType)).toBe(expected);
-  });
-});
+import { derivePendingThreadRequestIds, deriveThreadSummaryMetadata } from "./threadSummary";
 
 describe("deriveThreadSummaryMetadata", () => {
   it("derives sidebar summary metadata from thread state", () => {
@@ -52,19 +34,6 @@ describe("deriveThreadSummaryMetadata", () => {
       },
     ];
     const activities: OrchestrationThreadActivity[] = [
-      {
-        id: EventId.makeUnsafe("activity-1"),
-        tone: "approval",
-        kind: "approval.requested",
-        summary: "Approval requested",
-        payload: {
-          requestId: "approval-1",
-          requestKind: "command",
-        },
-        sequence: 1,
-        turnId: TurnId.makeUnsafe("turn-2"),
-        createdAt: "2026-02-27T00:04:00.000Z",
-      },
       {
         id: EventId.makeUnsafe("activity-2"),
         tone: "info",
@@ -99,33 +68,6 @@ describe("deriveThreadSummaryMetadata", () => {
 
   it("drops stale pending requests once failure events mark them obsolete", () => {
     const activities: OrchestrationThreadActivity[] = [
-      {
-        id: EventId.makeUnsafe("activity-1"),
-        tone: "approval",
-        kind: "approval.requested",
-        summary: "Approval requested",
-        payload: {
-          requestId: "approval-1",
-          requestType: "exec_command_approval",
-        },
-        sequence: 1,
-        turnId: TurnId.makeUnsafe("turn-1"),
-        createdAt: "2026-02-27T00:01:00.000Z",
-      },
-      {
-        id: EventId.makeUnsafe("activity-2"),
-        tone: "error",
-        kind: "provider.approval.respond.failed",
-        summary: "Approval response failed",
-        payload: {
-          requestId: "approval-1",
-          failureCode: "PENDING_INTERACTION_NOT_FOUND",
-          detail: "stale pending approval request",
-        },
-        sequence: 2,
-        turnId: TurnId.makeUnsafe("turn-1"),
-        createdAt: "2026-02-27T00:02:00.000Z",
-      },
       {
         id: EventId.makeUnsafe("activity-3"),
         tone: "info",
@@ -181,47 +123,6 @@ describe("deriveThreadSummaryMetadata", () => {
       options: [{ label: "Yes", description: "Continue." }],
     };
     const activities: OrchestrationThreadActivity[] = [
-      {
-        id: EventId.makeUnsafe("approval-a"),
-        tone: "approval",
-        kind: "approval.requested",
-        summary: "Approval requested",
-        payload: {
-          requestId: "reused-approval",
-          requestKind: "command",
-          lifecycleGeneration: "generation-a",
-        },
-        sequence: 1,
-        turnId: TurnId.makeUnsafe("turn-1"),
-        createdAt: "2026-02-27T00:01:00.000Z",
-      },
-      {
-        id: EventId.makeUnsafe("approval-b"),
-        tone: "approval",
-        kind: "approval.requested",
-        summary: "Approval requested",
-        payload: {
-          requestId: "reused-approval",
-          requestKind: "command",
-          lifecycleGeneration: "generation-b",
-        },
-        sequence: 2,
-        turnId: TurnId.makeUnsafe("turn-1"),
-        createdAt: "2026-02-27T00:02:00.000Z",
-      },
-      {
-        id: EventId.makeUnsafe("approval-a-resolved"),
-        tone: "info",
-        kind: "approval.resolved",
-        summary: "Approval resolved",
-        payload: {
-          requestId: "reused-approval",
-          lifecycleGeneration: "generation-a",
-        },
-        sequence: 3,
-        turnId: TurnId.makeUnsafe("turn-1"),
-        createdAt: "2026-02-27T00:03:00.000Z",
-      },
       {
         id: EventId.makeUnsafe("input-a"),
         tone: "info",
@@ -312,17 +213,11 @@ describe("deriveThreadSummaryMetadata", () => {
 });
 
 describe("derivePendingThreadRequestIds", () => {
-  it("tracks questions without exposing obsolete approval lifecycles", () => {
+  it("tracks structured questions", () => {
     const at = "2026-10-11T00:00:00.000Z";
     expect(
       derivePendingThreadRequestIds({
         activities: [
-          {
-            id: EventId.makeUnsafe("approval"),
-            kind: "approval.requested",
-            createdAt: at,
-            payload: { requestId: "approval-id", requestKind: "command" },
-          },
           {
             id: EventId.makeUnsafe("question"),
             kind: "user-input.requested",

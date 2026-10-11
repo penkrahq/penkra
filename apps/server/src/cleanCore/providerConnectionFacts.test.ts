@@ -41,7 +41,7 @@ const setup = Effect.gen(function* () {
   yield* sql`INSERT INTO provider_native_state_generations (native_state_generation_id, harness_kind, adapter_schema_version, state_manifest_json, lifecycle, created_at, owner_thread_id) VALUES ('native', 'claudeAgent', '1', '{}', 'active', ${at}, ${threadId})`;
   yield* sql`INSERT INTO thread_harness_states (thread_id, harness_kind, native_state_generation_id, native_state_locator_json, created_at, updated_at) VALUES (${threadId}, 'claudeAgent', 'native', '{}', ${at}, ${at})`;
   yield* sql`INSERT INTO provider_connections (connection_id, harness_kind, authentication_target_id, authentication_method_id, label, profile_ref, health_status, lifecycle, created_at, updated_at) VALUES (${owner}, 'claudeAgent', 'anthropic-first-party', 'claude-account', 'Owner', 'provider-profile:owner', 'ready', 'active', ${at}, ${at})`;
-  yield* sql`INSERT INTO thread_runtime_bindings (thread_id, connection_id, installation_id, internal_provider_id, model_id, binding_revision, created_at, updated_at) VALUES (${threadId}, ${owner}, 'installation', NULL, 'model', 0, ${at}, ${at})`;
+  yield* sql`INSERT INTO thread_runtime_bindings (thread_id, connection_id, installation_id, internal_provider_id, model_id, created_at, updated_at) VALUES (${threadId}, ${owner}, 'installation', NULL, 'model', ${at}, ${at})`;
 });
 const withDb = <A, E>(effect: Effect.Effect<A, E, SqlClient.SqlClient | ConnectionRateLimits>) =>
   setup.pipe(

@@ -472,7 +472,7 @@ export const OrchestrationLatestTurn = Schema.Struct({
 });
 export type OrchestrationLatestTurn = typeof OrchestrationLatestTurn.Type;
 
-export const ProjectionPendingInteractionKind = Schema.Literals(["approval", "userInput"]);
+export const ProjectionPendingInteractionKind = Schema.Literal("userInput");
 export type ProjectionPendingInteractionKind = typeof ProjectionPendingInteractionKind.Type;
 
 export const ProjectionPendingInteractionStatus = Schema.Literals([

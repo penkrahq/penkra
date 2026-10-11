@@ -108,28 +108,28 @@ describe("createThreadActivityAccumulator", () => {
   });
 
   it("matches the fold across the activity cap, including pending-request retention", () => {
-    const pendingApproval = makeActivity({
-      id: "activity-approval",
-      kind: "approval.requested",
-      summary: "Approve?",
+    const pendingQuestion = makeActivity({
+      id: "activity-question",
+      kind: "user-input.requested",
+      summary: "Choose?",
       createdAt: "2026-07-09T00:00:00.000Z",
       payload: { requestId: "request-1" },
       sequence: 0,
     });
-    const resolvedApproval = makeActivity({
-      id: "activity-approval-resolved",
-      kind: "approval.requested",
-      summary: "Approve?",
+    const resolvedQuestion = makeActivity({
+      id: "activity-question-resolved",
+      kind: "user-input.requested",
+      summary: "Choose?",
       createdAt: "2026-07-09T00:00:00.000Z",
       payload: { requestId: "request-2" },
       sequence: 1,
     });
     const previous: ThreadActivity[] = [
-      pendingApproval,
-      resolvedApproval,
+      pendingQuestion,
+      resolvedQuestion,
       makeActivity({
-        id: "activity-approval-resolution",
-        kind: "approval.resolved",
+        id: "activity-question-resolution",
+        kind: "user-input.resolved",
         payload: { requestId: "request-2" },
         sequence: 2,
       }),
@@ -144,9 +144,9 @@ describe("createThreadActivityAccumulator", () => {
     expectEquivalent(previous, batch);
 
     const accumulated = foldWithAccumulator(previous, batch).result;
-    // The still-pending approval survives the cap; the resolved one is dropped with the rest.
-    expect(accumulated.some((activity) => activity.id === pendingApproval.id)).toBe(true);
-    expect(accumulated.some((activity) => activity.id === resolvedApproval.id)).toBe(false);
+    // The still-pending question survives the cap; the resolved one is dropped with the rest.
+    expect(accumulated.some((activity) => activity.id === pendingQuestion.id)).toBe(true);
+    expect(accumulated.some((activity) => activity.id === resolvedQuestion.id)).toBe(false);
   });
 
   it("returns the previous array by reference when the whole batch is a no-op", () => {

@@ -1,9 +1,6 @@
 import type { OrchestrationEvent } from "@penkra/contracts";
 
 const THREAD_SHELL_SUMMARY_ACTIVITY_KINDS = new Set([
-  "approval.requested",
-  "approval.resolved",
-  "provider.approval.respond.failed",
   "user-input.requested",
   "user-input.resolved",
   "provider.user-input.respond.failed",

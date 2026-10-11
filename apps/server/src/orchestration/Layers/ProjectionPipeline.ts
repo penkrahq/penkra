@@ -157,10 +157,7 @@ function shouldApplyThreadTurnsProjection(event: OrchestrationEvent): boolean {
 function shouldApplyPendingInteractionsProjection(event: OrchestrationEvent): boolean {
   return (
     event.type === "thread.activity-appended" &&
-    (event.payload.activity.kind === "approval.requested" ||
-      event.payload.activity.kind === "approval.resolved" ||
-      event.payload.activity.kind === "provider.approval.respond.failed" ||
-      event.payload.activity.kind === "user-input.requested" ||
+    (event.payload.activity.kind === "user-input.requested" ||
       event.payload.activity.kind === "user-input.resolved" ||
       event.payload.activity.kind === "provider.user-input.respond.failed")
   );
@@ -1290,15 +1287,11 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
         case "thread.activity-appended": {
           const activity = event.payload.activity;
           const interactionKind =
-            activity.kind === "approval.requested" ||
-            activity.kind === "approval.resolved" ||
-            activity.kind === "provider.approval.respond.failed"
-              ? ("approval" as const)
-              : activity.kind === "user-input.requested" ||
-                  activity.kind === "user-input.resolved" ||
-                  activity.kind === "provider.user-input.respond.failed"
-                ? ("userInput" as const)
-                : null;
+            activity.kind === "user-input.requested" ||
+            activity.kind === "user-input.resolved" ||
+            activity.kind === "provider.user-input.respond.failed"
+              ? ("userInput" as const)
+              : null;
           if (interactionKind === null) return;
           const requestId =
             extractActivityRequestId(activity.payload) ?? event.metadata.requestId ?? null;
@@ -1315,7 +1308,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             "lifecycleGeneration",
           );
           let nextRow: Parameters<typeof projectionPendingInteractionRepository.upsert>[0];
-          if (activity.kind === "approval.resolved" || activity.kind === "user-input.resolved") {
+          if (activity.kind === "user-input.resolved") {
             if (
               lifecycleGeneration !== null &&
               Option.isSome(existingRow) &&
@@ -1343,10 +1336,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
                 : activity.createdAt,
               resolvedAt: activity.createdAt,
             } as const;
-          } else if (
-            activity.kind === "provider.approval.respond.failed" ||
-            activity.kind === "provider.user-input.respond.failed"
-          ) {
+          } else if (activity.kind === "provider.user-input.respond.failed") {
             if (Option.isNone(existingRow)) {
               return;
             }
@@ -1388,10 +1378,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               };
             }
           } else {
-            if (
-              activity.kind !== "approval.requested" &&
-              activity.kind !== "user-input.requested"
-            ) {
+            if (activity.kind !== "user-input.requested") {
               return;
             }
             if (

@@ -135,11 +135,6 @@ export const CanonicalItemType = Schema.Literals([
 export type CanonicalItemType = typeof CanonicalItemType.Type;
 
 export const CanonicalRequestType = Schema.Literals([
-  "command_execution_approval",
-  "file_read_approval",
-  "file_change_approval",
-  "apply_patch_approval",
-  "exec_command_approval",
   "tool_user_input",
   "dynamic_tool_call",
   "auth_tokens_refresh",

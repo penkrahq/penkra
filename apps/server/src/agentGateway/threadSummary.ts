@@ -129,7 +129,6 @@ export const READ_THREAD_MAX_ITEM_LIMIT = 100;
 export type AgentTranscriptInclude =
   | "messages"
   | "tools"
-  | "approvals"
   | "user-input"
   | "tasks"
   | "compaction"
@@ -185,7 +184,7 @@ export interface AgentTranscriptMessageItem extends AgentTranscriptItemBase {
 }
 
 export interface AgentTranscriptActivityItem extends AgentTranscriptItemBase {
-  readonly type: "tool" | "approval" | "user-input" | "task" | "compaction" | "turn";
+  readonly type: "tool" | "user-input" | "task" | "compaction" | "turn";
   readonly activityId: string;
   readonly lifecycle: string;
   readonly summary: string;
@@ -207,7 +206,6 @@ function activityInclude(activity: OrchestrationThreadActivity): {
   readonly type: AgentTranscriptActivityItem["type"];
 } | null {
   if (activity.kind.startsWith("tool.")) return { include: "tools", type: "tool" };
-  if (activity.kind.startsWith("approval.")) return { include: "approvals", type: "approval" };
   if (activity.kind.startsWith("user-input.")) return { include: "user-input", type: "user-input" };
   if (activity.kind.startsWith("task.")) return { include: "tasks", type: "task" };
   if (activity.kind === "context-compaction") return { include: "compaction", type: "compaction" };
@@ -266,7 +264,6 @@ export function packAgentTranscriptPage(input: {
     new Set<AgentTranscriptInclude>([
       "messages",
       "tools",
-      "approvals",
       "user-input",
       "tasks",
       "compaction",

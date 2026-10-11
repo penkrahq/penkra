@@ -75,18 +75,6 @@ function normalizeTurnState(value: unknown): "completed" | "failed" | "interrupt
   return "completed";
 }
 
-function mapRequestType(
-  requestKind: unknown,
-): "command_execution_approval" | "file_change_approval" | "unknown" {
-  if (requestKind === "command") {
-    return "command_execution_approval";
-  }
-  if (requestKind === "file-change") {
-    return "file_change_approval";
-  }
-  return "unknown";
-}
-
 function mapItemType(toolKind: unknown): "command_execution" | "file_change" | "unknown" {
   if (toolKind === "command") {
     return "command_execution";
@@ -153,24 +141,6 @@ function normalizeFixtureEvent(rawEvent: Record<string, unknown>): ProviderRunti
           status: "completed",
           ...(typeof rawEvent.title === "string" ? { title: rawEvent.title } : {}),
           ...(typeof rawEvent.detail === "string" ? { detail: rawEvent.detail } : {}),
-        },
-      } as ProviderRuntimeEvent;
-    case "approval.requested":
-      return {
-        ...rawEvent,
-        type: "request.opened",
-        payload: {
-          requestType: mapRequestType(rawEvent.requestKind),
-          ...(typeof rawEvent.detail === "string" ? { detail: rawEvent.detail } : {}),
-        },
-      } as ProviderRuntimeEvent;
-    case "approval.resolved":
-      return {
-        ...rawEvent,
-        type: "request.resolved",
-        payload: {
-          requestType: mapRequestType(rawEvent.requestKind),
-          ...(typeof rawEvent.decision === "string" ? { decision: rawEvent.decision } : {}),
         },
       } as ProviderRuntimeEvent;
     default:
