@@ -242,8 +242,6 @@ function makeHarnessLayer(
         | "provider_mismatch"
         | "connection_unauthorized"
         | "model_unavailable"
-        | "binding_revision_required"
-        | "binding_revision_stale"
         | "thread_binding_missing"
         | "selection_failed";
       readonly message: string;
@@ -3290,14 +3288,6 @@ describe("AgentGateway", () => {
     ],
     ["The selected Connection doesn't have access to this model.", "connection_unauthorized"],
     ["This model isn't available on the selected Connection.", "model_unavailable"],
-    [
-      "Changing this thread's model or Connection needs its current settings version. Reload the thread and try again.",
-      "binding_revision_required",
-    ],
-    [
-      "This thread's model or Connection changed while the message was being sent. Check the thread's current settings and send again.",
-      "binding_revision_stale",
-    ],
     ["This thread has no provider set.", "thread_binding_missing"],
     ["Could not read the thread's runtime binding.", "selection_failed"],
   ] as const) {

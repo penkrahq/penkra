@@ -464,7 +464,7 @@ layer("ProviderTurnSelectionResolver", (it) => {
     }),
   );
 
-  it.effect("requires an explicit anonymous selection and exact revision", () =>
+  it.effect("requires an explicit authorized anonymous selection", () =>
     Effect.gen(function* () {
       connectionLifecycle = "active";
       resolvedNativeStateIdentities = [];
@@ -480,7 +480,6 @@ layer("ProviderTurnSelectionResolver", (it) => {
           threadId,
           modelSelection: { provider: "codex", model: "gpt-5.5" },
           connectionId: codexConnectionId,
-          bindingRevision: 7,
         }),
       );
       assert.strictEqual(providerMismatch._tag, "Failure");
@@ -493,7 +492,6 @@ layer("ProviderTurnSelectionResolver", (it) => {
           threadId,
           modelSelection: { provider: "opencode", model: "opencode/big-pickle" },
           connectionId,
-          bindingRevision: 7,
         }),
       );
       assert.strictEqual(unauthorized._tag, "Failure");
@@ -505,7 +503,6 @@ layer("ProviderTurnSelectionResolver", (it) => {
         resolver.resolveExisting({
           threadId,
           modelSelection: { provider: "opencode", model: "opencode/big-pickle" },
-          bindingRevision: 7,
         }),
       );
       assert.strictEqual(currentConnectionUnauthorized._tag, "Failure");
@@ -516,36 +513,10 @@ layer("ProviderTurnSelectionResolver", (it) => {
         );
       }
 
-      const missingRevision = yield* Effect.exit(
-        resolver.resolveExisting({
-          threadId,
-          modelSelection: { provider: "opencode", model: "opencode/big-pickle" },
-          connectionId: null,
-        }),
-      );
-      assert.strictEqual(missingRevision._tag, "Failure");
-      if (missingRevision._tag === "Failure") {
-        assert.strictEqual(failedWithCode(missingRevision), "binding_revision_required");
-      }
-
-      const stale = yield* Effect.exit(
-        resolver.resolveExisting({
-          threadId,
-          modelSelection: { provider: "opencode", model: "opencode/big-pickle" },
-          connectionId: null,
-          bindingRevision: 6,
-        }),
-      );
-      assert.strictEqual(stale._tag, "Failure");
-      if (stale._tag === "Failure") {
-        assert.strictEqual(failedWithCode(stale), "binding_revision_stale");
-      }
-
       const anonymous = yield* resolver.resolveExisting({
         threadId,
         modelSelection: { provider: "opencode", model: "opencode/big-pickle" },
         connectionId: null,
-        bindingRevision: 7,
       });
       assert.strictEqual(anonymous.changed, true);
       assert.strictEqual(anonymous.connectionId, null);
@@ -560,7 +531,6 @@ layer("ProviderTurnSelectionResolver", (it) => {
           threadId,
           modelSelection: { provider: "opencode", model: "opencode-go/kimi-k2.5" },
           connectionId,
-          bindingRevision: 7,
         }),
       );
       assert.strictEqual(disconnected._tag, "Failure");
@@ -592,7 +562,6 @@ layer("ProviderTurnSelectionResolver", (it) => {
         threadId,
         modelSelection: { provider: "opencode", model: "opencode/big-pickle" },
         connectionId: null,
-        bindingRevision: 7,
       });
       assert.strictEqual(switched.changed, true);
       assert.strictEqual(switched.installationId, activeInstallationId);
@@ -609,7 +578,6 @@ layer("ProviderTurnSelectionResolver", (it) => {
         resolver.resolveExisting({
           threadId,
           modelSelection: { provider: "opencode", model: "opencode-go/unavailable" },
-          bindingRevision: 7,
         }),
       );
       modelAvailable = true;
@@ -629,7 +597,6 @@ layer("ProviderTurnSelectionResolver", (it) => {
       const selection = yield* resolver.resolveExisting({
         threadId,
         modelSelection: { provider: "claudeAgent", model: "claude-opus-4-7" },
-        bindingRevision: 7,
       });
       assert.strictEqual(selection.modelId, "claude-opus-4-7");
       assert.strictEqual(selection.modelLabel, "Opus 4.7");
@@ -638,7 +605,7 @@ layer("ProviderTurnSelectionResolver", (it) => {
   );
 
   it.effect(
-    "admits an explicit revision-checked Claude account switch but rejects a changed login on the bound Connection",
+    "admits an explicit Claude account switch but rejects a changed login on the bound Connection",
     () =>
       Effect.gen(function* () {
         const config = yield* ServerConfig;
@@ -656,21 +623,9 @@ layer("ProviderTurnSelectionResolver", (it) => {
           }),
         );
         try {
-          const stale = yield* Effect.exit(
-            resolver.resolveExisting({
-              threadId: accountThreadId,
-              connectionId: otherClaudeConnectionId,
-              bindingRevision: 6,
-            }),
-          );
-          assert.strictEqual(stale._tag, "Failure");
-          if (stale._tag === "Failure") {
-            assert.strictEqual(failedWithCode(stale), "binding_revision_stale");
-          }
           const selected = yield* resolver.resolveExisting({
             threadId: accountThreadId,
             connectionId: otherClaudeConnectionId,
-            bindingRevision: 7,
           });
           assert.strictEqual(selected.changed, true);
           assert.strictEqual(selected.connectionId, otherClaudeConnectionId);

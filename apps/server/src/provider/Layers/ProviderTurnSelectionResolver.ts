@@ -438,35 +438,6 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
         internalProviderId !== binding.value.internalProviderId ||
         modelId !== binding.value.modelId;
 
-      if (selectionChanged) {
-        if (input.bindingRevision === undefined) {
-          return yield* new ProviderTurnSelectionResolutionError({
-            code: "binding_revision_required",
-            detail:
-              "Changing this thread's model or Connection needs its current settings version. Reload the thread and try again.",
-            reason: "binding-revision-required",
-          });
-        }
-        if (input.bindingRevision !== binding.value.revision) {
-          return yield* new ProviderTurnSelectionResolutionError({
-            code: "binding_revision_stale",
-            detail:
-              "This thread's model or Connection changed while the message was being sent. Check the thread's current settings and send again.",
-            reason: "binding-revision-stale",
-          });
-        }
-      } else if (
-        input.bindingRevision !== undefined &&
-        input.bindingRevision !== binding.value.revision
-      ) {
-        return yield* new ProviderTurnSelectionResolutionError({
-          code: "binding_revision_stale",
-          detail:
-            "This thread's model or Connection changed while the message was being sent. Check the thread's current settings and send again.",
-          reason: "binding-revision-stale",
-        });
-      }
-
       const targetInstallation = yield* requireActiveInstallation(state.value.harness);
       const changed = selectionChanged;
       const requiresNativeStateMaterialization =
@@ -488,7 +459,7 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
         connectionLabel = connection.label;
         if (state.value.harness === "claudeAgent") {
           // An ordinary resume must still use the recorded account. An explicit
-          // revision-checked Connection change is carried into the switch saga,
+          // explicit Connection change is carried into the switch saga,
           // which changes ownership only after the new binding commits.
           const recorded = yield* Effect.tryPromise({
             try: () =>

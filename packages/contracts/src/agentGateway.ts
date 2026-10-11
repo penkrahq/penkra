@@ -25,8 +25,6 @@ export const PenkraGatewayErrorCode = Schema.Literals([
   "provider_mismatch",
   "connection_unauthorized",
   "model_unavailable",
-  "binding_revision_required",
-  "binding_revision_stale",
   "thread_binding_missing",
   "selection_failed",
   "model_option_unavailable",

@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { ProviderThreadSwitchCoordinatorError } from "./orchestration/Services/ProviderThreadSwitchCoordinator.ts";
 import { OrchestrationCommandInvariantError } from "./orchestration/Errors.ts";
-import { ProviderTurnSelectionResolutionError } from "./provider/Services/ProviderTurnSelectionResolver.ts";
 import { wsRpcErrorCode } from "./wsRpcErrorMapping.ts";
 
 describe("wsRpcErrorCode", () => {
@@ -34,19 +33,6 @@ describe("wsRpcErrorCode", () => {
       ).toBe(code);
     },
   );
-  it("preserves a stale-revision reason through the coordinator boundary", () => {
-    expect(
-      wsRpcErrorCode(
-        new ProviderThreadSwitchCoordinatorError({
-          detail: "selection failed",
-          cause: new ProviderTurnSelectionResolutionError({
-            detail: "stale",
-            reason: "binding-revision-stale",
-          }),
-        }),
-      ),
-    ).toBe("THREAD_BINDING_REVISION_STALE");
-  });
 
   it("does not classify unrelated coordinator failures by message text", () => {
     expect(

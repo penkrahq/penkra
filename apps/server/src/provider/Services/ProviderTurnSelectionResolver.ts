@@ -56,8 +56,6 @@ export const ProviderTurnSelectionFailureCode = [
   "provider_mismatch",
   "connection_unauthorized",
   "model_unavailable",
-  "binding_revision_required",
-  "binding_revision_stale",
   "thread_binding_missing",
 ] as const;
 export type ProviderTurnSelectionFailureCode = (typeof ProviderTurnSelectionFailureCode)[number];
@@ -65,7 +63,6 @@ export type ProviderTurnSelectionFailureCode = (typeof ProviderTurnSelectionFail
 type ProviderTurnSelectionResolutionErrorFields = {
   readonly code: ProviderTurnSelectionFailureCode;
   readonly detail: string;
-  readonly reason?: "binding-revision-required" | "binding-revision-stale";
   readonly cause?: unknown;
 };
 
@@ -129,7 +126,6 @@ export interface ProviderTurnSelectionResolverShape {
     readonly modelSelection?: ModelSelection;
     /** Undefined keeps the current Connection; null explicitly selects an anonymous route. */
     readonly connectionId?: ProviderConnectionId | null;
-    readonly bindingRevision?: number;
   }) => Effect.Effect<ResolvedProviderTurnSelection, ProviderTurnSelectionResolutionError>;
 }
 
