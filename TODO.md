@@ -501,7 +501,7 @@ Step 12 details: the codebase should shrink substantially; report lines removed.
 
 ## 4.3 Decided by the operator, outside 0.14.4 (record only; do not implement here)
 
-- **Remote access / mobile (2026-10-11):** native iPhone app; Tailscale embedded in desktop and phone (no separate install); our own Headscale + relay on the Penkra backend Hetzner server (49.13.149.60, deployed like `penkra-backend` behind `nginx-proxy`); names `connect.penkra.com` (Headscale) and `relay.penkra.com` (relay, TLS via 443); firewall adds UDP 3478 only when the relay is deployed; push notifications in v1; sign-in with Penkra accounts (`api.penkra.com/auth`). The plan and screens come to the operator for approval before a thread starts.
+- **Remote access / mobile (2026-10-11):** native iPhone app; Tailscale embedded in desktop and phone (no separate install); our own Headscale + relay on the Penkra backend Hetzner server (49.13.149.60, deployed like `penkra-backend` behind `nginx-proxy`); names `connect.penkra.com` (Headscale) and `relay.penkra.com` (relay, TLS via 443); firewall adds UDP 3478 only when the relay is deployed; push notifications in v1; sign-in with Penkra accounts (`api.penkra.com/auth`). Order: mobile UI/UX mocks and plan first, operator approval, then implementation; Headscale, relay, DNS records and the firewall rule are set up only as part of that implementation, not before.
 - **Keep awake (2026-10-11):** a "Power → Keep awake" row in Settings General (Always / While agents run, default / Never); no Live pill. Mock: `/tmp/ka/*.png`. Not scheduled.
 - **Operator to decide:** `firewall-1` on 49.13.149.60 allows TCP 27017 (MongoDB) from anywhere; it is not Penkra's.
 
