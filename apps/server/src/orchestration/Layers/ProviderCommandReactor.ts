@@ -88,7 +88,10 @@ import { resolveTextGenerationInputForSelection } from "../../textGeneration/tex
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProviderDiscoveryService } from "../../provider/Services/ProviderDiscoveryService.ts";
 import { classifyProviderAuthFailure } from "../../provider/providerAuthFailure.ts";
-import { makeProviderAuthCircuitStore } from "../../provider/providerAuthCircuit.ts";
+import {
+  ProviderAuthCircuits,
+  ProviderAuthCircuitsLive,
+} from "../../provider/providerAuthCircuit.ts";
 import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
 import { ProviderTurnSelectionResolutionError } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
 import { ProviderLaunchResolver } from "../../provider/Services/ProviderLaunchResolver.ts";
@@ -497,7 +500,7 @@ const make = Effect.gen(function* () {
   const { commandEventTimeout, queuedTurnRecoveryInterval } = yield* ProviderCommandReactorConfig;
   const sql = yield* SqlClient.SqlClient;
   const threadPublisher = yield* ThreadPublisher;
-  const authCircuits = makeProviderAuthCircuitStore(sql);
+  const authCircuits = yield* ProviderAuthCircuits;
   const providerDiscovery = yield* ProviderDiscoveryService;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const providerThreadSwitchCoordinator = yield* ProviderThreadSwitchCoordinator;
@@ -1951,11 +1954,12 @@ const make = Effect.gen(function* () {
         ? (yield* authCircuits.get(selectedConnectionId))[0]
         : undefined;
       if (openCircuit) {
+        const refusal = `${openCircuit.detail}\nSign in again or retry this Connection to clear the block.`;
         threadPublisher.publishDispatch({
           type: "failed",
           threadId: event.payload.threadId,
           messageId: event.payload.messageId,
-          error: openCircuit.detail,
+          error: refusal,
         });
         yield* orchestrationEngine.dispatch({
           type: "thread.message.delivery.set",
@@ -1964,13 +1968,13 @@ const make = Effect.gen(function* () {
           messageId: event.payload.messageId,
           state: "failed",
           failurePhase: "before-provider-dispatch",
-          failureDetail: openCircuit.detail,
+          failureDetail: refusal,
           createdAt: new Date().toISOString(),
         });
         if (!(yield* hasLiveProviderTurn(event.payload.threadId))) {
           yield* setThreadSessionError({
             threadId: event.payload.threadId,
-            detail: `${openCircuit.summary}\nProvider detail: ${openCircuit.detail}`,
+            detail: `${openCircuit.summary}\nProvider detail: ${refusal}`,
             createdAt: new Date().toISOString(),
           });
         }
@@ -2910,45 +2914,6 @@ const make = Effect.gen(function* () {
   });
 
   const recoverQueuedTurnPromotions = Effect.gen(function* () {
-    for (const circuit of yield* authCircuits.listDue(new Date().toISOString())) {
-      if (!Schema.is(ProviderKind)(circuit.harness)) continue;
-      const profileChanged = circuit.profileRef !== circuit.currentProfileRef;
-      const probeSucceeded = !profileChanged
-        ? yield* providerDiscovery
-            .probeConnection({ provider: circuit.harness, connectionId: circuit.connectionId })
-            .pipe(Effect.catch(() => Effect.succeed(false)))
-        : false;
-      if (profileChanged || probeSucceeded) {
-        yield* authCircuits.close(circuit.connectionId);
-        for (const binding of yield* authCircuits.listThreadIds(circuit.connectionId)) {
-          const thread = yield* resolveThread(binding.threadId);
-          if (
-            thread?.session?.status === "error" &&
-            thread.session.lastError?.startsWith(circuit.summary)
-          ) {
-            const now = new Date().toISOString();
-            yield* setThreadSession({
-              threadId: binding.threadId,
-              session: {
-                ...thread.session,
-                status: "ready",
-                activeTurnId: null,
-                lastError: null,
-                updatedAt: now,
-              },
-              createdAt: now,
-            });
-          }
-          yield* drainQueuedTurnsForThread(binding.threadId);
-        }
-      } else {
-        yield* authCircuits.recordFailedProbe({
-          connectionId: circuit.connectionId,
-          now: new Date().toISOString(),
-          failureCount: circuit.failureCount,
-        });
-      }
-    }
     yield* Effect.forEach(yield* queuedTurnPromotions.listPendingThreadIds, (rawThreadId) =>
       Effect.gen(function* () {
         const threadId = ThreadId.makeUnsafe(rawThreadId);
@@ -4652,8 +4617,16 @@ const make = Effect.gen(function* () {
 
   const retryAuthConnection: ProviderCommandReactorShape["retryAuthConnection"] = (connectionId) =>
     Effect.gen(function* () {
-      if ((yield* authCircuits.get(connectionId)).length === 0) return;
-      yield* sql`UPDATE provider_auth_circuits SET next_probe_at = ${new Date().toISOString()} WHERE connection_id = ${connectionId}`;
+      const circuit = (yield* authCircuits.get(connectionId))[0];
+      if (!circuit) return;
+      const accepted = yield* providerDiscovery
+        .probeConnection({ provider: circuit.harness, connectionId })
+        .pipe(Effect.catch(() => Effect.succeed(false)));
+      if (!accepted) {
+        yield* authCircuits.recordFailedProbe(connectionId);
+        return;
+      }
+      yield* authCircuits.close(connectionId);
       yield* recoverQueuedTurnPromotions;
     });
 
@@ -4755,6 +4728,7 @@ const make = Effect.gen(function* () {
 
 export const makeProviderCommandReactorLive = (options?: ProviderCommandReactorLiveOptions) =>
   Layer.effect(ProviderCommandReactor, make).pipe(
+    Layer.provideMerge(ProviderAuthCircuitsLive),
     Layer.provide(
       Layer.succeed(ProviderCommandReactorConfig, {
         commandEventTimeout: options?.commandEventTimeout ?? PROVIDER_COMMAND_EVENT_TIMEOUT,

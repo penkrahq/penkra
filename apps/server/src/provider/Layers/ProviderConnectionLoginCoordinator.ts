@@ -44,6 +44,7 @@ import {
 } from "../providerConnectionDisplayIdentity.ts";
 import { providerCredentialProfileRoot } from "../providerNativeStatePaths.ts";
 import { rememberClaudeThreadAccount } from "../claudeThreadNativeState.ts";
+import { ProviderAuthCircuits, ProviderAuthCircuitsLive } from "../providerAuthCircuit.ts";
 import { ProviderCredentialBroker } from "../providerCredentialBroker.ts";
 import {
   ProviderConnectionLoginCoordinator,
@@ -135,6 +136,7 @@ export function makeProviderConnectionLoginCoordinator(
     const installations = yield* ProviderInstallationRepository;
     const threadBindings = yield* ThreadProviderBindingRepository;
     const credentials = yield* ProviderCredentialBroker;
+    const authCircuits = yield* ProviderAuthCircuits;
     const handles = new Map<
       string,
       {
@@ -502,6 +504,7 @@ export function makeProviderConnectionLoginCoordinator(
               }),
             ),
           );
+        yield* authCircuits.close(committed.connection.id);
         if (record.harness === "codex") {
           yield* observeCodexRateLimits({
             connectionId: committed.connection.id,
@@ -1362,4 +1365,4 @@ export function makeProviderConnectionLoginCoordinator(
 export const ProviderConnectionLoginCoordinatorLive = Layer.effect(
   ProviderConnectionLoginCoordinator,
   makeProviderConnectionLoginCoordinator(),
-);
+).pipe(Layer.provideMerge(ProviderAuthCircuitsLive));

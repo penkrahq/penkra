@@ -49,7 +49,10 @@ import { toCleanCoreProviderEvents } from "../../cleanCore/providerEventBridge.t
 import { setThreadRuntimeMode } from "../../cleanCore/threadStore.ts";
 import { ThreadPublisher } from "../../cleanCore/ThreadPublisher.ts";
 import { classifyProviderAuthFailure } from "../../provider/providerAuthFailure.ts";
-import { makeProviderAuthCircuitStore } from "../../provider/providerAuthCircuit.ts";
+import {
+  ProviderAuthCircuits,
+  ProviderAuthCircuitsLive,
+} from "../../provider/providerAuthCircuit.ts";
 import {
   classifyTerminalTurnApplicability,
   isStartedTurnApplicable,
@@ -541,7 +544,7 @@ const takeCached = <Key, Value>(cache: Cache.Cache<Key, Value>, key: Key) =>
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const connectionRateLimits = yield* ConnectionRateLimits;
-  const authCircuits = makeProviderAuthCircuitStore(sql);
+  const authCircuits = yield* ProviderAuthCircuits;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const providerService = yield* ProviderService;
@@ -3132,6 +3135,7 @@ export const ProviderRuntimeIngestionLive = Layer.effect(
   ProviderRuntimeIngestionService,
   make,
 ).pipe(
+  Layer.provideMerge(ProviderAuthCircuitsLive),
   Layer.provide(
     Layer.mergeAll(
       ProjectionTurnRepositoryLive,
