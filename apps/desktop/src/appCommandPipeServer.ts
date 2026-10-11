@@ -17,7 +17,6 @@ import type { AppOperationBroker } from "./appOperationBroker";
 import type { AppOperationCatalog } from "./appOperationCatalog";
 import type { AppRegistryClient } from "./appRegistryClient";
 import { resolveDesktopPlatformAdapter } from "./desktopPlatform";
-import { recordDesktopConsumedFailure } from "./desktopFailureCoverage";
 import type { ProviderCredentialVault } from "./providerCredentialVault";
 import {
   AppRuntimeFailureError,
@@ -367,7 +366,6 @@ export class AppCommandPipeServer {
           socket.end(`${JSON.stringify(response)}\n`);
         })
         .catch((error) => {
-          recordDesktopConsumedFailure("app");
           completed = true;
           socket.end(serializeFailureResponse(error));
         });

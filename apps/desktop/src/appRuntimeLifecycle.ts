@@ -11,7 +11,6 @@ import {
 import type { AppInstallationStore } from "./appInstallationStore";
 import type { ActiveAppSession, AppSessionManager } from "./appSessionManager";
 import type { OperationCancellationCode } from "@penkra/sdk";
-import { recordDesktopConsumedFailure } from "./desktopFailureCoverage";
 
 export interface AppRuntimeControllerHost {
   activate(input: {
@@ -76,7 +75,6 @@ export class AppRuntimeLifecycle {
           setSpaceAppEnabled(state, { appId, spaceId, enabled: true }),
         );
       } catch (error) {
-        recordDesktopConsumedFailure("app");
         if (!alreadyActive) await this.#deactivate(appId, spaceId).catch(() => undefined);
         throw error;
       }
@@ -167,7 +165,6 @@ export class AppRuntimeLifecycle {
       this.#active.set(key, { appId, spaceId, releaseController, token });
       activationComplete = true;
     } catch (error) {
-      recordDesktopConsumedFailure("app");
       const cleanupFailures: unknown[] = [];
       if (releaseController) {
         await Promise.resolve(releaseController("host-stopped")).catch((cause) =>
@@ -189,7 +186,6 @@ export class AppRuntimeLifecycle {
     void this.#enqueue(runtimeKey(appId, spaceId), async () => {
       const active = this.#active.get(runtimeKey(appId, spaceId));
       if (!active || active.token !== token) return;
-      recordDesktopConsumedFailure("app");
       let state: AppInstallationState | null = null;
       const failures: unknown[] = [];
       try {
@@ -216,7 +212,6 @@ export class AppRuntimeLifecycle {
         );
       }
     }).catch((cause) => {
-      recordDesktopConsumedFailure("app");
       console.error(
         `[penkra-app] Failed to reconcile crashed controller ${appId} in Space ${spaceId}.`,
         cause,
@@ -237,7 +232,6 @@ export class AppRuntimeLifecycle {
       try {
         await active.releaseController(reason);
       } catch (error) {
-        recordDesktopConsumedFailure("app");
         controllerError = error;
       } finally {
         this.#active.delete(key);

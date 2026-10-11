@@ -7,7 +7,6 @@ import * as FS from "node:fs";
 import * as Path from "node:path";
 
 import { isUpdateVersionNewer } from "./updateState";
-import { recordDesktopConsumedFailure } from "./desktopFailureCoverage";
 import {
   isUpdateArtifactIdentity,
   updateArtifactIdentitiesEqual,
@@ -229,7 +228,6 @@ export function recordInstallMarkerFailureSync(
     writeInstallMarker(filePath, marker);
     return { status: "recorded", marker };
   } catch (error) {
-    recordDesktopConsumedFailure("update");
     return { status: "write-failed", marker, error };
   }
 }
