@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema";
 import * as Record from "effect/Record";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 const isomorphicLocalStorage: Storage =
   typeof window !== "undefined"
@@ -102,41 +102,30 @@ export function useLocalStorage<T, E>(
   initialValue: T,
   schema: Schema.Codec<T, E>,
 ): [T, (value: T | ((val: T) => T)) => void] {
-  // Get the initial value from localStorage or use the provided initialValue
-  const [storedValue, setStoredValue] = useState<T>(() =>
-    readLocalStorageItemOrFallback(key, initialValue, schema),
-  );
+  const [stored, setStored] = useState(() => ({
+    key,
+    value: readLocalStorageItemOrFallback(key, initialValue, schema),
+  }));
 
-  // Return a wrapped version of useState's setter function that persists the new value to localStorage
+  // A changed key owns a different value; adjust both before React commits it.
+  if (stored.key !== key) {
+    setStored({ key, value: readLocalStorageItemOrFallback(key, initialValue, schema) });
+  }
+
   const setValue = useCallback(
     (value: T | ((val: T) => T)) => {
-      setStoredValue((prev) => persistLocalStorageValue(key, prev, value, schema));
+      setStored((previous) => ({
+        key,
+        value: persistLocalStorageValue(key, previous.value, value, schema),
+      }));
     },
     [key, schema],
   );
 
-  const prevKeyRef = useRef(key);
-
-  // Re-sync from localStorage when key changes. Timeout-0 keeps the state
-  // write asynchronous (compiler-eligible); key changes are rare and the
-  // fresh value lands within a frame.
-  useEffect(() => {
-    if (prevKeyRef.current === key) {
-      return;
-    }
-    prevKeyRef.current = key;
-    const timeoutId = window.setTimeout(() => {
-      setStoredValue(readLocalStorageItemOrFallback(key, initialValue, schema));
-    }, 0);
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [key, initialValue, schema]);
-
   // Listen for storage events from other tabs AND custom events from the same tab
   useEffect(() => {
     const syncFromStorage = () => {
-      setStoredValue(readLocalStorageItemOrFallback(key, initialValue, schema));
+      setStored({ key, value: readLocalStorageItemOrFallback(key, initialValue, schema) });
     };
 
     const handleStorageChange = (event: StorageEvent) => {
@@ -160,5 +149,5 @@ export function useLocalStorage<T, E>(
     };
   }, [key, initialValue, schema]);
 
-  return [storedValue, setValue];
+  return [stored.value, setValue];
 }
