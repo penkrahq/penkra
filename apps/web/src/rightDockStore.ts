@@ -1,27 +1,43 @@
 // FILE: rightDockStore.ts
-// Purpose: Keep App-tab state in memory per folder.
+// Purpose: Apply shared folder App-tab rows; retain runtime data and width per window.
 // Layer: UI state store
-// Exports: dock store hook, per-folder selector, stable default snapshot.
 
-import type { FolderId } from "@penkra/contracts";
+import type {
+  CleanCoreFolderAppTabsResult,
+  CleanCoreUpdateFolderAppTabsInput,
+  FolderId,
+} from "@penkra/contracts";
 import { create } from "zustand";
 
+import { ensureNativeApi } from "./nativeApi";
+import { toastManager } from "./components/ui/toast";
 import {
   type OpenPaneInput,
   type RightDockPane,
   type RightDockFolderState,
-  closePaneInState,
+  applyFolderAppTabsInState,
   createDefaultRightDockState,
-  openPaneInState,
-  setActivePaneInState,
-  setDockOpenInState,
   setDockWidthInState,
   updatePaneInState,
 } from "./rightDockStore.logic";
 
+type RuntimePane = Pick<
+  RightDockPane,
+  | "appDocumentUrl"
+  | "appIconDataUrl"
+  | "appPresentationTitle"
+  | "appPresentationIconUrl"
+  | "appRendererId"
+  | "appState"
+  | "appStatus"
+>;
+
 interface RightDockStore {
   dockStateByFolderId: Record<string, RightDockFolderState | undefined>;
+  updatedAtByFolderId: Record<string, string | undefined>;
+  runtimeByPaneId: Record<string, Partial<RuntimePane> | undefined>;
   openPane: (folderId: FolderId, input: OpenPaneInput) => void;
+  receivePane: (folderId: FolderId, input: OpenPaneInput) => void;
   closePane: (folderId: FolderId, paneId: string) => void;
   setActivePane: (folderId: FolderId, paneId: string) => void;
   setDockOpen: (folderId: FolderId, open: boolean) => void;
@@ -29,76 +45,154 @@ interface RightDockStore {
   updatePane: (
     folderId: FolderId,
     paneId: string,
-    patch: Partial<
-      Pick<
-        RightDockPane,
-        | "appDocumentUrl"
-        | "appIconDataUrl"
-        | "appPresentationTitle"
-        | "appPresentationIconUrl"
-        | "appRendererId"
-        | "appRoute"
-        | "appState"
-        | "appStatus"
-      >
-    >,
+    patch: Partial<RuntimePane> & { appRoute?: string },
   ) => void;
   clearFolderDockState: (folderId: FolderId) => void;
 }
 
-// Frozen shared snapshot: it is handed back from `selectRightDockState` for any
-// thread without persisted dock state, so it must stay a stable, immutable
-// reference (transitions always build new objects rather than mutating it).
 const DEFAULT_RIGHT_DOCK_STATE = createDefaultRightDockState();
 Object.freeze(DEFAULT_RIGHT_DOCK_STATE);
 Object.freeze(DEFAULT_RIGHT_DOCK_STATE.panes);
 
-function commit(
-  set: (fn: (store: RightDockStore) => Partial<RightDockStore>) => void,
-  folderId: FolderId,
-  transform: (state: RightDockFolderState) => RightDockFolderState,
-): void {
-  set((store) => {
-    const previous = store.dockStateByFolderId[folderId] ?? DEFAULT_RIGHT_DOCK_STATE;
-    const next = transform(previous);
-    if (next === previous) {
-      return {};
-    }
+function reportWriteFailure(error: unknown): void {
+  toastManager.add({
+    type: "error",
+    title: "Could not update Apps",
+    description: error instanceof Error ? error.message : "The App tabs could not be updated.",
+  });
+}
+
+export function applyFolderAppTabs(result: CleanCoreFolderAppTabsResult): void {
+  useRightDockStore.setState((store) => {
+    const updatedAt = store.updatedAtByFolderId[result.folderId];
+    if (updatedAt !== undefined && updatedAt > result.updatedAt) return {};
     return {
+      updatedAtByFolderId: { ...store.updatedAtByFolderId, [result.folderId]: result.updatedAt },
       dockStateByFolderId: {
         ...store.dockStateByFolderId,
-        [folderId]: next,
+        [result.folderId]: applyFolderAppTabsInState(
+          store.dockStateByFolderId[result.folderId] ?? DEFAULT_RIGHT_DOCK_STATE,
+          result.tabs,
+          store.runtimeByPaneId,
+        ),
       },
     };
   });
 }
 
-export const useRightDockStore = create<RightDockStore>()((set) => ({
+export async function loadFolderAppTabs(folderId: FolderId): Promise<void> {
+  const result = await ensureNativeApi().cleanCore.getFolderAppTabs({ folderId });
+  if (result !== null) applyFolderAppTabs(result);
+}
+
+async function writeFolderAppTabs(
+  folderId: FolderId,
+  update: CleanCoreUpdateFolderAppTabsInput["update"],
+): Promise<void> {
+  const result = await ensureNativeApi().cleanCore.updateFolderAppTabs({
+    folderId,
+    update,
+    updatedAt: new Date().toISOString(),
+  });
+  applyFolderAppTabs(result);
+}
+
+export const useRightDockStore = create<RightDockStore>()((set, get) => ({
   dockStateByFolderId: {},
-  openPane: (folderId, input) => commit(set, folderId, (state) => openPaneInState(state, input)),
-  closePane: (folderId, paneId) =>
-    commit(set, folderId, (state) => closePaneInState(state, paneId)),
-  setActivePane: (folderId, paneId) =>
-    commit(set, folderId, (state) => setActivePaneInState(state, paneId)),
-  setDockOpen: (folderId, open) =>
-    commit(set, folderId, (state) => setDockOpenInState(state, open)),
+  updatedAtByFolderId: {},
+  runtimeByPaneId: {},
+  receivePane: (folderId, input) => {
+    get().updatePane(folderId, input.paneId, {
+      ...(input.appDocumentUrl === undefined ? {} : { appDocumentUrl: input.appDocumentUrl }),
+      ...(input.appIconDataUrl === undefined ? {} : { appIconDataUrl: input.appIconDataUrl }),
+      ...(input.appPresentationTitle === undefined
+        ? {}
+        : { appPresentationTitle: input.appPresentationTitle }),
+      ...(input.appPresentationIconUrl === undefined
+        ? {}
+        : { appPresentationIconUrl: input.appPresentationIconUrl }),
+      ...(input.appRendererId === undefined ? {} : { appRendererId: input.appRendererId }),
+      appState: input.appState,
+      appStatus: input.appStatus,
+    });
+  },
+  openPane: (folderId, input) => {
+    get().receivePane(folderId, input);
+    void writeFolderAppTabs(folderId, {
+      action: "open",
+      pane: {
+        id: input.paneId,
+        kind: input.kind,
+        appId: input.appId,
+        appSpaceId: input.appSpaceId,
+        appSlug: input.appSlug,
+        appName: input.appName,
+        appRoute: input.appRoute,
+      },
+      preserveSelection: input.preserveSelection,
+    }).catch(reportWriteFailure);
+  },
+  closePane: (folderId, paneId) => {
+    void writeFolderAppTabs(folderId, { action: "close", paneId }).catch(reportWriteFailure);
+  },
+  setActivePane: (folderId, paneId) => {
+    void writeFolderAppTabs(folderId, { action: "select", paneId }).catch(reportWriteFailure);
+  },
+  setDockOpen: (folderId, open) => {
+    void writeFolderAppTabs(folderId, { action: "show", open }).catch(reportWriteFailure);
+  },
   setDockWidth: (folderId, width) =>
-    commit(set, folderId, (state) => setDockWidthInState(state, width)),
-  updatePane: (folderId, paneId, patch) =>
-    commit(set, folderId, (state) => updatePaneInState(state, paneId, patch)),
+    set((store) => ({
+      dockStateByFolderId: {
+        ...store.dockStateByFolderId,
+        [folderId]: setDockWidthInState(
+          store.dockStateByFolderId[folderId] ?? DEFAULT_RIGHT_DOCK_STATE,
+          width,
+        ),
+      },
+    })),
+  updatePane: (folderId, paneId, patch) => {
+    const { appRoute, ...runtime } = patch;
+    set((store) => {
+      const previous = store.dockStateByFolderId[folderId] ?? DEFAULT_RIGHT_DOCK_STATE;
+      return {
+        runtimeByPaneId: {
+          ...store.runtimeByPaneId,
+          [paneId]: { ...store.runtimeByPaneId[paneId], ...runtime },
+        },
+        dockStateByFolderId: {
+          ...store.dockStateByFolderId,
+          [folderId]: updatePaneInState(previous, paneId, runtime),
+        },
+      };
+    });
+    if (
+      appRoute !== undefined &&
+      get().dockStateByFolderId[folderId]?.panes.some(
+        (pane) => pane.id === paneId && pane.appRoute !== appRoute,
+      )
+    ) {
+      void writeFolderAppTabs(folderId, { action: "navigate", paneId, appRoute }).catch(
+        reportWriteFailure,
+      );
+    }
+  },
   clearFolderDockState: (folderId) =>
     set((store) => {
-      if (!Object.hasOwn(store.dockStateByFolderId, folderId)) {
-        return {};
-      }
-      const next = { ...store.dockStateByFolderId };
-      delete next[folderId];
-      return { dockStateByFolderId: next };
+      const states = { ...store.dockStateByFolderId };
+      const timestamps = { ...store.updatedAtByFolderId };
+      const runtime = { ...store.runtimeByPaneId };
+      for (const pane of states[folderId]?.panes ?? []) delete runtime[pane.id];
+      delete states[folderId];
+      delete timestamps[folderId];
+      return {
+        dockStateByFolderId: states,
+        updatedAtByFolderId: timestamps,
+        runtimeByPaneId: runtime,
+      };
     }),
 }));
 
 export function selectRightDockState(folderId: FolderId) {
-  // Keep the fallback snapshot stable so React does not observe phantom store
-  // changes while mounting a thread that has no dock state yet.
   return (store: RightDockStore) => store.dockStateByFolderId[folderId] ?? DEFAULT_RIGHT_DOCK_STATE;
 }

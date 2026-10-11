@@ -106,6 +106,9 @@ import type {
   CleanCoreListThreadItemsPageInput,
   CleanCoreListThreadItemsPageResult,
   CleanCoreCreateThreadInput,
+  CleanCoreGetFolderAppTabsInput,
+  CleanCoreUpdateFolderAppTabsInput,
+  CleanCoreFolderAppTabsResult,
   CleanCoreCreateAndSendThreadInput,
   CleanCoreCreateAndSendThreadResponse,
   CleanCoreThreadSummary,
@@ -1146,6 +1149,12 @@ export interface NativeApi {
     getThreadShell: (
       input: CleanCoreGetThreadShellInput,
     ) => Promise<import("./orchestration").OrchestrationThreadShell | null>;
+    getFolderAppTabs: (
+      input: CleanCoreGetFolderAppTabsInput,
+    ) => Promise<CleanCoreFolderAppTabsResult | null>;
+    updateFolderAppTabs: (
+      input: CleanCoreUpdateFolderAppTabsInput,
+    ) => Promise<CleanCoreFolderAppTabsResult>;
     createThread: (input: CleanCoreCreateThreadInput) => Promise<CleanCoreCreateThreadResponse>;
     createAndSendThread: (
       input: CleanCoreCreateAndSendThreadInput,

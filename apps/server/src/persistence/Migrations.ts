@@ -193,6 +193,7 @@ import Migration0182 from "./Migrations/182_RemoveParentThreads.ts";
 import Migration0183 from "./Migrations/183_FolderOwnedThreads.ts";
 import Migration0184 from "./Migrations/184_StartupRunningThreadsIndex.ts";
 import Migration0185 from "./Migrations/185_ArchivedThreadsIndex.ts";
+import Migration0186 from "./Migrations/186_FolderAppTabs.ts";
 import Migration0177 from "./Migrations/177_ThreadHarnessCanonicalForeignKey.ts";
 
 /**
@@ -384,6 +385,7 @@ export const migrationEntries = [
   [183, "FolderOwnedThreads", Migration0183],
   [184, "StartupRunningThreadsIndex", Migration0184],
   [185, "ArchivedThreadsIndex", Migration0185],
+  [186, "FolderAppTabs", Migration0186],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

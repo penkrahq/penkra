@@ -10,7 +10,7 @@ import {
   createThreadResourceOpener,
   showThreadResourceContextMenu,
 } from "../../lib/threadResourceOpener";
-import { selectRightDockState, useRightDockStore } from "../../rightDockStore";
+import { loadFolderAppTabs, selectRightDockState, useRightDockStore } from "../../rightDockStore";
 import type { RightDockPane } from "../../rightDockStore.logic";
 import { useStore } from "../../store";
 import { createProjectSelector } from "../../storeSelectors";
@@ -28,7 +28,6 @@ import {
   isAppPaneInSpace,
   isAppTabOutsideFolderSpace,
   shouldMountAppDockPane,
-  shouldRetryAppTabHostReady,
 } from "./appTabRestore.logic";
 import {
   resolveAppsLauncherAction,
@@ -77,6 +76,7 @@ function shouldAcceptAppPanelWidth(input: { nextWidth: number; wrapper: HTMLElem
 function appPaneFromTab(tab: DesktopAppTabDescriptor) {
   return {
     paneId: tab.id,
+    preserveSelection: false,
     kind: "app" as const,
     appId: tab.appId,
     appSpaceId: tab.spaceId,
@@ -111,6 +111,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
     isElectron,
     isWindowsDesktop,
   });
+  const receivePane = useRightDockStore((store) => store.receivePane);
   const openPane = useRightDockStore((store) => store.openPane);
   const closePane = useRightDockStore((store) => store.closePane);
   const setActivePane = useRightDockStore((store) => store.setActivePane);
@@ -169,7 +170,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
       void restoreAppTab(pane, folderId, props.threadId, bridge)
         .then((tab) => {
           setConfirmedAppPaneIds((current) => new Set(current).add(tab.id));
-          openPane(folderId, appPaneFromTab(tab));
+          receivePane(folderId, appPaneFromTab(tab));
         })
         .catch((error: unknown) => {
           updatePane(folderId, pane.id, { appStatus: "unloaded" });
@@ -181,7 +182,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
         })
         .finally(() => loadingAppPaneIdsRef.current.delete(pane.id));
     },
-    [folderId, openPane, props.threadId, updatePane],
+    [folderId, receivePane, props.threadId, updatePane],
   );
 
   useEffect(() => {
@@ -252,71 +253,31 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
   }, [closePane, currentSpaceId, folderId, openPane, props.threadId, updatePane]);
 
   useEffect(() => {
-    const bridge = window.desktopBridge?.appTabs;
-    if (!bridge || !currentSpaceId) return;
     let cancelled = false;
-    let retryTimer: number | null = null;
-    let readinessAttempt = 0;
-    const reconcile = () => {
+    void loadFolderAppTabs(folderId).catch((error: unknown) => {
+      if (cancelled) return;
+      toastManager.add({
+        type: "error",
+        title: "Could not restore Apps",
+        description: error instanceof Error ? error.message : "The App tabs could not be restored.",
+      });
+    });
+    const bridge = window.desktopBridge?.appTabs;
+    if (bridge)
       void bridge
         .list({ folderId })
         .then((tabs) => {
           if (cancelled) return;
-          const currentTabs = tabs.filter(
-            (tab) => tab.folderId === folderId && tab.spaceId === currentSpaceId,
-          );
-          for (const tab of tabs) {
-            if (isAppTabOutsideFolderSpace(tab, folderId, currentSpaceId)) {
-              void bridge.close({ tabId: tab.id }).catch(() => undefined);
-              closePane(folderId, tab.id);
-            }
-          }
-          const liveIds = new Set(currentTabs.map((tab) => tab.id));
+          const liveIds = new Set(tabs.map((tab) => tab.id));
           setConfirmedAppPaneIds(liveIds);
-          const currentDockStates = useRightDockStore.getState().dockStateByFolderId;
-          for (const tab of currentTabs) {
-            const stateForThread = currentDockStates[folderId];
-            if (!stateForThread?.panes.some((pane) => pane.id === tab.id)) {
-              openPane(folderId, {
-                ...appPaneFromTab(tab),
-                preserveSelection: tab.selection !== "activate",
-              });
-            } else {
-              updatePane(folderId, tab.id, {
-                appIconDataUrl: tab.iconDataUrl,
-                appPresentationTitle: tab.presentationTitle ?? null,
-                appPresentationIconUrl: tab.presentationIconUrl ?? null,
-                appRendererId: tab.rendererId,
-                appRoute: tab.route,
-                ...(tab.state === undefined ? { appState: undefined } : { appState: tab.state }),
-                appStatus: tab.status,
-              });
-              if (tab.selection === "activate") setActivePane(folderId, tab.id);
-            }
-          }
-          for (const pane of dockState.panes) {
-            if (!isAppPaneInSpace(pane, currentSpaceId)) {
-              void bridge.close({ tabId: pane.id }).catch(() => undefined);
-              closePane(folderId, pane.id);
-              continue;
-            }
-            if (
-              !liveIds.has(pane.id) &&
-              pane.appStatus !== "unloaded" &&
-              pane.appStatus !== "loading"
-            ) {
-              updatePane(folderId, pane.id, {
-                appStatus: "unloaded",
-              });
-            }
+          for (const tab of tabs) receivePane(folderId, appPaneFromTab(tab));
+          for (const pane of useRightDockStore.getState().dockStateByFolderId[folderId]?.panes ??
+            []) {
+            if (!liveIds.has(pane.id)) updatePane(folderId, pane.id, { appStatus: "unloaded" });
           }
         })
         .catch((error: unknown) => {
           if (cancelled) return;
-          if (shouldRetryAppTabHostReady(error, readinessAttempt++)) {
-            retryTimer = window.setTimeout(reconcile, 100);
-            return;
-          }
           toastManager.add({
             type: "error",
             title: "Could not restore Apps",
@@ -324,13 +285,10 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
               error instanceof Error ? error.message : "The App tabs could not be restored.",
           });
         });
-    };
-    reconcile();
     return () => {
       cancelled = true;
-      if (retryTimer !== null) window.clearTimeout(retryTimer);
     };
-  }, [closePane, currentSpaceId, folderId, dockState.panes, openPane, props.threadId, updatePane]);
+  }, [folderId, receivePane, updatePane]);
 
   useEffect(() => {
     if (!currentSpaceId || !dockState.open || dockState.activePaneId === null) return;
