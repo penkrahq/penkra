@@ -7557,7 +7557,6 @@ describe("ProviderRuntimeIngestion", () => {
       activities: parentBefore?.activities,
       pendingInteractions: parentBefore?.pendingInteractions,
       session: parentBefore?.session,
-      hasPendingApprovals: parentBefore?.hasPendingApprovals,
       hasPendingUserInput: parentBefore?.hasPendingUserInput,
     });
 
@@ -7749,7 +7748,6 @@ describe("ProviderRuntimeIngestion", () => {
       activities: parentAfter?.activities,
       pendingInteractions: parentAfter?.pendingInteractions,
       session: parentAfter?.session,
-      hasPendingApprovals: parentAfter?.hasPendingApprovals,
       hasPendingUserInput: parentAfter?.hasPendingUserInput,
     }).toEqual(parentProjectionBefore);
   });

@@ -32,7 +32,6 @@ export const ProjectionThread = Schema.Struct({
   subagentNickname: Schema.optional(Schema.NullOr(Schema.String)),
   subagentRole: Schema.optional(Schema.NullOr(Schema.String)),
   latestTurnId: Schema.NullOr(TurnId),
-  pendingApprovalCount: NonNegativeInt,
   pendingUserInputCount: NonNegativeInt,
   workStatus: Schema.optional(Schema.Literals(["idle", "running", "done", "attention"])).pipe(
     Schema.withDecodingDefault(() => "idle" as const),

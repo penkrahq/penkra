@@ -56,7 +56,6 @@ const MODELS_RESPONSE_MAX_CHARS = 40_000;
 const AGENT_THREAD_STATUSES = [
   "working",
   "idle",
-  "waiting-for-approval",
   "waiting-for-user-input",
   "interrupted",
   "error",

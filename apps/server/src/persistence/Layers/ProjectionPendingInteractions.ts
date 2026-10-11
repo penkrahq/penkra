@@ -9,7 +9,6 @@ import {
   GetProjectionPendingInteractionInput,
   ListProjectionPendingInteractionsInput,
   ProjectionPendingInteraction,
-  ProjectionPendingInteractionCounts,
   ProjectionPendingInteractionRepository,
   type ProjectionPendingInteractionRepositoryShape,
 } from "../Services/ProjectionPendingInteractions.ts";
@@ -108,42 +107,6 @@ const makeProjectionPendingInteractionRepository = Effect.gen(function* () {
     `,
   });
 
-  const getPendingCounts = SqlSchema.findOne({
-    Request: ListProjectionPendingInteractionsInput,
-    Result: ProjectionPendingInteractionCounts,
-    execute: ({ threadId }) => sql`
-      SELECT
-        COALESCE(SUM(CASE
-          WHEN interaction_kind = 'approval'
-            AND status IN ('pending', 'retryable')
-            AND EXISTS (
-              SELECT 1
-              FROM projection_thread_activities AS activity
-              WHERE activity.thread_id = projection_pending_interactions.thread_id
-                AND activity.kind = 'approval.requested'
-                AND json_extract(activity.payload_json, '$.requestId') =
-                  projection_pending_interactions.request_id
-            )
-          THEN 1 ELSE 0
-        END), 0) AS "pendingApprovalCount",
-        COALESCE(SUM(CASE
-          WHEN interaction_kind = 'userInput'
-            AND status IN ('pending', 'retryable')
-            AND EXISTS (
-              SELECT 1
-              FROM projection_thread_activities AS activity
-              WHERE activity.thread_id = projection_pending_interactions.thread_id
-                AND activity.kind = 'user-input.requested'
-                AND json_extract(activity.payload_json, '$.requestId') =
-                  projection_pending_interactions.request_id
-            )
-          THEN 1 ELSE 0
-        END), 0) AS "pendingUserInputCount"
-      FROM projection_pending_interactions
-      WHERE thread_id = ${threadId}
-    `,
-  });
-
   const claimRow = SqlSchema.findAll({
     Request: ClaimProjectionPendingInteractionResponseInput,
     Result: ProjectionPendingInteraction,
@@ -203,14 +166,6 @@ const makeProjectionPendingInteractionRepository = Effect.gen(function* () {
       listUnresolvedRows(undefined).pipe(
         Effect.mapError(
           toPersistenceSqlError("ProjectionPendingInteractionRepository.listUnresolved"),
-        ),
-      ),
-    getPendingCountsByThreadId: (input) =>
-      getPendingCounts(input).pipe(
-        Effect.mapError(
-          toPersistenceSqlError(
-            "ProjectionPendingInteractionRepository.getPendingCountsByThreadId",
-          ),
         ),
       ),
     getByIdentity: (input) =>

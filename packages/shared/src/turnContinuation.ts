@@ -43,7 +43,6 @@ export function canContinueLatestTurn(
     readonly queuedMessageIds?: ReadonlyArray<unknown> | undefined;
     readonly pendingTurnStartMessageId?: unknown;
     readonly pendingInteractions?: ReadonlyArray<OrchestrationPendingInteraction> | undefined;
-    readonly hasPendingApprovals?: boolean | undefined;
     readonly hasPendingUserInput?: boolean | undefined;
     readonly archivedAt?: string | null | undefined;
     readonly deletedAt?: string | null | undefined;
@@ -60,8 +59,10 @@ export function canContinueLatestTurn(
     thread.session?.status !== "running" &&
     (thread.session?.status === "error" || thread.session?.activeTurnId == null) &&
     thread.pendingTurnStartMessageId == null &&
-    !thread.hasPendingApprovals &&
     !thread.hasPendingUserInput &&
-    !thread.pendingInteractions?.some((interaction) => interaction.resolvedAt === null)
+    !thread.pendingInteractions?.some(
+      (interaction) =>
+        interaction.interactionKind === "userInput" && interaction.resolvedAt === null,
+    )
   );
 }

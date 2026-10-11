@@ -59,7 +59,6 @@ export function buildSidebarThreadRows(
           ? {}
           : { subagentNickname: detail.subagentNickname }),
         ...(detail?.subagentRole === undefined ? {} : { subagentRole: detail.subagentRole }),
-        hasPendingApprovals: detail?.hasPendingApprovals === true,
         hasPendingUserInput: row.openQuestionCount > 0,
         workStatus:
           row.state === "running"

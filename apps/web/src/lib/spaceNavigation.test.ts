@@ -50,7 +50,6 @@ function thread(input: { id: string; folderId: string }): SidebarThreadRow {
     createdAt: "2026-01-01T00:00:00.000Z",
     latestTurn: null,
     latestUserMessageAt: null,
-    hasPendingApprovals: false,
     hasPendingUserInput: false,
   };
 }

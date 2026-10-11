@@ -1644,7 +1644,6 @@ describe("store event reducer", () => {
     expect(
       resolveThreadStatusPill({
         thread: summary!,
-        hasPendingApprovals: false,
         hasPendingUserInput: false,
       }),
     ).toMatchObject({ label: "Working", pulse: true });
@@ -1809,7 +1808,6 @@ describe("store event reducer", () => {
       expect(
         resolveThreadStatusPill({
           thread: next.sidebarThreadSummaryById[threadId]!,
-          hasPendingApprovals: false,
           hasPendingUserInput: false,
         }),
       ).toMatchObject({ label: "Completed", pulse: false });
@@ -2993,11 +2991,10 @@ describe("store event reducer", () => {
     expect(threadsOf(confirmed)[0]?.hasPendingUserInput).toBe(false);
   });
 
-  it("clears pending approval summary state when an approval response is requested", () => {
+  it("marks an approval interaction responding when its response is requested", () => {
     const initialState = syncServerReadModel(
       makeState(
         makeThread({
-          hasPendingApprovals: true,
           activities: [
             makeActivity({
               id: "activity-approval-requested",
@@ -3016,7 +3013,6 @@ describe("store event reducer", () => {
       ),
       makeReadModel(
         makeReadModelThread({
-          hasPendingApprovals: true,
           pendingInteractions: [
             {
               interactionKind: "approval",
@@ -3067,9 +3063,7 @@ describe("store event reducer", () => {
       ),
     ]);
 
-    expect(threadsOf(next)[0]?.hasPendingApprovals).toBe(false);
     expect(threadsOf(next)[0]?.pendingInteractions?.[0]?.status).toBe("responding");
-    expect(next.sidebarThreadSummaryById["thread-1"]?.hasPendingApprovals).toBe(false);
   });
 
   it("updates sidebar summaries when a hot-path session starts running", () => {

@@ -170,7 +170,6 @@ export function threadShellsEqual(left: ThreadShell | undefined, right: ThreadSh
     (left.subagentAgentId ?? null) === (right.subagentAgentId ?? null) &&
     (left.subagentNickname ?? null) === (right.subagentNickname ?? null) &&
     (left.subagentRole ?? null) === (right.subagentRole ?? null) &&
-    left.hasPendingApprovals === right.hasPendingApprovals &&
     left.hasPendingUserInput === right.hasPendingUserInput &&
     left.workStatus === right.workStatus &&
     left.pendingInteractions === right.pendingInteractions
@@ -1545,8 +1544,6 @@ export function normalizeThreadFromReadModel(
   const deliveryError = latestDeliveryFailureReason(messages);
   const error = sessionError ?? deliveryError;
   const errorSource = sessionError === null && deliveryError !== null ? "delivery" : undefined;
-  const resolvedHasPendingApprovals =
-    typeof incoming.hasPendingApprovals === "boolean" ? incoming.hasPendingApprovals : undefined;
   const resolvedHasPendingUserInput =
     typeof incoming.hasPendingUserInput === "boolean" ? incoming.hasPendingUserInput : undefined;
   const sidebarRollups = resolveThreadSidebarRollups(incoming, previous);
@@ -1573,7 +1570,6 @@ export function normalizeThreadFromReadModel(
     (previous.subagentAgentId ?? null) === (incoming.subagentAgentId ?? null) &&
     (previous.subagentNickname ?? null) === (incoming.subagentNickname ?? null) &&
     (previous.subagentRole ?? null) === (incoming.subagentRole ?? null) &&
-    previous.hasPendingApprovals === resolvedHasPendingApprovals &&
     previous.hasPendingUserInput === resolvedHasPendingUserInput &&
     previous.workStatus === sidebarRollups.workStatus &&
     previous.activities === activities &&
@@ -1605,9 +1601,6 @@ export function normalizeThreadFromReadModel(
     subagentAgentId: incoming.subagentAgentId ?? null,
     subagentNickname: incoming.subagentNickname ?? null,
     subagentRole: incoming.subagentRole ?? null,
-    ...(resolvedHasPendingApprovals !== undefined
-      ? { hasPendingApprovals: resolvedHasPendingApprovals }
-      : {}),
     ...(resolvedHasPendingUserInput !== undefined
       ? { hasPendingUserInput: resolvedHasPendingUserInput }
       : {}),
@@ -1652,9 +1645,6 @@ export function normalizeThreadShellSnapshot(
     subagentRole: incoming.subagentRole ?? null,
     // The sidebar shell snapshot/event does not carry thread annotations, so keep the values
     // resolved from the thread-detail path instead of clobbering them with `undefined`.
-    ...(incoming.hasPendingApprovals !== undefined
-      ? { hasPendingApprovals: incoming.hasPendingApprovals }
-      : {}),
     ...(incoming.hasPendingUserInput !== undefined
       ? { hasPendingUserInput: incoming.hasPendingUserInput }
       : {}),
@@ -1740,11 +1730,9 @@ function attachmentPreviewRoutePath(attachmentId: string): string {
 }
 
 export function resolveThreadSidebarMetadata(thread: Thread): {
-  hasPendingApprovals: boolean;
   hasPendingUserInput: boolean;
 } {
-  const needsDerivedMetadata =
-    thread.hasPendingApprovals === undefined || thread.hasPendingUserInput === undefined;
+  const needsDerivedMetadata = thread.hasPendingUserInput === undefined;
   const derivedMetadata = needsDerivedMetadata
     ? deriveThreadSummaryMetadata({
         messages: thread.messages,
@@ -1753,8 +1741,6 @@ export function resolveThreadSidebarMetadata(thread: Thread): {
     : null;
 
   return {
-    hasPendingApprovals:
-      thread.hasPendingApprovals ?? derivedMetadata?.hasPendingApprovals ?? false,
     hasPendingUserInput:
       thread.hasPendingUserInput ?? derivedMetadata?.hasPendingUserInput ?? false,
   };

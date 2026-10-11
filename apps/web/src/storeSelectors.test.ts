@@ -38,7 +38,6 @@ const summaryA = {
   session: null,
   createdAt: "2026-01-01T00:00:00.000Z",
   latestTurn: null,
-  hasPendingApprovals: false,
   hasPendingUserInput: false,
 } as SidebarThreadSummary;
 

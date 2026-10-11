@@ -77,7 +77,6 @@ export interface ChatComposerContinueDiagnosticSample {
   readonly queuedMessageCount: number;
   readonly pendingTurnStart: boolean;
   readonly pendingInteractionCount: number;
-  readonly hasPendingApprovals: boolean;
   readonly hasPendingUserInput: boolean;
   readonly hiddenTurn: boolean;
   readonly continueInFlight: boolean;

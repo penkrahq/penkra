@@ -888,7 +888,6 @@ describe("store projection", () => {
       makeState(makeThread()),
       makeReadModel(
         makeReadModelThread({
-          hasPendingApprovals: true,
           hasPendingUserInput: true,
           updatedAt: "2026-02-27T00:05:00.000Z",
         }),
@@ -896,11 +895,9 @@ describe("store projection", () => {
     );
 
     expect(threadsOf(next)[0]).toMatchObject({
-      hasPendingApprovals: true,
       hasPendingUserInput: true,
     });
     expect(next.sidebarThreadSummaryById["thread-1"]).toMatchObject({
-      hasPendingApprovals: true,
       hasPendingUserInput: true,
     });
   });
@@ -2024,7 +2021,6 @@ describe("store projection", () => {
       const pill = summary
         ? resolveThreadStatusPill({
             thread: summary,
-            hasPendingApprovals: summary.hasPendingApprovals ?? false,
             hasPendingUserInput: summary.hasPendingUserInput ?? false,
           })
         : null;

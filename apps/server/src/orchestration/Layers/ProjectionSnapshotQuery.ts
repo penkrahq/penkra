@@ -538,7 +538,6 @@ function toProjectedThreadShellFromStoredSummary(input: {
     subagentNickname: threadRow.subagentNickname ?? null,
     subagentRole: threadRow.subagentRole ?? null,
     latestTurn: input.latestTurn,
-    hasPendingApprovals: threadRow.pendingApprovalCount > 0,
     hasPendingUserInput: threadRow.pendingUserInputCount > 0,
     workStatus: threadRow.workStatus,
     createdAt: threadRow.createdAt,
@@ -561,10 +560,7 @@ interface ProjectedThreadAssemblyInput {
 
 function assembleProjectedThread(
   input: ProjectedThreadAssemblyInput,
-  summary: Pick<
-    ReturnType<typeof deriveThreadSummaryMetadata>,
-    "hasPendingApprovals" | "hasPendingUserInput"
-  >,
+  summary: Pick<ReturnType<typeof deriveThreadSummaryMetadata>, "hasPendingUserInput">,
 ): OrchestrationThread {
   const { threadRow } = input;
   return {
@@ -589,7 +585,6 @@ function assembleProjectedThread(
     updatedAt: threadRow.updatedAt,
     archivedAt: threadRow.archivedAt ?? null,
     deletedAt: threadRow.deletedAt,
-    hasPendingApprovals: summary.hasPendingApprovals,
     hasPendingUserInput: summary.hasPendingUserInput,
     workStatus: threadRow.workStatus,
     messages: input.messages,
@@ -623,7 +618,6 @@ function toProjectedCommandThread(input: {
       pendingInteractions: [],
     },
     {
-      hasPendingApprovals: input.threadRow.pendingApprovalCount > 0,
       hasPendingUserInput: input.threadRow.pendingUserInputCount > 0,
     },
   );
@@ -672,7 +666,6 @@ const THREAD_SHELL_COLUMNS = `
           NULL AS "subagentNickname",
           NULL AS "subagentRole",
           t.active_turn_id AS "latestTurnId",
-          0 AS "pendingApprovalCount",
           t.open_question_count AS "pendingUserInputCount",
           CASE WHEN t.state = 'running' THEN 'running' WHEN t.state = 'error' OR t.open_question_count > 0 THEN 'attention' WHEN t.last_activity_at > COALESCE(t.last_visited_at, '') THEN 'done' ELSE 'idle' END AS "workStatus",
           t.created_at AS "createdAt",
@@ -1015,7 +1008,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           NULL AS "subagentNickname",
           NULL AS "subagentRole",
           active_turn_id AS "latestTurnId",
-          0 AS "pendingApprovalCount",
           open_question_count AS "pendingUserInputCount",
           CASE WHEN state = 'running' THEN 'running' WHEN state = 'error' OR open_question_count > 0 THEN 'attention' WHEN last_activity_at > COALESCE(last_visited_at, '') THEN 'done' ELSE 'idle' END AS "workStatus",
           created_at AS "createdAt",
@@ -1468,7 +1460,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           NULL AS "subagentNickname",
           NULL AS "subagentRole",
           active_turn_id AS "latestTurnId",
-          0 AS "pendingApprovalCount",
           open_question_count AS "pendingUserInputCount",
           CASE WHEN state = 'running' THEN 'running' WHEN state = 'error' OR open_question_count > 0 THEN 'attention' WHEN last_activity_at > COALESCE(last_visited_at, '') THEN 'done' ELSE 'idle' END AS "workStatus",
           created_at AS "createdAt",

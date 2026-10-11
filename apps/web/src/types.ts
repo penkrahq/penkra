@@ -167,7 +167,6 @@ export interface Thread {
   subagentAgentId?: string | null;
   subagentNickname?: string | null;
   subagentRole?: string | null;
-  hasPendingApprovals?: boolean;
   hasPendingUserInput?: boolean;
   workStatus?: "idle" | "running" | "done" | "attention";
   pendingInteractions?: OrchestrationPendingInteraction[];
@@ -193,7 +192,6 @@ export interface ThreadShell {
   subagentAgentId?: string | null;
   subagentNickname?: string | null;
   subagentRole?: string | null;
-  hasPendingApprovals?: boolean;
   hasPendingUserInput?: boolean;
   workStatus?: "idle" | "running" | "done" | "attention";
   pendingInteractions?: OrchestrationPendingInteraction[];
@@ -220,7 +218,6 @@ export interface SidebarThreadSummary {
   subagentAgentId?: string | null;
   subagentNickname?: string | null;
   subagentRole?: string | null;
-  hasPendingApprovals: boolean;
   hasPendingUserInput: boolean;
   workStatus?: "idle" | "running" | "done" | "attention";
 }

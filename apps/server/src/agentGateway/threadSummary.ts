@@ -18,7 +18,6 @@ import type {
 export type AgentThreadStatus =
   | "working"
   | "idle"
-  | "waiting-for-approval"
   | "waiting-for-user-input"
   | "interrupted"
   | "error";
@@ -45,16 +44,14 @@ export function resolveActiveTurn(thread: {
 
 /**
  * Collapse session/turn/pending projections into one status an agent can act
- * on. Pending gates win over turn state: a thread blocked on approval is not
+ * on. Pending questions win over turn state: a thread awaiting answers is not
  * "working" even though its turn is still running.
  */
 export function deriveAgentThreadStatus(thread: {
   readonly session: OrchestrationThreadShell["session"];
   readonly latestTurn: OrchestrationThreadShell["latestTurn"];
-  readonly hasPendingApprovals?: boolean | undefined;
   readonly hasPendingUserInput?: boolean | undefined;
 }): AgentThreadStatus {
-  if (thread.hasPendingApprovals) return "waiting-for-approval";
   if (thread.hasPendingUserInput) return "waiting-for-user-input";
   const sessionStatus = thread.session?.status;
   const turnState = thread.latestTurn?.state;

@@ -89,7 +89,6 @@ describe("deriveThreadSummaryMetadata", () => {
       }),
     ).toEqual({
       latestUserMessageAt: "2026-02-27T00:03:00.000Z",
-      hasPendingApprovals: true,
       hasPendingUserInput: true,
     });
   });
@@ -166,7 +165,6 @@ describe("deriveThreadSummaryMetadata", () => {
       }),
     ).toEqual({
       latestUserMessageAt: null,
-      hasPendingApprovals: false,
       hasPendingUserInput: false,
     });
   });
@@ -269,7 +267,6 @@ describe("deriveThreadSummaryMetadata", () => {
         activities,
       }),
     ).toMatchObject({
-      hasPendingApprovals: true,
       hasPendingUserInput: true,
     });
   });
@@ -305,7 +302,6 @@ describe("deriveThreadSummaryMetadata", () => {
       }),
     ).toEqual({
       latestUserMessageAt: null,
-      hasPendingApprovals: false,
       hasPendingUserInput: false,
     });
   });

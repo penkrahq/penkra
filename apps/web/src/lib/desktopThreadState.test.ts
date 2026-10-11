@@ -15,7 +15,6 @@ function thread(overrides: Partial<SidebarThreadSummary> = {}): SidebarThreadSum
     createdAt: "2026-09-14T00:00:00.000Z",
     latestTurn: null,
 
-    hasPendingApprovals: false,
     hasPendingUserInput: false,
     ...overrides,
   };

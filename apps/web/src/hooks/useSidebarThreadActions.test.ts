@@ -180,7 +180,6 @@ function makeThread(id: ThreadId, overrides: Partial<SidebarThreadRow> = {}) {
     createdAt: id === THREAD_ID ? "2026-07-20T00:00:00.000Z" : "2026-07-19T00:00:00.000Z",
     latestTurn: null,
     latestUserMessageAt: null,
-    hasPendingApprovals: false,
     hasPendingUserInput: false,
     hasLiveTailWork: false,
     ...overrides,

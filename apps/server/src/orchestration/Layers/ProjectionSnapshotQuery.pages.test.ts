@@ -250,12 +250,11 @@ it.effect(
           "error",
           "interrupted",
           "waiting-for-user-input",
-          "waiting-for-approval",
         ]) {
           const result = yield* query.listThreadShellPage(input({ status }));
           assert.deepStrictEqual(
             result.threads.map((row) => row.id),
-            status === "waiting-for-approval" ? [] : [status],
+            [status],
           );
           assert.isTrue(result.threads.every((row) => deriveAgentThreadStatus(row) === status));
         }

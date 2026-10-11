@@ -2,12 +2,10 @@ import type { OrchestrationMessage, OrchestrationThreadActivity } from "@penkra/
 
 export interface ThreadSummaryMetadata {
   latestUserMessageAt: string | null;
-  hasPendingApprovals: boolean;
   hasPendingUserInput: boolean;
 }
 
 export interface ThreadSummaryState extends ThreadSummaryMetadata {
-  pendingApprovalCount: number;
   pendingUserInputCount: number;
 }
 
@@ -220,9 +218,7 @@ export function deriveThreadSummaryState(input: {
 
   return {
     latestUserMessageAt,
-    pendingApprovalCount: pendingRequestIds.approvalRequestIds.length,
     pendingUserInputCount: pendingRequestIds.userInputRequestIds.length,
-    hasPendingApprovals: pendingRequestIds.approvalRequestIds.length > 0,
     hasPendingUserInput: pendingRequestIds.userInputRequestIds.length > 0,
   };
 }
@@ -236,7 +232,6 @@ export function deriveThreadSummaryMetadata(input: {
   const summary = deriveThreadSummaryState(input);
   return {
     latestUserMessageAt: summary.latestUserMessageAt,
-    hasPendingApprovals: summary.hasPendingApprovals,
     hasPendingUserInput: summary.hasPendingUserInput,
   };
 }

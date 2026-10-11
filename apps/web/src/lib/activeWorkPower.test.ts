@@ -17,7 +17,6 @@ function stateWithThread(
     createdAt: "2026-08-09T00:00:00.000Z",
     latestTurn: null,
     latestUserMessageAt: null,
-    hasPendingApprovals: false,
     hasPendingUserInput: false,
     ...overrides,
   } as SidebarThreadSummary;
@@ -122,24 +121,23 @@ describe("hasActiveThreadExecution", () => {
     expect(hasActiveThreadExecution(state)).toBe(true);
   });
 
-  it.each([
-    { hasPendingApprovals: true },
-    { hasPendingUserInput: true },
-    { archivedAt: "2026-08-09T00:01:00.000Z" },
-  ])("does not hold the display for non-executing attention states", (overrides) => {
-    const state = stateWithThread({
-      session: {
-        provider: "codex",
-        status: "ready",
-        createdAt: "2026-08-09T00:00:00.000Z",
-        updatedAt: "2026-08-09T00:00:00.000Z",
-        orchestrationStatus: "running",
-      },
-      ...overrides,
-    });
+  it.each([{ hasPendingUserInput: true }, { archivedAt: "2026-08-09T00:01:00.000Z" }])(
+    "does not hold the display for non-executing attention states",
+    (overrides) => {
+      const state = stateWithThread({
+        session: {
+          provider: "codex",
+          status: "ready",
+          createdAt: "2026-08-09T00:00:00.000Z",
+          updatedAt: "2026-08-09T00:00:00.000Z",
+          orchestrationStatus: "running",
+        },
+        ...overrides,
+      });
 
-    expect(hasActiveThreadExecution(state)).toBe(false);
-  });
+      expect(hasActiveThreadExecution(state)).toBe(false);
+    },
+  );
 
   it("returns false when every known thread is idle", () => {
     expect(hasActiveThreadExecution(stateWithThread({}))).toBe(false);

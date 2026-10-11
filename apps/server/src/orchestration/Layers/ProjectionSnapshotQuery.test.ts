@@ -363,7 +363,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       const commandThread = commandModel.threads[0];
       assert.isDefined(commandThread);
       assert.notProperty(commandThread, "latestUserMessageAt");
-      assert.equal(commandThread.hasPendingApprovals, false);
       assert.equal(commandThread.hasPendingUserInput, true);
       assert.deepEqual(commandThread.messages, []);
       assert.deepEqual(commandThread.activities, []);
@@ -415,7 +414,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           subagentAgentId: null,
           subagentNickname: null,
           subagentRole: null,
-          hasPendingApprovals: true,
           hasPendingUserInput: true,
           workStatus: "attention",
           latestTurn: {
@@ -1489,7 +1487,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               completedAt: "2026-03-03T00:00:05.000Z",
               assistantMessageId: null,
             },
-            hasPendingApprovals: false,
             hasPendingUserInput: true,
             workStatus: "attention",
             createdAt: "2026-03-03T00:00:02.000Z",

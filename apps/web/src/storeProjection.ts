@@ -87,9 +87,6 @@ function toThreadShell(thread: Thread): ThreadShell {
     subagentAgentId: thread.subagentAgentId ?? null,
     subagentNickname: thread.subagentNickname ?? null,
     subagentRole: thread.subagentRole ?? null,
-    ...(thread.hasPendingApprovals !== undefined
-      ? { hasPendingApprovals: thread.hasPendingApprovals }
-      : {}),
     ...(thread.hasPendingUserInput !== undefined
       ? { hasPendingUserInput: thread.hasPendingUserInput }
       : {}),
@@ -270,7 +267,6 @@ function sidebarThreadSummariesEqual(
     (left.subagentAgentId ?? null) === (right.subagentAgentId ?? null) &&
     (left.subagentNickname ?? null) === (right.subagentNickname ?? null) &&
     (left.subagentRole ?? null) === (right.subagentRole ?? null) &&
-    left.hasPendingApprovals === right.hasPendingApprovals &&
     left.hasPendingUserInput === right.hasPendingUserInput &&
     left.workStatus === right.workStatus
   );
@@ -296,7 +292,6 @@ function buildSidebarThreadSummary(
     subagentAgentId: thread.subagentAgentId ?? null,
     subagentNickname: thread.subagentNickname ?? null,
     subagentRole: thread.subagentRole ?? null,
-    hasPendingApprovals: metadata.hasPendingApprovals,
     hasPendingUserInput: metadata.hasPendingUserInput,
     workStatus: thread.workStatus ?? "idle",
   };
@@ -922,9 +917,7 @@ function commitThreadProjection(
   };
 }
 
-function deriveThreadStateSignals(
-  thread: Thread,
-): Pick<Thread, "hasPendingApprovals" | "hasPendingUserInput"> {
+function deriveThreadStateSignals(thread: Thread): Pick<Thread, "hasPendingUserInput"> {
   const metadata = deriveThreadSummaryMetadata({
     messages: thread.messages,
     activities: thread.activities,
@@ -933,9 +926,6 @@ function deriveThreadStateSignals(
     (interaction) => interaction.status === "pending" || interaction.status === "retryable",
   );
   return {
-    hasPendingApprovals:
-      actionableInteractions?.some((interaction) => interaction.interactionKind === "approval") ??
-      metadata.hasPendingApprovals,
     hasPendingUserInput:
       actionableInteractions?.some((interaction) => interaction.interactionKind === "userInput") ??
       metadata.hasPendingUserInput,
@@ -944,10 +934,7 @@ function deriveThreadStateSignals(
 
 function withDerivedThreadStateSignals(thread: Thread): Thread {
   const nextSignals = deriveThreadStateSignals(thread);
-  if (
-    thread.hasPendingApprovals === nextSignals.hasPendingApprovals &&
-    thread.hasPendingUserInput === nextSignals.hasPendingUserInput
-  ) {
+  if (thread.hasPendingUserInput === nextSignals.hasPendingUserInput) {
     return thread;
   }
   return {

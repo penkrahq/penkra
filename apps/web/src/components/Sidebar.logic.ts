@@ -72,7 +72,6 @@ type SidebarThreadSortInput = {
   updatedAt?: string | undefined;
   latestTurn?: Thread["latestTurn"] | undefined;
   lastVisitedAt?: string | null | undefined;
-  hasPendingApprovals?: boolean | undefined;
   hasPendingUserInput?: boolean | undefined;
   session?: Thread["session"] | undefined;
 };
@@ -137,13 +136,7 @@ const THREAD_JUMP_COMMANDS = [
 ] as const satisfies readonly KeybindingCommand[];
 
 export interface ThreadStatusPill {
-  label:
-    | "Working"
-    | "Connecting"
-    | "Completed"
-    | "Pending Approval"
-    | "Awaiting Input"
-    | "Needs Attention";
+  label: "Working" | "Connecting" | "Completed" | "Awaiting Input" | "Needs Attention";
   colorClass: string;
   dotClass: string;
   pulse: boolean;
@@ -152,7 +145,6 @@ export interface ThreadStatusPill {
 }
 
 const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
-  "Pending Approval": 5,
   "Awaiting Input": 5,
   "Needs Attention": 6,
   Working: 3,
@@ -213,7 +205,7 @@ type ThreadStatusInput = Pick<
 };
 
 function createThreadStatusDismissalKey(
-  label: Extract<ThreadStatusPill["label"], "Pending Approval" | "Awaiting Input">,
+  label: Extract<ThreadStatusPill["label"], "Awaiting Input">,
   thread: ThreadStatusInput,
 ): string {
   return [
@@ -388,7 +380,6 @@ export function isThreadActivelyWorking(thread: {
 
 export function resolveThreadStatusPill(input: {
   thread: ThreadStatusInput;
-  hasPendingApprovals: boolean;
   hasPendingUserInput: boolean;
   /** Local ownership bridges draft promotion until the first server lifecycle projection. */
   isPromotedDraftPending?: boolean;
@@ -398,27 +389,11 @@ export function resolveThreadStatusPill(input: {
   hasLocalSendOwner?: boolean;
 }): ThreadStatusPill | null {
   const { thread } = input;
-  // A dead session can't receive approval/input answers anymore — drop the
+  // A dead session cannot receive question answers anymore — drop the
   // actionable pills instead of advertising a request nobody can fulfill.
   // Mirrored by the kanban board's deriveKanbanColumn.
   const canAnswerPendingRequests = canSessionAnswerPendingRequests(thread.session);
-  const hasPendingApprovals = input.hasPendingApprovals && canAnswerPendingRequests;
   const hasPendingUserInput = input.hasPendingUserInput && canAnswerPendingRequests;
-
-  if (hasPendingApprovals) {
-    const dismissalKey = createThreadStatusDismissalKey("Pending Approval", thread);
-    if (thread.dismissedStatusKey === dismissalKey) {
-      return null;
-    }
-    return {
-      label: "Pending Approval",
-      colorClass: "text-amber-600 dark:text-amber-300/90",
-      dotClass: "bg-amber-500 dark:bg-amber-300/90",
-      pulse: false,
-      dismissible: true,
-      dismissalKey,
-    };
-  }
 
   if (hasPendingUserInput) {
     const dismissalKey = createThreadStatusDismissalKey("Awaiting Input", thread);
@@ -516,7 +491,6 @@ export function resolveSidebarThreadSummaryStatus(input: {
       lastVisitedAt: input.lastVisitedAt,
       dismissedStatusKey: input.dismissedStatusKey,
     },
-    hasPendingApprovals: input.thread.hasPendingApprovals,
     hasPendingUserInput: input.thread.hasPendingUserInput,
     ...(input.isPromotedDraftPending === undefined
       ? {}
@@ -1067,7 +1041,6 @@ export function deriveSidebarProjectData(input: {
           ? input.resolveThreadStatus(thread)
           : resolveThreadStatusPill({
               thread,
-              hasPendingApprovals: thread.hasPendingApprovals,
               hasPendingUserInput: thread.hasPendingUserInput,
             }),
       ),

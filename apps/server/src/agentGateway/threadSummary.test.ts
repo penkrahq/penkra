@@ -65,17 +65,6 @@ const latestTurn = (
 });
 
 describe("deriveAgentThreadStatus", () => {
-  it("prioritizes pending approval over a running turn", () => {
-    assert.equal(
-      deriveAgentThreadStatus({
-        session: session("running"),
-        latestTurn: latestTurn("running"),
-        hasPendingApprovals: true,
-      }),
-      "waiting-for-approval",
-    );
-  });
-
   it("reports pending user input", () => {
     assert.equal(
       deriveAgentThreadStatus({
