@@ -1,7 +1,12 @@
-import { Effect, Scope } from "effect";
+import { Effect, Exit, Scope } from "effect";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { describe, expect, it } from "vitest";
 
-import { closeServerRuntimePipeline } from "./effectServer.ts";
+import { closeServerRuntimePipeline, startServerRuntimeSubscriptions } from "./effectServer.ts";
+import { createThread, makeThreadPublisher, upsertThreadItem } from "./cleanCore/threadStore.ts";
+import { seedThreadFolderFixture } from "./cleanCore/threadFixtures.ts";
+import { runMigrations } from "./persistence/Migrations.ts";
+import * as NodeSqliteClient from "./persistence/NodeSqliteClient.ts";
 
 describe("server runtime pipeline shutdown", () => {
   it("persists accepted provider terminal work before the engine stops", async () => {
@@ -86,5 +91,93 @@ describe("server runtime pipeline shutdown", () => {
       "managed-attachments-drained",
       "engine-stopped",
     ]);
+  });
+});
+
+describe("server runtime subscription startup", () => {
+  it("cuts off unfinished turns and starts runtime observers before provider command dispatch can begin", async () => {
+    const started: string[] = [];
+    const stopped: string[] = [];
+    const subscriptionsScope = await Effect.runPromise(Scope.make("sequential"));
+    try {
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          yield* runMigrations();
+          yield* seedThreadFolderFixture("folder", "space");
+          const at = "2026-10-11T00:00:00.000Z";
+          yield* createThread({
+            id: "thread",
+            folderId: "folder",
+            spaceId: "space",
+            title: "Thread",
+            provider: "codex",
+            model: "gpt-5.5",
+            runtimeMode: "full-access",
+            createdBy: "user",
+            createdAt: at,
+          });
+          yield* sql`UPDATE threads SET state='running', active_turn_id='turn' WHERE id='thread'`;
+          yield* upsertThreadItem({
+            threadId: "thread",
+            sourceId: "unfinished",
+            turnId: "turn",
+            kind: "text",
+            status: "streaming",
+            text: "partial",
+            createdAt: at,
+            updatedAt: at,
+          });
+          yield* startServerRuntimeSubscriptions({
+            threadPublisher: makeThreadPublisher(),
+            providerRuntimeIngestion: {
+              start: Effect.acquireRelease(
+                Effect.gen(function* () {
+                  expect(
+                    yield* sql`SELECT state, active_turn_id FROM threads WHERE id='thread'`,
+                  ).toEqual([{ state: "idle", active_turn_id: null }]);
+                  expect(
+                    yield* sql`SELECT status FROM thread_items WHERE source_id='unfinished'`,
+                  ).toEqual([{ status: "interrupted" }]);
+                  started.push("provider-runtime-ingestion");
+                }).pipe(Effect.orDie),
+                () => Effect.sync(() => stopped.push("provider-runtime-ingestion")),
+              ),
+            },
+            providerCommandReactor: {
+              start: Effect.acquireRelease(
+                Effect.sync(() => {
+                  expect(started).toEqual(["provider-runtime-ingestion"]);
+                  started.push("provider-command-dispatch");
+                }),
+                () => Effect.sync(() => stopped.push("provider-command-dispatch")),
+              ),
+            },
+            providerSessionReaper: {
+              start: () =>
+                Effect.acquireRelease(
+                  Effect.sync(() => started.push("provider-session-reaper")),
+                  () => Effect.sync(() => stopped.push("provider-session-reaper")),
+                ).pipe(Effect.asVoid),
+            },
+            subscriptionsScope,
+            startedAt: at,
+          });
+          expect(started).toEqual([
+            "provider-runtime-ingestion",
+            "provider-command-dispatch",
+            "provider-session-reaper",
+          ]);
+          yield* Scope.close(subscriptionsScope, Exit.void);
+          expect(stopped).toEqual([
+            "provider-session-reaper",
+            "provider-command-dispatch",
+            "provider-runtime-ingestion",
+          ]);
+        }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
+      );
+    } finally {
+      await Effect.runPromise(Scope.close(subscriptionsScope, Exit.void));
+    }
   });
 });
