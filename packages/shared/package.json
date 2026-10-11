@@ -100,9 +100,9 @@
       "types": "./src/browserSession.ts",
       "import": "./src/browserSession.ts"
     },
-    "./conversationEdit": {
-      "types": "./src/conversationEdit.ts",
-      "import": "./src/conversationEdit.ts"
+    "./conversationRollback": {
+      "types": "./src/conversationRollback.ts",
+      "import": "./src/conversationRollback.ts"
     },
     "./schemaJson": {
       "types": "./src/schemaJson.ts",

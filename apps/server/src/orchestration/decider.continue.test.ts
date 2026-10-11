@@ -180,7 +180,7 @@ describe("archived thread admission", () => {
     ).rejects.toMatchObject({ code: "thread_archived" });
   });
 
-  it.each(["thread.message.edit-and-resend", "thread.conversation.rollback"] as const)(
+  it.each(["thread.conversation.rollback"] as const)(
     "refuses %s before emitting a transcript event",
     async (type) => {
       const command = {

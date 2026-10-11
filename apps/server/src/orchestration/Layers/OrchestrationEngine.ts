@@ -543,7 +543,6 @@ const makeOrchestrationEngine = Effect.gen(function* () {
     let threadId: ThreadId;
     switch (command.type) {
       case "thread.conversation.rollback":
-      case "thread.message.edit-and-resend":
       case "thread.message.assistant.complete":
       case "thread.turn.recover":
       case "thread.turn.start":

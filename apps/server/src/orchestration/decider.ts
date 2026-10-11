@@ -5,10 +5,7 @@ import type {
   OrchestrationThread,
 } from "@penkra/contracts";
 import { EventId, SPACES_MAX_COUNT, TurnId } from "@penkra/contracts";
-import {
-  collectTailTurnIds,
-  resolveTailUserMessageEditTarget,
-} from "@penkra/shared/conversationEdit";
+import { collectTailTurnIds } from "@penkra/shared/conversationRollback";
 import { Effect } from "effect";
 import { normalizeEntityName } from "@penkra/shared/entityNames";
 import { canContinueLatestTurn } from "@penkra/shared/turnContinuation";
@@ -650,11 +647,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.message.skills !== undefined ? { skills: command.message.skills } : {}),
           ...(command.message.mentions !== undefined ? { mentions: command.message.mentions } : {}),
           dispatchMode,
-          // Explicit "user" (not absent): edit-resends replay through a fresh
-          // server-side turn.start without an origin, and the projection
-          // upsert coalesces absent origins — a human resend of a message
-          // originally dispatched by a non-user source must overwrite the
-          // stale origin instead of inheriting it.
           dispatchOrigin: command.dispatchOrigin ?? "user",
           ...(command.dispatchOrigin === "agent" && command.senderThreadId !== undefined
             ? { senderThreadId: command.senderThreadId }
@@ -957,83 +949,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           createdAt: command.createdAt,
         },
       };
-    }
-
-    case "thread.message.edit-and-resend": {
-      const thread = yield* requireThreadCanTakeWork({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      const editTarget = resolveTailUserMessageEditTarget({
-        messages: thread.messages,
-        messageId: command.messageId,
-        activeTurnId:
-          thread.session?.status === "running" ? (thread.session.activeTurnId ?? null) : null,
-      });
-      if (!editTarget.editable) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: `Only the latest rollbackable user message can be edited and resent (${editTarget.reason}).`,
-        });
-      }
-      const requestedEvent: Omit<OrchestrationEvent, "sequence"> = {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.message-edit-resend-requested",
-        payload: {
-          threadId: command.threadId,
-          messageId: command.messageId,
-          text: command.text,
-          rollbackTurnCount: editTarget.rollbackTurnCount,
-          removedTurnIds: editTarget.removedTurnIds.map((turnId) => TurnId.makeUnsafe(turnId)),
-          ...(command.modelSelection !== undefined
-            ? { modelSelection: command.modelSelection }
-            : {}),
-          connectionId: command.connectionId,
-          bindingRevision: command.bindingRevision,
-          ...(command.providerOptions !== undefined
-            ? { providerOptions: command.providerOptions }
-            : {}),
-          ...(command.assistantDeliveryMode !== undefined
-            ? { assistantDeliveryMode: command.assistantDeliveryMode }
-            : {}),
-          runtimeMode: command.runtimeMode,
-          createdAt: command.createdAt,
-        },
-      };
-      if (thread.session?.status === "starting" || thread.session?.status === "running") {
-        return requestedEvent;
-      }
-      const startingSessionEvent: Omit<OrchestrationEvent, "sequence"> = {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.session-set",
-        payload: {
-          threadId: command.threadId,
-          session: {
-            threadId: command.threadId,
-            status: "starting",
-            providerName: thread.session?.providerName ?? thread.modelSelection.provider,
-            runtimeMode: command.runtimeMode,
-            activeTurnId: null,
-            lastError: null,
-            updatedAt: command.createdAt,
-          },
-        },
-      };
-      return [
-        startingSessionEvent,
-        { ...requestedEvent, causationEventId: startingSessionEvent.eventId },
-      ];
     }
 
     case "thread.session.stop": {
