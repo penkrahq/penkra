@@ -51,15 +51,25 @@ export function createDefaultRightDockState(): RightDockFolderState {
   return { open: false, panes: [], activePaneId: null, width: null };
 }
 
-/** Apply the folder row while keeping only this window's runtime data and width. */
+/** Apply shared membership while keeping this window's navigation, width and runtime data. */
 export function applyFolderAppTabsInState(
   state: RightDockFolderState,
   tabs: CleanCoreFolderAppTabs,
   runtimeById: Readonly<Record<string, Partial<RightDockPane> | undefined>>,
 ): RightDockFolderState {
+  const selectedStillOpen = tabs.panes.some((pane) => pane.id === state.activePaneId);
+  const previousIndex = state.panes.findIndex((pane) => pane.id === state.activePaneId);
+  const activePaneId = selectedStillOpen
+    ? state.activePaneId
+    : state.activePaneId === null
+      ? null
+      : (tabs.panes[previousIndex]?.id ??
+        tabs.panes[previousIndex - 1]?.id ??
+        tabs.panes[0]?.id ??
+        null);
   return {
-    open: tabs.open,
-    activePaneId: tabs.activePaneId,
+    open: state.open && tabs.panes.length > 0,
+    activePaneId,
     width: state.width,
     panes: tabs.panes.map((pane) => ({
       appStatus: "unloaded",

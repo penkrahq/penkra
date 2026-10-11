@@ -7,7 +7,7 @@ const row = {
   folderId,
   folderTitle: "Work",
   updatedAt: "2026-10-11T00:00:00.000Z",
-  tabs: { open: false, panes: [], activePaneId: null },
+  tabs: { panes: [] },
 };
 it("reads a single folder with backend authentication and no shell or timer", async () => {
   const fetcher = vi.fn(async () => ({
@@ -22,14 +22,14 @@ it("reads a single folder with backend authentication and no shell or timer", as
     body: JSON.stringify({ action: "get", folderId }),
   });
 });
-it("writes the shared panel without consulting a window", async () => {
+it("writes the shared tab list without consulting a window", async () => {
   const fetcher = vi.fn(async () => ({
     json: async () => ({ ok: true, result: row }),
   })) as unknown as typeof fetch;
   const input = {
     folderId,
     updatedAt: row.updatedAt,
-    update: { action: "show" as const, open: false },
+    update: { action: "close" as const, paneId: "tab" },
   };
   await expect(
     updateDesktopFolderAppTabs({ url: "http://127.0.0.1:1234", token: "private", fetcher }, input),

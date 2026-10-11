@@ -58,7 +58,6 @@ it.effect(
           updatedAt: "2026-10-11T00:00:00.000Z",
           update: {
             action: "open",
-            preserveSelection: true,
             pane: {
               id: "tab",
               kind: "app" as const,
@@ -77,9 +76,7 @@ it.effect(
             written.body,
           ).result.tabs,
           {
-            open: false,
             panes: [update.update.pane],
-            activePaneId: null,
           },
         );
         assert.equal(changes.length, 1);

@@ -1680,7 +1680,7 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
     return {
       folderId: body.folderId,
       updatedAt: fixture.snapshot.updatedAt,
-      tabs: { open: false, panes: [], activePaneId: null },
+      tabs: { panes: [] },
     };
   }
   if (tag === WS_METHODS.cleanCoreGetThreadShell) {

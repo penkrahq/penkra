@@ -1,5 +1,5 @@
 // FILE: rightDockStore.ts
-// Purpose: Apply shared folder App-tab rows; retain runtime data and width per window.
+// Purpose: Apply shared folder App-tab lists; retain navigation, runtime data and width per window.
 // Layer: UI state store
 
 import type {
@@ -36,7 +36,7 @@ interface RightDockStore {
   dockStateByFolderId: Record<string, RightDockFolderState | undefined>;
   updatedAtByFolderId: Record<string, string | undefined>;
   runtimeByPaneId: Record<string, Partial<RuntimePane> | undefined>;
-  openPane: (folderId: FolderId, input: OpenPaneInput) => void;
+  openPane: (folderId: FolderId, input: OpenPaneInput) => Promise<void>;
   receivePane: (folderId: FolderId, input: OpenPaneInput) => void;
   closePane: (folderId: FolderId, paneId: string) => void;
   setActivePane: (folderId: FolderId, paneId: string) => void;
@@ -66,12 +66,17 @@ export function applyFolderAppTabs(result: CleanCoreFolderAppTabsResult): void {
   useRightDockStore.setState((store) => {
     const updatedAt = store.updatedAtByFolderId[result.folderId];
     if (updatedAt !== undefined && updatedAt > result.updatedAt) return {};
+    const previous = store.dockStateByFolderId[result.folderId] ?? DEFAULT_RIGHT_DOCK_STATE;
+    const windowState =
+      updatedAt === undefined
+        ? { ...previous, activePaneId: result.tabs.panes[0]?.id ?? null }
+        : previous;
     return {
       updatedAtByFolderId: { ...store.updatedAtByFolderId, [result.folderId]: result.updatedAt },
       dockStateByFolderId: {
         ...store.dockStateByFolderId,
         [result.folderId]: applyFolderAppTabsInState(
-          store.dockStateByFolderId[result.folderId] ?? DEFAULT_RIGHT_DOCK_STATE,
+          windowState,
           result.tabs,
           store.runtimeByPaneId,
         ),
@@ -118,7 +123,7 @@ export const useRightDockStore = create<RightDockStore>()((set, get) => ({
   },
   openPane: (folderId, input) => {
     get().receivePane(folderId, input);
-    void writeFolderAppTabs(folderId, {
+    return writeFolderAppTabs(folderId, {
       action: "open",
       pane: {
         id: input.paneId,
@@ -129,17 +134,38 @@ export const useRightDockStore = create<RightDockStore>()((set, get) => ({
         appName: input.appName,
         appRoute: input.appRoute,
       },
-      preserveSelection: input.preserveSelection,
-    }).catch(reportWriteFailure);
+    })
+      .then(() => {
+        if (!input.preserveSelection) get().setActivePane(folderId, input.paneId);
+      })
+      .catch(reportWriteFailure);
   },
   closePane: (folderId, paneId) => {
     void writeFolderAppTabs(folderId, { action: "close", paneId }).catch(reportWriteFailure);
   },
   setActivePane: (folderId, paneId) => {
-    void writeFolderAppTabs(folderId, { action: "select", paneId }).catch(reportWriteFailure);
+    set((store) => {
+      const state = store.dockStateByFolderId[folderId];
+      if (!state || !state.panes.some((pane) => pane.id === paneId)) return {};
+      return {
+        dockStateByFolderId: {
+          ...store.dockStateByFolderId,
+          [folderId]: { ...state, activePaneId: paneId, open: true },
+        },
+      };
+    });
   },
   setDockOpen: (folderId, open) => {
-    void writeFolderAppTabs(folderId, { action: "show", open }).catch(reportWriteFailure);
+    set((store) => {
+      const state = store.dockStateByFolderId[folderId];
+      if (!state) return {};
+      return {
+        dockStateByFolderId: {
+          ...store.dockStateByFolderId,
+          [folderId]: { ...state, open: open && state.panes.length > 0 },
+        },
+      };
+    });
   },
   setDockWidth: (folderId, width) =>
     set((store) => ({
