@@ -73,13 +73,10 @@ import {
   ProviderAdapterValidationError,
   ProviderServiceError,
 } from "../../provider/Errors.ts";
-import { buildInlineSkillInstructions } from "../../provider/skillPromptInjection.ts";
-import { clampMentionTitle } from "../../provider/threadMentionContext.ts";
 import {
-  appendThreadMentionContextBlocks,
-  resolveThreadMentionPromptProjection,
-  threadMentionContextSuffix,
-} from "../../provider/threadMentionContext.ts";
+  buildProviderTurnInput,
+  resolveProviderTurnContext,
+} from "../../provider/providerTurnInput.ts";
 import {
   TextGeneration,
   type ThreadTitleGenerationInput,
@@ -370,32 +367,6 @@ const runBoundedProviderCall = <E, R>(input: {
       ),
     );
   });
-
-function toNonEmptyProviderInput(value: string | undefined): string | undefined {
-  const normalized = value?.trim();
-  return normalized && normalized.length > 0 ? normalized : undefined;
-}
-
-// Codex app-server still expects `$skill` text next to the structured skill item.
-export function normalizeSkillMentionTextForProvider(input: {
-  readonly provider: ProviderKind;
-  readonly messageText: string;
-  readonly skills?: ReadonlyArray<ProviderSkillReference>;
-}): string {
-  if (input.provider !== "codex" || !input.skills || input.skills.length === 0) {
-    return input.messageText;
-  }
-
-  let nextText = input.messageText;
-  for (const skill of input.skills) {
-    const escapedName = skill.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    nextText = nextText.replace(
-      new RegExp(`(^|\\s)/${escapedName}(?=\\s|$)`, "gi"),
-      `$1$${skill.name}`,
-    );
-  }
-  return nextText;
-}
 
 function attachmentTitleSeed(attachment: ChatAttachment | undefined): string {
   if (!attachment) {
@@ -1381,36 +1352,17 @@ const make = Effect.gen(function* () {
     if (!thread) {
       return;
     }
-    const threadMentionProjection = yield* resolveThreadMentionPromptProjection({
-      mentions: input.mentions,
-      snapshotQuery: projectionSnapshotQuery,
-      maxTotalContextChars: availableThreadMentionContextChars(input.messageText),
-    });
-    const messageText = appendThreadMentionContextBlocks({
-      text: input.messageText,
-      contextBlocks: threadMentionProjection.contextBlocks,
-    });
-    const mentionContextSuffix = threadMentionContextSuffix(threadMentionProjection.contextBlocks);
-    const providerMentions = threadMentionProjection.providerMentions;
-    const senderShell =
-      input.dispatchOrigin === "agent" && input.senderThreadId
-        ? Option.getOrNull(yield* projectionSnapshotQuery.getThreadShellById(input.senderThreadId))
-        : null;
-    const senderTitle = senderShell?.title;
-    const senderContext =
-      input.dispatchOrigin === "agent" && input.senderThreadId
-        ? [
-            "<agent_message_sender>",
-            "This message was written by the agent in another Penkra thread, not by the user.",
-            ...(senderTitle?.trim()
-              ? [`Thread: ${JSON.stringify(clampMentionTitle(senderTitle))}`]
-              : []),
-            `Thread ID: ${input.senderThreadId}`,
-            "</agent_message_sender>",
-            "",
-            "",
-          ].join("\n")
-        : "";
+    const promptContext = yield* resolveProviderTurnContext(
+      {
+        messageText: input.messageText,
+        dispatchOrigin: input.dispatchOrigin,
+        senderThreadId: input.senderThreadId,
+        mentions: input.mentions,
+        maxContextChars: availableThreadMentionContextChars(input.messageText),
+      },
+      projectionSnapshotQuery,
+    );
+    const providerMentions = promptContext.providerMentions;
     const managedRuntime = yield* resolveManagedTurnRuntime({
       threadId: input.threadId,
       ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
@@ -1463,41 +1415,18 @@ const make = Effect.gen(function* () {
       threadSessionModelSelections.get(input.threadId)?.provider ??
       thread.session?.providerName ??
       thread.modelSelection.provider;
-    const providerInputWithMentionContext = `${senderContext}${input.messageText}${mentionContextSuffix}`;
-    // Portable skills fallback: providers that cannot load the referenced skill
-    // file natively get the skill instructions inlined into the prompt.
-    const skillInlineText =
-      input.skills !== undefined && input.skills.length > 0
-        ? yield* Effect.tryPromise(() =>
-            buildInlineSkillInstructions({
-              provider: selectedProvider as ProviderKind,
-              skills: input.skills ?? [],
-              maxChars: Math.max(
-                0,
-                PROVIDER_SEND_TURN_MAX_INPUT_CHARS -
-                  providerInputWithMentionContext.length -
-                  PROVIDER_INPUT_SAFETY_MARGIN_CHARS,
-              ),
-            }),
-          ).pipe(
-            Effect.catch((error) =>
-              Effect.logWarning("failed to inline portable skill instructions", {
-                threadId: input.threadId,
-                error,
-              }).pipe(Effect.as("")),
-            ),
-          )
-        : "";
-    const providerInputWithSkills = skillInlineText
-      ? `${providerInputWithMentionContext}\n\n${skillInlineText}`
-      : providerInputWithMentionContext;
-    const normalizedInput = toNonEmptyProviderInput(
-      normalizeSkillMentionTextForProvider({
-        provider: selectedProvider as ProviderKind,
-        messageText: providerInputWithSkills,
-        ...(input.skills !== undefined ? { skills: input.skills } : {}),
-      }),
-    );
+    const normalizedInput = yield* buildProviderTurnInput({
+      threadId: input.threadId,
+      provider: selectedProvider as ProviderKind,
+      messageText: promptContext.messageText,
+      skills: input.skills,
+      maxSkillChars: Math.max(
+        0,
+        PROVIDER_SEND_TURN_MAX_INPUT_CHARS -
+          promptContext.messageText.length -
+          PROVIDER_INPUT_SAFETY_MARGIN_CHARS,
+      ),
+    });
     const reconstructedInput =
       managedRuntime?.requiresReconstruction === true
         ? yield* buildReconstructedTurnInput(
