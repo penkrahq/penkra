@@ -2,7 +2,7 @@ import {
   IconApps,
   IconBrush,
   IconKey,
-  IconFolders,
+  IconArchive,
   IconRobot,
   IconSettings,
   IconUser,
@@ -21,7 +21,7 @@ import { SettingsSectionShared } from "../settings-section-shared/SettingsSectio
 export type SettingsPageId =
   | "general"
   | "permissions"
-  | "spaces"
+  | "archive"
   | "agents"
   | "apps"
   | "appearance"
@@ -48,12 +48,6 @@ const pages = [
     subtitle: "Review pending access requests and manage alerts.",
   },
   {
-    icon: IconFolders,
-    id: "spaces",
-    label: "Spaces",
-    subtitle: "Create, rename, and organize the Spaces in your left rail.",
-  },
-  {
     icon: IconRobot,
     id: "agents",
     label: "Agents",
@@ -70,6 +64,12 @@ const pages = [
     id: "appearance",
     label: "Appearance",
     subtitle: "Customize the look and feel of Penkra.",
+  },
+  {
+    icon: IconArchive,
+    id: "archive",
+    label: "Archive",
+    subtitle: "Restore archived Spaces, Folders, and chats.",
   },
   {
     icon: IconUser,

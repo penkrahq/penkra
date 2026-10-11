@@ -161,3 +161,12 @@ it("shares one row derivation and by-id lookup across consumers for each source 
     parse.mockRestore();
   }
 });
+
+it("shows an unopened running row as Working without session or turn detail", () => {
+  const thread = buildSidebarThreadRows([row("[]", "2026-10-10T00:00:00.000Z")], {})[0]!;
+  expect(thread.session).toBeNull();
+  expect(thread.latestTurn).toBeNull();
+  expect(
+    resolveSidebarThreadSummaryStatus({ thread, lastVisitedAt: thread.lastVisitedAt }),
+  ).toMatchObject({ label: "Working", pulse: true });
+});

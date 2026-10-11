@@ -103,7 +103,6 @@ import { useSpacesUiStore } from "../spacesUiStore";
 import { useSidebarInlineRenameStore } from "../sidebarInlineRenameStore";
 import { persistAppStateNow, useStore } from "../store";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
-import { useThreadDetailPrewarm } from "../threadDetailPrewarm";
 import { retainThreadDetailSubscription } from "../threadDetailSubscriptionRetention";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import type { Space } from "../types";
@@ -338,7 +337,6 @@ export default function Sidebar() {
   );
   const folders = useStore((store) => store.folders);
   const spaces = useStore((store) => store.spaces);
-  const archivedSpaces = useStore((store) => store.archivedSpaces);
   // Selection state only; the handlers and sync effects live in useSpacesController.
   const storedActiveSpaceId = useSpacesUiStore((store) => store.activeSpaceId);
   const pendingActiveSpaceId = useSpacesUiStore(
@@ -1048,17 +1046,14 @@ export default function Sidebar() {
     [updateFolderIcon],
   );
 
-  const { prewarmThreadDetail: prewarmThreadDetailForIntent } = useThreadDetailPrewarm();
-
   const primeThreadActivation = useCallback(
     (event: ReactPointerEvent<HTMLElement>, threadId: ThreadId) => {
       if (!isPrimaryThreadActivationIntent(event)) {
         return;
       }
-      prewarmThreadDetailForIntent(threadId);
       setOptimisticActiveThreadId(threadId);
     },
-    [prewarmThreadDetailForIntent],
+    [],
   );
 
   const copyThreadIdToClipboard = useCopyThreadIdToClipboard();
@@ -1257,7 +1252,6 @@ export default function Sidebar() {
     navigate,
     openChatThreadPage,
     openTerminalThreadPage,
-    prewarmThreadDetailForIntent,
     rememberLastThreadRouteNow,
     routeThreadId,
     selectedThreadCount: selectedThreadIds.size,
@@ -1324,7 +1318,7 @@ export default function Sidebar() {
         return;
       }
       if (action === "space:manage") {
-        void navigate({ to: "/settings", search: { section: "spaces" } });
+        void navigate({ to: "/settings", search: { section: "archive" } });
         return;
       }
       if (!action.startsWith("space:focus:")) return;
@@ -2673,11 +2667,7 @@ export default function Sidebar() {
           if (project.spaceId == null) {
             throw new Error(`Folder '${project.id}' is missing its required Space assignment.`);
           }
-          const activeSpaceName = activeSpaceDisplayNameForReference(
-            project.spaceId,
-            spaces,
-            archivedSpaces,
-          );
+          const activeSpaceName = activeSpaceDisplayNameForReference(project.spaceId, spaces);
           if (activeSpaceName === null) return [];
           spaceName = activeSpaceName;
         }
@@ -2696,7 +2686,7 @@ export default function Sidebar() {
           },
         ];
       }),
-    [archivedSpaces, chatWorkspaceRoot, homeDir, folders, spaces],
+    [chatWorkspaceRoot, homeDir, folders, spaces],
   );
   const searchPaletteActions = useMemo<SidebarSearchAction[]>(
     () => [

@@ -51,7 +51,6 @@ import type { Thread } from "~/types";
 import { useVoiceSessionCoordinatorStore } from "~/voiceSessionCoordinator";
 import { CentralIcon } from "~/lib/central-icons";
 import { cn } from "~/lib/utils";
-import { useThreadDetailPrewarm } from "~/threadDetailPrewarm";
 import { isPrimaryThreadActivationIntent } from "~/threadActivation.logic";
 import {
   FOLDER_THREAD_DRAG_TYPE,
@@ -177,13 +176,11 @@ function CanonicalFolderTabs(props: FolderTabsProps & { folderId: FolderId }) {
     );
   }, [folderId, folder?.spaceId]);
   const [optimisticActiveThreadId, setOptimisticActiveThreadId] = useState<ThreadId | null>(null);
-  const { prewarmThreadDetail } = useThreadDetailPrewarm();
 
   const primeThreadActivation = (event: PointerEvent<HTMLButtonElement>, threadId: ThreadId) => {
     if (!isPrimaryThreadActivationIntent(event)) {
       return;
     }
-    prewarmThreadDetail(threadId);
     setOptimisticActiveThreadId(threadId);
   };
 

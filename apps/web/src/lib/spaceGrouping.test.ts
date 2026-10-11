@@ -29,11 +29,11 @@ describe("resolveActiveSpaceId", () => {
 });
 
 describe("activeSpaceDisplayNameForReference", () => {
-  it("names active references, hides archived references, and rejects dangling ids", () => {
-    expect(activeSpaceDisplayNameForReference(workSpaceId, [workSpace], [])).toBe("Work");
-    expect(activeSpaceDisplayNameForReference(workSpaceId, [], [workSpace])).toBeNull();
-    expect(() =>
-      activeSpaceDisplayNameForReference(SpaceId.makeUnsafe("space-missing"), [], [workSpace]),
-    ).toThrow(/missing from the authoritative snapshot/i);
+  it("names active and archived references without retaining archive rows", () => {
+    expect(activeSpaceDisplayNameForReference(workSpaceId, [workSpace])).toBe("Work");
+    expect(activeSpaceDisplayNameForReference(workSpaceId, [], "Work")).toBe("Work");
+    expect(activeSpaceDisplayNameForReference(SpaceId.makeUnsafe("space-missing"), [])).toBe(
+      "Archived space",
+    );
   });
 });

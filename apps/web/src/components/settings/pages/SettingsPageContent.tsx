@@ -5,7 +5,7 @@ import { SettingsAppearancePage } from "./appearance/SettingsAppearancePage";
 import { SettingsAppsPage } from "./apps/SettingsAppsPage";
 import { SettingsGeneralPage } from "./general/SettingsGeneralPage";
 import { SettingsPermissionsPage } from "./permissions/SettingsPermissionsPage";
-import { SettingsSpacesPage } from "./spaces/SettingsSpacesPage";
+import { SettingsArchivePage } from "./archive/SettingsArchivePage";
 
 export function SettingsPageContent({ page }: { page: SettingsPageId }) {
   switch (page) {
@@ -13,8 +13,8 @@ export function SettingsPageContent({ page }: { page: SettingsPageId }) {
       return <SettingsGeneralPage />;
     case "permissions":
       return <SettingsPermissionsPage />;
-    case "spaces":
-      return <SettingsSpacesPage />;
+    case "archive":
+      return <SettingsArchivePage />;
     case "agents":
       return <SettingsAgentsPage />;
     case "apps":

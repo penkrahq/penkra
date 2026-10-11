@@ -209,6 +209,7 @@ type ThreadStatusInput = Pick<
 > & {
   lastVisitedAt?: string | null | undefined;
   dismissedStatusKey?: string | undefined;
+  workStatus?: import("../types").SidebarThreadSummary["workStatus"];
 };
 
 function createThreadStatusDismissalKey(
@@ -458,7 +459,7 @@ export function resolveThreadStatusPill(input: {
     };
   }
 
-  if (isThreadActivelyWorking(thread)) {
+  if (thread.workStatus === "running" || isThreadActivelyWorking(thread)) {
     return {
       label: "Working",
       colorClass: "text-sky-600 dark:text-sky-300/80",

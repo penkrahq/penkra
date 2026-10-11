@@ -30,9 +30,8 @@ export interface AppState {
   /** Highest authoritative snapshot integrated by this store instance. */
   shellSnapshotSequence?: number;
   spaces: Space[];
-  archivedSpaces: Space[];
+
   folders: Project[];
-  archivedFolders: Project[];
 
   sidebarThreadSummaryById: Record<string, SidebarThreadSummary>;
   threadsHydrated: boolean;
@@ -54,9 +53,10 @@ export interface AppState {
   /**
    * Deletion tombstones, keyed by id, valued by the snapshot sequence at (or after) which the
    * deletion is guaranteed to be visible server-side. They stop a snapshot generated before the
-   * delete from resurrecting the row; `syncServerShellSnapshot` / `syncServerReadModel` retire an
-   * entry once an authoritative snapshot at or after that sequence no longer lists the id, so the
-   * maps cannot grow for the lifetime of the tab.
+   * delete from resurrecting the row. Thread tombstones retire in `syncServerReadModel`
+   * through `retireConfirmedDeletionTombstones` when Settings' local-state repair returns
+   * a read model at or after that sequence without the live id. Startup snapshots contain
+   * no thread list and cannot confirm thread deletions.
    */
   deletedFolderIdsById?: Record<Project["id"], number>;
   deletedThreadIdsById?: Record<ThreadId, number>;
@@ -79,9 +79,9 @@ export const EMPTY_ACTIVITY_BY_THREAD: Record<
 export const initialState: AppState = {
   shellSnapshotSequence: 0,
   spaces: [],
-  archivedSpaces: [],
+
   folders: [],
-  archivedFolders: [],
+
   sidebarThreadSummaryById: {},
   threadsHydrated: false,
   threadIds: [],

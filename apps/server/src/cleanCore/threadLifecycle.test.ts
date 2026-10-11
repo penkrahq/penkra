@@ -34,6 +34,8 @@ it.effect("web creation is idempotent and a send on its running thread is queued
     const publisher = makeThreadPublisher();
     const changes: string[] = [];
     publisher.subscribeAll(({ threadId }) => changes.push(threadId));
+    const sidebarChanges: import("@penkra/contracts").CleanCoreSidebarChange[] = [];
+    publisher.subscribeSidebar((change) => sidebarChanges.push(change));
     const at = "2026-10-10T00:00:00.000Z";
     yield* sql`INSERT INTO projection_folders (folder_id, space_id, title, workspace_root, default_model_selection_json, scripts_json, created_at, updated_at) VALUES ('folder', 'penkra-personal', 'Folder', NULL, NULL, '[]', ${at}, ${at})`;
     const input = {
@@ -53,6 +55,7 @@ it.effect("web creation is idempotent and a send on its running thread is queued
     assert.equal((yield* sql`SELECT id FROM threads WHERE id = ${input.threadId}`).length, 1);
     assert.equal((yield* getThread(input.threadId)).title, "Thread");
     assert.deepStrictEqual(changes, [input.threadId]);
+    assert.deepStrictEqual(sidebarChanges, [{ kind: "thread.created", threadId: input.threadId }]);
     yield* setThreadState(input.threadId, "running", "active-turn", null, at);
     const sender = yield* makeThreadSender.pipe(
       Effect.provideService(ServerConfig, {

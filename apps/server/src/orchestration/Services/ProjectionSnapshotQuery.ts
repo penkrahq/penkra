@@ -11,7 +11,7 @@ import type {
   OrchestrationFolderShell,
   OrchestrationSpaceShell,
   OrchestrationReadModel,
-  OrchestrationShellSnapshot,
+  OrchestrationStartupSnapshot,
   OrchestrationThreadDetailSnapshot,
   OrchestrationGetThreadTurnsPageInput,
   OrchestrationGetThreadTurnsPageResult,
@@ -213,13 +213,12 @@ export interface ProjectionSnapshotQueryShape {
   >;
 
   /**
-   * Read the latest orchestration shell snapshot.
+   * Read active navigation rows and running threads only.
    *
-   * Returns only folder rows plus thread shell summaries so clients can
-   * bootstrap navigation state without hydrating every thread body.
+   * Thread pages and detail are read separately on demand.
    */
-  readonly getShellSnapshot: () => Effect.Effect<
-    OrchestrationShellSnapshot,
+  readonly getStartupSnapshot: () => Effect.Effect<
+    OrchestrationStartupSnapshot,
     ProjectionRepositoryError
   >;
 

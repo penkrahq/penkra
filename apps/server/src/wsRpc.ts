@@ -1,3 +1,4 @@
+import { listArchivedNavigation, listArchivedThreads, restoreThread } from "./cleanCore/archive.ts";
 import { ensureDurableThreadWorkspace } from "./scratchWorkspaces.ts";
 import { setThreadConnection, setThreadModel, renameThread } from "./cleanCore/threadStore.ts";
 import { createThreadFromClient, ThreadLifecycle } from "./cleanCore/threadLifecycle.ts";
@@ -24,7 +25,7 @@ import {
   type ProjectDevServerEvent,
   type OrchestrationShellStreamEvent,
   type OrchestrationShellStreamItem,
-  type OrchestrationSyncSnapshot,
+  type OrchestrationStartupSnapshot,
   type OrchestrationSyncStreamItem,
   type OrchestrationThreadDetailSnapshot,
   type OrchestrationThreadStreamItem,
@@ -638,58 +639,10 @@ const makeWsRpcHandlersLayer = () =>
         ),
       );
 
-      const loadOrchestrationSyncSnapshot: Effect.Effect<OrchestrationSyncSnapshot, WsRpcError> =
-        Effect.gen(function* () {
-          const startedAt = Date.now();
-          const shell = yield* projectionReadModelQuery
-            .getShellSnapshot()
-            .pipe(
-              Effect.mapError((cause) =>
-                toWsRpcError(cause, "Failed to load orchestration synchronization shell"),
-              ),
-            );
-          const activeThreadIds = shell.threads
-            .filter(
-              (thread) =>
-                (thread.session?.activeTurnId !== null &&
-                  thread.session?.activeTurnId !== undefined) ||
-                thread.session?.status === "starting" ||
-                thread.session?.status === "running" ||
-                thread.latestTurn?.state === "running",
-            )
-            .map((thread) => thread.id);
-          yield* Effect.logInfo("orchestration synchronization shell loaded").pipe(
-            Effect.annotateLogs({
-              snapshotSequence: shell.snapshotSequence,
-              threadCount: shell.threads.length,
-              activeThreadCount: activeThreadIds.length,
-              durationMs: Date.now() - startedAt,
-            }),
-          );
-          const activeThreadPages = yield* Effect.all(
-            activeThreadIds.map((threadId) =>
-              projectionReadModelQuery
-                .getThreadTurnsPage({ threadId })
-                .pipe(
-                  Effect.mapError((cause) =>
-                    toWsRpcError(cause, "Failed to load an active Thread for synchronization"),
-                  ),
-                ),
-            ),
-          );
-          yield* Effect.logInfo("orchestration synchronization snapshot loaded").pipe(
-            Effect.annotateLogs({
-              snapshotSequence: shell.snapshotSequence,
-              activeThreadPageCount: activeThreadPages.length,
-              durationMs: Date.now() - startedAt,
-            }),
-          );
-          return {
-            snapshotSequence: shell.snapshotSequence,
-            shell,
-            activeThreadPages,
-          };
-        });
+      const loadStartupSnapshot: Effect.Effect<OrchestrationStartupSnapshot, WsRpcError> =
+        projectionReadModelQuery
+          .getStartupSnapshot()
+          .pipe(Effect.mapError((cause) => toWsRpcError(cause, "Failed to load startup snapshot")));
 
       const toShellStreamEvent = (
         event: OrchestrationEvent,
@@ -777,6 +730,33 @@ const makeWsRpcHandlersLayer = () =>
               );
         }
       };
+
+      // Archived navigation is not retained by the web. Restore events publish their
+      // complete bounded rows once, for every connected renderer and command source.
+      const navigationEvents = yield* orchestrationEngine.subscribeDomainEvents;
+      yield* Stream.runForEach(navigationEvents, (event) =>
+        Effect.gen(function* () {
+          if (event.type === "space.restored") {
+            const space = yield* projectionReadModelQuery.getSpaceShellById(event.payload.spaceId);
+            if (Option.isSome(space))
+              threadPublisher.publishSidebar({
+                kind: "navigation.restored",
+                spaces: [space.value],
+                folders: [],
+              });
+          } else if (event.type === "folder.updated" && event.payload.archivedAt === null) {
+            const folder = yield* projectionReadModelQuery.getFolderShellById(
+              event.payload.folderId,
+            );
+            if (Option.isSome(folder))
+              threadPublisher.publishSidebar({
+                kind: "navigation.restored",
+                spaces: [],
+                folders: [folder.value],
+              });
+          }
+        }),
+      ).pipe(Effect.forkScoped);
 
       const rpcEffect = <A, E, R>(effect: Effect.Effect<A, E, R>, fallbackMessage: string) =>
         effect.pipe(Effect.mapError((cause) => toWsRpcError(cause, fallbackMessage)));
@@ -1082,7 +1062,7 @@ const makeWsRpcHandlersLayer = () =>
                     ? {}
                     : { afterSequenceExclusive: input.afterSequenceExclusive }),
                   subscribeLive: orchestrationEngine.subscribeDomainEvents,
-                  snapshot: loadOrchestrationSyncSnapshot,
+                  snapshot: loadStartupSnapshot,
                   getHighWaterSequence: getOrchestrationHighWaterSequence,
                   onReplayRange: (range) =>
                     Effect.logDebug("orchestration synchronization durable replay").pipe(
@@ -1149,7 +1129,7 @@ const makeWsRpcHandlersLayer = () =>
                 ),
               ),
               snapshot: projectionReadModelQuery
-                .getShellSnapshot()
+                .getStartupSnapshot()
                 .pipe(
                   Effect.mapError((cause) => toWsRpcError(cause, "Failed to load shell snapshot")),
                 ),
@@ -1458,6 +1438,18 @@ const makeWsRpcHandlersLayer = () =>
           ),
         [WS_METHODS.cleanCoreSearchThreads]: (input) =>
           rpcEffect(searchThreads(input), "Failed to search threads"),
+        [WS_METHODS.cleanCoreListArchivedNavigation]: () =>
+          rpcEffect(listArchivedNavigation(), "Failed to load the archive"),
+        [WS_METHODS.cleanCoreListArchivedThreads]: (input) =>
+          rpcEffect(listArchivedThreads(input), "Failed to load archived chats"),
+        [WS_METHODS.cleanCoreRestoreThread]: (input) =>
+          rpcEffect(
+            Effect.gen(function* () {
+              if (yield* restoreThread(input))
+                threadPublisher.publish({ threadId: input.threadId });
+            }),
+            "Failed to restore the chat",
+          ),
         [WS_METHODS.cleanCoreListThreads]: (input) =>
           rpcEffect(listThreads(input), "Failed to load the thread list"),
         [WS_METHODS.cleanCoreUpdateThread]: (input) =>

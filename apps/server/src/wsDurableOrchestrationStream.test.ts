@@ -1,11 +1,16 @@
-import type { OrchestrationEvent, OrchestrationSyncSnapshot } from "@penkra/contracts";
+import type { OrchestrationEvent, OrchestrationStartupSnapshot } from "@penkra/contracts";
 import { Effect, PubSub, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { makeDurableOrchestrationStream } from "./wsDurableOrchestrationStream";
 
 const event = (sequence: number) => ({ sequence }) as OrchestrationEvent;
-const snapshot = (snapshotSequence: number) => ({ snapshotSequence }) as OrchestrationSyncSnapshot;
+const snapshot = (snapshotSequence: number): OrchestrationStartupSnapshot => ({
+  snapshotSequence,
+  spaces: [],
+  folders: [],
+  runningThreads: [],
+});
 
 describe("makeDurableOrchestrationStream", () => {
   it("replays every durable event when many live notifications collapse into one wake", async () => {

@@ -1,8 +1,10 @@
+import type { AppState } from "../storeState";
+import { upsertSpace, upsertProject } from "../storeProjection";
+import { applyThreadRow, subscribeThreadRowChanges } from "../threadListStore";
 import { useThreadSummary } from "../threadListStore";
 import {
   PROVIDER_DISPLAY_NAMES,
   ThreadId,
-  type OrchestrationShellSnapshot,
   type OrchestrationSyncStreamItem,
   type ServerConfig,
   type ServerProviderStatus,
@@ -73,7 +75,6 @@ import {
   readLatestWsCompatibilityIssue,
 } from "../wsTransportEvents";
 import { invalidateProjectFileQueriesForCwds, projectQueryKeys } from "../lib/projectReactQuery";
-import { collectActiveTerminalThreadIds } from "../lib/terminalStateCleanup";
 import { useProjectRunStore } from "../projectRunStore";
 import { VoiceSessionCoordinatorProvider } from "../voiceSessionCoordinator";
 import { TaskCompletionNotifications } from "../notifications/taskCompletion";
@@ -130,15 +131,6 @@ interface PromotedDraftThreadDetail extends ThreadStartedState {
 
 function detailThreadHasStarted(thread: PromotedDraftThreadDetail): boolean {
   return shellThreadHasStarted(thread) || thread.messages.length > 0;
-}
-
-function reconcilePromotedDraftsFromShellThreads(
-  threads: ReadonlyArray<OrchestrationShellSnapshot["threads"][number]>,
-): void {
-  markPromotedDraftThreads(new Set(threads.map((thread) => thread.id)));
-  finalizePromotedDraftThreads(
-    new Set(threads.filter((thread) => shellThreadHasStarted(thread)).map((thread) => thread.id)),
-  );
 }
 
 function reconcilePromotedDraftFromThreadDetail(thread: PromotedDraftThreadDetail): void {
@@ -769,30 +761,43 @@ function errorDetails(error: unknown): string {
 }
 
 function EventRouter() {
-  const syncServerThreadShell = useStore((store) => store.syncServerThreadShell);
-  useEffect(() => {
-    const api = ensureNativeApi();
-    return api.cleanCore.onSidebarChange((change) => {
-      if (change.kind !== "thread") return;
-      void api.cleanCore
-        .getThreadShell({ threadId: change.threadId })
-        .then((thread) => syncServerThreadShell(change.threadId, thread))
-        .catch((error) =>
+  useEffect(
+    () =>
+      ensureNativeApi().cleanCore.onSidebarChange((change) => {
+        if (change.kind !== "navigation.restored") return;
+        useStore.setState((state) => {
+          let next: AppState = state;
+          for (const space of change.spaces) next = upsertSpace(next, space);
+          for (const folder of change.folders) next = upsertProject(next, folder, "id-only");
+          return next;
+        });
+      }),
+    [],
+  );
+  useEffect(
+    () =>
+      subscribeThreadRowChanges(
+        (change, row) => {
+          if (change.kind === "thread.created")
+            markPromotedDraftThreads(new Set([change.threadId]));
+          if (row === null || row.archivedAt !== null || row.deletedAt !== null) {
+            useTerminalStateStore.getState().removeThreadTerminalState(change.threadId);
+            useStore.getState().syncServerThreadShell(change.threadId, null);
+          }
+        },
+        (error: unknown) =>
           toastManager.add({
             type: "error",
             title: "Could not update thread",
             description: error instanceof Error ? error.message : String(error),
           }),
-        );
-    });
-  }, [syncServerThreadShell]);
-  const syncServerShellSnapshot = useStore((store) => store.syncServerShellSnapshot);
+      ),
+    [],
+  );
+  const syncServerStartupSnapshot = useStore((store) => store.syncServerStartupSnapshot);
   const syncServerThreadTurnsPage = useStore((store) => store.syncServerThreadTurnsPage);
   const applyOrchestrationEvents = useStore((store) => store.applyOrchestrationEvents);
   const setProjectExpanded = useStore((store) => store.setProjectExpanded);
-  const removeOrphanedTerminalStates = useTerminalStateStore(
-    (store) => store.removeOrphanedTerminalStates,
-  );
   const setServerWorkspacePaths = useWorkspacePathsStore((store) => store.setServerWorkspacePaths);
   const serverThreadIdList = useStore((store) => store.threadIds);
   const queryClient = useQueryClient();
@@ -869,21 +874,6 @@ function EventRouter() {
     };
     let providerDiscoveryInvalidationFingerprint: string | null = null;
 
-    const removeOrphanedTerminalsForCurrentState = () => {
-      const draftThreadIds = Object.keys(
-        useComposerDraftStore.getState().draftThreadsByThreadId,
-      ) as ThreadId[];
-      const activeThreadIds = collectActiveTerminalThreadIds({
-        snapshotThreads: getThreadsFromState(useStore.getState()).map((thread) => ({
-          id: thread.id,
-          deletedAt: null,
-          archivedAt: thread.archivedAt ?? null,
-        })),
-        draftThreadIds,
-      });
-      removeOrphanedTerminalStates(activeThreadIds);
-    };
-
     const flushSyncDeliveries = (
       reason: "delivery" | "visible-timer" | "visibility-hidden" | "window-blur" = "visible-timer",
     ) => {
@@ -946,14 +936,8 @@ function EventRouter() {
         for (let index = 0; index < deliveries.length; index += 1) {
           const item = deliveries[index]!;
           if (item.kind === "snapshot") {
-            syncServerShellSnapshot(item.snapshot.shell);
-            reconcilePromotedDraftsFromShellThreads(item.snapshot.shell.threads);
-            for (const page of item.snapshot.activeThreadPages) {
-              syncServerThreadTurnsPage(page);
-              const thread = getThreadFromState(useStore.getState(), page.threadId);
-              if (thread) reconcilePromotedDraftFromThreadDetail(thread);
-            }
-            removeOrphanedTerminalsForCurrentState();
+            syncServerStartupSnapshot(item.snapshot);
+            for (const row of item.snapshot.runningThreads) applyThreadRow(row);
             latestApplied = {
               deliveryId: item.deliveryId,
               appliedSequence: item.snapshot.snapshotSequence,
@@ -1245,10 +1229,9 @@ function EventRouter() {
     applyOrchestrationEvents,
     navigate,
     queryClient,
-    removeOrphanedTerminalStates,
     setProjectExpanded,
     setServerWorkspacePaths,
-    syncServerShellSnapshot,
+    syncServerStartupSnapshot,
     syncServerThreadTurnsPage,
   ]);
 
@@ -1258,11 +1241,8 @@ function EventRouter() {
     const previouslyVisibleThreadIds = previouslyVisibleThreadIdsRef.current;
     previouslyVisibleThreadIdsRef.current = new Set(visibleThreadIds);
     for (const threadId of visibleThreadIds) {
-      // The route becomes visible before the uniform sync snapshot necessarily
-      // creates its shell row. A page that wins that race is intentionally
-      // rejected by syncServerThreadTurnsPage because there is no Thread to
-      // attach it to; wait for shell ownership so the subsequent thread-id
-      // update retries this effect instead of dropping detail permanently.
+      // Opening a persisted thread loads its per-thread metadata first; detail
+      // pages can attach only after that targeted read supplies the thread.
       if (!serverThreadIds.has(threadId)) continue;
       const state = useStore.getState();
       const wasSeen = seenThreadIdsRef.current.has(threadId);

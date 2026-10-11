@@ -5,7 +5,7 @@
 import {
   type MessageId,
   type OrchestrationReadModel,
-  type OrchestrationShellSnapshot,
+  type OrchestrationStartupSnapshot,
   type OrchestrationShellStreamEvent,
   type OrchestrationThreadShell,
   type OrchestrationSpaceShell,
@@ -191,30 +191,19 @@ export function upsertProject(
   if (state.deletedFolderIdsById?.[incoming.id] !== undefined) {
     return state;
   }
-  const existingProject =
-    state.folders.find((project) => project.id === incoming.id) ??
-    (state.archivedFolders ?? []).find((project) => project.id === incoming.id);
+  const existingProject = state.folders.find((project) => project.id === incoming.id);
   const nextProject = normalizeProject(incoming, existingProject);
-  const belongsInArchive = nextProject.archivedAt != null;
-  const folders = belongsInArchive
-    ? state.folders.filter((project) => project.id !== incoming.id)
-    : existingProject && state.folders.some((project) => project.id === incoming.id)
-      ? state.folders.map((project) => (project.id === incoming.id ? nextProject : project))
-      : [...state.folders, nextProject];
-  const archivedFolders = belongsInArchive
-    ? existingProject && (state.archivedFolders ?? []).some((project) => project.id === incoming.id)
-      ? (state.archivedFolders ?? []).map((project) =>
-          project.id === incoming.id ? nextProject : project,
-        )
-      : [...(state.archivedFolders ?? []), nextProject]
-    : (state.archivedFolders ?? []).filter((project) => project.id !== incoming.id);
-  if (folders === state.folders && archivedFolders === (state.archivedFolders ?? [])) {
-    return state;
-  }
+  if (nextProject.archivedAt != null)
+    return {
+      ...state,
+      folders: state.folders.filter((project) => project.id !== incoming.id),
+    };
+  if (existingProject === nextProject) return state;
   return {
     ...state,
-    folders,
-    archivedFolders,
+    folders: existingProject
+      ? state.folders.map((project) => (project.id === incoming.id ? nextProject : project))
+      : [...state.folders, nextProject],
   };
 }
 
@@ -222,65 +211,22 @@ export function upsertSpace(
   state: AppState,
   incoming: OrchestrationReadModel["spaces"][number] | OrchestrationSpaceShell,
 ): AppState {
-  const currentArchivedSpaces = state.archivedSpaces ?? [];
-  const existing =
-    state.spaces.find((space) => space.id === incoming.id) ??
-    currentArchivedSpaces.find((space) => space.id === incoming.id);
+  const existing = state.spaces.find((space) => space.id === incoming.id);
   const nextSpace = normalizeSpace(incoming, existing);
-  const existingActive = state.spaces.some((space) => space.id === incoming.id);
-  const existingArchived = currentArchivedSpaces.some((space) => space.id === incoming.id);
-  if (existingActive && existing === nextSpace && !existingArchived) {
-    return state;
-  }
-  const archivedSpaces = existingArchived
-    ? currentArchivedSpaces.filter((space) => space.id !== incoming.id)
-    : currentArchivedSpaces;
-  const spaces = existingActive
+  if (nextSpace.archivedAt != null) return removeSpace(state, incoming.id);
+  if (existing === nextSpace) return state;
+  const spaces = existing
     ? state.spaces.map((space) => (space.id === incoming.id ? nextSpace : space))
     : [...state.spaces, nextSpace];
   return {
     ...state,
-    spaces: spaces.toSorted(
-      (left, right) => left.sortOrder - right.sortOrder || left.id.localeCompare(right.id),
-    ),
-    archivedSpaces,
+    spaces: spaces.toSorted((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id)),
   };
 }
 
-export function removeSpace(
-  state: AppState,
-  spaceId: Space["id"],
-  _assignmentUpdatedAt?: string,
-  preserveAssignments = false,
-): AppState {
-  const currentArchivedSpaces = state.archivedSpaces ?? [];
+export function removeSpace(state: AppState, spaceId: Space["id"]): AppState {
   const spaces = state.spaces.filter((space) => space.id !== spaceId);
-  if (preserveAssignments) {
-    const archivedSpace = state.spaces.find((space) => space.id === spaceId);
-    if (!archivedSpace) return state;
-    return {
-      ...state,
-      spaces,
-      archivedSpaces: [
-        ...currentArchivedSpaces.filter((space) => space.id !== spaceId),
-        archivedSpace,
-      ].toSorted(
-        (left, right) => left.sortOrder - right.sortOrder || left.id.localeCompare(right.id),
-      ),
-    };
-  }
-  const archivedSpaces = currentArchivedSpaces.filter((space) => space.id !== spaceId);
-  if (
-    spaces.length === state.spaces.length &&
-    archivedSpaces.length === currentArchivedSpaces.length
-  ) {
-    return state;
-  }
-  return {
-    ...state,
-    spaces,
-    archivedSpaces,
-  };
+  return spaces.length === state.spaces.length ? state : { ...state, spaces };
 }
 
 export function applySpaceOrder(
@@ -429,11 +375,7 @@ function retainThreadScopedRecord<T>(
  * The per-entry "keep the object already stored, or take the new one" rule for the three
  * thread-keyed shell slices.
  *
- * Both writers below need it: `writeThreadShellProjection` upserts a single thread into the
- * existing records, `rebuildThreadShellRecords` builds all three from scratch for a snapshot.
- * Keeping the rule in one place is what makes their outputs comparable — a thread that did not
- * actually change has to yield the same object either way, or a snapshot arriving after an event
- * would swap references that consumers memoize on for no reason.
+ * Single-thread updates retain references when the opened thread did not change.
  */
 function resolveShellEntry(previous: ThreadShell | undefined, next: ThreadShell): ThreadShell {
   return previous !== undefined && threadShellsEqual(previous, next) ? previous : next;
@@ -507,77 +449,6 @@ function writeThreadShellProjection(
   }
 
   return nextState;
-}
-
-/**
- * Rebuilds the three thread-keyed shell records for a full snapshot in a single pass.
- *
- * `writeThreadShellProjection` is the right shape for a single upserted thread, but a full snapshot
- * used to run it once per thread against records this function had just emptied. Every equality
- * guard therefore failed by construction, so each of the three records was re-spread for every
- * thread: O(n²) property copies per snapshot. Measured on this projection, a snapshot cost 1.3 ms at
- * 200 threads, 59.5 ms at 1000 and 418 ms at 2000 — the last two are a visible main-thread stall on
- * every shell push. Accumulating into three plain objects and comparing once at the end brings the
- * same work to 0.26 ms / 2.4 ms / 4.0 ms.
- *
- * Each entry goes through the same `resolve*Entry` rule the per-thread writer uses, so the two
- * paths cannot drift: a thread that did not change keeps the object already stored, and a thread
- * without a session leaves no key behind. Reusing the previous object per entry is also what lets
- * the whole record be returned by reference when a snapshot changes nothing.
- */
-function rebuildThreadShellRecords(
-  state: AppState,
-  snapshotThreads: readonly OrchestrationShellSnapshot["threads"][number][],
-): {
-  threadShellById: Record<ThreadId, ThreadShell>;
-  threadSessionById: Record<ThreadId, ThreadSession | null>;
-  threadTurnStateById: Record<ThreadId, ThreadTurnState>;
-} {
-  const previousShellById = state.threadShellById ?? EMPTY_THREAD_SHELL_BY_ID;
-  const previousSessionById = state.threadSessionById ?? EMPTY_THREAD_SESSION_BY_ID;
-  const previousTurnStateById = state.threadTurnStateById ?? EMPTY_THREAD_TURN_STATE_BY_ID;
-
-  const threadShellById = {} as Record<ThreadId, ThreadShell>;
-  const threadSessionById = {} as Record<ThreadId, ThreadSession | null>;
-  const threadTurnStateById = {} as Record<ThreadId, ThreadTurnState>;
-
-  for (const thread of snapshotThreads) {
-    const storedShell = previousShellById[thread.id];
-    if (storedShell?.updatedAt !== undefined && storedShell.updatedAt > thread.updatedAt) {
-      threadShellById[thread.id] = storedShell;
-      const session = previousSessionById[thread.id];
-      if (session !== undefined) threadSessionById[thread.id] = session;
-      const turn = previousTurnStateById[thread.id];
-      if (turn !== undefined) threadTurnStateById[thread.id] = turn;
-      continue;
-    }
-    const next = normalizeThreadShellSnapshot(thread, getThreadFromState(state, thread.id));
-    const threadId = next.shell.id;
-
-    threadShellById[threadId] = resolveShellEntry(previousShellById[threadId], next.shell);
-
-    const session = resolveSessionEntry(previousSessionById[threadId], next.session);
-    if (session !== undefined) {
-      threadSessionById[threadId] = session;
-    }
-
-    threadTurnStateById[threadId] = resolveTurnStateEntry(
-      previousTurnStateById[threadId],
-      next.turnState,
-    );
-  }
-
-  return {
-    threadShellById: recordsShallowEqual(previousShellById, threadShellById)
-      ? previousShellById
-      : threadShellById,
-    threadSessionById: recordsShallowEqual(previousSessionById, threadSessionById)
-      ? previousSessionById
-      : threadSessionById,
-    threadTurnStateById: recordsShallowEqual(previousTurnStateById, threadTurnStateById)
-      ? previousTurnStateById
-      : threadTurnStateById,
-  };
 }
 
 function writeThreadDetailSyncState(
@@ -975,25 +846,16 @@ function removeProjectState(state: AppState, folderId: Project["id"]): AppState 
   const nextFolders = state.folders.some((project) => project.id === folderId)
     ? state.folders.filter((project) => project.id !== folderId)
     : state.folders;
-  const currentArchivedFolders = state.archivedFolders ?? [];
-  const nextArchivedFolders = currentArchivedFolders.some((project) => project.id === folderId)
-    ? currentArchivedFolders.filter((project) => project.id !== folderId)
-    : currentArchivedFolders;
   const nextState = [...threadIds].reduce((currentState, threadId) => {
     return removeThreadState(currentState, threadId);
   }, state);
 
-  if (
-    nextFolders === state.folders &&
-    nextArchivedFolders === currentArchivedFolders &&
-    nextState === state
-  ) {
+  if (nextFolders === state.folders && nextState === state) {
     return state;
   }
   return {
     ...nextState,
     folders: nextFolders,
-    archivedFolders: nextArchivedFolders,
   };
 }
 
@@ -1129,82 +991,24 @@ export function applyThreadUpdate(
   );
 }
 
-export function syncServerShellSnapshot(
+export function syncServerStartupSnapshot(
   state: AppState,
-  snapshot: OrchestrationShellSnapshot,
+  snapshot: OrchestrationStartupSnapshot,
 ): AppState {
-  if (isStaleSnapshot(state, snapshot.snapshotSequence)) {
-    return state;
-  }
+  if (isStaleSnapshot(state, snapshot.snapshotSequence)) return state;
   rememberProjectUiState(state.folders);
   rememberProjectLocalNames(state.folders);
-  const deletedFolderIdsById = state.deletedFolderIdsById ?? {};
-  const deletedThreadIdsById = state.deletedThreadIdsById ?? {};
-  const snapshotThreads = snapshot.threads.filter(
-    (thread) =>
-      deletedFolderIdsById[thread.folderId] === undefined &&
-      deletedThreadIdsById[thread.id] === undefined,
-  );
-  const snapshotFolders = snapshot.folders.filter(
-    (project) => deletedFolderIdsById[project.id] === undefined,
-  );
-  const snapshotArchivedFolders = (snapshot.archivedFolders ?? []).filter(
-    (project) => deletedFolderIdsById[project.id] === undefined,
-  );
-  const spaces = mapSpaces(snapshot.spaces ?? [], state.spaces ?? []);
-  const archivedSpaces = mapSpaces(snapshot.archivedSpaces ?? [], state.archivedSpaces ?? []);
-  const folders = mapFolders(snapshotFolders, state.folders);
-  const archivedFolders = mapFolders(snapshotArchivedFolders, state.archivedFolders ?? []);
-  const nextThreadIds = new Set(snapshotThreads.map((thread) => thread.id));
-
-  const normalizedState: AppState = {
+  const deletedFolders = state.deletedFolderIdsById ?? {};
+  return {
     ...state,
-    threadIds: reuseThreadIdRegistry(state.threadIds, nextThreadIds),
-    ...rebuildThreadShellRecords(state, snapshotThreads),
-    messageIdsByThreadId: retainThreadScopedRecord(state.messageIdsByThreadId, nextThreadIds),
-    messageByThreadId: retainThreadScopedRecord(state.messageByThreadId, nextThreadIds),
-    activityIdsByThreadId: retainThreadScopedRecord(state.activityIdsByThreadId, nextThreadIds),
-    activityByThreadId: retainThreadScopedRecord(state.activityByThreadId, nextThreadIds),
-    threadDetailSyncById: retainThreadScopedRecord(state.threadDetailSyncById, nextThreadIds),
-    threadTurnPaginationById: retainThreadScopedRecord(
-      state.threadTurnPaginationById,
-      nextThreadIds,
+    shellSnapshotSequence: Math.max(state.shellSnapshotSequence ?? 0, snapshot.snapshotSequence),
+    spaces: mapSpaces(snapshot.spaces, state.spaces),
+    folders: mapFolders(
+      snapshot.folders.filter((folder) => deletedFolders[folder.id] === undefined),
+      state.folders,
     ),
-    pendingStartCancellationByThreadId: retainThreadScopedRecord(
-      state.pendingStartCancellationByThreadId,
-      nextThreadIds,
-    ),
+    threadsHydrated: true,
   };
-
-  const threads = getThreadsFromState(normalizedState);
-  const nextSidebarThreadSummaryById = Object.fromEntries(
-    threads.map((thread) => [
-      thread.id,
-      buildSidebarThreadSummary(thread, state.sidebarThreadSummaryById[thread.id]),
-    ]),
-  ) as Record<string, SidebarThreadSummary>;
-  const sidebarThreadSummaryById = recordsShallowEqual(
-    state.sidebarThreadSummaryById,
-    nextSidebarThreadSummaryById,
-  )
-    ? state.sidebarThreadSummaryById
-    : nextSidebarThreadSummaryById;
-
-  return retireConfirmedDeletionTombstones(
-    {
-      ...normalizedState,
-      shellSnapshotSequence: Math.max(state.shellSnapshotSequence ?? 0, snapshot.snapshotSequence),
-      spaces,
-      archivedSpaces,
-      folders,
-      archivedFolders,
-      sidebarThreadSummaryById,
-      threadsHydrated: true,
-    },
-    snapshot.snapshotSequence,
-    new Set(snapshot.threads.map((thread) => thread.id)),
-    new Set(snapshot.folders.map((project) => project.id)),
-  );
 }
 
 function syncServerThreadDetailWithOptions(
@@ -1450,12 +1254,7 @@ export function applyShellEvent(state: AppState, event: OrchestrationShellStream
       nextState = upsertSpace(state, event.space);
       break;
     case "space-removed":
-      nextState = removeSpace(
-        state,
-        event.spaceId,
-        event.updatedAt,
-        event.preserveAssignments ?? false,
-      );
+      nextState = removeSpace(state, event.spaceId);
       break;
     case "folder-upserted":
       nextState = upsertProject(state, event.folder, "id-only");
@@ -1501,12 +1300,6 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
     ),
     state.spaces ?? [],
   );
-  const archivedSpaces = mapSpaces(
-    (readModel.spaces ?? []).filter(
-      (space) => space.deletedAt === null && space.archivedAt !== null,
-    ),
-    state.archivedSpaces ?? [],
-  );
   const folders = mapFolders(
     readModel.folders.filter(
       (project) =>
@@ -1515,15 +1308,6 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
         deletedFolderIdsById[project.id] === undefined,
     ),
     state.folders,
-  );
-  const archivedFolders = mapFolders(
-    readModel.folders.filter(
-      (project) =>
-        project.deletedAt === null &&
-        project.archivedAt != null &&
-        deletedFolderIdsById[project.id] === undefined,
-    ),
-    state.archivedFolders ?? [],
   );
   const nextThreads = readModel.threads
     .filter(
@@ -1580,9 +1364,7 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
     : nextSidebarThreadSummaryById;
   if (
     spaces === state.spaces &&
-    archivedSpaces === state.archivedSpaces &&
     folders === state.folders &&
-    archivedFolders === (state.archivedFolders ?? []) &&
     sidebarThreadSummaryById === state.sidebarThreadSummaryById &&
     normalizedState.threadIds === state.threadIds &&
     normalizedState.threadShellById === state.threadShellById &&
@@ -1615,9 +1397,7 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
       ...normalizedState,
       shellSnapshotSequence: Math.max(state.shellSnapshotSequence ?? 0, readModel.snapshotSequence),
       spaces,
-      archivedSpaces,
       folders,
-      archivedFolders,
       sidebarThreadSummaryById,
       threadsHydrated: true,
     },

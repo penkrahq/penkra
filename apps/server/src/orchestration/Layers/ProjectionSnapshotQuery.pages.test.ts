@@ -6,6 +6,8 @@ import { Effect, Exit, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import {
+  STARTUP_SPACES_SQL,
+  STARTUP_FOLDERS_SQL,
   buildFolderShellPageQuery,
   buildThreadShellPageQuery,
   buildTranscriptSearchQuery,
@@ -15,6 +17,7 @@ import {
   ProjectionSnapshotQuery,
   type ProjectionThreadShellPageInput,
 } from "../Services/ProjectionSnapshotQuery.ts";
+import { RUNNING_THREADS_SQL } from "../../cleanCore/threadList.ts";
 import { createThread } from "../../cleanCore/threadStore.ts";
 import { THREADS_PAGE_SIZE } from "@penkra/contracts";
 import { deriveAgentThreadStatus } from "../../agentGateway/threadSummary.ts";
@@ -426,4 +429,48 @@ it.effect(
         );
       }),
     ),
+);
+
+it.effect("startup reads navigation and canonical running rows only through their indexes", () =>
+  run(
+    Effect.gen(function* () {
+      yield* seedSpace;
+      yield* folder("folder");
+      yield* folder("archived-navigation");
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`UPDATE projection_folders SET archived_at = ${now} WHERE folder_id = 'archived-navigation'`;
+      yield* thread("idle");
+      yield* thread("running");
+      yield* thread("archived-running");
+      yield* sql`UPDATE threads SET state = 'running' WHERE id IN ('running', 'archived-running')`;
+      yield* sql`UPDATE threads SET archived_at = ${now} WHERE id = 'archived-running'`;
+      const query = yield* ProjectionSnapshotQuery;
+      const snapshot = yield* query.getStartupSnapshot();
+      assert.deepEqual(Object.keys(snapshot).sort(), [
+        "folders",
+        "runningThreads",
+        "snapshotSequence",
+        "spaces",
+      ]);
+      assert.deepEqual(
+        snapshot.runningThreads.map((row) => row.id),
+        ["running"],
+      );
+      assert.deepEqual(
+        snapshot.folders.map((row) => row.id),
+        ["folder"],
+      );
+      for (const [statement, index] of [
+        [STARTUP_SPACES_SQL, "idx_projection_spaces_visible_order"],
+        [STARTUP_FOLDERS_SQL, "idx_folders_created_live"],
+        [RUNNING_THREADS_SQL, "idx_threads_running_live"],
+      ]) {
+        const plan = yield* sql.unsafe<{ detail: string }>("EXPLAIN QUERY PLAN " + statement);
+        assert.isTrue(
+          plan.some((row) => row.detail.includes(index!)),
+          JSON.stringify(plan),
+        );
+      }
+    }),
+  ),
 );

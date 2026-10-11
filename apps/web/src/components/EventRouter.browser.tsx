@@ -26,6 +26,12 @@ import { setupWorker } from "msw/browser";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
+import {
+  enableChatScrollDiagnostics,
+  disableChatScrollDiagnostics,
+  resetChatScrollDiagnostics,
+  getChatScrollDiagnosticSamples,
+} from "../chatScrollDiagnostics";
 import { useComposerDraftStore } from "../composerDraftStore";
 import {
   getChatLifecycleDiagnosticSamples,
@@ -36,7 +42,8 @@ import { getRouter } from "../router";
 import { useStore } from "../store";
 import { initialState } from "../storeState";
 import {
-  createShellSnapshotFromReadModel,
+  createStartupSnapshotFromReadModel,
+  createThreadShellFromReadModel,
   flattenEffectRpcRequestPayload,
   readEffectRpcClientMessage,
   sendEffectRpcChunk,
@@ -87,7 +94,6 @@ interface AcknowledgementObservation {
 }
 
 let fixture: TestFixture;
-let activePageThreadIds: ThreadId[] = [];
 let subscribeSyncRequestCount = 0;
 let syncStreamRequestId: string | null = null;
 let syncStreamClient: EffectRpcWebSocketClient | null = null;
@@ -214,11 +220,10 @@ function initialSyncDelivery(): OrchestrationSyncStreamItem {
   return {
     kind: "snapshot",
     deliveryId: "sync-snapshot-1",
-    snapshot: {
-      snapshotSequence: fixture.snapshot.snapshotSequence,
-      shell: createShellSnapshotFromReadModel(fixture.snapshot),
-      activeThreadPages: activePageThreadIds.map(createThreadTurnsPage),
-    },
+    snapshot: createStartupSnapshotFromReadModel(
+      fixture.snapshot,
+      fixture.snapshot.threads.map(summarizeFixtureThread).filter((row) => row.state === "running"),
+    ),
   };
 }
 
@@ -373,6 +378,10 @@ function summarizeFixtureThread(thread: OrchestrationThread) {
 }
 
 function resolveUnaryRequest(method: string, body: Record<string, unknown>): unknown {
+  if (method === WS_METHODS.cleanCoreGetThreadShell) {
+    const thread = fixture.snapshot.threads.find((thread) => thread.id === body.threadId);
+    return thread ? createThreadShellFromReadModel(thread) : null;
+  }
   if (method === WS_METHODS.cleanCoreGetThread) {
     const thread = fixture.snapshot.threads.find((thread) => thread.id === body.threadId);
     return thread === undefined ? null : summarizeFixtureThread(thread);
@@ -575,9 +584,9 @@ describe("EventRouter uniform orchestration sync", () => {
   });
 
   beforeEach(async () => {
+    resetThreadListForTests();
     await resetWsNativeApiForTest();
     fixture = buildFixture();
-    activePageThreadIds = [];
     subscribeSyncRequestCount = 0;
     syncStreamRequestId = null;
     syncStreamClient = null;
@@ -607,8 +616,7 @@ describe("EventRouter uniform orchestration sync", () => {
     document.body.innerHTML = "";
   });
 
-  it("subscribes once and hydrates the initial shell plus included active page", async () => {
-    activePageThreadIds = [THREAD_ID];
+  it("subscribes once and loads only the opened thread detail", async () => {
     const mounted = await mountApp();
 
     try {
@@ -618,20 +626,19 @@ describe("EventRouter uniform orchestration sync", () => {
       });
 
       expect(subscribeSyncRequestCount).toBe(1);
-      expect(getThreadTurnsPageRequests).toEqual([]);
+      expect(getThreadTurnsPageRequests).toEqual([THREAD_ID]);
       expect(getThreadFromState(useStore.getState(), THREAD_ID)).toMatchObject({
         title: "Root test thread",
         messages: [{ text: "root message" }],
       });
       expect(acknowledgementObservations).toEqual([
-        {
+        expect.objectContaining({
           deliveryId: "sync-snapshot-1",
           appliedSequence: 1,
           rootTitle: "Project",
-          rootMessageTexts: ["root message"],
-          rootDetailSync: "synced",
-        },
+        }),
       ]);
+      expect(useStore.getState().threadDetailSyncById?.[OTHER_THREAD_ID]).toBeUndefined();
     } finally {
       await mounted.cleanup();
     }
@@ -662,7 +669,6 @@ describe("EventRouter uniform orchestration sync", () => {
   });
 
   it("applies streamed events in order and cumulatively acknowledges applied state", async () => {
-    activePageThreadIds = [THREAD_ID];
     const mounted = await mountApp();
 
     try {
@@ -702,7 +708,6 @@ describe("EventRouter uniform orchestration sync", () => {
   it.each(PROVIDER_RECOVERY_CASES)(
     "recovers the canonical %s sync stream after one renderer application failure",
     async (_providerLabel, modelSelection) => {
-      activePageThreadIds = [THREAD_ID];
       fixture = {
         ...fixture,
         snapshot: {
@@ -800,7 +805,6 @@ describe("EventRouter uniform orchestration sync", () => {
   );
 
   it("applies a large FIFO backlog while a cumulative acknowledgement is still pending", async () => {
-    activePageThreadIds = [THREAD_ID];
     const mounted = await mountApp();
     let streamedTitleStoreUpdates = 0;
     const unsubscribeStoreUpdates = useStore.subscribe((state, previousState) => {
@@ -849,10 +853,10 @@ describe("EventRouter uniform orchestration sync", () => {
   });
 
   it("batches sustained canonical tool-output publication across visible and background threads", async () => {
-    activePageThreadIds = [THREAD_ID];
+    resetChatScrollDiagnostics();
+    enableChatScrollDiagnostics();
     const mounted = await mountApp(THREAD_ID);
 
-    const nextTask = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
     const measureSyncBurst = async (threadId: ThreadId, firstSequence: number) => {
       let storeUpdates = 0;
       let visibleThreadChanges = 0;
@@ -881,12 +885,10 @@ describe("EventRouter uniform orchestration sync", () => {
             deliveryId: "sync-lease-activity",
             event: createThreadActivityReadModelEvent({ sequence, threadId }),
           });
-          await nextTask();
         }
         await vi.waitFor(() => {
           expect(acknowledgementObservations.at(-1)?.appliedSequence).toBe(firstSequence + 11);
         });
-        await new Promise<void>((resolve) => setTimeout(resolve, 100));
         return {
           storeUpdates,
           visibleThreadChanges,
@@ -899,6 +901,23 @@ describe("EventRouter uniform orchestration sync", () => {
     };
 
     try {
+      await vi.waitFor(() =>
+        expect(useStore.getState().threadDetailSyncById?.[THREAD_ID]).toBe("synced"),
+      );
+      await mounted.router.navigate({ to: "/$threadId", params: { threadId: OTHER_THREAD_ID } });
+      await vi.waitFor(() =>
+        expect(useStore.getState().threadDetailSyncById?.[OTHER_THREAD_ID]).toBe("synced"),
+      );
+      await mounted.router.navigate({ to: "/$threadId", params: { threadId: THREAD_ID } });
+      await vi.waitFor(() =>
+        expect(
+          getChatScrollDiagnosticSamples().filter(
+            (sample) =>
+              sample.event === "pagination:visible-reconcile-applied" &&
+              sample.detail.threadId === THREAD_ID,
+          ),
+        ).toHaveLength(2),
+      );
       await vi.waitFor(() => {
         expect(acknowledgementObservations).toHaveLength(1);
         expect(domainStreamRequestCount).toBe(0);
@@ -920,12 +939,12 @@ describe("EventRouter uniform orchestration sync", () => {
         sidebarSummaryChanges: 1,
       });
     } finally {
+      disableChatScrollDiagnostics();
       await mounted.cleanup();
     }
   });
 
   it("applies canonical tool activity while the renderer is hidden without waiting for a throttled timer", async () => {
-    activePageThreadIds = [THREAD_ID];
     const mounted = await mountApp(THREAD_ID);
 
     try {
@@ -963,7 +982,6 @@ describe("EventRouter uniform orchestration sync", () => {
   });
 
   it("applies canonical tool activity while a visible renderer is unfocused", async () => {
-    activePageThreadIds = [THREAD_ID];
     const mounted = await mountApp(THREAD_ID);
 
     try {
@@ -999,7 +1017,6 @@ describe("EventRouter uniform orchestration sync", () => {
   });
 
   it("flushes a focused canonical tool batch when the renderer loses focus", async () => {
-    activePageThreadIds = [THREAD_ID];
     const mounted = await mountApp(THREAD_ID);
 
     try {
@@ -1046,7 +1063,6 @@ describe("EventRouter uniform orchestration sync", () => {
   });
 
   it("flushes a visible canonical tool batch when the renderer becomes hidden", async () => {
-    activePageThreadIds = [THREAD_ID];
     const mounted = await mountApp(THREAD_ID);
 
     try {
@@ -1100,7 +1116,6 @@ describe("EventRouter uniform orchestration sync", () => {
   });
 
   it("hydrates a newly visible route page without opening another sync subscription", async () => {
-    activePageThreadIds = [THREAD_ID];
     const mounted = await mountApp();
 
     try {
@@ -1108,7 +1123,7 @@ describe("EventRouter uniform orchestration sync", () => {
         expect(useStore.getState().threadDetailSyncById?.[THREAD_ID]).toBe("synced");
         expect(acknowledgementObservations).toHaveLength(1);
       });
-      expect(getThreadTurnsPageRequests).toEqual([]);
+      expect(getThreadTurnsPageRequests).toEqual([THREAD_ID]);
 
       await mounted.router.navigate({
         to: "/$threadId",
@@ -1116,7 +1131,7 @@ describe("EventRouter uniform orchestration sync", () => {
       });
 
       await vi.waitFor(() => {
-        expect(getThreadTurnsPageRequests).toEqual([OTHER_THREAD_ID]);
+        expect(getThreadTurnsPageRequests).toEqual([THREAD_ID, OTHER_THREAD_ID]);
         expect(useStore.getState().threadDetailSyncById?.[OTHER_THREAD_ID]).toBe("synced");
       });
       expect(getThreadFromState(useStore.getState(), OTHER_THREAD_ID)?.messages).toMatchObject([
@@ -1129,7 +1144,6 @@ describe("EventRouter uniform orchestration sync", () => {
   });
 
   it("reconciles authoritative tool activity when a previously synced thread is reopened", async () => {
-    activePageThreadIds = [THREAD_ID];
     const mounted = await mountApp();
 
     try {
@@ -1143,7 +1157,7 @@ describe("EventRouter uniform orchestration sync", () => {
         params: { threadId: OTHER_THREAD_ID },
       });
       await vi.waitFor(() => {
-        expect(getThreadTurnsPageRequests).toEqual([OTHER_THREAD_ID]);
+        expect(getThreadTurnsPageRequests).toEqual([THREAD_ID, OTHER_THREAD_ID]);
       });
 
       const rootThread = getFixtureThread(THREAD_ID);
@@ -1186,7 +1200,7 @@ describe("EventRouter uniform orchestration sync", () => {
       });
 
       await vi.waitFor(() => {
-        expect(getThreadTurnsPageRequests).toEqual([OTHER_THREAD_ID, THREAD_ID]);
+        expect(getThreadTurnsPageRequests).toEqual([THREAD_ID, OTHER_THREAD_ID, THREAD_ID]);
         expect(
           getThreadFromState(useStore.getState(), THREAD_ID)?.activities.some(
             (activity) => activity.id === "activity-missed-while-inactive",
@@ -1201,7 +1215,6 @@ describe("EventRouter uniform orchestration sync", () => {
   });
 
   it("does not discard reopened history when unrelated shell state changes before the page returns", async () => {
-    activePageThreadIds = [THREAD_ID];
     const mounted = await mountApp();
 
     try {
@@ -1212,7 +1225,9 @@ describe("EventRouter uniform orchestration sync", () => {
         to: "/$threadId",
         params: { threadId: OTHER_THREAD_ID },
       });
-      await vi.waitFor(() => expect(getThreadTurnsPageRequests).toEqual([OTHER_THREAD_ID]));
+      await vi.waitFor(() =>
+        expect(getThreadTurnsPageRequests).toEqual([THREAD_ID, OTHER_THREAD_ID]),
+      );
 
       const rootThread = getFixtureThread(THREAD_ID);
       const missedTurnId = TurnId.makeUnsafe("turn-missed-during-reopen-race");
@@ -1258,7 +1273,7 @@ describe("EventRouter uniform orchestration sync", () => {
         params: { threadId: THREAD_ID },
       });
       await vi.waitFor(() =>
-        expect(getThreadTurnsPageRequests).toEqual([OTHER_THREAD_ID, THREAD_ID]),
+        expect(getThreadTurnsPageRequests).toEqual([THREAD_ID, OTHER_THREAD_ID, THREAD_ID]),
       );
 
       // A shell reconciliation can replace the id registry while preserving its
@@ -1277,7 +1292,6 @@ describe("EventRouter uniform orchestration sync", () => {
   });
 
   it("cleans up before remounting without leaking a duplicate sync subscription", async () => {
-    activePageThreadIds = [THREAD_ID];
     const firstMount = await mountApp();
 
     try {

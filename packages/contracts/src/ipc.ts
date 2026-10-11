@@ -1,4 +1,10 @@
 import type {
+  CleanCoreListArchivedNavigationResult,
+  CleanCoreListArchivedThreadsInput,
+  CleanCoreListArchivedThreadsResult,
+  CleanCoreRestoreThreadInput,
+} from "./cleanCore";
+import type {
   AuthBearerBootstrapResult,
   AuthBootstrapInput,
   AuthBootstrapResult,
@@ -90,7 +96,6 @@ import type {
   OrchestrationReconcileProviderDeliveryResult,
   OrchestrationEvent,
   OrchestrationReadModel,
-  OrchestrationShellSnapshot,
   OrchestrationShellStreamItem,
   OrchestrationSubscribeThreadInput,
   OrchestrationSyncStreamItem,
@@ -1120,6 +1125,11 @@ export interface NativeApi {
     terminateConnection: (input: TerminateProviderConnectionInput) => Promise<ProviderConnection>;
   };
   cleanCore: {
+    listArchivedNavigation: () => Promise<CleanCoreListArchivedNavigationResult>;
+    listArchivedThreads: (
+      input: CleanCoreListArchivedThreadsInput,
+    ) => Promise<CleanCoreListArchivedThreadsResult>;
+    restoreThread: (input: CleanCoreRestoreThreadInput) => Promise<void>;
     getFolders: (input: CleanCoreGetFoldersInput) => Promise<CleanCoreGetFoldersResult>;
     getThread: (input: CleanCoreGetThreadShellInput) => Promise<CleanCoreThreadSummary | null>;
     sendMessage: (input: CleanCoreSendMessageInput) => Promise<CleanCoreSendResult>;

@@ -25,7 +25,8 @@ import {
   markThreadDetailSyncFailedInClientState,
   removeDeletedProjectFromClientState,
   removeDeletedThreadFromClientState,
-  syncServerShellSnapshot,
+  syncServerStartupSnapshot,
+  syncServerThreadShell,
   syncServerReadModel,
   syncServerThreadDetailHotPath,
   syncServerThreadTurnsPage,
@@ -42,7 +43,7 @@ import {
   makeProject,
   makeReadModelThread,
   makeReadModel,
-  makeShellSnapshot,
+  makeStartupSnapshot,
   makeReadModelProject,
   threadsOf,
 } from "./storeTestFixtures";
@@ -938,22 +939,7 @@ describe("store projection", () => {
     );
 
     const deletedState = removeDeletedProjectFromClientState(initialState, folderId);
-    const afterStaleShellSnapshot = syncServerShellSnapshot(
-      deletedState,
-      makeShellSnapshot({
-        id: threadId,
-        folderId,
-        title: "Stale project thread",
-        modelSelection: {
-          provider: "codex",
-          model: "gpt-5.3-codex",
-        },
-        latestTurn: null,
-        createdAt: "2026-02-27T00:00:00.000Z",
-        updatedAt: "2026-02-27T00:00:30.000Z",
-        session: null,
-      }),
-    );
+    const afterStaleShellSnapshot = syncServerStartupSnapshot(deletedState, makeStartupSnapshot());
     const afterStaleReadModel = syncServerReadModel(
       deletedState,
       makeReadModel(makeReadModelThread({ id: threadId, folderId })),
@@ -971,7 +957,7 @@ describe("store projection", () => {
   it("keeps distinct folder identities even when they use the same physical path", () => {
     const initialState: AppState = {
       spaces: [],
-      archivedSpaces: [],
+
       folders: [
         makeProject({
           id: FolderId.makeUnsafe("project-old"),
@@ -981,7 +967,7 @@ describe("store projection", () => {
           cwd: "/tmp/shared-root",
         }),
       ],
-      archivedFolders: [],
+
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };
@@ -1020,7 +1006,6 @@ describe("store projection", () => {
     const initialState: AppState = {
       ...makeState(makeThread({ folderId })),
       folders: [makeProject({ id: folderId })],
-      archivedFolders: [],
     };
     const project = makeReadModelProject({ id: folderId });
 
@@ -1034,7 +1019,6 @@ describe("store projection", () => {
     } satisfies OrchestrationShellStreamEvent);
 
     expect(next.folders).toEqual([]);
-    expect(next.archivedFolders.map((entry) => entry.id)).toEqual([folderId]);
     expect(next.shellSnapshotSequence).toBe(4);
   });
 
@@ -1051,7 +1035,7 @@ describe("store projection", () => {
           updatedAt: "2026-07-15T10:00:00.000Z",
         },
       ],
-      archivedSpaces: [],
+
       folders: [
         makeProject({
           id: FolderId.makeUnsafe("project-shell-space"),
@@ -1059,7 +1043,7 @@ describe("store projection", () => {
           updatedAt: "2026-07-15T10:00:01.000Z",
         }),
       ],
-      archivedFolders: [],
+
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };
@@ -1078,7 +1062,7 @@ describe("store projection", () => {
     });
   });
 
-  it("keeps archived Spaces lightweight and restores them without losing assignments", () => {
+  it("restores a Space from its broadcast without losing assignments", () => {
     const spaceId = SpaceId.makeUnsafe("space-shell-archive");
     const space = {
       id: spaceId,
@@ -1090,9 +1074,9 @@ describe("store projection", () => {
     };
     const initialState: AppState = {
       spaces: [space],
-      archivedSpaces: [],
+
       folders: [makeProject({ spaceId })],
-      archivedFolders: [],
+
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };
@@ -1106,7 +1090,6 @@ describe("store projection", () => {
     });
 
     expect(archived.spaces).toEqual([]);
-    expect(archived.archivedSpaces).toEqual([space]);
     expect(archived.folders[0]?.spaceId).toBe(spaceId);
 
     const restored = applyShellEvent(archived, {
@@ -1116,48 +1099,14 @@ describe("store projection", () => {
     });
 
     expect(restored.spaces).toEqual([{ ...space, updatedAt: "2026-07-15T10:00:02.000Z" }]);
-    expect(restored.archivedSpaces).toEqual([]);
     expect(restored.folders[0]?.spaceId).toBe(spaceId);
-  });
-
-  it("permanently removes an archived Space without synthesizing assignment changes", () => {
-    const spaceId = SpaceId.makeUnsafe("space-shell-archived-delete");
-    const initialState: AppState = {
-      spaces: [],
-      archivedSpaces: [
-        {
-          id: spaceId,
-          name: "Archived",
-          icon: "book",
-          sortOrder: 0,
-          createdAt: "2026-07-15T10:00:00.000Z",
-          updatedAt: "2026-07-15T10:00:01.000Z",
-        },
-      ],
-      folders: [makeProject({ spaceId })],
-      archivedFolders: [],
-      sidebarThreadSummaryById: {},
-      threadsHydrated: true,
-    };
-
-    const next = applyShellEvent(initialState, {
-      kind: "space-removed",
-      sequence: 4,
-      spaceId,
-      updatedAt: "2026-07-15T10:00:02.000Z",
-    });
-
-    expect(next.archivedSpaces).toEqual([]);
-    expect(next.folders[0]).toMatchObject({
-      spaceId,
-    });
   });
 
   it("drops descendant thread state when a shell project removal arrives", () => {
     const initialState = syncServerReadModel(
       {
         spaces: [],
-        archivedSpaces: [],
+
         folders: [
           makeProject({
             id: FolderId.makeUnsafe("project-shell"),
@@ -1168,7 +1117,7 @@ describe("store projection", () => {
             cwd: "/tmp/project-other",
           }),
         ],
-        archivedFolders: [],
+
         sidebarThreadSummaryById: {},
         threadsHydrated: true,
       },
@@ -2068,7 +2017,7 @@ describe("store projection", () => {
         },
       });
 
-      const next = syncServerShellSnapshot(activeState, makeShellSnapshot(staleShellThread));
+      const next = syncServerThreadShell(activeState, staleShellThread.id, staleShellThread);
       const summary = next.sidebarThreadSummaryById[threadId];
       expect(summary?.session?.orchestrationStatus).toBe(status);
       expect(summary?.latestTurn?.state ?? null).toBe(withRunningTurn ? "running" : null);
@@ -2132,7 +2081,7 @@ describe("store projection", () => {
       },
     });
 
-    const next = syncServerShellSnapshot(activeState, makeShellSnapshot(partialShellThread));
+    const next = syncServerThreadShell(activeState, partialShellThread.id, partialShellThread);
     expect(next.threadSessionById?.[threadId]?.orchestrationStatus).toBe("running");
     expect(next.threadTurnStateById?.[threadId]?.latestTurn).toMatchObject({
       turnId,
@@ -2170,15 +2119,18 @@ describe("store projection", () => {
     });
 
     const completedAt = "2026-02-27T00:00:03.000Z";
-    const next = syncServerShellSnapshot(
+    const next = syncServerThreadShell(
       initial,
-      makeShellSnapshot(
-        makeReadModelThread({
-          id: threadId,
-          workStatus: "done",
-          updatedAt: completedAt,
-        }),
-      ),
+      makeReadModelThread({
+        id: threadId,
+        workStatus: "done",
+        updatedAt: completedAt,
+      }).id,
+      makeReadModelThread({
+        id: threadId,
+        workStatus: "done",
+        updatedAt: completedAt,
+      }),
     );
 
     expect(next.threadShellById?.[threadId]).toMatchObject({
@@ -2496,22 +2448,20 @@ describe("store projection", () => {
     );
 
     const deletedState = removeDeletedThreadFromClientState(initialState, threadId);
-    const next = syncServerShellSnapshot(
-      deletedState,
-      makeShellSnapshot({
-        id: threadId,
-        folderId: FolderId.makeUnsafe("project-1"),
-        title: "Stale resurrected thread",
-        modelSelection: {
-          provider: "codex",
-          model: "gpt-5.3-codex",
-        },
-        latestTurn: null,
-        createdAt: "2026-02-27T00:00:00.000Z",
-        updatedAt: "2026-02-27T00:00:30.000Z",
-        session: null,
-      }),
-    );
+    const incomingShell: import("@penkra/contracts").OrchestrationThreadShell = {
+      id: threadId,
+      folderId: FolderId.makeUnsafe("project-1"),
+      title: "Stale resurrected thread",
+      modelSelection: {
+        provider: "codex",
+        model: "gpt-5.3-codex",
+      },
+      latestTurn: null,
+      createdAt: "2026-02-27T00:00:00.000Z",
+      updatedAt: "2026-02-27T00:00:30.000Z",
+      session: null,
+    };
+    const next = syncServerThreadShell(deletedState, incomingShell.id, incomingShell);
 
     expect(next.deletedThreadIdsById?.[threadId]).toEqual(expect.any(Number));
     expect(threadsOf(next)).toHaveLength(0);
@@ -2537,22 +2487,20 @@ describe("store projection", () => {
       sequence: 3,
       threadId,
     } satisfies OrchestrationShellStreamEvent);
-    const next = syncServerShellSnapshot(removedState, {
-      ...makeShellSnapshot({
-        id: threadId,
-        folderId: FolderId.makeUnsafe("project-1"),
-        title: "Rehydrated shell removed thread",
-        modelSelection: {
-          provider: "codex",
-          model: "gpt-5.3-codex",
-        },
-        latestTurn: null,
-        createdAt: "2026-02-27T00:00:00.000Z",
-        updatedAt: "2026-02-27T00:00:30.000Z",
-        session: null,
-      }),
-      snapshotSequence: 3,
-    });
+    const shell: import("@penkra/contracts").OrchestrationThreadShell = {
+      id: threadId,
+      folderId: FolderId.makeUnsafe("project-1"),
+      title: "Rehydrated shell removed thread",
+      modelSelection: {
+        provider: "codex",
+        model: "gpt-5.3-codex",
+      },
+      latestTurn: null,
+      createdAt: "2026-02-27T00:00:00.000Z",
+      updatedAt: "2026-02-27T00:00:30.000Z",
+      session: null,
+    };
+    const next = syncServerThreadShell(removedState, threadId, shell);
 
     expect(removedState.deletedThreadIdsById?.[threadId]).toBeUndefined();
     expect(threadsOf(next)).toHaveLength(1);
@@ -2675,30 +2623,8 @@ describe("deletion tombstone retirement", () => {
   const folderId = FolderId.makeUnsafe("project-1");
   const deletedThreadId = ThreadId.makeUnsafe("thread-1");
 
-  function makeEmptyShellSnapshot(snapshotSequence: number) {
-    return {
-      snapshotSequence,
-      updatedAt: "2026-02-27T00:10:00.000Z",
-      spaces: [],
-      folders: [],
-      threads: [],
-    };
-  }
-
-  function makeShellSnapshotListingDeletedThread(snapshotSequence: number, title: string) {
-    return {
-      ...makeShellSnapshot({
-        id: deletedThreadId,
-        folderId,
-        title,
-        modelSelection: { provider: "codex", model: "gpt-5.3-codex" },
-        latestTurn: null,
-        createdAt: "2026-02-27T00:00:00.000Z",
-        updatedAt: "2026-02-27T00:00:30.000Z",
-        session: null,
-      }),
-      snapshotSequence,
-    };
+  function makeStartupNavigationSnapshot(snapshotSequence: number) {
+    return { ...makeStartupSnapshot(), snapshotSequence };
   }
 
   function makeDeletedThreadState(deletedAtSequence: number): AppState {
@@ -2708,38 +2634,6 @@ describe("deletion tombstone retirement", () => {
     );
     return removeDeletedThreadFromClientState(hydrated, deletedThreadId, deletedAtSequence);
   }
-
-  it("retires a thread tombstone once a snapshot at or after the deletion confirms it is gone", () => {
-    const deletedState = makeDeletedThreadState(5);
-    expect(deletedState.deletedThreadIdsById?.[deletedThreadId]).toBe(5);
-
-    const next = syncServerShellSnapshot(deletedState, makeEmptyShellSnapshot(9));
-
-    expect(next.deletedThreadIdsById?.[deletedThreadId]).toBeUndefined();
-    expect(threadsOf(next)).toHaveLength(0);
-  });
-
-  it("keeps a thread tombstone when the confirming snapshot predates the deletion", () => {
-    const deletedState = makeDeletedThreadState(5);
-
-    // Sequence 3 was generated before the delete was recorded, so its silence proves nothing.
-    const next = syncServerShellSnapshot(deletedState, makeEmptyShellSnapshot(3));
-
-    expect(next.deletedThreadIdsById?.[deletedThreadId]).toBe(5);
-    expect(threadsOf(next)).toHaveLength(0);
-  });
-
-  it("keeps a thread tombstone when a later snapshot still lists the deleted thread", () => {
-    const deletedState = makeDeletedThreadState(5);
-
-    const next = syncServerShellSnapshot(
-      deletedState,
-      makeShellSnapshotListingDeletedThread(9, "Resurrection attempt"),
-    );
-
-    expect(next.deletedThreadIdsById?.[deletedThreadId]).toBe(5);
-    expect(threadsOf(next)).toHaveLength(0);
-  });
 
   it("retires a project tombstone once the read model reports the project soft-deleted", () => {
     const hydrated = syncServerReadModel(
@@ -2784,41 +2678,6 @@ describe("deletion tombstone retirement", () => {
     expect(threadsOf(next)).toHaveLength(0);
   });
 
-  it("does not let a snapshot older than the newest integrated one retire anything", () => {
-    const deletedState = makeDeletedThreadState(1);
-    // Integrate a newer snapshot that still lists the thread, so the tombstone survives...
-    const afterNewSnapshot = syncServerShellSnapshot(
-      deletedState,
-      makeShellSnapshotListingDeletedThread(20, "Still listed"),
-    );
-    expect(afterNewSnapshot.deletedThreadIdsById?.[deletedThreadId]).toBe(1);
-
-    // ...and a late-arriving older snapshot must not be trusted to retire it either.
-    const next = syncServerShellSnapshot(afterNewSnapshot, makeEmptyShellSnapshot(10));
-
-    expect(next.deletedThreadIdsById?.[deletedThreadId]).toBe(1);
-  });
-
-  it("does not let a stale shell snapshot resurrect a thread whose tombstone was already retired", () => {
-    const deletedState = makeDeletedThreadState(5);
-
-    // Sequence 9 confirms the thread is gone, which legitimately retires the tombstone.
-    const retired = syncServerShellSnapshot(deletedState, makeEmptyShellSnapshot(9));
-    expect(retired.deletedThreadIdsById?.[deletedThreadId]).toBeUndefined();
-    expect(retired.shellSnapshotSequence).toBe(9);
-
-    // A snapshot generated before the delete now has nothing filtering it. Merging it would bring
-    // the thread back, so the whole stale payload has to be rejected.
-    const next = syncServerShellSnapshot(
-      retired,
-      makeShellSnapshotListingDeletedThread(4, "Late stale snapshot"),
-    );
-
-    expect(threadsOf(next)).toHaveLength(0);
-    expect(next.shellSnapshotSequence).toBe(9);
-    expect(next).toBe(retired);
-  });
-
   it("does not let a stale read model resurrect a thread whose tombstone was already retired", () => {
     const deletedState = makeDeletedThreadState(5);
 
@@ -2857,104 +2716,36 @@ describe("deletion tombstone retirement", () => {
     expect(resynced).toBe(hydrated);
   });
 
-  it("keeps the thread id registry stable across a shell snapshot that changes nothing", () => {
-    const hydrated = syncServerShellSnapshot(
+  it("preserves the opened thread registry across startup navigation snapshots", () => {
+    const hydrated = syncServerStartupSnapshot(
       makeState(makeThread({ id: deletedThreadId, folderId })),
-      makeShellSnapshotListingDeletedThread(4, "Stable"),
+      makeStartupNavigationSnapshot(4),
     );
 
-    const resynced = syncServerShellSnapshot(
-      hydrated,
-      makeShellSnapshotListingDeletedThread(5, "Stable"),
-    );
+    const resynced = syncServerStartupSnapshot(hydrated, makeStartupNavigationSnapshot(5));
 
     expect(resynced.threadIds).toBe(hydrated.threadIds);
   });
 
-  it("rebuilds the thread id registry when the snapshot drops a thread", () => {
-    const hydrated = syncServerShellSnapshot(
+  it("preserves opened shell record references across startup navigation snapshots", () => {
+    const hydrated = syncServerStartupSnapshot(
       makeState(makeThread({ id: deletedThreadId, folderId })),
-      makeShellSnapshotListingDeletedThread(4, "Stable"),
+      makeStartupNavigationSnapshot(4),
     );
 
-    const resynced = syncServerShellSnapshot(hydrated, makeEmptyShellSnapshot(5));
+    const resynced = syncServerStartupSnapshot(hydrated, makeStartupNavigationSnapshot(5));
 
-    expect(resynced.threadIds).toEqual([]);
-  });
-
-  function makeMultiThreadShellSnapshot(
-    snapshotSequence: number,
-    threads: readonly { readonly id: string; readonly title: string }[],
-  ) {
-    const base = makeShellSnapshot({
-      id: deletedThreadId,
-      folderId,
-      title: "Base",
-      modelSelection: { provider: "codex", model: "gpt-5.3-codex" },
-      latestTurn: null,
-      createdAt: "2026-02-27T00:00:00.000Z",
-      updatedAt: "2026-02-27T00:00:30.000Z",
-      session: null,
-    });
-    return {
-      ...base,
-      snapshotSequence,
-      threads: threads.map((thread) => ({
-        ...base.threads[0]!,
-        id: ThreadId.makeUnsafe(thread.id),
-        title: thread.title,
-      })),
-    };
-  }
-
-  it("reuses the shell record references when a snapshot changes nothing", () => {
-    const hydrated = syncServerShellSnapshot(
-      makeState(makeThread({ id: deletedThreadId, folderId })),
-      makeShellSnapshotListingDeletedThread(4, "Stable"),
-    );
-
-    const resynced = syncServerShellSnapshot(
-      hydrated,
-      makeShellSnapshotListingDeletedThread(5, "Stable"),
-    );
-
-    // The whole point of rebuilding these records in one pass: an unchanged snapshot must not
-    // hand every downstream selector three brand-new dictionaries to re-derive from.
+    // Navigation refreshes leave the opened thread records intact.
     expect(resynced.threadShellById).toBe(hydrated.threadShellById);
     expect(resynced.threadSessionById).toBe(hydrated.threadSessionById);
     expect(resynced.threadTurnStateById).toBe(hydrated.threadTurnStateById);
   });
 
-  it("keeps untouched thread entries stable when one thread changes", () => {
-    const hydrated = syncServerShellSnapshot(
-      makeState(makeThread({ id: deletedThreadId, folderId })),
-      makeMultiThreadShellSnapshot(4, [
-        { id: "thread-a", title: "A" },
-        { id: "thread-b", title: "B" },
-      ]),
-    );
-
-    const resynced = syncServerShellSnapshot(
-      hydrated,
-      makeMultiThreadShellSnapshot(5, [
-        { id: "thread-a", title: "A" },
-        { id: "thread-b", title: "B renamed" },
-      ]),
-    );
-
-    const threadA = ThreadId.makeUnsafe("thread-a");
-    const threadB = ThreadId.makeUnsafe("thread-b");
-    expect(resynced.threadShellById).not.toBe(hydrated.threadShellById);
-    expect(resynced.threadShellById?.[threadA]).toBe(hydrated.threadShellById?.[threadA]);
-    expect(resynced.threadShellById?.[threadB]?.title).toBe("B renamed");
-    // Only the shells moved, so the sibling records stay put.
-    expect(resynced.threadTurnStateById).toBe(hydrated.threadTurnStateById);
-  });
-
   it("stores a missing session as an absent key rather than an explicit null", () => {
-    const hydrated = syncServerShellSnapshot(
+    const hydrated = syncServerThreadShell(
       makeState(makeThread({ id: deletedThreadId, folderId })),
-      makeShellSnapshotListingDeletedThread(4, "Stable"),
+      deletedThreadId,
+      makeReadModelThread({ id: deletedThreadId, folderId, session: null }),
     );
 
     expect(hydrated.threadSessionById?.[deletedThreadId]).toBeUndefined();
@@ -3026,9 +2817,11 @@ describe("deletion tombstone retirement", () => {
     const deleted = removeDeletedThreadFromClientState(next, deletedThreadId, undefined);
     expect(deleted.deletedThreadIdsById?.[deletedThreadId]).toBe(31);
     expect(
-      syncServerShellSnapshot(deleted, makeEmptyShellSnapshot(30)).deletedThreadIdsById?.[
-        deletedThreadId
-      ],
+      syncServerReadModel(deleted, {
+        ...makeReadModel(makeReadModelThread({ id: deletedThreadId, folderId })),
+        snapshotSequence: 30,
+        threads: [],
+      }).deletedThreadIdsById?.[deletedThreadId],
     ).toBe(31);
   });
 });

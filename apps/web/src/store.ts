@@ -9,7 +9,7 @@ import {
   type MessageId,
   type OrchestrationEvent,
   type OrchestrationReadModel,
-  type OrchestrationShellSnapshot,
+  type OrchestrationStartupSnapshot,
   type OrchestrationThreadShell,
   type OrchestrationShellStreamEvent,
   type OrchestrationGetThreadTurnsPageResult,
@@ -30,7 +30,7 @@ import {
   removeDeletedProjectFromClientState,
   removeDeletedThreadFromClientState,
   syncServerReadModel,
-  syncServerShellSnapshot,
+  syncServerStartupSnapshot,
   syncServerThreadShell,
   syncServerThreadDetail,
   syncServerThreadDetailHotPath,
@@ -60,7 +60,7 @@ export {
   removeDeletedProjectFromClientState,
   removeDeletedThreadFromClientState,
   syncServerReadModel,
-  syncServerShellSnapshot,
+  syncServerStartupSnapshot,
   syncServerThreadShell,
   syncServerThreadDetail,
   syncServerThreadDetailHotPath,
@@ -177,7 +177,7 @@ export function setError(state: AppState, threadId: ThreadId, error: string | nu
 // ── Zustand store ────────────────────────────────────────────────────
 
 interface AppStore extends AppState {
-  syncServerShellSnapshot: (snapshot: OrchestrationShellSnapshot) => void;
+  syncServerStartupSnapshot: (snapshot: OrchestrationStartupSnapshot) => void;
   syncServerThreadShell: (threadId: ThreadId, thread: OrchestrationThreadShell | null) => void;
   syncServerThreadDetail: (thread: ReadModelThread) => void;
   syncServerThreadDetailHotPath: (thread: ReadModelThread) => void;
@@ -206,7 +206,8 @@ interface AppStore extends AppState {
 
 export const useStore = create<AppStore>((set) => ({
   ...readPersistedState(initialState),
-  syncServerShellSnapshot: (snapshot) => set((state) => syncServerShellSnapshot(state, snapshot)),
+  syncServerStartupSnapshot: (snapshot) =>
+    set((state) => syncServerStartupSnapshot(state, snapshot)),
   syncServerThreadShell: (threadId, thread) =>
     set((state) => syncServerThreadShell(state, threadId, thread)),
   syncServerThreadDetail: (thread) => set((state) => syncServerThreadDetail(state, thread)),

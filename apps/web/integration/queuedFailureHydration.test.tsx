@@ -7,9 +7,9 @@ import { describe, expect, it } from "vitest";
 import { OrchestrationProjectionSnapshotQueryLive } from "../../server/src/orchestration/Layers/ProjectionSnapshotQuery.ts";
 import { ProjectionSnapshotQuery } from "../../server/src/orchestration/Services/ProjectionSnapshotQuery.ts";
 import { SqlitePersistenceMemory } from "../../server/src/persistence/Layers/Sqlite.ts";
-import { createShellSnapshotFromReadModel } from "../src/test/effectRpcWebSocketMock";
+import { createStartupSnapshotFromReadModel } from "../src/test/effectRpcWebSocketMock";
 import { ThreadErrorBanner } from "../src/components/chat/ThreadErrorBanner";
-import { syncServerShellSnapshot, syncServerThreadTurnsPage } from "../src/storeProjection";
+import { syncServerStartupSnapshot, syncServerThreadTurnsPage } from "../src/storeProjection";
 import { makeState, makeThread, threadsOf } from "../src/storeTestFixtures";
 
 describe("failed queued delivery hydration", () => {
@@ -50,18 +50,18 @@ describe("failed queued delivery hydration", () => {
 
       const snapshot = await runtime.runPromise(query.getSnapshot());
       expect(snapshot.threads[0]?.messages[0]?.delivery?.failureDetail).toBe(reason);
-      const shell = createShellSnapshotFromReadModel(snapshot);
+      const shell = createStartupSnapshotFromReadModel(snapshot, []);
       const page = await runtime.runPromise(query.getThreadTurnsPage({ threadId }));
       expect(page.messages[0]?.delivery?.failureDetail).toBe(reason);
 
-      const cold = syncServerShellSnapshot(makeState(makeThread()), shell);
+      const cold = syncServerStartupSnapshot(makeState(makeThread()), shell);
       expect(threadsOf(cold)[0]?.messages).toEqual([]);
       const hydrated = syncServerThreadTurnsPage(cold, page);
       const thread = threadsOf(hydrated)[0];
       expect(thread?.messages[0]?.delivery?.state).toBe("failed");
       const markup = renderToStaticMarkup(<ThreadErrorBanner error={thread?.error ?? null} />);
       expect(markup).toContain(reason);
-      expect(threadsOf(syncServerShellSnapshot(hydrated, shell))[0]?.error).toBe(reason);
+      expect(threadsOf(syncServerStartupSnapshot(hydrated, shell))[0]?.error).toBe(reason);
 
       await runtime.runPromise(
         Effect.gen(function* () {

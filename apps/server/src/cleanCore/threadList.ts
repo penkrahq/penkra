@@ -46,7 +46,7 @@ export interface ThreadSummaryRecord {
   readonly updatedAt: string;
 }
 
-const THREAD_SUMMARY_COLUMNS = `
+export const THREAD_SUMMARY_COLUMNS = `
         id,
         space_id AS "spaceId",
         folder_id AS "folderId",
@@ -216,4 +216,11 @@ export const searchThreads = (input: CleanCoreSearchThreadsInput) =>
         ? { matchKind: last.matchKind, lastActivityAt: last.lastActivityAt, id: last.id }
         : null;
     return { threads, nextCursor };
+  });
+
+export const RUNNING_THREADS_SQL = `SELECT ${THREAD_SUMMARY_COLUMNS} FROM threads WHERE state = 'running' AND deleted_at IS NULL AND archived_at IS NULL ORDER BY id`;
+export const listRunningThreads = () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    return yield* sql.unsafe<ThreadSummaryRecord>(RUNNING_THREADS_SQL);
   });

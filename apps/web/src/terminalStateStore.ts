@@ -1223,7 +1223,7 @@ interface TerminalStateStoreState {
     activity: { agentState: TerminalActivityState | null; hasRunningSubprocess: boolean },
   ) => void;
   clearTerminalState: (threadId: ThreadId) => void;
-  removeOrphanedTerminalStates: (activeThreadIds: Set<ThreadId>) => void;
+  removeThreadTerminalState: (threadId: ThreadId) => void;
 }
 
 // Defers partialize + JSON.stringify off the hot set() path (terminal layout
@@ -1329,16 +1329,11 @@ export const useTerminalStateStore = create<TerminalStateStoreState>()(
           ),
         clearTerminalState: (threadId) =>
           updateTerminal(threadId, () => createDefaultThreadTerminalState()),
-        removeOrphanedTerminalStates: (activeThreadIds) =>
+        removeThreadTerminalState: (threadId) =>
           set((state) => {
-            const orphanedIds = Object.keys(state.terminalStateByThreadId).filter(
-              (id) => !activeThreadIds.has(id as ThreadId),
-            );
-            if (orphanedIds.length === 0) return state;
+            if (!(threadId in state.terminalStateByThreadId)) return state;
             const next = { ...state.terminalStateByThreadId };
-            for (const id of orphanedIds) {
-              delete next[id as ThreadId];
-            }
+            delete next[threadId];
             return { terminalStateByThreadId: next };
           }),
       };

@@ -10,7 +10,7 @@ import {
   TurnId,
   type OrchestrationEvent,
   type OrchestrationReadModel,
-  type OrchestrationShellSnapshot,
+  type OrchestrationStartupSnapshot,
   type OrchestrationThreadActivity,
 } from "@penkra/contracts";
 
@@ -103,9 +103,9 @@ export function makeState(thread: Thread): AppState {
   const { session, latestTurn, messages, activities, ...shell } = thread;
   return {
     spaces: [],
-    archivedSpaces: [],
+
     folders: [makeProject()],
-    archivedFolders: [],
+
     sidebarThreadSummaryById: {},
     threadsHydrated: true,
     threadIds: [thread.id],
@@ -195,13 +195,9 @@ export function makeReadModel(
   };
 }
 
-export function makeShellSnapshot(thread: OrchestrationShellSnapshot["threads"][number]) {
-  const normalizedThread = {
-    ...thread,
-  } as OrchestrationShellSnapshot["threads"][number];
+export function makeStartupSnapshot(): OrchestrationStartupSnapshot {
   return {
     snapshotSequence: 2,
-    updatedAt: "2026-02-27T00:01:00.000Z",
     spaces: [],
     folders: [
       {
@@ -218,10 +214,9 @@ export function makeShellSnapshot(thread: OrchestrationShellSnapshot["threads"][
         spaceId: TEST_SPACE_ID,
       },
     ],
-    threads: [normalizedThread],
-  } satisfies OrchestrationShellSnapshot;
+    runningThreads: [],
+  };
 }
-
 export function makeReadModelProject(
   overrides: Partial<OrchestrationReadModel["folders"][number]>,
 ): OrchestrationReadModel["folders"][number] {

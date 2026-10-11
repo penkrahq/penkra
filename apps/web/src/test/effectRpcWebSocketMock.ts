@@ -9,7 +9,7 @@ import {
   WS_PROTOCOL_MAX_REVISION,
   WS_SERVER_CAPABILITIES,
   type OrchestrationReadModel,
-  type OrchestrationShellSnapshot,
+  type OrchestrationStartupSnapshot,
 } from "@penkra/contracts";
 
 export interface EffectRpcWebSocketClient {
@@ -124,45 +124,31 @@ export function flattenEffectRpcRequestPayload(
   return { _tag: tag, value: payload };
 }
 
-export function createShellSnapshotFromReadModel(
+export function createStartupSnapshotFromReadModel(
   snapshot: OrchestrationReadModel,
-): OrchestrationShellSnapshot {
+  runningThreads: OrchestrationStartupSnapshot["runningThreads"],
+): OrchestrationStartupSnapshot {
   return {
     snapshotSequence: snapshot.snapshotSequence,
     spaces: snapshot.spaces
-      .filter((space) => space.deletedAt === null)
+      .filter((space) => space.deletedAt === null && space.archivedAt === null)
       .map(({ deletedAt: _deletedAt, ...space }) => space),
     folders: snapshot.folders
-      .filter((project) => project.deletedAt === null)
-      .map((project) => ({
-        id: project.id,
-        title: project.title,
-        workspaceRoot: project.workspaceRoot,
-        defaultModelSelection: project.defaultModelSelection,
-        scripts: project.scripts,
-        spaceId: project.spaceId,
-        createdAt: project.createdAt,
-        updatedAt: project.updatedAt,
-      })),
-    threads: snapshot.threads
-      .filter((thread) => thread.deletedAt === null)
-      .map((thread) => ({
-        id: thread.id,
-        folderId: thread.folderId,
-        title: thread.title,
-        modelSelection: thread.modelSelection,
-        subagentAgentId: thread.subagentAgentId ?? null,
-        subagentNickname: thread.subagentNickname ?? null,
-        subagentRole: thread.subagentRole ?? null,
-        latestTurn: thread.latestTurn,
-        hasPendingApprovals: thread.hasPendingApprovals ?? false,
-        hasPendingUserInput: thread.hasPendingUserInput ?? false,
-        workStatus: thread.workStatus ?? "idle",
-        createdAt: thread.createdAt,
-        updatedAt: thread.updatedAt,
-        archivedAt: thread.archivedAt ?? null,
-        session: thread.session,
-      })),
-    updatedAt: snapshot.updatedAt,
+      .filter((folder) => folder.deletedAt === null && folder.archivedAt == null)
+      .map(({ deletedAt: _deletedAt, ...folder }) => folder),
+    runningThreads,
   };
+}
+export function createThreadShellFromReadModel(
+  thread: OrchestrationReadModel["threads"][number],
+): import("@penkra/contracts").OrchestrationThreadShell {
+  const {
+    messages: _messages,
+    activities: _activities,
+    queuedMessageIds: _queued,
+    pendingInteractions: _interactions,
+    deletedAt: _deleted,
+    ...shell
+  } = thread;
+  return shell;
 }

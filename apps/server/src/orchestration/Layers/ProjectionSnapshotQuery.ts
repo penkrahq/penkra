@@ -1,3 +1,4 @@
+import { listRunningThreads } from "../../cleanCore/threadList.ts";
 import {
   IsoDateTime,
   MessageId,
@@ -7,7 +8,7 @@ import {
   OrchestrationFolderShell,
   OrchestrationSpaceShell,
   OrchestrationReadModel,
-  OrchestrationShellSnapshot,
+  OrchestrationStartupSnapshot,
   OrchestrationGetThreadTurnsPageResult,
   OrchestrationGetPendingStartOutcomeResult,
   OrchestrationThreadDetailSnapshot,
@@ -68,7 +69,7 @@ import {
 } from "../Services/ProjectionSnapshotQuery.ts";
 
 const decodeReadModel = Schema.decodeUnknownEffect(OrchestrationReadModel);
-const decodeShellSnapshot = Schema.decodeUnknownEffect(OrchestrationShellSnapshot);
+const decodeStartupSnapshot = Schema.decodeUnknownEffect(OrchestrationStartupSnapshot);
 const decodeThreadDetail = Schema.decodeUnknownEffect(OrchestrationThread);
 const decodeThreadDetailSnapshot = Schema.decodeUnknownEffect(OrchestrationThreadDetailSnapshot);
 const decodeThreadTurnsPage = Schema.decodeUnknownEffect(OrchestrationGetThreadTurnsPageResult);
@@ -263,15 +264,6 @@ function decodeProjectionThreadRows(
   operation: string,
 ): Effect.Effect<ReadonlyArray<ProjectionThreadDbRow>, ProjectionRepositoryError> {
   return Effect.forEach(rows, decodeProjectionThreadRow).pipe(
-    Effect.mapError(toPersistenceDecodeError(operation)),
-  );
-}
-
-function decodeProjectionThreadShellRows(
-  rows: ReadonlyArray<ProjectionThreadShellDbRowRaw>,
-  operation: string,
-): Effect.Effect<ReadonlyArray<ProjectionThreadShellDbRow>, ProjectionRepositoryError> {
-  return Effect.forEach(rows, decodeProjectionThreadShellRow).pipe(
     Effect.mapError(toPersistenceDecodeError(operation)),
   );
 }
@@ -661,6 +653,9 @@ function computeSnapshotSequence(
   return Number.isFinite(minSequence) ? minSequence : 0;
 }
 
+export const STARTUP_SPACES_SQL = `SELECT space_id AS "spaceId", name, icon, sort_order AS "sortOrder", created_at AS "createdAt", updated_at AS "updatedAt", archived_at AS "archivedAt", deleted_at AS "deletedAt" FROM projection_spaces WHERE deleted_at IS NULL AND archived_at IS NULL ORDER BY sort_order, space_id`;
+export const STARTUP_FOLDERS_SQL = `SELECT folder_id AS "folderId", space_id AS "spaceId", title, workspace_root AS "workspaceRoot", default_model_selection_json AS "defaultModelSelection", scripts_json AS "scripts", icon_data_url AS "iconDataUrl", sidebar_sort_order AS "sidebarSortOrder", created_at AS "createdAt", updated_at AS "updatedAt", archived_at AS "archivedAt", deleted_at AS "deletedAt" FROM projection_folders WHERE deleted_at IS NULL AND archived_at IS NULL ORDER BY created_at, folder_id`;
+
 const THREAD_SHELL_COLUMNS = `
           t.id AS "threadId",
           t.folder_id AS "folderId",
@@ -1039,31 +1034,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     let after: ThreadId | null = null;
     while (true) {
       const page: readonly ProjectionThreadDbRowRaw[] = yield* listThreadRowsPage(after);
-      rows.push(...page);
-      if (page.length < 50) return rows;
-      after = page[page.length - 1]!.threadId;
-    }
-  });
-
-  const listThreadShellRowsPage = SqlSchema.findAll({
-    Request: Schema.NullOr(ThreadId),
-    Result: ProjectionThreadShellDbRowSchema,
-    execute: (after) =>
-      sql`
-        SELECT
-          ${sql.literal(THREAD_SHELL_COLUMNS)}
-        FROM threads t
-        WHERE (${after} IS NULL OR id > ${after})
-        ORDER BY id ASC
-        LIMIT 50
-      `,
-  });
-
-  const listThreadShellRows = Effect.fnUntraced(function* (_request: void) {
-    const rows: ProjectionThreadShellDbRowRaw[] = [];
-    let after: ThreadId | null = null;
-    while (true) {
-      const page: readonly ProjectionThreadShellDbRowRaw[] = yield* listThreadShellRowsPage(after);
       rows.push(...page);
       if (page.length < 50) return rows;
       after = page[page.length - 1]!.threadId;
@@ -2421,123 +2391,50 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       ),
     );
 
-  const getShellSnapshot: ProjectionSnapshotQueryShape["getShellSnapshot"] = () =>
+  const getStartupSnapshot: ProjectionSnapshotQueryShape["getStartupSnapshot"] = () =>
     sql
       .withTransaction(
         Effect.gen(function* () {
-          const [spaceRows, projectRows, threadRows, sessionRows, latestTurnRows, stateRows] =
-            yield* Effect.all([
-              listSpaceRows(undefined).pipe(
-                Effect.mapError(
-                  toPersistenceSqlOrDecodeError(
-                    "ProjectionSnapshotQuery.getShellSnapshot:listSpaces:query",
-                    "ProjectionSnapshotQuery.getShellSnapshot:listSpaces:decodeRows",
-                  ),
-                ),
-              ),
-              listProjectRows(undefined).pipe(
-                Effect.mapError(
-                  toPersistenceSqlOrDecodeError(
-                    "ProjectionSnapshotQuery.getShellSnapshot:listFolders:query",
-                    "ProjectionSnapshotQuery.getShellSnapshot:listFolders:decodeRows",
-                  ),
-                ),
-                Effect.flatMap((rows) =>
-                  decodeProjectionFolderRows(
-                    rows,
-                    "ProjectionSnapshotQuery.getShellSnapshot:listFolders:decodeModelSelections",
-                  ),
-                ),
-              ),
-              listThreadShellRows(undefined).pipe(
-                Effect.mapError(
-                  toPersistenceSqlOrDecodeError(
-                    "ProjectionSnapshotQuery.getShellSnapshot:listThreads:query",
-                    "ProjectionSnapshotQuery.getShellSnapshot:listThreads:decodeRows",
-                  ),
-                ),
-                Effect.flatMap((rows) =>
-                  decodeProjectionThreadShellRows(
-                    rows,
-                    "ProjectionSnapshotQuery.getShellSnapshot:listThreads:decodeModelSelections",
-                  ),
-                ),
-              ),
-              listThreadSessionRows(undefined).pipe(
-                Effect.mapError(
-                  toPersistenceSqlOrDecodeError(
-                    "ProjectionSnapshotQuery.getShellSnapshot:listThreadSessions:query",
-                    "ProjectionSnapshotQuery.getShellSnapshot:listThreadSessions:decodeRows",
-                  ),
-                ),
-              ),
-              listLatestTurnRows(undefined).pipe(
-                Effect.mapError(
-                  toPersistenceSqlOrDecodeError(
-                    "ProjectionSnapshotQuery.getShellSnapshot:listLatestTurns:query",
-                    "ProjectionSnapshotQuery.getShellSnapshot:listLatestTurns:decodeRows",
-                  ),
-                ),
-              ),
-              listProjectionStateRows(undefined).pipe(
-                Effect.mapError(
-                  toPersistenceSqlOrDecodeError(
-                    "ProjectionSnapshotQuery.getShellSnapshot:listProjectionState:query",
-                    "ProjectionSnapshotQuery.getShellSnapshot:listProjectionState:decodeRows",
-                  ),
-                ),
-              ),
-            ]);
-
-          const latestTurns = collectProjectedLatestTurns(latestTurnRows);
-          const sessions = collectProjectedSessions(sessionRows);
-
-          let updatedAt = collectBaseUpdatedAt({ spaceRows, projectRows, threadRows, stateRows });
-          updatedAt = maxOptionalIso(updatedAt, latestTurns.updatedAt);
-          updatedAt = maxOptionalIso(updatedAt, sessions.updatedAt);
-
-          const snapshot = {
-            snapshotSequence: computeSnapshotSequence(stateRows),
-            spaces: spaceRows
-              .filter((row) => row.deletedAt === null && row.archivedAt === null)
-              .map(toProjectedSpaceShell),
-            archivedSpaces: spaceRows
-              .filter((row) => row.deletedAt === null && row.archivedAt !== null)
-              .map(toProjectedSpaceShell),
-            folders: projectRows
-              .filter((row) => row.deletedAt === null && row.archivedAt === null)
-              .map((row) => toProjectedProjectShell(row)),
-            archivedFolders: projectRows
-              .filter((row) => row.deletedAt === null && row.archivedAt !== null)
-              .map((row) => toProjectedProjectShell(row)),
-            threads: threadRows
-              .filter((row) => row.deletedAt === null)
-              .map((row) =>
-                toProjectedThreadShellFromStoredSummary({
-                  threadRow: row,
-                  latestTurn: latestTurns.byThread.get(row.threadId) ?? null,
-                  session: sessions.byThread.get(row.threadId) ?? null,
-                }),
-              ),
-            updatedAt: updatedAt ?? new Date(0).toISOString(),
-          };
-
-          return yield* decodeShellSnapshot(snapshot).pipe(
-            Effect.mapError(
-              toPersistenceDecodeError(
-                "ProjectionSnapshotQuery.getShellSnapshot:decodeShellSnapshot",
+          const startedAt = Date.now();
+          const spaceRows = yield* sql
+            .unsafe(STARTUP_SPACES_SQL)
+            .pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(ProjectionSpace))));
+          const folderRows = yield* sql.unsafe(STARTUP_FOLDERS_SQL).pipe(
+            Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(ProjectionFolderDbRowSchema))),
+            Effect.flatMap((rows) =>
+              decodeProjectionFolderRows(
+                rows,
+                "ProjectionSnapshotQuery.getStartupSnapshot:folders",
               ),
             ),
           );
+          const runningThreads = yield* listRunningThreads().pipe(
+            Effect.provideService(SqlClient.SqlClient, sql),
+          );
+          const stateRows = yield* listProjectionStateRows(undefined);
+          const snapshot = yield* decodeStartupSnapshot({
+            snapshotSequence: computeSnapshotSequence(stateRows),
+            spaces: spaceRows.map(toProjectedSpaceShell),
+            folders: folderRows.map(toProjectedProjectShell),
+            runningThreads,
+          });
+          yield* Effect.logInfo("startup snapshot read").pipe(
+            Effect.annotateLogs({
+              durationMs: Date.now() - startedAt,
+              spaces: snapshot.spaces.length,
+              folders: snapshot.folders.length,
+              runningThreads: snapshot.runningThreads.length,
+            }),
+          );
+          return snapshot;
         }),
       )
       .pipe(
-        Effect.mapError((error) => {
-          if (isPersistenceError(error)) {
-            return error;
-          }
-          return toPersistenceSqlError("ProjectionSnapshotQuery.getShellSnapshot:query")(error);
-        }),
+        Effect.mapError((error) =>
+          isPersistenceError(error)
+            ? error
+            : toPersistenceSqlError("ProjectionSnapshotQuery.getStartupSnapshot")(error),
+        ),
       );
 
   const listStaleInFlightThreadIds: ProjectionSnapshotQueryShape["listStaleInFlightThreadIds"] = (
@@ -3414,7 +3311,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
   return {
     getCommandReadModel,
     getSnapshot,
-    getShellSnapshot,
+    getStartupSnapshot,
     hasActiveProviderThread,
     listFolderShellPage,
     listThreadShellPage,

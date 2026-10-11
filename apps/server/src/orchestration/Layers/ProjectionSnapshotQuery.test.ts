@@ -143,10 +143,13 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         `;
       }
 
-      const shell = yield* snapshotQuery.getShellSnapshot();
+      const shell = yield* snapshotQuery.getStartupSnapshot();
       const full = yield* snapshotQuery.getSnapshot();
       assert.equal(shell.spaces[0]?.id, SpaceId.makeUnsafe("space-snapshot"));
-      assert.equal(shell.archivedSpaces?.[0]?.id, SpaceId.makeUnsafe("space-archived-snapshot"));
+      assert.equal(
+        shell.spaces.some((space) => space.id === "space-archived-snapshot"),
+        false,
+      );
       assert.equal(shell.folders[0]?.spaceId, SpaceId.makeUnsafe("space-snapshot"));
       assert.equal(full.spaces[0]?.id, SpaceId.makeUnsafe("space-snapshot"));
       assert.equal(
@@ -1187,7 +1190,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
       yield* sql`
         INSERT INTO projection_folders (
-          folder_id,
+          folder_id, space_id,
           title,
           workspace_root,
           default_model_selection_json,
@@ -1197,7 +1200,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           deleted_at
         )
         VALUES (
-          'project-imported-shape',
+          'project-imported-shape', 'penkra-personal',
           'Imported Shape Project',
           '/tmp/imported-shape',
           '{"instanceId":"codex","model":"imported-project-model","options":[{"id":"reasoningEffort","value":"medium"}]}',
@@ -1222,7 +1225,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       } as const;
 
       const snapshot = yield* snapshotQuery.getSnapshot();
-      const shellSnapshot = yield* snapshotQuery.getShellSnapshot();
+      const shellSnapshot = yield* snapshotQuery.getStartupSnapshot();
       const activeProject =
         yield* snapshotQuery.getActiveFolderByWorkspaceRoot("/tmp/imported-shape");
       const projectShell = yield* snapshotQuery.getFolderShellById(
@@ -1253,8 +1256,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         expectedProjectSelection,
       );
       assert.deepStrictEqual(
-        shellSnapshot.threads.find((thread) => thread.id === "thread-imported-shape")
-          ?.modelSelection,
+        Option.getOrNull(
+          yield* snapshotQuery.getThreadShellById(asThreadId("thread-imported-shape")),
+        )?.modelSelection,
         expectedThreadSelection,
       );
       assert.deepStrictEqual(
@@ -1368,7 +1372,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
       yield* sql`
         INSERT INTO projection_folders (
-          folder_id,
+          folder_id, space_id,
           title,
           workspace_root,
           default_model_selection_json,
@@ -1378,7 +1382,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           deleted_at
         )
         VALUES (
-          'project-shell',
+          'project-shell', 'penkra-personal',
           'Shell Project',
           '/tmp/project-shell',
           '{"provider":"codex","model":"gpt-5-codex"}',
@@ -1457,56 +1461,58 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       }
 
       yield* sql`UPDATE threads SET open_question_count = 2 WHERE id = 'thread-shell'`;
-      const shellSnapshot = yield* snapshotQuery.getShellSnapshot();
-      assert.deepEqual(shellSnapshot.threads, [
-        {
-          id: ThreadId.makeUnsafe("thread-shell"),
-          connectionId: null,
-          folderId: asFolderId("project-shell"),
-          title: "Shell Thread",
-          modelSelection: {
-            provider: "codex",
-            model: "gpt-5-codex",
+      const shellSnapshot = yield* snapshotQuery.getStartupSnapshot();
+      const expectedThreadShells: readonly import("@penkra/contracts").OrchestrationThreadShell[] =
+        [
+          {
+            id: ThreadId.makeUnsafe("thread-shell"),
+            connectionId: null,
+            folderId: asFolderId("project-shell"),
+            title: "Shell Thread",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5-codex",
+            },
+            creationSource: null,
+            sourceThreadId: null,
+            sourceTurnId: null,
+            gatewayOperationId: null,
+            gatewayOperationIndex: null,
+            subagentAgentId: null,
+            subagentNickname: null,
+            subagentRole: null,
+            latestTurn: {
+              turnId: asTurnId("turn-shell"),
+              state: "completed",
+              requestedAt: "2026-03-03T00:00:05.000Z",
+              startedAt: "2026-03-03T00:00:05.000Z",
+              completedAt: "2026-03-03T00:00:05.000Z",
+              assistantMessageId: null,
+            },
+            hasPendingApprovals: false,
+            hasPendingUserInput: true,
+            workStatus: "attention",
+            createdAt: "2026-03-03T00:00:02.000Z",
+            updatedAt: "2026-03-03T00:00:03.000Z",
+            archivedAt: null,
+            session: {
+              threadId: ThreadId.makeUnsafe("thread-shell"),
+              status: "ready",
+              providerName: "codex",
+              activeTurnId: null,
+              lastError: null,
+              updatedAt: "2026-03-03T00:00:04.000Z",
+            },
           },
-          creationSource: null,
-          sourceThreadId: null,
-          sourceTurnId: null,
-          gatewayOperationId: null,
-          gatewayOperationIndex: null,
-          subagentAgentId: null,
-          subagentNickname: null,
-          subagentRole: null,
-          latestTurn: {
-            turnId: asTurnId("turn-shell"),
-            state: "completed",
-            requestedAt: "2026-03-03T00:00:05.000Z",
-            startedAt: "2026-03-03T00:00:05.000Z",
-            completedAt: "2026-03-03T00:00:05.000Z",
-            assistantMessageId: null,
-          },
-          hasPendingApprovals: false,
-          hasPendingUserInput: true,
-          workStatus: "attention",
-          createdAt: "2026-03-03T00:00:02.000Z",
-          updatedAt: "2026-03-03T00:00:03.000Z",
-          archivedAt: null,
-          session: {
-            threadId: ThreadId.makeUnsafe("thread-shell"),
-            status: "ready",
-            providerName: "codex",
-            activeTurnId: null,
-            lastError: null,
-            updatedAt: "2026-03-03T00:00:04.000Z",
-          },
-        },
-      ]);
+        ];
+      assert.deepEqual(shellSnapshot.runningThreads, []);
 
       const threadShell = yield* snapshotQuery.getThreadShellById(
         ThreadId.makeUnsafe("thread-shell"),
       );
       assert.equal(threadShell._tag, "Some");
       if (threadShell._tag === "Some") {
-        assert.deepEqual(threadShell.value, shellSnapshot.threads[0]);
+        assert.deepEqual(threadShell.value, expectedThreadShells[0]);
       }
     }),
   );
@@ -1523,10 +1529,10 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
       yield* sql`
         INSERT INTO projection_folders (
-          folder_id, title, workspace_root, default_model_selection_json,
+          folder_id, space_id, title, workspace_root, default_model_selection_json,
           scripts_json, created_at, updated_at, deleted_at
         ) VALUES (
-          'project-active-turn', 'Active Turn Project', NULL,
+          'project-active-turn', 'penkra-personal', 'Active Turn Project', NULL,
           '{"provider":"codex","model":"gpt-5-codex"}', '[]',
           '2026-08-29T06:14:00.000Z', '2026-08-29T06:14:00.000Z', NULL
         )
@@ -1565,10 +1571,12 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         assert.equal(targeted.value.latestTurn?.state, "running");
       }
 
-      const shell = yield* snapshotQuery.getShellSnapshot();
-      const shellThread = shell.threads.find((thread) => thread.id === "thread-active-turn");
-      assert.equal(shellThread?.latestTurn?.turnId, asTurnId("canonical-active-turn"));
-      assert.equal(shellThread?.latestTurn?.state, "running");
+      const shell = yield* snapshotQuery.getStartupSnapshot();
+      assert.deepEqual(shell.runningThreads, []);
+      yield* sql`UPDATE threads SET state = 'running', active_turn_id = 'canonical-active-turn' WHERE id = 'thread-active-turn'`;
+      const running = yield* snapshotQuery.getStartupSnapshot();
+      assert.equal(running.runningThreads[0]?.id, asThreadId("thread-active-turn"));
+      assert.equal(running.runningThreads[0]?.activeTurnId, "canonical-active-turn");
     }),
   );
 

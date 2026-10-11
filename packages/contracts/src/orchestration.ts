@@ -1,3 +1,4 @@
+import { CleanCoreThreadSummary } from "./threadSummary";
 import { Option, Schema, SchemaIssue } from "effect";
 import { DiagnosticTraceContext } from "./diagnostics";
 import { ClaudeModelOptions, CodexModelOptions, OpenCodeModelOptions } from "./model";
@@ -618,20 +619,13 @@ export const OrchestrationReadModel = Schema.Struct({
 });
 export type OrchestrationReadModel = typeof OrchestrationReadModel.Type;
 
-export const OrchestrationShellSnapshot = Schema.Struct({
+export const OrchestrationStartupSnapshot = Schema.Struct({
   snapshotSequence: NonNegativeInt,
   spaces: Schema.Array(OrchestrationSpaceShell),
-  archivedSpaces: Schema.optional(Schema.Array(OrchestrationSpaceShell)).pipe(
-    Schema.withDecodingDefault(() => []),
-  ),
   folders: Schema.Array(OrchestrationFolderShell),
-  archivedFolders: Schema.optional(Schema.Array(OrchestrationFolderShell)).pipe(
-    Schema.withDecodingDefault(() => []),
-  ),
-  threads: Schema.Array(OrchestrationThreadShell),
-  updatedAt: IsoDateTime,
+  runningThreads: Schema.Array(CleanCoreThreadSummary),
 });
-export type OrchestrationShellSnapshot = typeof OrchestrationShellSnapshot.Type;
+export type OrchestrationStartupSnapshot = typeof OrchestrationStartupSnapshot.Type;
 
 export const OrchestrationShellStreamEvent = Schema.Union([
   Schema.Struct({
@@ -675,7 +669,7 @@ export type OrchestrationShellStreamEvent = typeof OrchestrationShellStreamEvent
 export const OrchestrationShellStreamItem = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("snapshot"),
-    snapshot: OrchestrationShellSnapshot,
+    snapshot: OrchestrationStartupSnapshot,
   }),
   OrchestrationShellStreamEvent,
 ]);
@@ -1841,24 +1835,11 @@ export const OrchestrationGetPendingStartOutcomeResult = Schema.Struct({
 export type OrchestrationGetPendingStartOutcomeResult =
   typeof OrchestrationGetPendingStartOutcomeResult.Type;
 
-/**
- * One authoritative cold-start projection for the uniform orchestration feed.
- * The shell contains every lightweight Thread row. Running Threads additionally
- * carry their newest complete-turn page so a renderer restart never postpones
- * live synchronization until the user visits the Thread.
- */
-export const OrchestrationSyncSnapshot = Schema.Struct({
-  snapshotSequence: NonNegativeInt,
-  shell: OrchestrationShellSnapshot,
-  activeThreadPages: Schema.Array(OrchestrationGetThreadTurnsPageResult),
-});
-export type OrchestrationSyncSnapshot = typeof OrchestrationSyncSnapshot.Type;
-
 export const OrchestrationSyncStreamItem = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("snapshot"),
     deliveryId: TrimmedNonEmptyString,
-    snapshot: OrchestrationSyncSnapshot,
+    snapshot: OrchestrationStartupSnapshot,
   }),
   Schema.Struct({
     kind: Schema.Literal("event"),

@@ -22,7 +22,6 @@ import {
 } from "../recentViews.logic";
 import { useRecentViewsStore } from "../recentViewsStore";
 import { useStore } from "../store";
-import { useThreadDetailPrewarm } from "../threadDetailPrewarm";
 import type { useHandleNewThread } from "./useHandleNewThread";
 
 type NewThreadContext = ReturnType<typeof useHandleNewThread>;
@@ -40,7 +39,7 @@ interface UseRecentViewSwitcherInput {
   folders: NewThreadContext["folders"];
 }
 
-// Encapsulates recent-view persistence, pruning, prewarm, and activation.
+// Encapsulates recent-view persistence, pruning and activation.
 export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
   const navigate = useNavigate();
   const pathname = useLocation({ select: (location) => location.pathname });
@@ -55,7 +54,6 @@ export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
   const recentViews = useRecentViewsStore((state) => state.recentViews);
   const recordRecentView = useRecentViewsStore((state) => state.recordRecentView);
   const pruneRecentViewsStore = useRecentViewsStore((state) => state.pruneRecentViews);
-  const { prewarmThreadDetail, prewarmThreadDetails } = useThreadDetailPrewarm();
   const draftThreadsByThreadId = useComposerDraftStore((state) => state.draftThreadsByThreadId);
   const sidebarRows = useSidebarThreadRows();
   const sidebarThreadSummaryById = useMemo(
@@ -71,9 +69,6 @@ export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
     settingsSection,
   });
   const currentRecentViewKey = currentRecentView ? recentViewKey(currentRecentView) : null;
-  const recentThreadIds = recentViews.flatMap((view) =>
-    view.kind === "thread" ? [view.threadId] : [],
-  );
   const switcherOpen = recentSwitcherState !== null;
   let recentViewEntries: RecentViewDisplayEntry[] = EMPTY_RECENT_VIEW_ENTRIES;
   if (switcherOpen) {
@@ -161,10 +156,6 @@ export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
   }, [currentRecentView, currentRecentViewKey, recordRecentView]);
 
   useEffect(() => {
-    prewarmThreadDetails(recentThreadIds);
-  }, [prewarmThreadDetails, recentThreadIds]);
-
-  useEffect(() => {
     if (!threadsHydrated || didHydrationPruneRef.current) return;
     didHydrationPruneRef.current = true;
     pruneRecentViewsStore(buildRecentViewAvailability());
@@ -176,7 +167,6 @@ export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
         if (!buildRecentViewAvailability().availableThreadIds.has(view.threadId)) {
           return;
         }
-        prewarmThreadDetail(view.threadId);
         void navigate({
           to: "/$threadId",
           params: { threadId: view.threadId },
@@ -231,10 +221,6 @@ export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
     const selectedView = views[selectedIndex];
     if (!selectedView) {
       return false;
-    }
-
-    if (selectedView.kind === "thread") {
-      prewarmThreadDetail(selectedView.threadId);
     }
 
     setRecentSwitcherState({

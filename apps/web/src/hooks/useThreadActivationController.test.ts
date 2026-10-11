@@ -17,7 +17,6 @@ function makeControllerInput(
   clearSelection: ReturnType<typeof vi.fn>;
   openChatThreadPage: ReturnType<typeof vi.fn>;
   openTerminalThreadPage: ReturnType<typeof vi.fn>;
-  prewarmThreadDetailForIntent: ReturnType<typeof vi.fn>;
   rememberLastThreadRouteNow: ReturnType<typeof vi.fn>;
   setOptimisticActiveThreadId: ReturnType<typeof vi.fn>;
   setSelectionAnchor: ReturnType<typeof vi.fn>;
@@ -27,7 +26,6 @@ function makeControllerInput(
     navigate: vi.fn(),
     openChatThreadPage: vi.fn(),
     openTerminalThreadPage: vi.fn(),
-    prewarmThreadDetailForIntent: vi.fn(),
     rememberLastThreadRouteNow: vi.fn(),
     routeThreadId: THREAD_A,
     selectedThreadCount: 0,
@@ -44,7 +42,6 @@ function makeControllerInput(
     clearSelection: ReturnType<typeof vi.fn>;
     openChatThreadPage: ReturnType<typeof vi.fn>;
     openTerminalThreadPage: ReturnType<typeof vi.fn>;
-    prewarmThreadDetailForIntent: ReturnType<typeof vi.fn>;
     rememberLastThreadRouteNow: ReturnType<typeof vi.fn>;
     setOptimisticActiveThreadId: ReturnType<typeof vi.fn>;
     setSelectionAnchor: ReturnType<typeof vi.fn>;
@@ -55,7 +52,6 @@ describe("activateThreadFromSidebarIntent", () => {
   it("opens a thread and records the single-thread route", () => {
     const input = makeControllerInput({ selectedThreadCount: 1 });
     activateThreadFromSidebarIntent(input, THREAD_B);
-    expect(input.prewarmThreadDetailForIntent).toHaveBeenCalledWith(THREAD_B);
     expect(input.clearSelection).toHaveBeenCalledOnce();
     expect(input.openChatThreadPage).toHaveBeenCalledWith(THREAD_B);
     expect(input.rememberLastThreadRouteNow).toHaveBeenCalledWith({ threadId: THREAD_B });

@@ -1,8 +1,8 @@
-import type { OrchestrationEvent, OrchestrationSyncSnapshot } from "@penkra/contracts";
+import type { OrchestrationEvent, OrchestrationStartupSnapshot } from "@penkra/contracts";
 import { Effect, Queue, Ref, Scope, Stream } from "effect";
 
 export type DurableOrchestrationStreamItem =
-  | { readonly kind: "snapshot"; readonly snapshot: OrchestrationSyncSnapshot }
+  | { readonly kind: "snapshot"; readonly snapshot: OrchestrationStartupSnapshot }
   | { readonly kind: "event"; readonly event: OrchestrationEvent };
 
 /**
@@ -13,7 +13,7 @@ export type DurableOrchestrationStreamItem =
 export function makeDurableOrchestrationStream<E>(input: {
   readonly afterSequenceExclusive?: number;
   readonly subscribeLive: Effect.Effect<Stream.Stream<OrchestrationEvent>, never, Scope.Scope>;
-  readonly snapshot: Effect.Effect<OrchestrationSyncSnapshot, E>;
+  readonly snapshot: Effect.Effect<OrchestrationStartupSnapshot, E>;
   readonly getHighWaterSequence: Effect.Effect<number, E>;
   readonly replay: (
     fromSequenceExclusive: number,

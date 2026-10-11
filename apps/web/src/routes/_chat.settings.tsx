@@ -15,7 +15,7 @@ import { normalizeSettingsSection, type SettingsSectionId } from "../settingsNav
 const SETTINGS_SECTION_BY_PAGE: Readonly<Record<SettingsPageId, SettingsSectionId>> = {
   general: "general",
   permissions: "behavior",
-  spaces: "spaces",
+  archive: "archive",
   agents: "providers",
   apps: "apps",
   appearance: "appearance",
@@ -23,7 +23,7 @@ const SETTINGS_SECTION_BY_PAGE: Readonly<Record<SettingsPageId, SettingsSectionI
 };
 
 function settingsPageFromSection(section: SettingsSectionId): SettingsPageId {
-  if (section === "spaces") return "spaces";
+  if (section === "archive") return "archive";
   if (section === "appearance") return "appearance";
   if (section === "profile") return "account";
   if (

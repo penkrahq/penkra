@@ -65,7 +65,8 @@ import { getChatLifecycleDiagnosticSamples } from "../chatLifecycleDiagnostics";
 import { initialState } from "../storeState";
 import { makeDomainEvent } from "../storeTestFixtures";
 import {
-  createShellSnapshotFromReadModel,
+  createStartupSnapshotFromReadModel,
+  createThreadShellFromReadModel,
   flattenEffectRpcRequestPayload,
   readEffectRpcClientMessage,
   sendEffectRpcChunk,
@@ -133,7 +134,6 @@ let providerConnectionsReleasedResponses = 0;
 let fixtureHasAlternateCodexConnection = false;
 const fixtureSocketClients = new Set<{ close: () => void }>();
 let fixtureSocketConnectionCount = 0;
-let fixtureActiveThreadPageId: ThreadId | null = null;
 // Clean-core change emitters, keyed by thread id, captured from the mock WS
 // subscribe stream so tests can push an item refresh after updating the fixture.
 const cleanCoreThreadChangeEmitters = new Map<ThreadId, () => void>();
@@ -1521,8 +1521,8 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
     }
     return {
       created: !existing,
-      shell: createShellSnapshotFromReadModel(fixture.snapshot).threads.find(
-        (thread) => thread.id === input.threadId,
+      shell: createThreadShellFromReadModel(
+        fixture.snapshot.threads.find((thread) => thread.id === input.threadId)!,
       ),
       thread: summarizeFixtureThread(
         fixture.snapshot.threads.find((thread) => thread.id === input.threadId)!,
@@ -1661,11 +1661,8 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
     return { threadId: body.threadId, messageId: body.messageId, removed };
   }
   if (tag === WS_METHODS.cleanCoreGetThreadShell) {
-    return (
-      createShellSnapshotFromReadModel(fixture.snapshot).threads.find(
-        (thread) => thread.id === body.threadId,
-      ) ?? null
-    );
+    const thread = fixture.snapshot.threads.find((thread) => thread.id === body.threadId);
+    return thread ? createThreadShellFromReadModel(thread) : null;
   }
   if (tag === WS_METHODS.cleanCoreListThreads) {
     return { threads: fixture.snapshot.threads.map(summarizeFixtureThread), nextCursor: null };
@@ -2120,7 +2117,12 @@ const worker = setupWorker(
       if (method === ORCHESTRATION_WS_METHODS.subscribeShell) {
         sendEffectRpcChunk(client, parsed.request.id, {
           kind: "snapshot",
-          snapshot: createShellSnapshotFromReadModel(fixture.snapshot),
+          snapshot: createStartupSnapshotFromReadModel(
+            fixture.snapshot,
+            fixture.snapshot.threads
+              .map(summarizeFixtureThread)
+              .filter((row) => row.state === "running"),
+          ),
         });
         return;
       }
@@ -2134,14 +2136,12 @@ const worker = setupWorker(
         sendEffectRpcChunk(client, parsed.request.id, {
           kind: "snapshot",
           deliveryId: `fixture-sync-${fixture.snapshot.snapshotSequence}`,
-          snapshot: {
-            snapshotSequence: fixture.snapshot.snapshotSequence,
-            shell: createShellSnapshotFromReadModel(fixture.snapshot),
-            activeThreadPages:
-              fixtureActiveThreadPageId === null
-                ? []
-                : [createThreadTurnsPageFromFixtureSnapshot(fixtureActiveThreadPageId)],
-          },
+          snapshot: createStartupSnapshotFromReadModel(
+            fixture.snapshot,
+            fixture.snapshot.threads
+              .map(summarizeFixtureThread)
+              .filter((row) => row.state === "running"),
+          ),
         });
         return;
       }
@@ -3501,7 +3501,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     fixtureHasAlternateCodexConnection = false;
     fixtureSocketConnectionCount = 0;
     fixtureSocketClients.clear();
-    fixtureActiveThreadPageId = null;
     composerBlobReadHarness.override = null;
     localStorage.clear();
     useLatestProjectStore.setState({ latestFolderId: null });
@@ -3586,6 +3585,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const folderBar = document.querySelector<HTMLElement>(
         `[data-folder-tabs-id='${PROJECT_ID}']`,
       );
+      expect(
+        wsRequests.filter(
+          (request) =>
+            request._tag === WS_METHODS.cleanCoreListThreads && request.folderId === PROJECT_ID,
+        ),
+      ).toHaveLength(1);
       expect(folderBar).not.toBeNull();
       expect(folderBar?.getBoundingClientRect().height).toBe(46);
 
@@ -4746,7 +4751,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
       };
       useStore
         .getState()
-        .syncServerShellSnapshot(createShellSnapshotFromReadModel(laggingShellReadModel));
+        .syncServerThreadShell(
+          THREAD_ID,
+          createThreadShellFromReadModel(laggingShellReadModel.threads[0]!),
+        );
       await expectLiveSendChrome();
       expect(document.body.textContent).toContain("Working for");
     } finally {

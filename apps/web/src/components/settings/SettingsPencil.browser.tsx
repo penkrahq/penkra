@@ -183,7 +183,7 @@ describe("Pencil settings structure", () => {
 
     await view.rerender(
       <div className="h-[640px] w-[880px]">
-        <SettingsPage page="spaces">
+        <SettingsPage page="archive">
           <div data-testid="settings-content-measure" />
         </SettingsPage>
       </div>,
