@@ -421,33 +421,23 @@ describe("wsNativeApi", () => {
     expect(requestMock).toHaveBeenCalledWith(WS_METHODS.terminalAckOutput, input);
   });
 
-  it("omits null user-input answers before dispatching to orchestration", async () => {
+  it("forwards canonical question answers and lifecycle unchanged", async () => {
     requestMock.mockResolvedValue(undefined);
     const { createWsNativeApi } = await import("./wsNativeApi");
 
     const api = createWsNativeApi();
 
-    const command = {
-      type: "thread.user-input.respond",
-      commandId: CommandId.makeUnsafe("cmd-user-input-null"),
+    const input = {
       threadId: ThreadId.makeUnsafe("thread-1"),
       requestId: ApprovalRequestId.makeUnsafe("request-1"),
       answers: {
-        Language: null,
-        Runtime: "Bun",
+        Runtime: ["Bun", "Node"],
       },
-      createdAt: "2026-02-24T00:00:00.000Z",
+      lifecycleGeneration: "generation-1",
     } as const;
-    await api.orchestration.dispatchCommand(command);
+    await api.cleanCore.answerThreadQuestion(input);
 
-    expect(requestMock).toHaveBeenCalledWith(
-      ORCHESTRATION_WS_METHODS.dispatchCommand,
-      {
-        ...command,
-        answers: { Runtime: "Bun" },
-      },
-      { timeoutMs: null, retryOnReconnect: true },
-    );
+    expect(requestMock).toHaveBeenCalledWith(WS_METHODS.cleanCoreAnswerThreadQuestion, input);
   });
 
   it("forwards workspace file writes to the websocket project method", async () => {

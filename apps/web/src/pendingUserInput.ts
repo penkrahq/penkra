@@ -122,33 +122,6 @@ export function buildPendingUserInputAnswers(
   return answers;
 }
 
-export function hasCompletePendingUserInputAnswers(answers: ProviderUserInputAnswers): boolean {
-  const entries = Object.entries(answers);
-  if (entries.length === 0) {
-    return false;
-  }
-
-  return entries.every(([, answer]) => {
-    if (typeof answer === "string") {
-      return answer.trim().length > 0;
-    }
-
-    if (Array.isArray(answer)) {
-      return answer.some((entry) => typeof entry === "string" && entry.trim().length > 0);
-    }
-
-    return false;
-  });
-}
-
-export function omitNullPendingUserInputAnswers(
-  answers: ProviderUserInputAnswers,
-): ProviderUserInputAnswers {
-  return Object.fromEntries(
-    Object.entries(answers).filter(([, answer]) => answer !== null && answer !== undefined),
-  );
-}
-
 export function countAnsweredPendingUserInputQuestions(
   questions: ReadonlyArray<UserInputQuestion>,
   draftAnswers: Record<string, PendingUserInputDraftAnswer>,

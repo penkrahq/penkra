@@ -80,14 +80,6 @@ function withEventBase(
   };
 }
 
-function omitNullUserInputAnswers(
-  command: Extract<OrchestrationCommand, { type: "thread.user-input.respond" }>,
-) {
-  return Object.fromEntries(
-    Object.entries(command.answers).filter(([, answer]) => answer !== null && answer !== undefined),
-  );
-}
-
 function isLiveSidebarThread(thread: OrchestrationThread): boolean {
   return thread.deletedAt === null && thread.archivedAt == null;
 }
@@ -880,36 +872,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           toolUseId: command.toolUseId,
-          createdAt: command.createdAt,
-        },
-      };
-    }
-
-    case "thread.user-input.respond": {
-      yield* requireThreadCanTakeWork({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      const answers = omitNullUserInputAnswers(command);
-      return {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-          metadata: {
-            requestId: command.requestId,
-          },
-        }),
-        type: "thread.user-input-response-requested",
-        payload: {
-          threadId: command.threadId,
-          requestId: command.requestId,
-          ...(command.lifecycleGeneration !== undefined
-            ? { lifecycleGeneration: command.lifecycleGeneration }
-            : {}),
-          answers,
           createdAt: command.createdAt,
         },
       };

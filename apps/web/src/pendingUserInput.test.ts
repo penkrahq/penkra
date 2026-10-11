@@ -5,7 +5,6 @@ import {
   countAnsweredPendingUserInputQuestions,
   derivePendingUserInputProgress,
   findFirstUnansweredPendingUserInputQuestionIndex,
-  hasCompletePendingUserInputAnswers,
   resolvePendingUserInputAnswer,
   setPendingUserInputCustomAnswer,
   togglePendingUserInputOptionSelection,
@@ -168,26 +167,6 @@ describe("buildPendingUserInputAnswers", () => {
         {},
       ),
     ).toBeNull();
-  });
-});
-
-describe("hasCompletePendingUserInputAnswers", () => {
-  it("accepts non-empty string and array answers", () => {
-    expect(
-      hasCompletePendingUserInputAnswers({
-        language: "TypeScript",
-        features: ["Auth", "Testing"],
-      }),
-    ).toBe(true);
-  });
-
-  it("rejects null and empty answers before dispatch", () => {
-    expect(
-      hasCompletePendingUserInputAnswers({
-        language: null,
-        features: [],
-      }),
-    ).toBe(false);
   });
 });
 

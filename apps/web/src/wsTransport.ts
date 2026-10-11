@@ -415,27 +415,6 @@ export interface WsThreadStreamFailure {
   readonly error: Error;
 }
 
-function omitNullUserInputAnswers(input: unknown): unknown {
-  if (!input || typeof input !== "object") {
-    return input;
-  }
-  const command = input as { type?: unknown; answers?: unknown };
-  if (command.type !== "thread.user-input.respond" || !command.answers) {
-    return input;
-  }
-  if (typeof command.answers !== "object") {
-    return input;
-  }
-  return {
-    ...command,
-    answers: Object.fromEntries(
-      Object.entries(command.answers).filter(
-        ([, answer]) => answer !== null && answer !== undefined,
-      ),
-    ),
-  };
-}
-
 export function isServerLifecyclePushChannel(channel: string): boolean {
   return channel === WS_CHANNELS.serverWelcome || channel === WS_CHANNELS.serverMaintenanceUpdated;
 }
@@ -556,7 +535,7 @@ export class WsTransport {
         return undefined as T;
       }
 
-      const normalizedRpcInput = omitNullUserInputAnswers(params ?? {});
+      const rpcInput = params ?? {};
       while (true) {
         const call = (
           client as unknown as Record<
@@ -575,11 +554,11 @@ export class WsTransport {
         this.activeRequests.set(clientRuntime, activeRequests);
         try {
           const result = await awaitWithAbort(
-            clientRuntime.runPromise(call(normalizedRpcInput), { signal: controller.signal }),
+            clientRuntime.runPromise(call(rpcInput), { signal: controller.signal }),
             controller.signal,
           );
           if (method === ORCHESTRATION_WS_METHODS.acknowledgeSync) {
-            const acknowledgement = normalizedRpcInput as {
+            const acknowledgement = rpcInput as {
               deliveryId: string;
               appliedSequence: number;
             };

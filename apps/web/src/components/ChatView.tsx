@@ -25,6 +25,7 @@ import {
   type ProviderSkillReference,
   type ProviderStartOptions,
   type ProviderUserInputAnswers,
+  type CleanCoreAnswerThreadQuestionInput,
   type ResolvedKeybindingsConfig,
   type ServerProviderStatus,
   ThreadId,
@@ -189,8 +190,6 @@ import {
   buildPendingUserInputAnswers,
   resolvePendingUserInputAnswer,
   derivePendingUserInputProgress,
-  hasCompletePendingUserInputAnswers,
-  omitNullPendingUserInputAnswers,
   setPendingUserInputCustomAnswer,
   togglePendingUserInputOptionSelection,
   type PendingUserInputDraftAnswer,
@@ -5812,22 +5811,21 @@ function ChatViewContent({
       const api = readNativeApi();
       if (!api || !activeThreadId) return;
       const requestKey = pendingRequestInstanceKey(requestId, lifecycleGeneration);
-      const dispatchAnswers = hasCompletePendingUserInputAnswers(answers)
-        ? answers
-        : omitNullPendingUserInputAnswers(answers);
+      const dispatchAnswers: Record<string, CleanCoreAnswerThreadQuestionInput["answers"][string]> =
+        {};
+      for (const [key, answer] of Object.entries(answers)) {
+        if (typeof answer === "string" || Array.isArray(answer)) dispatchAnswers[key] = answer;
+      }
 
       setRespondingUserInputRequestKeys((existing) =>
         existing.includes(requestKey) ? existing : [...existing, requestKey],
       );
-      await api.orchestration
-        .dispatchCommand({
-          type: "thread.user-input.respond",
-          commandId: newCommandId(),
+      await api.cleanCore
+        .answerThreadQuestion({
           threadId: activeThreadId,
           requestId,
           answers: dispatchAnswers,
           ...(lifecycleGeneration !== undefined ? { lifecycleGeneration } : {}),
-          createdAt: new Date().toISOString(),
         })
         .catch((err: unknown) => {
           setStoreThreadError(

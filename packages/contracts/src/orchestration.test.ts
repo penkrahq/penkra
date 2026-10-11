@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 
+import { CleanCoreAnswerThreadQuestionInput } from "./cleanCore";
 import {
   ClientOrchestrationCommand,
   DEFAULT_RUNTIME_MODE,
@@ -601,29 +602,35 @@ it.effect("keeps preferred runtime mode out of orchestration sessions", () =>
   }),
 );
 
-it.effect("preserves user-input answer values through the RPC JSON codec", () =>
+it.effect("encodes a partly answered question with only answered keys and mixed values", () =>
   Effect.gen(function* () {
-    const codec = Schema.toCodecJson(ClientOrchestrationCommand);
+    const codec = Schema.toCodecJson(CleanCoreAnswerThreadQuestionInput);
     const wire = {
-      type: "thread.user-input.respond",
-      commandId: "cmd-1",
       threadId: "thread-1",
       requestId: "req-1",
       answers: {
         single: "Purple",
         multi: ["Reading", "Coding"],
-        skipped: null,
       },
-      createdAt: "2026-05-19T16:14:28.202Z",
     };
     const decoded = yield* Schema.decodeUnknownEffect(codec)(wire);
-    assert.deepStrictEqual(
-      (decoded as Extract<typeof decoded, { type: "thread.user-input.respond" }>).answers,
-      {
-        single: "Purple",
-        multi: ["Reading", "Coding"],
-        skipped: null,
-      },
+    assert.deepStrictEqual(decoded.answers, {
+      single: "Purple",
+      multi: ["Reading", "Coding"],
+    });
+    assert.equal(Object.hasOwn(decoded.answers, "skipped"), false);
+  }),
+);
+
+it.effect("rejects null question-answer entries at the clean-core contract", () =>
+  Effect.gen(function* () {
+    const failure = yield* Effect.flip(
+      Schema.decodeUnknownEffect(CleanCoreAnswerThreadQuestionInput)({
+        threadId: "thread-1",
+        requestId: "req-1",
+        answers: { answered: "Bun", skipped: null },
+      }),
     );
+    assert.equal(failure._tag, "SchemaError");
   }),
 );

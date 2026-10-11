@@ -19,7 +19,6 @@ import {
   ModelSelection,
   ProviderKind,
   RuntimeMode,
-  ProviderUserInputAnswers,
   OrchestrationThreadShell,
   OrchestrationFolderShell,
   OrchestrationSpaceShell,
@@ -345,7 +344,7 @@ export const CleanCoreAnswerThreadQuestionInput = Schema.Struct({
   threadId: ThreadId,
   requestId: Schema.String,
   lifecycleGeneration: Schema.optional(TrimmedNonEmptyString),
-  answers: ProviderUserInputAnswers,
+  answers: Schema.Record(Schema.String, Schema.Union([Schema.String, Schema.Array(Schema.String)])),
 });
 export type CleanCoreAnswerThreadQuestionInput = typeof CleanCoreAnswerThreadQuestionInput.Type;
 

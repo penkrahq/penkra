@@ -11,7 +11,6 @@ export type ProviderIntentEvent = Extract<
       | "thread.turn-steer-queued-requested"
       | "thread.task-stop-requested"
       | "thread.task-background-requested"
-      | "thread.user-input-response-requested"
       | "thread.conversation-rollback-requested"
       | "thread.session-stop-requested";
   }
@@ -25,7 +24,6 @@ const PROVIDER_INTENT_EVENT_TYPES = new Set<ProviderIntentEvent["type"]>([
   "thread.turn-steer-queued-requested",
   "thread.task-stop-requested",
   "thread.task-background-requested",
-  "thread.user-input-response-requested",
   "thread.conversation-rollback-requested",
   "thread.session-stop-requested",
 ]);

@@ -9,7 +9,6 @@ import {
   IsoDateTime,
   MessageId,
   NonNegativeInt,
-  PositiveInt,
   FolderId,
   SpaceId,
   ProviderItemId,
@@ -912,16 +911,6 @@ const ThreadTurnPlayCommand = Schema.Struct({
   interruptedTurnId: TurnId,
 });
 
-const ThreadUserInputRespondCommand = Schema.Struct({
-  type: Schema.Literal("thread.user-input.respond"),
-  commandId: CommandId,
-  threadId: ThreadId,
-  requestId: ApprovalRequestId,
-  lifecycleGeneration: Schema.optional(TrimmedNonEmptyString),
-  answers: ProviderUserInputAnswers,
-  createdAt: IsoDateTime,
-});
-
 const ThreadConversationRollbackCommand = Schema.Struct({
   type: Schema.Literal("thread.conversation.rollback"),
   commandId: CommandId,
@@ -971,7 +960,6 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadQueuedTurnSteerCommand,
   ThreadTaskStopCommand,
   ThreadTaskBackgroundCommand,
-  ThreadUserInputRespondCommand,
   ThreadActivityAppendCommand,
   ThreadSessionStopCommand,
 ]);
@@ -994,7 +982,6 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadQueuedTurnSteerCommand,
   ThreadTaskStopCommand,
   ThreadTaskBackgroundCommand,
-  ThreadUserInputRespondCommand,
   ThreadActivityAppendCommand,
   ThreadSessionStopCommand,
 ]);
@@ -1128,7 +1115,6 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.turn-start-cancelled",
   "thread.task-stop-requested",
   "thread.task-background-requested",
-  "thread.user-input-response-requested",
   "thread.conversation-rollback-requested",
   "thread.conversation-rolled-back",
   "thread.session-stop-requested",
@@ -1301,14 +1287,6 @@ export const ThreadTaskStopRequestedPayload = Schema.Struct({
 export const ThreadTaskBackgroundRequestedPayload = Schema.Struct({
   threadId: ThreadId,
   toolUseId: TrimmedNonEmptyString,
-  createdAt: IsoDateTime,
-});
-
-const ThreadUserInputResponseRequestedPayload = Schema.Struct({
-  threadId: ThreadId,
-  requestId: ApprovalRequestId,
-  lifecycleGeneration: Schema.optional(TrimmedNonEmptyString),
-  answers: ProviderUserInputAnswers,
   createdAt: IsoDateTime,
 });
 
@@ -1505,11 +1483,6 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.task-background-requested"),
     payload: ThreadTaskBackgroundRequestedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("thread.user-input-response-requested"),
-    payload: ThreadUserInputResponseRequestedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

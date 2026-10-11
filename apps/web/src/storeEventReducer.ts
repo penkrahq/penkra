@@ -51,10 +51,6 @@ type ThreadActivityAppendedEvent = Extract<
   OrchestrationEvent,
   { type: "thread.activity-appended" }
 >;
-type ThreadUserInputResponseRequestedEvent = Extract<
-  OrchestrationEvent,
-  { type: "thread.user-input-response-requested" }
->;
 export type ApplyOrchestrationEventOptions = {
   updateSidebarSummary?: boolean;
 };
@@ -85,38 +81,6 @@ function threadActivityUpdatesSummary(event: ThreadActivityAppendedEvent): boole
 
 function threadMessageUpdatesSidebarSummary(event: ThreadMessageSentEvent): boolean {
   return event.payload.role === "user" || !event.payload.streaming;
-}
-
-function markInteractionResponding(
-  thread: Thread,
-  event: ThreadUserInputResponseRequestedEvent,
-): Thread["pendingInteractions"] {
-  if (thread.pendingInteractions === undefined || event.commandId === null) {
-    return thread.pendingInteractions;
-  }
-  const interactionKind = "userInput";
-  const lifecycleGeneration = event.payload.lifecycleGeneration ?? null;
-  let changed = false;
-  const next = thread.pendingInteractions.map((interaction) => {
-    if (
-      interaction.interactionKind !== interactionKind ||
-      interaction.requestId !== event.payload.requestId ||
-      interaction.lifecycleGeneration !== lifecycleGeneration ||
-      (interaction.status !== "pending" && interaction.status !== "retryable")
-    ) {
-      return interaction;
-    }
-    changed = true;
-    return {
-      ...interaction,
-      status: "responding" as const,
-      decision: null,
-      responseCommandId: event.commandId,
-      responseRequestedAt: event.payload.createdAt,
-      resolvedAt: null,
-    };
-  });
-  return changed ? next : thread.pendingInteractions;
 }
 
 /** Pure reconciliation over the pending-interaction list alone: batch callers thread the
@@ -1044,27 +1008,6 @@ function applyOrchestrationEvent(
                 : { pendingTurnStartMessageId: thread.pendingTurnStartMessageId }
               : { pendingTurnStartMessageId: event.payload.messageId }),
             queuedMessageIds,
-            updatedAt:
-              (thread.updatedAt ?? thread.createdAt) > event.payload.createdAt
-                ? thread.updatedAt
-                : event.payload.createdAt,
-          };
-        },
-        {
-          ...options,
-          updateSidebarSummary: true,
-        },
-      );
-
-    case "thread.user-input-response-requested":
-      return applyThreadUpdate(
-        state,
-        event.payload.threadId,
-        (thread) => {
-          const pendingInteractions = markInteractionResponding(thread, event);
-          return {
-            ...thread,
-            ...(pendingInteractions !== undefined ? { pendingInteractions } : {}),
             updatedAt:
               (thread.updatedAt ?? thread.createdAt) > event.payload.createdAt
                 ? thread.updatedAt
