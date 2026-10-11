@@ -25,11 +25,30 @@ export interface FeedbackDialogProps {
 
 export function FeedbackDialog({ open, context, onOpenChange }: FeedbackDialogProps) {
   const [isSending, setIsSending] = useState(false);
+  const requestRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      requestRef.current?.abort();
+      requestRef.current = null;
+      setIsSending(false);
+    }
+    return () => {
+      requestRef.current?.abort();
+      requestRef.current = null;
+    };
+  }, [open]);
 
   const handleSubmit = async (category: FeedbackCategory | null, details: string) => {
+    const controller = new AbortController();
+    requestRef.current = controller;
     setIsSending(true);
     try {
-      await submitFeedback(buildFeedbackSubmission({ category, details, context }));
+      await submitFeedback(
+        buildFeedbackSubmission({ category, details, context }),
+        controller.signal,
+      );
+      if (controller.signal.aborted) return;
       setIsSending(false);
       onOpenChange(false);
       toastManager.add({
@@ -38,6 +57,7 @@ export function FeedbackDialog({ open, context, onOpenChange }: FeedbackDialogPr
         description: "Thanks for helping make Penkra better.",
       });
     } catch (error) {
+      if (controller.signal.aborted) return;
       setIsSending(false);
       toastManager.add({
         type: "error",
@@ -45,6 +65,8 @@ export function FeedbackDialog({ open, context, onOpenChange }: FeedbackDialogPr
         description:
           error instanceof Error ? error.message : "An unexpected delivery error occurred.",
       });
+    } finally {
+      if (requestRef.current === controller) requestRef.current = null;
     }
   };
 
@@ -52,10 +74,15 @@ export function FeedbackDialog({ open, context, onOpenChange }: FeedbackDialogPr
     <Dialog
       open={open}
       onOpenChange={(nextOpen) => {
-        if (!isSending) onOpenChange(nextOpen);
+        if (!nextOpen) {
+          requestRef.current?.abort();
+          requestRef.current = null;
+          setIsSending(false);
+        }
+        onOpenChange(nextOpen);
       }}
     >
-      <DialogPopup className="max-w-xl" showCloseButton={!isSending}>
+      <DialogPopup className="max-w-xl" showCloseButton>
         <DialogHeader className="gap-0 px-5 pt-5 pb-3">
           <DialogTitle className="text-[length:calc(var(--app-font-size-base,12px)*1.6667)] tracking-[-0.01em]">
             Share feedback
