@@ -48,30 +48,13 @@ export const updateFolderAppTabs = (input: CleanCoreUpdateFolderAppTabsInput) =>
             const panes = exists
               ? tabs.panes.map((pane) => (pane.id === update.pane.id ? update.pane : pane))
               : [...tabs.panes, update.pane];
-            next = update.preserveSelection
-              ? { ...tabs, panes }
-              : { open: true, panes, activePaneId: update.pane.id };
+            next = { panes };
             break;
           }
           case "close": {
-            const index = tabs.panes.findIndex((pane) => pane.id === update.paneId);
-            if (index === -1) {
-              next = tabs;
-              break;
-            }
-            const panes = tabs.panes.filter((pane) => pane.id !== update.paneId);
-            const activePaneId =
-              tabs.activePaneId !== update.paneId
-                ? tabs.activePaneId
-                : (panes[index]?.id ?? panes[index - 1]?.id ?? null);
-            next = { open: panes.length > 0 && tabs.open, panes, activePaneId };
+            next = { panes: tabs.panes.filter((pane) => pane.id !== update.paneId) };
             break;
           }
-          case "select":
-            if (!tabs.panes.some((pane) => pane.id === update.paneId))
-              return yield* Effect.fail(new Error("The App tab is not open in this folder."));
-            next = { ...tabs, open: true, activePaneId: update.paneId };
-            break;
           case "reorder": {
             const panesById = new Map(tabs.panes.map((pane) => [pane.id, pane]));
             if (
@@ -85,9 +68,6 @@ export const updateFolderAppTabs = (input: CleanCoreUpdateFolderAppTabsInput) =>
             next = { ...tabs, panes: update.paneIds.map((id) => panesById.get(id)!) };
             break;
           }
-          case "show":
-            next = { ...tabs, open: update.open && tabs.panes.length > 0 };
-            break;
           case "navigate":
             if (!tabs.panes.some((pane) => pane.id === update.paneId))
               return yield* Effect.fail(new Error("The App tab is not open in this folder."));

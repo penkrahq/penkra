@@ -225,9 +225,7 @@ export const CleanCoreFolderAppPane = Schema.Struct({
 });
 export type CleanCoreFolderAppPane = typeof CleanCoreFolderAppPane.Type;
 export const CleanCoreFolderAppTabs = Schema.Struct({
-  open: Schema.Boolean,
   panes: Schema.Array(CleanCoreFolderAppPane),
-  activePaneId: Schema.NullOr(Schema.String),
 });
 export type CleanCoreFolderAppTabs = typeof CleanCoreFolderAppTabs.Type;
 export const CleanCoreGetFolderAppTabsInput = Schema.Struct({ folderId: FolderId });
@@ -245,12 +243,9 @@ export const CleanCoreUpdateFolderAppTabsInput = Schema.Struct({
     Schema.Struct({
       action: Schema.Literal("open"),
       pane: CleanCoreFolderAppPane,
-      preserveSelection: Schema.Boolean,
     }),
     Schema.Struct({ action: Schema.Literal("close"), paneId: Schema.String }),
-    Schema.Struct({ action: Schema.Literal("select"), paneId: Schema.String }),
     Schema.Struct({ action: Schema.Literal("reorder"), paneIds: Schema.Array(Schema.String) }),
-    Schema.Struct({ action: Schema.Literal("show"), open: Schema.Boolean }),
     Schema.Struct({
       action: Schema.Literal("navigate"),
       paneId: Schema.String,

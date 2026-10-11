@@ -22,7 +22,7 @@ const pane = {
 const row = (updatedAt: string): CleanCoreFolderAppTabsResult => ({
   folderId,
   updatedAt,
-  tabs: { open: true, activePaneId: pane.id, panes: [pane] },
+  tabs: { panes: [pane] },
 });
 beforeEach(() => {
   vi.clearAllMocks();
@@ -44,28 +44,23 @@ it("keeps a newer broadcast when an older folder read arrives", async () => {
   const load = loadFolderAppTabs(folderId);
   applyFolderAppTabs({
     ...row("2026-10-11T00:00:02.000Z"),
-    tabs: { open: false, panes: [], activePaneId: null },
+    tabs: { panes: [] },
   });
   complete(row("2026-10-11T00:00:01.000Z"));
   await load;
   expect(useRightDockStore.getState().dockStateByFolderId[folderId]?.panes).toEqual([]);
 });
 
-it("writes only persistent pane fields and shows the returned shared selection", async () => {
+it("writes only pane fields and selects the opened pane in this window", async () => {
   let complete!: (row: CleanCoreFolderAppTabsResult) => void;
-  const settled = new Promise<void>((resolve) => {
-    mocks.update.mockImplementationOnce(
-      () =>
-        new Promise<CleanCoreFolderAppTabsResult>((done) => {
-          complete = (value) => {
-            done(value);
-            resolve();
-          };
-        }),
-    );
-  });
+  mocks.update.mockImplementationOnce(
+    () =>
+      new Promise<CleanCoreFolderAppTabsResult>((done) => {
+        complete = done;
+      }),
+  );
   useRightDockStore.getState().setDockWidth(folderId, 640);
-  useRightDockStore.getState().openPane(folderId, {
+  const opened = useRightDockStore.getState().openPane(folderId, {
     ...pane,
     paneId: pane.id,
     preserveSelection: false,
@@ -77,10 +72,9 @@ it("writes only persistent pane fields and shows the returned shared selection",
   expect(mocks.update.mock.calls[0]?.[0].update).toEqual({
     action: "open",
     pane,
-    preserveSelection: false,
   });
   complete(row("2026-10-11T00:00:02.000Z"));
-  await settled;
+  await opened;
   expect(useRightDockStore.getState().dockStateByFolderId[folderId]).toMatchObject({
     activePaneId: pane.id,
     width: 640,
@@ -88,18 +82,57 @@ it("writes only persistent pane fields and shows the returned shared selection",
   });
 });
 
-it("shows a write failure without changing shared selection", async () => {
+it("shows a tab-list write failure without changing window selection", async () => {
   const failed = new Promise<void>((resolve) =>
     mocks.toast.mockImplementationOnce(() => resolve()),
   );
   applyFolderAppTabs(row("2026-10-11T00:00:01.000Z"));
   mocks.update.mockRejectedValueOnce(new Error("Folder is unavailable"));
-  useRightDockStore.getState().setDockOpen(folderId, false);
+  useRightDockStore.getState().closePane(folderId, pane.id);
   await failed;
   expect(mocks.toast).toHaveBeenCalledWith({
     type: "error",
     title: "Could not update Apps",
     description: "Folder is unavailable",
   });
+  expect(useRightDockStore.getState().dockStateByFolderId[folderId]?.activePaneId).toBe(pane.id);
+});
+
+it("selects and hides locally without writing the folder row", () => {
+  applyFolderAppTabs({
+    ...row("2026-10-11T00:00:01.000Z"),
+    tabs: { panes: [pane, { ...pane, id: "tab-y" }] },
+  });
+  useRightDockStore.getState().setActivePane(folderId, "tab-y");
+  expect(useRightDockStore.getState().dockStateByFolderId[folderId]?.activePaneId).toBe("tab-y");
   expect(useRightDockStore.getState().dockStateByFolderId[folderId]?.open).toBe(true);
+  useRightDockStore.getState().setDockOpen(folderId, false);
+  expect(useRightDockStore.getState().dockStateByFolderId[folderId]?.open).toBe(false);
+  expect(mocks.update).not.toHaveBeenCalled();
+});
+
+it("selects the first tab on first read but preserves an empty window's selection on a broadcast", () => {
+  applyFolderAppTabs(row("2026-10-11T00:00:01.000Z"));
+  expect(useRightDockStore.getState().dockStateByFolderId[folderId]?.activePaneId).toBe(pane.id);
+  applyFolderAppTabs({ ...row("2026-10-11T00:00:02.000Z"), tabs: { panes: [] } });
+  applyFolderAppTabs(row("2026-10-11T00:00:03.000Z"));
+  expect(useRightDockStore.getState().dockStateByFolderId[folderId]?.activePaneId).toBe(null);
+  expect(useRightDockStore.getState().dockStateByFolderId[folderId]?.open).toBe(false);
+});
+
+it("restores App X while preserving App Y selection and a closed dock", async () => {
+  const y = { ...pane, id: "tab-y" };
+  const value = { ...row("2026-10-11T00:00:01.000Z"), tabs: { panes: [pane, y] } };
+  applyFolderAppTabs(value);
+  useRightDockStore.getState().setActivePane(folderId, y.id);
+  useRightDockStore.getState().setDockOpen(folderId, false);
+  mocks.update.mockResolvedValueOnce({ ...value, updatedAt: "2026-10-11T00:00:02.000Z" });
+  await useRightDockStore.getState().openPane(folderId, {
+    ...pane,
+    paneId: pane.id,
+    preserveSelection: true,
+    appStatus: "ready",
+  });
+  expect(useRightDockStore.getState().dockStateByFolderId[folderId]?.activePaneId).toBe(y.id);
+  expect(useRightDockStore.getState().dockStateByFolderId[folderId]?.open).toBe(false);
 });

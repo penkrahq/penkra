@@ -30,67 +30,41 @@ const withDb = <A, E>(program: Effect.Effect<A, E, SqlClient.SqlClient | ThreadP
     Effect.provide(NodeSqliteClient.layerMemory()),
   );
 
-it.effect(
-  "opens, activates, updates, reorders and closes App tabs with one broadcast per write",
-  () =>
-    withDb(
-      Effect.gen(function* () {
-        yield* fixture;
-        const publisher = yield* ThreadPublisher;
-        const changes: unknown[] = [];
-        const unsubscribe = publisher.subscribeSidebar((change) => changes.push(change));
-        const write = (update: Parameters<typeof updateFolderAppTabs>[0]["update"]) =>
-          updateFolderAppTabs({ folderId, updatedAt, update });
-        assert.deepStrictEqual((yield* getFolderAppTabs({ folderId }))?.tabs, {
-          open: false,
-          panes: [],
-          activePaneId: null,
-        });
-        yield* write({ action: "open", pane, preserveSelection: false });
-        yield* write({ action: "open", pane: { ...pane, id: "tab-y" }, preserveSelection: false });
-        const selected = yield* write({ action: "select", paneId: pane.id });
-        assert.equal(selected.tabs.activePaneId, pane.id);
-        const navigated = yield* write({
-          action: "navigate",
-          paneId: pane.id,
-          appRoute: "/files/readme",
-        });
-        assert.equal(navigated.tabs.panes[0]?.appRoute, "/files/readme");
-        const reordered = yield* write({ action: "reorder", paneIds: ["tab-y", pane.id] });
-        assert.deepStrictEqual(
-          reordered.tabs.panes.map((p) => p.id),
-          ["tab-y", pane.id],
-        );
-        const closed = yield* write({ action: "close", paneId: pane.id });
-        assert.equal(closed.tabs.activePaneId, "tab-y");
-        assert.equal(closed.tabs.panes.length, 1);
-        assert.equal(changes.length, 6);
-        yield* write({ action: "close", paneId: pane.id });
-        assert.equal(changes.length, 6);
-        yield* write({ action: "close", paneId: "tab-y" });
-        const empty = yield* write({ action: "show", open: true });
-        assert.deepStrictEqual(empty.tabs, { open: false, panes: [], activePaneId: null });
-        assert.equal(changes.length, 7);
-        unsubscribe();
-      }),
-    ),
-);
-
-it.effect("restores App X while preserving App Y selection and a closed dock", () =>
+it.effect("opens, updates, reorders and closes App tabs with one broadcast per write", () =>
   withDb(
     Effect.gen(function* () {
       yield* fixture;
+      const publisher = yield* ThreadPublisher;
+      const changes: unknown[] = [];
+      const unsubscribe = publisher.subscribeSidebar((change) => changes.push(change));
       const write = (update: Parameters<typeof updateFolderAppTabs>[0]["update"]) =>
         updateFolderAppTabs({ folderId, updatedAt, update });
-      yield* write({ action: "open", pane, preserveSelection: false });
-      yield* write({ action: "open", pane: { ...pane, id: "tab-y" }, preserveSelection: false });
-      for (const open of [true, false]) {
-        yield* write({ action: "show", open });
-        const restored = yield* write({ action: "open", pane, preserveSelection: true });
-        assert.equal(restored.tabs.open, open);
-        assert.equal(restored.tabs.activePaneId, "tab-y");
-        assert.equal(restored.tabs.panes.length, 2);
-      }
+      assert.deepStrictEqual((yield* getFolderAppTabs({ folderId }))?.tabs, {
+        panes: [],
+      });
+      yield* write({ action: "open", pane });
+      yield* write({ action: "open", pane: { ...pane, id: "tab-y" } });
+      const navigated = yield* write({
+        action: "navigate",
+        paneId: pane.id,
+        appRoute: "/files/readme",
+      });
+      assert.equal(navigated.tabs.panes[0]?.appRoute, "/files/readme");
+      const reordered = yield* write({ action: "reorder", paneIds: ["tab-y", pane.id] });
+      assert.deepStrictEqual(
+        reordered.tabs.panes.map((p) => p.id),
+        ["tab-y", pane.id],
+      );
+      const closed = yield* write({ action: "close", paneId: pane.id });
+      assert.equal(closed.tabs.panes.length, 1);
+      assert.equal(changes.length, 5);
+      yield* write({ action: "close", paneId: pane.id });
+      assert.equal(changes.length, 5);
+      yield* write({ action: "close", paneId: "tab-y" });
+      const empty = yield* getFolderAppTabs({ folderId });
+      assert.deepStrictEqual(empty?.tabs, { panes: [] });
+      assert.equal(changes.length, 6);
+      unsubscribe();
     }),
   ),
 );
@@ -102,9 +76,9 @@ it.effect("discovers a retained pane without selecting it or opening its dock", 
       const result = yield* updateFolderAppTabs({
         folderId,
         updatedAt,
-        update: { action: "open", pane, preserveSelection: true },
+        update: { action: "open", pane },
       });
-      assert.deepStrictEqual(result.tabs, { open: false, panes: [pane], activePaneId: null });
+      assert.deepStrictEqual(result.tabs, { panes: [pane] });
       const sql = yield* SqlClient.SqlClient;
       const [row] = yield* sql<{
         tabs: string;
@@ -114,28 +88,20 @@ it.effect("discovers a retained pane without selecting it or opening its dock", 
   ),
 );
 
-it.effect("rejects invalid selection and reorder without changing the folder row", () =>
+it.effect("rejects invalid reorder without changing the folder row", () =>
   withDb(
     Effect.gen(function* () {
       yield* fixture;
       yield* updateFolderAppTabs({
         folderId,
         updatedAt,
-        update: { action: "open", pane, preserveSelection: false },
+        update: { action: "open", pane },
       });
       const before = yield* getFolderAppTabs({ folderId });
       const failed = yield* Effect.result(
         updateFolderAppTabs({ folderId, updatedAt, update: { action: "reorder", paneIds: [] } }),
       );
       assert.equal(failed._tag, "Failure");
-      const select = yield* Effect.result(
-        updateFolderAppTabs({
-          folderId,
-          updatedAt,
-          update: { action: "select", paneId: "closed" },
-        }),
-      );
-      assert.equal(select._tag, "Failure");
       assert.deepStrictEqual(yield* getFolderAppTabs({ folderId }), before);
     }),
   ),
