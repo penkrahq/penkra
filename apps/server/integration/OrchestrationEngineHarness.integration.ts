@@ -8,8 +8,6 @@ import {
   ProviderConnectionId,
   ProviderInstallationId,
   ProviderKind,
-  ModelSelection,
-  type ProviderConnectionId as ProviderConnectionIdValue,
   ThreadId,
   type OrchestrationEvent,
   type OrchestrationThread,
@@ -44,7 +42,9 @@ import { CodexAdapter } from "../src/provider/Services/CodexAdapter.ts";
 import { ProviderService } from "../src/provider/Services/ProviderService.ts";
 import { ProviderDiscoveryService } from "../src/provider/Services/ProviderDiscoveryService.ts";
 import { ProviderLaunchResolver } from "../src/provider/Services/ProviderLaunchResolver.ts";
-import { ProviderTurnSelectionResolver } from "../src/provider/Services/ProviderTurnSelectionResolver.ts";
+import { ProviderTurnSelectionResolverLive } from "../src/provider/Layers/ProviderTurnSelectionResolver.ts";
+import { ProviderConnectionRepository } from "../src/persistence/Services/ProviderConnections.ts";
+import { ProviderInstallationRepository } from "../src/persistence/Services/ProviderInstallations.ts";
 import { AnalyticsService } from "../src/telemetry/Services/AnalyticsService.ts";
 import { ServerSettingsService } from "../src/serverSettings.ts";
 import { TextGeneration } from "../src/textGeneration/Services/TextGeneration.ts";
@@ -53,6 +53,8 @@ import { OrchestrationProjectionPipelineLive } from "../src/orchestration/Layers
 import { OrchestrationProjectionSnapshotQueryLive } from "../src/orchestration/Layers/ProjectionSnapshotQuery.ts";
 import { makeProviderCommandReactorLive } from "../src/orchestration/Layers/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionLive } from "../src/orchestration/Layers/ProviderRuntimeIngestion.ts";
+import { ProviderThreadSwitchCoordinatorLive } from "../src/orchestration/Layers/ProviderThreadSwitchCoordinator.ts";
+import { ProviderNativeStateMaterializerLive } from "../src/provider/Layers/ProviderNativeStateMaterializer.ts";
 import { ThreadPublisherLive } from "../src/cleanCore/ThreadPublisher.ts";
 import {
   OrchestrationEngineService,
@@ -60,10 +62,7 @@ import {
 } from "../src/orchestration/Services/OrchestrationEngine.ts";
 import { ProviderCommandReactor } from "../src/orchestration/Services/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionService } from "../src/orchestration/Services/ProviderRuntimeIngestion.ts";
-import {
-  ProviderThreadSwitchCoordinator,
-  ProviderThreadSwitchCoordinatorError,
-} from "../src/orchestration/Services/ProviderThreadSwitchCoordinator.ts";
+import { ProviderThreadSwitchCoordinator } from "../src/orchestration/Services/ProviderThreadSwitchCoordinator.ts";
 import { ProjectionSnapshotQuery } from "../src/orchestration/Services/ProjectionSnapshotQuery.ts";
 
 import {
@@ -163,6 +162,7 @@ export interface OrchestrationIntegrationHarness {
   readonly dbPath: string;
   readonly adapterHarness: TestProviderAdapterHarness | null;
   readonly engine: OrchestrationEngineShape;
+  readonly coordinator: ProviderThreadSwitchCoordinator["Service"];
   readonly snapshotQuery: ProjectionSnapshotQuery["Service"];
   readonly providerService: ProviderService["Service"];
   readonly waitForThread: (
@@ -219,7 +219,16 @@ export const makeOrchestrationIntegrationHarness = (
       ? Layer.succeed(ProviderAdapterRegistry, {
           getByProvider: (resolvedProvider) =>
             resolvedProvider === adapterHarness.provider
-              ? Effect.succeed(adapterHarness.adapter)
+              ? Effect.succeed({
+                  ...adapterHarness.adapter,
+                  listModels: () =>
+                    Effect.succeed({
+                      models: [
+                        { slug: `test-model-${provider}`, name: "Fixture model" },
+                        { slug: "claude-sonnet-4-6", name: "Sonnet" },
+                      ],
+                    }),
+                })
               : Effect.fail(new ProviderUnsupportedError({ provider: resolvedProvider })),
           listProviders: () => Effect.succeed([adapterHarness.provider]),
         } as typeof ProviderAdapterRegistry.Service)
@@ -236,62 +245,12 @@ export const makeOrchestrationIntegrationHarness = (
     yield* initializeGitWorkspace(workspaceDir);
 
     const persistenceLayer = makeSqlitePersistenceLive(dbPath);
-    const baseOrchestrationLayer = OrchestrationEngineLive.pipe(
+    const orchestrationLayer = OrchestrationEngineLive.pipe(
       Layer.provide(OrchestrationProjectionSnapshotQueryLive),
       Layer.provide(OrchestrationProjectionPipelineLive),
       Layer.provide(OrchestrationEventStoreLive),
       Layer.provide(OrchestrationCommandReceiptRepositoryLive),
     );
-    // Test adapter admission mirrors the canonical selection write made by the
-    // real switch coordinator. Fixture turns must not bypass that write.
-    const orchestrationLayer = Layer.effect(
-      OrchestrationEngineService,
-      Effect.gen(function* () {
-        const engine = yield* OrchestrationEngineService;
-        const sql = yield* SqlClient.SqlClient;
-        return {
-          ...engine,
-          dispatch: (command, context) => {
-            if (
-              command.type !== "thread.turn.start" &&
-              command.type !== "thread.turn.dispatch-queued"
-            ) {
-              return engine.dispatch(command, context);
-            }
-            return Effect.gen(function* () {
-              const [row] = yield* sql<{
-                provider: ProviderKind;
-                model: string;
-                modelOptions: string | null;
-                connectionId: ProviderConnectionIdValue | null;
-              }>`
-                SELECT provider, model, model_options AS "modelOptions", connection_id AS "connectionId"
-                FROM threads WHERE id=${command.threadId}
-              `.pipe(Effect.orDie);
-              if (row === undefined) return yield* engine.dispatch(command, context);
-              const modelSelection =
-                command.modelSelection ??
-                Schema.decodeUnknownSync(ModelSelection)({
-                  provider: row.provider,
-                  model: row.model,
-                  ...(row.modelOptions === null ? {} : { options: JSON.parse(row.modelOptions) }),
-                });
-              return yield* engine.dispatch(command, {
-                ...context,
-                acceptedTurnSelection: {
-                  threadId: command.threadId,
-                  modelSelection,
-                  connectionId:
-                    command.connectionId === undefined ? row.connectionId : command.connectionId,
-                  nativeState: undefined,
-                  updatedAt: command.createdAt,
-                },
-              });
-            });
-          },
-        } satisfies typeof OrchestrationEngineService.Service;
-      }),
-    ).pipe(Layer.provideMerge(baseOrchestrationLayer));
     const providerSessionDirectoryLayer = ProviderSessionDirectoryLive.pipe(
       Layer.provide(ProviderSessionRuntimeRepositoryLive),
     );
@@ -354,66 +313,58 @@ export const makeOrchestrationIntegrationHarness = (
             ...environment,
           }),
         }),
-      resolveProfile: () => Effect.die("Provider profile resolution is not used by this harness."),
-    } as typeof ProviderLaunchResolver.Service);
-    const providerTurnSelectionResolverLayer = Layer.succeed(ProviderTurnSelectionResolver, {
-      resolveNewThreadConnection: () => Effect.succeed(INTEGRATION_CONNECTION_ID),
-      resolveExisting: (selection) =>
+      resolveProfile: () =>
         Effect.succeed({
-          threadId: selection.threadId,
-          harness: selection.modelSelection?.provider ?? provider,
-          connectionId: selection.connectionId ?? INTEGRATION_CONNECTION_ID,
-          connectionLabel: "Integration",
-          previousConnectionId: INTEGRATION_CONNECTION_ID,
-          previousModelId: selection.modelSelection?.model ?? null,
+          binaryPath: "/integration/managed-provider",
+          isolationKey: "integration-discovery",
+          profileRoot: path.join(rootDir, "managed-profile"),
+          nativeStateRoot: path.join(rootDir, "managed-discovery"),
+          connectionId: INTEGRATION_CONNECTION_ID,
           installationId: INTEGRATION_INSTALLATION_ID,
-          internalProviderId: null,
-          modelId: selection.modelSelection?.model ?? "integration-model",
-          modelLabel: selection.modelSelection?.model ?? "Integration model",
-          nativeStateId: null,
-          providerSessionId: null,
-          changed: false,
-          requiresNativeStateMaterialization: false,
+          childEnvironment: (environment: NodeJS.ProcessEnv) => ({ ...environment }),
         }),
-    } as typeof ProviderTurnSelectionResolver.Service);
-    const providerThreadSwitchCoordinatorLayer = Layer.effect(
-      ProviderThreadSwitchCoordinator,
-      Effect.gen(function* () {
-        const engine = yield* OrchestrationEngineService;
-        return {
-          dispatchTurnStart: ({ command, attachmentPrincipal, cwd }) =>
-            engine
-              .dispatch(command, {
-                attachmentPrincipal,
-                ...(cwd ? { cwd } : {}),
-              })
-              .pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new ProviderThreadSwitchCoordinatorError({
-                      detail: "The orchestration harness could not dispatch the turn.",
-                      cause,
-                    }),
-                ),
+    } as typeof ProviderLaunchResolver.Service);
+    const providerTurnSelectionResolverLayer = ProviderTurnSelectionResolverLive.pipe(
+      Layer.provideMerge(
+        Layer.mergeAll(
+          Layer.succeed(ProviderConnectionRepository, {
+            getRecord: (id: ProviderConnectionId) =>
+              Effect.succeed(
+                id === INTEGRATION_CONNECTION_ID
+                  ? Option.some({
+                      id,
+                      harness: provider,
+                      authenticationTargetId:
+                        provider === "codex" ? "openai-first-party" : "anthropic-first-party",
+                      authenticationMethodId: provider === "codex" ? "chatgpt" : "claude-account",
+                      label: "Integration",
+                      credentialRef: null,
+                      profileRef: "integration-profile",
+                      providerIdentityId: null,
+                      health: "ready",
+                      lifecycle: "active",
+                      createdAt: "2026-02-24T00:00:00.000Z",
+                      updatedAt: "2026-02-24T00:00:00.000Z",
+                    })
+                  : Option.none(),
               ),
-          dispatchQueuedTurn: ({ command, attachmentPrincipal, cwd }) =>
-            engine
-              .dispatch(command, {
-                attachmentPrincipal,
-                ...(cwd ? { cwd } : {}),
-              })
-              .pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new ProviderThreadSwitchCoordinatorError({
-                      detail: "The orchestration harness could not dispatch the queued turn.",
-                      cause,
-                    }),
-                ),
-              ),
-        };
-      }),
-    ).pipe(Layer.provideMerge(runtimeServicesLayer));
+            list: () => Effect.succeed([]),
+          } as never),
+          Layer.succeed(ProviderInstallationRepository, {
+            getActiveRecord: () => Effect.succeed(Option.some({ id: INTEGRATION_INSTALLATION_ID })),
+          } as never),
+          useRealCodex ? realCodexRegistry : fakeRegistry!,
+          providerLaunchResolverLayer,
+          ServerSettingsService.layerTest(),
+        ),
+      ),
+    );
+    const providerThreadSwitchCoordinatorLayer = ProviderThreadSwitchCoordinatorLive.pipe(
+      Layer.provideMerge(ProviderNativeStateMaterializerLive),
+      Layer.provideMerge(providerTurnSelectionResolverLayer),
+      Layer.provideMerge(ThreadPublisherLive),
+      Layer.provideMerge(runtimeServicesLayer),
+    );
     const providerCommandReactorLayer = makeProviderCommandReactorLive().pipe(
       Layer.provideMerge(
         Layer.succeed(ProviderDiscoveryService, {
@@ -441,6 +392,9 @@ export const makeOrchestrationIntegrationHarness = (
     const runtime = ManagedRuntime.make(layer);
     const engine = yield* tryRuntimePromise("load OrchestrationEngine service", () =>
       runtime.runPromise(Effect.service(OrchestrationEngineService)),
+    ).pipe(Effect.orDie);
+    const coordinator = yield* tryRuntimePromise("load switch coordinator", () =>
+      runtime.runPromise(Effect.service(ProviderThreadSwitchCoordinator)),
     ).pipe(Effect.orDie);
     const sql = yield* Effect.promise(() =>
       runtime.runPromise(Effect.service(SqlClient.SqlClient)),
@@ -579,6 +533,7 @@ export const makeOrchestrationIntegrationHarness = (
       dbPath,
       adapterHarness,
       engine,
+      coordinator,
       snapshotQuery,
       providerService,
       waitForThread,
