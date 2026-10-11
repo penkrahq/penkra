@@ -527,13 +527,14 @@ export const settleRunningItems = (
       yield* sql`
         UPDATE thread_items
         SET status = ${status}, updated_at = ${at}
-        WHERE thread_id = ${threadId} AND status = 'running'
+        WHERE thread_id = ${threadId} AND status IN ('running', 'streaming')
       `;
     } else {
       yield* sql`
         UPDATE thread_items
         SET status = ${status}, updated_at = ${at}
-        WHERE thread_id = ${threadId} AND status = 'running' AND turn_id = ${turnId}
+        WHERE thread_id = ${threadId} AND status IN ('running', 'streaming')
+          AND (turn_id = ${turnId} OR turn_id IS NULL)
       `;
     }
   });

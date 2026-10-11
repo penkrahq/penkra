@@ -563,3 +563,88 @@ it.effect("a failed cutoff notice rolls back turn and item changes and publishes
     }),
   ),
 );
+
+it.effect(
+  "turn end settles streaming text and reasoning as well as running tools, keeping other turns intact",
+  () =>
+    withDb(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        const publisher = makeThreadPublisher();
+        yield* runMigrations();
+        yield* seedThreadFolderFixture("core-test-folder", "space-1");
+        yield* createThread(baseThread);
+        for (const [sourceId, kind, status, turnId] of [
+          ["text", "text", "streaming", "turn"],
+          ["reasoning", "reasoning", "streaming", "turn"],
+          ["tool", "tool", "running", "turn"],
+          ["delta-without-turn", "text", "streaming", null],
+          ["other-turn", "tool", "running", "other-turn"],
+        ] as const) {
+          yield* upsertThreadItem({
+            threadId: baseThread.id,
+            sourceId,
+            kind,
+            status,
+            turnId,
+            text: "partial",
+            data: null,
+            createdAt: baseThread.createdAt,
+            updatedAt: baseThread.createdAt,
+          });
+        }
+        yield* applyProviderEvent(publisher, {
+          type: "turn.ended",
+          threadId: baseThread.id,
+          turnId: "turn",
+          state: "interrupted",
+          at: baseThread.createdAt,
+        });
+        assert.deepStrictEqual(
+          yield* sql`SELECT source_id, status FROM thread_items WHERE thread_id=${baseThread.id} ORDER BY seq`,
+          [
+            { source_id: "text", status: "interrupted" },
+            { source_id: "reasoning", status: "interrupted" },
+            { source_id: "tool", status: "interrupted" },
+            { source_id: "delta-without-turn", status: "interrupted" },
+            { source_id: "other-turn", status: "running" },
+          ],
+        );
+      }),
+    ),
+);
+
+it.effect("provider exit settles streaming items with no turn id", () =>
+  withDb(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const publisher = makeThreadPublisher();
+      yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
+      yield* createThread(baseThread);
+      yield* applyProviderEvent(publisher, {
+        type: "turn.started",
+        threadId: baseThread.id,
+        turnId: "turn",
+        at: baseThread.createdAt,
+      });
+      yield* applyProviderEvent(publisher, {
+        type: "delta",
+        threadId: baseThread.id,
+        sourceId: "partial-text",
+        kind: "text",
+        delta: "partial",
+        at: baseThread.createdAt,
+      });
+      yield* applyProviderEvent(publisher, {
+        type: "provider.exited",
+        threadIds: [baseThread.id],
+        at: baseThread.createdAt,
+      });
+      assert.deepStrictEqual(
+        yield* sql`SELECT status FROM thread_items WHERE source_id='partial-text'`,
+        [{ status: "interrupted" }],
+      );
+    }),
+  ),
+);
