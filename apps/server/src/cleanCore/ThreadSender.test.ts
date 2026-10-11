@@ -54,15 +54,17 @@ for (const workspaceRoot of [null, "/repo"]) {
         });
         const publisher = makeThreadPublisher();
         let dispatchCount = 0;
+        let expectedCwd =
+          workspaceRoot ??
+          ensureDurableThreadWorkspace(ThreadId.makeUnsafe("thread-1"), senderStateDir);
+        const dispatchedCwds: string[] = [];
         const coordinator: typeof ProviderThreadSwitchCoordinator.Service = {
           dispatchTurnStart: ({ command, cwd }) =>
             Effect.sync(() => {
               dispatchCount += 1;
-              assert.equal(
-                cwd,
-                workspaceRoot ??
-                  ensureDurableThreadWorkspace(ThreadId.makeUnsafe("thread-1"), senderStateDir),
-              );
+              assert.equal(cwd, expectedCwd);
+              if (cwd === undefined) throw new Error("The turn must have a directory.");
+              dispatchedCwds.push(cwd);
               assert.equal(command.bindingRevision, 12);
               assert.isTrue(command.commandId.length > 0);
               publisher.publishProvider({
@@ -114,6 +116,29 @@ for (const workspaceRoot of [null, "/repo"]) {
         assert.equal(result.delivery, "started");
         if (result.delivery === "started")
           assert.equal(result.turnId, TurnId.makeUnsafe("native-turn"));
+        yield* folderSql`UPDATE projection_folders SET workspace_root='/new-repo' WHERE folder_id='sender-folder'`;
+        assert.equal(dispatchCount, 1);
+        assert.equal(dispatchedCwds[0], expectedCwd);
+        yield* setThreadState("thread-1", "idle", null, null, "2026-10-09T00:00:02.000Z");
+        expectedCwd = "/new-repo";
+        assert.equal(
+          (yield* sender.send({
+            ...request,
+            message: { ...request.message, messageId: MessageId.makeUnsafe("m2") },
+          })).delivery,
+          "started",
+        );
+        yield* folderSql`UPDATE projection_folders SET workspace_root=NULL WHERE folder_id='sender-folder'`;
+        yield* setThreadState("thread-1", "idle", null, null, "2026-10-09T00:00:03.000Z");
+        expectedCwd = ensureDurableThreadWorkspace(ThreadId.makeUnsafe("thread-1"), senderStateDir);
+        assert.equal(
+          (yield* sender.send({
+            ...request,
+            message: { ...request.message, messageId: MessageId.makeUnsafe("m3") },
+          })).delivery,
+          "started",
+        );
+        assert.equal(dispatchCount, 3);
       }).pipe(Effect.scoped, Effect.provide(NodeSqliteClient.layerMemory())),
   );
 }

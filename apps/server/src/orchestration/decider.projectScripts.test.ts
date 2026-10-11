@@ -65,7 +65,7 @@ describe("decider project scripts", () => {
     expect((event.payload as { scripts: unknown[] }).scripts).toEqual([]);
   });
 
-  it("rejects legacy path-bound folder creation", async () => {
+  it("allows folders to share a directory", async () => {
     const now = new Date().toISOString();
     const initial = await withTestSpace(now);
     const withFirstProject = await Effect.runPromise(
@@ -132,10 +132,13 @@ describe("decider project scripts", () => {
           readModel,
         }),
       ),
-    ).rejects.toThrow("Folders are virtual containers");
+    ).resolves.toMatchObject({
+      type: "folder.created",
+      payload: { workspaceRoot: "/tmp/recreate-root" },
+    });
   });
 
-  it("blocks on the project with saved threads before retiring empty duplicate shells", async () => {
+  it("allows a folder directory already used by a folder with saved chats", async () => {
     const now = new Date().toISOString();
     const initial = await withTestSpace(now);
     const withStaleProject = await Effect.runPromise(
@@ -218,7 +221,10 @@ describe("decider project scripts", () => {
           readModel,
         }),
       ),
-    ).rejects.toThrow("Folders are virtual containers");
+    ).resolves.toMatchObject({
+      type: "folder.created",
+      payload: { workspaceRoot: "/tmp/mixed-root" },
+    });
   });
 
   it("propagates scripts in folder.update payload", async () => {
