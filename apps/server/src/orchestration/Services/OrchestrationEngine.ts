@@ -26,7 +26,7 @@ import type {
 } from "../../persistence/Errors.ts";
 import type { ManagedAttachmentPrincipal } from "../../managedAttachmentPrincipal.ts";
 import type { AcceptedConnectionChange } from "../decider.ts";
-import type { ThreadProviderBindingRepositoryShape } from "../../persistence/Services/ThreadProviderBindings.ts";
+import type { commitThreadTurnSelection } from "../../cleanCore/threadTurnSelection.ts";
 
 export interface OrchestrationDispatchContext {
   readonly attachmentPrincipal?: ManagedAttachmentPrincipal;
@@ -42,26 +42,9 @@ export interface OrchestrationDispatchContext {
     OrchestrationSession,
     "status" | "updatedAt" | "activeTurnId"
   > | null;
-  /** Server-only proof and atomic persistence payload for a verified Connection switch. */
-  readonly acceptedProviderSwitch?: {
-    readonly operationId: string;
-    readonly change: AcceptedConnectionChange;
-    readonly commit:
-      | {
-          readonly kind: "native-state";
-          readonly input: Parameters<ThreadProviderBindingRepositoryShape["commitSwitch"]>[0];
-        }
-      | {
-          readonly kind: "runtime-binding";
-          readonly input: Parameters<
-            ThreadProviderBindingRepositoryShape["updateRuntimeBinding"]
-          >[0];
-        };
-  };
-  /** Server-resolved first provider binding, committed with the first message. */
-  readonly acceptedInitialProviderBinding?: Parameters<
-    ThreadProviderBindingRepositoryShape["initializeThread"]
-  >[0];
+  /** Server-selected account/model and already copied native folder for turn admission. */
+  readonly acceptedTurnSelection?: Parameters<typeof commitThreadTurnSelection>[0];
+  readonly acceptedConnectionChange?: AcceptedConnectionChange;
 }
 
 export interface OrchestrationProjectionCatchUpStatus {

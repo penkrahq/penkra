@@ -1,7 +1,8 @@
 // FILE: admittedThreadRuntime.ts
-// Purpose: Resolve a managed provider runtime after selection admission.
-// Layer: Provider runtime preparation
+// Purpose: Resolve managed launch and resume from the canonical thread row.
 
+import { lstat } from "node:fs/promises";
+import { join } from "node:path";
 import type {
   ModelSelection,
   ProviderConnectionId,
@@ -9,16 +10,20 @@ import type {
   ThreadId,
 } from "@penkra/contracts";
 import { Effect, Option } from "effect";
-import type { ThreadProviderBindingRepositoryShape } from "../persistence/Services/ThreadProviderBindings.ts";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { readThreadNativeState } from "../cleanCore/threadNativeState.ts";
 import { ProviderAdapterValidationError } from "./Errors.ts";
 import { claudeThreadHasConversation } from "./claudeThreadNativeState.ts";
+import { findOneExactCodexRollout } from "./codexManagedNativeState.ts";
+import { providerNativeStateRoot } from "./providerNativeStatePaths.ts";
+import { providerNativeResumeCursor } from "./nativeResumeIdentity.ts";
 import type { ProviderManagedLaunchContext } from "./Services/ProviderAdapter.ts";
 import type { ProviderLaunchResolverShape } from "./Services/ProviderLaunchResolver.ts";
 import type { ProviderTurnSelectionResolverShape } from "./Services/ProviderTurnSelectionResolver.ts";
 
 export interface AdmittedThreadRuntimeDependencies {
   readonly stateDir: string;
-  readonly threadProviderBindings: Pick<ThreadProviderBindingRepositoryShape, "getHarnessState">;
+  readonly sql: SqlClient.SqlClient;
   readonly providerTurnSelectionResolver: Pick<
     ProviderTurnSelectionResolverShape,
     "resolveExisting"
@@ -35,100 +40,78 @@ export const resolveAdmittedThreadRuntime = Effect.fnUntraced(function* (
   },
   dependencies: AdmittedThreadRuntimeDependencies,
 ) {
-  const { threadProviderBindings, providerTurnSelectionResolver, providerLaunchResolver } =
-    dependencies;
-  if (input.connectionId === undefined) {
-    return yield* new ProviderAdapterValidationError({
+  const validation = (issue: string, cause?: unknown) =>
+    new ProviderAdapterValidationError({
       provider: input.provider,
       operation: "thread.turn.start",
-      issue: "The turn is missing its exact managed Connection binding.",
+      issue,
+      ...(cause === undefined ? {} : { cause }),
     });
-  }
-  const selection = yield* providerTurnSelectionResolver
+  if (input.connectionId === undefined)
+    return yield* validation("The turn is missing its managed Connection selection.");
+  const selection = yield* dependencies.providerTurnSelectionResolver
     .resolveExisting({
       threadId: input.threadId,
-      ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
-      ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
+      ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
+      connectionId: input.connectionId,
     })
-    .pipe(
-      Effect.mapError(
-        (cause) =>
-          new ProviderAdapterValidationError({
-            provider: input.provider,
-            operation: "thread.turn.start",
-            issue: cause.message,
-            cause,
-          }),
-      ),
-    );
-  if (selection.changed) {
-    return yield* new ProviderAdapterValidationError({
-      provider: selection.harness,
-      operation: "thread.turn.start",
-      issue: "A Connection change requires verified transactional switch admission.",
-    });
-  }
-  const state = Option.getOrUndefined(
-    yield* threadProviderBindings.getHarnessState(input.threadId),
+    .pipe(Effect.mapError((cause) => validation(cause.message, cause)));
+  if (selection.changed) return yield* validation("A Connection change requires turn admission.");
+  const row = yield* readThreadNativeState(input.threadId).pipe(
+    Effect.provideService(SqlClient.SqlClient, dependencies.sql),
+    Effect.mapError((cause) => validation("Could not read the thread's native state.", cause)),
   );
-  if (!state || state.revision !== selection.stateRevision) {
-    return yield* new ProviderAdapterValidationError({
-      provider: selection.harness,
-      operation: "thread.turn.start",
-      issue: "The thread native state changed before managed runtime launch.",
-    });
+  if (
+    Option.isNone(row) ||
+    row.value.provider !== selection.harness ||
+    row.value.connectionId !== selection.connectionId ||
+    row.value.nativeStateId !== selection.nativeStateId
+  ) {
+    return yield* validation("The thread native state changed before managed runtime launch.");
   }
-  const resumeCursor = yield* Effect.try({
-    try: () => JSON.parse(state.nativeStateLocatorJson) as unknown,
-    catch: (cause) =>
-      new ProviderAdapterValidationError({
-        provider: selection.harness,
-        operation: "thread.turn.start",
-        issue: "The thread native-state locator is invalid.",
-        cause,
-      }),
-  });
-  const launch = yield* providerLaunchResolver
+  const state = row.value;
+  const hasConversation =
+    state.nativeStateId === null || state.providerSessionId === null
+      ? false
+      : yield* Effect.tryPromise({
+          try: async () => {
+            const root = providerNativeStateRoot(dependencies.stateDir, state.nativeStateId!);
+            try {
+              if (!(await lstat(root)).isDirectory())
+                throw new Error(`Native state is not a directory: ${root}`);
+            } catch (cause) {
+              if ((cause as NodeJS.ErrnoException).code === "ENOENT") return false;
+              throw cause;
+            }
+            if (selection.harness === "claudeAgent")
+              return claudeThreadHasConversation(
+                dependencies.stateDir,
+                state.nativeStateId!,
+                state.providerSessionId!,
+              );
+            if (selection.harness === "codex")
+              return (
+                (await findOneExactCodexRollout(
+                  join(root, "codex-rollouts"),
+                  state.providerSessionId!,
+                )) !== null
+              );
+            return true;
+          },
+          catch: (cause) => validation("Could not read the thread's native conversation.", cause),
+        });
+  const launch = yield* dependencies.providerLaunchResolver
     .resolve({
       threadId: input.threadId,
       connectionId: selection.connectionId,
       internalProviderId: selection.internalProviderId,
     })
-    .pipe(
-      Effect.mapError(
-        (cause) =>
-          new ProviderAdapterValidationError({
-            provider: selection.harness,
-            operation: "thread.turn.start",
-            issue: cause.message,
-            cause,
-          }),
-      ),
-    );
-  const missingClaudeConversation =
-    selection.harness === "claudeAgent" &&
-    state.providerSessionId !== null &&
-    !(yield* Effect.tryPromise(() =>
-      claudeThreadHasConversation(
-        dependencies.stateDir,
-        state.nativeStateGenerationId,
-        state.providerSessionId!,
-      ),
-    ));
-  const requiresReconstruction =
-    missingClaudeConversation ||
-    (state.providerSessionId === null &&
-      typeof resumeCursor === "object" &&
-      resumeCursor !== null &&
-      (resumeCursor as { readonly penkraReconstruction?: unknown }).penkraReconstruction === true);
+    .pipe(Effect.mapError((cause) => validation(cause.message, cause)));
   return {
-    bindingRevision: selection.bindingRevision,
-    // A first binding owns an empty managed generation but has no native
-    // session identity yet. Start fresh; JSON null is a persisted sentinel,
-    // not a provider resume cursor.
-    resumeCursor:
-      state.providerSessionId === null || missingClaudeConversation ? undefined : resumeCursor,
-    requiresReconstruction,
+    resumeCursor: hasConversation
+      ? providerNativeResumeCursor(selection.harness, state.providerSessionId!)
+      : undefined,
+    requiresReconstruction: !hasConversation,
     managedLaunch: {
       binaryPath: launch.binaryPath,
       isolationKey: launch.isolationKey,

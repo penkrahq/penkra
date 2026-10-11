@@ -36,11 +36,9 @@ import {
   Cause,
   Duration,
   Effect,
-  Equal,
   Exit,
   Layer,
   Option,
-  Queue,
   Schema,
   Semaphore,
   ServiceMap,
@@ -94,16 +92,15 @@ import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderT
 import { ProviderTurnSelectionResolutionError } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
 import { ProviderLaunchResolver } from "../../provider/Services/ProviderLaunchResolver.ts";
 import type { ProviderManagedLaunchContext } from "../../provider/Services/ProviderAdapter.ts";
-import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
+import { readThreadNativeState } from "../../cleanCore/threadNativeState.ts";
 import { resolveProviderDispatchAttachments } from "../../provider/providerAttachmentPaths.ts";
-import { providerNativeResumeIdentity } from "../../provider/nativeResumeIdentity.ts";
 import { resolveAdmittedThreadRuntime } from "../../provider/admittedThreadRuntime.ts";
 import { buildReconstructedTurnInput } from "../../cleanCore/ThreadSender.ts";
 import { OrchestrationEventDeliveryRepositoryLive } from "../../persistence/Layers/OrchestrationEventDeliveries.ts";
 import { ProviderIntentOutboxLive } from "../../persistence/Layers/ProviderIntentOutbox.ts";
 import { ProviderRuntimeEventRepositoryLive } from "../../persistence/Layers/ProviderRuntimeEvents.ts";
-import { ProviderSessionRuntimeRepositoryLive } from "../../persistence/Layers/ProviderSessionRuntime.ts";
 import { ProviderSessionDirectoryLive } from "../../provider/Layers/ProviderSessionDirectory.ts";
+import { ProviderSessionRuntimeRepositoryLive } from "../../persistence/Layers/ProviderSessionRuntime.ts";
 import { ProviderIntentOutbox } from "../../persistence/Services/ProviderIntentOutbox.ts";
 import { ProviderRuntimeEventRepository } from "../../persistence/Services/ProviderRuntimeEvents.ts";
 import { ProviderSessionDirectory } from "../../provider/Services/ProviderSessionDirectory.ts";
@@ -483,7 +480,6 @@ const make = Effect.gen(function* () {
   const providerRuntimeIngestion = yield* ProviderRuntimeIngestionService;
   const providerTurnSelectionResolver = yield* ProviderTurnSelectionResolver;
   const providerLaunchResolver = yield* ProviderLaunchResolver;
-  const threadProviderBindings = yield* ThreadProviderBindingRepository;
   const pendingInteractions = yield* ProjectionPendingInteractionRepository;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
   const textGeneration = yield* TextGeneration;
@@ -492,7 +488,7 @@ const make = Effect.gen(function* () {
   const serverConfig = yield* ServerConfig;
   const admittedRuntimeDependencies = {
     stateDir: serverConfig.stateDir,
-    threadProviderBindings,
+    sql,
     providerTurnSelectionResolver,
     providerLaunchResolver,
   };
@@ -512,7 +508,6 @@ const make = Effect.gen(function* () {
     );
 
   const threadProviderOptions = new Map<string, ProviderStartOptions>();
-  const threadManagedBindingRevisions = new Map<string, number>();
   // The selection last applied to each live session. Keep this separate from
   // projected thread metadata so an option changed mid-turn is still compared
   // against the old subprocess configuration before the next turn starts.
@@ -882,7 +877,6 @@ const make = Effect.gen(function* () {
     Effect.sync(() => {
       threadProviderOptions.delete(threadId);
       threadSessionModelSelections.delete(threadId);
-      threadManagedBindingRevisions.delete(threadId);
       const editResendPrefix = `${threadId}:`;
       for (const key of editResendTurnStartKeys) {
         if (key.startsWith(editResendPrefix)) {
@@ -906,37 +900,6 @@ const make = Effect.gen(function* () {
       numTurns: input.numTurns,
       beforeTurnId: input.beforeTurnId,
     });
-  });
-
-  const resolveCurrentManagedRuntime = Effect.fnUntraced(function* (input: {
-    readonly threadId: ThreadId;
-    readonly modelSelection: ModelSelection;
-  }) {
-    const current = yield* providerTurnSelectionResolver
-      .resolveExisting({
-        threadId: input.threadId,
-        modelSelection: input.modelSelection,
-      })
-      .pipe(
-        Effect.mapError(
-          (cause) =>
-            new ProviderAdapterValidationError({
-              provider: input.modelSelection.provider,
-              operation: "thread.turn.start",
-              issue: cause.message,
-              cause,
-            }),
-        ),
-      );
-    return yield* resolveAdmittedThreadRuntime(
-      {
-        threadId: input.threadId,
-        provider: input.modelSelection.provider,
-        modelSelection: input.modelSelection,
-        connectionId: current.connectionId,
-      },
-      admittedRuntimeDependencies,
-    );
   });
 
   const ensureSessionForThread = Effect.fnUntraced(function* (
@@ -1103,16 +1066,12 @@ const make = Effect.gen(function* () {
               requestedModelSelection,
             )
           : false);
-      const managedBindingChanged =
-        options?.bindingRevision !== undefined &&
-        threadManagedBindingRevisions.get(threadId) !== options.bindingRevision;
 
       if (
         !runtimeModeChanged &&
         !providerChanged &&
         !shouldRestartForModelChange &&
-        !shouldRestartForModelSelectionChange &&
-        !managedBindingChanged
+        !shouldRestartForModelSelectionChange
       ) {
         return existingSessionThreadId;
       }
@@ -1140,9 +1099,6 @@ const make = Effect.gen(function* () {
       });
       const restartedSession = yield* startProviderSession(resumeCursor);
       threadSessionModelSelections.set(threadId, desiredModelSelection);
-      if (options?.bindingRevision !== undefined) {
-        threadManagedBindingRevisions.set(threadId, options.bindingRevision);
-      }
       yield* Effect.logInfo("provider command reactor restarted provider session", {
         threadId,
         previousSessionId: existingSessionThreadId,
@@ -1159,9 +1115,6 @@ const make = Effect.gen(function* () {
     // restart-necessity checks compare against the live spawn state even when
     // the spawning dispatch carried no explicit model selection.
     threadSessionModelSelections.set(threadId, desiredModelSelection);
-    if (options?.bindingRevision !== undefined) {
-      threadManagedBindingRevisions.set(threadId, options.bindingRevision);
-    }
     yield* bindSessionToThread(startedSession);
     return startedSession.threadId;
   });
@@ -1281,7 +1234,6 @@ const make = Effect.gen(function* () {
         : {
             managedLaunch: managedRuntime.managedLaunch,
             nativeResumeCursor: managedRuntime.resumeCursor,
-            bindingRevision: managedRuntime.bindingRevision,
             requiresReconstruction: managedRuntime.requiresReconstruction,
           }),
     }).pipe(
@@ -1432,7 +1384,6 @@ const make = Effect.gen(function* () {
           : {
               managedLaunch: managedRuntime.managedLaunch,
               nativeResumeCursor: managedRuntime.resumeCursor,
-              bindingRevision: managedRuntime.bindingRevision,
             }),
       });
       if (
@@ -2197,22 +2148,18 @@ const make = Effect.gen(function* () {
             new Error(`Queued thread '${event.payload.threadId}' is missing.`),
           );
         }
-        const runtimeBinding = yield* threadProviderBindings.getRuntimeBinding(
-          event.payload.threadId,
+        const canonical = yield* readThreadNativeState(event.payload.threadId).pipe(
+          Effect.provideService(SqlClient.SqlClient, sql),
         );
-        if (Option.isNone(runtimeBinding)) {
+        if (Option.isNone(canonical))
           return yield* Effect.fail(
-            new Error(`Queued thread '${event.payload.threadId}' has no runtime binding.`),
+            new Error(`Queued thread '${event.payload.threadId}' is missing.`),
           );
-        }
         const currentSelection = yield* providerTurnSelectionResolver
           .resolveExisting({
             threadId: event.payload.threadId,
             modelSelection: thread.modelSelection,
-            connectionId:
-              thread.connectionId === undefined
-                ? runtimeBinding.value.connectionId
-                : thread.connectionId,
+            connectionId: canonical.value.connectionId,
           })
           .pipe(
             Effect.mapError(
@@ -2264,7 +2211,6 @@ const make = Effect.gen(function* () {
               },
               modelSelection: thread.modelSelection,
               connectionId: currentSelection.connectionId,
-              bindingRevision: currentSelection.bindingRevision,
               ...(sourceEvent.payload.providerOptions !== undefined
                 ? { providerOptions: sourceEvent.payload.providerOptions }
                 : {}),
@@ -2469,7 +2415,11 @@ const make = Effect.gen(function* () {
         if (!currentThread) {
           return yield* Effect.fail(new Error(`Queued thread '${threadId}' is missing.`));
         }
-        const runtimeBinding = yield* threadProviderBindings.getRuntimeBinding(threadId);
+        const canonical = yield* readThreadNativeState(threadId).pipe(
+          Effect.provideService(SqlClient.SqlClient, sql),
+        );
+        if (Option.isNone(canonical))
+          return yield* Effect.fail(new Error(`Queued thread '${threadId}' is missing.`));
         const readModel = yield* orchestrationEngine.getCommandReadModel();
         const cwd =
           readModel.folders.find((project) => project.id === currentThread.folderId)
@@ -2491,16 +2441,7 @@ const make = Effect.gen(function* () {
               turnId: nextQueuedTurn.turnId ?? TurnId.makeUnsafe(`turn:${sourceEvent.commandId}`),
               messageId: nextQueuedTurn.messageId,
               modelSelection: currentThread.modelSelection,
-              ...(currentThread.connectionId !== undefined
-                ? { connectionId: currentThread.connectionId }
-                : nextQueuedTurn.connectionId !== undefined
-                  ? { connectionId: nextQueuedTurn.connectionId }
-                  : {}),
-              ...(Option.isSome(runtimeBinding)
-                ? { bindingRevision: runtimeBinding.value.revision }
-                : nextQueuedTurn.bindingRevision !== undefined
-                  ? { bindingRevision: nextQueuedTurn.bindingRevision }
-                  : {}),
+              connectionId: canonical.value.connectionId,
               ...(nextQueuedTurn.providerOptions !== undefined
                 ? { providerOptions: nextQueuedTurn.providerOptions }
                 : {}),
@@ -3488,28 +3429,6 @@ const make = Effect.gen(function* () {
           if (thread && event.payload.session.status !== "stopped") {
             if (!threadSessionModelSelections.has(event.payload.threadId)) {
               threadSessionModelSelections.set(event.payload.threadId, thread.modelSelection);
-            }
-            if (!threadManagedBindingRevisions.has(event.payload.threadId)) {
-              const currentBinding = yield* providerTurnSelectionResolver
-                .resolveExisting({
-                  threadId: event.payload.threadId,
-                  modelSelection: thread.modelSelection,
-                })
-                .pipe(
-                  Effect.mapError(
-                    (cause) =>
-                      new ProviderAdapterValidationError({
-                        provider: thread.modelSelection.provider,
-                        operation: "thread.session.set",
-                        issue: cause.message,
-                        cause,
-                      }),
-                  ),
-                );
-              threadManagedBindingRevisions.set(
-                event.payload.threadId,
-                currentBinding.bindingRevision,
-              );
             }
           }
           return;

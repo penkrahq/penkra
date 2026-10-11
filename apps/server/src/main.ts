@@ -41,7 +41,6 @@ import { ProviderHealth } from "./provider/Services/ProviderHealth";
 import { startAutomaticProviderUpdates } from "./provider/providerUpdateCoordinator";
 import { ProviderInstallationRepository } from "./persistence/Services/ProviderInstallations";
 import { ProviderConnectionLoginCoordinator } from "./provider/Services/ProviderConnectionLoginCoordinator";
-import { ProviderNativeStateDeletionCoordinator } from "./provider/Services/ProviderNativeStateDeletionCoordinator";
 import { Server } from "./effectServer";
 import { ServerLoggerLive } from "./serverLogger";
 import { runStartupStage } from "./startupTiming";
@@ -383,7 +382,6 @@ const makeServerProgram = (input: CliInput) => {
     const providerHealth = yield* ProviderHealth;
     const installationRepository = yield* ProviderInstallationRepository;
     const providerConnectionLoginCoordinator = yield* ProviderConnectionLoginCoordinator;
-    const providerNativeStateDeletionCoordinator = yield* ProviderNativeStateDeletionCoordinator;
     yield* cliConfig.fixPath;
 
     const config = yield* ServerConfig;
@@ -406,10 +404,6 @@ const makeServerProgram = (input: CliInput) => {
     }
 
     const orchestrationEngine = yield* OrchestrationEngineService;
-    yield* runStartupStage(
-      "provider-native-state-deletion.recover",
-      providerNativeStateDeletionCoordinator.recover,
-    );
     yield* runStartupStage(
       "provider-connection-login.initialize",
       providerConnectionLoginCoordinator.initialize,

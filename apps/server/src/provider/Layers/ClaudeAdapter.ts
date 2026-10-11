@@ -423,14 +423,6 @@ interface ClaudeQueryRuntime extends AsyncIterable<ClaudeRuntimeMessage> {
   readonly close: () => void;
 }
 
-interface ClaudeWarmQueryRuntime {
-  readonly query: (prompt: AsyncIterable<SDKUserMessage>) => AsyncIterable<ClaudeRuntimeMessage>;
-  readonly close: () => void;
-  readonly [Symbol.asyncDispose]: () => Promise<void>;
-}
-
-async function* emptyClaudeVerificationPrompt(): AsyncIterable<SDKUserMessage> {}
-
 export type ClaudeOwnedProcess = ClaudeSpawnedProcess & ProcessExitHandle;
 
 interface ClaudeProcessOwner {
@@ -460,10 +452,6 @@ export interface ClaudeAdapterLiveOptions {
     readonly prompt: AsyncIterable<SDKUserMessage>;
     readonly options: ClaudeQueryOptions;
   }) => ClaudeQueryRuntime | Promise<ClaudeQueryRuntime>;
-  readonly createWarmQuery?: (input: {
-    readonly options: ClaudeQueryOptions;
-    readonly initializeTimeoutMs: number;
-  }) => ClaudeWarmQueryRuntime | Promise<ClaudeWarmQueryRuntime>;
   readonly agentGatewayCredentials?: AgentGatewayCredentialsShape;
   readonly agentGatewayToolBridge?: AgentGatewayToolBridgeShape;
   readonly nativeEventLogPath?: string;
@@ -952,10 +940,6 @@ const CLAUDE_SETTING_SOURCES = [
   "local",
 ] as const satisfies ReadonlyArray<SettingSource>;
 const CLAUDE_CONTEXT_USAGE_TIMEOUT_MS = 1_000;
-const CLAUDE_NATIVE_RESUME_VERIFICATION_TIMEOUT_MS = 60_000;
-const CLAUDE_NATIVE_RESUME_VERIFICATION_THREAD_ID = ThreadId.makeUnsafe(
-  "claude-native-resume-verification",
-);
 // The SDK's interrupt resolves only once the CLI acknowledges it; a wedged CLI
 // would otherwise stall the caller (and the provider command reactor) forever.
 const CLAUDE_INTERRUPT_TIMEOUT = Duration.seconds(10);
@@ -1571,17 +1555,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         prompt: input.prompt,
         options: input.options,
       }) as ClaudeQueryRuntime;
-    };
-    const createWarmQuery = async (input: {
-      readonly options: ClaudeQueryOptions;
-      readonly initializeTimeoutMs: number;
-    }): Promise<ClaudeWarmQueryRuntime> => {
-      const override = options?.createWarmQuery;
-      if (override) {
-        return override(input);
-      }
-      const { startup } = await loadClaudeAgentSdk();
-      return startup(input) as unknown as Promise<ClaudeWarmQueryRuntime>;
     };
     const spawnClaudeProcess = options?.spawnClaudeCodeProcess ?? spawnOwnedClaudeCodeProcess;
     const teardownProcessTree = options?.teardownProcessTree ?? teardownProviderProcessTree;
@@ -5062,157 +5035,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
     const startSession: ClaudeAdapterShape["startSession"] = (input) =>
       withSessionLifecycleLock(input.threadId, startSessionUnlocked(input));
 
-    const verifyNativeResume: NonNullable<ClaudeAdapterShape["verifyNativeResume"]> = (input) =>
-      Effect.gen(function* () {
-        const resume = readClaudeResumeSessionId(input.sourceResumeCursor);
-        if (!resume) {
-          return yield* new ProviderAdapterValidationError({
-            provider: PROVIDER,
-            operation: "verifyNativeResume",
-            issue: "The Claude resume cursor does not contain an exact native session id.",
-          });
-        }
-        if (
-          input.requireCompletedProbe &&
-          (input.modelSelection?.provider !== PROVIDER || !input.modelSelection.model)
-        ) {
-          return yield* new ProviderAdapterValidationError({
-            provider: PROVIDER,
-            operation: "verifyNativeResume",
-            issue: "A completed Claude resume probe requires an explicitly selected test model.",
-          });
-        }
-
-        const processOwner: ClaudeProcessOwner = {};
-        const claudeSdkEnv = input.managedLaunch.childEnvironment(process.env);
-        claudeSdkEnv.MAX_MCP_OUTPUT_TOKENS = String(INLINE_TOOL_RESULT_BYTES);
-        return yield* Effect.acquireUseRelease(
-          Effect.tryPromise({
-            try: () =>
-              createWarmQuery({
-                initializeTimeoutMs: CLAUDE_NATIVE_RESUME_VERIFICATION_TIMEOUT_MS,
-                options: {
-                  ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
-                  resume,
-                  ...(input.requireCompletedProbe
-                    ? { model: input.modelSelection!.model, tools: [], maxTurns: 1 }
-                    : {}),
-                  env: claudeSdkEnv,
-                  pathToClaudeCodeExecutable: input.managedLaunch.binaryPath,
-                  settingSources: [],
-                  spawnClaudeCodeProcess: bindClaudeProcessOwner(processOwner),
-                },
-              }),
-            catch: (cause) =>
-              new ProviderAdapterRequestError({
-                provider: PROVIDER,
-                method: "startup.resume",
-                detail: toMessage(
-                  cause,
-                  "Claude could not initialize the exact native continuation.",
-                ),
-                cause,
-              }),
-          }),
-          (warmQuery) =>
-            Effect.tryPromise({
-              try: async () => {
-                const stream = warmQuery.query(
-                  input.requireCompletedProbe
-                    ? (async function* (): AsyncIterable<SDKUserMessage> {
-                        yield {
-                          type: "user",
-                          message: {
-                            role: "user",
-                            content: "Penkra continuation check. Reply OK without using tools.",
-                          },
-                          parent_tool_use_id: null,
-                          isSynthetic: true,
-                        };
-                      })()
-                    : emptyClaudeVerificationPrompt(),
-                );
-                let timeout: ReturnType<typeof setTimeout> | undefined;
-                const reportedSessionId = await Promise.race([
-                  (async () => {
-                    let initializedSessionId: string | undefined;
-                    for await (const message of stream) {
-                      if (message.type === "system" && message.subtype === "init") {
-                        initializedSessionId = message.session_id;
-                        if (!input.requireCompletedProbe) return initializedSessionId;
-                      }
-                      if (input.requireCompletedProbe && message.type === "result") {
-                        if (message.subtype !== "success" || message.is_error) {
-                          throw new Error(
-                            "Claude rejected the resumed verification turn: " +
-                              ("errors" in message ? message.errors.join(" ") : message.result),
-                          );
-                        }
-                        if (initializedSessionId === undefined) {
-                          throw new Error(
-                            "Claude completed a turn without reporting its native session id.",
-                          );
-                        }
-                        if (message.session_id !== initializedSessionId) {
-                          throw new Error(
-                            "Claude changed native sessions during resume verification.",
-                          );
-                        }
-                        return message.session_id;
-                      }
-                    }
-                    throw new Error(
-                      input.requireCompletedProbe
-                        ? "Claude did not complete the resumed verification turn."
-                        : "Claude did not report a native session id during resume.",
-                    );
-                  })(),
-                  new Promise<never>((_resolve, reject) => {
-                    timeout = setTimeout(
-                      () => reject(new Error("Claude did not report a native session id in time.")),
-                      CLAUDE_NATIVE_RESUME_VERIFICATION_TIMEOUT_MS,
-                    );
-                  }),
-                ]).finally(() => clearTimeout(timeout));
-                if (reportedSessionId !== resume) {
-                  throw new Error("Claude opened a different native session during resume.");
-                }
-                return {
-                  providerSessionId: reportedSessionId,
-                  resumeCursor: input.sourceResumeCursor,
-                };
-              },
-              catch: (cause) =>
-                new ProviderAdapterRequestError({
-                  provider: PROVIDER,
-                  method: "startup.resume",
-                  detail: toMessage(cause, "Claude did not prove exact native continuation."),
-                  cause,
-                }),
-            }),
-          (warmQuery) =>
-            Effect.tryPromise({
-              try: () => warmQuery[Symbol.asyncDispose](),
-              catch: (cause) =>
-                new ProviderAdapterRequestError({
-                  provider: PROVIDER,
-                  method: "startup.close",
-                  detail: toMessage(
-                    cause,
-                    "Claude continuation verification did not close cleanly.",
-                  ),
-                  cause,
-                }),
-            }).pipe(Effect.ignore),
-        ).pipe(
-          Effect.ensuring(
-            teardownClaudeProcess(CLAUDE_NATIVE_RESUME_VERIFICATION_THREAD_ID, processOwner).pipe(
-              Effect.ignore,
-            ),
-          ),
-        );
-      });
-
     const sendTurn: ClaudeAdapterShape["sendTurn"] = (input) =>
       Effect.gen(function* () {
         const context = yield* requireSession(input.threadId);
@@ -6055,7 +5877,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         supportsTurnSteering: true,
       },
       startSession,
-      verifyNativeResume,
       sendTurn,
       steerTurn,
       interruptTurn,

@@ -22,7 +22,6 @@ import { providerNativeStateRoot, providerOpaquePathKey } from "./providerNative
 
 const RETENTION_DAYS = 36_500;
 const CLAUDE_THREAD_ACCOUNT_FILE = "account.json";
-export const CLAUDE_SESSION_MARKER_FILE = "claude-session.json";
 const CLAUDE_SESSION_SIDECARS = ["session-env", "tasks", "file-history"] as const;
 
 export type ClaudeThreadAccount = {
@@ -46,11 +45,6 @@ export function claudeAccountsMatch(
     left.providerIdentityId.trim().toLowerCase() === right.providerIdentityId.trim().toLowerCase()
   );
 }
-
-export type ClaudeSessionMarker = {
-  readonly providerSessionId: string;
-  readonly requiresReconstruction?: boolean;
-};
 
 export function claudeThreadProjectName(threadId: string): string {
   // Claude accepts at most 64 characters for CLAUDE_CODE_PROJECT_DIR_NAME.
@@ -381,27 +375,4 @@ export async function prepareClaudeThreadSidecars(input: {
       Path.join(root, name, input.sessionId),
     );
   }
-}
-
-export async function readClaudeSessionMarker(
-  generationRoot: string,
-): Promise<ClaudeSessionMarker | null> {
-  const raw = await readFile(Path.join(generationRoot, CLAUDE_SESSION_MARKER_FILE), "utf8").catch(
-    (cause: NodeJS.ErrnoException) => {
-      if (cause.code === "ENOENT") return null;
-      throw cause;
-    },
-  );
-  if (raw === null) return null;
-  const decoded: unknown = JSON.parse(raw);
-  if (typeof decoded !== "object" || decoded === null) return null;
-  const record = decoded as {
-    readonly providerSessionId?: unknown;
-    readonly requiresReconstruction?: unknown;
-  };
-  if (typeof record.providerSessionId !== "string") return null;
-  return {
-    providerSessionId: record.providerSessionId,
-    requiresReconstruction: record.requiresReconstruction === true,
-  };
 }

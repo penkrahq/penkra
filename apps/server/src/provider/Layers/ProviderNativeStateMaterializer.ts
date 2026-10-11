@@ -1,7 +1,7 @@
 // FILE: ProviderNativeStateMaterializer.ts
 // Purpose: Crash-safe filesystem materialization for provider-native state.
 
-import { cp, lstat, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, rename, rm } from "node:fs/promises";
 import * as Path from "node:path";
 import { randomUUID } from "node:crypto";
 import { backup as backupSqlite, DatabaseSync } from "node:sqlite";
@@ -9,9 +9,8 @@ import { Effect, Layer } from "effect";
 
 import { ServerConfig } from "../../config.ts";
 import { providerNativeStateRoot } from "../providerNativeStatePaths.ts";
-import { requireOneExactCodexRollout } from "../codexManagedNativeState.ts";
+import { findOneExactCodexRollout } from "../codexManagedNativeState.ts";
 import {
-  CLAUDE_SESSION_MARKER_FILE,
   claudeProjectHasConversation,
   claudeNativeProjectRoot,
 } from "../claudeThreadNativeState.ts";
@@ -77,15 +76,15 @@ async function exactNativeEntries(input: {
   readonly harness: Parameters<ProviderNativeStateMaterializerShape["clone"]>[0]["harness"];
   readonly providerSessionId: string;
   readonly sourceRoot: string;
-}): Promise<string[]> {
+}): Promise<string[] | null> {
   switch (input.harness) {
-    case "codex":
-      return [
-        await requireOneExactCodexRollout(
-          Path.join(input.sourceRoot, "codex-rollouts"),
-          input.providerSessionId,
-        ),
-      ];
+    case "codex": {
+      const rollout = await findOneExactCodexRollout(
+        Path.join(input.sourceRoot, "codex-rollouts"),
+        input.providerSessionId,
+      );
+      return rollout === null ? null : [rollout];
+    }
     case "claudeAgent": {
       const entries: string[] = [];
       for (const name of ["project", "session-env", "tasks", "file-history"]) {
@@ -95,6 +94,7 @@ async function exactNativeEntries(input: {
       return entries;
     }
     case "opencode": {
+      if (!(await exists(Path.join(input.sourceRoot, "opencode.db")))) return null;
       const entries: string[] = [];
       for (const name of OPEN_CODE_NATIVE_ENTRIES) {
         const entry = Path.join(input.sourceRoot, "xdg-data", "opencode", name);
@@ -119,10 +119,10 @@ export const makeProviderNativeStateMaterializer = Effect.gen(function* () {
           if (input.sourceGenerationId === input.targetGenerationId) {
             throw new Error("source and target generations are identical");
           }
-          const generationSource = providerNativeStateRoot(
-            config.stateDir,
-            input.sourceGenerationId,
-          );
+          const generationSource =
+            input.sourceGenerationId === null
+              ? null
+              : providerNativeStateRoot(config.stateDir, input.sourceGenerationId);
           const target = providerNativeStateRoot(config.stateDir, input.targetGenerationId);
           const parent = Path.dirname(target);
           const staging = Path.join(parent, `.staging-${Path.basename(target)}-${randomUUID()}`);
@@ -135,17 +135,21 @@ export const makeProviderNativeStateMaterializer = Effect.gen(function* () {
               throw cause;
             }
           }
-          const sourceExists = await exists(generationSource);
-          if (sourceExists && !(await lstat(generationSource)).isDirectory()) {
+          const sourceExists = generationSource !== null && (await exists(generationSource));
+          if (
+            generationSource !== null &&
+            sourceExists &&
+            !(await lstat(generationSource)).isDirectory()
+          ) {
             throw new Error("source generation is not a directory");
           }
-          if (!sourceExists && input.harness !== "claudeAgent") {
-            throw new Error(`The provider-native state folder is missing: ${generationSource}`);
-          }
+          let providerSessionId = input.providerSessionId;
           try {
             await mkdir(staging, { mode: 0o700 });
-            if (input.harness === "opencode") {
-              await snapshotOpenCodeDatabase(generationSource, staging);
+            if (!sourceExists || generationSource === null || providerSessionId === null) {
+              providerSessionId = null;
+              await rename(staging, target);
+              return { root: target, providerSessionId };
             }
             const sourceRoot =
               input.harness === "claudeAgent"
@@ -153,33 +157,28 @@ export const makeProviderNativeStateMaterializer = Effect.gen(function* () {
                 : generationSource;
             const copyTarget =
               input.harness === "claudeAgent" ? Path.join(staging, "claude") : staging;
-            const requiresReconstruction =
+            const missingConversation =
               input.harness === "claudeAgent" &&
-              !(await claudeProjectHasConversation(sourceRoot, input.providerSessionId));
-            const entries = requiresReconstruction
+              !(await claudeProjectHasConversation(sourceRoot, providerSessionId));
+            const entries = missingConversation
               ? []
               : await exactNativeEntries({
                   harness: input.harness,
-                  providerSessionId: input.providerSessionId,
+                  providerSessionId,
                   sourceRoot,
                 });
-            for (const entry of entries) await copyEntry(sourceRoot, copyTarget, entry);
-            if (input.harness === "claudeAgent") {
-              await writeFile(
-                Path.join(staging, CLAUDE_SESSION_MARKER_FILE),
-                JSON.stringify({
-                  providerSessionId: input.providerSessionId,
-                  ...(requiresReconstruction ? { requiresReconstruction: true } : {}),
-                }),
-                { mode: 0o600 },
-              );
+            if (entries !== null) {
+              if (input.harness === "opencode")
+                await snapshotOpenCodeDatabase(generationSource, staging);
+              for (const entry of entries) await copyEntry(sourceRoot, copyTarget, entry);
             }
+            if (missingConversation || entries === null) providerSessionId = null;
             await rename(staging, target);
           } catch (cause) {
             await rm(staging, { recursive: true, force: true });
             throw cause;
           }
-          return target;
+          return { root: target, providerSessionId };
         },
         catch: (cause) =>
           failure("Could not materialize the exact provider-native state generation.", cause),

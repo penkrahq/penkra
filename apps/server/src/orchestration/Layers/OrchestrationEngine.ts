@@ -31,7 +31,6 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { ServerConfig } from "../../config.ts";
 import { DIAGNOSTIC_LIMITS } from "../../diagnostics/limits.ts";
 import { toPersistenceSqlError, type PersistenceSqlError } from "../../persistence/Errors.ts";
-import { isRetryableSqliteError } from "../../persistence/SqliteSafety.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { ProviderIntentOutbox } from "../../persistence/Services/ProviderIntentOutbox.ts";
 import { ProviderIntentOutboxLive } from "../../persistence/Layers/ProviderIntentOutbox.ts";
@@ -40,11 +39,6 @@ import {
   type OrchestrationCommandReceipt,
 } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
 import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
-import {
-  ThreadProviderBindingRepository,
-  type ThreadProviderBindingRepositoryShape,
-} from "../../persistence/Services/ThreadProviderBindings.ts";
-import { ProviderThreadSwitchOperationRepository } from "../../persistence/Services/ProviderThreadSwitchOperations.ts";
 import { ManagedAttachmentRepositoryLive } from "../../persistence/Layers/ManagedAttachments.ts";
 import { QueuedTurnPromotionRepositoryLive } from "../../persistence/Layers/QueuedTurnPromotions.ts";
 import { QueuedTurnPromotionRepository } from "../../persistence/Services/QueuedTurnPromotions.ts";
@@ -98,16 +92,6 @@ const ORCHESTRATION_DISPATCH_TIMEOUT_MS = DIAGNOSTIC_LIMITS.commandDispatchMs;
 const DEFERRED_PROJECTION_RETRY_DELAYS_MS = [100, 500, 2_000, 10_000, 30_000] as const;
 const REQUIRED_REPAIR_PROJECTORS = Object.values(ORCHESTRATION_PROJECTOR_NAMES);
 
-const verifiedSwitchCommitError = (commandType: string, detail: string, cause: Error) =>
-  new OrchestrationCommandInvariantError({
-    commandType,
-    detail: `${detail}: ${cause.message}`,
-    code: isRetryableSqliteError(cause)
-      ? "provider_switch_commit_retryable"
-      : "provider_switch_commit_failed",
-    cause,
-  });
-
 type CommandExecutionState = "queued" | "in-flight" | "abandoned";
 type DispatchTimeoutDecision = { kind: "abandon" } | { kind: "wait" };
 type OrchestrationEnginePhase = "running" | "quiescing" | "draining" | "stopped";
@@ -116,10 +100,8 @@ interface CommandEnvelope {
   command: OrchestrationCommand;
   attachmentPrincipal: ManagedAttachmentPrincipal;
   allowArchivedProviderProjection?: boolean;
-  acceptedProviderSwitch?: NonNullable<OrchestrationDispatchContext["acceptedProviderSwitch"]>;
-  acceptedInitialProviderBinding?: Parameters<
-    ThreadProviderBindingRepositoryShape["initializeThread"]
-  >[0];
+  acceptedTurnSelection?: OrchestrationDispatchContext["acceptedTurnSelection"];
+  acceptedConnectionChange?: OrchestrationDispatchContext["acceptedConnectionChange"];
   expectedProviderLifecycleGeneration?: string;
   expectedProviderSessionOwnership?: OrchestrationDispatchContext["expectedProviderSessionOwnership"];
   result: Deferred.Deferred<OrchestrationDispatchResult, OrchestrationDispatchError>;
@@ -229,12 +211,6 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   const commandReceiptRepository = yield* OrchestrationCommandReceiptRepository;
   const managedAttachments = yield* ManagedAttachmentRepository;
   const queuedTurnPromotions = yield* QueuedTurnPromotionRepository;
-  const threadProviderBindings = Option.getOrUndefined(
-    yield* Effect.serviceOption(ThreadProviderBindingRepository),
-  );
-  const providerThreadSwitchOperations = Option.getOrUndefined(
-    yield* Effect.serviceOption(ProviderThreadSwitchOperationRepository),
-  );
   const projectionPipeline = yield* OrchestrationProjectionPipeline;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const serverConfig = yield* ServerConfig;
@@ -846,8 +822,8 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           : {}),
         workspacePaths: deciderWorkspacePaths,
         allowArchivedProviderProjection: envelope.allowArchivedProviderProjection === true,
-        ...(envelope.acceptedProviderSwitch !== undefined
-          ? { acceptedConnectionChange: envelope.acceptedProviderSwitch.change }
+        ...(envelope.acceptedConnectionChange !== undefined
+          ? { acceptedConnectionChange: envelope.acceptedConnectionChange }
           : {}),
       });
       const eventBases = Array.isArray(eventBase) ? eventBase : [eventBase];
@@ -957,122 +933,18 @@ const makeOrchestrationEngine = Effect.gen(function* () {
             disposition = "skipped";
           }
         }
-        if (envelope.acceptedInitialProviderBinding !== undefined) {
-          if (command.type !== "thread.turn.start" || threadProviderBindings === undefined) {
-            return yield* new OrchestrationCommandInvariantError({
-              commandType: command.type,
-              detail: "An initial provider binding may only accompany a thread turn start.",
-            });
-          }
-          yield* threadProviderBindings
-            .initializeThreadInCurrentTransaction(envelope.acceptedInitialProviderBinding)
-            .pipe(
-              Effect.mapError(
-                (cause) =>
-                  new OrchestrationCommandInvariantError({
-                    commandType: command.type,
-                    detail: `The initial provider binding could not be committed: ${cause.message}`,
-                  }),
-              ),
-            );
-        }
-        if (envelope.acceptedProviderSwitch !== undefined) {
+        if (envelope.acceptedTurnSelection !== undefined) {
           if (
-            command.type !== "thread.turn.start" &&
-            command.type !== "thread.turn.dispatch-queued"
+            (command.type !== "thread.turn.start" &&
+              command.type !== "thread.turn.dispatch-queued") ||
+            envelope.acceptedTurnSelection.threadId !== command.threadId
           ) {
             return yield* new OrchestrationCommandInvariantError({
               commandType: command.type,
-              detail: "A verified provider switch may only accompany a thread turn admission.",
+              detail: "Provider selection may only accompany its thread's turn admission.",
             });
           }
-          if (
-            threadProviderBindings === undefined ||
-            providerThreadSwitchOperations === undefined
-          ) {
-            return yield* new OrchestrationCommandInvariantError({
-              commandType: command.type,
-              detail: "Verified provider-switch persistence is unavailable.",
-            });
-          }
-          if (envelope.acceptedProviderSwitch.commit.kind === "native-state") {
-            yield* threadProviderBindings
-              .commitSwitchInCurrentTransaction(envelope.acceptedProviderSwitch.commit.input)
-              .pipe(
-                Effect.mapError((cause) =>
-                  verifiedSwitchCommitError(
-                    command.type,
-                    "The verified provider switch could not be committed",
-                    cause,
-                  ),
-                ),
-              );
-          } else {
-            const updatedBinding = yield* threadProviderBindings
-              .updateRuntimeBindingInCurrentTransaction(
-                envelope.acceptedProviderSwitch.commit.input,
-              )
-              .pipe(
-                Effect.mapError((cause) =>
-                  verifiedSwitchCommitError(
-                    command.type,
-                    "The verified provider selection could not be committed",
-                    cause,
-                  ),
-                ),
-              );
-            if (Option.isNone(updatedBinding)) {
-              return yield* new OrchestrationCommandInvariantError({
-                commandType: command.type,
-                detail: "The provider selection binding changed before commit.",
-                code: "provider_binding_stale",
-              });
-            }
-          }
-          const committedOperation = yield* providerThreadSwitchOperations
-            .markCommittedInCurrentTransaction({
-              id: envelope.acceptedProviderSwitch.operationId,
-              updatedAt: command.createdAt,
-            })
-            .pipe(
-              Effect.mapError((cause) =>
-                verifiedSwitchCommitError(
-                  command.type,
-                  "The provider switch journal could not be committed",
-                  cause,
-                ),
-              ),
-            );
-          if (Option.isNone(committedOperation)) {
-            return yield* new OrchestrationCommandInvariantError({
-              commandType: command.type,
-              detail: "The verified provider switch journal entry no longer exists.",
-            });
-          }
-        }
-
-        if (
-          command.type === "thread.turn.start" ||
-          command.type === "thread.turn.dispatch-queued"
-        ) {
-          const initial = envelope.acceptedInitialProviderBinding;
-          const switched = envelope.acceptedProviderSwitch?.commit;
-          const native = switched?.kind === "native-state" ? switched.input : initial;
-          yield* commitThreadTurnSelection({
-            threadId: command.threadId,
-            modelSelection: command.modelSelection,
-            connectionId:
-              switched === undefined
-                ? initial === undefined
-                  ? command.connectionId
-                  : initial.connectionId
-                : switched.input.connectionId,
-            nativeState:
-              native === undefined
-                ? undefined
-                : { id: native.generation.id, providerSessionId: native.providerSessionId },
-            updatedAt: command.createdAt,
-          }).pipe(
+          yield* commitThreadTurnSelection(envelope.acceptedTurnSelection).pipe(
             Effect.provideService(SqlClient.SqlClient, sql),
             Effect.mapError(toPersistenceSqlError("OrchestrationEngine.commitThreadTurnSelection")),
           );
@@ -1625,12 +1497,12 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         ...(context?.allowArchivedProviderProjection === true
           ? { allowArchivedProviderProjection: true }
           : {}),
-        ...(context?.acceptedProviderSwitch !== undefined
-          ? { acceptedProviderSwitch: context.acceptedProviderSwitch }
-          : {}),
-        ...(context?.acceptedInitialProviderBinding !== undefined
-          ? { acceptedInitialProviderBinding: context.acceptedInitialProviderBinding }
-          : {}),
+        ...(context?.acceptedTurnSelection === undefined
+          ? {}
+          : { acceptedTurnSelection: context.acceptedTurnSelection }),
+        ...(context?.acceptedConnectionChange === undefined
+          ? {}
+          : { acceptedConnectionChange: context.acceptedConnectionChange }),
         ...(context?.expectedProviderLifecycleGeneration !== undefined
           ? { expectedProviderLifecycleGeneration: context.expectedProviderLifecycleGeneration }
           : {}),

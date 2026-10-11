@@ -48,7 +48,6 @@ it.effect(
       const publisher = makeThreadPublisher();
       const resolver: typeof ProviderTurnSelectionResolver.Service = {
         resolveNewThreadConnection: () => Effect.sync(() => defaultConnection),
-        resolveInitial: () => Effect.die("unused initial resolver"),
         resolveExisting: () => Effect.die("unused existing resolver"),
       };
       const lifecycle: typeof ThreadLifecycle.Service = {
@@ -110,7 +109,6 @@ it.effect(
             return { sequence: dispatches };
           }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.orDie),
         dispatchQueuedTurn: () => Effect.die("unused queued dispatch"),
-        recoverOpen: Effect.void,
       } satisfies typeof ProviderThreadSwitchCoordinator.Service;
       const newSender = () =>
         makeThreadSender.pipe(

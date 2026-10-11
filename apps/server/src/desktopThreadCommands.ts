@@ -51,7 +51,6 @@ export interface DesktopThreadCommandDependencies {
     threads: readonly CleanCoreThreadSummary[];
     nextCursor: CleanCoreThreadListCursor | null;
   }>;
-  bindingRevision(threadId: string): Promise<number>;
   dispatch(command: OrchestrationCommand): Promise<unknown>;
   createThread(input: CleanCoreCreateThreadInput): Promise<CleanCoreCreateThreadResult>;
   updateThread(
@@ -352,7 +351,6 @@ export class DesktopThreadCommands {
             ...(receipt.input.skills?.length ? { skills: receipt.input.skills } : {}),
           },
           modelSelection: Schema.decodeUnknownSync(ModelSelection)(modelSelection),
-          bindingRevision: await this.deps.bindingRevision(target.id),
           dispatchMode: mode,
           runtimeMode: Schema.decodeUnknownSync(RuntimeMode)(target.runtimeMode),
           createdAt: receipt.createdAt,

@@ -263,7 +263,6 @@ function makeHarness() {
           selectionCalls++;
           return defaultConnection;
         }),
-      resolveInitial: () => Effect.die("unused selection"),
       resolveExisting: () => Effect.die("unused selection"),
     },
     loadProviderAvailabilities: Effect.succeed(

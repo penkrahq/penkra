@@ -7,8 +7,8 @@ import type { ProviderConnectionId, ProviderInstallationId } from "@penkra/contr
 import { ServerConfig } from "../../config.ts";
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
-import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
-import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { readThreadNativeState } from "../../cleanCore/threadNativeState.ts";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
 import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
 import {
@@ -30,7 +30,6 @@ import {
   ProviderTurnSelectionResolutionError,
   ProviderTurnSelectionResolver,
   type ProviderTurnSelectionFailureCode,
-  type ResolvedProviderTurnSelection,
   type ProviderTurnSelectionResolverShape,
 } from "../Services/ProviderTurnSelectionResolver.ts";
 
@@ -74,8 +73,7 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
   const config = yield* ServerConfig;
   const connections = yield* ProviderConnectionRepository;
   const installations = yield* ProviderInstallationRepository;
-  const threads = yield* ThreadProviderBindingRepository;
-  const projections = yield* ProjectionSnapshotQuery;
+  const sql = yield* SqlClient.SqlClient;
   const registry = yield* ProviderAdapterRegistry;
   const launchResolver = yield* ProviderLaunchResolver;
   const serverSettings = yield* ServerSettingsService;
@@ -154,9 +152,7 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
 
   const requireAuthorizedConnection = Effect.fnUntraced(function* (input: {
     readonly harness: Parameters<typeof getProviderConnectionManifest>[0];
-    readonly connectionId: NonNullable<
-      Parameters<ProviderTurnSelectionResolverShape["resolveInitial"]>[0]["connectionId"]
-    >;
+    readonly connectionId: ProviderConnectionId;
     readonly internalProviderId: string | null;
   }) {
     const connection = yield* connections.getRecord(input.connectionId).pipe(
@@ -276,121 +272,10 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
         return requestedConnectionId;
       });
 
-  const resolveInitial: ProviderTurnSelectionResolverShape["resolveInitial"] = (input) =>
-    Effect.gen(function* () {
-      const thread = yield* projections.getThreadShellById(input.threadId).pipe(
-        Effect.mapError(
-          (cause) =>
-            new ProviderTurnSelectionResolutionError({
-              detail: "Could not read the thread's initial provider selection.",
-              cause,
-            }),
-        ),
-      );
-      if (Option.isNone(thread)) {
-        yield* Effect.logWarning("initial provider admission could not find thread projection", {
-          threadId: input.threadId,
-        });
-        return yield* fail("The thread does not exist.");
-      }
-      const modelSelection = input.modelSelection ?? thread.value.modelSelection;
-      if (modelSelection.provider !== thread.value.modelSelection.provider) {
-        return yield* fail(
-          "This thread uses a different provider. To use another provider, start a new thread.",
-          "provider_mismatch",
-        );
-      }
-      const harness = modelSelection.provider;
-      const manifest = getProviderConnectionManifest(harness);
-      if (manifest === null)
-        return yield* fail("The thread harness has no enabled managed adapter.");
-      const internalProviderId = yield* internalProviderIdForModel(harness, modelSelection.model);
-      const activeInstallation = yield* requireActiveInstallation(harness);
-
-      const connectionId =
-        input.connectionId === undefined
-          ? yield* resolveNewThreadConnection({
-              modelSelection,
-            })
-          : input.connectionId;
-
-      let connectionLabel: string | null = null;
-      if (connectionId === null) {
-        if (!manifest.anonymous?.authorizesInternalProvider(internalProviderId)) {
-          return yield* fail("This model needs a signed-in Connection.", "connection_unauthorized");
-        }
-      } else {
-        const connection = yield* requireAuthorizedConnection({
-          harness,
-          connectionId,
-          internalProviderId,
-        });
-        connectionLabel = connection.label;
-      }
-      const availableModel = yield* requireAvailableModel({
-        harness,
-        connectionId,
-        installationId: activeInstallation.id,
-        internalProviderId,
-        modelId: modelSelection.model,
-      });
-
-      yield* Effect.logInfo("initial provider admission resolved exact route", {
-        threadId: input.threadId,
-        harness,
-        requestedConnectionId: input.connectionId === undefined ? "omitted" : input.connectionId,
-        connectionId,
-        installationId: activeInstallation.id,
-        modelId: modelSelection.model,
-        folderId: thread.value.folderId,
-      });
-
-      const selection = {
-        threadId: input.threadId,
-        harness,
-        connectionId,
-        connectionLabel,
-        previousConnectionId: null,
-        previousModelId: null,
-        previousInstallationId: null,
-        installationId: activeInstallation.id,
-        internalProviderId,
-        modelId: modelSelection.model,
-        modelLabel: availableModel.name,
-        stateRevision: 0,
-        bindingRevision: 0,
-        changed: false,
-        requiresNativeStateMaterialization: false,
-      } satisfies ResolvedProviderTurnSelection;
-      return {
-        selection,
-        initialization: {
-          generation: {
-            id: input.nativeStateGenerationId,
-            ownerThreadId: input.threadId,
-            harness,
-            adapterSchemaVersion: "managed-native-state-v1",
-            stateManifestJson: JSON.stringify({
-              format: "managed-native-state-v1",
-              initial: true,
-            }),
-            createdAt: input.createdAt,
-          },
-          threadId: input.threadId,
-          providerSessionId: null,
-          nativeStateLocatorJson: "null",
-          connectionId,
-          installationId: activeInstallation.id,
-          internalProviderId,
-          modelId: modelSelection.model,
-          createdAt: input.createdAt,
-        },
-      };
-    });
-
   const resolveExisting: ProviderTurnSelectionResolverShape["resolveExisting"] = (input) =>
     Effect.gen(function* () {
-      const state = yield* threads.getHarnessState(input.threadId).pipe(
+      const state = yield* readThreadNativeState(input.threadId).pipe(
+        Effect.provideService(SqlClient.SqlClient, sql),
         Effect.mapError(
           (cause) =>
             new ProviderTurnSelectionResolutionError({
@@ -399,26 +284,16 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
             }),
         ),
       );
-      const binding = yield* threads.getRuntimeBinding(input.threadId).pipe(
-        Effect.mapError(
-          (cause) =>
-            new ProviderTurnSelectionResolutionError({
-              detail: "Could not read the thread's runtime binding.",
-              cause,
-            }),
-        ),
-      );
-      if (Option.isNone(state) || Option.isNone(binding)) {
-        return yield* fail("This thread has no provider set.", "thread_binding_missing");
-      }
+      if (Option.isNone(state))
+        return yield* fail("The thread does not exist.", "thread_binding_missing");
 
-      const manifest = getProviderConnectionManifest(state.value.harness);
+      const manifest = getProviderConnectionManifest(state.value.provider);
       if (manifest === null) {
         return yield* fail("The thread harness has no enabled managed adapter.");
       }
       if (
         input.modelSelection !== undefined &&
-        input.modelSelection.provider !== state.value.harness
+        input.modelSelection.provider !== state.value.provider
       ) {
         return yield* fail(
           "This thread uses a different provider. To use another provider, start a new thread.",
@@ -426,44 +301,45 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
         );
       }
 
-      const modelId = input.modelSelection?.model ?? binding.value.modelId;
+      const modelId = input.modelSelection?.model ?? state.value.model;
       if (modelId === null) {
         return yield* fail("This thread has no model set.", "model_unavailable");
       }
-      const internalProviderId = yield* internalProviderIdForModel(state.value.harness, modelId);
+      const internalProviderId = yield* internalProviderIdForModel(state.value.provider, modelId);
       const connectionId =
-        input.connectionId === undefined ? binding.value.connectionId : input.connectionId;
+        input.connectionId === undefined ? state.value.connectionId : input.connectionId;
       const selectionChanged =
-        connectionId !== binding.value.connectionId ||
-        internalProviderId !== binding.value.internalProviderId ||
-        modelId !== binding.value.modelId;
+        connectionId !== state.value.connectionId || modelId !== state.value.model;
 
-      const targetInstallation = yield* requireActiveInstallation(state.value.harness);
+      const targetInstallation = yield* requireActiveInstallation(state.value.provider);
       const changed = selectionChanged;
       const requiresNativeStateMaterialization =
-        connectionId !== binding.value.connectionId ||
-        internalProviderId !== binding.value.internalProviderId;
+        connectionId !== state.value.connectionId &&
+        state.value.nativeStateId !== null &&
+        state.value.providerSessionId !== null;
 
       let connectionLabel: string | null = null;
-      let claudeAccountTransition: ResolvedProviderTurnSelection["claudeAccountTransition"];
       if (connectionId === null) {
         if (!manifest.anonymous?.authorizesInternalProvider(internalProviderId)) {
           return yield* fail("This model needs a signed-in Connection.", "connection_unauthorized");
         }
       } else {
         const connection = yield* requireAuthorizedConnection({
-          harness: state.value.harness,
+          harness: state.value.provider,
           connectionId,
           internalProviderId,
         });
         connectionLabel = connection.label;
-        if (state.value.harness === "claudeAgent") {
+        if (
+          state.value.provider === "claudeAgent" &&
+          state.value.nativeStateId !== null &&
+          state.value.providerSessionId !== null
+        ) {
+          const nativeStateId = state.value.nativeStateId;
           // An ordinary resume must still use the recorded account. An explicit
-          // explicit Connection change is carried into the switch saga,
-          // which changes ownership only after the new binding commits.
+          // Connection change is committed with the copied native folder at admission.
           const recorded = yield* Effect.tryPromise({
-            try: () =>
-              readClaudeThreadAccount(config.stateDir, state.value.nativeStateGenerationId),
+            try: () => readClaudeThreadAccount(config.stateDir, nativeStateId),
             catch: (cause) =>
               new ProviderTurnSelectionResolutionError({
                 detail: "Could not read the Thread's Claude account.",
@@ -472,51 +348,14 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
           });
           const explicitConnectionSwitch =
             input.connectionId !== undefined &&
-            connectionId !== binding.value.connectionId &&
-            binding.value.connectionId !== null;
+            connectionId !== state.value.connectionId &&
+            state.value.connectionId !== null;
           if (recorded !== null && !claudeConnectionsShareAccount(recorded, connection)) {
             if (!explicitConnectionSwitch) {
               return yield* fail(
                 "This thread's Claude conversation belongs to a different Claude account. Use a Connection signed in to that account, or start a new thread.",
                 "connection_unauthorized",
               );
-            } else {
-              claudeAccountTransition = {
-                source: recorded,
-                target: {
-                  authenticationMethodId: connection.authenticationMethodId,
-                  providerIdentityId: connection.providerIdentityId,
-                },
-              };
-            }
-          }
-          if (explicitConnectionSwitch && recorded === null) {
-            const previous = yield* connections.getRecord(binding.value.connectionId).pipe(
-              Effect.mapError(
-                (cause) =>
-                  new ProviderTurnSelectionResolutionError({
-                    detail: "Could not verify the Claude subscription account.",
-                    cause,
-                  }),
-              ),
-            );
-            if (Option.isNone(previous)) {
-              return yield* fail(
-                "This thread's Claude conversation belongs to a different Claude account. Use a Connection signed in to that account, or start a new thread.",
-                "connection_unauthorized",
-              );
-            }
-            if (!claudeConnectionsShareAccount(previous.value, connection)) {
-              claudeAccountTransition = {
-                source: {
-                  authenticationMethodId: previous.value.authenticationMethodId,
-                  providerIdentityId: previous.value.providerIdentityId,
-                },
-                target: {
-                  authenticationMethodId: connection.authenticationMethodId,
-                  providerIdentityId: connection.providerIdentityId,
-                },
-              };
             }
           }
           if (recorded === null && !explicitConnectionSwitch) {
@@ -526,7 +365,7 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
               try: () =>
                 rememberClaudeThreadAccount({
                   stateDir: config.stateDir,
-                  nativeStateId: state.value.nativeStateGenerationId,
+                  nativeStateId,
                   account: {
                     authenticationMethodId: connection.authenticationMethodId,
                     providerIdentityId: connection.providerIdentityId,
@@ -544,7 +383,7 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
       let modelLabel = modelId;
       if (changed) {
         const availableModel = yield* requireAvailableModel({
-          harness: state.value.harness,
+          harness: state.value.provider,
           connectionId,
           installationId: targetInstallation.id,
           internalProviderId,
@@ -555,27 +394,24 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
 
       return {
         threadId: input.threadId,
-        harness: state.value.harness,
+        harness: state.value.provider,
         connectionId,
         connectionLabel,
-        previousConnectionId: binding.value.connectionId,
-        previousModelId: binding.value.modelId,
-        previousInstallationId: binding.value.installationId,
+        previousConnectionId: state.value.connectionId,
+        previousModelId: state.value.model,
         installationId: targetInstallation.id,
         internalProviderId,
         modelId,
         modelLabel,
-        stateRevision: state.value.revision,
-        bindingRevision: binding.value.revision,
+        nativeStateId: state.value.nativeStateId,
+        providerSessionId: state.value.providerSessionId,
         changed,
         requiresNativeStateMaterialization,
-        ...(claudeAccountTransition === undefined ? {} : { claudeAccountTransition }),
       };
     });
 
   return {
     resolveNewThreadConnection,
-    resolveInitial,
     resolveExisting,
   } satisfies ProviderTurnSelectionResolverShape;
 });

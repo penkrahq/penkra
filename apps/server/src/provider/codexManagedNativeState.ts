@@ -49,20 +49,23 @@ async function collectExactRollouts(root: string, threadId: string): Promise<str
   return found;
 }
 
+export async function findOneExactCodexRollout(
+  root: string,
+  nativeThreadIdValue: string,
+): Promise<string | null> {
+  const threadId = requireNativeThreadId(nativeThreadIdValue);
+  const matches = await collectExactRollouts(root, threadId);
+  if (matches.length > 1) throw new Error("More than one exact Codex rollout exists.");
+  return matches[0] === undefined ? null : matches[0];
+}
+
 export async function requireOneExactCodexRollout(
   root: string,
   nativeThreadIdValue: string,
 ): Promise<string> {
-  const threadId = requireNativeThreadId(nativeThreadIdValue);
-  const matches = await collectExactRollouts(root, threadId);
-  if (matches.length !== 1) {
-    throw new Error(
-      matches.length === 0
-        ? "The exact Codex rollout is unavailable."
-        : "More than one exact Codex rollout exists.",
-    );
-  }
-  return matches[0]!;
+  const match = await findOneExactCodexRollout(root, nativeThreadIdValue);
+  if (match === null) throw new Error("The exact Codex rollout is unavailable.");
+  return match;
 }
 
 async function sameFile(left: string, right: string): Promise<boolean> {

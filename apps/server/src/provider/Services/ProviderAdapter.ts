@@ -119,21 +119,6 @@ export type ProviderAdapterVoiceTranscriptionInput = ServerVoiceTranscriptionInp
   readonly managedLaunch?: ProviderManagedLaunchContext;
 };
 
-export interface ProviderNativeResumeVerificationInput {
-  readonly sourceResumeCursor: unknown;
-  readonly managedLaunch: ProviderManagedLaunchContext;
-  readonly cwd?: string;
-  readonly modelSelection?: ProviderSessionStartInput["modelSelection"];
-  readonly runtimeMode: ProviderSessionStartInput["runtimeMode"];
-  /** A disposable account-switch copy must prove resume through a completed prompt. */
-  readonly requireCompletedProbe?: boolean;
-}
-
-export interface ProviderNativeResumeVerificationResult {
-  readonly providerSessionId: string;
-  readonly resumeCursor: unknown;
-}
-
 export interface ProviderAdapterShape<TError> {
   /**
    * Provider kind implemented by this adapter.
@@ -147,16 +132,6 @@ export interface ProviderAdapterShape<TError> {
   readonly startSession: (
     input: ProviderAdapterSessionStartInput,
   ) => Effect.Effect<ProviderSession, TError>;
-
-  /**
-   * Open and prove one exact native continuation without admitting a Penkra
-   * session, emitting canonical runtime events, or retaining a provider
-   * process after the effect settles. An account switch may use a disposable
-   * synthetic probe turn; its native state is restored before commit.
-   */
-  readonly verifyNativeResume?: (
-    input: ProviderNativeResumeVerificationInput,
-  ) => Effect.Effect<ProviderNativeResumeVerificationResult, TError>;
 
   /**
    * Send a turn to an active provider session.

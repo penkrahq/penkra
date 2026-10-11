@@ -182,9 +182,6 @@ function codexRuntimeIngressItemBytes(item: CodexRuntimeIngressItem): number {
 export interface CodexAdapterLiveOptions {
   readonly manager?: CodexAppServerManager;
   readonly makeManager?: (services?: ServiceMap.ServiceMap<never>) => CodexAppServerManager;
-  readonly makeVerificationManager?: (
-    services?: ServiceMap.ServiceMap<never>,
-  ) => CodexAppServerManager;
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
 }
@@ -1930,57 +1927,6 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
       }).pipe(Effect.map((session) => session));
     };
 
-    const verifyNativeResume: NonNullable<CodexAdapterShape["verifyNativeResume"]> = (input) => {
-      const sourceThreadId = codexResumeThreadId(input.sourceResumeCursor);
-      if (sourceThreadId === null) {
-        return Effect.fail(
-          new ProviderAdapterValidationError({
-            provider: PROVIDER,
-            operation: "verifyNativeResume",
-            issue: "The Codex resume cursor does not contain an exact native thread id.",
-          }),
-        );
-      }
-
-      const verificationManager =
-        options?.makeVerificationManager?.(services) ??
-        new CodexAppServerManager(services, { stateDir: serverConfig.stateDir });
-      const verificationThreadId = ThreadId.makeUnsafe("codex-native-resume-verification");
-      return Effect.tryPromise({
-        try: async () => {
-          await prepareManagedCodexResume(input.managedLaunch, sourceThreadId);
-          const session = await verificationManager.startSession({
-            threadId: verificationThreadId,
-            provider: "codex",
-            ...(input.cwd !== undefined ? { cwd: input.cwd } : {}),
-            ...(input.modelSelection?.model !== undefined
-              ? { model: input.modelSelection.model }
-              : {}),
-            resumeCursor: input.sourceResumeCursor,
-            managedLaunch: input.managedLaunch,
-            runtimeMode: input.runtimeMode,
-          });
-          const returnedThreadId = codexResumeThreadId(session.resumeCursor);
-          if (returnedThreadId !== sourceThreadId) {
-            throw new Error("Codex returned a different thread identity while verifying resume.");
-          }
-          return {
-            providerSessionId: sourceThreadId,
-            resumeCursor: input.sourceResumeCursor,
-          };
-        },
-        catch: (cause) =>
-          new ProviderAdapterRequestError({
-            provider: PROVIDER,
-            method: "thread/resume",
-            detail: toMessage(cause, "Codex could not verify the exact native continuation."),
-            cause,
-          }),
-      }).pipe(
-        Effect.ensuring(Effect.promise(() => verificationManager.stopAll()).pipe(Effect.ignore)),
-      );
-    };
-
     const sendTurn: CodexAdapterShape["sendTurn"] = (input) =>
       Effect.gen(function* () {
         const managerInput = yield* prepareCodexManagerTurnInput(input, "turn/start");
@@ -2411,7 +2357,6 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
         supportsTurnSteering: true,
       },
       startSession,
-      verifyNativeResume,
       sendTurn,
       steerTurn,
       startReview,

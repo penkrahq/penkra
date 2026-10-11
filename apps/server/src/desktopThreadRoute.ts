@@ -22,7 +22,6 @@ import { OrchestrationEngineService } from "./orchestration/Services/Orchestrati
 import { ProviderThreadSwitchCoordinator } from "./orchestration/Services/ProviderThreadSwitchCoordinator";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ManagedAttachmentRepository } from "./persistence/Services/ManagedAttachments";
-import { ThreadProviderBindingRepository } from "./persistence/Services/ThreadProviderBindings";
 import { authorizeDesktopShutdown } from "./serverShutdown";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
 
@@ -50,7 +49,6 @@ export const desktopThreadRouteLayer = HttpRouter.add(
     const switchCoordinator = yield* ProviderThreadSwitchCoordinator;
     const attachments = yield* ManagedAttachmentRepository;
     const runtimeStartup = yield* ServerRuntimeStartup;
-    const providerBindings = yield* ThreadProviderBindingRepository;
     const sql = yield* SqlClient.SqlClient;
     const publisher = yield* ThreadPublisher;
     const lifecycle = yield* ThreadLifecycle;
@@ -79,12 +77,6 @@ export const desktopThreadRouteLayer = HttpRouter.add(
             after: input.after,
           }).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
         ),
-      bindingRevision: async (threadId) => {
-        const binding = await Effect.runPromise(
-          providerBindings.getRuntimeBinding(ThreadId.makeUnsafe(threadId)),
-        );
-        return Option.match(binding, { onNone: () => 0, onSome: (value) => value.revision });
-      },
       dispatch: (command) =>
         Effect.runPromise(runtimeStartup.enqueueCommand(engine.dispatch(command))),
       dispatchTurn: (command, ownerId) =>

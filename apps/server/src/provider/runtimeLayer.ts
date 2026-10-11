@@ -18,7 +18,6 @@ import { makeManagedDurableProviderServiceLive } from "./Layers/ProviderService"
 import { ProviderSessionDirectoryLive } from "./Layers/ProviderSessionDirectory";
 import { ProviderSessionRuntimeRepositoryLive } from "../persistence/Layers/ProviderSessionRuntime";
 import { ProviderRuntimeEventRepositoryLive } from "../persistence/Layers/ProviderRuntimeEvents";
-import { ThreadProviderBindingRepositoryLive } from "../persistence/Layers/ThreadProviderBindings";
 import { ProviderConnectionRepositoryLive } from "../persistence/Layers/ProviderConnections";
 import { ProviderInstallationRepositoryLive } from "../persistence/Layers/ProviderInstallations";
 import { ProviderCredentialBrokerLive } from "./providerCredentialBroker";
@@ -73,7 +72,6 @@ export function makeServerProviderLayer(
       Layer.provide(agentGatewayCredentialsLayer),
       Layer.provide(providerSessionDirectoryLayer),
       Layer.provide(ProviderRuntimeEventRepositoryLive),
-      Layer.provide(ThreadProviderBindingRepositoryLive),
       Layer.provide(
         ProviderLaunchResolverLive.pipe(
           Layer.provideMerge(ProviderConnectionRepositoryLive),

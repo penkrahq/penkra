@@ -1,7 +1,7 @@
 // FILE: ProviderNativeStateMaterializer.ts
 // Purpose: Atomically clone and clean exact native provider state generations.
 
-import { ProviderNativeStateGenerationId, type ProviderKind } from "@penkra/contracts";
+import { type ProviderKind } from "@penkra/contracts";
 import { Data, Effect, ServiceMap } from "effect";
 
 export class ProviderNativeStateMaterializationError extends Data.TaggedError(
@@ -15,12 +15,15 @@ export class ProviderNativeStateMaterializationError extends Data.TaggedError(
 export interface ProviderNativeStateMaterializerShape {
   readonly clone: (input: {
     readonly harness: ProviderKind;
-    readonly providerSessionId: string;
-    readonly sourceGenerationId: ProviderNativeStateGenerationId;
-    readonly targetGenerationId: ProviderNativeStateGenerationId;
-  }) => Effect.Effect<string, ProviderNativeStateMaterializationError>;
+    readonly providerSessionId: string | null;
+    readonly sourceGenerationId: string | null;
+    readonly targetGenerationId: string;
+  }) => Effect.Effect<
+    { readonly root: string; readonly providerSessionId: string | null },
+    ProviderNativeStateMaterializationError
+  >;
   readonly discard: (
-    generationId: ProviderNativeStateGenerationId,
+    nativeStateId: string,
   ) => Effect.Effect<void, ProviderNativeStateMaterializationError>;
 }
 

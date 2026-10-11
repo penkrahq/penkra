@@ -5,7 +5,11 @@ import * as Path from "node:path";
 import { expect } from "vitest";
 
 import type { ProviderManagedLaunchContext } from "./Services/ProviderAdapter.ts";
-import { adoptManagedCodexRollout, prepareManagedCodexResume } from "./codexManagedNativeState.ts";
+import {
+  adoptManagedCodexRollout,
+  prepareManagedCodexResume,
+  findOneExactCodexRollout,
+} from "./codexManagedNativeState.ts";
 
 const THREAD_ID = "019f6e8c-0c04-7c53-97d9-3b798e2537a4";
 const RELATIVE_ROLLOUT = Path.join(
@@ -94,6 +98,33 @@ describe("managed Codex native state", () => {
     }
   });
 
+  it("reports missing native state without guessing another rollout", async () => {
+    const state = await fixture();
+    try {
+      expect(
+        await findOneExactCodexRollout(
+          Path.join(state.nativeStateRoot, "codex-rollouts"),
+          THREAD_ID,
+        ),
+      ).toBeNull();
+    } finally {
+      await rm(state.root, { recursive: true, force: true });
+    }
+  });
+  it("rejects ambiguous exact rollouts instead of choosing one", async () => {
+    const state = await fixture();
+    try {
+      const root = Path.join(state.nativeStateRoot, "codex-rollouts");
+      await mkdir(root, { recursive: true });
+      await writeFile(Path.join(root, `rollout-first-${THREAD_ID}.jsonl`), "first");
+      await writeFile(Path.join(root, `rollout-second-${THREAD_ID}.jsonl`), "second");
+      await expect(findOneExactCodexRollout(root, THREAD_ID)).rejects.toThrow(
+        "More than one exact Codex rollout exists.",
+      );
+    } finally {
+      await rm(state.root, { recursive: true, force: true });
+    }
+  });
   it("fails closed when a generation has no exact rollout", async () => {
     const state = await fixture();
     try {

@@ -2,605 +2,121 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as NodeSqliteClient from "../../persistence/NodeSqliteClient.ts";
 import { runMigrations } from "../../persistence/Migrations.ts";
 import { createThreadFixture } from "../../cleanCore/threadFixtures.ts";
-import { getThread } from "../../cleanCore/threadList.ts";
+import { commitThreadTurnSelection } from "../../cleanCore/threadTurnSelection.ts";
+import { ThreadPublisher, ThreadPublisherLive } from "../../cleanCore/ThreadPublisher.ts";
 import {
   CommandId,
+  FolderId,
   MessageId,
   ProviderConnectionId,
   ProviderInstallationId,
-  ProviderNativeStateGenerationId,
   ThreadId,
   type OrchestrationCommand,
+  type ProviderKind,
 } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
-import { Effect, Fiber, Layer, Option } from "effect";
-import { TestClock } from "effect/testing";
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { Deferred, Effect, Fiber, Layer, Option } from "effect";
+import { mkdtempSync, rmSync } from "node:fs";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { afterAll } from "vitest";
-
 import { ServerConfig } from "../../config.ts";
 import { LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL } from "../../managedAttachmentPrincipal.ts";
-import {
-  ProviderThreadSwitchOperationRepository,
-  RESUME_PROBE_ATTEMPTED_JSON,
-  type ProviderThreadSwitchOperationRecord,
-} from "../../persistence/Services/ProviderThreadSwitchOperations.ts";
-import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
 import { ProviderAdapterRegistry } from "../../provider/Services/ProviderAdapterRegistry.ts";
+import { ProviderLaunchResolver } from "../../provider/Services/ProviderLaunchResolver.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
-import {
-  ProviderLaunchResolver,
-  ProviderLaunchResolutionError,
-} from "../../provider/Services/ProviderLaunchResolver.ts";
-import {
-  ProviderNativeContinuationVerificationError,
-  ProviderNativeContinuationVerifier,
-} from "../../provider/Services/ProviderNativeContinuationVerifier.ts";
 import { ProviderNativeStateMaterializer } from "../../provider/Services/ProviderNativeStateMaterializer.ts";
-import {
-  activateManagedProviderRuntime,
-  readManagedProviderRuntimeActivation,
-  resolveManagedProviderVersionDirectory,
-} from "../../provider/managedProviderRuntime.ts";
-import {
-  ProviderTurnSelectionResolver,
-  type ResolvedProviderTurnSelection,
-} from "../../provider/Services/ProviderTurnSelectionResolver.ts";
+import { ProviderNativeStateMaterializerLive } from "../../provider/Layers/ProviderNativeStateMaterializer.ts";
 import { ProviderTurnSelectionResolverLive } from "../../provider/Layers/ProviderTurnSelectionResolver.ts";
-import {
-  prepareClaudeThreadProject,
-  readClaudeThreadAccount,
-  claudeNativeStateRoot,
-} from "../../provider/claudeThreadNativeState.ts";
+import { providerNativeStateRoot } from "../../provider/providerNativeStatePaths.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
-import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
-import { OrchestrationCommandInvariantError } from "../Errors.ts";
-import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
-import { ProviderThreadSwitchCoordinator } from "../Services/ProviderThreadSwitchCoordinator.ts";
-import { ProviderThreadSwitchCoordinatorLive } from "./ProviderThreadSwitchCoordinator.ts";
+import {
+  OrchestrationEngineService,
+  type OrchestrationDispatchContext,
+} from "../Services/OrchestrationEngine.ts";
+import { makeProviderThreadSwitchCoordinator } from "./ProviderThreadSwitchCoordinator.ts";
 
 const timestamp = "2026-08-08T00:00:00.000Z";
-const threadId = ThreadId.makeUnsafe("switch-thread");
 const sourceConnectionId = ProviderConnectionId.makeUnsafe("connection-personal");
 const targetConnectionId = ProviderConnectionId.makeUnsafe("connection-work");
-const installationId = ProviderInstallationId.makeUnsafe("installation-opencode");
-const intermediateInstallationId = ProviderInstallationId.makeUnsafe(
-  "installation-opencode-intermediate",
+const installationId = ProviderInstallationId.makeUnsafe("installation-active");
+const stateDir = mkdtempSync(path.join(tmpdir(), "penkra-canonical-switch-"));
+afterAll(() => rmSync(stateDir, { recursive: true, force: true }));
+const configLayer = Layer.succeed(ServerConfig, { stateDir } as never);
+const database = Layer.effectDiscard(runMigrations()).pipe(
+  Layer.provideMerge(NodeSqliteClient.layerMemory()),
 );
-const targetInstallationId = ProviderInstallationId.makeUnsafe("installation-opencode-new");
-const runtimeStateDir = mkdtempSync(path.join(tmpdir(), "penkra-provider-switch-"));
-afterAll(() => rmSync(runtimeStateDir, { recursive: true, force: true }));
-
-const command = {
-  type: "thread.turn.start",
-  commandId: CommandId.makeUnsafe("command-switch"),
-  threadId,
-  message: {
-    messageId: MessageId.makeUnsafe("message-switch"),
-    role: "user",
-    text: "Continue",
-    attachments: [],
-  },
-  modelSelection: { provider: "opencode", model: "opencode-go/kimi-k2.5" },
-  connectionId: targetConnectionId,
-  bindingRevision: 4,
-  runtimeMode: "full-access",
-  dispatchMode: "queue",
-  createdAt: timestamp,
-} satisfies Extract<OrchestrationCommand, { type: "thread.turn.start" }>;
-
-const selection: ResolvedProviderTurnSelection = {
-  threadId,
-  harness: "opencode",
-  connectionId: targetConnectionId,
-  connectionLabel: "Work",
-  previousConnectionId: sourceConnectionId,
-  previousModelId: "opencode-go/kimi-k2.5",
-  previousInstallationId: installationId,
-  installationId,
-  internalProviderId: "opencode-go",
-  modelId: "opencode-go/kimi-k2.5",
-  modelLabel: "Kimi K2.5",
-  stateRevision: 2,
-  bindingRevision: 4,
-  changed: true,
-  requiresNativeStateMaterialization: true,
-};
-
-let operation: ProviderThreadSwitchOperationRecord | undefined;
-let projectedHistoricalThread = false;
-let projectionSettlementReadCount = 0;
-let projectedRunningReadsRemaining = 0;
-const currentOperation = () => operation;
-let activeTurn = true;
-let discardCount = 0;
-let dispatchCount = 0;
-let failAfterCommit = false;
-let hasBinding = true;
-let modelOnlySelection = false;
-let runtimeUpgradeSelection = false;
-let claudeAccountSwitchSelection = false;
-let claudeTransitionAfterSettle = false;
-let selectionResolveCount = 0;
-let dispatchFailsBeforeCommit = false;
-let verificationFails = false;
-let verificationReconstructs = false;
-let preflightFails = false;
-let preflightStateRevisionChange = false;
-let repositoryActiveInstallationId = installationId;
-let acceptedProviderSwitchContext: unknown;
-let initialContext: unknown;
-let dispatchedCommand: OrchestrationCommand | undefined;
-const currentDispatchedCommand = () => dispatchedCommand;
-let unchangedSelection = false;
-let resolvedStateRevision = 2;
-let advanceStateRevisionOnInterrupt = false;
-let verifiedStateRevision: number | undefined;
-let stoppedSessionCount = 0;
-const order: string[] = [];
-
-const prepareRuntimeUpgrade = () =>
-  Effect.gen(function* () {
-    rmSync(path.join(runtimeStateDir, "provider-runtimes"), { recursive: true, force: true });
-    for (const [version, id] of [
-      ["1.0.0", installationId],
-      ["2.0.0", targetInstallationId],
-    ] as const) {
-      const versionDirectory = resolveManagedProviderVersionDirectory({
-        stateDir: runtimeStateDir,
-        provider: "opencode",
-        version,
-      });
-      const executablePath = path.join(versionDirectory, "bin", "opencode");
-      mkdirSync(path.dirname(executablePath), { recursive: true });
-      writeFileSync(executablePath, "#!/bin/sh\n");
-      yield* activateManagedProviderRuntime({
-        stateDir: runtimeStateDir,
-        provider: "opencode",
-        installationId: id,
-        version,
-        executablePath,
-      });
-    }
-    repositoryActiveInstallationId = targetInstallationId;
-  });
-
-const prepareRuntimeUpgradeWithIntermediatePredecessor = () =>
-  Effect.gen(function* () {
-    rmSync(path.join(runtimeStateDir, "provider-runtimes"), { recursive: true, force: true });
-    for (const [version, id] of [
-      ["1.0.0", installationId],
-      ["1.5.0", intermediateInstallationId],
-      ["2.0.0", targetInstallationId],
-    ] as const) {
-      const versionDirectory = resolveManagedProviderVersionDirectory({
-        stateDir: runtimeStateDir,
-        provider: "opencode",
-        version,
-      });
-      const executablePath = path.join(versionDirectory, "bin", "opencode");
-      mkdirSync(path.dirname(executablePath), { recursive: true });
-      writeFileSync(executablePath, "#!/bin/sh\n");
-      yield* activateManagedProviderRuntime({
-        stateDir: runtimeStateDir,
-        provider: "opencode",
-        installationId: id,
-        version,
-        executablePath,
-      });
-    }
-    repositoryActiveInstallationId = targetInstallationId;
-  });
-
-const canonicalThreadLayer = Layer.effectDiscard(
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    yield* runMigrations();
-    yield* sql`INSERT INTO projection_folders (folder_id, space_id, title, workspace_root, default_model_selection_json, scripts_json, created_at, updated_at) VALUES ('switch-folder', 'penkra-personal', 'Switch', NULL, NULL, '[]', ${timestamp}, ${timestamp})`;
-    yield* createThreadFixture(sql, {
-      threadId: command.threadId,
-      folderId: "switch-folder" as never,
-      title: "Switch thread",
-      modelSelection: command.modelSelection!,
-      runtimeMode: "full-access",
-      connection: { kind: "selected", connectionId: sourceConnectionId },
-      creator: { kind: "user" },
-      createdAt: timestamp,
-    });
-  }),
-).pipe(Layer.provideMerge(NodeSqliteClient.layerMemory()));
 const dependencies = Layer.mergeAll(
-  Layer.succeed(ServerConfig, { stateDir: runtimeStateDir } as never),
-  Layer.succeed(ProviderInstallationRepository, {
-    getActiveRecord: () => Effect.die("not expected"),
-    activate: () => Effect.die("not expected"),
-    list: () => Effect.succeed([]),
-    getRecord: () => Effect.succeed(Option.none()),
-    reactivate: (id: typeof installationId) =>
-      Effect.sync(() => {
-        repositoryActiveInstallationId = id;
-        return {
-          id,
-          harness: "opencode",
-          lifecycle: "active",
-        } as never;
-      }),
-  }),
-  Layer.succeed(ProjectionSnapshotQuery, {
-    getThreadShellById: () =>
-      Effect.gen(function* () {
-        const row = yield* getThread(command.threadId);
-        const shell = {
-          id: row.id,
-          modelSelection: { provider: row.provider, model: row.model },
-          runtimeMode: row.runtimeMode,
-        };
-        if (projectedHistoricalThread) {
-          return Option.some({
-            ...shell,
-            latestTurnId: "historical-turn",
-          });
-        }
-        projectionSettlementReadCount += 1;
-        if (projectedRunningReadsRemaining > 0) {
-          projectedRunningReadsRemaining -= 1;
-          return Option.some({
-            ...shell,
-            session: { status: "running", activeTurnId: "projected-turn" },
-          });
-        }
-        return Option.some(shell);
-      }),
-  } as never),
+  database,
+  configLayer,
+  ThreadPublisherLive,
+  ServerSettingsService.layerTest(),
   Layer.succeed(ProviderLaunchResolver, {
-    resolveProfile: () =>
-      preflightFails
-        ? Effect.fail(
-            new ProviderLaunchResolutionError({
-              detail: "Target Claude credentials are unavailable.",
-            }),
-          )
-        : Effect.succeed({
-            binaryPath: "/managed/opencode",
-            isolationKey: "fork-isolation",
-            profileRoot: "/managed/profile",
-            nativeStateRoot: "/managed/native",
-            connectionId: null,
-            installationId,
-            childEnvironment: (environment: NodeJS.ProcessEnv) => environment,
-          }),
-    resolve: () => Effect.die("not expected"),
-  }),
-  Layer.succeed(ThreadProviderBindingRepository, {
-    getHarnessState: (requestedThreadId: ThreadId) =>
-      Effect.succeed(
-        hasBinding
-          ? Option.some({
-              threadId: requestedThreadId,
-              harness: "opencode",
-              nativeStateGenerationId:
-                ProviderNativeStateGenerationId.makeUnsafe("source-generation"),
-              providerSessionId: "native-session",
-              nativeStateLocatorJson: '{"openCodeSessionId":"native-session"}',
-              lastVerifiedResumeAt: timestamp,
-              revision: 2,
-              createdAt: timestamp,
-              updatedAt: timestamp,
-            })
-          : Option.none(),
-      ),
-    getRuntimeBinding: (requestedThreadId: ThreadId) =>
-      Effect.succeed(
-        hasBinding
-          ? Option.some({
-              threadId: requestedThreadId,
-              connectionId: sourceConnectionId,
-              installationId,
-              internalProviderId: "opencode-go",
-              modelId: "opencode-go/kimi-k2.5",
-              revision: 4,
-              createdAt: timestamp,
-              updatedAt: timestamp,
-            })
-          : Option.none(),
-      ),
-  } as never),
-  Layer.succeed(ProviderTurnSelectionResolver, {
-    resolveNewThreadConnection: () => Effect.die("not expected"),
-    resolveInitial: (input: { nativeStateGenerationId: ProviderNativeStateGenerationId }) =>
+    resolveProfile: (input) =>
       Effect.succeed({
-        selection: {
-          ...selection,
-          connectionId: null,
-          previousConnectionId: null,
-          previousModelId: null,
-          stateRevision: 0,
-          bindingRevision: 0,
-          changed: false,
-          requiresNativeStateMaterialization: false,
-        },
-        initialization: {
-          generation: {
-            id: input.nativeStateGenerationId,
-            ownerThreadId: threadId,
-            harness: "opencode",
-            adapterSchemaVersion: "managed-native-state-v1",
-            stateManifestJson: "{}",
-            createdAt: timestamp,
-          },
-          threadId,
-          providerSessionId: null,
-          nativeStateLocatorJson: "null",
-          connectionId: null,
-          installationId,
-          internalProviderId: "opencode",
-          modelId: "opencode/big-pickle",
-          modelLabel: "Big Pickle",
-          createdAt: timestamp,
-        },
+        binaryPath: "/provider",
+        isolationKey: "discovery",
+        profileRoot: "/profile",
+        nativeStateRoot: "/discovery",
+        connectionId: input.connectionId,
+        installationId: input.installationId,
+        childEnvironment: (env: NodeJS.ProcessEnv) => env,
       }),
-    resolveExisting: () =>
-      Effect.sync(() => {
-        selectionResolveCount += 1;
-        return unchangedSelection
-          ? {
-              ...selection,
-              stateRevision: resolvedStateRevision,
-              connectionId: sourceConnectionId,
-              previousConnectionId: sourceConnectionId,
-              changed: false,
-              requiresNativeStateMaterialization: false,
-            }
-          : runtimeUpgradeSelection
-            ? {
-                ...selection,
-                stateRevision: resolvedStateRevision,
-                connectionId: sourceConnectionId,
-                previousConnectionId: sourceConnectionId,
-                previousInstallationId: installationId,
-                installationId: targetInstallationId,
-              }
-            : modelOnlySelection
-              ? {
-                  ...selection,
-                  stateRevision: resolvedStateRevision,
-                  connectionId: sourceConnectionId,
-                  previousConnectionId: sourceConnectionId,
-                  previousModelId: "opencode-go/kimi-k2.5",
-                  modelId: "opencode-go/glm-5.1",
-                  modelLabel: "GLM-5.1",
-                  requiresNativeStateMaterialization: false,
-                }
-              : claudeAccountSwitchSelection ||
-                  (claudeTransitionAfterSettle && selectionResolveCount > 1)
-                ? {
-                    ...selection,
-                    harness: "claudeAgent" as const,
-                    stateRevision:
-                      resolvedStateRevision +
-                      (preflightStateRevisionChange && selectionResolveCount === 2 ? 1 : 0),
-                    claudeAccountTransition: {
-                      source: {
-                        authenticationMethodId: "claude-account",
-                        providerIdentityId: "alice@example.com",
-                      },
-                      target: {
-                        authenticationMethodId: "claude-account",
-                        providerIdentityId: "bob@example.com",
-                      },
-                    },
-                  }
-                : { ...selection, stateRevision: resolvedStateRevision };
-      }),
+    resolve: () => Effect.die("not used"),
   }),
-  Layer.succeed(ProviderThreadSwitchOperationRepository, {
-    begin: (input: ProviderThreadSwitchOperationRecord) =>
-      Effect.sync(() => {
-        order.push("journal");
-        operation = input;
-        return input;
-      }),
-    get: () => Effect.succeed(operation ? Option.some(operation) : Option.none()),
-    listOpen: () => Effect.sync(() => (operation ? [operation] : [])),
-    markInterruptedWithSettledSelection: (input: {
-      sourceStateRevision: number;
-      sourceBindingRevision: number;
-      selectionJson: string;
-      updatedAt: string;
-    }) =>
-      Effect.sync(() => {
-        if (!operation) return Option.none();
-        order.push("interrupted");
-        operation = {
-          ...operation,
-          state: "interrupted",
-          sourceStateRevision: input.sourceStateRevision,
-          sourceBindingRevision: input.sourceBindingRevision,
-          selectionJson: input.selectionJson,
-          updatedAt: input.updatedAt,
-        };
-        return Option.some(operation);
-      }),
-    markResumeProbeAttempted: () =>
-      Effect.sync(() => {
-        if (
-          !operation ||
-          operation.state !== "interrupted" ||
-          operation.verificationJson !== null
-        ) {
-          return false;
-        }
-        order.push("probe-attempted");
-        operation = { ...operation, verificationJson: RESUME_PROBE_ATTEMPTED_JSON };
-        return true;
-      }),
-    transition: (input: {
-      state: ProviderThreadSwitchOperationRecord["state"];
-      failureReason: string | null;
-      verificationJson?: string | null;
-      updatedAt: string;
-    }) =>
-      Effect.sync(() => {
-        if (!operation) return Option.none();
-        order.push(input.state);
-        operation = {
-          ...operation,
-          state: input.state,
-          failureReason: input.failureReason,
-          verificationJson: input.verificationJson ?? operation.verificationJson,
-          updatedAt: input.updatedAt,
-        };
-        return Option.some(operation);
-      }),
-    markCommittedInCurrentTransaction: () =>
-      Effect.succeed(operation ? Option.some(operation) : Option.none()),
-  } as never),
-  Layer.succeed(ProviderService, {
-    listSessions: () =>
-      Effect.succeed(
-        activeTurn
-          ? [
-              {
-                threadId,
-                status: "running",
-                activeTurnId: "turn-active",
-              },
-            ]
-          : [],
-      ),
-    interruptTurn: () =>
-      Effect.sync(() => {
-        order.push("interrupt");
-        activeTurn = false;
-        if (advanceStateRevisionOnInterrupt) resolvedStateRevision += 1;
-      }),
-    stopSession: () =>
-      Effect.sync(() => {
-        stoppedSessionCount += 1;
-        order.push("stop-session");
-      }),
-  } as never),
-  Layer.succeed(ProviderNativeContinuationVerifier, {
-    verifySwitch: (input: { selection: ResolvedProviderTurnSelection }) =>
-      Effect.gen(function* () {
-        order.push("verify");
-        verifiedStateRevision = input.selection.stateRevision;
-        if (verificationFails) {
-          return yield* Effect.fail(
-            new ProviderNativeContinuationVerificationError({ detail: "resume rejected" }),
-          );
-        }
-        if (verificationReconstructs) {
-          return {
-            kind: "reconstructed" as const,
-            generationId: ProviderNativeStateGenerationId.makeUnsafe(
-              `provider-switch-generation:${command.commandId}`,
-            ),
-            adapterSchemaVersion: "penkra-reconstructed-continuation-v1",
-            stateManifestJson: '{"format":"penkra-reconstructed-continuation-v1"}',
-            providerSessionId: null,
-            nativeStateLocatorJson: '{"penkraReconstruction":true}',
-            verifiedAt: timestamp,
-          };
-        }
-        return {
-          generationId: ProviderNativeStateGenerationId.makeUnsafe(
-            `provider-switch-generation:${command.commandId}`,
-          ),
-          adapterSchemaVersion: "managed-native-state-v1",
-          stateManifestJson: "{}",
-          providerSessionId: "native-session",
-          nativeStateLocatorJson: '{"openCodeSessionId":"native-session"}',
-          verifiedAt: timestamp,
-        };
-      }),
-  }),
-  Layer.succeed(ProviderNativeStateMaterializer, {
-    clone: () =>
-      Effect.sync(() => {
-        order.push("fork-clone");
-        return "/target";
-      }),
-    discard: () =>
-      Effect.sync(() => {
-        discardCount += 1;
-      }),
-  }),
-  Layer.succeed(OrchestrationEngineService, {
-    dispatch: (
-      dispatched: OrchestrationCommand,
-      context?: {
-        acceptedProviderSwitch?: unknown;
-        acceptedInitialProviderBinding?: unknown;
-      },
-    ) =>
-      Effect.gen(function* () {
-        dispatchCount += 1;
-        dispatchedCommand = dispatched;
-        order.push("dispatch");
-        initialContext = context?.acceptedInitialProviderBinding;
-        acceptedProviderSwitchContext = context?.acceptedProviderSwitch;
-        if (dispatchFailsBeforeCommit)
-          return yield* Effect.fail(
-            new OrchestrationCommandInvariantError({
-              commandType: "thread.turn.start",
-              detail: "dispatch rejected before commit",
-              code: "invalid_switch",
-            }),
-          );
-        if (context?.acceptedProviderSwitch && operation) {
-          operation = { ...operation, state: "committed", updatedAt: timestamp };
-        }
-        if (failAfterCommit) return yield* Effect.fail(new Error("response lost after commit"));
-        return { sequence: 42 };
-      }),
-  } as never),
-).pipe(Layer.provideMerge(canonicalThreadLayer));
-
-const layer = it.layer(
-  Layer.mergeAll(
-    dependencies,
-    ProviderThreadSwitchCoordinatorLive.pipe(Layer.provide(dependencies)),
-  ),
-);
-
-const realSelectionDependencies = Layer.mergeAll(
   Layer.succeed(ProviderAdapterRegistry, {
-    getByProvider: () =>
+    getByProvider: (provider: ProviderKind) =>
       Effect.succeed({
         listModels: () =>
           Effect.succeed({
-            models: [
-              { slug: "opencode-go/kimi-k2.5", name: "Kimi K2.5" },
-              { slug: "opencode-go/glm-5.1", name: "GLM 5.1" },
-            ],
+            models:
+              provider === "opencode"
+                ? [
+                    { slug: "opencode-go/kimi", name: "Kimi" },
+                    { slug: "opencode-go/glm", name: "GLM" },
+                  ]
+                : provider === "codex"
+                  ? [
+                      { slug: "gpt-5.5", name: "GPT" },
+                      { slug: "gpt-5.4", name: "GPT previous" },
+                    ]
+                  : [
+                      { slug: "claude-sonnet-5", name: "Sonnet" },
+                      { slug: "claude-haiku-4-5", name: "Haiku" },
+                    ],
           }),
       } as never),
-    listProviders: () => Effect.succeed(["opencode"]),
+    listProviders: () => Effect.succeed(["codex", "claudeAgent", "opencode"]),
   }),
   Layer.succeed(ProviderConnectionRepository, {
     getRecord: (id: ProviderConnectionId) =>
       Effect.succeed(
-        [sourceConnectionId, targetConnectionId].includes(id)
+        id === sourceConnectionId || id === targetConnectionId
           ? Option.some({
               id,
-              harness: "opencode",
-              authenticationTargetId: "opencode-go",
-              authenticationMethodId: "api-key",
+              harness: currentProvider,
+              authenticationTargetId:
+                currentProvider === "opencode"
+                  ? "opencode-go"
+                  : currentProvider === "codex"
+                    ? "openai-first-party"
+                    : "anthropic-first-party",
+              authenticationMethodId:
+                currentProvider === "claudeAgent"
+                  ? "claude-account"
+                  : currentProvider === "codex"
+                    ? "chatgpt"
+                    : "api-key",
               label: id === sourceConnectionId ? "Personal" : "Work",
-              credentialRef: `provider-secret:${id}`,
-              profileRef: null,
+              credentialRef: currentProvider === "opencode" ? "secret" : null,
+              profileRef: currentProvider === "opencode" ? null : "profile",
               providerIdentityId: null,
               health: "ready",
-              healthReason: null,
-              lastCheckedAt: timestamp,
               lifecycle: "active",
-              terminationReason: null,
-              terminatedAt: null,
               createdAt: timestamp,
               updatedAt: timestamp,
             })
@@ -610,1196 +126,408 @@ const realSelectionDependencies = Layer.mergeAll(
   } as never),
   Layer.succeed(ProviderInstallationRepository, {
     getActiveRecord: () => Effect.succeed(Option.some({ id: installationId })),
-    list: () =>
-      Effect.succeed([
-        {
-          id: installationId,
-          harness: "opencode",
-          version: "1.18.10",
-          platform: "darwin",
-          architecture: "arm64",
-          adapterVersion: "1",
-          protocolVersion: "v1",
-          lifecycle: "active",
-          healthReason: null,
-          installedAt: timestamp,
-          activatedAt: timestamp,
-          retiredAt: null,
-        },
-      ]),
-    getRecord: () =>
-      Effect.succeed(
-        Option.some({
-          id: installationId,
-          harness: "opencode",
-          version: "1.18.10",
-          platform: "darwin",
-          architecture: "arm64",
-          executablePath: "/managed/opencode",
-          artifactSource: "github-release",
-          artifactUrl: "https://example.invalid/opencode",
-          artifactSha256: "a".repeat(64),
-          adapterVersion: "1",
-          protocolVersion: "v1",
-          lifecycle: "active",
-          healthReason: null,
-          installedAt: timestamp,
-          activatedAt: timestamp,
-          retiredAt: null,
-        }),
-      ),
-    activate: () => Effect.die("not expected"),
-    reactivate: () => Effect.die("not expected"),
   } as never),
-  ServerSettingsService.layerTest(),
 );
+const resolverLayer = ProviderTurnSelectionResolverLive.pipe(Layer.provideMerge(dependencies));
+const materializerLayer = ProviderNativeStateMaterializerLive.pipe(Layer.provideMerge(configLayer));
+let currentProvider: ProviderKind = "opencode";
+const layer = it.layer(Layer.mergeAll(resolverLayer, materializerLayer));
 
-const resolverWithDependencies = ProviderTurnSelectionResolverLive.pipe(
-  Layer.provideMerge(Layer.mergeAll(dependencies, realSelectionDependencies)),
-);
-const realCoordinatorLayer = ProviderThreadSwitchCoordinatorLive.pipe(
-  Layer.provideMerge(resolverWithDependencies),
-);
-const realCoordinator = it.layer(realCoordinatorLayer);
-
-layer("ProviderThreadSwitchCoordinator", (it) => {
-  it.effect("adds the exact durable binding to an unchanged agent send", () =>
+const modelFor = (provider: ProviderKind, alternate = false) =>
+  provider === "opencode"
+    ? alternate
+      ? "opencode-go/glm"
+      : "opencode-go/kimi"
+    : provider === "codex"
+      ? alternate
+        ? "gpt-5.4"
+        : "gpt-5.5"
+      : alternate
+        ? "claude-haiku-4-5"
+        : "claude-sonnet-5";
+const fixture = Effect.fn(function* (
+  provider: ProviderKind = "opencode",
+  options: { running?: boolean; native?: boolean; session?: boolean } = {},
+) {
+  currentProvider = provider;
+  const sql = yield* SqlClient.SqlClient;
+  const publisher = yield* ThreadPublisher;
+  const materializer = yield* ProviderNativeStateMaterializer;
+  const threadId = ThreadId.makeUnsafe(randomUUID());
+  const folderId = FolderId.makeUnsafe(randomUUID());
+  const nativeStateId = options.native === false ? null : randomUUID();
+  const providerSessionId = options.session === false ? null : "native-session";
+  yield* sql`INSERT INTO projection_folders (folder_id,space_id,title,workspace_root,default_model_selection_json,scripts_json,created_at,updated_at)
+    VALUES (${folderId},'penkra-personal','Switch',NULL,NULL,'[]',${timestamp},${timestamp})`;
+  yield* createThreadFixture(sql, {
+    threadId,
+    folderId,
+    title: "Switch",
+    modelSelection: { provider, model: modelFor(provider) },
+    runtimeMode: "full-access",
+    connection: { kind: "selected", connectionId: sourceConnectionId },
+    creator: { kind: "user" },
+    createdAt: timestamp,
+  });
+  yield* sql`UPDATE threads SET native_state_id=${nativeStateId}, provider_session_id=${providerSessionId}, state=${options.running ? "running" : "idle"} WHERE id=${threadId}`;
+  const order: string[] = [];
+  const clones: Parameters<typeof materializer.clone>[0][] = [];
+  const discards: string[] = [];
+  let dispatchFails = false,
+    responseLost = false,
+    copyFails = false,
+    settleNativeId: string | undefined;
+  let sent: OrchestrationCommand | undefined, context: OrchestrationDispatchContext | undefined;
+  const subscribed = yield* Deferred.make<void>();
+  const read = () =>
+    sql<{
+      connectionId: string | null;
+      nativeStateId: string | null;
+      providerSessionId: string | null;
+      model: string;
+      state: string;
+    }>`SELECT connection_id AS "connectionId",native_state_id AS "nativeStateId",provider_session_id AS "providerSessionId",model,state FROM threads WHERE id=${threadId}`.pipe(
+      Effect.map((rows) => rows[0]!),
+    );
+  const settle = () =>
     Effect.gen(function* () {
-      hasBinding = true;
-      operation = undefined;
-      unchangedSelection = true;
-      dispatchedCommand = undefined;
-      const coordinator = yield* ProviderThreadSwitchCoordinator;
-      yield* coordinator.dispatchTurnStart({
-        command: {
-          ...command,
-          commandId: CommandId.makeUnsafe("command-unchanged"),
-          connectionId: undefined,
-          bindingRevision: undefined,
-          modelSelection: undefined,
-        },
-        attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-      });
-      const sent = currentDispatchedCommand();
-      assert.strictEqual(sent?.type, "thread.turn.start");
-      if (sent?.type === "thread.turn.start") {
-        assert.strictEqual(sent.connectionId, sourceConnectionId);
-        assert.strictEqual(sent.bindingRevision, 4);
-      }
-      unchangedSelection = false;
+      yield* sql`UPDATE threads SET state='idle', native_state_id=COALESCE(${settleNativeId ?? null},native_state_id) WHERE id=${threadId}`;
+      publisher.publish({ threadId });
+    });
+  const coordinator = yield* makeProviderThreadSwitchCoordinator.pipe(
+    Effect.provideService(ThreadPublisher, {
+      ...publisher,
+      subscribe: (id, callback) => {
+        const unsubscribe = publisher.subscribe(id, callback);
+        Effect.runSync(Deferred.succeed(subscribed, undefined));
+        return unsubscribe;
+      },
     }),
-  );
-
-  it.effect("journals a model-only change without cloning or verifying native state", () =>
-    Effect.gen(function* () {
-      hasBinding = true;
-      activeTurn = false;
-      operation = undefined;
-      modelOnlySelection = true;
-      acceptedProviderSwitchContext = undefined;
-      order.length = 0;
-      const coordinator = yield* ProviderThreadSwitchCoordinator;
-
-      const result = yield* coordinator.dispatchTurnStart({
-        command: {
-          ...command,
-          commandId: CommandId.makeUnsafe("command-model-only"),
-          connectionId: sourceConnectionId,
-          bindingRevision: 4,
-          modelSelection: { provider: "opencode", model: "opencode-go/glm-5.1" },
-        },
-        attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-      });
-
-      assert.strictEqual(result.sequence, 42);
-      assert.deepStrictEqual(order, ["journal", "interrupted", "verified", "dispatch"]);
-      assert.notInclude(order, "verify");
-      assert.strictEqual(currentOperation()?.targetNativeStateGenerationId, null);
-      const sent = currentDispatchedCommand();
-      assert.strictEqual(sent?.type, "thread.turn.start");
-      if (sent?.type === "thread.turn.start") {
-        assert.strictEqual(sent.bindingRevision, 5);
-        assert.strictEqual(sent.modelSelection?.model, "opencode-go/glm-5.1");
-      }
-      assert.strictEqual(
-        (acceptedProviderSwitchContext as { commit: { kind: string } }).commit.kind,
-        "runtime-binding",
-      );
-      modelOnlySelection = false;
-    }),
-  );
-
-  it.effect("does not delete a predecessor after an explicit thread-local migration", () =>
-    Effect.gen(function* () {
-      yield* prepareRuntimeUpgrade();
-      hasBinding = true;
-      activeTurn = false;
-      operation = undefined;
-      runtimeUpgradeSelection = true;
-      verificationFails = false;
-      stoppedSessionCount = 0;
-      order.length = 0;
-      const coordinator = yield* ProviderThreadSwitchCoordinator;
-
-      const result = yield* coordinator.dispatchTurnStart({
-        command: {
-          ...command,
-          commandId: CommandId.makeUnsafe("command-runtime-upgrade-success"),
-          connectionId: undefined,
-          bindingRevision: undefined,
-          modelSelection: undefined,
-        },
-        attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-      });
-      const activation = yield* readManagedProviderRuntimeActivation({
-        stateDir: runtimeStateDir,
-        provider: "opencode",
-      });
-
-      assert.strictEqual(result.sequence, 42);
-      assert.include(order, "verify");
-      assert.strictEqual(stoppedSessionCount, 1);
-      assert.isBelow(order.indexOf("stop-session"), order.indexOf("verify"));
-      assert.strictEqual(activation?.active.installationId, targetInstallationId);
-      assert.strictEqual(activation?.previous?.installationId, installationId);
-      assert.isTrue(
-        existsSync(
-          resolveManagedProviderVersionDirectory({
-            stateDir: runtimeStateDir,
-            provider: "opencode",
-            version: "1.0.0",
-          }),
-        ),
-      );
-      runtimeUpgradeSelection = false;
-    }),
-  );
-
-  it.effect("does not commit a switch when native verification fails operationally", () =>
-    Effect.gen(function* () {
-      yield* prepareRuntimeUpgrade();
-      hasBinding = true;
-      activeTurn = false;
-      operation = undefined;
-      runtimeUpgradeSelection = true;
-      verificationFails = true;
-      dispatchCount = 0;
-      acceptedProviderSwitchContext = undefined;
-      stoppedSessionCount = 0;
-      order.length = 0;
-      const coordinator = yield* ProviderThreadSwitchCoordinator;
-
-      const result = yield* Effect.exit(
-        coordinator.dispatchTurnStart({
-          command: {
-            ...command,
-            commandId: CommandId.makeUnsafe("command-runtime-upgrade-fallback"),
-            connectionId: undefined,
-            bindingRevision: undefined,
-            modelSelection: undefined,
-          },
-          attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+    Effect.provideService(ProviderService, {
+      interruptTurn: () =>
+        Effect.gen(function* () {
+          order.push("interrupt");
+          yield* settle();
         }),
-      );
-      const activation = yield* readManagedProviderRuntimeActivation({
-        stateDir: runtimeStateDir,
-        provider: "opencode",
-      });
-
-      assert.strictEqual(result._tag, "Failure");
-      assert.strictEqual(dispatchCount, 0);
-      assert.strictEqual(stoppedSessionCount, 1);
-      assert.isBelow(order.indexOf("stop-session"), order.indexOf("verify"));
-      assert.strictEqual(repositoryActiveInstallationId, targetInstallationId);
-      assert.strictEqual(activation?.active.installationId, targetInstallationId);
-      assert.strictEqual(activation?.previous?.installationId, installationId);
-      assert.strictEqual(activation?.rejected, null);
-      assert.strictEqual(currentOperation()?.state, "failed");
-      assert.strictEqual(acceptedProviderSwitchContext, undefined);
-      verificationFails = false;
-      runtimeUpgradeSelection = false;
-    }),
-  );
-
-  it.effect("reconstructs only when verification confirms unavailable native state", () =>
-    Effect.gen(function* () {
-      yield* prepareRuntimeUpgradeWithIntermediatePredecessor();
-      hasBinding = true;
-      activeTurn = false;
-      operation = undefined;
-      runtimeUpgradeSelection = true;
-      verificationReconstructs = true;
-      dispatchCount = 0;
-      order.length = 0;
-      const coordinator = yield* ProviderThreadSwitchCoordinator;
-
-      const result = yield* Effect.exit(
-        coordinator.dispatchTurnStart({
-          command: {
-            ...command,
-            commandId: CommandId.makeUnsafe("command-runtime-upgrade-intermediate-fallback"),
-            connectionId: undefined,
-            bindingRevision: undefined,
-            modelSelection: undefined,
-          },
-          attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+      stopSession: () =>
+        Effect.sync(() => {
+          order.push("stop");
         }),
-      );
-      const activation = yield* readManagedProviderRuntimeActivation({
-        stateDir: runtimeStateDir,
-        provider: "opencode",
-      });
-
-      assert.strictEqual(result._tag, "Success");
-      assert.strictEqual(dispatchCount, 1);
-      assert.strictEqual(repositoryActiveInstallationId, targetInstallationId);
-      assert.strictEqual(activation?.active.installationId, targetInstallationId);
-      assert.strictEqual(activation?.previous?.installationId, intermediateInstallationId);
-      assert.strictEqual(activation?.rejected, null);
-      assert.strictEqual(currentOperation()?.state, "committed");
-      assert.isUndefined(
-        (acceptedProviderSwitchContext as { change: { reconstructionNotice?: string } }).change
-          .reconstructionNotice,
-      );
-      verificationReconstructs = false;
-      runtimeUpgradeSelection = false;
-    }),
-  );
-
-  it.effect("resolves and commits the default initial binding with the first message", () =>
-    Effect.gen(function* () {
-      hasBinding = false;
-      projectedHistoricalThread = false;
-      operation = undefined;
-      initialContext = undefined;
-      failAfterCommit = false;
-      order.length = 0;
-      const coordinator = yield* ProviderThreadSwitchCoordinator;
-      const result = yield* coordinator.dispatchTurnStart({
-        command: {
-          ...command,
-          commandId: CommandId.makeUnsafe("command-initial"),
-          modelSelection: { provider: "opencode", model: "opencode/big-pickle" },
-          connectionId: undefined,
-          bindingRevision: 0,
-        },
-        attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-      });
-      assert.strictEqual(result.sequence, 42);
-      assert.strictEqual(
-        (initialContext as { nativeStateLocatorJson: string }).nativeStateLocatorJson,
-        "null",
-      );
-      assert.strictEqual(
-        (initialContext as { providerSessionId: string | null }).providerSessionId,
-        null,
-      );
-      assert.notInclude(order, "verify");
-      assert.notInclude(order, "fork-clone");
-      const sent = currentDispatchedCommand();
-      assert.strictEqual(sent?.type, "thread.turn.start");
-      if (sent?.type === "thread.turn.start") {
-        assert.strictEqual(sent.connectionId, null);
-        assert.strictEqual(sent.bindingRevision, 0);
-      }
-      assert.deepStrictEqual(order, ["dispatch"]);
-    }),
-  );
-
-  it.effect("requires a new Thread when an existing transcript has no managed binding", () =>
-    Effect.gen(function* () {
-      hasBinding = false;
-      projectedHistoricalThread = true;
-      const sql = yield* SqlClient.SqlClient;
-      yield* sql`UPDATE threads SET last_user_message_at = ${timestamp} WHERE id = ${command.threadId}`;
-      operation = undefined;
-      const coordinator = yield* ProviderThreadSwitchCoordinator;
-      const result = yield* Effect.exit(
-        coordinator.dispatchTurnStart({
-          command: {
-            ...command,
-            commandId: CommandId.makeUnsafe("command-pre-connections-thread"),
-            modelSelection: { provider: "opencode", model: "opencode/big-pickle" },
-            connectionId: null,
-            bindingRevision: 0,
-          },
-          attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+    } as never),
+    Effect.provideService(ProviderNativeStateMaterializer, {
+      clone: (input) =>
+        Effect.gen(function* () {
+          order.push("copy");
+          clones.push(input);
+          if (copyFails) return yield* Effect.fail(new Error("copy failed") as never);
+          return { root: "/target", providerSessionId: input.providerSessionId };
         }),
-      );
-      assert.strictEqual(result._tag, "Failure");
-      if (result._tag === "Failure") {
-        assert.match(String(result.cause), /Start a new Thread/);
-      }
-      projectedHistoricalThread = false;
-    }),
-  );
-
-  it.effect(
-    "journals before interruption, verifies, commits, and retries without destructive cleanup",
-    () =>
-      Effect.gen(function* () {
-        hasBinding = true;
-        operation = undefined;
-        activeTurn = true;
-        discardCount = 0;
-        dispatchCount = 0;
-        failAfterCommit = false;
-        order.length = 0;
-        const coordinator = yield* ProviderThreadSwitchCoordinator;
-
-        const steeredCommand = { ...command, dispatchMode: "steer" as const };
-        const first = yield* coordinator.dispatchTurnStart({
-          command: steeredCommand,
-          attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-          cwd: "/workspace",
-        });
-        assert.strictEqual(first.sequence, 42);
-        assert.deepStrictEqual(order.slice(0, 7), [
-          "journal",
-          "interrupt",
-          "interrupted",
-          "stop-session",
-          "verify",
-          "verified",
-          "dispatch",
-        ]);
-        assert.strictEqual(currentOperation()?.state, "committed");
-        assert.strictEqual(currentOperation()?.cwd, "/workspace");
-
-        order.length = 0;
-        const retry = yield* coordinator.dispatchTurnStart({
-          command: steeredCommand,
-          attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-          cwd: "/different-client-value",
-        });
-        assert.strictEqual(retry.sequence, 42);
-        assert.deepStrictEqual(order, ["dispatch"]);
-        assert.strictEqual(discardCount, 0);
-
-        operation = undefined;
-        activeTurn = false;
-        order.length = 0;
-        failAfterCommit = true;
-        const uncertain = yield* Effect.exit(
-          coordinator.dispatchTurnStart({
-            command: { ...command, commandId: CommandId.makeUnsafe("command-uncertain") },
-            attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-            cwd: "/workspace",
-          }),
-        );
-        assert.strictEqual(uncertain._tag, "Failure");
-        assert.strictEqual(currentOperation()?.state, "committed");
-        assert.strictEqual(discardCount, 0);
-        assert.strictEqual(dispatchCount, 4);
-      }),
-  );
-
-  it.effect("keeps the active turn running while a queued Connection switch waits", () =>
-    Effect.gen(function* () {
-      hasBinding = true;
-      operation = undefined;
-      activeTurn = true;
-      projectionSettlementReadCount = 0;
-      failAfterCommit = false;
-      order.length = 0;
-      dispatchedCommand = undefined;
-      const coordinator = yield* ProviderThreadSwitchCoordinator;
-
-      const switchFiber = yield* coordinator
-        .dispatchTurnStart({
-          command: {
-            ...command,
-            commandId: CommandId.makeUnsafe("command-queued-switch"),
-            dispatchMode: "queue",
-          },
-          attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-        })
-        .pipe(Effect.forkChild);
-      yield* Effect.yieldNow;
-      yield* TestClock.adjust("50 millis");
-
-      assert.notInclude(order, "interrupt");
-      assert.deepStrictEqual(order, ["journal"]);
-      activeTurn = false;
-      yield* Effect.yieldNow;
-      yield* TestClock.adjust("1 second");
-      yield* Fiber.join(switchFiber);
-
-      assert.notInclude(order, "interrupt");
-      assert.deepStrictEqual(order.slice(0, 6), [
-        "journal",
-        "interrupted",
-        "stop-session",
-        "verify",
-        "verified",
-        "dispatch",
-      ]);
-      const sent = currentDispatchedCommand();
-      assert.strictEqual(sent?.type, "thread.turn.start");
-      if (sent?.type === "thread.turn.start") {
-        assert.strictEqual(sent.dispatchMode, "queue");
-        assert.strictEqual(sent.connectionId, targetConnectionId);
-      }
-    }),
-  );
-
-  it.effect("settles a live turn before accepting a steered Connection switch", () =>
-    Effect.gen(function* () {
-      hasBinding = true;
-      operation = undefined;
-      activeTurn = true;
-      projectionSettlementReadCount = 0;
-      failAfterCommit = false;
-      order.length = 0;
-      dispatchedCommand = undefined;
-      const coordinator = yield* ProviderThreadSwitchCoordinator;
-
-      yield* coordinator.dispatchTurnStart({
-        command: {
-          ...command,
-          commandId: CommandId.makeUnsafe("command-steered-switch"),
-          dispatchMode: "steer",
-        },
-        attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-      });
-
-      assert.deepStrictEqual(order.slice(0, 7), [
-        "journal",
-        "interrupt",
-        "interrupted",
-        "stop-session",
-        "verify",
-        "verified",
-        "dispatch",
-      ]);
-      assert.strictEqual(projectionSettlementReadCount, 1);
-      const sent = currentDispatchedCommand();
-      assert.strictEqual(sent?.type, "thread.turn.start");
-      if (sent?.type === "thread.turn.start") {
-        assert.strictEqual(sent.dispatchMode, "steer");
-        assert.strictEqual(sent.connectionId, targetConnectionId);
-        assert.strictEqual(sent.bindingRevision, 5);
-      }
-    }),
-  );
-
-  it.effect("interrupts before a Claude account switch and leaves the source owner unchanged", () =>
-    Effect.gen(function* () {
-      hasBinding = true;
-      operation = undefined;
-      activeTurn = true;
-      order.length = 0;
-      claudeAccountSwitchSelection = true;
-      const source = {
-        authenticationMethodId: "claude-account",
-        providerIdentityId: "alice@example.com",
-      };
-      const sourceConfig = path.join(runtimeStateDir, "claude-source-profile");
-      rmSync(claudeNativeStateRoot(runtimeStateDir, "source-generation"), {
-        recursive: true,
-        force: true,
-      });
-      yield* Effect.promise(() =>
-        prepareClaudeThreadProject({
-          stateDir: runtimeStateDir,
-          threadId,
-          nativeStateId: "source-generation",
-          configDir: sourceConfig,
-          account: source,
+      discard: (id) =>
+        Effect.sync(() => {
+          discards.push(id);
         }),
-      );
-      try {
-        const coordinator = yield* ProviderThreadSwitchCoordinator;
-        yield* coordinator.dispatchTurnStart({
-          command: {
-            ...command,
-            commandId: CommandId.makeUnsafe("claude-account-steer"),
-            dispatchMode: "steer",
-          },
-          attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-        });
-        assert.deepStrictEqual(order.slice(0, 8), [
-          "journal",
-          "interrupt",
-          "interrupted",
-          "stop-session",
-          "probe-attempted",
-          "verify",
-          "verified",
-          "dispatch",
-        ]);
-        assert.deepStrictEqual(
-          yield* Effect.promise(() =>
-            readClaudeThreadAccount(runtimeStateDir, "source-generation"),
-          ),
-          source,
-        );
-      } finally {
-        claudeAccountSwitchSelection = false;
-      }
     }),
-  );
-
-  it.effect("rejects an unavailable steering target before interrupting the old turn", () =>
-    Effect.gen(function* () {
-      operation = undefined;
-      activeTurn = true;
-      order.length = 0;
-      claudeAccountSwitchSelection = true;
-      preflightFails = true;
-      try {
-        const coordinator = yield* ProviderThreadSwitchCoordinator;
-        const result = yield* Effect.exit(
-          coordinator.dispatchTurnStart({
-            command: {
-              ...command,
-              commandId: CommandId.makeUnsafe("claude-preflight-rejected"),
-              dispatchMode: "steer",
-            },
-            attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-          }),
-        );
-        assert.strictEqual(result._tag, "Failure");
-        assert.notInclude(order, "interrupt");
-        assert.notInclude(order, "stop-session");
-        assert.strictEqual(activeTurn, true);
-        assert.strictEqual(currentOperation()?.state, "failed");
-      } finally {
-        claudeAccountSwitchSelection = false;
-        preflightFails = false;
-      }
-    }),
-  );
-
-  it.effect("rejects a changed native revision before interrupting a Claude steer", () =>
-    Effect.gen(function* () {
-      operation = undefined;
-      activeTurn = true;
-      order.length = 0;
-      selectionResolveCount = 0;
-      claudeAccountSwitchSelection = true;
-      preflightStateRevisionChange = true;
-      try {
-        const coordinator = yield* ProviderThreadSwitchCoordinator;
-        const result = yield* Effect.exit(
-          coordinator.dispatchTurnStart({
-            command: {
-              ...command,
-              commandId: CommandId.makeUnsafe("claude-preflight-stale-revision"),
-              dispatchMode: "steer",
-            },
-            attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-          }),
-        );
-        assert.strictEqual(result._tag, "Failure");
-        assert.notInclude(order, "interrupt");
-        assert.notInclude(order, "stop-session");
-        assert.strictEqual(activeTurn, true);
-      } finally {
-        claudeAccountSwitchSelection = false;
-        preflightStateRevisionChange = false;
-      }
-    }),
-  );
-
-  it.effect("waits for a running Claude turn before a queued account switch", () =>
-    Effect.gen(function* () {
-      hasBinding = true;
-      operation = undefined;
-      activeTurn = true;
-      order.length = 0;
-      claudeAccountSwitchSelection = true;
-      rmSync(claudeNativeStateRoot(runtimeStateDir, "source-generation"), {
-        recursive: true,
-        force: true,
-      });
-      yield* Effect.promise(() =>
-        prepareClaudeThreadProject({
-          stateDir: runtimeStateDir,
-          threadId,
-          nativeStateId: "source-generation",
-          configDir: path.join(runtimeStateDir, "claude-queued-source-profile"),
-          account: {
-            authenticationMethodId: "claude-account",
-            providerIdentityId: "alice@example.com",
-          },
+    Effect.provideService(OrchestrationEngineService, {
+      dispatch: (command: OrchestrationCommand, accepted: OrchestrationDispatchContext) =>
+        Effect.gen(function* () {
+          order.push("dispatch");
+          sent = command;
+          context = accepted;
+          if (dispatchFails) return yield* Effect.fail(new Error("admission rejected"));
+          if (accepted.acceptedTurnSelection)
+            yield* sql.withTransaction(commitThreadTurnSelection(accepted.acceptedTurnSelection));
+          if (responseLost) return yield* Effect.fail(new Error("response lost after commit"));
+          return { sequence: 42 };
         }),
-      );
-      try {
-        const coordinator = yield* ProviderThreadSwitchCoordinator;
-        const fiber = yield* coordinator
-          .dispatchTurnStart({
-            command: {
-              ...command,
-              commandId: CommandId.makeUnsafe("claude-account-queue"),
-              dispatchMode: "queue",
-            },
-            attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-          })
-          .pipe(Effect.forkChild);
-        yield* Effect.yieldNow;
-        yield* TestClock.adjust("50 millis");
-        assert.deepStrictEqual(order, ["journal"]);
-        activeTurn = false;
-        yield* Effect.yieldNow;
-        yield* TestClock.adjust("1 second");
-        yield* Fiber.join(fiber);
-        assert.notInclude(order, "interrupt");
-        assert.deepStrictEqual(order.slice(0, 7), [
-          "journal",
-          "interrupted",
-          "stop-session",
-          "probe-attempted",
-          "verify",
-          "verified",
-          "dispatch",
-        ]);
-      } finally {
-        claudeAccountSwitchSelection = false;
-      }
-    }),
+    } as never),
   );
-
-  it.effect("a failed account switch leaves the source owner unchanged", () =>
-    Effect.gen(function* () {
-      hasBinding = true;
-      operation = undefined;
-      activeTurn = true;
-      order.length = 0;
-      selectionResolveCount = 0;
-      claudeTransitionAfterSettle = true;
-      dispatchFailsBeforeCommit = true;
-      rmSync(claudeNativeStateRoot(runtimeStateDir, "source-generation"), {
-        recursive: true,
-        force: true,
-      });
-      yield* Effect.promise(() =>
-        prepareClaudeThreadProject({
-          stateDir: runtimeStateDir,
-          threadId,
-          nativeStateId: "source-generation",
-          configDir: path.join(runtimeStateDir, "settled-source-profile"),
-          account: {
-            authenticationMethodId: "claude-account",
-            providerIdentityId: "alice@example.com",
-          },
-        }),
-      );
-      try {
-        const coordinator = yield* ProviderThreadSwitchCoordinator;
-        const result = yield* Effect.exit(
-          coordinator.dispatchTurnStart({
-            command: {
-              ...command,
-              commandId: CommandId.makeUnsafe("claude-settled-transition-failure"),
-              dispatchMode: "steer",
-            },
-            attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-          }),
-        );
-        assert.strictEqual(result._tag, "Failure");
-        assert.strictEqual(currentOperation()?.state, "failed");
-        assert.ok(JSON.parse(currentOperation()!.selectionJson).claudeAccountTransition);
-        assert.deepStrictEqual(
-          yield* Effect.promise(() =>
-            readClaudeThreadAccount(runtimeStateDir, "source-generation"),
-          ),
-          { authenticationMethodId: "claude-account", providerIdentityId: "alice@example.com" },
-        );
-      } finally {
-        claudeTransitionAfterSettle = false;
-        dispatchFailsBeforeCommit = false;
-      }
-    }),
-  );
-
-  it.effect("pins a steered switch to the native state persisted by settlement", () =>
-    Effect.gen(function* () {
-      hasBinding = true;
-      operation = undefined;
-      activeTurn = true;
-      resolvedStateRevision = 2;
-      advanceStateRevisionOnInterrupt = true;
-      verifiedStateRevision = undefined;
-      order.length = 0;
-      const coordinator = yield* ProviderThreadSwitchCoordinator;
-
-      yield* coordinator.dispatchTurnStart({
-        command: {
-          ...command,
-          commandId: CommandId.makeUnsafe("command-steered-settled-source"),
-          dispatchMode: "steer",
-        },
-        attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-      });
-
-      assert.strictEqual(currentOperation()?.sourceStateRevision, 3);
-      assert.strictEqual(verifiedStateRevision, 3);
-      assert.deepStrictEqual(order.slice(0, 7), [
-        "journal",
-        "interrupt",
-        "interrupted",
-        "stop-session",
-        "verify",
-        "verified",
-        "dispatch",
-      ]);
-      advanceStateRevisionOnInterrupt = false;
-      resolvedStateRevision = 2;
-    }),
-  );
-
-  it.effect("waits for a processless durable turn to settle before switching", () =>
-    Effect.gen(function* () {
-      hasBinding = true;
-      operation = undefined;
-      activeTurn = false;
-      projectedRunningReadsRemaining = 1;
-      projectionSettlementReadCount = 0;
-      order.length = 0;
-      const coordinator = yield* ProviderThreadSwitchCoordinator;
-
-      const switchFiber = yield* coordinator
-        .dispatchTurnStart({
-          command: {
-            ...command,
-            commandId: CommandId.makeUnsafe("command-projection-settlement"),
-          },
-          attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-        })
-        .pipe(Effect.forkChild);
-      yield* TestClock.adjust("50 millis");
-      yield* Fiber.join(switchFiber);
-
-      assert.isAtLeast(projectionSettlementReadCount, 2);
-      assert.notInclude(order, "interrupt");
-      assert.deepStrictEqual(order.slice(0, 5), [
-        "journal",
-        "interrupted",
-        "stop-session",
-        "verify",
-        "verified",
-      ]);
-    }),
-  );
-
-  it.effect("recovers a pending switch against the exact settled native source", () =>
-    Effect.gen(function* () {
-      hasBinding = true;
-      activeTurn = false;
-      resolvedStateRevision = 3;
-      order.length = 0;
-      const recoveryCommand = {
-        ...command,
-        commandId: CommandId.makeUnsafe("command-recover-settled-source"),
-        dispatchMode: "steer" as const,
-      };
-      operation = {
-        id: "provider-switch:command-recover-settled-source",
-        threadId,
-        commandId: recoveryCommand.commandId,
-        kind: "native-state",
-        state: "pending",
-        sourceStateRevision: 2,
-        sourceBindingRevision: 4,
-        targetNativeStateGenerationId: ProviderNativeStateGenerationId.makeUnsafe(
-          "provider-switch-generation:command-recover-settled-source",
-        ),
-        selectionJson: JSON.stringify(selection),
-        commandJson: JSON.stringify(recoveryCommand),
-        cwd: null,
-        verificationJson: null,
-        failureReason: null,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      };
-      const coordinator = yield* ProviderThreadSwitchCoordinator;
-
-      yield* coordinator.recoverOpen;
-
-      assert.strictEqual(currentOperation()?.sourceStateRevision, 3);
-      assert.strictEqual(currentOperation()?.state, "committed");
-      assert.deepStrictEqual(order.slice(0, 5), [
-        "interrupted",
-        "stop-session",
-        "verify",
-        "verified",
-        "dispatch",
-      ]);
-      resolvedStateRevision = 2;
-      operation = undefined;
-    }),
-  );
-
-  it.effect("runs the paid resume probe once per interrupted-switch recovery attempt", () =>
-    Effect.gen(function* () {
-      hasBinding = true;
-      activeTurn = false;
-      order.length = 0;
-      verificationFails = true;
-      const recoveryCommand = {
-        ...command,
-        commandId: CommandId.makeUnsafe("command-recover-probe-once"),
-      };
-      operation = {
-        id: "provider-switch:command-recover-probe-once",
-        threadId,
-        commandId: recoveryCommand.commandId,
-        kind: "native-state",
-        state: "interrupted",
-        sourceStateRevision: 2,
-        sourceBindingRevision: 4,
-        targetNativeStateGenerationId: ProviderNativeStateGenerationId.makeUnsafe(
-          "provider-switch-generation:command-recover-probe-once",
-        ),
-        selectionJson: JSON.stringify(selection),
-        commandJson: JSON.stringify(recoveryCommand),
-        cwd: null,
-        verificationJson: null,
-        failureReason: null,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      };
-      try {
-        const coordinator = yield* ProviderThreadSwitchCoordinator;
-        yield* coordinator.recoverOpen;
-        assert.deepStrictEqual(
-          order.filter((step) => step === "verify"),
-          ["verify"],
-        );
-        assert.strictEqual(currentOperation()?.state, "failed");
-      } finally {
-        verificationFails = false;
-        operation = undefined;
-      }
-    }),
-  );
-
-  it.effect("does not repeat a paid probe after a crash before its result was journalled", () =>
-    Effect.gen(function* () {
-      hasBinding = true;
-      activeTurn = false;
-      order.length = 0;
-      const recoveryCommand = {
-        ...command,
-        commandId: CommandId.makeUnsafe("command-recover-probe-crash"),
-      };
-      operation = {
-        id: "provider-switch:command-recover-probe-crash",
-        threadId,
-        commandId: recoveryCommand.commandId,
-        kind: "native-state",
-        state: "interrupted",
-        sourceStateRevision: 2,
-        sourceBindingRevision: 4,
-        targetNativeStateGenerationId: ProviderNativeStateGenerationId.makeUnsafe(
-          "provider-switch-generation:command-recover-probe-crash",
-        ),
-        selectionJson: JSON.stringify({
-          ...selection,
-          harness: "claudeAgent",
-          claudeAccountTransition: {
-            source: { authenticationMethodId: "claude-account", providerIdentityId: "alice" },
-            target: { authenticationMethodId: "claude-account", providerIdentityId: "bob" },
-          },
-        }),
-        commandJson: JSON.stringify(recoveryCommand),
-        cwd: null,
-        verificationJson: RESUME_PROBE_ATTEMPTED_JSON,
-        failureReason: null,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      };
-      try {
-        const coordinator = yield* ProviderThreadSwitchCoordinator;
-        yield* coordinator.recoverOpen;
-        assert.notInclude(order, "verify");
-        assert.strictEqual(currentOperation()?.state, "failed");
-      } finally {
-        operation = undefined;
-      }
-    }),
-  );
-
-  it.effect("discards the target native folder when crash recovery fails before commit", () =>
-    Effect.gen(function* () {
-      const commandId = CommandId.makeUnsafe("claude-crash-recovery-fails");
-      const beforeDiscards = discardCount;
-      const recoveryCommand = { ...command, commandId };
-      operation = {
-        id: `provider-switch:${commandId}`,
-        threadId,
-        commandId,
-        kind: "native-state",
-        state: "verified",
-        sourceStateRevision: 2,
-        sourceBindingRevision: 4,
-        targetNativeStateGenerationId: ProviderNativeStateGenerationId.makeUnsafe(
-          `provider-switch-generation:${commandId}`,
-        ),
-        selectionJson: JSON.stringify({
-          ...selection,
-          harness: "claudeAgent",
-        }),
-        commandJson: JSON.stringify(recoveryCommand),
-        cwd: null,
-        verificationJson: JSON.stringify({
-          generationId: `provider-switch-generation:${commandId}`,
-          adapterSchemaVersion: "managed-native-state-v1",
-          stateManifestJson: "{}",
-          providerSessionId: "native-session",
-          nativeStateLocatorJson: '{"resume":"native-session"}',
-          verifiedAt: timestamp,
-        }),
-        failureReason: null,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      };
-      dispatchFailsBeforeCommit = true;
-      try {
-        const coordinator = yield* ProviderThreadSwitchCoordinator;
-        yield* coordinator.recoverOpen;
-        assert.strictEqual(currentOperation()?.state, "failed");
-        assert.strictEqual(discardCount, beforeDiscards + 1);
-      } finally {
-        dispatchFailsBeforeCommit = false;
-        operation = undefined;
-      }
-    }),
-  );
-
-  it.effect("recovers native-folder cleanup after a failure-journal crash", () =>
-    Effect.gen(function* () {
-      order.length = 0;
-      const commandId = CommandId.makeUnsafe("claude-crash-cleanup-pending");
-      const beforeDiscards = discardCount;
-      const recoveryCommand = { ...command, commandId };
-      operation = {
-        id: `provider-switch:${commandId}`,
-        threadId,
-        commandId,
-        kind: "native-state",
-        state: "failed-cleanup-pending",
-        sourceStateRevision: 2,
-        sourceBindingRevision: 4,
-        targetNativeStateGenerationId: ProviderNativeStateGenerationId.makeUnsafe(
-          `provider-switch-generation:${commandId}`,
-        ),
-        selectionJson: JSON.stringify({
-          ...selection,
-          harness: "claudeAgent",
-        }),
-        commandJson: JSON.stringify(recoveryCommand),
-        cwd: null,
-        verificationJson: JSON.stringify({
-          generationId: `provider-switch-generation:${commandId}`,
-          adapterSchemaVersion: "managed-native-state-v1",
-          stateManifestJson: "{}",
-          providerSessionId: "native-session",
-          nativeStateLocatorJson: '{"resume":"native-session"}',
-          verifiedAt: timestamp,
-        }),
-        failureReason: "Target verification failed.",
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      };
-      try {
-        const coordinator = yield* ProviderThreadSwitchCoordinator;
-        yield* coordinator.recoverOpen;
-        assert.strictEqual(currentOperation()?.state, "failed");
-        assert.notInclude(order, "dispatch");
-        assert.strictEqual(discardCount, beforeDiscards + 1);
-      } finally {
-        operation = undefined;
-      }
-    }),
-  );
-
-  it.effect("discards a pre-cutover pending switch that the new schema cannot recover", () =>
-    Effect.gen(function* () {
-      const { previousInstallationId: _discarded, ...legacySelection } = selection;
-      activeTurn = false;
-
-      discardCount = 0;
-      operation = {
-        id: "provider-switch:command-pre-cutover",
-        threadId,
-        commandId: CommandId.makeUnsafe("command-pre-cutover"),
-        kind: "native-state",
-        state: "pending",
-        sourceStateRevision: 2,
-        sourceBindingRevision: 4,
-        targetNativeStateGenerationId: ProviderNativeStateGenerationId.makeUnsafe(
-          "provider-switch-generation:command-pre-cutover",
-        ),
-        selectionJson: JSON.stringify(legacySelection),
-        commandJson: JSON.stringify({
-          ...command,
-          commandId: CommandId.makeUnsafe("command-pre-cutover"),
-        }),
-        cwd: null,
-        verificationJson: null,
-        failureReason: null,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      };
-      const coordinator = yield* ProviderThreadSwitchCoordinator;
-
-      yield* coordinator.recoverOpen;
-
-      assert.strictEqual(discardCount, 1);
-      assert.strictEqual(currentOperation()?.state, "failed");
-      assert.match(currentOperation()?.failureReason ?? "", /pre-cutover/);
-      operation = undefined;
-    }),
-  );
+  const command: Extract<OrchestrationCommand, { type: "thread.turn.start" }> = {
+    type: "thread.turn.start",
+    commandId: CommandId.makeUnsafe(randomUUID()),
+    threadId,
+    message: {
+      messageId: MessageId.makeUnsafe(randomUUID()),
+      role: "user",
+      text: "Continue",
+      attachments: [],
+    },
+    modelSelection: { provider, model: modelFor(provider) },
+    connectionId: targetConnectionId,
+    runtimeMode: "full-access",
+    dispatchMode: "queue",
+    createdAt: timestamp,
+  };
+  const send = (patch: Partial<typeof command> = {}) =>
+    coordinator.dispatchTurnStart({
+      command: { ...command, ...patch },
+      attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+    });
+  return {
+    sql,
+    threadId,
+    nativeStateId,
+    providerSessionId,
+    order,
+    clones,
+    discards,
+    coordinator,
+    command,
+    send,
+    read,
+    settle,
+    subscribed,
+    sent: () => sent,
+    context: () => context,
+    failDispatch: () => {
+      dispatchFails = true;
+    },
+    loseResponse: () => {
+      responseLost = true;
+    },
+    failCopy: () => {
+      copyFails = true;
+    },
+    settleWith: (id: string) => {
+      settleNativeId = id;
+    },
+    materializer,
+  };
 });
 
-realCoordinator("ProviderThreadSwitchCoordinator with live selection resolution", (it) => {
-  it.effect("switches the Connection for a promoted queued turn", () =>
+layer("canonical turn selection", (it) => {
+  it.effect("uses the canonical account for an unchanged agent send", () =>
     Effect.gen(function* () {
-      hasBinding = true;
-      activeTurn = false;
-      unchangedSelection = false;
-      modelOnlySelection = false;
-      runtimeUpgradeSelection = false;
-      operation = undefined;
-
-      dispatchedCommand = undefined;
-      acceptedProviderSwitchContext = undefined;
-      const coordinator = yield* ProviderThreadSwitchCoordinator;
-      const result = yield* coordinator.dispatchQueuedTurn({
-        command: {
-          type: "thread.turn.dispatch-queued",
-          commandId: CommandId.makeUnsafe("command-queued-connection-switch"),
-          threadId,
-          messageId: MessageId.makeUnsafe("message-queued-connection-switch"),
-          modelSelection: { provider: "opencode", model: "opencode-go/kimi-k2.5" },
-          connectionId: targetConnectionId,
-          bindingRevision: 4,
-          runtimeMode: "full-access",
-          dispatchMode: "queue",
-          createdAt: timestamp,
-        },
-        attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-      });
-
-      assert.strictEqual(result.sequence, 42);
-      const sent = currentDispatchedCommand();
-      assert.strictEqual(sent?.type, "thread.turn.dispatch-queued");
-      if (sent?.type === "thread.turn.dispatch-queued") {
-        assert.strictEqual(sent.connectionId, targetConnectionId);
-        assert.strictEqual(sent.bindingRevision, 5);
-      }
-      assert.isDefined(acceptedProviderSwitchContext);
+      const f = yield* fixture();
+      yield* f.send({ connectionId: undefined, modelSelection: undefined });
+      assert.strictEqual(
+        (f.sent() as Extract<OrchestrationCommand, { type: "thread.turn.start" }>)?.connectionId,
+        sourceConnectionId,
+      );
+      assert.deepStrictEqual(f.order, ["dispatch"]);
     }),
   );
-
+  it.effect("restarts a model-only change without copying native state", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture();
+      yield* f.send({
+        connectionId: sourceConnectionId,
+        modelSelection: { provider: "opencode", model: modelFor("opencode", true) },
+      });
+      assert.deepStrictEqual(f.order, ["stop", "dispatch"]);
+      assert.strictEqual((yield* f.read()).model, modelFor("opencode", true));
+      assert.strictEqual((yield* f.read()).nativeStateId, f.nativeStateId);
+    }),
+  );
+  it.effect(
+    "starts a previously connected thread with no provider session without materializing",
+    () =>
+      Effect.gen(function* () {
+        const f = yield* fixture("opencode", { session: false });
+        yield* f.send();
+        assert.lengthOf(f.clones, 0);
+        const row = yield* f.read();
+        assert.strictEqual(row.connectionId, targetConnectionId);
+        assert.notStrictEqual(row.nativeStateId, f.nativeStateId);
+        assert.strictEqual(row.providerSessionId, null);
+      }),
+  );
+  it.effect("starts a historical thread without native state using a fresh folder", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture("opencode", { native: false, session: false });
+      yield* f.send();
+      assert.lengthOf(f.clones, 0);
+      assert.isString((yield* f.read()).nativeStateId);
+    }),
+  );
+  it.effect("copies before admission and retries without discarding committed native state", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture();
+      yield* f.send();
+      const first = yield* f.read();
+      yield* f.send();
+      assert.deepStrictEqual(f.order, ["stop", "copy", "dispatch", "dispatch"]);
+      assert.strictEqual((yield* f.read()).nativeStateId, first.nativeStateId);
+      assert.lengthOf(f.discards, 0);
+    }),
+  );
+  it.effect("does not discard the admitted folder when the response is lost", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture();
+      f.loseResponse();
+      assert.strictEqual((yield* Effect.exit(f.send()))._tag, "Failure");
+      assert.lengthOf(f.discards, 0);
+      assert.strictEqual((yield* f.read()).connectionId, targetConnectionId);
+    }),
+  );
+  it.effect(
+    "cleans the copied target and leaves the source owner unchanged on admission failure",
+    () =>
+      Effect.gen(function* () {
+        const f = yield* fixture();
+        f.failDispatch();
+        assert.strictEqual((yield* Effect.exit(f.send()))._tag, "Failure");
+        assert.lengthOf(f.discards, 1);
+        assert.strictEqual((yield* f.read()).connectionId, sourceConnectionId);
+        assert.strictEqual((yield* f.read()).nativeStateId, f.nativeStateId);
+      }),
+  );
+  it.effect("leaves the source row unchanged when copying fails", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture();
+      f.failCopy();
+      assert.strictEqual((yield* Effect.exit(f.send()))._tag, "Failure");
+      assert.notInclude(f.order, "dispatch");
+      assert.strictEqual((yield* f.read()).connectionId, sourceConnectionId);
+    }),
+  );
+  it.effect("rejects an unavailable steering account before interrupting", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture("opencode", { running: true });
+      assert.strictEqual(
+        (yield* Effect.exit(
+          f.send({
+            connectionId: ProviderConnectionId.makeUnsafe("missing"),
+            dispatchMode: "steer",
+          }),
+        ))._tag,
+        "Failure",
+      );
+      assert.notInclude(f.order, "interrupt");
+      assert.strictEqual((yield* f.read()).state, "running");
+    }),
+  );
+  it.effect("reads the native folder persisted by settlement before copying", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture("opencode", { running: true });
+      f.settleWith("settled-native");
+      yield* f.send({ dispatchMode: "steer" });
+      assert.strictEqual(f.clones[0]?.sourceGenerationId, "settled-native");
+      assert.deepStrictEqual(f.order, ["interrupt", "stop", "copy", "dispatch"]);
+    }),
+  );
+  for (const provider of ["codex", "claudeAgent", "opencode"] as const) {
+    it.effect(`waits for the ${provider} turn-end broadcast before a queued account switch`, () =>
+      Effect.gen(function* () {
+        const f = yield* fixture(provider, { running: true });
+        const fiber = yield* f.send().pipe(Effect.forkChild);
+        yield* Deferred.await(f.subscribed);
+        assert.deepStrictEqual(f.order, []);
+        assert.strictEqual((yield* f.read()).connectionId, sourceConnectionId);
+        yield* f.settle();
+        yield* Fiber.join(fiber);
+        assert.deepStrictEqual(f.order, ["stop", "copy", "dispatch"]);
+        assert.strictEqual((yield* f.read()).connectionId, targetConnectionId);
+      }),
+    );
+    it.effect(`interrupts before a ${provider} now-send on another account`, () =>
+      Effect.gen(function* () {
+        const f = yield* fixture(provider, { running: true });
+        yield* f.send({ dispatchMode: "steer" });
+        assert.deepStrictEqual(f.order, ["interrupt", "stop", "copy", "dispatch"]);
+      }),
+    );
+  }
+  it.effect("native steer keeps the running turn's account and model", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture("codex", { running: true });
+      yield* f.send({
+        dispatchMode: "steer",
+        connectionId: sourceConnectionId,
+        modelSelection: { provider: "codex", model: modelFor("codex", true) },
+      });
+      assert.deepStrictEqual(f.order, ["dispatch"]);
+      assert.strictEqual(f.context()?.acceptedTurnSelection, undefined);
+      assert.strictEqual((yield* f.read()).model, modelFor("codex"));
+    }),
+  );
+  it.effect(
+    "switches the account for a promoted queued turn through live selection resolution",
+    () =>
+      Effect.gen(function* () {
+        const f = yield* fixture();
+        yield* f.coordinator.dispatchQueuedTurn({
+          command: {
+            type: "thread.turn.dispatch-queued",
+            commandId: CommandId.makeUnsafe(randomUUID()),
+            threadId: f.threadId,
+            messageId: MessageId.makeUnsafe(randomUUID()),
+            connectionId: targetConnectionId,
+            modelSelection: f.command.modelSelection,
+            runtimeMode: "full-access",
+            dispatchMode: "queue",
+            createdAt: timestamp,
+          },
+          attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+        });
+        assert.strictEqual((yield* f.read()).connectionId, targetConnectionId);
+        assert.lengthOf(f.clones, 1);
+      }),
+  );
   it.effect("switches the model for a promoted queued turn", () =>
     Effect.gen(function* () {
-      hasBinding = true;
-      activeTurn = false;
-      unchangedSelection = false;
-      modelOnlySelection = true;
-      runtimeUpgradeSelection = false;
-      operation = undefined;
-
-      dispatchedCommand = undefined;
-      acceptedProviderSwitchContext = undefined;
-      const coordinator = yield* ProviderThreadSwitchCoordinator;
-      const result = yield* coordinator.dispatchQueuedTurn({
+      const f = yield* fixture();
+      yield* f.coordinator.dispatchQueuedTurn({
         command: {
           type: "thread.turn.dispatch-queued",
-          commandId: CommandId.makeUnsafe("command-queued-model-switch"),
-          threadId,
-          messageId: MessageId.makeUnsafe("message-queued-model-switch"),
-          modelSelection: { provider: "opencode", model: "opencode-go/glm-5.1" },
+          commandId: CommandId.makeUnsafe(randomUUID()),
+          threadId: f.threadId,
+          messageId: MessageId.makeUnsafe(randomUUID()),
           connectionId: sourceConnectionId,
-          bindingRevision: 4,
+          modelSelection: { provider: "opencode", model: modelFor("opencode", true) },
           runtimeMode: "full-access",
           dispatchMode: "queue",
           createdAt: timestamp,
         },
         attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
       });
-
-      assert.strictEqual(result.sequence, 42);
-      const sent = currentDispatchedCommand();
-      assert.strictEqual(sent?.type, "thread.turn.dispatch-queued");
-      if (sent?.type === "thread.turn.dispatch-queued") {
-        assert.strictEqual(sent.modelSelection?.model, "opencode-go/glm-5.1");
-        assert.strictEqual(sent.bindingRevision, 5);
-      }
-      assert.strictEqual(currentOperation()?.targetNativeStateGenerationId, null);
-      modelOnlySelection = false;
+      assert.strictEqual((yield* f.read()).model, modelFor("opencode", true));
+      assert.lengthOf(f.clones, 0);
     }),
   );
-
-  it.effect("admits a same-provider Connection switch with the exact current revision", () =>
-    Effect.gen(function* () {
-      hasBinding = true;
-      activeTurn = false;
-      unchangedSelection = false;
-      modelOnlySelection = false;
-      runtimeUpgradeSelection = false;
-      operation = undefined;
-
-      dispatchedCommand = undefined;
-      acceptedProviderSwitchContext = undefined;
-      const coordinator = yield* ProviderThreadSwitchCoordinator;
-      const result = yield* coordinator.dispatchTurnStart({
-        command: {
-          ...command,
-          commandId: CommandId.makeUnsafe("command-live-connection-switch"),
-          connectionId: targetConnectionId,
-          modelSelection: { provider: "opencode", model: "opencode-go/kimi-k2.5" },
-          bindingRevision: 4,
-        },
-        attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-      });
-
-      assert.strictEqual(result.sequence, 42);
-      const sent = currentDispatchedCommand();
-      assert.strictEqual(sent?.type, "thread.turn.start");
-      if (sent?.type === "thread.turn.start") {
-        assert.strictEqual(sent.connectionId, targetConnectionId);
-        assert.strictEqual(sent.bindingRevision, 5);
-      }
-      assert.isDefined(acceptedProviderSwitchContext);
-    }),
-  );
-
-  it.effect("admits a model switch through the live resolver", () =>
-    Effect.gen(function* () {
-      hasBinding = true;
-      activeTurn = false;
-      unchangedSelection = false;
-      modelOnlySelection = false;
-      runtimeUpgradeSelection = false;
-      operation = undefined;
-
-      dispatchedCommand = undefined;
-      acceptedProviderSwitchContext = undefined;
-      const coordinator = yield* ProviderThreadSwitchCoordinator;
-      const result = yield* coordinator.dispatchTurnStart({
-        command: {
-          ...command,
-          commandId: CommandId.makeUnsafe("command-live-model-switch"),
-          connectionId: sourceConnectionId,
-          modelSelection: { provider: "opencode", model: "opencode-go/glm-5.1" },
-          bindingRevision: 4,
-        },
-        attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-      });
-
-      assert.strictEqual(result.sequence, 42);
-      const sent = currentDispatchedCommand();
-      assert.strictEqual(sent?.type, "thread.turn.start");
-      if (sent?.type === "thread.turn.start") {
-        assert.strictEqual(sent.modelSelection?.model, "opencode-go/glm-5.1");
-        assert.strictEqual(sent.bindingRevision, 5);
-      }
-      assert.isDefined(acceptedProviderSwitchContext);
-    }),
+  it.effect(
+    "a Claude switch copies the exact conversation while leaving its source untouched",
+    () =>
+      Effect.gen(function* () {
+        const f = yield* fixture("claudeAgent");
+        const source = path.join(
+          providerNativeStateRoot(stateDir, f.nativeStateId!),
+          "claude",
+          "project",
+          `${f.providerSessionId}.jsonl`,
+        );
+        yield* Effect.promise(async () => {
+          await mkdir(path.dirname(source), { recursive: true });
+          await writeFile(source, '{"type":"user","message":{"content":"hello"}}\n');
+        });
+        const coordinator = yield* makeProviderThreadSwitchCoordinator.pipe(
+          Effect.provideService(ProviderService, { stopSession: () => Effect.void } as never),
+          Effect.provideService(OrchestrationEngineService, {
+            dispatch: (_command: OrchestrationCommand, context: OrchestrationDispatchContext) =>
+              Effect.gen(function* () {
+                yield* f.sql.withTransaction(
+                  commitThreadTurnSelection(context.acceptedTurnSelection!),
+                );
+                return { sequence: 42 };
+              }),
+          } as never),
+        );
+        yield* coordinator.dispatchTurnStart({
+          command: f.command,
+          attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+        });
+        const row = yield* f.read();
+        const target = path.join(
+          providerNativeStateRoot(stateDir, row.nativeStateId!),
+          "claude",
+          "project",
+          `${f.providerSessionId}.jsonl`,
+        );
+        assert.notStrictEqual(row.nativeStateId, f.nativeStateId);
+        assert.strictEqual(row.connectionId, targetConnectionId);
+        assert.strictEqual(
+          yield* Effect.promise(() => readFile(target, "utf8")),
+          yield* Effect.promise(() => readFile(source, "utf8")),
+        );
+      }),
   );
 });

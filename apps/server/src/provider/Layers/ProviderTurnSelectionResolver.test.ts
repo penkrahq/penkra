@@ -1,9 +1,7 @@
-import {
-  ProviderConnectionId,
-  ProviderInstallationId,
-  ProviderNativeStateGenerationId,
-  ThreadId,
-} from "@penkra/contracts";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as NodeSqliteClient from "../../persistence/NodeSqliteClient.ts";
+import { runMigrations } from "../../persistence/Migrations.ts";
+import { ProviderConnectionId, ProviderInstallationId, ThreadId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Cause, Effect, Layer, Option } from "effect";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -12,8 +10,6 @@ import { rememberClaudeThreadAccount } from "../claudeThreadNativeState.ts";
 
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
-import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
-import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ProviderTurnSelectionResolver } from "../Services/ProviderTurnSelectionResolver.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
 import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
@@ -57,15 +53,19 @@ it("allows Claude subscription continuation only with the same account identity"
 
 let connectionLifecycle: "active" | "terminated" = "active";
 let modelAvailable = true;
-let hasRuntimeBinding = true;
+let threadExists = true;
+let hasSession = true;
 let installationLifecycle: "active" | "retired" = "active";
 let threadHarness: "opencode" | "claudeAgent" = "opencode";
 let resolvedNativeStateIdentities: string[] = [];
 let currentClaudeIdentity = "alice@example.com";
 let claudeBoundConnectionId = claudeConnectionId;
-let claudeBoundRevision = 7;
 
+const database = Layer.effectDiscard(runMigrations()).pipe(
+  Layer.provideMerge(NodeSqliteClient.layerMemory()),
+);
 const dependencies = Layer.mergeAll(
+  database,
   ServerConfig.layerTest(process.cwd(), { prefix: "penkra-turn-selection-test-" }).pipe(
     Layer.provide(NodeServices.layer),
   ),
@@ -112,54 +112,6 @@ const dependencies = Layer.mergeAll(
       });
     },
   }),
-  Layer.succeed(ProjectionSnapshotQuery, {
-    getThreadShellById: () =>
-      Effect.succeed(
-        Option.some({
-          id: threadId,
-          spaceId: null,
-          connectionId: threadHarness === "claudeAgent" ? claudeConnectionId : connectionId,
-          modelSelection:
-            threadHarness === "claudeAgent"
-              ? { provider: "claudeAgent", model: "claude-sonnet-5" }
-              : { provider: "opencode", model: "opencode/big-pickle" },
-        }),
-      ),
-  } as never),
-  Layer.succeed(ThreadProviderBindingRepository, {
-    getHarnessState: () =>
-      Effect.succeed(
-        Option.some({
-          threadId,
-          harness: threadHarness,
-          nativeStateGenerationId: ProviderNativeStateGenerationId.makeUnsafe("selection-native"),
-          providerSessionId: "native-session",
-          nativeStateLocatorJson: '{"session":"native-session"}',
-          lastVerifiedResumeAt: timestamp,
-          revision: 4,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        }),
-      ),
-    getRuntimeBinding: () =>
-      Effect.succeed(
-        hasRuntimeBinding
-          ? Option.some({
-              threadId,
-              connectionId:
-                threadHarness === "claudeAgent" ? claudeBoundConnectionId : connectionId,
-              installationId:
-                threadHarness === "claudeAgent" ? claudeInstallationId : installationId,
-              internalProviderId: threadHarness === "claudeAgent" ? null : "opencode-go",
-              modelId:
-                threadHarness === "claudeAgent" ? "claude-sonnet-5" : "opencode-go/kimi-k2.5",
-              revision: threadHarness === "claudeAgent" ? claudeBoundRevision : 7,
-              createdAt: timestamp,
-              updatedAt: timestamp,
-            })
-          : Option.none(),
-      ),
-  } as never),
   Layer.succeed(ProviderInstallationRepository, {
     getActiveRecord: (harness: string) =>
       Effect.succeed(
@@ -340,13 +292,30 @@ const dependencies = Layer.mergeAll(
   } as never),
 );
 
+const fixtureResolver = () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const resolver = yield* ProviderTurnSelectionResolver;
+    return {
+      ...resolver,
+      resolveExisting: (input: Parameters<typeof resolver.resolveExisting>[0]) =>
+        Effect.gen(function* () {
+          yield* sql`INSERT OR IGNORE INTO projection_folders (folder_id,space_id,title,workspace_root,default_model_selection_json,scripts_json,created_at,updated_at) VALUES ('selection-folder','penkra-personal','Selection',NULL,NULL,'[]',${timestamp},${timestamp})`;
+          yield* sql`DELETE FROM threads WHERE id=${input.threadId}`;
+          if (threadExists)
+            yield* sql`INSERT INTO threads (id,space_id,folder_id,title,provider,connection_id,model,state,runtime_mode,native_state_id,provider_session_id,created_by,created_at,updated_at) VALUES (${input.threadId},'penkra-personal','selection-folder','Selection',${threadHarness},${threadHarness === "claudeAgent" ? claudeBoundConnectionId : connectionId},${threadHarness === "claudeAgent" ? "claude-sonnet-5" : "opencode-go/kimi-k2.5"},'idle','full-access','selection-native',${hasSession ? "native-session" : null},'user',${timestamp},${timestamp})`;
+          return yield* resolver.resolveExisting(input);
+        }),
+    };
+  });
+
 const resolverLayer = ProviderTurnSelectionResolverLive.pipe(Layer.provide(dependencies));
 const layer = it.layer(Layer.mergeAll(dependencies, resolverLayer));
 
 layer("ProviderTurnSelectionResolver", (it) => {
   it.effect("uses the sole compatible active Connection when no default was selected", () =>
     Effect.gen(function* () {
-      const resolver = yield* ProviderTurnSelectionResolver;
+      const resolver = yield* fixtureResolver();
       const selected = yield* resolver.resolveNewThreadConnection({
         modelSelection: { provider: "codex", model: "gpt-5.5" },
       });
@@ -356,7 +325,7 @@ layer("ProviderTurnSelectionResolver", (it) => {
 
   it.effect("uses the host default and never replaces an incompatible explicit account", () =>
     Effect.gen(function* () {
-      const resolver = yield* ProviderTurnSelectionResolver;
+      const resolver = yield* fixtureResolver();
       const settings = yield* ServerSettingsService;
       yield* settings.updateSettings({
         providers: { codex: { defaultConnectionId: codexConnectionId } },
@@ -387,7 +356,7 @@ layer("ProviderTurnSelectionResolver", (it) => {
 
   it.effect("uses null only for an explicitly adapter-authorized anonymous route", () =>
     Effect.gen(function* () {
-      const resolver = yield* ProviderTurnSelectionResolver;
+      const resolver = yield* fixtureResolver();
       const anonymous = yield* resolver.resolveNewThreadConnection({
         modelSelection: { provider: "opencode", model: "opencode/big-pickle" },
       });
@@ -409,58 +378,37 @@ layer("ProviderTurnSelectionResolver", (it) => {
       Effect.gen(function* () {
         threadHarness = "claudeAgent";
         try {
-          const resolver = yield* ProviderTurnSelectionResolver;
+          const resolver = yield* fixtureResolver();
           for (const connection of [claudeConnectionId, otherClaudeConnectionId]) {
-            const result = yield* resolver.resolveInitial({
+            hasSession = false;
+            const result = yield* resolver.resolveExisting({
               threadId,
-              nativeStateGenerationId: ProviderNativeStateGenerationId.makeUnsafe(
-                `initial-${connection}`,
-              ),
               modelSelection: { provider: "claudeAgent", model: "claude-sonnet-5" },
               connectionId: connection,
-              createdAt: timestamp,
             });
-            assert.strictEqual(result.selection.connectionId, connection);
-            assert.strictEqual(result.selection.requiresNativeStateMaterialization, false);
-            assert.strictEqual(result.initialization.providerSessionId, null);
-            assert.strictEqual(result.initialization.nativeStateLocatorJson, "null");
+            assert.strictEqual(result.connectionId, connection);
+            assert.strictEqual(result.requiresNativeStateMaterialization, false);
+            assert.strictEqual(result.providerSessionId, null);
           }
         } finally {
           threadHarness = "opencode";
+          hasSession = true;
         }
       }),
   );
 
-  it.effect("resolves explicit and default anonymous first bindings", () =>
+  it.effect("resolves explicit and omitted anonymous first selections", () =>
     Effect.gen(function* () {
-      resolvedNativeStateIdentities = [];
-      const resolver = yield* ProviderTurnSelectionResolver;
-      const generationId = ProviderNativeStateGenerationId.makeUnsafe("initial-generation");
-      const initial = yield* resolver.resolveInitial({
-        threadId,
-        nativeStateGenerationId: generationId,
+      const resolver = yield* fixtureResolver();
+      const explicit = yield* resolver.resolveNewThreadConnection({
         modelSelection: { provider: "opencode", model: "opencode/big-pickle" },
         connectionId: null,
-        createdAt: timestamp,
       });
-      assert.strictEqual(initial.selection.connectionId, null);
-      assert.strictEqual(initial.selection.installationId, installationId);
-      assert.strictEqual(initial.selection.internalProviderId, "opencode");
-      assert.strictEqual(initial.initialization.nativeStateLocatorJson, "null");
-      assert.strictEqual(initial.initialization.generation.id, generationId);
-
-      const omitted = yield* resolver.resolveInitial({
-        threadId,
-        nativeStateGenerationId: generationId,
+      const omitted = yield* resolver.resolveNewThreadConnection({
         modelSelection: { provider: "opencode", model: "opencode/big-pickle" },
-        createdAt: timestamp,
       });
-      assert.strictEqual(omitted.selection.connectionId, null);
-      assert.deepEqual(resolvedNativeStateIdentities, [
-        "discovery:opencode:anonymous",
-        "discovery:opencode:anonymous",
-      ]);
-      assert.notStrictEqual(resolvedNativeStateIdentities[0], generationId);
+      assert.strictEqual(explicit, null);
+      assert.strictEqual(omitted, null);
     }),
   );
 
@@ -468,7 +416,7 @@ layer("ProviderTurnSelectionResolver", (it) => {
     Effect.gen(function* () {
       connectionLifecycle = "active";
       resolvedNativeStateIdentities = [];
-      const resolver = yield* ProviderTurnSelectionResolver;
+      const resolver = yield* fixtureResolver();
 
       const current = yield* resolver.resolveExisting({ threadId });
       assert.strictEqual(current.changed, false);
@@ -538,9 +486,9 @@ layer("ProviderTurnSelectionResolver", (it) => {
       if (unavailableExactConnection._tag === "Failure") {
         assert.strictEqual(failedWithCode(unavailableExactConnection), "connection_unavailable");
       }
-      hasRuntimeBinding = false;
+      threadExists = false;
       const missingBinding = yield* Effect.exit(resolver.resolveExisting({ threadId }));
-      hasRuntimeBinding = true;
+      threadExists = true;
       assert.strictEqual(missingBinding._tag, "Failure");
       if (missingBinding._tag === "Failure") {
         assert.strictEqual(failedWithCode(missingBinding), "thread_binding_missing");
@@ -552,8 +500,8 @@ layer("ProviderTurnSelectionResolver", (it) => {
     Effect.gen(function* () {
       installationLifecycle = "retired";
       connectionLifecycle = "active";
-      hasRuntimeBinding = true;
-      const resolver = yield* ProviderTurnSelectionResolver;
+      threadExists = true;
+      const resolver = yield* fixtureResolver();
       const selected = yield* resolver.resolveExisting({ threadId });
       assert.strictEqual(selected.changed, false);
       assert.strictEqual(selected.requiresNativeStateMaterialization, false);
@@ -573,7 +521,7 @@ layer("ProviderTurnSelectionResolver", (it) => {
     Effect.gen(function* () {
       connectionLifecycle = "active";
       modelAvailable = false;
-      const resolver = yield* ProviderTurnSelectionResolver;
+      const resolver = yield* fixtureResolver();
       const unavailable = yield* Effect.exit(
         resolver.resolveExisting({
           threadId,
@@ -593,7 +541,7 @@ layer("ProviderTurnSelectionResolver", (it) => {
       threadHarness = "claudeAgent";
       connectionLifecycle = "active";
       modelAvailable = true;
-      const resolver = yield* ProviderTurnSelectionResolver;
+      const resolver = yield* fixtureResolver();
       const selection = yield* resolver.resolveExisting({
         threadId,
         modelSelection: { provider: "claudeAgent", model: "claude-opus-4-7" },
@@ -609,7 +557,7 @@ layer("ProviderTurnSelectionResolver", (it) => {
     () =>
       Effect.gen(function* () {
         const config = yield* ServerConfig;
-        const resolver = yield* ProviderTurnSelectionResolver;
+        const resolver = yield* fixtureResolver();
         const accountThreadId = ThreadId.makeUnsafe("selection-claude-account-switch");
         threadHarness = "claudeAgent";
         yield* Effect.promise(() =>
@@ -629,10 +577,7 @@ layer("ProviderTurnSelectionResolver", (it) => {
           });
           assert.strictEqual(selected.changed, true);
           assert.strictEqual(selected.connectionId, otherClaudeConnectionId);
-          assert.strictEqual(
-            selected.claudeAccountTransition?.target.providerIdentityId,
-            "bob@example.com",
-          );
+          assert.strictEqual(selected.requiresNativeStateMaterialization, true);
 
           currentClaudeIdentity = "bob@example.com";
           const ordinaryResume = yield* Effect.exit(

@@ -196,11 +196,9 @@ const providerSessionDirectoryTestLayer = Layer.succeed(ProviderSessionDirectory
 });
 
 const validationManager = new FakeCodexManager();
-const verificationManager = new FakeCodexManager();
 const validationLayer = it.layer(
   makeCodexAdapterLive({
     manager: validationManager,
-    makeVerificationManager: () => verificationManager,
   }).pipe(
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
     Layer.provideMerge(providerSessionDirectoryTestLayer),
@@ -304,87 +302,6 @@ validationLayer("CodexAdapterLive validation", (it) => {
           },
         },
       ]);
-    }),
-  );
-
-  it.effect("silently verifies an exact native Codex thread with an isolated manager", () =>
-    Effect.gen(function* () {
-      verificationManager.startSessionImpl.mockClear();
-      verificationManager.stopAllImpl.mockClear();
-      verificationManager.startSessionImpl.mockImplementationOnce(async (input) => {
-        const now = new Date().toISOString();
-        return {
-          provider: "codex",
-          status: "ready",
-          runtimeMode: input.runtimeMode,
-          threadId: input.threadId,
-          cwd: input.cwd,
-          resumeCursor: input.resumeCursor,
-          createdAt: now,
-          updatedAt: now,
-        };
-      });
-      const adapter = yield* CodexAdapter;
-      const sourceResumeCursor = { threadId: "codex-thread-exact" };
-      assert.ok(adapter.verifyNativeResume);
-      const fixtureRoot = yield* Effect.promise(() =>
-        mkdtemp(path.join(tmpdir(), "penkra-codex-adapter-resume-")),
-      );
-      const profileRoot = path.join(fixtureRoot, "profile");
-      const nativeStateRoot = path.join(fixtureRoot, "native");
-      const rollout = path.join(
-        nativeStateRoot,
-        "codex-rollouts",
-        "sessions",
-        "2026",
-        "08",
-        "08",
-        "rollout-2026-08-08T12-00-00-codex-thread-exact.jsonl",
-      );
-      yield* Effect.promise(async () => {
-        await mkdir(path.dirname(rollout), { recursive: true });
-        await writeFile(rollout, "{}\n");
-      });
-      const childEnvironment = () => ({
-        PATH: "/managed/bin",
-        CODEX_HOME: path.join(profileRoot, "codex-home"),
-      });
-      const result = yield* adapter.verifyNativeResume({
-        sourceResumeCursor,
-        managedLaunch: {
-          binaryPath: "/managed/codex",
-          isolationKey: "connection:work:generation:2",
-          profileRoot,
-          nativeStateRoot,
-          childEnvironment,
-        },
-        cwd: "/repo/exact",
-        modelSelection: { provider: "codex", model: "gpt-5.3-codex" },
-        runtimeMode: "full-access",
-      });
-
-      assert.deepStrictEqual(result, {
-        providerSessionId: "codex-thread-exact",
-        resumeCursor: sourceResumeCursor,
-      });
-      assert.deepStrictEqual(verificationManager.startSessionImpl.mock.calls[0]?.[0], {
-        threadId: asThreadId("codex-native-resume-verification"),
-        provider: "codex",
-        cwd: "/repo/exact",
-        model: "gpt-5.3-codex",
-        resumeCursor: sourceResumeCursor,
-        managedLaunch: {
-          binaryPath: "/managed/codex",
-          isolationKey: "connection:work:generation:2",
-          profileRoot,
-          nativeStateRoot,
-          childEnvironment,
-        },
-        runtimeMode: "full-access",
-      });
-      assert.equal(verificationManager.stopAllImpl.mock.calls.length, 1);
-      assert.equal(validationManager.startSessionImpl.mock.calls.length, 0);
-      yield* Effect.promise(() => rm(fixtureRoot, { recursive: true, force: true }));
     }),
   );
 

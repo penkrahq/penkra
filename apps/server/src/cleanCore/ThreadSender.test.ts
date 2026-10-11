@@ -92,7 +92,6 @@ it.effect("delivers a queued message on model B after the composer changes from 
             return { sequence: 1 };
           }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.orDie),
         dispatchQueuedTurn: () => Effect.die("No legacy queue"),
-        recoverOpen: Effect.void,
       }),
       Effect.provideService(ThreadProviderBindingRepository, {
         getRuntimeBinding: () => Effect.succeed(Option.none()),
@@ -198,7 +197,7 @@ for (const workspaceRoot of [null, "/repo"]) {
               assert.equal(cwd, expectedCwd);
               if (cwd === undefined) throw new Error("The turn must have a directory.");
               dispatchedCwds.push(cwd);
-              assert.equal(command.bindingRevision, 12);
+              assert.equal(command.connectionId, null);
               assert.isTrue(command.commandId.length > 0);
               publisher.publishProvider({
                 type: "turn.started",
@@ -215,7 +214,6 @@ for (const workspaceRoot of [null, "/repo"]) {
               return { sequence: 1 };
             }),
           dispatchQueuedTurn: () => Effect.die("no old queue"),
-          recoverOpen: Effect.void,
         };
         const sender = yield* makeThreadSender.pipe(
           Effect.provideService(ServerConfig, {
@@ -608,7 +606,6 @@ it.effect("claims queued attachments atomically and delivers them with their ori
           return { sequence: 1 };
         }),
       dispatchQueuedTurn: () => Effect.die("no legacy queue"),
-      recoverOpen: Effect.void,
     };
     const sender = yield* makeThreadSender.pipe(
       Effect.provideService(ServerConfig, {
@@ -979,7 +976,6 @@ for (const provider of ["codex", "claudeAgent"] as const) {
                   return { sequence: 1 };
                 }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.orDie),
               dispatchQueuedTurn: () => Effect.die("No legacy queue"),
-              recoverOpen: Effect.void,
             }),
           );
           const result = yield* sender.send({
