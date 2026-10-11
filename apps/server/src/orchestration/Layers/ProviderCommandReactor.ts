@@ -49,10 +49,7 @@ import {
   buildPromptThreadTitleFallback,
   isGenericChatThreadTitle,
 } from "@penkra/shared/chatThreads";
-import {
-  collectTailTurnIds,
-  resolveTailUserMessageEditTarget,
-} from "@penkra/shared/conversationEdit";
+import { collectTailTurnIds } from "@penkra/shared/conversationRollback";
 import { claudeSelectionRequiresRestart } from "@penkra/shared/model";
 import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
 import {
@@ -541,7 +538,6 @@ const make = Effect.gen(function* () {
     const project = yield* resolveThreadWorkspaceProject(thread);
     return project?.workspaceRoot ?? ensureDurableThreadWorkspace(thread.id, serverConfig.stateDir);
   });
-  const editResendTurnStartKeys = new Set<string>();
   const quarantinedThreads = new Set<string>();
   const drainingQueuedTurns = new Set<string>();
   let queuePromotionsQuiesced = false;
@@ -860,29 +856,10 @@ const make = Effect.gen(function* () {
     return false;
   });
 
-  const editResendTurnStartKey = (threadId: ThreadId, messageId: string) =>
-    `${threadId}:${messageId}`;
-
-  const clearEditResendTurnStartKeysForThread = (threadId: ThreadId) =>
-    Effect.sync(() => {
-      const prefix = `${threadId}:`;
-      for (const key of editResendTurnStartKeys) {
-        if (key.startsWith(prefix)) {
-          editResendTurnStartKeys.delete(key);
-        }
-      }
-    });
-
   const clearThreadRuntimeCaches = (threadId: ThreadId) =>
     Effect.sync(() => {
       threadProviderOptions.delete(threadId);
       threadSessionModelSelections.delete(threadId);
-      const editResendPrefix = `${threadId}:`;
-      for (const key of editResendTurnStartKeys) {
-        if (key.startsWith(editResendPrefix)) {
-          editResendTurnStartKeys.delete(key);
-        }
-      }
       quarantinedThreads.delete(threadId);
       // NOTE: `drainingQueuedTurns` is intentionally NOT cleared here. It is a
       // turn-scoped in-flight guard that each drain self-clears when it settles;
@@ -890,7 +867,7 @@ const make = Effect.gen(function* () {
       // thread while the first is still running.
     });
 
-  const rollbackProviderConversationForEdit = Effect.fnUntraced(function* (input: {
+  const rollbackProviderConversation = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
     readonly numTurns: number;
     readonly beforeTurnId: TurnId;
@@ -1798,8 +1775,8 @@ const make = Effect.gen(function* () {
 
       // Surface the upcoming work immediately: provider session init can take
       // seconds (e.g. Cursor), and without an early status the thread reads as
-      // idle until the runtime's first event. Mirrors the message-edit-resend
-      // path. Never touches a live session — a steer turn on a running Codex
+      // idle until the runtime's first event. Never touches a live session:
+      // a steer turn on a running Codex
       // session must keep its running state and activeTurnId. Keeps the existing
       // session's runtimeMode: ensureSessionForThread detects mode changes by
       // comparing against it, and adopting the requested mode here would mask
@@ -1855,7 +1832,6 @@ const make = Effect.gen(function* () {
         event.payload.dispatchMode === "steer" && !isNativeSteer
           ? "queue"
           : event.payload.dispatchMode;
-      const editResendKey = editResendTurnStartKey(event.payload.threadId, event.payload.messageId);
       const startedTurn = yield* dispatchTurnForThread({
         threadId: event.payload.threadId,
         messageId: message.id,
@@ -1963,7 +1939,6 @@ const make = Effect.gen(function* () {
                 }
               }),
         ),
-        Effect.ensuring(Effect.sync(() => editResendTurnStartKeys.delete(editResendKey))),
       );
       if (startedTurn !== undefined)
         threadPublisher.publishDispatch({
@@ -2083,9 +2058,6 @@ const make = Effect.gen(function* () {
     event: Extract<ProviderIntentEvent, { type: "thread.turn-queued" }>,
   ) {
     if (yield* rejectAuthBlockedTurn(event)) return;
-    const isEditResend = editResendTurnStartKeys.has(
-      editResendTurnStartKey(event.payload.threadId, event.payload.messageId),
-    );
     yield* enqueueQueuedTurnStart(event);
     // Recovery drain: if the provider turn settled between the decider's
     // (stale) running check and this enqueue, the terminal
@@ -2093,9 +2065,7 @@ const make = Effect.gen(function* () {
     // never drain this queue — the message would be stuck forever. Re-check
     // live provider state and promote immediately.
     if (!(yield* hasLiveProviderTurn(event.payload.threadId))) {
-      yield* drainQueuedTurnsForThread(event.payload.threadId, {
-        allowStartingSession: isEditResend,
-      });
+      yield* drainQueuedTurnsForThread(event.payload.threadId);
     }
   });
 
@@ -2107,7 +2077,7 @@ const make = Effect.gen(function* () {
   const claimQueuedTurnAction = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
     readonly messageId: MessageId;
-    readonly actionKind: "cancel" | "edit" | "steer";
+    readonly actionKind: "cancel" | "steer";
     readonly actionEventId: EventId;
     readonly createdAt: string;
   }) {
@@ -3033,7 +3003,7 @@ const make = Effect.gen(function* () {
         });
       }
 
-      yield* rollbackProviderConversationForEdit({
+      yield* rollbackProviderConversation({
         threadId: event.payload.threadId,
         numTurns: event.payload.numTurns,
         beforeTurnId: removedTurnIds[0]!,
@@ -3056,250 +3026,6 @@ const make = Effect.gen(function* () {
     withProviderSessionLease(
       event.payload.threadId,
       processConversationRollbackRequestedWithoutLease(event),
-    );
-
-  const processMessageEditResendPayload = Effect.fnUntraced(function* (
-    payload: Extract<
-      ProviderIntentEvent,
-      { type: "thread.message-edit-resend-requested" }
-    >["payload"],
-    options?: {
-      readonly skipProviderRollback?: boolean;
-      readonly preserveQueuedTurns?: boolean;
-      readonly preserveThreadSession?: boolean;
-      readonly queuedActionAlreadyClaimed?: boolean;
-      readonly actionEventId?: EventId;
-      readonly activeTurnId?: TurnId | null;
-    },
-  ) {
-    if (options?.preserveQueuedTurns !== true) {
-      yield* queuedTurnPromotions.cancelThread({
-        threadId: payload.threadId,
-        updatedAt: payload.createdAt,
-      });
-      yield* clearEditResendTurnStartKeysForThread(payload.threadId);
-    } else if (options?.queuedActionAlreadyClaimed !== true) {
-      yield* queuedTurnPromotions.cancelMessage({
-        threadId: payload.threadId,
-        messageId: payload.messageId,
-        updatedAt: new Date().toISOString(),
-      });
-    }
-    const originalThread = yield* resolveThread(payload.threadId);
-    const originalMessage = originalThread?.messages.find(
-      (message) => message.id === payload.messageId,
-    );
-    if (!originalThread || !originalMessage || originalMessage.role !== "user") {
-      return yield* Effect.fail(
-        new Error(`Cannot edit missing user message '${payload.messageId}'.`),
-      );
-    }
-    const failedBeforeProviderDispatch =
-      originalMessage.delivery?.state === "failed" &&
-      originalMessage.delivery.failurePhase === "before-provider-dispatch";
-    const editTarget =
-      payload.removedTurnIds !== undefined && payload.rollbackTurnCount !== undefined
-        ? {
-            editable: true as const,
-            messageId: payload.messageId,
-            messageIndex: originalThread.messages.findIndex(
-              (message) => message.id === payload.messageId,
-            ),
-            mode: payload.rollbackTurnCount > 0 ? ("rollback" as const) : ("active" as const),
-            rollbackTurnCount: payload.rollbackTurnCount,
-            removedTurnIds: payload.removedTurnIds,
-          }
-        : resolveTailUserMessageEditTarget({
-            messages: originalThread.messages,
-            messageId: payload.messageId,
-            activeTurnId:
-              options?.activeTurnId ??
-              (originalThread.session?.status === "running"
-                ? (originalThread.session.activeTurnId ?? null)
-                : null),
-          });
-    if (!editTarget.editable) {
-      return yield* Effect.fail(
-        new Error(
-          `Cannot edit non-tail user message '${payload.messageId}': ${editTarget.reason}.`,
-        ),
-      );
-    }
-    if (
-      options?.skipProviderRollback !== true &&
-      !failedBeforeProviderDispatch &&
-      editTarget.rollbackTurnCount > 0
-    ) {
-      yield* rollbackProviderConversationForEdit({
-        threadId: payload.threadId,
-        numTurns: editTarget.rollbackTurnCount,
-        beforeTurnId: TurnId.makeUnsafe(editTarget.removedTurnIds[0]!),
-      });
-    }
-    if (failedBeforeProviderDispatch && editTarget.rollbackTurnCount > 0) {
-      yield* Effect.logInfo("message edit skipped provider rollback for undispatched attempt", {
-        threadId: payload.threadId,
-        messageId: payload.messageId,
-        deliverySequence: originalMessage.delivery?.sequence,
-      });
-    }
-    yield* orchestrationEngine.dispatch({
-      type: "thread.conversation.rollback.complete",
-      commandId:
-        options?.actionEventId === undefined
-          ? serverCommandId("message-edit-rollback-complete")
-          : replaySafeServerCommandId("message-edit-rollback-complete", options.actionEventId),
-      threadId: payload.threadId,
-      messageId: payload.messageId,
-      numTurns: editTarget.rollbackTurnCount,
-      removedTurnIds: editTarget.removedTurnIds.map((turnId) => TurnId.makeUnsafe(turnId)),
-      skipAttachmentPrune: true,
-      createdAt: payload.createdAt,
-    });
-
-    const thread = yield* resolveThread(payload.threadId);
-    if (thread && options?.preserveThreadSession !== true) {
-      yield* setThreadSession({
-        threadId: payload.threadId,
-        session: {
-          threadId: payload.threadId,
-          status: "starting",
-          providerName: thread.session?.providerName ?? thread.modelSelection.provider,
-          activeTurnId: null,
-          lastError: null,
-          updatedAt: payload.createdAt,
-        },
-        createdAt: payload.createdAt,
-      });
-    }
-
-    const readModel = yield* orchestrationEngine.getCommandReadModel();
-    const cwd =
-      readModel.folders.find((project) => project.id === originalThread.folderId)?.workspaceRoot ??
-      ensureDurableThreadWorkspace(originalThread.id, serverConfig.stateDir);
-    editResendTurnStartKeys.add(editResendTurnStartKey(payload.threadId, payload.messageId));
-    yield* providerThreadSwitchCoordinator.dispatchTurnStart({
-      command: {
-        type: "thread.turn.start",
-        commandId:
-          options?.actionEventId === undefined
-            ? serverCommandId("message-edit-resend-turn-start")
-            : replaySafeServerCommandId("message-edit-resend-turn-start", options.actionEventId),
-        threadId: payload.threadId,
-        message: {
-          messageId: payload.messageId,
-          role: "user",
-          text: payload.text,
-          attachments: originalMessage.attachments ?? [],
-          ...(originalMessage.skills !== undefined ? { skills: originalMessage.skills } : {}),
-          ...(originalMessage.mentions !== undefined ? { mentions: originalMessage.mentions } : {}),
-        },
-        ...(payload.modelSelection !== undefined ? { modelSelection: payload.modelSelection } : {}),
-        connectionId: payload.connectionId,
-        bindingRevision: payload.bindingRevision,
-        ...(payload.providerOptions !== undefined
-          ? { providerOptions: payload.providerOptions }
-          : {}),
-        ...(payload.assistantDeliveryMode !== undefined
-          ? { assistantDeliveryMode: payload.assistantDeliveryMode }
-          : {}),
-        dispatchMode: "queue",
-        runtimeMode: payload.runtimeMode,
-        createdAt: payload.createdAt,
-      },
-      attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-      ...(cwd === null ? {} : { cwd }),
-    });
-  });
-
-  const stopActiveProviderRuntimeForEdit = Effect.fnUntraced(function* (input: {
-    readonly threadId: ThreadId;
-  }) {
-    const thread = yield* resolveThread(input.threadId);
-    const provider = thread
-      ? Schema.is(ProviderKind)(thread.session?.providerName)
-        ? thread.session?.providerName
-        : thread.modelSelection.provider
-      : undefined;
-    const rebuildsContext =
-      provider !== undefined &&
-      (yield* providerService.getCapabilities(provider)).conversationRollback === "unsupported";
-    if (rebuildsContext) {
-      return yield* new ProviderAdapterValidationError({
-        provider: provider as ProviderKind,
-        operation: "thread.message.edit-and-resend",
-        issue: "This provider cannot edit completed messages through exact native session state.",
-      });
-    }
-    if (providerService.stopRuntimeSession) {
-      yield* providerService.stopRuntimeSession({ threadId: input.threadId });
-      return;
-    }
-    yield* providerService.stopSession({ threadId: input.threadId });
-  });
-
-  const processMessageEditResendRequestedWithoutLease = Effect.fnUntraced(function* (
-    event: Extract<ProviderIntentEvent, { type: "thread.message-edit-resend-requested" }>,
-  ) {
-    const thread = yield* resolveThread(event.payload.threadId);
-    const providerThread = yield* resolveProviderSessionThread(event.payload.threadId);
-    const activeTurnId =
-      providerThread?.session?.status === "running"
-        ? (providerThread.session.activeTurnId ?? null)
-        : null;
-    const queuedEditAction = yield* claimQueuedTurnAction({
-      ...event.payload,
-      actionKind: "edit",
-      actionEventId: event.eventId,
-    });
-    const isQueuedMessageEdit = Option.isSome(queuedEditAction);
-    if (thread && !isQueuedMessageEdit) {
-      yield* setThreadSession({
-        threadId: event.payload.threadId,
-        session: {
-          threadId: event.payload.threadId,
-          status: "starting",
-          providerName: thread.session?.providerName ?? thread.modelSelection.provider,
-          activeTurnId: null,
-          lastError: null,
-          updatedAt: event.payload.createdAt,
-        },
-        createdAt: event.payload.createdAt,
-      });
-    }
-    if (
-      thread &&
-      providerThread?.session?.status === "running" &&
-      providerThread.session.activeTurnId !== null &&
-      !isQueuedMessageEdit
-    ) {
-      // Edits should replay from the last stable cursor, not wait for each
-      // provider's interrupt lifecycle to settle.
-      yield* stopActiveProviderRuntimeForEdit({ threadId: providerThread.id });
-      yield* processMessageEditResendPayload(event.payload, {
-        skipProviderRollback: true,
-        actionEventId: event.eventId,
-        activeTurnId,
-      });
-      return;
-    }
-
-    yield* processMessageEditResendPayload(event.payload, {
-      ...(isQueuedMessageEdit ? { skipProviderRollback: true } : {}),
-      preserveQueuedTurns: isQueuedMessageEdit,
-      preserveThreadSession: isQueuedMessageEdit,
-      queuedActionAlreadyClaimed: isQueuedMessageEdit,
-      actionEventId: event.eventId,
-      activeTurnId,
-    });
-  });
-
-  const processMessageEditResendRequested = (
-    event: Extract<ProviderIntentEvent, { type: "thread.message-edit-resend-requested" }>,
-  ) =>
-    withProviderSessionLease(
-      event.payload.threadId,
-      processMessageEditResendRequestedWithoutLease(event),
     );
 
   const processThreadSessionStop = Effect.fnUntraced(function* (input: {
@@ -3343,7 +3069,6 @@ const make = Effect.gen(function* () {
           createdAt: input.createdAt,
         });
       }
-      yield* clearEditResendTurnStartKeysForThread(queuedThreadId);
       drainingQueuedTurns.delete(queuedThreadId);
     }
     pendingQueuedDispatchBySessionThread.delete(stoppedSessionThreadId);
@@ -3456,17 +3181,6 @@ const make = Effect.gen(function* () {
           return;
         case "thread.conversation-rollback-requested":
           yield* processConversationRollbackRequested(event);
-          return;
-        case "thread.message-edit-resend-requested":
-          yield* processMessageEditResendRequested(event).pipe(
-            Effect.catchCause((cause) =>
-              setThreadSessionError({
-                threadId: event.payload.threadId,
-                detail: Cause.pretty(cause),
-                createdAt: event.payload.createdAt,
-              }).pipe(Effect.andThen(Effect.failCause(cause))),
-            ),
-          );
           return;
         case "thread.session-stop-requested":
           yield* processSessionStopRequested(event);
@@ -3722,10 +3436,7 @@ const make = Effect.gen(function* () {
       // A newly accepted turn is an exact, durable signal that the user still
       // wants this thread to continue. Recover before processing it; no button,
       // timeout guess, or error-text classification participates in the decision.
-      if (
-        event.type === "thread.turn-start-requested" ||
-        event.type === "thread.message-edit-resend-requested"
-      ) {
+      if (event.type === "thread.turn-start-requested") {
         const recoveredAfter = yield* fenceAndAbandonThreadBlockers(event.payload.threadId);
         if (recoveredAfter !== null) {
           return false;
@@ -3739,10 +3450,7 @@ const make = Effect.gen(function* () {
       // A skipped turn start is a user-visible dead end: the projector has
       // already shown the thread as "starting", so silence here reads as an
       // infinite "Thinking". Surface the block and settle the session.
-      if (
-        event.type === "thread.turn-start-requested" ||
-        event.type === "thread.message-edit-resend-requested"
-      ) {
+      if (event.type === "thread.turn-start-requested") {
         yield* Effect.gen(function* () {
           const blocker = yield* deliveryRepository.firstBlockingDeliveryForThread({
             consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,

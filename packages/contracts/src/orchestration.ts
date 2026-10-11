@@ -934,21 +934,6 @@ const ThreadConversationRollbackCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
-const ThreadMessageEditAndResendCommand = Schema.Struct({
-  type: Schema.Literal("thread.message.edit-and-resend"),
-  commandId: CommandId,
-  threadId: ThreadId,
-  messageId: MessageId,
-  text: TrimmedNonEmptyString.check(Schema.isMaxLength(PROVIDER_SEND_TURN_MAX_INPUT_CHARS)),
-  modelSelection: Schema.optional(ModelSelection),
-  connectionId: Schema.NullOr(ProviderConnectionId),
-  bindingRevision: NonNegativeInt,
-  providerOptions: Schema.optional(ProviderStartOptions),
-  assistantDeliveryMode: Schema.optional(AssistantDeliveryMode),
-  runtimeMode: RuntimeMode,
-  createdAt: IsoDateTime,
-});
-
 const ThreadSessionStopCommand = Schema.Struct({
   type: Schema.Literal("thread.session.stop"),
   commandId: CommandId,
@@ -990,7 +975,6 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadTaskStopCommand,
   ThreadTaskBackgroundCommand,
   ThreadUserInputRespondCommand,
-  ThreadMessageEditAndResendCommand,
   ThreadActivityAppendCommand,
   ThreadSessionStopCommand,
 ]);
@@ -1014,7 +998,6 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadTaskStopCommand,
   ThreadTaskBackgroundCommand,
   ThreadUserInputRespondCommand,
-  ThreadMessageEditAndResendCommand,
   ThreadActivityAppendCommand,
   ThreadSessionStopCommand,
 ]);
@@ -1151,7 +1134,6 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.user-input-response-requested",
   "thread.conversation-rollback-requested",
   "thread.conversation-rolled-back",
-  "thread.message-edit-resend-requested",
   "thread.session-stop-requested",
   "thread.session-set",
   "thread.provider-lifecycle-write-skipped",
@@ -1348,21 +1330,6 @@ export const ThreadConversationRolledBackPayload = Schema.Struct({
   skipAttachmentPrune: Schema.optional(Schema.Boolean),
 });
 
-export const ThreadMessageEditResendRequestedPayload = Schema.Struct({
-  threadId: ThreadId,
-  messageId: MessageId,
-  text: TrimmedNonEmptyString.check(Schema.isMaxLength(PROVIDER_SEND_TURN_MAX_INPUT_CHARS)),
-  rollbackTurnCount: Schema.optional(NonNegativeInt),
-  removedTurnIds: Schema.optional(Schema.Array(TurnId)),
-  modelSelection: Schema.optional(ModelSelection),
-  connectionId: Schema.NullOr(ProviderConnectionId),
-  bindingRevision: NonNegativeInt,
-  providerOptions: Schema.optional(ProviderStartOptions),
-  assistantDeliveryMode: Schema.optional(AssistantDeliveryMode),
-  runtimeMode: RuntimeMode,
-  createdAt: IsoDateTime,
-});
-
 export const ThreadSessionStopRequestedPayload = Schema.Struct({
   threadId: ThreadId,
   createdAt: IsoDateTime,
@@ -1556,11 +1523,6 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.conversation-rolled-back"),
     payload: ThreadConversationRolledBackPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("thread.message-edit-resend-requested"),
-    payload: ThreadMessageEditResendRequestedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

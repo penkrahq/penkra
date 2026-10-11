@@ -16,7 +16,6 @@ import {
   ThreadTurnStartCancelledPayload as ContractsThreadTurnStartCancelledPayloadSchema,
   ThreadConversationRolledBackPayload as ContractsThreadConversationRolledBackPayloadSchema,
   ThreadConversationRollbackRequestedPayload as ContractsThreadConversationRollbackRequestedPayloadSchema,
-  ThreadMessageEditResendRequestedPayload as ContractsThreadMessageEditResendRequestedPayloadSchema,
   ThreadSessionStopRequestedPayload as ContractsThreadSessionStopRequestedPayloadSchema,
 } from "@penkra/contracts";
 
@@ -43,6 +42,4 @@ export const ThreadConversationRollbackRequestedPayload =
   ContractsThreadConversationRollbackRequestedPayloadSchema;
 export const ThreadConversationRolledBackPayload =
   ContractsThreadConversationRolledBackPayloadSchema;
-export const ThreadMessageEditResendRequestedPayload =
-  ContractsThreadMessageEditResendRequestedPayloadSchema;
 export const ThreadSessionStopRequestedPayload = ContractsThreadSessionStopRequestedPayloadSchema;

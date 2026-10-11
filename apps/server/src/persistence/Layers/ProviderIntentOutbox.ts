@@ -298,7 +298,7 @@ export const ProviderIntentOutboxLive = Layer.effect(
           SELECT 1 FROM provider_intent_outbox
           WHERE lane_key = ${input.laneKey}
             AND event_sequence > ${input.afterSequence}
-            AND event_type IN ('thread.turn-start-requested', 'thread.message-edit-resend-requested')
+            AND event_type = 'thread.turn-start-requested'
             AND state IN ('pending', 'retry')
         ) AS present
       `.pipe(

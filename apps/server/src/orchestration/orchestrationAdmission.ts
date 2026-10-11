@@ -76,7 +76,6 @@ export function orchestrationCommandLane(
   switch (type) {
     case "thread.turn.start":
     case "thread.conversation.rollback":
-    case "thread.message.edit-and-resend":
       return "user";
     default:
       return "normal";
