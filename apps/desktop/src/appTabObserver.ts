@@ -446,12 +446,12 @@ export class AppTabObserver {
     if (!name && !protectedValue && !description && role === "generic" && attributes.length === 0)
       return null;
     if (role === "text" && (name || protectedValue)) {
-      return `- text: ${JSON.stringify(bounded(name || protectedValue))}`;
+      return `- text: ${JSON.stringify(name || protectedValue)}`;
     }
     const details = [
-      name ? JSON.stringify(bounded(name)) : "",
-      protectedValue ? `value=${JSON.stringify(bounded(protectedValue))}` : "",
-      description ? `description=${JSON.stringify(bounded(description))}` : "",
+      name ? JSON.stringify(name) : "",
+      protectedValue ? `value=${JSON.stringify(protectedValue)}` : "",
+      description ? `description=${JSON.stringify(description)}` : "",
       ...attributes.map((attribute) => `[${attribute}]`),
     ].filter(Boolean);
     return `- ${role}${details.length > 0 ? ` ${details.join(" ")}` : ""}`;
@@ -1222,7 +1222,7 @@ export class AppTabObserver {
     const existingDialog = this.#pendingDialogs.get(tabId);
     if (existingDialog && !allowDialog) {
       throw new Error(
-        `A browser JavaScript ${existingDialog.type} dialog is open: ${JSON.stringify(bounded(existingDialog.message))}. Handle it with a dialog step in penkra tabs act before continuing.`,
+        `A browser JavaScript ${existingDialog.type} dialog is open: ${JSON.stringify(existingDialog.message)}. Handle it with a dialog step in penkra tabs act before continuing.`,
       );
     }
     const surfaceId = this.#surface.getStore();
@@ -1241,7 +1241,7 @@ export class AppTabObserver {
     const pending = this.#pendingDialogs.get(tabId);
     if (pending && !allowDialog) {
       throw new Error(
-        `A browser JavaScript ${pending.type} dialog is open: ${JSON.stringify(bounded(pending.message))}. Handle it with a dialog step in penkra tabs act before continuing.`,
+        `A browser JavaScript ${pending.type} dialog is open: ${JSON.stringify(pending.message)}. Handle it with a dialog step in penkra tabs act before continuing.`,
       );
     }
     return target;
@@ -2215,9 +2215,9 @@ function dialogResult(dialog: PendingJavaScriptDialog): {
 } {
   return {
     type: dialog.type,
-    message: bounded(dialog.message),
+    message: dialog.message,
     url: dialog.url,
-    defaultPrompt: bounded(dialog.defaultPrompt),
+    defaultPrompt: dialog.defaultPrompt,
   };
 }
 

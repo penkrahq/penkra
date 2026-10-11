@@ -286,6 +286,36 @@ function runHitTestDeclaration(
 }
 
 describe("AppTabObserver", () => {
+  it("preserves complete snapshot names, values and descriptions", async () => {
+    const { contents, sendCommand } = makeContents();
+    const original = sendCommand.getMockImplementation()!;
+    const name = "full name ".repeat(300);
+    const value = "full value ".repeat(300);
+    const description = "full description ".repeat(300);
+    sendCommand.mockImplementation(async (method, params) => {
+      if (method === "Accessibility.getFullAXTree")
+        return {
+          nodes: [
+            {
+              backendDOMNodeId: 7,
+              role: { value: "textbox" },
+              name: { value: name },
+              value: { value },
+              description: { value: description },
+            },
+            { role: { value: "text" }, name: { value: name } },
+          ],
+        };
+      return original(method, params);
+    });
+    const observer = new AppTabObserver({ resolve: () => ({ descriptor, webContents: contents }) });
+    const result = (await observer.snapshot("tab-1")) as { snapshot: string };
+    expect(result.snapshot).toContain(JSON.stringify(name));
+    expect(result.snapshot).toContain(`value=${JSON.stringify(value)}`);
+    expect(result.snapshot).toContain(`description=${JSON.stringify(description)}`);
+    expect(result.snapshot).toContain(`- text: ${JSON.stringify(name)}`);
+  });
+
   it("dispatches structured shortcuts to the exact retained tab", async () => {
     const { contents, sendCommand } = makeContents();
     const resolve = vi.fn(() => ({ descriptor, webContents: contents }));
@@ -315,6 +345,24 @@ describe("AppTabObserver", () => {
         },
       ],
     ]);
+  });
+
+  it("preserves complete dialog messages and default prompts in operation results", async () => {
+    const { contents, emitDebugger } = makeContents();
+    const observer = new AppTabObserver({ resolve: () => ({ descriptor, webContents: contents }) });
+    const message = "full dialog message ".repeat(300);
+    const defaultPrompt = "full default prompt ".repeat(300);
+    await observer.snapshot("tab-1");
+    emitDebugger("Page.javascriptDialogOpening", {
+      type: "prompt",
+      message,
+      defaultPrompt,
+      url: "https://example.test/",
+    });
+    await expect(observer.snapshot("tab-1")).rejects.toThrow(message);
+    await expect(observer.handleDialog("tab-1", false)).resolves.toMatchObject({
+      dialog: { message, defaultPrompt },
+    });
   });
 
   it("reports delayed browser JavaScript dialogs and requires explicit handling", async () => {
