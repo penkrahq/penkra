@@ -2,31 +2,6 @@
 // Purpose: Physical and semantic verification for an offline Penkra SQLite database.
 
 import { assertSafeSqliteVersion } from "./SqliteSafety.ts";
-import { startDiagnosticTrace } from "@penkra/shared/traceContext";
-import { recordDiagnosticIncident } from "../diagnostics/recorder.ts";
-
-type DatabaseHealthCheck =
-  | "integer"
-  | "integrity"
-  | "foreign-key"
-  | "required-tables"
-  | "migration-lineage"
-  | "projection-lineage"
-  | "projection-ahead"
-  | "event-json";
-
-function recordDatabaseHealthFailure(dbHealthCheck: DatabaseHealthCheck): void {
-  recordDiagnosticIncident({
-    ...startDiagnosticTrace(),
-    kind: "invariant.violated",
-    code: "INVARIANT_VIOLATED",
-    where: "server.database",
-    severity: "error",
-    expected: { accepted: true },
-    actual: { accepted: false },
-    context: { dbHealthCheck },
-  });
-}
 
 export type DatabaseHealthQuery = (sql: string) => ReadonlyArray<Record<string, unknown>>;
 
@@ -50,8 +25,6 @@ const REQUIRED_TABLES = [
 function finiteInteger(value: unknown, label: string): number {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed < 0) {
-    recordDatabaseHealthFailure("integer");
-    // diagnostics-covered: INVARIANT_VIOLATED server.database
     throw new Error(`Penkra database health check returned an invalid ${label}: ${String(value)}`);
   }
   return parsed;
@@ -72,8 +45,6 @@ export function inspectPenkraDatabaseHealth(query: DatabaseHealthQuery): PenkraD
     .map((row) => String(firstValue(row) ?? "unknown"))
     .filter((result) => result.toLowerCase() !== "ok");
   if (integrityRows.length === 0 || integrityFailures.length > 0) {
-    recordDatabaseHealthFailure("integrity");
-    // diagnostics-covered: INVARIANT_VIOLATED server.database
     throw new Error(
       `Penkra database failed SQLite integrity_check: ${integrityFailures.join("; ") || "no result"}`,
     );
@@ -81,8 +52,6 @@ export function inspectPenkraDatabaseHealth(query: DatabaseHealthQuery): PenkraD
 
   const foreignKeyFailures = query("PRAGMA foreign_key_check");
   if (foreignKeyFailures.length > 0) {
-    recordDatabaseHealthFailure("foreign-key");
-    // diagnostics-covered: INVARIANT_VIOLATED server.database
     throw new Error(
       `Penkra database failed foreign_key_check with ${foreignKeyFailures.length} violation(s).`,
     );
@@ -94,8 +63,6 @@ export function inspectPenkraDatabaseHealth(query: DatabaseHealthQuery): PenkraD
   const tables = new Set(tableRows.map((row) => String(row.name)));
   const missingTables = REQUIRED_TABLES.filter((table) => !tables.has(table));
   if (missingTables.length > 0) {
-    recordDatabaseHealthFailure("required-tables");
-    // diagnostics-covered: INVARIANT_VIOLATED server.database
     throw new Error(`Penkra database is missing required tables: ${missingTables.join(", ")}`);
   }
 
@@ -104,8 +71,6 @@ export function inspectPenkraDatabaseHealth(query: DatabaseHealthQuery): PenkraD
     "migration count",
   );
   if (migrationCount === 0) {
-    recordDatabaseHealthFailure("migration-lineage");
-    // diagnostics-covered: INVARIANT_VIOLATED server.database
     throw new Error("Penkra database has no recorded migration lineage.");
   }
 
@@ -126,13 +91,9 @@ export function inspectPenkraDatabaseHealth(query: DatabaseHealthQuery): PenkraD
   );
 
   if (threadCount > 0 && eventCount === 0) {
-    recordDatabaseHealthFailure("projection-lineage");
-    // diagnostics-covered: INVARIANT_VIOLATED server.database
     throw new Error("Penkra database contains projected Threads but no authoritative events.");
   }
   if (maxProjectionSequence > maxEventSequence) {
-    recordDatabaseHealthFailure("projection-ahead");
-    // diagnostics-covered: INVARIANT_VIOLATED server.database
     throw new Error(
       `Penkra projection state (${maxProjectionSequence}) is ahead of the authoritative event log (${maxEventSequence}).`,
     );
@@ -147,8 +108,6 @@ export function inspectPenkraDatabaseHealth(query: DatabaseHealthQuery): PenkraD
     "invalid event JSON count",
   );
   if (invalidEventJsonCount > 0) {
-    recordDatabaseHealthFailure("event-json");
-    // diagnostics-covered: INVARIANT_VIOLATED server.database
     throw new Error(
       `Penkra database contains ${invalidEventJsonCount} authoritative event(s) with invalid JSON.`,
     );
