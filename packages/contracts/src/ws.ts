@@ -48,7 +48,6 @@ import {
   OrchestrationRepairStateInput,
   ORCHESTRATION_WS_METHODS,
   OrchestrationGetSnapshotInput,
-  OrchestrationReplayEventsInput,
 } from "./orchestration";
 import {
   TerminalAckOutputInput,
@@ -260,7 +259,6 @@ const WebSocketRequestBody = Schema.Union([
     OrchestrationGetPendingStartOutcomeInput,
   ),
   tagRequestBody(ORCHESTRATION_WS_METHODS.repairState, OrchestrationRepairStateInput),
-  tagRequestBody(ORCHESTRATION_WS_METHODS.replayEvents, OrchestrationReplayEventsInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.subscribeSync, OrchestrationSubscribeSyncInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.acknowledgeSync, OrchestrationAcknowledgeSyncInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.subscribeShell, OrchestrationSubscribeShellInput),

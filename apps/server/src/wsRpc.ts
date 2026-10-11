@@ -35,7 +35,6 @@ import {
   type ServerLifecycleStreamEvent,
   ServerProviderUpdateError,
 } from "@penkra/contracts";
-import { clamp } from "effect/Number";
 import { Effect, FileSystem, Layer, Option, Path, Queue, Schema, Scope, Stream } from "effect";
 import { Headers, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { RpcMiddleware, RpcSchema, RpcSerialization, RpcServer } from "effect/unstable/rpc";
@@ -748,18 +747,6 @@ const makeWsRpcHandlersLayer = () =>
           ),
         [ORCHESTRATION_WS_METHODS.repairState]: () =>
           rpcEffect(orchestrationEngine.repairState(), "Failed to repair orchestration state"),
-        [ORCHESTRATION_WS_METHODS.replayEvents]: (input) =>
-          rpcEffect(
-            Stream.runCollect(
-              orchestrationEngine.readEvents(
-                clamp(input.fromSequenceExclusive, {
-                  maximum: Number.MAX_SAFE_INTEGER,
-                  minimum: 0,
-                }),
-              ),
-            ).pipe(Effect.map((events) => Array.from(events))),
-            "Failed to replay orchestration events",
-          ),
         [ORCHESTRATION_WS_METHODS.listProviderDeliveryBlockers]: (input) =>
           rpcEffect(
             providerCommandReactor.listBlockingDeliveries({

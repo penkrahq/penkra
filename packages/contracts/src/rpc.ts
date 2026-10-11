@@ -230,12 +230,6 @@ export const WsOrchestrationGetPendingStartOutcomeRpc = Rpc.make(
   },
 );
 
-export const WsOrchestrationReplayEventsRpc = Rpc.make(ORCHESTRATION_WS_METHODS.replayEvents, {
-  payload: OrchestrationRpcSchemas.replayEvents.input,
-  success: OrchestrationRpcSchemas.replayEvents.output,
-  error: WsRpcError,
-});
-
 export const WsOrchestrationListProviderDeliveryBlockersRpc = Rpc.make(
   ORCHESTRATION_WS_METHODS.listProviderDeliveryBlockers,
   {
@@ -859,7 +853,6 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsOrchestrationGetThreadTurnsPageRpc,
   WsOrchestrationGetPendingStartOutcomeRpc,
   WsOrchestrationRepairStateRpc,
-  WsOrchestrationReplayEventsRpc,
   WsOrchestrationListProviderDeliveryBlockersRpc,
   WsOrchestrationReconcileProviderDeliveryRpc,
   WsOrchestrationSubscribeSyncRpc,
