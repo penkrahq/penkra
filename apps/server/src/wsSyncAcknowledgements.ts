@@ -2,8 +2,6 @@ import * as Crypto from "node:crypto";
 
 import { WsRpcError } from "@penkra/contracts";
 import { Effect } from "effect";
-import { startDiagnosticTrace } from "@penkra/shared/traceContext";
-import { recordDiagnosticIncident } from "./diagnostics/recorder";
 
 interface ActiveSyncLease {
   readonly generation: string;
@@ -88,24 +86,9 @@ export function makeSyncAcknowledgements() {
       if (!lease || lease.deliveryId !== input.deliveryId || lease.deliveredSequence === null) {
         // A close/reconnect can leave an applied acknowledgement in flight.
         // Its earlier delivery is known and already superseded; accepting it as
-        // a no-op preserves the new lease and avoids a false incident.
+        // a no-op preserves the new lease and avoids a false rejection.
         if (knownDeliveries.has(input.deliveryId) && lease?.deliveryId !== input.deliveryId) return;
-        recordDiagnosticIncident({
-          ...startDiagnosticTrace(),
-          kind: "command.rejected",
-          code: "SYNC_ACK_STALE",
-          where: "server.sync_ack",
-          severity: "warn",
-          expected: { accepted: true },
-          actual: { accepted: false, clientId },
-          context: {
-            check: !lease
-              ? "lease_exists"
-              : lease.deliveryId !== input.deliveryId
-                ? "delivery_matches"
-                : "sequence_delivered",
-          },
-        });
+
         yield* Effect.logDebug("stale orchestration synchronization acknowledgement").pipe(
           Effect.annotateLogs({ clientId, deliveryId: input.deliveryId }),
         );
@@ -116,16 +99,6 @@ export function makeSyncAcknowledgements() {
         });
       }
       if (input.appliedSequence > lease.deliveredSequence) {
-        recordDiagnosticIncident({
-          ...startDiagnosticTrace(),
-          kind: "command.rejected",
-          code: "COMMAND_REJECTED",
-          where: "server.sync_ack",
-          severity: "warn",
-          expected: { sequence: lease.deliveredSequence },
-          actual: { sequence: input.appliedSequence, clientId },
-          context: { check: "sequence_delivered" },
-        });
         yield* Effect.logWarning("ahead orchestration synchronization acknowledgement").pipe(
           Effect.annotateLogs({
             clientId,

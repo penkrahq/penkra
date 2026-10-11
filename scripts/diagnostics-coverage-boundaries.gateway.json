@@ -1,7 +1,0 @@
-[
-  {
-    "code": "CALLER_TURN_INACTIVE",
-    "where": "agent.mcp_write",
-    "file": "apps/server/src/agentGateway/mcpWriteDiagnostics.ts"
-  }
-]
