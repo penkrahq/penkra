@@ -1,12 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  ApprovalRequestId,
-  EventId,
-  MessageId,
-  FolderId,
-  ThreadId,
-  TurnId,
-} from "@penkra/contracts";
+import { EventId, MessageId, FolderId, ThreadId, TurnId } from "@penkra/contracts";
 import {
   buildInputNeededCopy,
   buildTaskCompletionCopy,
@@ -803,7 +796,7 @@ describe("collectInputNeededThreadCandidates", () => {
         folderId: FolderId.makeUnsafe("project-1"),
         title: "Polish notifications",
         createdAt: "2026-04-05T10:00:06.000Z",
-        requestId: ApprovalRequestId.makeUnsafe("user-input-request-1"),
+        requestId: "user-input-request-1",
       },
     ]);
   });
@@ -842,7 +835,7 @@ describe("buildInputNeededCopy", () => {
         folderId: FolderId.makeUnsafe("project-1"),
         title: "Polish notifications",
         createdAt: "2026-04-05T10:00:04.000Z",
-        requestId: ApprovalRequestId.makeUnsafe("approval-request-1"),
+        requestId: "approval-request-1",
         requestKind: "command",
       }),
     ).toEqual({
@@ -859,7 +852,7 @@ describe("buildInputNeededCopy", () => {
         folderId: FolderId.makeUnsafe("project-1"),
         title: "Polish notifications",
         createdAt: "2026-04-05T10:00:06.000Z",
-        requestId: ApprovalRequestId.makeUnsafe("user-input-request-1"),
+        requestId: "user-input-request-1",
       }),
     ).toEqual({
       title: "Input needed",

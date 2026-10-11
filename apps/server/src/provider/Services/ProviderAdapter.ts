@@ -8,7 +8,6 @@
  * @module ProviderAdapter
  */
 import type {
-  ApprovalRequestId,
   ProviderComposerCapabilities,
   ProviderConnectionId,
   ProviderApprovalDecision,
@@ -174,7 +173,7 @@ export interface ProviderAdapterShape<TError> {
    */
   readonly respondToRequest: (
     threadId: ThreadId,
-    requestId: ApprovalRequestId,
+    requestId: string,
     decision: ProviderApprovalDecision,
   ) => Effect.Effect<void, TError>;
 
@@ -183,7 +182,7 @@ export interface ProviderAdapterShape<TError> {
    */
   readonly respondToUserInput: (
     threadId: ThreadId,
-    requestId: ApprovalRequestId,
+    requestId: string,
     answers: ProviderUserInputAnswers,
   ) => Effect.Effect<void, TError>;
 

@@ -5,7 +5,6 @@ import { createThreadFixture } from "../../cleanCore/threadFixtures.ts";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import {} from "@penkra/contracts";
 import { DatabaseSync, StatementSync } from "node:sqlite";
 
 import type {
@@ -16,7 +15,6 @@ import type {
   ProviderSession,
 } from "@penkra/contracts";
 import {
-  ApprovalRequestId,
   CommandId,
   EventId,
   MessageId,
@@ -6210,7 +6208,7 @@ describe("ProviderRuntimeIngestion", () => {
       createdAt: now,
       threadId: asThreadId("thread-1"),
       lifecycleGeneration: "approval-generation",
-      requestId: ApprovalRequestId.makeUnsafe("req-open"),
+      requestId: "req-open",
       payload: {
         requestType: "command_execution_approval",
         detail: "pwd",
@@ -6224,7 +6222,7 @@ describe("ProviderRuntimeIngestion", () => {
       createdAt: now,
       threadId: asThreadId("thread-1"),
       lifecycleGeneration: "approval-generation",
-      requestId: ApprovalRequestId.makeUnsafe("req-open"),
+      requestId: "req-open",
       payload: {
         requestType: "command_execution_approval",
         decision: "accept",
@@ -7490,7 +7488,7 @@ describe("ProviderRuntimeIngestion", () => {
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-user-input"),
       lifecycleGeneration: "user-input-generation",
-      requestId: ApprovalRequestId.makeUnsafe("req-user-input-1"),
+      requestId: "req-user-input-1",
       payload: {
         questions: [
           {
@@ -7516,7 +7514,7 @@ describe("ProviderRuntimeIngestion", () => {
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-user-input"),
       lifecycleGeneration: "user-input-generation",
-      requestId: ApprovalRequestId.makeUnsafe("req-user-input-1"),
+      requestId: "req-user-input-1",
       payload: {
         answers: {
           sandbox_mode: "workspace-write",
@@ -7638,7 +7636,7 @@ describe("ProviderRuntimeIngestion", () => {
       createdAt: now,
       threadId: asThreadId("thread-1"),
       turnId: childTurnId,
-      requestId: ApprovalRequestId.makeUnsafe("req-unmapped-child-approval"),
+      requestId: "req-unmapped-child-approval",
       providerRefs,
       payload: {
         requestType: "command_execution_approval",
@@ -7652,7 +7650,7 @@ describe("ProviderRuntimeIngestion", () => {
       createdAt: now,
       threadId: asThreadId("thread-1"),
       turnId: childTurnId,
-      requestId: ApprovalRequestId.makeUnsafe("req-unmapped-child-user-input"),
+      requestId: "req-unmapped-child-user-input",
       providerRefs,
       payload: {
         questions: [
@@ -7703,7 +7701,7 @@ describe("ProviderRuntimeIngestion", () => {
       createdAt: now,
       threadId: asThreadId("thread-1"),
       turnId: childTurnId,
-      requestId: ApprovalRequestId.makeUnsafe("req-unmapped-child-approval"),
+      requestId: "req-unmapped-child-approval",
       providerRefs,
       payload: {
         requestType: "command_execution_approval",
@@ -7717,7 +7715,7 @@ describe("ProviderRuntimeIngestion", () => {
       createdAt: now,
       threadId: asThreadId("thread-1"),
       turnId: childTurnId,
-      requestId: ApprovalRequestId.makeUnsafe("req-unmapped-child-user-input"),
+      requestId: "req-unmapped-child-user-input",
       providerRefs,
       payload: {
         answers: {

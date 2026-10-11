@@ -7,7 +7,6 @@ import {
   QueuedEditDraftNotEmptyError,
   type CleanCoreThreadSummary,
   type CleanCoreSendMessageInput,
-  type ApprovalRequestId,
   DEFAULT_MODEL_BY_PROVIDER,
   MessageId,
   type ModelSelection,
@@ -5803,11 +5802,7 @@ function ChatViewContent({
   };
 
   const onRespondToUserInput = useCallback(
-    async (
-      requestId: ApprovalRequestId,
-      answers: ProviderUserInputAnswers,
-      lifecycleGeneration?: string,
-    ) => {
+    async (requestId: string, answers: ProviderUserInputAnswers, lifecycleGeneration?: string) => {
       const api = readNativeApi();
       if (!api || !activeThreadId) return;
       const requestKey = pendingRequestInstanceKey(requestId, lifecycleGeneration);

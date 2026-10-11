@@ -1,5 +1,4 @@
 import {
-  ApprovalRequestId,
   EventId,
   isToolLifecycleItemType,
   type OrchestrationThreadActivity,
@@ -548,7 +547,7 @@ export function projectProviderRuntimeActivities(
           payload: toActivityPayload({
             // Omitted, never `undefined`: `Schema.Json` rejects a member that is
             // explicitly present and undefined.
-            ...(requestId ? { requestId: ApprovalRequestId.makeUnsafe(requestId) } : {}),
+            ...(requestId ? { requestId: requestId } : {}),
             ...(event.lifecycleGeneration !== undefined
               ? { lifecycleGeneration: event.lifecycleGeneration }
               : {}),

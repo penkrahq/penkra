@@ -29,7 +29,6 @@ import type {
   SpawnedProcess as ClaudeSpawnedProcess,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
-  ApprovalRequestId,
   type CanonicalItemType,
   type ClaudeApiEffort,
   type CanonicalRequestType,
@@ -333,8 +332,8 @@ interface ClaudeSessionContext {
   firstTurnSpawnModeAuthoritative: boolean;
   currentApiModelId: string | undefined;
   resumeSessionId: string | undefined;
-  readonly pendingApprovals: Map<ApprovalRequestId, PendingApproval>;
-  readonly pendingUserInputs: Map<ApprovalRequestId, PendingUserInput>;
+  readonly pendingApprovals: Map<string, PendingApproval>;
+  readonly pendingUserInputs: Map<string, PendingUserInput>;
   readonly turns: Array<{
     id: TurnId;
     items: Array<unknown>;
@@ -737,7 +736,7 @@ function asCanonicalTurnId(value: TurnId): TurnId {
   return value;
 }
 
-function asRuntimeRequestId(value: ApprovalRequestId): RuntimeRequestId {
+function asRuntimeRequestId(value: string): RuntimeRequestId {
   return RuntimeRequestId.makeUnsafe(value);
 }
 
@@ -4287,8 +4286,8 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           Stream.toAsyncIterable,
         );
 
-        const pendingApprovals = new Map<ApprovalRequestId, PendingApproval>();
-        const pendingUserInputs = new Map<ApprovalRequestId, PendingUserInput>();
+        const pendingApprovals = new Map<string, PendingApproval>();
+        const pendingUserInputs = new Map<string, PendingUserInput>();
         const inFlightTools = new Map<number, ToolInFlight>();
         const trackedTasks = new Map<string, ClaudeTrackedTask>();
 
@@ -4307,7 +4306,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           },
         ) =>
           Effect.gen(function* () {
-            const requestId = ApprovalRequestId.makeUnsafe(yield* Random.nextUUIDv4);
+            const requestId = yield* Random.nextUUIDv4;
 
             // Parse questions from the SDK's AskUserQuestion input.
             const rawQuestions = Array.isArray(toolInput.questions) ? toolInput.questions : [];
@@ -4445,7 +4444,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 } satisfies PermissionResult;
               }
 
-              const requestId = ApprovalRequestId.makeUnsafe(yield* Random.nextUUIDv4);
+              const requestId = yield* Random.nextUUIDv4;
               const requestType = classifyRequestType(toolName);
               const detail = summarizeToolRequest(toolName, toolInput);
               const decisionDeferred = yield* Deferred.make<ProviderApprovalDecision>();

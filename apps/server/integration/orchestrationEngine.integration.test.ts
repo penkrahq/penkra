@@ -3,9 +3,7 @@ import { createThreadFixture } from "../src/cleanCore/threadFixtures.ts";
 import fs from "node:fs";
 import path from "node:path";
 
-import {} from "@penkra/contracts";
 import {
-  ApprovalRequestId,
   CommandId,
   EventId,
   MessageId,
@@ -29,13 +27,11 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 const asMessageId = (value: string): MessageId => MessageId.makeUnsafe(value);
 const asFolderId = (value: string): FolderId => FolderId.makeUnsafe(value);
 const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
-const asApprovalRequestId = (value: string): ApprovalRequestId =>
-  ApprovalRequestId.makeUnsafe(value);
 
 const PROJECT_ID = asFolderId("project-1");
 const THREAD_ID = ThreadId.makeUnsafe("thread-1");
 const FIXTURE_TURN_ID = "fixture-turn";
-const APPROVAL_REQUEST_ID = asApprovalRequestId("req-approval-1");
+const APPROVAL_REQUEST_ID = "req-approval-1";
 const itLiveUnlessCi = (process.env.CI ? it.skip : it.live) as typeof it.live;
 type IntegrationProvider = ProviderKind;
 

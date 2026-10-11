@@ -17,13 +17,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import {
-  ApprovalRequestId,
-  MessageId,
-  type ProviderEvent,
-  ThreadId,
-  TurnId,
-} from "@penkra/contracts";
+import { MessageId, type ProviderEvent, ThreadId, TurnId } from "@penkra/contracts";
 
 import { buildCodexProcessEnv } from "./codexProcessEnv";
 import {
@@ -728,9 +722,9 @@ function createPendingUserInputHarness() {
     pendingApprovals: new Map(),
     pendingUserInputs: new Map([
       [
-        ApprovalRequestId.makeUnsafe("req-user-input-1"),
+        "req-user-input-1",
         {
-          requestId: ApprovalRequestId.makeUnsafe("req-user-input-1"),
+          requestId: "req-user-input-1",
           jsonRpcId: 42,
           threadId: asThreadId("thread_1"),
         },
@@ -787,9 +781,9 @@ function createPendingApprovalHarness(
     },
     pendingApprovals: new Map([
       [
-        ApprovalRequestId.makeUnsafe("req-approval-1"),
+        "req-approval-1",
         {
-          requestId: ApprovalRequestId.makeUnsafe("req-approval-1"),
+          requestId: "req-approval-1",
           jsonRpcId: 42,
           method: "item/commandExecution/requestApproval" as const,
           requestKind: "command" as const,
@@ -4019,11 +4013,7 @@ describe("respondToRequest", () => {
     const { manager, context, requireSession, writeMessage, emitEvent, sendRequest } =
       createPendingApprovalHarness();
 
-    await manager.respondToRequest(
-      asThreadId("thread_1"),
-      ApprovalRequestId.makeUnsafe("req-approval-1"),
-      "acceptForSession",
-    );
+    await manager.respondToRequest(asThreadId("thread_1"), "req-approval-1", "acceptForSession");
 
     expect(requireSession).toHaveBeenCalledWith("thread_1");
     expect(writeMessage).toHaveBeenCalledWith(context, {
@@ -4077,11 +4067,7 @@ describe("respondToRequest", () => {
   it("auto-resolves later approval requests during an always-allowed Codex session", async () => {
     const { manager, context, writeMessage, emitEvent } = createPendingApprovalHarness();
 
-    await manager.respondToRequest(
-      asThreadId("thread_1"),
-      ApprovalRequestId.makeUnsafe("req-approval-1"),
-      "acceptForSession",
-    );
+    await manager.respondToRequest(asThreadId("thread_1"), "req-approval-1", "acceptForSession");
     writeMessage.mockClear();
     emitEvent.mockClear();
 
@@ -4131,14 +4117,10 @@ describe("respondToUserInput", () => {
     const { manager, context, requireSession, writeMessage, emitEvent } =
       createPendingUserInputHarness();
 
-    await manager.respondToUserInput(
-      asThreadId("thread_1"),
-      ApprovalRequestId.makeUnsafe("req-user-input-1"),
-      {
-        scope: "All request methods",
-        compat: "Keep current envelope",
-      },
-    );
+    await manager.respondToUserInput(asThreadId("thread_1"), "req-user-input-1", {
+      scope: "All request methods",
+      compat: "Keep current envelope",
+    });
 
     expect(requireSession).toHaveBeenCalledWith("thread_1");
     expect(writeMessage).toHaveBeenCalledWith(context, {
@@ -4168,13 +4150,9 @@ describe("respondToUserInput", () => {
     const { manager, context, requireSession, writeMessage, emitEvent } =
       createPendingUserInputHarness();
 
-    await manager.respondToUserInput(
-      asThreadId("thread_1"),
-      ApprovalRequestId.makeUnsafe("req-user-input-1"),
-      {
-        scope: [],
-      },
-    );
+    await manager.respondToUserInput(asThreadId("thread_1"), "req-user-input-1", {
+      scope: [],
+    });
 
     expect(requireSession).toHaveBeenCalledWith("thread_1");
     expect(writeMessage).toHaveBeenCalledWith(context, {

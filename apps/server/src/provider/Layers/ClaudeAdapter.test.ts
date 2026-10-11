@@ -13,12 +13,7 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import {
-  ApprovalRequestId,
-  ProviderItemId,
-  ProviderRuntimeEvent,
-  ThreadId,
-} from "@penkra/contracts";
+import { ProviderItemId, ProviderRuntimeEvent, ThreadId } from "@penkra/contracts";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Exit, Fiber, Layer, Random, Stream } from "effect";
 
@@ -6525,11 +6520,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
         return;
       }
 
-      yield* adapter.respondToRequest(
-        session.threadId,
-        ApprovalRequestId.makeUnsafe(runtimeRequestId),
-        "accept",
-      );
+      yield* adapter.respondToRequest(session.threadId, runtimeRequestId, "accept");
 
       const resolved = yield* Stream.runHead(adapter.streamEvents);
       assert.equal(resolved._tag, "Some");
@@ -6658,7 +6649,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
 
       yield* adapter.respondToRequest(
         session.threadId,
-        ApprovalRequestId.makeUnsafe(String(agentRequested.value.requestId)),
+        String(agentRequested.value.requestId),
         "accept",
       );
       yield* Stream.runHead(adapter.streamEvents);
@@ -6683,7 +6674,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
 
       yield* adapter.respondToRequest(
         session.threadId,
-        ApprovalRequestId.makeUnsafe(String(grepRequested.value.requestId)),
+        String(grepRequested.value.requestId),
         "accept",
       );
       yield* Stream.runHead(adapter.streamEvents);
@@ -8145,11 +8136,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       });
 
       // Respond with the user's answers.
-      yield* adapter.respondToUserInput(
-        session.threadId,
-        ApprovalRequestId.makeUnsafe(requestId!),
-        { Framework: "React" },
-      );
+      yield* adapter.respondToUserInput(session.threadId, requestId!, { Framework: "React" });
 
       // The adapter should emit a user-input.resolved event.
       const resolvedEvent = yield* Stream.runHead(adapter.streamEvents);
@@ -8259,11 +8246,9 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       }
       const requestId = requestedEvent.value.requestId;
 
-      yield* adapter.respondToUserInput(
-        session.threadId,
-        ApprovalRequestId.makeUnsafe(requestId!),
-        { Features: ["CLI scaffolding", "Type checking"] },
-      );
+      yield* adapter.respondToUserInput(session.threadId, requestId!, {
+        Features: ["CLI scaffolding", "Type checking"],
+      });
 
       yield* Stream.runHead(adapter.streamEvents);
 
@@ -8331,11 +8316,9 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       }
       const requestId = requestedEvent.value.requestId;
 
-      yield* adapter.respondToUserInput(
-        session.threadId,
-        ApprovalRequestId.makeUnsafe(requestId!),
-        { "Deploy to which env?": "Staging" },
-      );
+      yield* adapter.respondToUserInput(session.threadId, requestId!, {
+        "Deploy to which env?": "Staging",
+      });
 
       // Drain the resolved event.
       yield* Stream.runHead(adapter.streamEvents);

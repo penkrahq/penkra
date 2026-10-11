@@ -1,5 +1,4 @@
 import {
-  ApprovalRequestId,
   ThreadId,
   type OrchestrationPendingInteraction,
   type OrchestrationThreadActivity,
@@ -15,7 +14,7 @@ function makePendingInteraction(
 ): OrchestrationPendingInteraction {
   return {
     interactionKind,
-    requestId: ApprovalRequestId.makeUnsafe("req-settlement"),
+    requestId: "req-settlement",
     threadId: ThreadId.makeUnsafe("thread-settlement"),
     turnId: null,
     lifecycleGeneration: "generation-settlement",

@@ -1,6 +1,5 @@
 import type { OrchestrationThreadActivity, ProviderRuntimeEvent } from "@penkra/contracts";
 import {
-  ApprovalRequestId,
   CommandId,
   EventId,
   OrchestrationCommand,
@@ -118,7 +117,6 @@ describe("projected activities satisfy the orchestration command schema", () => 
     );
     expect(Object.keys(opened?.payload as Record<string, unknown>)).not.toContain("requestId");
 
-    // `ApprovalRequestId.makeUnsafe` rejects untrimmed input instead of trimming it.
     const [padded] = projectProviderRuntimeActivities(
       runtimeEvent({
         type: "request.opened",
@@ -420,7 +418,7 @@ describe("provider runtime activity projection", () => {
         type: "request.opened",
         eventId: "approval-request",
         lifecycleGeneration: "generation-1",
-        requestId: ApprovalRequestId.makeUnsafe("request-1"),
+        requestId: "request-1",
         payload: { requestType: "command_execution_approval", detail: "pwd" },
       }),
     )[0];
@@ -442,7 +440,7 @@ describe("provider runtime activity projection", () => {
         eventId: "user-input-requested",
         turnId: TURN_ID,
         lifecycleGeneration: "generation-2",
-        requestId: ApprovalRequestId.makeUnsafe("request-2"),
+        requestId: "request-2",
         payload: {
           questions: [
             {
@@ -459,7 +457,7 @@ describe("provider runtime activity projection", () => {
         eventId: "user-input-resolved",
         turnId: TURN_ID,
         lifecycleGeneration: "generation-2",
-        requestId: ApprovalRequestId.makeUnsafe("request-2"),
+        requestId: "request-2",
         payload: { answers: { sandbox_mode: "workspace-write" } },
       }),
     ].flatMap((event) => projectProviderRuntimeActivities(event));
