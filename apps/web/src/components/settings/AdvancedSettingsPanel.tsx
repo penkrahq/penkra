@@ -1,24 +1,18 @@
 // FILE: AdvancedSettingsPanel.tsx
-// Purpose: Own advanced settings state and workflows for auth, keybindings, and recovery.
+// Purpose: Own advanced settings state and workflows for auth and keybindings.
 // Layer: Settings UI components
 // Exports: AdvancedSettingsPanel
 
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 
 import { logoutCurrentBrowserSession } from "~/authLogout";
 import { APP_VERSION } from "~/branding";
 import { resolveAndPersistPreferredEditor } from "~/editorPreferences";
-import { DisclosureChevron } from "~/components/ui/DisclosureChevron";
-import { DisclosureRegion } from "~/components/ui/DisclosureRegion";
 import { Button } from "~/components/ui/button";
 import { toastManager } from "~/components/ui/toast";
 import { ensureNativeApi, readNativeApi } from "~/nativeApi";
 import { serverAuthSessionQueryOptions, serverConfigQueryOptions } from "~/lib/serverReactQuery";
-import { cn } from "~/lib/utils";
-import { SETTINGS_INSET_LIST_CLASS_NAME } from "~/settingsPanelStyles";
-import { useStore } from "~/store";
-import { createAllThreadsMessagelessSelector, createThreadShellsSelector } from "~/storeSelectors";
 import { useSettingsRestoreSignal } from "./SettingControls";
 import { SettingsRow, SettingsSection } from "./SettingsPanelPrimitives";
 
@@ -29,31 +23,16 @@ export function AdvancedSettingsPanel(props: {
 }) {
   const configQuery = useQuery(serverConfigQueryOptions());
   const authSessionQuery = useQuery(serverAuthSessionQueryOptions());
-  const syncServerReadModel = useStore((store) => store.syncServerReadModel);
-  // Keep these subscriptions inside the only panel that uses recovery eligibility.
-  const threadShells = useStore(useMemo(() => createThreadShellsSelector(), []));
-  const allThreadsMessageless = useStore(useMemo(() => createAllThreadsMessagelessSelector(), []));
-  const folderCount = useStore((store) => store.folders.length);
-  const threadsHydrated = useStore((store) => store.threadsHydrated);
-
   const [isOpeningKeybindings, setIsOpeningKeybindings] = useState(false);
-  const [isRepairingLocalState, setIsRepairingLocalState] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const [showRecoveryTools, setShowRecoveryTools] = useState(false);
   const [openKeybindingsError, setOpenKeybindingsError] = useState<string | null>(null);
 
   useSettingsRestoreSignal(props.resetEpoch, () => {
-    setShowRecoveryTools(false);
     setOpenKeybindingsError(null);
   });
 
   const keybindingsConfigPath = configQuery.data?.keybindingsConfigPath ?? null;
   const availableEditors = configQuery.data?.availableEditors;
-  const shouldOfferRecoveryTools = useMemo(() => {
-    if (!threadsHydrated || folderCount === 0) return false;
-    return threadShells.length === 0 || allThreadsMessageless;
-  }, [allThreadsMessageless, folderCount, threadShells.length, threadsHydrated]);
-
   const openKeybindingsFile = useCallback(() => {
     if (!keybindingsConfigPath) return;
     setOpenKeybindingsError(null);
@@ -75,41 +54,6 @@ export function AdvancedSettingsPanel(props: {
         setIsOpeningKeybindings(false);
       });
   }, [availableEditors, keybindingsConfigPath]);
-
-  const repairLocalState = useCallback(async () => {
-    if (isRepairingLocalState) return;
-    const api = readNativeApi() ?? ensureNativeApi();
-    const confirmed = await api.dialogs.confirm(
-      [
-        "Repair local state?",
-        "This rebuilds local folder indexes and refreshes folder snapshots.",
-        "It keeps existing chats in place, but it may take a moment.",
-      ].join("\n"),
-    );
-    if (!confirmed) return;
-
-    setIsRepairingLocalState(true);
-    await api.orchestration
-      .repairState()
-      .then((snapshot) => {
-        syncServerReadModel(snapshot);
-        toastManager.add({
-          type: "success",
-          title: "Local state repaired",
-          description: "Folder indexes were rebuilt without clearing existing chats.",
-        });
-      })
-      .catch((error: unknown) => {
-        toastManager.add({
-          type: "error",
-          title: "Repair failed",
-          description: error instanceof Error ? error.message : "Unable to repair local state.",
-        });
-      })
-      .finally(() => {
-        setIsRepairingLocalState(false);
-      });
-  }, [isRepairingLocalState, syncServerReadModel]);
 
   const logoutCurrentSession = useCallback(async () => {
     if (isLoggingOut) return;
@@ -183,57 +127,6 @@ export function AdvancedSettingsPanel(props: {
             </Button>
           }
         />
-
-        <SettingsRow
-          title="Recovery tools"
-          description="Rebuild local folder indexes without clearing existing chats when the local state gets out of sync."
-          status={
-            shouldOfferRecoveryTools
-              ? "Visible because folders exist but no chat history is currently available."
-              : "Shown automatically only when recovery actions are relevant."
-          }
-          control={
-            <Button
-              size="xs"
-              variant="outline"
-              disabled={!shouldOfferRecoveryTools || isRepairingLocalState}
-              onClick={() => void repairLocalState()}
-            >
-              {isRepairingLocalState ? "Repairing..." : "Repair state"}
-            </Button>
-          }
-        >
-          {shouldOfferRecoveryTools ? (
-            <div className="mt-3 border-t border-border/70 pt-3">
-              <button
-                type="button"
-                className="flex w-full items-center justify-between text-left"
-                aria-expanded={showRecoveryTools}
-                onClick={() => setShowRecoveryTools((current) => !current)}
-              >
-                <span className="text-[length:var(--app-font-size-ui,12px)] font-medium text-muted-foreground">
-                  What this does
-                </span>
-                <DisclosureChevron
-                  open={showRecoveryTools}
-                  className="size-4 shrink-0 text-muted-foreground"
-                />
-              </button>
-              <DisclosureRegion
-                open={showRecoveryTools}
-                contentClassName={cn(
-                  "mt-3 px-3 py-3 text-[length:var(--app-font-size-ui,12px)] text-muted-foreground",
-                  SETTINGS_INSET_LIST_CLASS_NAME,
-                )}
-              >
-                <div>
-                  Rebuilds local folder indexes and refreshes folder snapshots. Existing chats stay
-                  in place.
-                </div>
-              </DisclosureRegion>
-            </div>
-          ) : null}
-        </SettingsRow>
       </SettingsSection>
 
       <SettingsSection title="About">

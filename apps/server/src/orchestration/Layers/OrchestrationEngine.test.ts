@@ -2091,54 +2091,6 @@ describe("OrchestrationEngine", () => {
     await runtime.dispose();
   });
 
-  it("restores the repair backup when rebuilt projectors do not reach the captured fence", async () => {
-    const nonAdvancingProjectionPipeline: OrchestrationProjectionPipelineShape = {
-      bootstrap: Effect.void,
-      folderMetadataEvent: () => Effect.void,
-      projectEvent: () => Effect.void,
-      projectHotEventInCurrentTransaction: () => Effect.void,
-      projectDeferredEvent: () => Effect.void,
-    };
-    const runtime = ManagedRuntime.make(
-      OrchestrationEngineLive.pipe(
-        Layer.provide(
-          Layer.succeed(OrchestrationProjectionPipeline, nonAdvancingProjectionPipeline),
-        ),
-        Layer.provide(OrchestrationProjectionSnapshotQueryLive),
-        Layer.provide(OrchestrationEventStoreLive),
-        Layer.provide(OrchestrationCommandReceiptRepositoryLive),
-        Layer.provideMerge(SqlitePersistenceMemory),
-        Layer.provideMerge(TestServerConfigLayer),
-        Layer.provideMerge(NodeServices.layer),
-      ),
-    );
-    const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
-    const sql = await runtime.runPromise(Effect.service(SqlClient.SqlClient));
-    await runtime.runPromise(createTestSpace(engine));
-    const createdAt = now();
-
-    await runtime.runPromise(
-      engine.dispatch({
-        type: "folder.create",
-        commandId: CommandId.makeUnsafe("cmd-project-repair-fence"),
-        folderId: asFolderId("project-repair-fence"),
-        spaceId: TEST_SPACE_ID,
-        title: "Repair Fence Project",
-        workspaceRoot: null,
-        defaultModelSelection: null,
-        createdAt,
-      }),
-    );
-    const beforeRepair = await runtime.runPromise(engine.getReadModel());
-
-    await expect(runtime.runPromise(engine.repairState())).rejects.toThrow(
-      "did not reach captured event fence 2",
-    );
-    await expect(runtime.runPromise(engine.getReadModel())).resolves.toEqual(beforeRepair);
-
-    await runtime.dispose();
-  });
-
   it("stores a folder directory on creation and applies updates and removal", async () => {
     const system = await createOrchestrationSystem();
     const { engine, sql } = system;

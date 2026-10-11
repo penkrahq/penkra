@@ -744,8 +744,6 @@ const makeWsRpcHandlersLayer = () =>
             projectionReadModelQuery.getPendingStartOutcome(input),
             "Failed to load pending start outcome",
           ),
-        [ORCHESTRATION_WS_METHODS.repairState]: () =>
-          rpcEffect(orchestrationEngine.repairState(), "Failed to repair orchestration state"),
         [ORCHESTRATION_WS_METHODS.listProviderDeliveryBlockers]: (input) =>
           rpcEffect(
             providerCommandReactor.listBlockingDeliveries({

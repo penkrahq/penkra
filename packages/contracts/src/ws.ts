@@ -45,7 +45,6 @@ import {
   OrchestrationUnsubscribeThreadInput,
   ORCHESTRATION_WS_CHANNELS,
   OrchestrationGetThreadDetailSnapshotInput,
-  OrchestrationRepairStateInput,
   ORCHESTRATION_WS_METHODS,
   OrchestrationGetSnapshotInput,
 } from "./orchestration";
@@ -256,7 +255,6 @@ const WebSocketRequestBody = Schema.Union([
     ORCHESTRATION_WS_METHODS.getPendingStartOutcome,
     OrchestrationGetPendingStartOutcomeInput,
   ),
-  tagRequestBody(ORCHESTRATION_WS_METHODS.repairState, OrchestrationRepairStateInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.subscribeSync, OrchestrationSubscribeSyncInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.acknowledgeSync, OrchestrationAcknowledgeSyncInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.subscribeShell, OrchestrationSubscribeShellInput),

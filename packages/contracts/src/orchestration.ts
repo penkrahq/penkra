@@ -26,7 +26,6 @@ export const ORCHESTRATION_WS_METHODS = {
   getPendingStartOutcome: "orchestration.getPendingStartOutcome",
   dispatchCommand: "orchestration.dispatchCommand",
   importThread: "orchestration.importThread",
-  repairState: "orchestration.repairState",
   listProviderDeliveryBlockers: "orchestration.listProviderDeliveryBlockers",
   reconcileProviderDelivery: "orchestration.reconcileProviderDelivery",
   subscribeSync: "orchestration.subscribeSync",
@@ -1599,11 +1598,6 @@ export type OrchestrationGetSnapshotInput = typeof OrchestrationGetSnapshotInput
 const OrchestrationGetSnapshotResult = OrchestrationReadModel;
 export type OrchestrationGetSnapshotResult = typeof OrchestrationGetSnapshotResult.Type;
 
-export const OrchestrationRepairStateInput = Schema.Struct({});
-export type OrchestrationRepairStateInput = typeof OrchestrationRepairStateInput.Type;
-const OrchestrationRepairStateResult = OrchestrationReadModel;
-export type OrchestrationRepairStateResult = typeof OrchestrationRepairStateResult.Type;
-
 export const ProviderDeliveryReconciliationOutcome = Schema.Literals([
   "accepted",
   "safe_retry",
@@ -1788,10 +1782,6 @@ export const OrchestrationRpcSchemas = {
   getPendingStartOutcome: {
     input: OrchestrationGetPendingStartOutcomeInput,
     output: OrchestrationGetPendingStartOutcomeResult,
-  },
-  repairState: {
-    input: OrchestrationRepairStateInput,
-    output: OrchestrationRepairStateResult,
   },
   dispatchCommand: {
     input: ClientOrchestrationCommand,
