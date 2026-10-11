@@ -46,11 +46,14 @@ export function publishNativeAppBoundsForWidth(wrapper: HTMLElement, dockWidth: 
   const bridge = window.desktopBridge?.appTabs;
   if (!surface || !bridge) return false;
   const tabId = surface.dataset.appTabId;
-  if (!tabId) return false;
+  const folderId = surface.dataset.appFolderId;
+  const threadId = surface.dataset.appThreadId;
+  if (!tabId || !folderId || !threadId) return false;
   void bridge.present({
     tabId,
-    deckId: surface.dataset.appDeckId ?? "",
-    threadId: surface.dataset.appThreadId ?? "",
+    folderId,
+
+    threadId,
     bounds: appDockBoundsForWidth(dockWidth),
   });
   return true;

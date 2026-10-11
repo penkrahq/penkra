@@ -1,3 +1,4 @@
+import { seedThreadFolderFixture } from "./threadFixtures.ts";
 import { assert, it } from "@effect/vitest";
 import { ThreadId } from "@penkra/contracts";
 import { Effect } from "effect";
@@ -15,6 +16,7 @@ const withDb = <A, E>(effect: Effect.Effect<A, E, SqlClient.SqlClient>) =>
 const baseThread = {
   id: "thread-1",
   spaceId: "space-1",
+  folderId: "core-test-folder",
   title: "Hello",
   provider: "codex",
   model: "gpt-5.5",
@@ -27,6 +29,7 @@ it.effect("keeps one draft per thread, last write wins by draft_updated_at", () 
   withDb(
     Effect.gen(function* () {
       yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
       yield* createThread(baseThread);
       const id = ThreadId.makeUnsafe("thread-1");
       const publisher = makeThreadPublisher();

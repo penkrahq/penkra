@@ -41,7 +41,7 @@ describe("project shortcut targets", () => {
         currentFolderId: resolveCurrentProjectTargetId(folders, CURRENT_PROJECT_ID),
         latestUsableFolderId: resolveLatestProjectTargetId(folders, LATEST_PROJECT_ID),
       }),
-    ).toEqual({ folderId: CURRENT_PROJECT_ID, inheritContext: true });
+    ).toEqual({ folderId: CURRENT_PROJECT_ID });
   });
 
   it("uses the focused Chats folder like any other folder", () => {
@@ -50,7 +50,7 @@ describe("project shortcut targets", () => {
         currentFolderId: resolveCurrentProjectTargetId(folders, HOME_PROJECT_ID),
         latestUsableFolderId: resolveLatestProjectTargetId(folders, LATEST_PROJECT_ID),
       }),
-    ).toEqual({ folderId: HOME_PROJECT_ID, inheritContext: true });
+    ).toEqual({ folderId: HOME_PROJECT_ID });
   });
 
   it("falls back to the latest ordinary project when nothing is focused", () => {
@@ -59,7 +59,7 @@ describe("project shortcut targets", () => {
         currentFolderId: resolveCurrentProjectTargetId(folders, null),
         latestUsableFolderId: resolveLatestProjectTargetId(folders, LATEST_PROJECT_ID),
       }),
-    ).toEqual({ folderId: LATEST_PROJECT_ID, inheritContext: false });
+    ).toEqual({ folderId: LATEST_PROJECT_ID });
   });
 
   it("accepts a Chats folder as the latest target", () => {

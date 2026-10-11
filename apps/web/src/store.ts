@@ -13,7 +13,6 @@ import {
   type OrchestrationShellStreamEvent,
   type OrchestrationGetThreadTurnsPageResult,
   type SpaceId,
-  type ThreadDeckId,
   type ThreadId,
 } from "@penkra/contracts";
 import { Debouncer } from "@tanstack/react-pacer";

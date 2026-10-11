@@ -683,7 +683,7 @@ describe("migration backups", () => {
       dbPath,
       Effect.gen(function* () {
         const sql = yield* SqlClient.SqlClient;
-        yield* runMigrations();
+        yield* runMigrations({ toMigrationInclusive: 175 });
         yield* sql`CREATE TABLE replay_recovery_probe(value TEXT NOT NULL)`;
         yield* sql`INSERT INTO replay_recovery_probe(value) VALUES ('preserved')`;
 

@@ -7,16 +7,16 @@ import type { ReactNode } from "react";
 
 import { readSidebarDndData, SidebarDragPreview } from "../sidebar/SidebarDnd";
 import {
-  readDeckThreadDndData,
-  ThreadDeckDragPreview,
-} from "../middle-panel/thread-deck-bar/ThreadDeckDnd";
+  readFolderThreadDndData,
+  FolderTabsDragPreview,
+} from "../middle-panel/folder-tabs/FolderTabsDnd";
 import { ReliablePointerSensor } from "./ReliablePointerSensor";
 
 function ShellDragOverlay() {
   const { source } = useDragOperation();
   const data = readSidebarDndData(source?.data);
   const preview = data?.type === "space" || data?.type === "item" ? data.preview : null;
-  const deckData = readDeckThreadDndData(source?.data);
+  const folderData = readFolderThreadDndData(source?.data);
 
   return (
     <DragOverlay dropAnimation={null}>
@@ -27,12 +27,12 @@ function ShellDragOverlay() {
         >
           <SidebarDragPreview preview={preview} />
         </div>
-      ) : deckData ? (
+      ) : folderData ? (
         <div
           className="pointer-events-none rounded-lg border border-[var(--color-border-focus)] bg-[var(--color-background-elevated-primary-opaque)] shadow-xl"
-          data-thread-deck-drag-overlay="true"
+          data-folder-tabs-drag-overlay="true"
         >
-          <ThreadDeckDragPreview preview={deckData.preview} />
+          <FolderTabsDragPreview preview={folderData.preview} />
         </div>
       ) : null}
     </DragOverlay>

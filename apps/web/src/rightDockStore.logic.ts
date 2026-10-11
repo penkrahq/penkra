@@ -1,8 +1,6 @@
 // FILE: rightDockStore.logic.ts
-// Purpose: Pure state transitions for App tabs in a Thread Deck's right panel.
+// Purpose: Pure state transitions for App tabs in a Thread Folder's right panel.
 // Layer: UI state helpers
-
-import { isPlainObject, sanitizeStringKeyedRecord } from "./persistedRecord";
 
 export interface RightDockPane {
   id: string;
@@ -11,7 +9,7 @@ export interface RightDockPane {
   appSpaceId: string;
   appSlug: string;
   appName: string;
-  // Runtime-only presentation data. Persistence deliberately strips it.
+  // Runtime-only presentation data. This state lives in memory.
   appIconDataUrl?: string | null;
   appPresentationTitle?: string | null;
   appPresentationIconUrl?: string | null;
@@ -22,7 +20,7 @@ export interface RightDockPane {
   appStatus: "unloaded" | "loading" | "ready" | "crashed";
 }
 
-export interface RightDockDeckState {
+export interface RightDockFolderState {
   open: boolean;
   panes: RightDockPane[];
   activePaneId: string | null;
@@ -47,77 +45,8 @@ export interface OpenPaneInput {
   appStatus: "unloaded" | "loading" | "ready" | "crashed";
 }
 
-export function createDefaultRightDockState(): RightDockDeckState {
+export function createDefaultRightDockState(): RightDockFolderState {
   return { open: false, panes: [], activePaneId: null, width: null };
-}
-
-function parsePersistedAppPane(value: unknown): RightDockPane | null {
-  if (!isPlainObject(value) || value.kind !== "app") return null;
-  if (
-    typeof value.id !== "string" ||
-    typeof value.appId !== "string" ||
-    typeof value.appSpaceId !== "string" ||
-    typeof value.appSlug !== "string" ||
-    typeof value.appName !== "string" ||
-    typeof value.appRoute !== "string" ||
-    (value.appStatus !== "unloaded" &&
-      value.appStatus !== "loading" &&
-      value.appStatus !== "ready" &&
-      value.appStatus !== "crashed")
-  ) {
-    return null;
-  }
-  return {
-    id: value.id,
-    kind: "app",
-    appId: value.appId,
-    appSpaceId: value.appSpaceId,
-    appSlug: value.appSlug,
-    appName: value.appName,
-    ...(typeof value.appIconDataUrl === "string" || value.appIconDataUrl === null
-      ? { appIconDataUrl: value.appIconDataUrl }
-      : {}),
-    appRoute: value.appRoute,
-    ...(value.appState === undefined ? {} : { appState: value.appState }),
-    appStatus: "unloaded",
-  };
-}
-
-export function sanitizeRightDockDeckState(value: unknown): RightDockDeckState {
-  if (!isPlainObject(value)) return createDefaultRightDockState();
-  const panes = Array.isArray(value.panes)
-    ? value.panes.map(parsePersistedAppPane).filter((pane): pane is RightDockPane => pane !== null)
-    : [];
-  const activePaneId =
-    typeof value.activePaneId === "string" && panes.some((pane) => pane.id === value.activePaneId)
-      ? value.activePaneId
-      : (panes[0]?.id ?? null);
-  const width =
-    typeof value.width === "number" && Number.isFinite(value.width) && value.width > 0
-      ? value.width
-      : null;
-  return { open: value.open === true && panes.length > 0, panes, activePaneId, width };
-}
-
-export function sanitizeRightDockStateByDeckId(value: unknown): Record<string, RightDockDeckState> {
-  return sanitizeStringKeyedRecord(value, (raw) =>
-    raw === undefined ? null : sanitizeRightDockDeckState(raw),
-  );
-}
-
-export function migrateRightDockStateByThreadId(
-  value: unknown,
-  deckIdByThreadId: ReadonlyMap<string, string>,
-): Record<string, RightDockDeckState> {
-  const legacyByThreadId = sanitizeRightDockStateByDeckId(value);
-  const migratedByDeckId: Record<string, RightDockDeckState> = {};
-  for (const [threadId, dockState] of Object.entries(legacyByThreadId)) {
-    const deckId = deckIdByThreadId.get(threadId);
-    if (deckId && !Object.hasOwn(migratedByDeckId, deckId)) {
-      migratedByDeckId[deckId] = dockState;
-    }
-  }
-  return migratedByDeckId;
 }
 
 function createPane(input: OpenPaneInput): RightDockPane {
@@ -144,9 +73,9 @@ function createPane(input: OpenPaneInput): RightDockPane {
 }
 
 export function openPaneInState(
-  state: RightDockDeckState,
+  state: RightDockFolderState,
   input: OpenPaneInput,
-): RightDockDeckState {
+): RightDockFolderState {
   const existing = state.panes.find((pane) => pane.id === input.paneId);
   if (existing) {
     const pane = createPane(input);
@@ -163,7 +92,10 @@ export function openPaneInState(
     : { ...state, open: true, panes: [...state.panes, pane], activePaneId: pane.id };
 }
 
-export function closePaneInState(state: RightDockDeckState, paneId: string): RightDockDeckState {
+export function closePaneInState(
+  state: RightDockFolderState,
+  paneId: string,
+): RightDockFolderState {
   const removedIndex = state.panes.findIndex((pane) => pane.id === paneId);
   if (removedIndex === -1) return state;
   const panes = state.panes.filter((pane) => pane.id !== paneId);
@@ -175,25 +107,31 @@ export function closePaneInState(state: RightDockDeckState, paneId: string): Rig
 }
 
 export function setActivePaneInState(
-  state: RightDockDeckState,
+  state: RightDockFolderState,
   paneId: string,
-): RightDockDeckState {
+): RightDockFolderState {
   if (!state.panes.some((pane) => pane.id === paneId)) return state;
   return { ...state, open: true, activePaneId: paneId };
 }
 
-export function setDockOpenInState(state: RightDockDeckState, open: boolean): RightDockDeckState {
+export function setDockOpenInState(
+  state: RightDockFolderState,
+  open: boolean,
+): RightDockFolderState {
   const nextOpen = open && state.panes.length > 0;
   return state.open === nextOpen ? state : { ...state, open: nextOpen };
 }
 
-export function setDockWidthInState(state: RightDockDeckState, width: number): RightDockDeckState {
+export function setDockWidthInState(
+  state: RightDockFolderState,
+  width: number,
+): RightDockFolderState {
   if (!Number.isFinite(width) || width <= 0 || state.width === width) return state;
   return { ...state, width };
 }
 
 export function updatePaneInState(
-  state: RightDockDeckState,
+  state: RightDockFolderState,
   paneId: string,
   patch: Partial<
     Pick<
@@ -208,7 +146,7 @@ export function updatePaneInState(
       | "appStatus"
     >
   >,
-): RightDockDeckState {
+): RightDockFolderState {
   let changed = false;
   const panes = state.panes.map((pane) => {
     if (pane.id !== paneId) return pane;
@@ -240,7 +178,7 @@ function jsonValuesEqual(left: unknown, right: unknown): boolean {
   }
 }
 
-export function resolveActivePane(state: RightDockDeckState): RightDockPane | null {
+export function resolveActivePane(state: RightDockFolderState): RightDockPane | null {
   if (!state.open || state.activePaneId === null) return null;
   return state.panes.find((pane) => pane.id === state.activePaneId) ?? null;
 }

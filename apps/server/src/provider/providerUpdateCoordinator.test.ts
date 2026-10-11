@@ -1,3 +1,4 @@
+import { seedThreadFolderFixture } from "../cleanCore/threadFixtures.ts";
 import { DEFAULT_SERVER_SETTINGS, type ServerProviderStatus } from "@penkra/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, FileSystem, Stream, Layer } from "effect";
@@ -32,9 +33,11 @@ function withSession<A, E>(
   return Effect.runPromise(
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
+      yield* seedThreadFolderFixture("update-folder", "space");
       yield* createThread({
         id: "active-thread",
         spaceId: SpaceId.makeUnsafe("space"),
+        folderId: "update-folder",
         title: "Active",
         provider: "codex",
         model: "gpt-5.5",

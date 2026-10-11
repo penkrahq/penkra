@@ -1,3 +1,4 @@
+import { seedThreadFolderFixture } from "./threadFixtures.ts";
 import { MessageId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect } from "effect";
@@ -14,6 +15,7 @@ const withDb = <A, E>(effect: Effect.Effect<A, E, SqlClient.SqlClient>) =>
 const baseThread = {
   id: "thread-1",
   spaceId: "space-1",
+  folderId: "core-test-folder",
   title: "Hello",
   provider: "codex",
   model: "gpt-5.5",
@@ -46,6 +48,7 @@ it.effect("queue is a FIFO persisted on threads.queue", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
       yield* createThread(baseThread);
       yield* enqueueMessage("thread-1", {
         messageId: MessageId.makeUnsafe("m1"),

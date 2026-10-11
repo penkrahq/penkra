@@ -1,12 +1,12 @@
 // FILE: desktopThreadCommands.ts
-// Purpose: Execute trusted App Thread and Deck operations without a shell renderer.
+// Purpose: Execute trusted App folder thread operations without a shell renderer.
 
 import { randomUUID } from "node:crypto";
 import type {
   DesktopThreadApiRequest,
   DesktopThreadComposeAttachment,
-  OrchestrationShellSnapshot,
-  OrchestrationReadModel,
+  CleanCoreThreadSummary,
+  OrchestrationFolderShell,
   OrchestrationCommand,
   ChatAttachment,
   CleanCoreThreadUpdate,
@@ -16,17 +16,20 @@ import type {
 import {
   CommandId,
   MessageId,
-  ThreadDeckId,
+  FolderId,
+  ModelSelection,
+  RuntimeMode,
+  CleanCoreThreadListCursor,
   ThreadId,
-  singletonThreadDeckId,
 } from "@penkra/contracts";
+import { Schema } from "effect";
 import type { AppThreadSendReceipt, AppThreadState } from "@penkra/sdk";
 
 type ComposeRequest = Extract<DesktopThreadApiRequest, { method: "compose" }>;
 interface StagedComposition {
   readonly appId: string;
   readonly spaceId: string;
-  readonly deckId: string;
+  readonly folderId: string;
   readonly tabId: string;
   readonly threadId: string;
   readonly input: ComposeRequest["input"];
@@ -38,13 +41,21 @@ interface StagedComposition {
 }
 
 export interface DesktopThreadCommandDependencies {
-  snapshot(): Promise<OrchestrationShellSnapshot>;
-  readModel(): Promise<OrchestrationReadModel>;
+  getThread(threadId: string): Promise<CleanCoreThreadSummary | null>;
+  getFolder(folderId: string): Promise<OrchestrationFolderShell | null>;
+  listThreads(input: {
+    spaceId: string;
+    folderId: string;
+    after: CleanCoreThreadListCursor | null;
+  }): Promise<{
+    threads: readonly CleanCoreThreadSummary[];
+    nextCursor: CleanCoreThreadListCursor | null;
+  }>;
   bindingRevision(threadId: string): Promise<number>;
   dispatch(command: OrchestrationCommand): Promise<unknown>;
   createThread(input: CleanCoreCreateThreadInput): Promise<CleanCoreCreateThreadResult>;
   updateThread(
-    update: Extract<CleanCoreThreadUpdate, { action: "moveDeckThread" | "archive" }>,
+    update: Extract<CleanCoreThreadUpdate, { action: "moveSidebarItem" | "archive" }>,
   ): Promise<void>;
   dispatchTurn(
     command: Extract<OrchestrationCommand, { type: "thread.turn.start" }>,
@@ -73,61 +84,53 @@ export class DesktopThreadCommands {
     for (const [id, receipt] of this.#receipts) {
       if (!receipt.sending && receipt.expiresAt <= Date.now()) this.#receipts.delete(id);
     }
-    const snapshot = await this.deps.snapshot();
-    const readModel =
-      request.method === "current.read" || request.method === "list" || request.method === "get"
-        ? await this.deps.readModel()
-        : undefined;
-    const deck = snapshot.decks.find((candidate) => candidate.id === request.deckId);
-    if (!deck || deck.spaceId !== request.spaceId)
-      fail("THREAD_DECK_NOT_FOUND", "The Thread Deck is unavailable.");
-    const current = snapshot.threads.find((candidate) => candidate.id === request.threadId);
-    if (!current || current.deckId !== request.deckId)
-      fail("THREAD_NOT_IN_DECK", "The presenting Thread is not in this Deck.");
-    const requireMember = (id: string) => {
-      const member = snapshot.threads.find((candidate) => candidate.id === id);
-      if (!member || member.deckId !== request.deckId)
-        fail("THREAD_NOT_IN_DECK", "The Thread is not a member of this Deck.");
+    const folder = await this.deps.getFolder(request.folderId);
+    if (!folder || folder.spaceId !== request.spaceId)
+      fail("TAB_FOLDER_NOT_AVAILABLE", "The folder is unavailable.");
+    const requireMember = async (id: string) => {
+      const member = await this.deps.getThread(id);
+      if (!member || member.folderId !== request.folderId || member.deletedAt !== null)
+        fail("THREAD_NOT_IN_FOLDER", "The Thread is not in this folder.");
       return member;
     };
-    const requireSameSpace = (id: string) => {
-      const member = snapshot.threads.find((candidate) => candidate.id === id);
-      const folder = snapshot.folders.find((candidate) => candidate.id === member?.folderId);
-      if (!member || folder?.spaceId !== request.spaceId)
-        fail("THREAD_ACCESS_DENIED", "The Thread is outside the current Space.");
-      return member;
-    };
-    const state = (id: string): AppThreadState => {
-      const member = requireMember(id);
+    const current = await requireMember(request.threadId);
+    const modelOf = (row: CleanCoreThreadSummary) =>
+      Schema.decodeUnknownSync(ModelSelection)({
+        provider: row.provider,
+        model: row.model,
+        ...(row.modelOptions === null ? {} : { options: JSON.parse(row.modelOptions) }),
+      });
+    const state = (member: CleanCoreThreadSummary): AppThreadState => {
+      const id = member.id;
       const composed = [...this.#receipts].find(
         ([, receipt]) =>
           receipt.threadId === id && !receipt.result && receipt.expiresAt > Date.now(),
       );
-      const running = member.workStatus === "running";
+      const running = member.state === "running";
       const receipt = composed?.[1];
       return {
         threadId: id,
-        deckId: member.deckId,
+        folderId: member.folderId,
         title: member.title,
-        order: member.deckSortOrder,
+        order: member.sidebarSortOrder ?? 0,
         archived: member.archivedAt !== null,
-        phase: member.hasPendingUserInput
-          ? "waiting"
-          : member.workStatus === "running"
-            ? "running"
-            : member.workStatus === "attention"
-              ? "failed"
-              : "idle",
-        activeTurnId: member.session?.activeTurnId ?? null,
-        pendingQuestion: member.hasPendingUserInput === true,
+        phase:
+          member.openQuestionCount > 0
+            ? "waiting"
+            : member.state === "running"
+              ? "running"
+              : member.state === "error"
+                ? "failed"
+                : "idle",
+        activeTurnId: member.activeTurnId,
+        pendingQuestion: member.openQuestionCount > 0,
         composer: {
           empty: !receipt,
           owner: receipt ? "app" : "none",
           composeId: composed?.[0] ?? null,
         },
         queued: {
-          count:
-            readModel?.threads.find((thread) => thread.id === id)?.queuedMessageIds?.length ?? 0,
+          count: (JSON.parse(member.queue) as unknown[]).length,
           hasAppSubmission: [...this.#receipts.values()].some(
             (item) => item.threadId === id && item.result?.state === "queued",
           ),
@@ -144,76 +147,83 @@ export class DesktopThreadCommands {
 
     switch (request.method) {
       case "current.read":
-        return state(request.threadId);
-      case "list":
-        return deck.threadIds.map(state);
+        return state(current);
+      case "list": {
+        let after: CleanCoreThreadListCursor | null = null;
+        if (request.input.cursor !== undefined) {
+          try {
+            after = Schema.decodeUnknownSync(CleanCoreThreadListCursor)(
+              JSON.parse(Buffer.from(request.input.cursor, "base64url").toString("utf8")),
+            );
+          } catch {
+            fail("BAD_CURSOR", 'Argument "cursor" is not a valid folder-list cursor.');
+          }
+        }
+        const page = await this.deps.listThreads({
+          spaceId: request.spaceId,
+          folderId: request.folderId,
+          after,
+        });
+        return {
+          threads: page.threads.map(state),
+          pageInfo: {
+            nextCursor:
+              page.nextCursor === null
+                ? null
+                : Buffer.from(JSON.stringify(page.nextCursor), "utf8").toString("base64url"),
+          },
+        };
+      }
       case "get":
-        return state(request.input.threadId);
+        return state(await requireMember(request.input.threadId));
       case "select":
-        requireMember(request.input.threadId);
+        await requireMember(request.input.threadId);
         return { selectedThreadId: request.input.threadId };
       case "create": {
-        const folderId = request.input.folderId ?? current.folderId;
-        const folder = snapshot.folders.find((candidate) => candidate.id === folderId);
-        if (!folder || folder.spaceId !== request.spaceId)
-          fail("THREAD_ACCESS_DENIED", "The target folder is outside the current Space.");
+        if (request.input.folderId !== undefined && request.input.folderId !== request.folderId)
+          fail("THREAD_ACCESS_DENIED", "Create the Thread in the invoking folder.");
         const created = threadId();
-        if (current.workingDirectory === undefined)
-          fail("THREAD_STATE_INVALID", "The thread has no working-directory value.");
         await this.deps.createThread({
           creator: { kind: "user" },
           connection: { kind: "default" },
           threadId: created,
-          deckId: current.deckId,
           folderId: folder.id,
           title: request.input.title?.trim() || "New thread",
-          modelSelection: current.modelSelection,
-          runtimeMode: current.runtimeMode,
-          workingDirectory: current.workingDirectory,
+          modelSelection: modelOf(current),
+          runtimeMode: Schema.decodeUnknownSync(RuntimeMode)(current.runtimeMode),
           createdAt: new Date().toISOString(),
         });
-        return { threadId: created, deckId: current.deckId };
+        return { threadId: created, folderId: folder.id };
       }
-      case "add":
       case "reorder": {
-        const target = requireSameSpace(request.input.threadId);
-        if (request.method === "reorder" && target.deckId !== request.deckId)
-          fail("THREAD_NOT_IN_DECK", "Only a member of this Deck can be reordered.");
-        const position = request.input.position ?? { type: "end" as const };
+        const target = await requireMember(request.input.threadId);
+        const position = request.input.position;
+        const normalized =
+          position.type === "before" || position.type === "after"
+            ? ({ type: position.type, itemId: ThreadId.makeUnsafe(position.threadId) } as const)
+            : position.type === "start"
+              ? { type: "start" as const }
+              : { type: "end" as const };
         await this.deps.updateThread({
-          action: "moveDeckThread",
+          action: "moveSidebarItem",
           threadId: target.id,
-          deckId: ThreadDeckId.makeUnsafe(request.deckId),
-          position:
-            position.type === "before" || position.type === "after"
-              ? { type: position.type, itemId: ThreadId.makeUnsafe(position.threadId) }
-              : position,
-          updatedAt: new Date().toISOString(),
-        });
-        return null;
-      }
-      case "leave": {
-        const target = requireMember(request.input.threadId);
-        await this.deps.updateThread({
-          action: "moveDeckThread",
-          threadId: target.id,
-          deckId: singletonThreadDeckId(target.id),
-          position: { type: "end" },
+          folderId: folder.id,
+          position: normalized,
           updatedAt: new Date().toISOString(),
         });
         return null;
       }
       case "archive": {
-        const target = requireMember(request.input.threadId);
-        const remaining = deck.threadIds.filter(
-          (id) =>
-            id !== target.id &&
-            snapshot.threads.some(
-              (candidate) => candidate.id === id && candidate.archivedAt === null,
-            ),
-        );
+        const target = await requireMember(request.input.threadId);
+        const page = await this.deps.listThreads({
+          spaceId: request.spaceId,
+          folderId: request.folderId,
+          after: null,
+        });
         const selectedThreadId =
-          target.id === request.threadId ? (remaining[0] ?? null) : undefined;
+          target.id === request.threadId
+            ? (page.threads.find((row) => row.id !== target.id)?.id ?? null)
+            : undefined;
         const updatedAt = new Date().toISOString();
         await this.deps.updateThread({
           action: "archive",
@@ -225,8 +235,8 @@ export class DesktopThreadCommands {
         return { selectedThreadId };
       }
       case "compose": {
-        const target = requireMember(request.input.threadId);
-        if (target.hasPendingUserInput)
+        const target = await requireMember(request.input.threadId);
+        if (target.openQuestionCount > 0)
           fail("THREAD_WAITING_FOR_USER", "The Thread is waiting for a human answer.");
         const input = request.input;
         if (
@@ -255,7 +265,7 @@ export class DesktopThreadCommands {
         this.#receipts.set(composeId, {
           appId: request.appId,
           spaceId: request.spaceId,
-          deckId: request.deckId,
+          folderId: request.folderId,
           tabId: request.tabId,
           threadId: target.id,
           input,
@@ -286,7 +296,7 @@ export class DesktopThreadCommands {
           !receipt ||
           receipt.appId !== request.appId ||
           receipt.spaceId !== request.spaceId ||
-          receipt.deckId !== request.deckId ||
+          receipt.folderId !== request.folderId ||
           receipt.tabId !== request.tabId
         ) {
           fail(
@@ -298,11 +308,11 @@ export class DesktopThreadCommands {
         if (receipt.sending) return receipt.sending;
         if (receipt.expiresAt <= Date.now())
           fail("COMPOSITION_RECEIPT_EXPIRED", "The composition receipt has expired.");
-        const target = requireMember(receipt.threadId);
-        if (target.hasPendingUserInput)
+        const target = await requireMember(receipt.threadId);
+        if (target.openQuestionCount > 0)
           fail("THREAD_WAITING_FOR_USER", "The Thread is waiting for a human answer.");
         const mode = request.input.mode ?? "queue";
-        const busy = target.workStatus === "running";
+        const busy = target.state === "running";
         const state = busy ? (mode === "steer" ? "steering" : "queued") : "accepted";
         const submissionId = randomUUID();
         const selected = receipt.input.model?.[0];
@@ -323,7 +333,7 @@ export class DesktopThreadCommands {
                     }
                   : {}),
               }
-            : target.modelSelection;
+            : modelOf(target);
         const text = [
           receipt.input.text ?? "",
           ...(receipt.input.documents ?? []).map(
@@ -341,10 +351,10 @@ export class DesktopThreadCommands {
             attachments: [...receipt.attachments],
             ...(receipt.input.skills?.length ? { skills: receipt.input.skills } : {}),
           },
-          modelSelection: modelSelection as typeof target.modelSelection,
+          modelSelection: Schema.decodeUnknownSync(ModelSelection)(modelSelection),
           bindingRevision: await this.deps.bindingRevision(target.id),
           dispatchMode: mode,
-          runtimeMode: target.runtimeMode,
+          runtimeMode: Schema.decodeUnknownSync(RuntimeMode)(target.runtimeMode),
           createdAt: receipt.createdAt,
         };
         const sending = this.deps.dispatchTurn(command, `${request.appId}:${request.tabId}`).then(

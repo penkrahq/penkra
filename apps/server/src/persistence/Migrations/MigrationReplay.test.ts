@@ -1,62 +1,20 @@
 // FILE: MigrationReplay.test.ts
-// Purpose: Proves the replayed migration range is re-runnable against its own post-state.
+// Purpose: Verifies historical tracker recovery and one-time clean-core migration.
 // Layer: SQLite migration test
 
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { runMigrations } from "../Migrations.ts";
+import { migrationEntries, runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 
-/**
- * A released migration id was renumbered once (54 shipped as
- * `ProjectPullRequestPins`, then became `DurableProviderCommandDelivery`).
- * Lineage reconciliation answers a divergence by forgetting every tracker row
- * from that point onward, which makes the migrator replay the range over a
- * schema that already contains it — migration 56 died on
- * `duplicate column name: fingerprint_version` and the backend never booted.
- *
- * These tests reproduce that post-reconcile state directly, by tracker rows
- * rather than through `Migrations.ts`, so they keep asserting the property the
- * migrations themselves own — every migration at or after this id survives
- * being applied a second time — independently of how reconciliation decides to
- * classify any particular lineage.
- */
+// Historical tracker repair starts from the shipped schema at migration 175.
+// The clean-core migrations run once; current-schema reruns must be no-ops.
 const REPLAY_FROM_MIGRATION_ID = 54;
-
-const replayedEntries: ReadonlyArray<readonly [id: number, name: string]> = [
-  [152, "TypedLegacyPendingInteractionFailures"],
-  [153, "TypedLegacyPendingInteractionProjectionRepair"],
-  [154, "RestartReconciliationIndexes"],
-  [155, "ThreadSidebarPreviewIndex"],
-  [156, "ActiveTurnProjectionSemantics"],
-  [157, "QueuedTurnLifecycle"],
-  [158, "LogicalTurnProviderBindings"],
-  [159, "AgentGatewayCreationAdmissions"],
-  [160, "ProjectionTurnPendingMessageLookup"],
-  [161, "CanonicalActivitySequence"],
-  [162, "TranscriptMessageSearch"],
-  [163, "MessageDeliveryFailureEvidence"],
-  [164, "ThreadDecks"],
-  [165, "ProviderRuntimeDiagnosticEpisodes"],
-  [166, "RetentionActiveDays"],
-  [167, "ProviderAuthCircuits"],
-  [168, "ProjectionThreadConnectionSelection"],
-  [169, "ProjectionMessageSenderThread"],
-  [170, "ProviderIntentOutbox"],
-  [171, "ProviderIntentDiagnosticTrace"],
-  [172, "ProviderSwitchFailureCleanup"],
-  [173, "BoundedRuntimeMaintenanceAndActivityPages"],
-  [174, "IndependentRuntimeWork"],
-  [175, "ProviderPurgeOwnershipIndexes"],
-  [176, "CleanCoreSchemaAndBackfill"],
-  [177, "ThreadHarnessCanonicalForeignKey"],
-  [178, "ThreadDeckOrderIndex"],
-  [179, "RemoveFolderPinning"],
-  [180, "ThreadProviderLookupIndex"],
-  [181, "AgentThreadReadIndexes"],
-];
+const replayedEntries = migrationEntries
+  .filter(([id]) => id >= 152)
+  .map(([id, name]) => [id, name] as const);
 
 const schemaObjects = (sql: SqlClient.SqlClient) =>
   sql<{
@@ -140,15 +98,15 @@ schemaLayer("migration replay schema stability", (it) => {
   it.effect("replays the reconciled range without error or schema drift", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 175 });
       yield* seedDurableState;
-      const schemaBefore = yield* schemaObjects(sql);
-
       yield* forgetMigrationsFromReplayPoint;
       const replayed = yield* runMigrations();
 
       assert.deepStrictEqual(replayed, replayedEntries);
-      assert.deepStrictEqual(yield* schemaObjects(sql), schemaBefore);
+      const schemaAfter = yield* schemaObjects(sql);
+      assert.deepStrictEqual(yield* runMigrations(), []);
+      assert.deepStrictEqual(yield* schemaObjects(sql), schemaAfter);
     }),
   );
 });
@@ -159,7 +117,7 @@ dataLayer("migration replay data preservation", (it) => {
   it.effect("preserves durable rows the replayed range would otherwise rebuild", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 175 });
       yield* seedDurableState;
 
       yield* forgetMigrationsFromReplayPoint;
@@ -217,20 +175,19 @@ dataLayer("migration replay data preservation", (it) => {
 const repeatedLayer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
 
 repeatedLayer("migration replay repeatability", (it) => {
-  it.effect("stays re-runnable across repeated reconciliations", () =>
+  it.effect("keeps the latest migrated schema unchanged on the next startup", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 175 });
       yield* seedDurableState;
 
       yield* forgetMigrationsFromReplayPoint;
       yield* runMigrations();
       const schemaAfterFirstReplay = yield* schemaObjects(sql);
 
-      yield* forgetMigrationsFromReplayPoint;
       const secondReplay = yield* runMigrations();
 
-      assert.deepStrictEqual(secondReplay, replayedEntries);
+      assert.deepStrictEqual(secondReplay, []);
       assert.deepStrictEqual(yield* schemaObjects(sql), schemaAfterFirstReplay);
     }),
   );

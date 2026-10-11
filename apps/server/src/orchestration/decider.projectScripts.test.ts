@@ -1,13 +1,5 @@
 import { seedThreadReadModelFixture } from "../cleanCore/threadFixtures.ts";
-import {
-  CommandId,
-  EventId,
-  MessageId,
-  FolderId,
-  SpaceId,
-  ThreadId,
-  singletonThreadDeckId,
-} from "@penkra/contracts";
+import { CommandId, EventId, MessageId, FolderId, SpaceId, ThreadId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 import { Effect } from "effect";
 
@@ -198,19 +190,16 @@ describe("decider project scripts", () => {
       seedThreadReadModelFixture(withActiveProject, {
         threadId: ThreadId.makeUnsafe(ThreadId.makeUnsafe("thread-mixed-active")),
         folderId: FolderId.makeUnsafe(asFolderId("project-mixed-active")),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-mixed-active")),
         title: "Saved chat",
         modelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
         },
         runtimeMode: "approval-required",
-        workingDirectory: null,
         createdAt: now,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
         sidebarSortOrder: 0,
-        deckSortOrder: 0,
       }),
     );
 
@@ -317,19 +306,16 @@ describe("decider project scripts", () => {
       seedThreadReadModelFixture(withProject, {
         threadId: ThreadId.makeUnsafe(ThreadId.makeUnsafe("thread-1")),
         folderId: FolderId.makeUnsafe(asFolderId("project-1")),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-1")),
         title: "Thread",
         modelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
         },
         runtimeMode: "approval-required",
-        workingDirectory: null,
         createdAt: now,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
         sidebarSortOrder: 0,
-        deckSortOrder: 0,
       }),
     );
 

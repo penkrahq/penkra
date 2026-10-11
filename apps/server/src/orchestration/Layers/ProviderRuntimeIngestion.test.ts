@@ -3,7 +3,7 @@ import { createThreadFixture } from "../../cleanCore/threadFixtures.ts";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { singletonThreadDeckId } from "@penkra/contracts";
+import {} from "@penkra/contracts";
 import { DatabaseSync, StatementSync } from "node:sqlite";
 
 import type {
@@ -340,14 +340,12 @@ describe("ProviderRuntimeIngestion", () => {
       createThreadFixture(sql, {
         threadId: ThreadId.makeUnsafe("thread-1"),
         folderId: asFolderId("project-1"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-1")),
         title: "Thread",
         modelSelection: {
           provider: providerKind,
           model,
         },
         runtimeMode: "approval-required",
-        workingDirectory: workspaceRoot,
         createdAt: createdAt,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
@@ -417,11 +415,9 @@ describe("ProviderRuntimeIngestion", () => {
       createThreadFixture(harness.sql, {
         threadId: threadB,
         folderId: asFolderId("project-1"),
-        deckId: singletonThreadDeckId(threadB),
         title: "Independent thread",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
-        workingDirectory: null,
         createdAt: createdAt,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
@@ -1415,11 +1411,9 @@ describe("ProviderRuntimeIngestion", () => {
       createThreadFixture(harness.sql, {
         threadId: thread2,
         folderId: asFolderId("project-1"),
-        deckId: singletonThreadDeckId(thread2),
         title: "Accepted Rebuild Healthy Thread",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
-        workingDirectory: null,
         createdAt: createdAt,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
@@ -1665,11 +1659,9 @@ describe("ProviderRuntimeIngestion", () => {
       createThreadFixture(harness.sql, {
         threadId: thread2,
         folderId: asFolderId("project-1"),
-        deckId: singletonThreadDeckId(thread2),
         title: "Independent Thread",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
-        workingDirectory: null,
         createdAt: createdAt,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
@@ -4865,11 +4857,9 @@ describe("ProviderRuntimeIngestion", () => {
       createThreadFixture(harness.sql, {
         threadId: secondThreadId,
         folderId: asFolderId("project-1"),
-        deckId: singletonThreadDeckId(secondThreadId),
         title: "Buffered Thread",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
-        workingDirectory: null,
         createdAt: now,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
@@ -7565,11 +7555,9 @@ describe("ProviderRuntimeIngestion", () => {
         yield* createThreadFixture(harness.sql, {
           threadId: childThreadId,
           folderId: asFolderId("project-1"),
-          deckId: singletonThreadDeckId(childThreadId),
           title: "Migrated child",
           modelSelection: { provider: "codex", model: "gpt-5" },
           runtimeMode: "approval-required",
-          workingDirectory: null,
           createdAt: now,
           creator: { kind: "user" },
           connection: { kind: "selected", connectionId: null },

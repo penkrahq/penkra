@@ -3,10 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   closePaneInState,
   createDefaultRightDockState,
-  migrateRightDockStateByThreadId,
   openPaneInState,
-  sanitizeRightDockStateByDeckId,
-  sanitizeRightDockDeckState,
   setActivePaneInState,
   setDockOpenInState,
   setDockWidthInState,
@@ -86,7 +83,7 @@ describe("App tab state", () => {
     );
   });
 
-  it("retains a custom width in the deck state", () => {
+  it("retains a custom width in the folder state", () => {
     const state = setDockWidthInState(createDefaultRightDockState(), 640);
     expect(state.width).toBe(640);
     expect(setDockWidthInState(state, 640)).toBe(state);
@@ -94,118 +91,7 @@ describe("App tab state", () => {
   });
 });
 
-describe("persisted App tabs", () => {
-  it("restores only complete App records", () => {
-    const state = sanitizeRightDockDeckState({
-      open: true,
-      activePaneId: "valid",
-      panes: [
-        {
-          id: "valid",
-          kind: "app",
-          appId: "com.penkra.explorer",
-          appSpaceId: "space-1",
-          appSlug: "explorer",
-          appName: "Explorer",
-          appIconDataUrl: "data:image/svg+xml,explorer",
-          appRoute: "/",
-          appState: { documentId: "doc-1", viewport: { x: 20, y: 40 } },
-          appStatus: "ready",
-        },
-        { id: "unsupported", kind: "unknown" },
-      ],
-    });
-    expect(state.panes.map((pane) => pane.id)).toEqual(["valid"]);
-    expect(state.panes[0]?.appState).toEqual({
-      documentId: "doc-1",
-      viewport: { x: 20, y: 40 },
-    });
-    expect(state.panes[0]?.appStatus).toBe("unloaded");
-    expect(state.panes[0]?.appIconDataUrl).toBe("data:image/svg+xml,explorer");
-    expect(state.activePaneId).toBe("valid");
-    expect(state.open).toBe(true);
-    expect(state.width).toBeNull();
-  });
-
-  it("restores a valid per-deck width and rejects invalid widths", () => {
-    const valid = sanitizeRightDockDeckState({ width: 612 });
-    const invalid = sanitizeRightDockDeckState({ width: Number.POSITIVE_INFINITY });
-    expect(valid.width).toBe(612);
-    expect(invalid.width).toBeNull();
-  });
-
-  it("closes malformed or empty state", () => {
-    expect(sanitizeRightDockDeckState({ open: true, panes: [{ kind: "app" }] })).toEqual(
-      createDefaultRightDockState(),
-    );
-  });
-
-  it("discards legacy panes without a recorded Space instead of rebinding them", () => {
-    expect(
-      sanitizeRightDockDeckState({
-        open: true,
-        panes: [
-          {
-            id: "unscoped-tab",
-            kind: "app",
-            appId: "com.penkra.canvas",
-            appSlug: "canvas",
-            appName: "Canvas",
-            appRoute: "/document/7",
-            appStatus: "ready",
-          },
-        ],
-      }),
-    ).toEqual(createDefaultRightDockState());
-  });
-
-  it("sanitizes the per-deck map", () => {
-    const result = sanitizeRightDockStateByDeckId({
-      thread: {
-        open: true,
-        activePaneId: "app",
-        panes: [
-          {
-            id: "app",
-            kind: "app",
-            appId: "com.penkra.apps",
-            appSpaceId: "space-1",
-            appSlug: "apps",
-            appName: "Apps",
-            appRoute: "/",
-            appStatus: "ready",
-          },
-        ],
-      },
-    });
-    expect(result.thread?.panes[0]?.appSlug).toBe("apps");
-  });
-
-  it("migrates old per-Thread panels to their canonical deck without dual ownership", () => {
-    const legacy = {
-      "thread-1": {
-        open: true,
-        activePaneId: "app",
-        panes: [
-          {
-            id: "app",
-            kind: "app",
-            appId: "com.penkra.apps",
-            appSpaceId: "space-1",
-            appSlug: "apps",
-            appName: "Apps",
-            appRoute: "/",
-            appStatus: "ready",
-          },
-        ],
-      },
-    };
-
-    expect(migrateRightDockStateByThreadId(legacy, new Map([["thread-1", "deck-1"]]))).toEqual({
-      "deck-1": expect.objectContaining({ activePaneId: "app" }),
-    });
-  });
-
+describe("App tab navigation updates", () => {
   it("does not churn state when equivalent reconstructed navigation is received", () => {
     const state = openPaneInState(createDefaultRightDockState(), {
       ...APP_PANE,

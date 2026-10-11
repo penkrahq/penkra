@@ -8,7 +8,6 @@ import {
   FolderId,
   SpaceId,
   ThreadId,
-  singletonThreadDeckId,
   type OrchestrationCommand,
 } from "@penkra/contracts";
 import { Effect } from "effect";
@@ -80,14 +79,11 @@ async function addThread(input: { readModel: ReadModel; id: string; folderId: Fo
     metadata: {},
     payload: {
       threadId: ThreadId.makeUnsafe(input.id),
-      deckId: singletonThreadDeckId(ThreadId.makeUnsafe(input.id)),
-      deckSortOrder: 0,
       sidebarSortOrder: 0,
       folderId: input.folderId,
       title: input.id,
       modelSelection: { provider: "codex" as const, model: "gpt-5-codex" },
       runtimeMode: "full-access" as const,
-      workingDirectory: null,
       subagentAgentId: null,
       subagentNickname: null,
       subagentRole: null,

@@ -21,7 +21,7 @@ export function parseOpenAppTabRequest(input: unknown): {
   tabId?: string;
   appId: string;
   spaceId: string;
-  deckId: string;
+  folderId: string;
   threadId: string;
   route: string;
   state?: unknown;
@@ -31,7 +31,7 @@ export function parseOpenAppTabRequest(input: unknown): {
     ...(value.tabId === undefined ? {} : { tabId: string(value, "tabId") }),
     appId: string(value, "appId"),
     spaceId: string(value, "spaceId"),
-    deckId: string(value, "deckId"),
+    folderId: string(value, "folderId"),
     threadId: string(value, "threadId"),
     route: string(value, "route"),
     ...(value.state === undefined ? {} : { state: value.state }),
@@ -44,13 +44,13 @@ export function parseOpenAppFromAppsRequest(input: unknown): { appId: string } {
 
 export function parseSetAppTabContextRequest(input: unknown): {
   tabId: string;
-  deckId: string;
+  folderId: string;
   threadId: string;
 } {
   const value = record(input);
   return {
     tabId: string(value, "tabId"),
-    deckId: string(value, "deckId"),
+    folderId: string(value, "folderId"),
     threadId: string(value, "threadId"),
   };
 }
@@ -137,7 +137,7 @@ export function parseSetAppTabActiveRequest(input: unknown): {
   tabId: string;
   rendererId: number;
   active: boolean;
-  deckId: string;
+  folderId: string;
   threadId: string;
 } {
   const value = record(input);
@@ -146,7 +146,7 @@ export function parseSetAppTabActiveRequest(input: unknown): {
     tabId: string(value, "tabId"),
     rendererId: finiteNumber(value, "rendererId"),
     active: value.active,
-    deckId: string(value, "deckId"),
+    folderId: string(value, "folderId"),
     threadId: string(value, "threadId"),
   };
 }

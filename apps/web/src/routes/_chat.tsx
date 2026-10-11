@@ -1,4 +1,4 @@
-import { ThreadDeckId, type ResolvedKeybindingsConfig } from "@penkra/contracts";
+import { FolderId, type ResolvedKeybindingsConfig } from "@penkra/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { Outlet, createFileRoute, useLocation, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
@@ -25,12 +25,11 @@ import {
   resolveLatestProjectTargetIdWithFallback,
   resolveNewThreadTarget,
 } from "../lib/projectShortcutTargets";
-import { resolveInheritedThreadContext } from "../lib/threadBootstrap";
 import { startFreshChatForActiveSurface } from "../lib/startContainerChat";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { isOrdinarySpaceProject } from "../lib/spaces";
 import { resolveShortcutCommand } from "../keybindings";
-import { closeSelectedPanelTabForDeck } from "../lib/panelShortcuts";
+import { closeSelectedPanelTabForFolder } from "../lib/panelShortcuts";
 import { useRightDockStore } from "../rightDockStore";
 import { useStore } from "../store";
 import { useSpacesUiStore } from "../spacesUiStore";
@@ -428,9 +427,6 @@ function ChatRouteGlobalShortcuts() {
           }
           await handleNewThread(target.folderId, {
             provider,
-            ...(target.inheritContext
-              ? resolveInheritedThreadContext({ activeThread, activeDraftThread })
-              : {}),
           });
         })();
         return;
@@ -443,9 +439,6 @@ function ChatRouteGlobalShortcuts() {
         event.stopPropagation();
         void handleNewThread(target.folderId, {
           entryPoint: "terminal",
-          ...(target.inheritContext
-            ? resolveInheritedThreadContext({ activeThread, activeDraftThread })
-            : {}),
         });
         return;
       }
@@ -458,12 +451,7 @@ function ChatRouteGlobalShortcuts() {
       if (!target) return;
       event.preventDefault();
       event.stopPropagation();
-      void handleNewThread(
-        target.folderId,
-        target.inheritContext
-          ? resolveInheritedThreadContext({ activeThread, activeDraftThread })
-          : undefined,
-      );
+      void handleNewThread(target.folderId);
     };
 
     window.addEventListener("keydown", onWindowKeyDown, { capture: true });
@@ -517,16 +505,16 @@ function ChatRouteGlobalShortcuts() {
   }, [navigate, toggleSidebar]);
 
   useEffect(() => {
-    return window.desktopBridge?.panelFocus?.onClosePanelTab(({ deckId }) => {
+    return window.desktopBridge?.panelFocus?.onClosePanelTab(({ folderId }) => {
       const store = useRightDockStore.getState();
-      closeSelectedPanelTabForDeck({
-        deckId,
-        state: store.dockStateByDeckId[deckId],
+      closeSelectedPanelTabForFolder({
+        folderId,
+        state: store.dockStateByFolderId[folderId],
         closeNativeTab: (tabId) => {
           void window.desktopBridge?.appTabs?.close({ tabId }).catch(() => undefined);
         },
-        closePane: (targetDeckId, paneId) =>
-          store.closePane(ThreadDeckId.makeUnsafe(targetDeckId), paneId),
+        closePane: (targetFolderId, paneId) =>
+          store.closePane(FolderId.makeUnsafe(targetFolderId), paneId),
       });
     });
   }, []);

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ThreadId, singletonThreadDeckId } from "@penkra/contracts";
+import { ThreadId, FolderId } from "@penkra/contracts";
 
 import { createThreadResourceOpener, resolveThreadResourcePath } from "./threadResourceOpener";
 
@@ -34,7 +34,8 @@ describe("createThreadResourceOpener", () => {
     const opener = createThreadResourceOpener({
       directory: "/workspace/project",
       spaceId: "space-1",
-      deckId: singletonThreadDeckId(threadId),
+      folderId: FolderId.makeUnsafe("folder-1"),
+
       threadId,
     });
 
@@ -45,26 +46,26 @@ describe("createThreadResourceOpener", () => {
     expect(open).toHaveBeenNthCalledWith(1, {
       path: "/workspace/project/README.md",
       spaceId: "space-1",
-      deckId: singletonThreadDeckId(threadId),
+      folderId: FolderId.makeUnsafe("folder-1"),
       threadId: "thread-1",
     });
     expect(open).toHaveBeenNthCalledWith(2, {
       url: "https://penkra.com/docs",
       spaceId: "space-1",
-      deckId: singletonThreadDeckId(threadId),
+      folderId: FolderId.makeUnsafe("folder-1"),
       threadId: "thread-1",
     });
     expect(showContextMenu).toHaveBeenNthCalledWith(1, {
       path: "/workspace/project/README.md",
       spaceId: "space-1",
-      deckId: singletonThreadDeckId(threadId),
+      folderId: FolderId.makeUnsafe("folder-1"),
       threadId: "thread-1",
       position: { x: 10, y: 20 },
     });
     expect(showContextMenu).toHaveBeenNthCalledWith(2, {
       url: "https://penkra.com/docs",
       spaceId: "space-1",
-      deckId: singletonThreadDeckId(threadId),
+      folderId: FolderId.makeUnsafe("folder-1"),
       threadId: "thread-1",
       position: { x: 30, y: 40 },
     });

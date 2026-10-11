@@ -1,5 +1,5 @@
 import type { SidebarThreadRow } from "../sidebarThreadRows";
-import { FolderId, SpaceId, ThreadId, singletonThreadDeckId } from "@penkra/contracts";
+import { FolderId, SpaceId, ThreadId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import { resolveChatIndexRestoreRoute } from "../routes/-chatIndexRoute.logic";
@@ -38,9 +38,6 @@ function thread(input: { id: string; folderId: string }): SidebarThreadRow {
   const id = ThreadId.makeUnsafe(input.id);
   return {
     id,
-    deckId: singletonThreadDeckId(id),
-    deckSortOrder: 0,
-    workingDirectory: null,
     sidebarSortOrder: undefined,
     lastVisitedAt: undefined,
     lastMessagePreview: null,

@@ -1,3 +1,4 @@
+import { seedThreadFolderFixture } from "./threadFixtures.ts";
 import { assert, it } from "@effect/vitest";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -7,8 +8,6 @@ import {
   createThread,
   makeThreadPublisher,
   moveSidebarItem,
-  moveDeckThread,
-  setThreadWorkingDirectory,
   moveFolder,
   moveSpace,
   publishSidebarRows,
@@ -25,6 +24,7 @@ const withDb = <A, E>(effect: Effect.Effect<A, E, SqlClient.SqlClient>) =>
 const baseThread = {
   id: "thread-1",
   spaceId: "space-1",
+  folderId: "core-test-folder",
   title: "Hello",
   provider: "codex",
   model: "gpt-5.5",
@@ -38,6 +38,7 @@ it.effect("createThread is idempotent on the client-chosen id", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
       yield* createThread(baseThread);
       yield* createThread({ ...baseThread, title: "Changed" });
       const rows = yield* sql<{ readonly id: string; readonly title: string }>`
@@ -53,6 +54,7 @@ it.effect("upsertThreadItem assigns seq once and updates in place", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
       yield* createThread(baseThread);
       yield* upsertThreadItem({
         threadId: "thread-1",
@@ -125,6 +127,7 @@ it.effect("upsertThreadItem maintains open_question_count from question items", 
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
       yield* createThread(baseThread);
       yield* upsertThreadItem({
         threadId: "thread-1",
@@ -170,6 +173,7 @@ it.effect("stores last_message_preview unchanged (no fixed truncation)", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
       yield* createThread(baseThread);
       const longText = "x".repeat(500);
       yield* upsertThreadItem({
@@ -235,6 +239,7 @@ it.effect("archive and answer are plain idempotent updates", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
       yield* createThread(baseThread);
       yield* upsertThreadItem({
         threadId: "thread-1",
@@ -272,6 +277,7 @@ it.effect("caps oversized item data at the shared 64 KB limit", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
       yield* createThread(baseThread);
       const big = "y".repeat(THREAD_ITEM_DATA_LIMIT_BYTES + 5);
       yield* upsertThreadItem({
@@ -420,110 +426,6 @@ it.effect("moveSpace renumbers active siblings and repeats without writes or bro
         { id: "b", order: 0, updatedAt: input.updatedAt },
         { id: "c", order: 1, updatedAt: input.updatedAt },
         { id: "a", order: 2, updatedAt: input.updatedAt },
-      ]);
-    }),
-  ),
-);
-it.effect("deck moves renumber both decks and repeat without writes", () =>
-  withDb(
-    Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations();
-      for (const [id, deckId, order] of [
-        ["a", "one", 0],
-        ["b", "one", 1],
-        ["c", "two", 0],
-      ] as const) {
-        yield* createThread({ ...baseThread, id, deckId, deckSortOrder: order });
-      }
-      for (const id of ["one", "two"])
-        yield* sql`INSERT INTO projection_thread_decks
-      (deck_id, space_id, created_at, updated_at) VALUES (${id}, 'space-1', ${baseThread.createdAt}, ${baseThread.createdAt})`;
-      const input = {
-        threadId: "a",
-        deckId: "two",
-        position: { type: "after", itemId: "c" as never } as const,
-        updatedAt: "2026-10-09T00:00:09.000Z",
-      };
-      assert.deepStrictEqual(yield* moveDeckThread(input), ["a", "b"]);
-      assert.deepStrictEqual(
-        yield* moveDeckThread({ ...input, updatedAt: "2026-10-09T00:00:10.000Z" }),
-        [],
-      );
-      const rows = yield* sql<{
-        readonly id: string;
-        readonly deckId: string;
-        readonly order: number;
-      }>`
-      SELECT id, deck_id AS "deckId", deck_sort_order AS "order" FROM threads ORDER BY deck_id, deck_sort_order`;
-      assert.deepStrictEqual(rows, [
-        { id: "b", deckId: "one", order: 0 },
-        { id: "c", deckId: "two", order: 0 },
-        { id: "a", deckId: "two", order: 1 },
-      ]);
-      assert.deepStrictEqual(
-        yield* moveDeckThread({ ...input, threadId: "b", position: { type: "start" } }),
-        ["b", "c", "a"],
-      );
-      assert.deepStrictEqual(
-        yield* sql`SELECT deck_id FROM projection_thread_decks ORDER BY deck_id`,
-        [{ deck_id: "two" }],
-      );
-    }),
-  ),
-);
-
-it.effect("rejects cross-space deck moves without changing the rows", () =>
-  withDb(
-    Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations();
-      yield* createThread({ ...baseThread, deckId: "one" });
-      yield* sql`INSERT INTO projection_thread_decks (deck_id, space_id, created_at, updated_at)
-      VALUES ('two', 'space-2', ${baseThread.createdAt}, ${baseThread.createdAt})`;
-      const result = yield* Effect.exit(
-        moveDeckThread({
-          threadId: baseThread.id,
-          deckId: "two",
-          position: { type: "end" },
-          updatedAt: baseThread.createdAt,
-        }),
-      );
-      assert.equal(result._tag, "Failure");
-      assert.deepStrictEqual(yield* sql`SELECT deck_id FROM threads`, [{ deck_id: "one" }]);
-    }),
-  ),
-);
-
-it.effect("workspace writes preserve the directory once the thread has started", () =>
-  withDb(
-    Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations();
-      yield* createThread(baseThread);
-      const input = {
-        threadId: baseThread.id,
-        workingDirectory: "/repo",
-        updatedAt: baseThread.createdAt,
-      };
-      assert.equal(yield* setThreadWorkingDirectory(input), true);
-      assert.equal(yield* setThreadWorkingDirectory(input), false);
-      yield* upsertThreadItem({
-        threadId: baseThread.id,
-        sourceId: "message",
-        kind: "user",
-        status: "sent",
-        text: "hello",
-        createdAt: baseThread.createdAt,
-        updatedAt: baseThread.createdAt,
-      });
-      assert.equal(
-        (yield* Effect.exit(setThreadWorkingDirectory({ ...input, workingDirectory: "/other" })))
-          ._tag,
-        "Failure",
-      );
-      assert.deepStrictEqual(yield* sql`SELECT working_directory FROM threads`, [
-        { working_directory: "/repo" },
       ]);
     }),
   ),

@@ -5,7 +5,6 @@ import {
   resolveSingleFolderId,
   shouldRedirectArchivedThreadRoute,
   resolveThreadPickerTitle,
-  resolveThreadWorkingDirectory,
 } from "./-chatThreadRoute.logic";
 
 describe("Thread route logic", () => {
@@ -19,20 +18,6 @@ describe("Thread route logic", () => {
     expect(
       shouldRedirectArchivedThreadRoute({ archived: false, localArchiveNavigationPending: false }),
     ).toBe(false);
-  });
-  it("resolves the Thread's effective working directory", () => {
-    expect(
-      resolveThreadWorkingDirectory({
-        projectCwd: "/project",
-        threadWorkingDirectory: "/worktree",
-      }),
-    ).toBe("/worktree");
-    expect(
-      resolveThreadWorkingDirectory({
-        projectCwd: "/project",
-        threadWorkingDirectory: "/chosen",
-      }),
-    ).toBe("/chosen");
   });
 
   it("uses draft project identity only when the server Thread has none", () => {

@@ -1,3 +1,11 @@
+import { ensureDurableThreadWorkspace } from "../scratchWorkspaces.ts";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll } from "vitest";
+import { ServerConfig } from "../config.ts";
+const senderStateDir = mkdtempSync(join(tmpdir(), "penkra-folder-sender-"));
+afterAll(() => rmSync(senderStateDir, { recursive: true, force: true }));
 import { ManagedAttachmentRepository } from "../persistence/Services/ManagedAttachments.ts";
 import { CurrentManagedAttachmentPrincipal } from "../managedAttachmentPrincipal.ts";
 import { ManagedAttachmentRepositoryLive } from "../persistence/Layers/ManagedAttachments.ts";
@@ -22,82 +30,103 @@ import { enqueueMessage, readThreadQueue } from "./threadQueue.ts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
 
-it.effect("uses the exact current binding revision and waits for native confirmation", () =>
-  Effect.gen(function* () {
-    yield* runMigrations();
-    yield* createThread({
-      id: "thread-1",
-      spaceId: "space-1",
-      title: "Hello",
-      provider: "codex",
-      model: "gpt-5.5",
-      runtimeMode: "full-access",
-      createdBy: "user",
-      createdAt: "2026-10-09T00:00:00.000Z",
-    });
-    const publisher = makeThreadPublisher();
-    let dispatchCount = 0;
-    const coordinator: typeof ProviderThreadSwitchCoordinator.Service = {
-      dispatchTurnStart: ({ command }) =>
-        Effect.sync(() => {
-          dispatchCount += 1;
-          assert.equal(command.bindingRevision, 12);
-          assert.isTrue(command.commandId.length > 0);
-          publisher.publishProvider({
-            type: "turn.started",
-            threadId: command.threadId,
-            turnId: "native-turn",
-            at: command.createdAt,
-          });
-          publisher.publishDispatch({
-            type: "acknowledged",
-            threadId: command.threadId,
-            messageId: command.message.messageId,
-            turnId: "native-turn",
-          });
-          return { sequence: 1 };
-        }),
-      dispatchQueuedTurn: () => Effect.die("no old queue"),
-      recoverOpen: Effect.void,
-    };
-    const sender = yield* makeThreadSender.pipe(
-      Effect.provide(ManagedAttachmentRepositoryLive),
-      Effect.provideService(ThreadPublisher, publisher),
-      Effect.provideService(ProviderThreadSwitchCoordinator, coordinator),
-      Effect.provideService(ThreadProviderBindingRepository, {
-        getRuntimeBinding: () => Effect.succeed(Option.some({ revision: 12 })),
-      } as unknown as typeof ThreadProviderBindingRepository.Service),
-      Effect.provideService(ProviderService, {
-        interruptTurn: () => Effect.void,
-      } as unknown as typeof ProviderService.Service),
-    );
-    const request = {
-      threadId: ThreadId.makeUnsafe("thread-1"),
-      message: {
-        messageId: MessageId.makeUnsafe("m1"),
-        text: "hello",
-        attachments: [],
-        senderThreadId: null,
-        dispatchOrigin: "user",
-        queuedAt: "2026-10-09T00:00:01.000Z",
-      },
-      dispatchMode: "queue",
-    } satisfies ThreadSendInput;
-    const result = yield* sender.send(request);
-    assert.deepStrictEqual(yield* sender.send(request), result);
-    assert.equal(dispatchCount, 1);
-    assert.equal(result.delivery, "started");
-    if (result.delivery === "started")
-      assert.equal(result.turnId, TurnId.makeUnsafe("native-turn"));
-  }).pipe(Effect.scoped, Effect.provide(NodeSqliteClient.layerMemory())),
-);
-
+for (const workspaceRoot of [null, "/repo"]) {
+  it.effect(
+    workspaceRoot === null
+      ? "starts in the durable thread scratch directory when its folder has no workspace"
+      : "starts in its folder workspace and waits for native confirmation",
+    () =>
+      Effect.gen(function* () {
+        yield* runMigrations();
+        const folderSql = yield* SqlClient.SqlClient;
+        yield* folderSql`INSERT INTO projection_folders (folder_id, title, workspace_root, scripts_json, space_id, created_at, updated_at)
+      VALUES ('sender-folder', 'Sender folder', ${workspaceRoot}, '[]', 'space-1', '2026-10-09T00:00:00.000Z', '2026-10-09T00:00:00.000Z')`;
+        yield* createThread({
+          folderId: "sender-folder",
+          id: "thread-1",
+          spaceId: "space-1",
+          title: "Hello",
+          provider: "codex",
+          model: "gpt-5.5",
+          runtimeMode: "full-access",
+          createdBy: "user",
+          createdAt: "2026-10-09T00:00:00.000Z",
+        });
+        const publisher = makeThreadPublisher();
+        let dispatchCount = 0;
+        const coordinator: typeof ProviderThreadSwitchCoordinator.Service = {
+          dispatchTurnStart: ({ command, cwd }) =>
+            Effect.sync(() => {
+              dispatchCount += 1;
+              assert.equal(
+                cwd,
+                workspaceRoot ??
+                  ensureDurableThreadWorkspace(ThreadId.makeUnsafe("thread-1"), senderStateDir),
+              );
+              assert.equal(command.bindingRevision, 12);
+              assert.isTrue(command.commandId.length > 0);
+              publisher.publishProvider({
+                type: "turn.started",
+                threadId: command.threadId,
+                turnId: "native-turn",
+                at: command.createdAt,
+              });
+              publisher.publishDispatch({
+                type: "acknowledged",
+                threadId: command.threadId,
+                messageId: command.message.messageId,
+                turnId: "native-turn",
+              });
+              return { sequence: 1 };
+            }),
+          dispatchQueuedTurn: () => Effect.die("no old queue"),
+          recoverOpen: Effect.void,
+        };
+        const sender = yield* makeThreadSender.pipe(
+          Effect.provideService(ServerConfig, {
+            stateDir: senderStateDir,
+          } as typeof ServerConfig.Service),
+          Effect.provide(ManagedAttachmentRepositoryLive),
+          Effect.provideService(ThreadPublisher, publisher),
+          Effect.provideService(ProviderThreadSwitchCoordinator, coordinator),
+          Effect.provideService(ThreadProviderBindingRepository, {
+            getRuntimeBinding: () => Effect.succeed(Option.some({ revision: 12 })),
+          } as unknown as typeof ThreadProviderBindingRepository.Service),
+          Effect.provideService(ProviderService, {
+            interruptTurn: () => Effect.void,
+          } as unknown as typeof ProviderService.Service),
+        );
+        const request = {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          message: {
+            messageId: MessageId.makeUnsafe("m1"),
+            text: "hello",
+            attachments: [],
+            senderThreadId: null,
+            dispatchOrigin: "user",
+            queuedAt: "2026-10-09T00:00:01.000Z",
+          },
+          dispatchMode: "queue",
+        } satisfies ThreadSendInput;
+        const result = yield* sender.send(request);
+        assert.deepStrictEqual(yield* sender.send(request), result);
+        assert.equal(dispatchCount, 1);
+        assert.equal(result.delivery, "started");
+        if (result.delivery === "started")
+          assert.equal(result.turnId, TurnId.makeUnsafe("native-turn"));
+      }).pipe(Effect.scoped, Effect.provide(NodeSqliteClient.layerMemory())),
+  );
+}
 it.effect(
   "message cancellation only removes queued entries; thread interruption waits for provider state",
   () =>
     Effect.gen(function* () {
       yield* runMigrations();
+      const folderSql = yield* SqlClient.SqlClient;
+      yield* folderSql`INSERT INTO projection_folders (folder_id, title, workspace_root, scripts_json, space_id, created_at, updated_at)
+      VALUES ('sender-folder', 'Sender folder', NULL, '[]', 'space-1', '2026-10-09T00:00:00.000Z', '2026-10-09T00:00:00.000Z')`;
       yield* createThread({
+        folderId: "sender-folder",
         id: "thread-1",
         spaceId: "space-1",
         title: "Hello",
@@ -128,6 +157,9 @@ it.effect(
       publisher.subscribe("thread-1", (change) => changes.push(change.threadId));
       const interrupts: unknown[] = [];
       const sender = yield* makeThreadSender.pipe(
+        Effect.provideService(ServerConfig, {
+          stateDir: senderStateDir,
+        } as typeof ServerConfig.Service),
         Effect.provide(ManagedAttachmentRepositoryLive),
         Effect.provideService(ThreadPublisher, publisher),
         Effect.provideService(
@@ -190,7 +222,11 @@ for (const release of ["next-send", "remove-head", "edit-head"] as const) {
   it.effect(`a failed queue head stays blocked until ${release}`, () =>
     Effect.gen(function* () {
       yield* runMigrations();
+      const folderSql = yield* SqlClient.SqlClient;
+      yield* folderSql`INSERT INTO projection_folders (folder_id, title, workspace_root, scripts_json, space_id, created_at, updated_at)
+      VALUES ('sender-folder', 'Sender folder', NULL, '[]', 'space-1', '2026-10-09T00:00:00.000Z', '2026-10-09T00:00:00.000Z')`;
       yield* createThread({
+        folderId: "sender-folder",
         id: "thread-q",
         spaceId: "space-1",
         title: "Queue",
@@ -249,6 +285,9 @@ for (const release of ["next-send", "remove-head", "edit-head"] as const) {
           }),
       } as typeof ProviderThreadSwitchCoordinator.Service;
       const sender = yield* makeThreadSender.pipe(
+        Effect.provideService(ServerConfig, {
+          stateDir: senderStateDir,
+        } as typeof ServerConfig.Service),
         Effect.provide(ManagedAttachmentRepositoryLive),
         Effect.provideService(ThreadPublisher, publisher),
         Effect.provideService(ProviderThreadSwitchCoordinator, coordinator),
@@ -345,8 +384,12 @@ for (const release of ["next-send", "remove-head", "edit-head"] as const) {
 it.effect("claims queued attachments atomically and delivers them with their original owner", () =>
   Effect.gen(function* () {
     yield* runMigrations();
+    const folderSql = yield* SqlClient.SqlClient;
+    yield* folderSql`INSERT INTO projection_folders (folder_id, title, workspace_root, scripts_json, space_id, created_at, updated_at)
+      VALUES ('sender-folder', 'Sender folder', NULL, '[]', 'space-1', '2026-10-09T00:00:00.000Z', '2026-10-09T00:00:00.000Z')`;
     const sql = yield* SqlClient.SqlClient;
     yield* createThread({
+      folderId: "sender-folder",
       id: "thread-attachments",
       spaceId: "space",
       title: "Attachments",
@@ -410,6 +453,9 @@ it.effect("claims queued attachments atomically and delivers them with their ori
       recoverOpen: Effect.void,
     };
     const sender = yield* makeThreadSender.pipe(
+      Effect.provideService(ServerConfig, {
+        stateDir: senderStateDir,
+      } as typeof ServerConfig.Service),
       Effect.provideService(ThreadPublisher, publisher),
       Effect.provideService(ProviderThreadSwitchCoordinator, coordinator),
       Effect.provideService(ThreadProviderBindingRepository, {
@@ -486,9 +532,13 @@ it.effect(
   () =>
     Effect.gen(function* () {
       yield* runMigrations();
+      const folderSql = yield* SqlClient.SqlClient;
+      yield* folderSql`INSERT INTO projection_folders (folder_id, title, workspace_root, scripts_json, space_id, created_at, updated_at)
+      VALUES ('sender-folder', 'Sender folder', NULL, '[]', 'space-1', '2026-10-09T00:00:00.000Z', '2026-10-09T00:00:00.000Z')`;
       const sql = yield* SqlClient.SqlClient;
       const threadId = ThreadId.makeUnsafe("thread-edit");
       yield* createThread({
+        folderId: "sender-folder",
         id: threadId,
         spaceId: "space",
         title: "Edit",
@@ -528,6 +578,9 @@ it.effect(
       const changes: string[] = [];
       publisher.subscribe(threadId, (change) => changes.push(change.threadId));
       const sender = yield* makeThreadSender.pipe(
+        Effect.provideService(ServerConfig, {
+          stateDir: senderStateDir,
+        } as typeof ServerConfig.Service),
         Effect.provide(ManagedAttachmentRepositoryLive),
         Effect.provideService(ThreadPublisher, publisher),
         Effect.provideService(
@@ -605,9 +658,13 @@ for (const content of [
     () =>
       Effect.gen(function* () {
         yield* runMigrations();
+        const folderSql = yield* SqlClient.SqlClient;
+        yield* folderSql`INSERT INTO projection_folders (folder_id, title, workspace_root, scripts_json, space_id, created_at, updated_at)
+      VALUES ('sender-folder', 'Sender folder', NULL, '[]', 'space-1', '2026-10-09T00:00:00.000Z', '2026-10-09T00:00:00.000Z')`;
         const sql = yield* SqlClient.SqlClient;
         const threadId = ThreadId.makeUnsafe("edit-nonempty");
         yield* createThread({
+          folderId: "sender-folder",
           id: threadId,
           spaceId: "space",
           title: "Edit",
@@ -638,6 +695,9 @@ for (const content of [
         const changes: string[] = [];
         publisher.subscribe(threadId, (change) => changes.push(change.threadId));
         const sender = yield* makeThreadSender.pipe(
+          Effect.provideService(ServerConfig, {
+            stateDir: senderStateDir,
+          } as typeof ServerConfig.Service),
           Effect.provide(ManagedAttachmentRepositoryLive),
           Effect.provideService(ThreadPublisher, publisher),
           Effect.provideService(

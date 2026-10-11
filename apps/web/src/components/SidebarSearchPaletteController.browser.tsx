@@ -4,6 +4,7 @@
 
 import "../index.css";
 import {
+  FolderId,
   type CleanCoreSearchThreadsInput,
   type CleanCoreSearchThreadsResult,
   type CleanCoreThreadSearchMatch,
@@ -34,22 +35,19 @@ function result(id: string): CleanCoreThreadSearchMatch {
   return {
     id: ThreadId.makeUnsafe(id),
     spaceId,
-    folderId: null,
+    folderId: FolderId.makeUnsafe("folder"),
     title: id,
     provider: "codex",
     connectionId: null,
     model: "gpt-5.5",
     modelOptions: null,
     runtimeMode: "full-access",
-    workingDirectory: null,
     state: "idle",
     activeTurnId: null,
     lastError: null,
     queue: "[]",
     createdBy: "user",
     createdByThreadId: null,
-    deckId: null,
-    deckSortOrder: 0,
     sidebarSortOrder: null,
     lastActivityAt: null,
     lastMessagePreview: null,

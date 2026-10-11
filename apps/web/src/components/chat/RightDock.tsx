@@ -13,7 +13,7 @@ import {
 } from "react";
 
 import { cn } from "~/lib/utils";
-import type { RightDockPane, RightDockDeckState } from "~/rightDockStore.logic";
+import type { RightDockPane, RightDockFolderState } from "~/rightDockStore.logic";
 import { resolveActivePane } from "~/rightDockStore.logic";
 import { PanelTabShared } from "../right-panel/panel-tab-shared/PanelTabShared";
 import {
@@ -42,7 +42,7 @@ export const RIGHT_DOCK_MIN_WIDTH = 26 * 16;
 export const RIGHT_DOCK_DEFAULT_WIDTH = "max(28rem, calc(50vw - 8rem))";
 
 interface RightDockProps {
-  state: RightDockDeckState;
+  state: RightDockFolderState;
   minWidth: number;
   contentMinWidth?: number;
   defaultWidth: string;

@@ -6,7 +6,7 @@ import { WINDOWS_CAPTION_CONTROLS_GUTTER_PX } from "@penkra/shared/desktopChrome
 
 const APPS_LAUNCHER_EDGE_INSET_PX = 6;
 export const APPS_LAUNCHER_BUTTON_SIZE_PX = 32;
-export const APPS_LAUNCHER_DECK_GAP_PX = 4;
+export const APPS_LAUNCHER_FOLDER_GAP_PX = 4;
 
 export function resolveAppsLauncherRightInsetPx(input: {
   isElectron: boolean;
@@ -18,7 +18,7 @@ export function resolveAppsLauncherRightInsetPx(input: {
   );
 }
 
-export function resolveAppsLauncherDeckBarReservationPx(input: {
+export function resolveAppsLauncherFolderBarReservationPx(input: {
   appsLauncherRightInsetPx: number;
   dockOpen: boolean;
   isElectron: boolean;
@@ -28,7 +28,7 @@ export function resolveAppsLauncherDeckBarReservationPx(input: {
     input.isElectron && input.isWindowsDesktop ? WINDOWS_CAPTION_CONTROLS_GUTTER_PX : 0;
   if (input.dockOpen) return windowControlsGutterPx;
   const launcherFootprintPx =
-    input.appsLauncherRightInsetPx + APPS_LAUNCHER_BUTTON_SIZE_PX + APPS_LAUNCHER_DECK_GAP_PX;
+    input.appsLauncherRightInsetPx + APPS_LAUNCHER_BUTTON_SIZE_PX + APPS_LAUNCHER_FOLDER_GAP_PX;
   return Math.max(launcherFootprintPx, windowControlsGutterPx);
 }
 

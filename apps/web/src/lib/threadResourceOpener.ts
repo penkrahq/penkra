@@ -2,7 +2,7 @@
 // Purpose: Route Thread file references through Penkra's configured App/OS handlers.
 // Layer: Web UI resource activation
 
-import type { ThreadDeckId, ThreadId } from "@penkra/contracts";
+import type { FolderId, ThreadId } from "@penkra/contracts";
 import { isLocalAbsolutePath, isWorkspaceRelativePathSafe } from "@penkra/shared/path";
 import { createContext, useContext } from "react";
 
@@ -60,7 +60,8 @@ export function resolveThreadResourcePath(
 export function createThreadResourceOpener(input: {
   directory: string | null;
   spaceId: string | null;
-  deckId: ThreadDeckId;
+  folderId: FolderId;
+
   threadId: ThreadId;
 }): ThreadResourceOpener {
   const showContextMenu = (
@@ -73,7 +74,7 @@ export function createThreadResourceOpener(input: {
       .showContextMenu({
         ...resource,
         spaceId: input.spaceId,
-        deckId: input.deckId,
+        folderId: input.folderId,
         threadId: input.threadId,
         position,
       })
@@ -97,7 +98,7 @@ export function createThreadResourceOpener(input: {
         .open({
           path,
           spaceId: input.spaceId,
-          deckId: input.deckId,
+          folderId: input.folderId,
           threadId: input.threadId,
         })
         .catch((error: unknown) => {
@@ -117,7 +118,7 @@ export function createThreadResourceOpener(input: {
         .open({
           url,
           spaceId: input.spaceId,
-          deckId: input.deckId,
+          folderId: input.folderId,
           threadId: input.threadId,
         })
         .catch((error: unknown) => {

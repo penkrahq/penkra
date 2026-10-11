@@ -6,7 +6,6 @@ import {
   FolderId,
   ThreadId,
   TurnId,
-  singletonThreadDeckId,
 } from "@penkra/contracts";
 import {
   buildInputNeededCopy,
@@ -23,8 +22,6 @@ function makeThread(overrides: Partial<Thread>): Thread {
   const id = "thread-1" as ThreadId;
   const thread = {
     id,
-    deckId: singletonThreadDeckId(id),
-    deckSortOrder: 0,
     codexThreadId: null,
     folderId: "project-1" as FolderId,
     title: "Polish notifications",
@@ -53,10 +50,7 @@ function makeThread(overrides: Partial<Thread>): Thread {
     activities: [],
     ...overrides,
   };
-  return Object.assign({}, thread, {
-    deckId: overrides.deckId ?? singletonThreadDeckId(id),
-    deckSortOrder: overrides.deckSortOrder ?? 0,
-  }) as Thread;
+  return Object.assign({}, thread, {}) as Thread;
 }
 
 function buildCollectedTaskCompletionCopy(assistantText: string) {

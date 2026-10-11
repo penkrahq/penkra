@@ -26,7 +26,7 @@ const TICKET_LIFETIME_MS = 5 * 60_000;
 export interface AppTransferOwner {
   appId: string;
   spaceId: string;
-  deckId: string;
+  folderId: string;
   tabId: string;
   rendererId: number;
   origin: string;
@@ -174,26 +174,26 @@ export class AppTransferService {
   }
 
   detachGeneration(
-    owner: Pick<AppTransferOwner, "appId" | "spaceId" | "deckId" | "tabId" | "rendererId">,
+    owner: Pick<AppTransferOwner, "appId" | "spaceId" | "folderId" | "tabId" | "rendererId">,
   ): DetachedAppTransfers {
     return this.#detach(
       (candidate) =>
         candidate.appId === owner.appId &&
         candidate.spaceId === owner.spaceId &&
-        candidate.deckId === owner.deckId &&
+        candidate.folderId === owner.folderId &&
         candidate.tabId === owner.tabId &&
         candidate.rendererId === owner.rendererId,
     );
   }
 
   detachTab(
-    owner: Pick<AppTransferOwner, "appId" | "spaceId" | "deckId" | "tabId">,
+    owner: Pick<AppTransferOwner, "appId" | "spaceId" | "folderId" | "tabId">,
   ): DetachedAppTransfers {
     return this.#detach(
       (candidate) =>
         candidate.appId === owner.appId &&
         candidate.spaceId === owner.spaceId &&
-        candidate.deckId === owner.deckId &&
+        candidate.folderId === owner.folderId &&
         candidate.tabId === owner.tabId,
     );
   }

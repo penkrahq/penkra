@@ -1,3 +1,4 @@
+import { seedThreadFolderFixture } from "./threadFixtures.ts";
 import { assert, it } from "@effect/vitest";
 import { ThreadId } from "@penkra/contracts";
 import { Effect } from "effect";
@@ -14,6 +15,7 @@ const withDb = <A, E>(effect: Effect.Effect<A, E, SqlClient.SqlClient>) =>
 const baseThread = {
   id: "thread-1",
   spaceId: "space-1",
+  folderId: "core-test-folder",
   title: "Hello",
   provider: "codex",
   model: "gpt-5.5",
@@ -27,6 +29,7 @@ it.effect("reads the newest 50 items, then pages older by seq cursor", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
       yield* createThread(baseThread);
       yield* Effect.forEach(
         Array.from({ length: 60 }, (_, i) => i + 1),

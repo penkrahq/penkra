@@ -173,7 +173,7 @@ export type AppOperationHandler<Input = unknown, Result = unknown> = (
 ) => Promise<Result> | Result;
 
 export interface AppControllerRequestContext {
-  deckId: string;
+  folderId: string;
   threadId: string;
   tabId: string;
   signal: AbortSignal;
@@ -186,7 +186,6 @@ export type AppControllerRequestHandler<Input = unknown, Result = unknown> = (
 
 export interface AppShellOpenExternalOptions {
   activate?: boolean;
-  workingDirectory?: string;
   logUsage?: boolean;
 }
 
@@ -267,7 +266,7 @@ export interface AppThreadComposeInput {
 
 export interface AppThreadState {
   threadId: string;
-  deckId: string;
+  folderId: string;
   title: string;
   order: number;
   archived: boolean;
@@ -292,7 +291,7 @@ export interface AppThreadComposition {
   resolvedModel: AppComposerModelSelection | null;
 }
 
-export type AppThreadDeckPosition =
+export type AppFolderThreadPosition =
   | { type: "start" }
   | { type: "end" }
   | { type: "before"; threadId: string }
@@ -306,7 +305,7 @@ export interface AppThreadCreateInput {
 
 export interface AppThreadCreateResult {
   threadId: string;
-  deckId: string;
+  folderId: string;
 }
 
 export interface AppThreadSendReceipt {
@@ -441,31 +440,30 @@ export interface PenkraTabRuntimeApi {
     }): Promise<{ id: string; bytes: number; sha256: string }>;
     onProgress(listener: (event: AppTransferProgressEvent) => void): () => void;
   };
-  /** Visual-tab only. Operates on the persistent Thread Deck that owns this App surface. */
-  threads: {
+  /** Visual-tab only. Operates on the persistent folder that owns this App surface. */
+  folder: {
     current: {
       read(): Promise<AppThreadState>;
     };
-    /** Lists every Thread in deck order, including archived members. */
-    list(): Promise<ReadonlyArray<AppThreadState>>;
-    /** Reads one exact member of the current deck. */
+    /** Lists unarchived folder threads in sidebar order. Pass pageInfo.nextCursor as --cursor for the next page. */
+    list(input?: { cursor?: string }): Promise<{
+      threads: ReadonlyArray<AppThreadState>;
+      pageInfo: { nextCursor: string | null };
+    }>;
+    /** Reads one exact member of the current folder. */
     get(input: { threadId: string }): Promise<AppThreadState>;
-    /** Creates a persistent Thread in this deck. */
+    /** Creates a persistent Thread in this folder. */
     create(input?: AppThreadCreateInput): Promise<AppThreadCreateResult>;
-    /** Adds an existing same-Space Thread to this deck. */
-    add(input: { threadId: string; position?: AppThreadDeckPosition }): Promise<void>;
-    /** Selects one exact member without changing deck order. */
+    /** Selects one exact member without changing folder order. */
     select(input: { threadId: string }): Promise<void>;
-    /** Changes deck order independently of the sidebar. */
-    reorder(input: { threadId: string; position: AppThreadDeckPosition }): Promise<void>;
-    /** Moves a member into a new singleton deck. */
-    leave(input: { threadId: string }): Promise<void>;
+    /** Reorders folder threads in the sidebar and tabs. */
+    reorder(input: { threadId: string; position: AppFolderThreadPosition }): Promise<void>;
     archive(input: { threadId: string }): Promise<void>;
     /** Writes one visible composition and returns a receipt for those exact bytes. */
     compose(input: AppThreadComposeInput & { threadId: string }): Promise<AppThreadComposition>;
     /** Sends the exact composition named by the receipt once; the receipt owns its Thread target. */
     send(input: { composeId: string; mode?: "queue" | "steer" }): Promise<AppThreadSendReceipt>;
-    /** Emits an immediate deck snapshot and later meaningful changes. */
+    /** Emits an immediate folder snapshot and later meaningful changes. */
     onState(listener: (threads: ReadonlyArray<AppThreadState>) => void): () => void;
   };
   /**
@@ -609,11 +607,11 @@ export interface PenkraTabRuntimeApi {
   /** Visual-tab only. Operation controllers receive tab handles through OperationContext. */
   tab: {
     /**
-     * Identity of this App-owned surface. `deckId` owns the persistent panel, `threadId` is the
-     * active Penkra Thread, and `tabId` is distinct from both the Deck and hosted Browser page IDs.
+     * Identity of this App-owned surface. `folderId` owns the persistent panel, `threadId` is the
+     * active Penkra Thread, and `tabId` is distinct from both the folder and hosted Browser page IDs.
      */
     getContext(): Promise<{
-      deckId: string;
+      folderId: string;
       threadId: string;
       tabId: string | null;
     }>;
@@ -623,7 +621,7 @@ export interface PenkraTabRuntimeApi {
     setPresentation(input: AppTabPresentationInput): Promise<void>;
     /** Restore the App's manifest name and icon. */
     resetPresentation(): Promise<void>;
-    /** Open another tab for this App in the same Space and Thread Deck. */
+    /** Open another tab for this App in the same Space and folder. */
     openSibling(input?: AppTabNavigationInput): Promise<{ tabId: string }>;
     /** Pause expensive visual work while the tab is retained but not visible. */
     onVisibilityChange(listener: (visibility: AppTabVisibility) => void): () => void;
@@ -745,19 +743,17 @@ export const transfer: PenkraTabRuntimeApi["transfer"] = {
   onProgress: (listener) => runtime().transfer.onProgress(listener),
 };
 
-export const threads: PenkraTabRuntimeApi["threads"] = {
-  current: { read: () => runtime().threads.current.read() },
-  list: () => runtime().threads.list(),
-  get: (input) => runtime().threads.get(input),
-  create: (input) => runtime().threads.create(input),
-  add: (input) => runtime().threads.add(input),
-  select: (input) => runtime().threads.select(input),
-  reorder: (input) => runtime().threads.reorder(input),
-  leave: (input) => runtime().threads.leave(input),
-  archive: (input) => runtime().threads.archive(input),
-  compose: (input) => runtime().threads.compose(input),
-  send: (input) => runtime().threads.send(input),
-  onState: (listener) => runtime().threads.onState(listener),
+export const folder: PenkraTabRuntimeApi["folder"] = {
+  current: { read: () => runtime().folder.current.read() },
+  list: (input) => runtime().folder.list(input),
+  get: (input) => runtime().folder.get(input),
+  create: (input) => runtime().folder.create(input),
+  select: (input) => runtime().folder.select(input),
+  reorder: (input) => runtime().folder.reorder(input),
+  archive: (input) => runtime().folder.archive(input),
+  compose: (input) => runtime().folder.compose(input),
+  send: (input) => runtime().folder.send(input),
+  onState: (listener) => runtime().folder.onState(listener),
 };
 
 export const models: PenkraTabRuntimeApi["models"] = {

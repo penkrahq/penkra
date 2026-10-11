@@ -1,12 +1,6 @@
 import type { ThreadId } from "@penkra/contracts";
 
-export function canCreateAnotherDeckThread(
-  members: readonly { readonly hasTurn: boolean }[],
-): boolean {
-  return members.every((member) => member.hasTurn);
-}
-
-export function findNearestVisibleDeckThread(input: {
+export function findNearestVisibleFolderThread(input: {
   readonly threadIds: readonly ThreadId[];
   readonly removedThreadId: ThreadId;
   readonly isVisible: (threadId: ThreadId) => boolean;
@@ -24,12 +18,12 @@ export function findNearestVisibleDeckThread(input: {
 }
 
 /**
- * Removes one deck member without exposing a route whose backing Thread has
+ * Removes one folder member without exposing a route whose backing Thread has
  * already disappeared. Active members move to their nearest sibling first;
  * otherwise the missing-route recovery can mistake intentional removal for a
  * broken restore and bootstrap another New thread.
  */
-export async function removeDeckThreadPreservingNavigation(input: {
+export async function removeFolderThreadPreservingNavigation(input: {
   readonly threadIds: readonly ThreadId[];
   readonly removedThreadId: ThreadId;
   readonly activeThreadId: ThreadId;
@@ -39,7 +33,7 @@ export async function removeDeckThreadPreservingNavigation(input: {
 }): Promise<void> {
   const removingActiveThread = input.removedThreadId === input.activeThreadId;
   if (removingActiveThread) {
-    const nearestThreadId = findNearestVisibleDeckThread(input);
+    const nearestThreadId = findNearestVisibleFolderThread(input);
     await input.activate(nearestThreadId);
   }
   try {

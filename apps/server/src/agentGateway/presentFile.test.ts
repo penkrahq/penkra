@@ -13,15 +13,14 @@ import type {
   ManagedAttachmentRepositoryShape,
 } from "../persistence/Services/ManagedAttachments.ts";
 import { resolveAllowedLocalPreviewFile } from "../localImageFiles.ts";
-import { presentFile, resolvePresentFileWorkingDirectory } from "./presentFile.ts";
+import { presentFile, resolvePresentFileCwd } from "./presentFile.ts";
 
 describe("penkra show file", () => {
   it("uses the same durable fallback workspace as the provider when Thread cwd is unset", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "penkra-show-cwd-test-"));
     try {
-      const cwd = resolvePresentFileWorkingDirectory({
+      const cwd = resolvePresentFileCwd({
         threadId: ThreadId.makeUnsafe("thread-show-fallback"),
-        workingDirectory: null,
         projectCwd: null,
         stateDir: root,
       });
@@ -90,7 +89,7 @@ describe("penkra show file", () => {
       const result = await Effect.runPromise(
         presentFile({
           requestedPath: "./logo.png",
-          workingDirectory: root,
+          cwd: root,
           threadId: `thread-${randomUUID()}`,
           turnId: "turn-active",
           attachmentsDir: path.join(root, "attachments"),

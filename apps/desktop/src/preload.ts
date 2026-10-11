@@ -21,13 +21,13 @@ function shellInteractionTarget(target: EventTarget | null): Element | null {
 
 function shellPanelContext(target: EventTarget | null): {
   insidePanel: boolean;
-  deckId: string | null;
+  folderId: string | null;
 } {
   const element = shellInteractionTarget(target);
   const dock = element?.closest("[data-right-dock-root]");
   return {
     insidePanel: dock !== undefined && dock !== null,
-    deckId: dock?.closest("[data-chat-surface-shell]")?.getAttribute("data-deck-id") ?? null,
+    folderId: dock?.closest("[data-chat-surface-shell]")?.getAttribute("data-folder-id") ?? null,
   };
 }
 
@@ -154,7 +154,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
           ipcRenderer.send(IPC.panelFocus.resolveShellShortcut, {
             command: "new-window",
             insidePanel: false,
-            deckId: null,
+            folderId: null,
           }),
       }
     : {}),
@@ -162,8 +162,8 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     onClosePanelTab: (listener) => {
       const wrapped = (_event: Electron.IpcRendererEvent, input: unknown) => {
         if (!input || typeof input !== "object" || Array.isArray(input)) return;
-        const deckId = (input as { deckId?: unknown }).deckId;
-        if (typeof deckId === "string") listener({ deckId });
+        const folderId = (input as { folderId?: unknown }).folderId;
+        if (typeof folderId === "string") listener({ folderId });
       };
       ipcRenderer.on(IPC.panelFocus.closePanelTab, wrapped);
       return () => ipcRenderer.removeListener(IPC.panelFocus.closePanelTab, wrapped);

@@ -2,13 +2,7 @@
 // Purpose: Verify bounded route admission through the canonical thread store.
 // Layer: Route tests
 
-import {
-  FolderId,
-  SpaceId,
-  ThreadDeckId,
-  ThreadId,
-  type CleanCoreThreadSummary,
-} from "@penkra/contracts";
+import { FolderId, SpaceId, ThreadId, type CleanCoreThreadSummary } from "@penkra/contracts";
 import type { ReactElement } from "react";
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
 import { applyThreadRow, resetThreadListForTests } from "../threadListStore";
@@ -17,7 +11,7 @@ import { Route } from "./_chat.$threadId";
 const fixture = vi.hoisted(() => ({
   threadId: "thread-51",
   hydrated: true,
-  drafts: {} as Record<string, { folderId: FolderId; deckId: ThreadDeckId }>,
+  drafts: {} as Record<string, { folderId: FolderId }>,
   requests: undefined as undefined | { current: Map<ThreadId, Promise<void>> },
   effects: [] as Array<() => void | (() => void)>,
   cleanups: [] as Array<() => void>,
@@ -78,15 +72,12 @@ function row(): CleanCoreThreadSummary {
     model: "gpt-5.5",
     modelOptions: null,
     runtimeMode: "full-access",
-    workingDirectory: null,
     state: "idle",
     activeTurnId: null,
     lastError: null,
     queue: "[]",
     createdBy: "user",
     createdByThreadId: null,
-    deckId: ThreadDeckId.makeUnsafe("canonical-deck"),
-    deckSortOrder: 0,
     sidebarSortOrder: null,
     lastActivityAt: null,
     lastMessagePreview: null,
@@ -161,7 +152,7 @@ it("reads an unloaded thread once, stays blank in flight, then opens its canonic
   await finishRead();
   expect(render()?.props).toEqual({ threadId: thread.id, folderId: thread.folderId });
   expect(fixture.homeView).toHaveBeenLastCalledWith({
-    views: [{ threadId: thread.id, deckId: thread.deckId }],
+    views: [{ threadId: thread.id, folderId: thread.folderId }],
     activeThreadId: thread.id,
   });
   expect(fixture.getThread).toHaveBeenCalledOnce();
@@ -206,7 +197,6 @@ it("shows the existing error toast then goes home without retrying", async () =>
 it("opens a local draft without a server read", () => {
   fixture.drafts[fixture.threadId] = {
     folderId: FolderId.makeUnsafe("draft-folder"),
-    deckId: ThreadDeckId.makeUnsafe("draft-deck"),
   };
   expect(render()?.props.folderId).toBe("draft-folder");
   expect(fixture.getThread).not.toHaveBeenCalled();

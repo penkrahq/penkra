@@ -5,7 +5,6 @@ import {
   NonNegativeInt,
   FolderId,
   RuntimeMode,
-  ThreadDeckId,
   ThreadId,
   TurnId,
 } from "@penkra/contracts";
@@ -13,16 +12,11 @@ import { Schema } from "effect";
 
 export const ProjectionThread = Schema.Struct({
   threadId: ThreadId,
-  deckId: ThreadDeckId,
-  deckSortOrder: NonNegativeInt,
   folderId: FolderId,
   title: Schema.String,
   modelSelection: ModelSelection,
   connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
   runtimeMode: RuntimeMode,
-  workingDirectory: Schema.optional(Schema.NullOr(Schema.String)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   creationSource: Schema.optional(
     Schema.NullOr(Schema.Literals(["penkra_mcp", "provider_native"])),

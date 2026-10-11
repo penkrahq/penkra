@@ -55,7 +55,7 @@ export class AppControllerHost {
   invoke(input: {
     appId: string;
     spaceId: string;
-    deckId: string;
+    folderId: string;
     threadId: string;
     tabId: string;
     handler: string;
@@ -75,7 +75,7 @@ export class AppControllerHost {
         handler: input.handler,
         input: input.value,
         context: {
-          deckId: input.deckId,
+          folderId: input.folderId,
           threadId: input.threadId,
           tabId: input.tabId,
         },

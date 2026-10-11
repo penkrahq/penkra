@@ -1,3 +1,4 @@
+import { ensureDurableThreadWorkspace } from "../scratchWorkspaces.ts";
 import {
   FolderId,
   MessageId,
@@ -28,6 +29,7 @@ import { ToolInputError, errorText } from "./toolInput.ts";
 import { GatewayToolError, gatewayToolErrorResult } from "./toolRuntime.ts";
 
 interface CreationCoordinatorDependencies {
+  readonly stateDir: string;
   readonly lifecycle: typeof ThreadLifecycle.Service;
   readonly sender: typeof ThreadSender.Service;
   readonly snapshotQuery: ProjectionSnapshotQueryShape;
@@ -81,12 +83,11 @@ export const makeCreateThreadHandler = (dependencies: CreationCoordinatorDepende
             'Your thread runs in "approval-required" mode, so created threads cannot use "full-access".',
           ),
         );
-      const workingDirectory =
-        caller.folderId === folderId ? caller.workingDirectory : destination.value.workspaceRoot;
-      if (workingDirectory === undefined)
-        return yield* Effect.fail(new ToolInputError("The thread has no working-directory value."));
       const operationId = `gateway:create:${stableGatewayDigest({ principalKind: context.kind, principalId: context.callerThreadId, requestId: input.requestId })}`;
       const ids = makeAgentCreationIds(operationId);
+      const cwd =
+        destination.value.workspaceRoot ??
+        ensureDurableThreadWorkspace(ids.threadId, dependencies.stateDir);
       const existing = yield* dependencies.lifecycle.get(ids.threadId);
       if (existing !== null && existing.spaceId !== callerFolder.value.spaceId)
         return yield* Effect.fail(
@@ -133,7 +134,7 @@ export const makeCreateThreadHandler = (dependencies: CreationCoordinatorDepende
         ...(availabilities.get(requestedModel.provider) === undefined
           ? {}
           : { availability: availabilities.get(requestedModel.provider)! }),
-        ...(workingDirectory === null ? {} : { cwd: workingDirectory }),
+        cwd,
       });
       const at = gatewayIsoNow();
       const title =
@@ -142,14 +143,13 @@ export const makeCreateThreadHandler = (dependencies: CreationCoordinatorDepende
       const created = yield* dependencies.lifecycle.create({
         threadId: ids.threadId,
         folderId,
-        deckId: caller.deckId,
+
         title,
         modelSelection: target,
         runtimeMode:
           existing === null
             ? runtimeMode
             : Schema.decodeUnknownSync(RuntimeMode)(existing.runtimeMode),
-        workingDirectory,
         connection: { kind: "selected", connectionId },
         creator: { kind: "agent", threadId: ThreadId.makeUnsafe(context.callerThreadId) },
         createdAt: at,

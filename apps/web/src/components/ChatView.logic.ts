@@ -412,8 +412,6 @@ export function buildLocalDraftThread(
 ): Thread {
   return {
     id: threadId,
-    deckId: draftThread.deckId,
-    deckSortOrder: 0,
     codexThreadId: null,
     folderId: draftThread.folderId,
     spaceId: draftThread.spaceId ?? null,
@@ -426,7 +424,6 @@ export function buildLocalDraftThread(
     createdAt: draftThread.createdAt,
     latestTurn: null,
     lastVisitedAt: draftThread.createdAt,
-    workingDirectory: draftThread.workingDirectory ?? null,
     activities: [],
   };
 }

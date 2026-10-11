@@ -1,3 +1,4 @@
+import { seedThreadFolderFixture } from "./threadFixtures.ts";
 import { assert, it } from "@effect/vitest";
 import { Deferred, Effect, Fiber, Stream } from "effect";
 
@@ -40,9 +41,11 @@ it.live("emits a change for the subscribed thread only", () =>
 it.live("an event applied by the consumer reaches the subscribeThread stream", () =>
   Effect.gen(function* () {
     yield* runMigrations();
+    yield* seedThreadFolderFixture("core-test-folder", "space-1");
     yield* createThread({
       id: "thread-1",
       spaceId: "space-1",
+      folderId: "core-test-folder",
       title: "Hello",
       provider: "codex",
       model: "gpt-5.5",

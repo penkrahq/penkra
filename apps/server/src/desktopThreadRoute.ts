@@ -1,15 +1,16 @@
-import { ThreadLifecycle } from "./cleanCore/threadLifecycle.ts";
 // FILE: desktopThreadRoute.ts
 // Purpose: Private loopback endpoint for window-independent App Thread commands.
 
 import * as FS from "node:fs/promises";
 
-import { ThreadId, type DesktopThreadApiRequest } from "@penkra/contracts";
+import { FolderId, SpaceId, ThreadId, type DesktopThreadApiRequest } from "@penkra/contracts";
 import { Effect, FileSystem, Option } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
 import { ServerConfig } from "./config";
-import { moveDeckThread } from "./cleanCore/threadStore.ts";
+import { ThreadLifecycle } from "./cleanCore/threadLifecycle.ts";
+import { findThread, listFolderThreads } from "./cleanCore/threadList.ts";
+import { moveSidebarItem } from "./cleanCore/threadStore.ts";
 import { ThreadPublisher } from "./cleanCore/ThreadPublisher.ts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { DesktopThreadCommands } from "./desktopThreadCommands";
@@ -59,11 +60,25 @@ export const desktopThreadRouteLayer = HttpRouter.add(
         Effect.runPromise(
           Effect.gen(function* () {
             if (update.action === "archive") return yield* lifecycle.update(update);
-            for (const threadId of yield* moveDeckThread(update)) publisher.publish({ threadId });
+            for (const threadId of yield* moveSidebarItem(update)) publisher.publish({ threadId });
           }).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
         ),
-      snapshot: () => Effect.runPromise(snapshotQuery.getShellSnapshot()),
-      readModel: () => Effect.runPromise(snapshotQuery.getSnapshot()),
+      getThread: (id) =>
+        Effect.runPromise(
+          findThread(ThreadId.makeUnsafe(id)).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
+        ),
+      getFolder: async (id) =>
+        Option.getOrNull(
+          await Effect.runPromise(snapshotQuery.getFolderShellById(FolderId.makeUnsafe(id))),
+        ),
+      listThreads: (input) =>
+        Effect.runPromise(
+          listFolderThreads({
+            spaceId: SpaceId.makeUnsafe(input.spaceId),
+            folderId: FolderId.makeUnsafe(input.folderId),
+            after: input.after,
+          }).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
+        ),
       bindingRevision: async (threadId) => {
         const binding = await Effect.runPromise(
           providerBindings.getRuntimeBinding(ThreadId.makeUnsafe(threadId)),

@@ -1,3 +1,9 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll } from "vitest";
+const creationStateDir = mkdtempSync(join(tmpdir(), "penkra-create-cwd-"));
+afterAll(() => rmSync(creationStateDir, { recursive: true, force: true }));
 import {
   FolderId,
   ProviderConnectionId,
@@ -5,7 +11,6 @@ import {
   SpaceId,
   ThreadId,
   TurnId,
-  singletonThreadDeckId,
   type ModelSelection,
   type OrchestrationFolderShell,
   type OrchestrationThreadShell,
@@ -51,8 +56,6 @@ const FOLDER: OrchestrationFolderShell = {
 
 const CALLER: OrchestrationThreadShell = {
   id: CALLER_THREAD_ID,
-  deckId: singletonThreadDeckId(CALLER_THREAD_ID),
-  deckSortOrder: 0,
   folderId: FOLDER_ID,
   title: "Synthetic caller",
   modelSelection: TARGET,
@@ -66,7 +69,6 @@ const CALLER: OrchestrationThreadShell = {
   updatedAt: NOW,
   archivedAt: null,
   session: null,
-  workingDirectory: null,
 };
 
 const CONTEXT: GatewayCreationContext = {
@@ -146,6 +148,7 @@ function makeHarness() {
   };
 
   const dependencies: Parameters<typeof makeCreateThreadHandler>[0] = {
+    stateDir: creationStateDir,
     lifecycle: {
       get: (id) =>
         Effect.sync(() => {
@@ -162,8 +165,6 @@ function makeHarness() {
             id: input.threadId,
             folderId: input.folderId,
             spaceId: SPACE_ID,
-            deckId: input.deckId,
-            deckSortOrder: 0,
             title: input.title,
             provider: input.modelSelection.provider,
             model: input.modelSelection.model,
@@ -173,7 +174,6 @@ function makeHarness() {
                 : JSON.stringify(input.modelSelection.options),
             connectionId: input.connection.connectionId,
             runtimeMode: input.runtimeMode,
-            workingDirectory: input.workingDirectory,
             state: "idle",
             activeTurnId: null,
             lastError: null,

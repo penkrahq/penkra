@@ -236,7 +236,6 @@ export function useComposerSlashCommands(input: {
     const nextThreadId = newThreadId();
     const createdAt = new Date().toISOString();
     const nextThreadTitle = `${activeThread.title} Review`;
-    const nextWorkingDirectory = activeThread.workingDirectory ?? null;
     const reviewTarget = { type: "uncommittedChanges" } as const;
 
     try {
@@ -248,12 +247,10 @@ export function useComposerSlashCommands(input: {
           creator: { kind: "user" },
           connection: { kind: "selected", connectionId: selectedConnectionId },
           threadId: nextThreadId,
-          deckId: activeThread.deckId,
           folderId: activeProject.id,
           title: nextThreadTitle,
           modelSelection: selectedModelSelection,
           runtimeMode,
-          workingDirectory: nextWorkingDirectory,
           createdAt,
         },
         api,

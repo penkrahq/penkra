@@ -2,7 +2,6 @@ import { updateThreadFixture } from "../../cleanCore/threadFixtures.ts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { createThreadFixture } from "../../cleanCore/threadFixtures.ts";
 import {
-  singletonThreadDeckId,
   CommandId,
   FolderId,
   MessageId,
@@ -258,11 +257,9 @@ async function seedThreadForAdmission(s: Awaited<ReturnType<typeof makeSystem>>)
     createThreadFixture(s.sql, {
       threadId: s.threadId,
       folderId: folderId,
-      deckId: singletonThreadDeckId(s.threadId),
       title: "Test",
       modelSelection: { provider: "codex", model: oldModel },
       runtimeMode: "full-access",
-      workingDirectory: null,
       createdAt: at,
       connection: { kind: "selected", connectionId: null },
       creator: { kind: "user" },
@@ -501,11 +498,9 @@ describe("queued selection through real admission", () => {
           createThreadFixture(s.sql, {
             threadId: s.threadId,
             folderId: folderId,
-            deckId: singletonThreadDeckId(s.threadId),
             title: "Test",
             modelSelection: { provider: "codex", model: oldModel },
             runtimeMode: "full-access",
-            workingDirectory: null,
             createdAt: at,
             connection: { kind: "selected", connectionId: null },
             creator: { kind: "user" },

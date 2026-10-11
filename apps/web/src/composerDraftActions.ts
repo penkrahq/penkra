@@ -216,17 +216,6 @@ export const createComposerDraftStoreState =
         ...draftThread,
       };
     },
-    getDraftThreadByDeckId: (deckId, entryPoint = "chat") => {
-      const match = Object.entries(get().draftThreadsByThreadId)
-        .filter(
-          ([, draftThread]) =>
-            draftThread.deckId === deckId &&
-            normalizeDraftThreadEntryPoint(draftThread.entryPoint) === entryPoint &&
-            draftThread.promotedTo === undefined,
-        )
-        .toSorted(([, left], [, right]) => right.createdAt.localeCompare(left.createdAt))[0];
-      return match ? { threadId: ThreadId.makeUnsafe(match[0]), ...match[1] } : null;
-    },
     getDraftThread: (threadId) => {
       if (threadId.length === 0) {
         return null;
@@ -260,22 +249,8 @@ export const createComposerDraftStoreState =
           ...state.draftThreadsByThreadId,
           [threadId]: nextDraftThread,
         };
-        const cleanedDrafts =
-          previousThreadIdForProject === threadId
-            ? {
-                draftThreadsByThreadId: nextDraftThreadsByThreadId,
-                draftsByThreadId: state.draftsByThreadId,
-              }
-            : removeDraftThreadIfUnmapped({
-                threadId: previousThreadIdForProject,
-                projectDraftThreadIdByFolderId: nextProjectDraftThreadIdByFolderId,
-                draftThreadsByThreadId: nextDraftThreadsByThreadId,
-                draftsByThreadId: state.draftsByThreadId,
-                getDraftsByThreadId: () => get().draftsByThreadId,
-              });
         return {
-          draftsByThreadId: cleanedDrafts.draftsByThreadId,
-          draftThreadsByThreadId: cleanedDrafts.draftThreadsByThreadId,
+          draftThreadsByThreadId: nextDraftThreadsByThreadId,
           projectDraftThreadIdByFolderId: nextProjectDraftThreadIdByFolderId,
         };
       });
@@ -290,12 +265,10 @@ export const createComposerDraftStoreState =
         }
         const nextDraftThread: DraftThreadState = {
           folderId: options.folderId,
-          deckId: options.deckId,
           spaceId: options.spaceId ?? null,
           createdAt: options.createdAt ?? new Date().toISOString(),
           runtimeMode: options.runtimeMode ?? DEFAULT_RUNTIME_MODE,
           entryPoint: options.entryPoint ?? "chat",
-          workingDirectory: options.workingDirectory ?? null,
         };
         return {
           draftThreadsByThreadId: {

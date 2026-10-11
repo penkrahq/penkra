@@ -1,3 +1,4 @@
+import { ensureDurableThreadWorkspace } from "./scratchWorkspaces.ts";
 import { setThreadConnection, setThreadModel, renameThread } from "./cleanCore/threadStore.ts";
 import { createThreadFromClient, ThreadLifecycle } from "./cleanCore/threadLifecycle.ts";
 import { ThreadSender } from "./cleanCore/ThreadSender.ts";
@@ -114,17 +115,15 @@ import { armQaProviderSwitch, clearQaProviderSwitch } from "./diagnostics/qaProv
 import { recordServerQaAction } from "./diagnostics/qaProofBuild";
 import { recordWsRpcFailure } from "./diagnostics/wsRpcFailure";
 import { listThreadItemsPage } from "./cleanCore/threadItemsPage.ts";
-import { findThread, listThreads, listDeckThreads, searchThreads } from "./cleanCore/threadList.ts";
+import { findThread, listThreads, searchThreads } from "./cleanCore/threadList.ts";
 import { getThreadDraft, setThreadDraft } from "./cleanCore/threadDraft.ts";
 import {
   markThreadVisited,
-  moveDeckThread,
   moveFolder,
   moveSpace,
   publishSidebarRows,
   moveSidebarItem,
   setThreadRuntimeMode,
-  setThreadWorkingDirectory,
 } from "./cleanCore/threadStore.ts";
 import { ThreadPublisher } from "./cleanCore/ThreadPublisher.ts";
 import { sidebarChangeStream, threadChangeStream } from "./cleanCore/threadChangeStream.ts";
@@ -545,10 +544,11 @@ const makeWsRpcHandlersLayer = () =>
               onNone: () => Effect.succeed(Option.none()),
               onSome: (value) => projectionReadModelQuery.getFolderShellById(value.folderId),
             });
-            const cwd = Option.flatMap(thread, (value) =>
-              Option.fromNullishOr(
-                value.workingDirectory ?? Option.getOrNull(project)?.workspaceRoot,
-              ),
+            const cwd = Option.map(
+              thread,
+              (value) =>
+                Option.getOrNull(project)?.workspaceRoot ??
+                ensureDurableThreadWorkspace(value.id, config.stateDir),
             );
             return yield* runtimeStartup.enqueueCommand(
               providerThreadSwitchCoordinator.dispatchTurnStart({
@@ -1456,8 +1456,6 @@ const makeWsRpcHandlersLayer = () =>
             }),
             "Failed to create the thread",
           ),
-        [WS_METHODS.cleanCoreListDeckThreads]: (input) =>
-          rpcEffect(listDeckThreads(input), "Failed to load deck threads"),
         [WS_METHODS.cleanCoreSearchThreads]: (input) =>
           rpcEffect(searchThreads(input), "Failed to search threads"),
         [WS_METHODS.cleanCoreListThreads]: (input) =>
@@ -1499,16 +1497,8 @@ const makeWsRpcHandlersLayer = () =>
                   if (yield* setThreadRuntimeMode(update)) publish(update.threadId);
                   return;
                 }
-                case "workingDirectory": {
-                  if (yield* setThreadWorkingDirectory(update)) publish(update.threadId);
-                  return;
-                }
                 case "moveSidebarItem": {
                   for (const threadId of yield* moveSidebarItem(update)) publish(threadId);
-                  return;
-                }
-                case "moveDeckThread": {
-                  for (const threadId of yield* moveDeckThread(update)) publish(threadId);
                   return;
                 }
               }

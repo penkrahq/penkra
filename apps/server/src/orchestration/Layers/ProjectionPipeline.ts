@@ -332,28 +332,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           projectionFolderRepository,
         }).pipe(Effect.asVoid);
       case "folder.moved":
-        return applyFolderMetadataProjection({
-          event,
-          projectionFolderRepository,
-        }).pipe(
-          Effect.andThen(
-            sql`
-              UPDATE projection_thread_decks AS deck
-              SET space_id = ${event.payload.spaceId}, updated_at = ${event.payload.updatedAt}
-              WHERE deck.deck_id IN (
-                SELECT thread.deck_id
-                FROM threads AS thread
-                WHERE thread.folder_id = ${event.payload.folderId}
-                  AND thread.deleted_at IS NULL
-                GROUP BY thread.deck_id
-                HAVING COUNT(*) = 1
-              )
-            `.pipe(
-              Effect.mapError(
-                toPersistenceSqlError("ProjectionPipeline.moveSingletonFolderDecks:query"),
-              ),
-            ),
-          ),
+        return applyFolderMetadataProjection({ event, projectionFolderRepository }).pipe(
           Effect.asVoid,
         );
       case "space.created":

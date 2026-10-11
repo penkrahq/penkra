@@ -1,4 +1,4 @@
-import { createThreadFixture } from "../../cleanCore/threadFixtures.ts";
+import { seedThreadFolderFixture, createThreadFixture } from "../../cleanCore/threadFixtures.ts";
 import { createThread, markThreadVisited } from "../../cleanCore/threadStore.ts";
 import {
   ApprovalRequestId,
@@ -10,7 +10,6 @@ import {
   SpaceId,
   ThreadId,
   TurnId,
-  singletonThreadDeckId,
 } from "@penkra/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
@@ -118,14 +117,12 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       yield* createThreadFixture(sql, {
         threadId: ThreadId.makeUnsafe(ThreadId.makeUnsafe("thread-1")),
         folderId: FolderId.makeUnsafe(FolderId.makeUnsafe("project-1")),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-1")),
         title: "Thread 1",
         modelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
         },
         runtimeMode: "full-access",
-        workingDirectory: null,
         createdAt: now,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
@@ -231,11 +228,9 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       yield* createThreadFixture(sql, {
         threadId: ThreadId.makeUnsafe(ThreadId.makeUnsafe("thread-visit")),
         folderId: FolderId.makeUnsafe(FolderId.makeUnsafe("project-visit")),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-visit")),
         title: "Thread",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "full-access",
-        workingDirectory: null,
         createdAt: createdAt,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
@@ -311,11 +306,9 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       yield* createThreadFixture(sql, {
         threadId: ThreadId.makeUnsafe(threadId),
         folderId: FolderId.makeUnsafe(FolderId.makeUnsafe("project-retained-error")),
-        deckId: singletonThreadDeckId(threadId),
         title: "Retained error thread",
         modelSelection: { provider: "codex", model: "gpt-5.6-sol" },
         runtimeMode: "full-access",
-        workingDirectory: null,
         createdAt: createdAt,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
@@ -835,14 +828,12 @@ it.effect("fast-forwards lagging hot projector cursors before restart replay", (
       yield* createThreadFixture(sql, {
         threadId: ThreadId.makeUnsafe(threadId),
         folderId: FolderId.makeUnsafe(folderId),
-        deckId: singletonThreadDeckId(threadId),
         title: "Bootstrap fast-forward thread",
         modelSelection: {
           provider: "claudeAgent",
           model: "claude-sonnet-4-5-20250929",
         },
         runtimeMode: "full-access",
-        workingDirectory: null,
         createdAt: createdAt,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
@@ -1250,14 +1241,12 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         yield* createThreadFixture(sql, {
           threadId: ThreadId.makeUnsafe(ThreadId.makeUnsafe("thread-clear-attachments")),
           folderId: FolderId.makeUnsafe(FolderId.makeUnsafe("project-clear-attachments")),
-          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-clear-attachments")),
           title: "Thread Clear Attachments",
           modelSelection: {
             provider: "codex",
             model: "gpt-5-codex",
           },
           runtimeMode: "full-access",
-          workingDirectory: null,
           createdAt: now,
           connection: { kind: "selected", connectionId: null },
           creator: { kind: "user" },
@@ -1370,14 +1359,12 @@ it.layer(
       yield* createThreadFixture(sql, {
         threadId: ThreadId.makeUnsafe(ThreadId.makeUnsafe("thread-overwrite")),
         folderId: FolderId.makeUnsafe(FolderId.makeUnsafe("project-overwrite")),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-overwrite")),
         title: "Thread Overwrite",
         modelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
         },
         runtimeMode: "full-access",
-        workingDirectory: null,
         createdAt: now,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
@@ -1507,14 +1494,12 @@ it.layer(
       yield* createThreadFixture(sql, {
         threadId: ThreadId.makeUnsafe(ThreadId.makeUnsafe("thread-rollback")),
         folderId: FolderId.makeUnsafe(FolderId.makeUnsafe("project-rollback")),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-rollback")),
         title: "Thread Rollback",
         modelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
         },
         runtimeMode: "full-access",
-        workingDirectory: null,
         createdAt: now,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
@@ -1620,11 +1605,9 @@ it.layer(
       yield* createThreadFixture(sql, {
         threadId: ThreadId.makeUnsafe(threadId),
         folderId: FolderId.makeUnsafe(folderId),
-        deckId: singletonThreadDeckId(threadId),
         title: "Stream Append Thread",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "full-access",
-        workingDirectory: null,
         createdAt: createdAt,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
@@ -1843,11 +1826,9 @@ it.layer(
       yield* createThreadFixture(sql, {
         threadId: ThreadId.makeUnsafe(threadId),
         folderId: FolderId.makeUnsafe(folderId),
-        deckId: singletonThreadDeckId(threadId),
         title: "Stream Restart Thread",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "full-access",
-        workingDirectory: null,
         createdAt: createdAt,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
@@ -2001,14 +1982,12 @@ it.layer(
       yield* createThreadFixture(sql, {
         threadId: ThreadId.makeUnsafe(threadId),
         folderId: FolderId.makeUnsafe(FolderId.makeUnsafe("project-revert-files")),
-        deckId: singletonThreadDeckId(threadId),
         title: "Thread Revert Files",
         modelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
         },
         runtimeMode: "full-access",
-        workingDirectory: null,
         createdAt: now,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
@@ -2213,14 +2192,12 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       yield* createThreadFixture(sql, {
         threadId: ThreadId.makeUnsafe(ThreadId.makeUnsafe("thread-a")),
         folderId: FolderId.makeUnsafe(FolderId.makeUnsafe("project-a")),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-a")),
         title: "Thread A",
         modelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
         },
         runtimeMode: "full-access",
-        workingDirectory: null,
         createdAt: now,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
@@ -2332,14 +2309,12 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       yield* createThreadFixture(sql, {
         threadId: ThreadId.makeUnsafe(ThreadId.makeUnsafe("thread-empty")),
         folderId: FolderId.makeUnsafe(FolderId.makeUnsafe("project-empty")),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-empty")),
         title: "Thread Empty",
         modelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
         },
         runtimeMode: "full-access",
-        workingDirectory: null,
         createdAt: now,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
@@ -2619,11 +2594,9 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
       yield* createThreadFixture(sql, {
         threadId: threadId,
         folderId: folderId,
-        deckId: singletonThreadDeckId(threadId),
         title: "Routed telemetry",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "full-access",
-        workingDirectory: "/tmp/project-routed-telemetry",
         createdAt: createdAt,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
@@ -2675,7 +2648,13 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
 });
 
 it.layer(
-  Layer.fresh(makeProjectionPipelinePrefixedTestLayer("penkra-projection-pipeline-turn-finish-")),
+  Layer.fresh(
+    Layer.effectDiscard(seedThreadFolderFixture("project-test", "penkra-personal")).pipe(
+      Layer.provideMerge(
+        makeProjectionPipelinePrefixedTestLayer("penkra-projection-pipeline-turn-finish-"),
+      ),
+    ),
+  ),
 )("OrchestrationProjectionPipeline", (it) => {
   it.effect("keeps assistant message completions from settling a running turn early", () =>
     Effect.gen(function* () {
@@ -2687,7 +2666,6 @@ it.layer(
         id: threadId,
         spaceId: "penkra-personal",
         folderId: "project-test",
-        deckId: singletonThreadDeckId(threadId),
         sidebarSortOrder: 0,
         title: "Thread",
         provider: "codex",
@@ -2845,7 +2823,6 @@ it.layer(
         id: threadId,
         spaceId: "penkra-personal",
         folderId: "project-test",
-        deckId: singletonThreadDeckId(threadId),
         sidebarSortOrder: 0,
         title: "Thread",
         provider: "codex",
@@ -3017,7 +2994,6 @@ it.layer(
           id: threadId,
           spaceId: "penkra-personal",
           folderId: "project-test",
-          deckId: singletonThreadDeckId(threadId),
           sidebarSortOrder: 0,
           title: "Thread",
           provider: "codex",
@@ -3120,7 +3096,6 @@ it.layer(
           id: threadId,
           spaceId: "penkra-personal",
           folderId: "project-test",
-          deckId: singletonThreadDeckId(threadId),
           sidebarSortOrder: 0,
           title: "Thread",
           provider: "codex",
@@ -3161,7 +3136,6 @@ it.layer(
         id: threadId,
         spaceId: "penkra-personal",
         folderId: "project-test",
-        deckId: singletonThreadDeckId(threadId),
         sidebarSortOrder: 0,
         title: "Thread",
         provider: "codex",
@@ -3218,7 +3192,6 @@ it.layer(
         id: threadId,
         spaceId: "penkra-personal",
         folderId: "project-test",
-        deckId: singletonThreadDeckId(threadId),
         sidebarSortOrder: 0,
         title: "Thread",
         provider: "codex",
@@ -3281,7 +3254,6 @@ it.layer(
         id: threadId,
         spaceId: "penkra-personal",
         folderId: "project-test",
-        deckId: singletonThreadDeckId(threadId),
         sidebarSortOrder: 0,
         title: "Thread",
         provider: "codex",
@@ -3425,7 +3397,6 @@ it.layer(
         id: threadId,
         spaceId: "penkra-personal",
         folderId: "project-test",
-        deckId: singletonThreadDeckId(threadId),
         sidebarSortOrder: 0,
         title: "Thread",
         provider: "codex",
@@ -3535,7 +3506,6 @@ it.layer(
         id: threadId,
         spaceId: "penkra-personal",
         folderId: "project-test",
-        deckId: singletonThreadDeckId(threadId),
         sidebarSortOrder: 0,
         title: "Thread",
         provider: "codex",
@@ -3592,7 +3562,6 @@ it.layer(
         id: threadId,
         spaceId: "penkra-personal",
         folderId: "project-test",
-        deckId: singletonThreadDeckId(threadId),
         sidebarSortOrder: 0,
         title: "Thread",
         provider: "codex",
@@ -3653,7 +3622,6 @@ it.layer(
         id: threadId,
         spaceId: "penkra-personal",
         folderId: "project-test",
-        deckId: singletonThreadDeckId(threadId),
         sidebarSortOrder: 0,
         title: "Thread",
         provider: "codex",

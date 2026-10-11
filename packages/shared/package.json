@@ -148,10 +148,6 @@
       "types": "./src/terminalThreads.ts",
       "import": "./src/terminalThreads.ts"
     },
-    "./threadEnvironment": {
-      "types": "./src/threadEnvironment.ts",
-      "import": "./src/threadEnvironment.ts"
-    },
     "./threadSummary": {
       "types": "./src/threadSummary.ts",
       "import": "./src/threadSummary.ts"

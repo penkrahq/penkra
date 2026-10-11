@@ -1,7 +1,7 @@
 // FILE: threadListStore.ts
 // Purpose: The single clean-core thread-list store (0.14.4 step 4). The sidebar,
-// the deck and ChatView read thread summary fields (runtime mode, working
-// directory, deck, sort, rollups) from here instead of the orchestration
+// folder tabs and ChatView read thread summary fields (runtime mode, sort,
+// rollups) from here instead of the orchestration
 // projection snapshot. It stays live by applying the publisher's thread changes.
 // Layer: Web state
 // Exports: loadThreadPage, refreshThreadPage, subscribeThreadList,
@@ -13,8 +13,6 @@ import type {
   FolderId,
   SpaceId,
   ThreadId,
-  ThreadDeckId,
-  CleanCoreDeckThreadCursor,
 } from "@penkra/contracts";
 import { useSyncExternalStore } from "react";
 
@@ -122,28 +120,6 @@ function readThreadPage(
   return request;
 }
 
-/** Read every member of the displayed deck as bounded indexed pages. */
-const pendingDecks = new Map<ThreadDeckId, Promise<void>>();
-export function loadDeckThreads(deckId: ThreadDeckId): Promise<void> {
-  const pending = pendingDecks.get(deckId);
-  if (pending !== undefined) return pending;
-  const request = (async () => {
-    let after: CleanCoreDeckThreadCursor | null = null;
-    do {
-      const page = await ensureNativeApi().cleanCore.listDeckThreads({ deckId, after });
-      const next = new Map(byId);
-      for (const row of page.threads) {
-        const stored = next.get(row.id);
-        if (stored === undefined || stored.updatedAt <= row.updatedAt) next.set(row.id, row);
-      }
-      setThreads(next);
-      after = page.nextCursor;
-    } while (after !== null);
-  })().finally(() => pendingDecks.delete(deckId));
-  pendingDecks.set(deckId, request);
-  return request;
-}
-
 /** Apply an operation's returned row without a second read. */
 export function applyThreadRow(row: CleanCoreThreadSummary): void {
   const stored = byId.get(row.id);
@@ -192,5 +168,4 @@ export function resetThreadListForTests(): void {
   listeners.clear();
   pages = new Map();
   pendingPages.clear();
-  pendingDecks.clear();
 }

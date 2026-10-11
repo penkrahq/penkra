@@ -1,4 +1,4 @@
-import { FolderId, singletonThreadDeckId } from "@penkra/contracts";
+import { FolderId } from "@penkra/contracts";
 import { createThreadFixture } from "../../cleanCore/threadFixtures.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
@@ -729,11 +729,9 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
       yield* createThreadFixture(sql, {
         threadId,
         folderId: FolderId.makeUnsafe("legacy-folder"),
-        deckId: singletonThreadDeckId(threadId),
         title: "Legacy",
         modelSelection: { provider: "claudeAgent", model: "claude-sonnet-4-5" },
         runtimeMode: "full-access",
-        workingDirectory: null,
         connection: { kind: "selected", connectionId: completed.connectionId },
         creator: { kind: "user" },
         createdAt: timestamp,

@@ -12,7 +12,6 @@ import {
   isPersistedThreadOpenable,
   createThreadFolderIdSelector,
   createThreadShellsSelector,
-  createThreadWorkspaceMetadataSelector,
 } from "./storeSelectors";
 import { applyOrchestrationEvents } from "./storeEventReducer";
 import {
@@ -112,8 +111,6 @@ describe("createComposerThreadMentionSourcesSelector", () => {
       {
         [threadIdA]: {
           ...summaryA,
-          deckId: "deck" as ThreadShell["deckId"],
-          deckSortOrder: 0,
           runtimeMode: "full-access" as const,
           codexThreadId: null,
           error: null,
@@ -222,60 +219,5 @@ describe("thread shell route selectors", () => {
 
     expect(createThreadExistsSelector(threadIdA)(state)).toBe(true);
     expect(createThreadFolderIdSelector(threadIdA)(state)).toBe(folderId);
-  });
-
-  it("keeps workspace metadata stable while streaming messages change", () => {
-    const selectWorkspaceMetadata = createThreadWorkspaceMetadataSelector(threadIdA);
-    const threadIds = [threadIdA];
-    const threadShellById = {
-      [threadIdA]: {
-        ...shellA,
-      },
-    };
-
-    const before = selectWorkspaceMetadata(makeState({ threadIds, threadShellById }));
-    const after = selectWorkspaceMetadata(
-      makeState({
-        threadIds,
-        threadShellById,
-        messageIdsByThreadId: { [threadIdA]: [messageId] },
-      }),
-    );
-
-    expect(after).toBe(before);
-    expect(after).toEqual({
-      workingDirectory: null,
-    });
-  });
-
-  it("updates workspace metadata when a Folder working directory changes", () => {
-    const selectWorkspaceMetadata = createThreadWorkspaceMetadataSelector(threadIdA);
-    const before = selectWorkspaceMetadata(
-      makeState({
-        threadIds: [threadIdA],
-        threadShellById: {
-          [threadIdA]: {
-            ...shellA,
-            workingDirectory: "/repo/one",
-          },
-        },
-      }),
-    );
-    const after = selectWorkspaceMetadata(
-      makeState({
-        threadIds: [threadIdA],
-        threadShellById: {
-          [threadIdA]: {
-            ...shellA,
-            workingDirectory: "/repo/two",
-          },
-        },
-      }),
-    );
-
-    expect(after).not.toBe(before);
-    expect(after).toEqual({
-      workingDirectory: "/repo/two",
-    });
   });
 });

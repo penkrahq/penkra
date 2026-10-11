@@ -35,7 +35,7 @@ layer("ThreadProviderBindingRepository", (it) => {
           '2026-08-08T00:00:00.000Z', '2026-08-08T00:00:00.000Z', 'binding-space'
         )
       `;
-      yield* sql`INSERT INTO threads (id, space_id, folder_id, title, provider, model, model_options, runtime_mode, state, created_by, created_at, updated_at, deck_id, sidebar_sort_order) VALUES ('binding-thread', 'penkra-personal', 'binding-folder', 'Thread', json_extract('{"provider":"codex","model":"gpt-5"}', '$.provider'), json_extract('{"provider":"codex","model":"gpt-5"}', '$.model'), NULL, 'full-access', 'idle', 'user', '2026-08-08T00:00:00.000Z', '2026-08-08T00:00:00.000Z', 'deck:' || 'binding-thread', 0)`;
+      yield* sql`INSERT INTO threads (id, space_id, folder_id, title, provider, model, model_options, runtime_mode, state, created_by, created_at, updated_at, sidebar_sort_order) VALUES ('binding-thread', 'penkra-personal', 'binding-folder', 'Thread', json_extract('{"provider":"codex","model":"gpt-5"}', '$.provider'), json_extract('{"provider":"codex","model":"gpt-5"}', '$.model'), NULL, 'full-access', 'idle', 'user', '2026-08-08T00:00:00.000Z', '2026-08-08T00:00:00.000Z', 0)`;
       yield* sql`
         INSERT INTO provider_installations (
           installation_id, harness_kind, version, platform, architecture,

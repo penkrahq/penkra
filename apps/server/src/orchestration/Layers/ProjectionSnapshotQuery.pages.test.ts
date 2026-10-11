@@ -46,9 +46,7 @@ const thread = (id: string, folderId = "folder") =>
     title: id,
     provider: "codex",
     model: "gpt-5.5",
-    deckId: "deck:" + id,
     runtimeMode: "full-access",
-    workingDirectory: "/repo",
     createdBy: "user",
     createdAt: now,
   });
@@ -169,7 +167,6 @@ it.effect(
           rows.threads.map((row) => row.id),
           ["specific"],
         );
-        assert.equal(rows.threads[0]!.workingDirectory, "/repo");
         assert.equal(rows.threads[0]!.modelSelection.provider, "claudeAgent");
         const rejected: Partial<ProjectionThreadShellPageInput>[] = [
           { threadIds: [] },

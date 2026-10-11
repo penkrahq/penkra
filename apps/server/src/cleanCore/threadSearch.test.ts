@@ -1,7 +1,7 @@
 // FILE: threadSearch.test.ts
 // Purpose: Verify Space-wide search, transcript hit selection and keyset pagination.
 import { assert, it } from "@effect/vitest";
-import { SpaceId, ThreadId } from "@penkra/contracts";
+import { FolderId, SpaceId, ThreadId } from "@penkra/contracts";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { listThreads, searchThreads } from "./threadList.ts";
@@ -9,6 +9,8 @@ import { createThread } from "./threadStore.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
 
+import { seedThreadFolderFixture } from "./threadFixtures.ts";
+const folderId = FolderId.makeUnsafe("search-folder");
 const spaceId = SpaceId.makeUnsafe("search-space");
 const withDb = <A, E>(effect: Effect.Effect<A, E, SqlClient.SqlClient>) =>
   effect.pipe(Effect.provide(NodeSqliteClient.layerMemory()));
@@ -17,6 +19,7 @@ const addThread = (id: string, title: string) =>
     id,
     title,
     spaceId,
+    folderId,
     provider: "codex",
     model: "gpt-5.5",
     runtimeMode: "full-access",
@@ -35,9 +38,10 @@ it.effect("finds a title on an unloaded sidebar page case-insensitively", () =>
   withDb(
     Effect.gen(function* () {
       yield* runMigrations();
+      yield* seedThreadFolderFixture(folderId, spaceId);
       for (let i = 0; i < 51; i++)
         yield* addThread(String(i).padStart(2, "0"), i === 50 ? "Unloaded NEEDLE" : "Other");
-      const sidebar = yield* listThreads({ spaceId, folderId: null });
+      const sidebar = yield* listThreads({ spaceId, folderId });
       assert.isFalse(sidebar.threads.some((row) => row.id === "50"));
       const result = yield* searchThreads({ spaceId, query: "needle", cursor: null });
       assert.deepStrictEqual(
@@ -57,6 +61,7 @@ it.effect(
     withDb(
       Effect.gen(function* () {
         yield* runMigrations();
+        yield* seedThreadFolderFixture(folderId, spaceId);
         const sql = yield* SqlClient.SqlClient;
         for (const id of ["message", "title", "archived", "deleted", "elsewhere"]) {
           yield* addThread(id, id === "title" ? "Needle" : "Other");
@@ -86,6 +91,7 @@ it.effect(
     withDb(
       Effect.gen(function* () {
         yield* runMigrations();
+        yield* seedThreadFolderFixture(folderId, spaceId);
         const sql = yield* SqlClient.SqlClient;
         const expected: string[] = [];
         for (const kind of ["title", "message"]) {
@@ -135,6 +141,7 @@ it.effect("treats quotes and FTS operators as literal query text; empty queries 
   withDb(
     Effect.gen(function* () {
       yield* runMigrations();
+      yield* seedThreadFolderFixture(folderId, spaceId);
       yield* addThread("quoted", "Other");
       yield* addMessage("quoted", 1, 'literal "needle" OR text');
       const result = yield* searchThreads({ spaceId, query: '"needle" OR', cursor: null });

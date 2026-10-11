@@ -1,5 +1,5 @@
 import { createThreadFixture } from "../cleanCore/threadFixtures.ts";
-import { singletonThreadDeckId } from "@penkra/contracts";
+import {} from "@penkra/contracts";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -525,11 +525,9 @@ async function makeProviderRuntime(
     createThreadFixture(sql, {
       threadId: THREAD_ID,
       folderId: FolderId.makeUnsafe("folder-boundary"),
-      deckId: singletonThreadDeckId(THREAD_ID),
       title: "Adapter boundary",
       modelSelection: MODEL_SELECTION,
       runtimeMode: "full-access",
-      workingDirectory: "/tmp/provider-boundary",
       createdAt: now,
       connection: { kind: "selected", connectionId: null },
       creator: { kind: "user" },

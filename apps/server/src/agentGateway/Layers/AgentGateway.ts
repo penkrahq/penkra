@@ -104,7 +104,7 @@ import {
 } from "../hostToolContract.ts";
 import { renderPenkraMcpServerInstructions } from "../harnessPolicy.ts";
 import { resolveAuthoritativeActiveTurn } from "../activeExecution.ts";
-import { presentFile, resolvePresentFileWorkingDirectory } from "../presentFile.ts";
+import { presentFile, resolvePresentFileCwd } from "../presentFile.ts";
 import { ThreadSender } from "../../cleanCore/ThreadSender.ts";
 
 import {
@@ -263,6 +263,7 @@ export const makeAgentGateway = Effect.gen(function* () {
   // --- write tools ----------------------------------------------------------
 
   const runCreateThread = yield* makeCreateThreadHandler({
+    stateDir: serverConfig.stateDir,
     lifecycle,
     sender,
     snapshotQuery,
@@ -566,9 +567,8 @@ export const makeAgentGateway = Effect.gen(function* () {
           }
           const caller = yield* requireThreadShell(context.callerThreadId);
           const folder = yield* snapshotQuery.getFolderShellById(caller.folderId);
-          const workingDirectory = resolvePresentFileWorkingDirectory({
+          const cwd = resolvePresentFileCwd({
             threadId: caller.id,
-            workingDirectory: caller.workingDirectory ?? null,
             projectCwd: Option.isSome(folder) ? folder.value.workspaceRoot : null,
             stateDir: serverConfig.stateDir,
           });
@@ -576,7 +576,7 @@ export const makeAgentGateway = Effect.gen(function* () {
           const results = yield* Effect.forEach(requestedPaths, (requestedPath, index) =>
             presentFile({
               requestedPath,
-              workingDirectory,
+              cwd,
               threadId: caller.id,
               turnId: context.callerTurnId,
               attachmentsDir: serverConfig.attachmentsDir,
@@ -715,14 +715,20 @@ export const makeAgentGateway = Effect.gen(function* () {
           );
         }
         yield* context.assertCallerTurnActive();
+        const folder = yield* snapshotQuery.getFolderShellById(caller.folderId);
+        const cwd = resolvePresentFileCwd({
+          threadId: caller.id,
+          projectCwd: Option.isSome(folder) ? folder.value.workspaceRoot : null,
+          stateDir: serverConfig.stateDir,
+        });
         const result = yield* Effect.tryPromise({
           try: () =>
             executePenkraExecCommand(commandInput, {
               spaceId: callerSpaceId,
-              deckId: caller.deckId,
+              folderId: caller.folderId,
               threadId: caller.id,
               callerTurnId: context.callerWriteTurnId,
-              workingDirectory: caller.workingDirectory ?? null,
+              cwd,
               additionalCoreCommands: agentGatewayCommandCatalog(gatewayCommands),
             }),
           catch: (error) => new ToolInputError(errorText(error)),

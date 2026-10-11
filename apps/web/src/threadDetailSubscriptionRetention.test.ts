@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ThreadId, TurnId, singletonThreadDeckId } from "@penkra/contracts";
+import { ThreadId, TurnId } from "@penkra/contracts";
 import { useStore } from "./store";
 import {
   MAX_CACHED_THREAD_DETAIL_SUBSCRIPTIONS,

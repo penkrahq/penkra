@@ -18,7 +18,7 @@ export function announceAppTabOpened(input: {
   const { descriptor, windows, home, panelFocus } = input;
   const targetWindowId = home.presentingWindow(
     descriptor.threadId,
-    descriptor.deckId,
+    descriptor.folderId,
     windows.map((window) => window.id),
   );
   const target = windows.find((window) => window.id === targetWindowId);
@@ -30,7 +30,8 @@ export function announceAppTabOpened(input: {
   if (agentOpen && target && descriptor.selection === "activate" && !preserveFocusedPanel) {
     panelFocus.agentSwitchedPanel(target.id, target.focused);
   }
-  if (!target && descriptor.selection === "activate") home.defer(descriptor.deckId, descriptor.id);
+  if (!target && descriptor.selection === "activate")
+    home.defer(descriptor.folderId, descriptor.id);
   return {
     targetWindowId,
     deliveries: windows.map((window) => ({

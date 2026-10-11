@@ -50,11 +50,11 @@ describe("resolvePanelShortcut", () => {
 
 describe("resolvePanelShortcutEffect", () => {
   it("closes the selected panel tab only while the panel is focused", () => {
-    expect(resolvePanelShortcutEffect("close", true, "deck-1")).toEqual({
+    expect(resolvePanelShortcutEffect("close", true, "folder-1")).toEqual({
       kind: "close-panel-tab",
-      deckId: "deck-1",
+      folderId: "folder-1",
     });
-    expect(resolvePanelShortcutEffect("close", false, "deck-1")).toEqual({ kind: "none" });
+    expect(resolvePanelShortcutEffect("close", false, "folder-1")).toEqual({ kind: "none" });
     expect(resolvePanelShortcutEffect("close", true, null)).toEqual({ kind: "none" });
     expect(resolvePanelShortcutEffect("close", false, null)).toEqual({ kind: "none" });
   });

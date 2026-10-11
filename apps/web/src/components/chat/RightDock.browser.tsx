@@ -4,7 +4,7 @@ import { page } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
-import type { RightDockDeckState } from "~/rightDockStore.logic";
+import type { RightDockFolderState } from "~/rightDockStore.logic";
 import { RightDock } from "./RightDock";
 
 const pane = {
@@ -23,7 +23,7 @@ afterEach(() => {
 });
 
 function dock(
-  state: RightDockDeckState,
+  state: RightDockFolderState,
   motionKey: string,
   options: { shellWidth?: number; contentMinWidth?: number } = {},
 ) {
@@ -53,7 +53,7 @@ describe("RightDock Thread width", () => {
     await page.viewport(1280, 800);
     for (const panes of [[], [pane]]) {
       const onResize = vi.fn();
-      const state: RightDockDeckState = {
+      const state: RightDockFolderState = {
         open: true,
         panes,
         activePaneId: panes[0]?.id ?? null,
@@ -170,7 +170,7 @@ describe("RightDock Thread width", () => {
 
   it("reconciles the rendered dock width when its parent shell shrinks", async () => {
     await page.viewport(1280, 800);
-    const state: RightDockDeckState = {
+    const state: RightDockFolderState = {
       open: true,
       panes: [pane],
       activePaneId: pane.id,

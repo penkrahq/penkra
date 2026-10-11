@@ -169,7 +169,7 @@ export class AppNodeControllerRuntime {
         }
         const requestContext = requireRecord(input.context);
         const result = await handler(input.input, {
-          deckId: requireString(requestContext.deckId, "deckId"),
+          folderId: requireString(requestContext.folderId, "folderId"),
           threadId: requireString(requestContext.threadId, "threadId"),
           tabId: requireString(requestContext.tabId, "tabId"),
           signal: request.controller.signal,
@@ -337,7 +337,7 @@ function parseInvocation(value: unknown): OperationContext["invocation"] {
     app: requireString(input.app, "invocation.app"),
     operation: requireString(input.operation, "invocation.operation"),
     spaceId: requireString(input.spaceId, "invocation.spaceId"),
-    deckId: requireString(input.deckId, "invocation.deckId"),
+    folderId: requireString(input.folderId, "invocation.folderId"),
     threadId: requireString(input.threadId, "invocation.threadId"),
     ...(input.tabId === undefined ? {} : { tabId: requireString(input.tabId, "invocation.tabId") }),
   };

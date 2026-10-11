@@ -9,7 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { singletonThreadDeckId } from "@penkra/contracts";
+import {} from "@penkra/contracts";
 import type {
   ModelSelection,
   OrchestrationCommand,
@@ -745,11 +745,9 @@ describe("ProviderCommandReactor", () => {
         createThreadFixture(sql, {
           threadId: ThreadId.makeUnsafe("thread-1"),
           folderId: asFolderId("project-1"),
-          deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-1")),
           title: "Thread",
           modelSelection: modelSelection,
           runtimeMode: "approval-required",
-          workingDirectory: "/tmp/provider-project",
           createdAt: now,
           connection: { kind: "selected", connectionId: null },
           creator: { kind: "user" },
@@ -1323,11 +1321,9 @@ describe("ProviderCommandReactor", () => {
       createThreadFixture(harness.sql, {
         threadId: secondThread,
         folderId: asFolderId("project-1"),
-        deckId: singletonThreadDeckId(secondThread),
         title: "Independent thread",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
-        workingDirectory: null,
         createdAt: now,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
@@ -1591,11 +1587,9 @@ describe("ProviderCommandReactor", () => {
       createThreadFixture(harness.sql, {
         threadId: secondThread,
         folderId: asFolderId("project-1"),
-        deckId: singletonThreadDeckId(secondThread),
         title: "Independent",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
-        workingDirectory: null,
         createdAt: now,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
@@ -2193,11 +2187,9 @@ describe("ProviderCommandReactor", () => {
         createThreadFixture(harness.sql, {
           threadId: senderThreadId,
           folderId: FolderId.makeUnsafe("project-1"),
-          deckId: singletonThreadDeckId(senderThreadId),
           title: title,
           modelSelection: { provider, model: "test-model" },
           runtimeMode: "approval-required",
-          workingDirectory: "/tmp/provider-project",
           createdAt: now,
           connection: { kind: "selected", connectionId: null },
           creator: { kind: "user" },
@@ -4840,11 +4832,9 @@ describe("ProviderCommandReactor", () => {
       createThreadFixture(harness.sql, {
         threadId: secondThreadId,
         folderId: asFolderId("project-1"),
-        deckId: singletonThreadDeckId(secondThreadId),
         title: "Second thread",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
-        workingDirectory: null,
         createdAt: now,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
@@ -4935,14 +4925,12 @@ describe("ProviderCommandReactor", () => {
       createThreadFixture(harness.sql, {
         threadId: ThreadId.makeUnsafe("thread-home"),
         folderId: asFolderId("project-home"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-home")),
         title: "Home thread",
         modelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
         },
         runtimeMode: "approval-required",
-        workingDirectory: null,
         createdAt: now,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },

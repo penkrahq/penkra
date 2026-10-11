@@ -3,7 +3,6 @@ import {
   FolderId,
   SpaceId,
   ThreadId,
-  singletonThreadDeckId,
   type CleanCoreCreateThreadInput,
   type CleanCoreThreadSummary,
   type NativeApi,
@@ -24,12 +23,10 @@ function input(): CleanCoreCreateThreadInput {
   const threadId = ThreadId.makeUnsafe("thread-promote");
   return {
     threadId,
-    deckId: singletonThreadDeckId(threadId),
     folderId: FolderId.makeUnsafe("project-promote"),
     title: "Promoted thread",
     modelSelection: { provider: "codex", model: "gpt-5" },
     runtimeMode: "full-access",
-    workingDirectory: null,
     connection: { kind: "selected", connectionId: null },
     creator: { kind: "user" },
     createdAt: "2026-05-06T20:00:00.000Z",
@@ -46,15 +43,12 @@ function makeCanonicalThread(request: CleanCoreCreateThreadInput): CleanCoreThre
     modelOptions: null,
     connectionId: null,
     runtimeMode: request.runtimeMode,
-    workingDirectory: request.workingDirectory,
     state: "idle",
     activeTurnId: null,
     lastError: null,
     queue: "[]",
     createdBy: "user",
     createdByThreadId: null,
-    deckId: request.deckId,
-    deckSortOrder: 0,
     sidebarSortOrder: null,
     lastActivityAt: null,
     lastMessagePreview: null,
@@ -70,7 +64,6 @@ function makeCanonicalThread(request: CleanCoreCreateThreadInput): CleanCoreThre
 function makeShellSnapshot(threadId: ThreadId, snapshotSequence = 1) {
   const folderId = FolderId.makeUnsafe("project-promote");
   const spaceId = SpaceId.makeUnsafe("space-test");
-  const deckId = singletonThreadDeckId(threadId);
   return {
     snapshotSequence,
     spaces: [],
@@ -86,20 +79,10 @@ function makeShellSnapshot(threadId: ThreadId, snapshotSequence = 1) {
         updatedAt: "2026-05-06T20:00:00.000Z",
       },
     ],
-    decks: [
-      {
-        id: deckId,
-        spaceId,
-        threadIds: [threadId],
-        createdAt: "2026-05-06T20:00:00.000Z",
-        updatedAt: "2026-05-06T20:00:00.000Z",
-      },
-    ],
     threads: [
       {
         id: threadId,
-        deckId,
-        deckSortOrder: 0,
+
         folderId,
         title: "Promoted thread",
         modelSelection: {

@@ -10,7 +10,6 @@ import {
   SpaceId,
   ThreadId,
   TurnId,
-  singletonThreadDeckId,
   type OrchestrationEvent,
   type OrchestrationGetThreadTurnsPageResult,
   type OrchestrationReadModel,
@@ -98,8 +97,6 @@ function createThread(input: {
 }): OrchestrationThread {
   return {
     id: input.id,
-    deckId: singletonThreadDeckId(input.id),
-    deckSortOrder: 0,
     folderId: PROJECT_ID,
     title: input.title,
     modelSelection: { provider: "codex", model: "gpt-5" },
@@ -151,13 +148,6 @@ function createSnapshot(): OrchestrationReadModel {
         deletedAt: null,
       },
     ],
-    decks: [THREAD_ID, OTHER_THREAD_ID].map((threadId) => ({
-      id: singletonThreadDeckId(threadId),
-      spaceId: TEST_SPACE_ID,
-      threadIds: [threadId],
-      createdAt: NOW_ISO,
-      updatedAt: NOW_ISO,
-    })),
     threads: [
       createThread({
         id: THREAD_ID,
@@ -341,7 +331,6 @@ function summarizeFixtureThread(thread: OrchestrationThread) {
       ? JSON.stringify(thread.modelSelection.options)
       : null,
     runtimeMode: thread.runtimeMode,
-    workingDirectory: thread.workingDirectory ?? null,
     state: thread.session?.status === "running" ? "running" : "idle",
     activeTurnId: thread.session?.activeTurnId ?? null,
     lastError: thread.session?.lastError ?? null,
@@ -359,8 +348,6 @@ function summarizeFixtureThread(thread: OrchestrationThread) {
     ),
     createdBy: "user",
     createdByThreadId: null,
-    deckId: thread.deckId,
-    deckSortOrder: thread.deckSortOrder,
     sidebarSortOrder: thread.sidebarSortOrder ?? null,
     lastActivityAt: thread.lastActivityAt ?? null,
     lastMessagePreview: thread.lastMessagePreview ?? null,
@@ -378,18 +365,6 @@ function resolveUnaryRequest(method: string, body: Record<string, unknown>): unk
   if (method === WS_METHODS.cleanCoreGetThread) {
     const thread = fixture.snapshot.threads.find((thread) => thread.id === body.threadId);
     return thread === undefined ? null : summarizeFixtureThread(thread);
-  }
-  if (method === WS_METHODS.cleanCoreListDeckThreads) {
-    return {
-      threads: fixture.snapshot.threads
-        .filter((thread) => thread.deckId === body.deckId)
-        .map(summarizeFixtureThread)
-        .toSorted(
-          (left, right) =>
-            left.deckSortOrder - right.deckSortOrder || left.id.localeCompare(right.id),
-        ),
-      nextCursor: null,
-    };
   }
   if (method === WS_METHODS.cleanCoreListThreads)
     return {

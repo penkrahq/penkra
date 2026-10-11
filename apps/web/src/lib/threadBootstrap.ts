@@ -5,21 +5,17 @@ import {
   type ProviderKind,
   type RuntimeMode,
   type SpaceId,
-  type ThreadDeckId,
   type ThreadId,
-  singletonThreadDeckId,
 } from "@penkra/contracts";
 import {
   type ComposerThreadDraftState,
   type DraftThreadState,
   resolvePreferredComposerModelSelection,
 } from "../composerDraftStore";
-import { type Thread, type ThreadPrimarySurface } from "../types";
+import type { ThreadPrimarySurface } from "../types";
 
 export interface NewThreadOptions {
-  deckId?: ThreadDeckId;
   spaceId?: SpaceId | null;
-  workingDirectory?: string | null;
   entryPoint?: ThreadPrimarySurface;
   provider?: ProviderKind;
   fresh?: boolean;
@@ -44,35 +40,6 @@ export function requireNewThreadSpaceId(spaceId: SpaceId | null): SpaceId {
   return spaceId;
 }
 
-export interface InheritedThreadContext {
-  workingDirectory: string | null;
-}
-
-export function resolveRecentParentWorkingDirectory(input: {
-  folderId: FolderId;
-  threads: ReadonlyArray<Pick<Thread, "folderId" | "workingDirectory" | "createdAt">>;
-}): string | null {
-  const matching = input.threads.filter(
-    (thread) => thread.folderId === input.folderId && Boolean(thread.workingDirectory?.trim()),
-  );
-  const latest = matching.reduce<(typeof matching)[number] | null>(
-    (current, candidate) =>
-      !current || candidate.createdAt.localeCompare(current.createdAt) > 0 ? candidate : current,
-    null,
-  );
-  return latest?.workingDirectory?.trim() || null;
-}
-
-export function resolveInheritedThreadContext(input: {
-  activeThread: Pick<Thread, "workingDirectory"> | null | undefined;
-  activeDraftThread: Pick<DraftThreadState, "workingDirectory"> | null | undefined;
-}): InheritedThreadContext {
-  return {
-    workingDirectory:
-      input.activeDraftThread?.workingDirectory ?? input.activeThread?.workingDirectory ?? null,
-  };
-}
-
 interface ActiveThreadSnapshot {
   folderId: FolderId;
   modelSelection: ModelSelection;
@@ -95,7 +62,6 @@ export interface DraftReusePlanFresh {
 export type ThreadBootstrapPlan = DraftReusePlanStored | DraftReusePlanRoute | DraftReusePlanFresh;
 
 interface ResolveTerminalThreadCreationStateInput {
-  threadId: ThreadId;
   activeDraftThread: DraftThreadState | null;
   activeThread: ActiveThreadSnapshot | null;
   defaultProvider?: ProviderKind | null | undefined;
@@ -107,11 +73,9 @@ interface ResolveTerminalThreadCreationStateInput {
 }
 
 export interface TerminalThreadCreationState {
-  deckId: ThreadDeckId;
   spaceId: SpaceId | null;
   modelSelection: ModelSelection;
   runtimeMode: RuntimeMode;
-  workingDirectory: string | null;
 }
 
 export function createActiveThreadSnapshot(
@@ -140,12 +104,10 @@ export function createActiveDraftThreadSnapshot(
   if (!activeDraftThread || activeDraftThread.folderId !== folderId) return null;
   return {
     ...activeDraftThread,
-    workingDirectory: activeDraftThread.workingDirectory ?? null,
   };
 }
 
 export function resolveThreadBootstrapPlan(input: {
-  deckId?: ThreadDeckId;
   entryPoint: ThreadPrimarySurface;
   latestActiveDraftThread: DraftThreadState | null;
   folderId: FolderId;
@@ -155,7 +117,6 @@ export function resolveThreadBootstrapPlan(input: {
   if (
     shouldReuseActiveDraftThread({
       draftThread: input.latestActiveDraftThread,
-      ...(input.deckId === undefined ? {} : { deckId: input.deckId }),
       entryPoint: input.entryPoint,
       folderId: input.folderId,
       routeThreadId: input.routeThreadId,
@@ -178,52 +139,39 @@ export function resolveThreadBootstrapPlan(input: {
 }
 
 export function createFreshDraftThreadSeed(input: {
-  threadId: ThreadId;
   createdAt: string;
   entryPoint: ThreadPrimarySurface;
   options: NewThreadOptions | undefined;
 }): Omit<DraftThreadState, "folderId"> {
   return {
-    deckId: input.options?.deckId ?? singletonThreadDeckId(input.threadId),
     createdAt: input.createdAt,
     spaceId: input.options?.spaceId ?? null,
-    workingDirectory: input.options?.workingDirectory ?? null,
     runtimeMode: DEFAULT_RUNTIME_MODE,
     entryPoint: input.entryPoint,
   };
 }
 
 export function hasDraftContextOverrides(options?: NewThreadOptions): boolean {
-  return (
-    options?.deckId !== undefined ||
-    options?.spaceId !== undefined ||
-    options?.workingDirectory !== undefined
-  );
+  return options?.spaceId !== undefined;
 }
 
 export function buildDraftThreadContextPatch(
   entryPoint: ThreadPrimarySurface,
   options?: NewThreadOptions,
 ): {
-  deckId?: ThreadDeckId;
   spaceId?: SpaceId | null;
   entryPoint: ThreadPrimarySurface;
-  workingDirectory?: string | null;
 } | null {
   if (!hasDraftContextOverrides(options)) return null;
   return {
-    ...(options?.deckId !== undefined ? { deckId: options.deckId } : {}),
     ...(options?.spaceId !== undefined ? { spaceId: options.spaceId ?? null } : {}),
-    ...(options?.workingDirectory !== undefined
-      ? { workingDirectory: options.workingDirectory ?? null }
-      : {}),
     entryPoint,
   };
 }
 
 export function shouldReuseActiveDraftThread(input: {
   draftThread: DraftThreadState | null;
-  deckId?: ThreadDeckId;
+
   entryPoint: ThreadPrimarySurface;
   folderId: FolderId;
   routeThreadId: ThreadId | null;
@@ -236,7 +184,6 @@ export function shouldReuseActiveDraftThread(input: {
   return Boolean(
     input.draftThread &&
     input.routeThreadId &&
-    (input.deckId === undefined || input.draftThread.deckId === input.deckId) &&
     input.draftThread.folderId === input.folderId &&
     input.draftThread.entryPoint === input.entryPoint,
   );
@@ -246,8 +193,6 @@ export function resolveTerminalThreadCreationState(
   input: ResolveTerminalThreadCreationStateInput,
 ): TerminalThreadCreationState {
   return {
-    deckId:
-      input.options?.deckId ?? input.draftThread?.deckId ?? singletonThreadDeckId(input.threadId),
     spaceId: input.options?.spaceId ?? input.draftThread?.spaceId ?? null,
     modelSelection: resolvePreferredComposerModelSelection({
       draft: input.draftComposerState,
@@ -263,7 +208,5 @@ export function resolveTerminalThreadCreationState(
         ? input.activeDraftThread.runtimeMode
         : null) ??
       DEFAULT_RUNTIME_MODE,
-    workingDirectory:
-      input.options?.workingDirectory ?? input.draftThread?.workingDirectory ?? null,
   };
 }

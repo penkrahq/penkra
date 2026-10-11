@@ -95,25 +95,6 @@ function isLiveSidebarThread(thread: OrchestrationThread): boolean {
   return thread.deletedAt === null && thread.archivedAt == null;
 }
 
-function requireThreadsCanMoveAcrossSpaces(input: {
-  readonly command: OrchestrationCommand;
-  readonly readModel: OrchestrationReadModel;
-  readonly threadIds: ReadonlySet<OrchestrationThread["id"]>;
-}): Effect.Effect<void, OrchestrationCommandInvariantError> {
-  const multiThreadDeck = input.readModel.decks.find(
-    (deck) =>
-      deck.threadIds.length > 1 && deck.threadIds.some((threadId) => input.threadIds.has(threadId)),
-  );
-  return multiThreadDeck
-    ? Effect.fail(
-        new OrchestrationCommandInvariantError({
-          commandType: input.command.type,
-          detail: "Threads in a multi-thread deck cannot be moved to another Space.",
-        }),
-      )
-    : Effect.void;
-}
-
 function deriveConversationRollbackTarget(
   messages: OrchestrationReadModel["threads"][number]["messages"],
   messageId: string,
@@ -355,15 +336,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         // Already-filed and concurrently-deleted folders are settled, not errors: the
         // batch stays atomic for real failures without rejecting a raced retry.
         if (folder.deletedAt !== null || folder.spaceId === command.spaceId) continue;
-        yield* requireThreadsCanMoveAcrossSpaces({
-          command,
-          readModel,
-          threadIds: new Set(
-            readModel.threads
-              .filter((thread) => thread.deletedAt === null && thread.folderId === folder.id)
-              .map((thread) => thread.id),
-          ),
-        });
+
         const normalizedFolderName = normalizeEntityName(folder.title);
         if (destinationFolderNames.has(normalizedFolderName)) {
           return yield* new OrchestrationCommandInvariantError({

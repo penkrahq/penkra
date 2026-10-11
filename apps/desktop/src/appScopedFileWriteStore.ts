@@ -12,7 +12,7 @@ export const APP_FILE_WRITE_MAX_BYTES = 64 * 1024 * 1024;
 export interface AppScopedFileWriteOwner {
   appId: string;
   spaceId: string;
-  deckId: string;
+  folderId: string;
   tabId: string;
   rendererId: number;
 }
@@ -168,20 +168,20 @@ export class AppScopedFileWriteStore {
       (session) =>
         session.appId === owner.appId &&
         session.spaceId === owner.spaceId &&
-        session.deckId === owner.deckId &&
+        session.folderId === owner.folderId &&
         session.tabId === owner.tabId &&
         session.rendererId === owner.rendererId,
     );
   }
 
   detachTab(
-    owner: Pick<AppScopedFileWriteOwner, "appId" | "spaceId" | "deckId" | "tabId">,
+    owner: Pick<AppScopedFileWriteOwner, "appId" | "spaceId" | "folderId" | "tabId">,
   ): DetachedAppScopedFileWrites {
     return this.#detach(
       (session) =>
         session.appId === owner.appId &&
         session.spaceId === owner.spaceId &&
-        session.deckId === owner.deckId &&
+        session.folderId === owner.folderId &&
         session.tabId === owner.tabId,
     );
   }
@@ -215,7 +215,7 @@ export class AppScopedFileWriteStore {
       !session ||
       session.appId !== owner.appId ||
       session.spaceId !== owner.spaceId ||
-      session.deckId !== owner.deckId ||
+      session.folderId !== owner.folderId ||
       session.tabId !== owner.tabId ||
       session.rendererId !== owner.rendererId
     ) {

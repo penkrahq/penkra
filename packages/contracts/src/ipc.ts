@@ -112,11 +112,9 @@ import type {
   CleanCoreGetFoldersResult,
   CleanCoreListThreadsInput,
   CleanCoreSearchThreadsInput,
-  CleanCoreListDeckThreadsInput,
   CleanCoreCreateThreadResponse,
   CleanCoreListThreadsResult,
   CleanCoreSearchThreadsResult,
-  CleanCoreListDeckThreadsResult,
   CleanCoreUpdateThreadInput,
   CleanCoreSetThreadDraftInput,
   CleanCoreSubscribeThreadInput,
@@ -552,7 +550,7 @@ export interface DesktopAppTabDescriptor {
   presentationTitle?: string | null;
   presentationIconUrl?: string | null;
   spaceId: string;
-  deckId: string;
+  folderId: string;
   threadId: string;
   route: string;
   /** JSON-compatible App navigation state paired with `route` for exact reconstruction. */
@@ -569,7 +567,7 @@ export interface DesktopAppTabOpened extends DesktopAppTabDescriptor {
 
 export interface DesktopAppTabClosed {
   id: string;
-  deckId: string;
+  folderId: string;
   threadId: string;
 }
 
@@ -587,21 +585,21 @@ export interface DesktopAppTabsBridge {
   onActivationRequested: (
     listener: (input: { requestId: string; tab: DesktopAppTabDescriptor }) => void,
   ) => () => void;
-  list: (scope?: { deckId: string }) => Promise<ReadonlyArray<DesktopAppTabOpened>>;
+  list: (scope?: { folderId: string }) => Promise<ReadonlyArray<DesktopAppTabOpened>>;
   consumeListingRequest: () => Promise<{ appId: string } | null>;
   open: (input: {
     /** Stable shell identity to retain when restoring a persisted App tab. */
     tabId?: string;
     appId: string;
     spaceId: string;
-    deckId: string;
+    folderId: string;
     threadId: string;
     route: string;
     state?: unknown;
   }) => Promise<DesktopAppTabDescriptor>;
   present: (input: {
     tabId: string;
-    deckId: string;
+    folderId: string;
     threadId: string;
     animate?: boolean;
     animationStartedAtEpochMs?: number;
@@ -610,7 +608,7 @@ export interface DesktopAppTabsBridge {
   hide: (input: { tabId: string; animate?: boolean }) => Promise<void>;
   trace: (input: { event: string; tabId?: string; details?: Record<string, unknown> }) => void;
   overlayActive: (active: boolean) => void;
-  setContext: (input: { tabId: string; deckId: string; threadId: string }) => Promise<void>;
+  setContext: (input: { tabId: string; folderId: string; threadId: string }) => Promise<void>;
   navigate: (input: { tabId: string; route: string; state?: unknown }) => Promise<void>;
   close: (input: { tabId: string }) => Promise<void>;
   onListingRequested: (listener: (input: { appId: string }) => void) => () => void;
@@ -625,7 +623,7 @@ export interface DesktopResourceOpenInput {
   url?: string;
   requestedApp?: string;
   spaceId: string;
-  deckId: string;
+  folderId: string;
   threadId: string;
 }
 
@@ -633,7 +631,7 @@ export interface DesktopResourceContextMenuInput {
   path?: string;
   url?: string;
   spaceId: string;
-  deckId: string;
+  folderId: string;
   threadId: string;
   position: { x: number; y: number };
 }
@@ -840,7 +838,7 @@ export interface DesktopBridge {
   };
   onMenuAction: (listener: (action: string) => void) => () => void;
   panelFocus?: {
-    onClosePanelTab: (listener: (input: { deckId: string }) => void) => () => void;
+    onClosePanelTab: (listener: (input: { folderId: string }) => void) => () => void;
   };
   /** Current `webContents` page zoom (1 = 100%). Used to keep macOS traffic-light gutter aligned. */
   getZoomFactor: () => number;
@@ -868,11 +866,15 @@ export interface DesktopBridge {
     }) => Promise<void>;
   };
   threadApi?: {
-    publishState(input: { spaceId: string; deckId: string; threads: ReadonlyArray<unknown> }): void;
+    publishState(input: {
+      spaceId: string;
+      folderId: string;
+      threads: ReadonlyArray<unknown>;
+    }): void;
   };
   threadHome?: {
     view(input: {
-      views: ReadonlyArray<{ threadId: string; deckId: string }>;
+      views: ReadonlyArray<{ threadId: string; folderId: string }>;
       activeThreadId: string;
     }): void;
     leave(): void;
@@ -926,7 +928,7 @@ interface DesktopThreadApiRequestBase {
   id: string;
   appId: string;
   spaceId: string;
-  deckId: string;
+  folderId: string;
   tabId: string;
   threadId: string;
 }
@@ -945,7 +947,7 @@ interface DesktopThreadCompositionInput {
   effort?: string;
 }
 
-export type DesktopThreadDeckPosition =
+export type DesktopFolderThreadPosition =
   | { type: "start" }
   | { type: "end" }
   | { type: "before"; threadId: string }
@@ -953,17 +955,13 @@ export type DesktopThreadDeckPosition =
 
 export type DesktopThreadApiRequest =
   | (DesktopThreadApiRequestBase & { method: "current.read" })
-  | (DesktopThreadApiRequestBase & { method: "list" })
+  | (DesktopThreadApiRequestBase & { method: "list"; input: { cursor?: string } })
   | (DesktopThreadApiRequestBase & {
       method: "get";
       input: { threadId: string };
     })
   | (DesktopThreadApiRequestBase & {
       method: "select";
-      input: { threadId: string };
-    })
-  | (DesktopThreadApiRequestBase & {
-      method: "leave";
       input: { threadId: string };
     })
   | (DesktopThreadApiRequestBase & {
@@ -975,12 +973,8 @@ export type DesktopThreadApiRequest =
       input: { folderId?: string; title?: string; select?: boolean };
     })
   | (DesktopThreadApiRequestBase & {
-      method: "add";
-      input: { threadId: string; position?: DesktopThreadDeckPosition };
-    })
-  | (DesktopThreadApiRequestBase & {
       method: "reorder";
-      input: { threadId: string; position: DesktopThreadDeckPosition };
+      input: { threadId: string; position: DesktopFolderThreadPosition };
     })
   | (DesktopThreadApiRequestBase & {
       method: "compose";
@@ -1143,10 +1137,8 @@ export interface NativeApi {
     createThread: (input: CleanCoreCreateThreadInput) => Promise<CleanCoreCreateThreadResponse>;
     searchThreads: (input: CleanCoreSearchThreadsInput) => Promise<CleanCoreSearchThreadsResult>;
     listThreads: (input: CleanCoreListThreadsInput) => Promise<CleanCoreListThreadsResult>;
-    listDeckThreads: (
-      input: CleanCoreListDeckThreadsInput,
-    ) => Promise<CleanCoreListDeckThreadsResult>;
     updateThread: (input: CleanCoreUpdateThreadInput) => Promise<void>;
+
     listThreadItemsPage: (
       input: CleanCoreListThreadItemsPageInput,
     ) => Promise<CleanCoreListThreadItemsPageResult>;

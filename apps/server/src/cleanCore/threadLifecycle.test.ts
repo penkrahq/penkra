@@ -1,3 +1,4 @@
+import { afterAll } from "vitest";
 import { ManagedAttachmentRepositoryLive } from "../persistence/Layers/ManagedAttachments.ts";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -8,7 +9,7 @@ import { providerNativeStateRoot } from "../provider/providerNativeStatePaths.ts
 import { createThreadFixture } from "./threadFixtures.ts";
 import { ProviderTurnSelectionResolver } from "../provider/Services/ProviderTurnSelectionResolver.ts";
 import { assert, it } from "@effect/vitest";
-import { FolderId, MessageId, ThreadDeckId, ThreadId } from "@penkra/contracts";
+import { FolderId, MessageId, ThreadId } from "@penkra/contracts";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
@@ -38,12 +39,10 @@ it.effect("web creation is idempotent and a send on its running thread is queued
     const input = {
       threadId: ThreadId.makeUnsafe("web-thread"),
       folderId: FolderId.makeUnsafe("folder"),
-      deckId: ThreadDeckId.makeUnsafe("deck"),
       title: "Thread",
       modelSelection: { provider: "codex" as const, model: "gpt-5.5" },
       connection: { kind: "selected" as const, connectionId: null },
       runtimeMode: "full-access" as const,
-      workingDirectory: null,
       createdAt: at,
       creator: { kind: "user" as const },
     };
@@ -56,6 +55,9 @@ it.effect("web creation is idempotent and a send on its running thread is queued
     assert.deepStrictEqual(changes, [input.threadId]);
     yield* setThreadState(input.threadId, "running", "active-turn", null, at);
     const sender = yield* makeThreadSender.pipe(
+      Effect.provideService(ServerConfig, {
+        stateDir: senderStateDir,
+      } as typeof ServerConfig.Service),
       Effect.provide(ManagedAttachmentRepositoryLive),
       Effect.provideService(ThreadPublisher, publisher),
       Effect.provideService(
@@ -129,11 +131,9 @@ it.effect(
         yield* createThreadFixture(sql, {
           threadId,
           folderId: FolderId.makeUnsafe("delete-folder"),
-          deckId: ThreadDeckId.makeUnsafe("delete-failure-deck"),
           title: "Delete failure",
           modelSelection: { provider: "codex", model: "gpt-5.5" },
           runtimeMode: "full-access",
-          workingDirectory: null,
           connection: { kind: "selected", connectionId: null },
           creator: { kind: "user" },
           createdAt: at,
@@ -194,3 +194,5 @@ it.effect(
       }
     }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
 );
+const senderStateDir = mkdtempSync(join(tmpdir(), "penkra-test-thread-cwd-"));
+afterAll(() => rmSync(senderStateDir, { recursive: true, force: true }));

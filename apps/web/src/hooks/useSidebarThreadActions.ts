@@ -14,7 +14,7 @@ import { useComposerDraftStore } from "../composerDraftStore";
 import { showConfirmDialogFallback } from "../confirmDialogFallback";
 import { getFallbackThreadIdAfterDelete, sortThreadsForSidebar } from "../components/Sidebar.logic";
 import { toastManager } from "../components/ui/toast";
-import { findNearestVisibleDeckThread } from "../lib/threadDeckNavigation";
+import { findNearestVisibleFolderThread } from "../lib/folderTabNavigation";
 import {
   beginLocalThreadArchiveNavigation,
   endLocalThreadArchiveNavigation,
@@ -157,18 +157,14 @@ export function useSidebarThreadActions(input: {
       if (!api) return false;
       const thread = sidebarThreadSummaryByIdRef.current[threadId];
       if (!thread) return false;
-      const stateBeforeArchive = useStore.getState();
-      const deck = stateBeforeArchive.decks.find((candidate) => candidate.id === thread.deckId);
-      const nearestDeckThreadId = deck
-        ? findNearestVisibleDeckThread({
-            threadIds: deck.threadIds,
-            removedThreadId: threadId,
-            isVisible: (candidateId) => {
-              const candidate = getThreadFromState(stateBeforeArchive, candidateId);
-              return candidate != null && candidate.archivedAt == null;
-            },
-          })
-        : null;
+      const nearestFolderThreadId = findNearestVisibleFolderThread({
+        threadIds: sortThreadsForSidebar(
+          sidebarThreads.filter((candidate) => candidate.folderId === thread.folderId),
+          appSettings.sidebarThreadSortOrder,
+        ).map((candidate) => candidate.id),
+        removedThreadId: threadId,
+        isVisible: () => true,
+      });
       const pendingThreadIds = archivePendingThreadIdsRef.current;
       if (pendingThreadIds.has(threadId)) return false;
 
@@ -178,7 +174,7 @@ export function useSidebarThreadActions(input: {
         await archiveThreadFromClient(api.cleanCore, threadId);
         if (routeThreadId === threadId) {
           const fallbackThreadId =
-            nearestDeckThreadId ??
+            nearestFolderThreadId ??
             getFallbackThreadIdAfterDelete({
               threads: sidebarThreads,
               deletedThreadId: threadId,

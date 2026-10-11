@@ -15,7 +15,6 @@ import {
   FolderId,
   SpaceId,
   ThreadId,
-  singletonThreadDeckId,
   type DesktopUpdateState,
   type ResolvedKeybindingsConfig,
   type SidebarItemMovePosition,
@@ -25,7 +24,6 @@ import {
 import type { DragEndEvent, DragOverEvent } from "@dnd-kit/react";
 import { getDefaultModel } from "@penkra/shared/model";
 import { pluralize } from "@penkra/shared/text";
-import { resolveThreadWorkspaceCwd } from "@penkra/shared/threadEnvironment";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import {
@@ -340,7 +338,6 @@ export default function Sidebar() {
   );
   const folders = useStore((store) => store.folders);
   const spaces = useStore((store) => store.spaces);
-  const decks = useStore((store) => store.decks);
   const archivedSpaces = useStore((store) => store.archivedSpaces);
   // Selection state only; the handlers and sync effects live in useSpacesController.
   const storedActiveSpaceId = useSpacesUiStore((store) => store.activeSpaceId);
@@ -529,19 +526,17 @@ export default function Sidebar() {
     }
   }, [routedSidebarThreadId]);
   const routeDraftThread = routeThreadId ? draftThreadsByThreadId[routeThreadId] : undefined;
-  const routeDraftDeck = routeDraftThread
-    ? decks.find((deck) => deck.id === routeDraftThread.deckId)
-    : undefined;
-  const retainedDeckSidebarThreadId =
-    routeDraftDeck &&
+  const routeDraftFolderThreads = routeDraftThread
+    ? canonicalSidebarRows.filter(
+        (row) => row.folderId === routeDraftThread.folderId && row.archivedAt === null,
+      )
+    : [];
+  const retainedFolderSidebarThreadId =
     lastRoutedSidebarThreadId &&
-    routeDraftDeck.threadIds.includes(lastRoutedSidebarThreadId) &&
-    sidebarThreadSummaryById[lastRoutedSidebarThreadId]
+    routeDraftFolderThreads.some((row) => row.id === lastRoutedSidebarThreadId)
       ? lastRoutedSidebarThreadId
-      : (routeDraftDeck?.threadIds.findLast(
-          (threadId) => sidebarThreadSummaryById[threadId] !== undefined,
-        ) ?? null);
-  const routeActiveSidebarThreadId = routedSidebarThreadId ?? retainedDeckSidebarThreadId;
+      : (routeDraftFolderThreads.at(-1)?.id ?? null);
+  const routeActiveSidebarThreadId = routedSidebarThreadId ?? retainedFolderSidebarThreadId;
   const activeSidebarThreadId = optimisticActiveThreadId ?? routeActiveSidebarThreadId;
   const visualActiveSidebarThreadId = activeSidebarThreadId;
   const sidebarThreads = useMemo(
@@ -858,7 +853,6 @@ export default function Sidebar() {
         defaultProvider: appSettings.defaultProvider,
       });
       const cwd = resolveNewThreadModelPrefetchCwd({
-        draftWorkingDirectory: draftThread?.workingDirectory ?? null,
         projectCwd: project.cwd,
         serverCwd,
       });
@@ -944,9 +938,7 @@ export default function Sidebar() {
         await api.cleanCore.createThread({
           creator: { kind: "provider_native" },
           connection: { kind: "default" },
-          workingDirectory: activeProject.cwd,
           threadId,
-          deckId: singletonThreadDeckId(threadId),
           folderId: activeProject.id,
           title,
           modelSelection,
@@ -1090,8 +1082,6 @@ export default function Sidebar() {
       if (!thread) return;
       const threadSummary = sidebarThreadSummaryById[threadId];
       const threadStatus = threadSummary ? resolveThreadStatusForSidebar(threadSummary) : null;
-      const threadDeck = decks.find((deck) => deck.id === thread.deckId);
-      const canLeaveDeck = (threadDeck?.threadIds.length ?? 0) > 1;
       const canArchive =
         threadSummary !== undefined &&
         canArchiveSidebarThreads([
@@ -1101,10 +1091,7 @@ export default function Sidebar() {
             projectedWorkStatus: threadSummary.workStatus,
           }),
         ]);
-      const threadWorkspacePath = resolveThreadWorkspaceCwd({
-        projectCwd: projectCwdById.get(thread.folderId) ?? null,
-        workingDirectory: thread.workingDirectory,
-      });
+      const threadWorkspacePath = projectCwdById.get(thread.folderId) ?? null;
       const clicked = await api.contextMenu.show(
         [
           { id: "rename", label: "Rename thread" },
@@ -1114,12 +1101,6 @@ export default function Sidebar() {
           { id: "mark-unread", label: "Mark unread" },
           { id: "copy-path", label: "Copy Path", separatorBefore: true },
           { id: "copy-thread-id", label: "Copy Thread ID" },
-          {
-            id: "leave-deck",
-            label: "Leave Deck",
-            separatorBefore: true,
-            enabled: canLeaveDeck,
-          },
           ...(options?.extraItems ?? []),
           ...getSidebarThreadLifecycleMenuItems(canArchive),
         ],
@@ -1162,18 +1143,6 @@ export default function Sidebar() {
         copyThreadIdToClipboard(threadId);
         return;
       }
-      if (clicked === "leave-deck") {
-        await api.cleanCore.updateThread({
-          update: {
-            action: "moveDeckThread",
-            threadId,
-            deckId: singletonThreadDeckId(threadId),
-            position: { type: "end" },
-            updatedAt: new Date().toISOString(),
-          },
-        });
-        return;
-      }
       if (clicked === "return-to-single-chat") {
         await options?.onExtraAction?.("return-to-single-chat");
         return;
@@ -1190,7 +1159,6 @@ export default function Sidebar() {
       confirmAndDeleteThread,
       copyPathToClipboard,
       copyThreadIdToClipboard,
-      decks,
       clearDismissedThreadStatus,
       clearThreadNotification,
       markThreadUnread,
@@ -1473,13 +1441,7 @@ export default function Sidebar() {
       if (!api) return;
       const project = projectById.get(folderId);
       if (!project) return;
-      const physicalPath =
-        sidebarThreads
-          .filter((thread) => thread.folderId === folderId && Boolean(thread.workingDirectory))
-          .toSorted((left, right) => right.createdAt.localeCompare(left.createdAt))[0]
-          ?.workingDirectory?.trim() ||
-        project.cwd ||
-        null;
+      const physicalPath = project.cwd;
 
       if (clicked === "open-in-finder") {
         if (!physicalPath) return;
@@ -1568,13 +1530,7 @@ export default function Sidebar() {
     if (!api || !project) return;
 
     const projectThreads = sidebarThreads.filter((thread) => thread.folderId === folderId);
-    const physicalPath =
-      projectThreads
-        .filter((thread) => Boolean(thread.workingDirectory))
-        .toSorted((left, right) => right.createdAt.localeCompare(left.createdAt))[0]
-        ?.workingDirectory?.trim() ||
-      project.cwd ||
-      null;
+    const physicalPath = project.cwd;
     const isRunning = Boolean(projectRunsByFolderId[folderId]);
     const projectRunServer = projectRunServerByFolderId.get(folderId) ?? null;
     const hasOpenServer =

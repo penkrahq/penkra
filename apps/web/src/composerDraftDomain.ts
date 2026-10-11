@@ -13,9 +13,7 @@ import {
   type ProviderStartOptions,
   type RuntimeMode,
   type SpaceId,
-  type ThreadDeckId,
   type ThreadId,
-  singletonThreadDeckId,
 } from "@penkra/contracts";
 import * as Schema from "effect/Schema";
 
@@ -132,19 +130,16 @@ export interface ComposerThreadDraftState {
 
 export interface DraftThreadState {
   folderId: FolderId;
-  deckId: ThreadDeckId;
+
   spaceId?: SpaceId | null;
   createdAt: string;
   runtimeMode: RuntimeMode;
   entryPoint: ThreadPrimarySurface;
-  workingDirectory?: string | null;
   promotedTo?: ThreadId;
 }
 
 interface DraftThreadMutationOptions {
-  deckId?: ThreadDeckId;
   spaceId?: SpaceId | null;
-  workingDirectory?: string | null;
   createdAt?: string;
   runtimeMode?: RuntimeMode;
   entryPoint?: ThreadPrimarySurface;
@@ -167,10 +162,7 @@ export interface ComposerDraftStoreState {
     folderId: FolderId,
     entryPoint?: ThreadPrimarySurface,
   ) => ProjectDraftThread | null;
-  getDraftThreadByDeckId: (
-    deckId: ThreadDeckId,
-    entryPoint?: ThreadPrimarySurface,
-  ) => ProjectDraftThread | null;
+
   getDraftThread: (threadId: ThreadId) => DraftThreadState | null;
   setProjectDraftThreadId: (
     folderId: FolderId,
@@ -188,10 +180,9 @@ export interface ComposerDraftStoreState {
     threadId: ThreadId,
     options: {
       folderId: FolderId;
-      deckId: ThreadDeckId;
+
       spaceId?: SpaceId | null;
       createdAt?: string;
-      workingDirectory?: string | null;
       runtimeMode?: RuntimeMode;
       entryPoint?: ThreadPrimarySurface;
     },
@@ -346,7 +337,6 @@ export function buildDraftThreadState(input: {
 
   return {
     folderId: input.folderId,
-    deckId: options?.deckId ?? existingThread?.deckId ?? singletonThreadDeckId(input.threadId),
     spaceId:
       options?.spaceId === undefined
         ? (existingThread?.spaceId ?? null)
@@ -358,10 +348,6 @@ export function buildDraftThreadState(input: {
     }),
     runtimeMode: options?.runtimeMode ?? existingThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE,
     entryPoint: nextEntryPoint,
-    workingDirectory:
-      options?.workingDirectory === undefined
-        ? (existingThread?.workingDirectory ?? null)
-        : (options.workingDirectory ?? null),
     ...(nextPromotedTo ? { promotedTo: nextPromotedTo } : {}),
   };
 }
@@ -376,12 +362,10 @@ export function draftThreadStatesEqual(
 
   return (
     left.folderId === right.folderId &&
-    left.deckId === right.deckId &&
     left.spaceId === right.spaceId &&
     left.createdAt === right.createdAt &&
     left.runtimeMode === right.runtimeMode &&
     left.entryPoint === right.entryPoint &&
-    (left.workingDirectory ?? null) === (right.workingDirectory ?? null) &&
     left.promotedTo === right.promotedTo
   );
 }

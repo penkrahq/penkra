@@ -170,11 +170,11 @@ export class AppCommandPipeServer {
     close(tabId: string): void | Promise<void>;
     currentFor?(
       spaceId: string,
-      deckId: string,
+      folderId: string,
       surfaceId?: number,
     ): DesktopAppTabDescriptor | null;
   };
-  readonly #observationSurface: ((threadId: string, deckId: string) => number | null) | null;
+  readonly #observationSurface: ((threadId: string, folderId: string) => number | null) | null;
   readonly #activate:
     | ((tab: DesktopAppTabDescriptor, threadId: string, signal: AbortSignal) => Promise<unknown>)
     | null;
@@ -197,24 +197,22 @@ export class AppCommandPipeServer {
         url?: string;
         requestedApp?: string;
         spaceId: string;
-        deckId: string;
+        folderId: string;
         threadId: string;
       }) => Promise<unknown>)
     | null;
   readonly #providerCredentialVault: ProviderCredentialVault;
   readonly #thread: (input: {
     spaceId: string;
-    deckId: string;
+    folderId: string;
     threadId: string;
     method:
       | "current.read"
       | "list"
       | "get"
       | "create"
-      | "add"
       | "select"
       | "reorder"
-      | "leave"
       | "archive"
       | "compose"
       | "send";
@@ -235,11 +233,11 @@ export class AppCommandPipeServer {
       close(tabId: string): void | Promise<void>;
       currentFor?(
         spaceId: string,
-        deckId: string,
+        folderId: string,
         surfaceId?: number,
       ): DesktopAppTabDescriptor | null;
     };
-    observationSurface?: (threadId: string, deckId: string) => number | null;
+    observationSurface?: (threadId: string, folderId: string) => number | null;
     activate?: (
       tab: DesktopAppTabDescriptor,
       threadId: string,
@@ -259,23 +257,21 @@ export class AppCommandPipeServer {
       url?: string;
       requestedApp?: string;
       spaceId: string;
-      deckId: string;
+      folderId: string;
       threadId: string;
     }) => Promise<unknown>;
     providerCredentialVault: ProviderCredentialVault;
     thread?: (input: {
       spaceId: string;
-      deckId: string;
+      folderId: string;
       threadId: string;
       method:
         | "current.read"
         | "list"
         | "get"
         | "create"
-        | "add"
         | "select"
         | "reorder"
-        | "leave"
         | "archive"
         | "compose"
         | "send";
@@ -564,7 +560,7 @@ export class AppCommandPipeServer {
           result: await this.#onThread(context.threadId, () =>
             this.#thread({
               spaceId: context.spaceId,
-              deckId: context.deckId,
+              folderId: context.folderId,
               threadId: context.threadId,
               method: "current.read",
             }),
@@ -579,7 +575,7 @@ export class AppCommandPipeServer {
           result: await this.#onThread(context.threadId, () =>
             this.#thread({
               spaceId: context.spaceId,
-              deckId: context.deckId,
+              folderId: context.folderId,
               threadId: context.threadId,
               method: "list",
             }),
@@ -602,15 +598,13 @@ export class AppCommandPipeServer {
           result: await this.#onThread(context.threadId, () =>
             this.#thread({
               spaceId: context.spaceId,
-              deckId: context.deckId,
+              folderId: context.folderId,
               threadId: context.threadId,
               method: request.method.slice("threads.".length) as
                 | "get"
                 | "create"
-                | "add"
                 | "select"
                 | "reorder"
-                | "leave"
                 | "archive"
                 | "compose"
                 | "send",
@@ -683,7 +677,7 @@ export class AppCommandPipeServer {
               ...(url === null ? {} : { url }),
               ...(requestedApp === null ? {} : { requestedApp }),
               spaceId: context.spaceId,
-              deckId: context.deckId,
+              folderId: context.folderId,
               threadId: context.threadId,
             }),
           ),
@@ -701,7 +695,7 @@ export class AppCommandPipeServer {
             operation,
             input: params.input ?? {},
             spaceId: context.spaceId,
-            deckId: context.deckId,
+            folderId: context.folderId,
             threadId: context.threadId,
             callerKind: "agent",
             signal,
@@ -918,24 +912,22 @@ export class AppCommandPipeServer {
   #context(params: Record<string, unknown>): DesktopAppTabDescriptor {
     const explicitTabId = optionalString(params.tabId, "tabId");
     const explicitSpaceId = optionalString(params.spaceId, "spaceId");
-    const explicitDeckId = optionalString(params.deckId, "deckId");
+    const explicitFolderId = optionalString(params.folderId, "folderId");
     const explicitThreadId = optionalString(params.threadId, "threadId");
     if (
-      (explicitSpaceId === null) !== (explicitDeckId === null) ||
-      (explicitDeckId === null) !== (explicitThreadId === null)
+      (explicitSpaceId === null) !== (explicitFolderId === null) ||
+      (explicitFolderId === null) !== (explicitThreadId === null)
     ) {
-      throw new Error("spaceId, deckId, and threadId must be supplied together.");
+      throw new Error("spaceId, folderId, and threadId must be supplied together.");
     }
     const tab = explicitTabId
       ? this.#tabs.list().find((candidate) => candidate.id === explicitTabId)
       : explicitSpaceId === null
         ? this.#tabs.current()
         : undefined;
-    if (explicitSpaceId !== null && explicitDeckId !== null && explicitThreadId !== null) {
-      if (tab && (tab.spaceId !== explicitSpaceId || tab.deckId !== explicitDeckId)) {
-        throw new Error(
-          `App tab ${tab.id} does not belong to the requested Space and Thread Deck.`,
-        );
+    if (explicitSpaceId !== null && explicitFolderId !== null && explicitThreadId !== null) {
+      if (tab && (tab.spaceId !== explicitSpaceId || tab.folderId !== explicitFolderId)) {
+        throw new Error(`App tab ${tab.id} does not belong to the requested Space and folder.`);
       }
       return {
         ...(tab ?? {
@@ -946,7 +938,7 @@ export class AppCommandPipeServer {
           name: "",
           iconDataUrl: null,
           spaceId: explicitSpaceId,
-          deckId: explicitDeckId,
+          folderId: explicitFolderId,
           threadId: explicitThreadId,
           route: "/",
           status: "ready",
@@ -965,12 +957,12 @@ export class AppCommandPipeServer {
 
   #scope(params: Record<string, unknown>): {
     spaceId: string;
-    deckId: string;
+    folderId: string;
     threadId: string;
   } {
     return {
       spaceId: requiredString(params.spaceId, "spaceId"),
-      deckId: requiredString(params.deckId, "deckId"),
+      folderId: requiredString(params.folderId, "folderId"),
       threadId: requiredString(params.threadId, "threadId"),
     };
   }
@@ -979,7 +971,7 @@ export class AppCommandPipeServer {
     const scope = this.#scope(params);
     return this.#tabs
       .list()
-      .filter((tab) => tab.spaceId === scope.spaceId && tab.deckId === scope.deckId);
+      .filter((tab) => tab.spaceId === scope.spaceId && tab.folderId === scope.folderId);
   }
 
   #observe<T>(params: Record<string, unknown>, operation: () => Promise<T>): Promise<T> {
@@ -988,7 +980,7 @@ export class AppCommandPipeServer {
       threadId,
       () =>
         this.#observer.runOnSurface?.(
-          this.#observationSurface?.(threadId, this.#scope(params).deckId) ?? null,
+          this.#observationSurface?.(threadId, this.#scope(params).folderId) ?? null,
           operation,
         ) ?? operation(),
     );
@@ -999,14 +991,14 @@ export class AppCommandPipeServer {
   }
 
   #implicitOperationTab(
-    context: Pick<DesktopAppTabDescriptor, "spaceId" | "deckId">,
+    context: Pick<DesktopAppTabDescriptor, "spaceId" | "folderId">,
     slug: string,
   ): DesktopAppTabDescriptor | undefined {
     const matching = this.#tabs
       .list()
       .filter(
         (tab) =>
-          tab.spaceId === context.spaceId && tab.deckId === context.deckId && tab.slug === slug,
+          tab.spaceId === context.spaceId && tab.folderId === context.folderId && tab.slug === slug,
       );
     if (matching.length === 1) return matching[0];
     return undefined;
@@ -1016,10 +1008,9 @@ export class AppCommandPipeServer {
     const tabId = requiredString(params.tabId, "tabId");
     const tab = this.#scopedTabs(params).find((candidate) => candidate.id === tabId);
     if (!tab) {
-      throw Object.assign(
-        new Error(`App tab ${tabId} is gone from the caller Thread Deck and Space.`),
-        { code: "TAB_GONE" },
-      );
+      throw Object.assign(new Error(`App tab ${tabId} is gone from the caller folder and Space.`), {
+        code: "TAB_GONE",
+      });
     }
     assertAppTabAgentAddressable(tab);
     return tab;

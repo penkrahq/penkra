@@ -46,7 +46,7 @@ describe("queued App tab opens", () => {
     name: "Explorer",
     iconDataUrl: null,
     spaceId: "space-1",
-    deckId: "deck-1",
+    folderId: "folder-1",
     threadId: "thread-1",
     route: "/",
     status: "ready",

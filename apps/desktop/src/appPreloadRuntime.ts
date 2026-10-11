@@ -23,7 +23,7 @@ export interface AppPreloadTransport {
   tabResetPresentation(): Promise<void>;
   tabOpenSibling(input?: import("@penkra/sdk").AppTabNavigationInput): Promise<{ tabId: string }>;
   tabGetContext(): Promise<{
-    deckId: string;
+    folderId: string;
     threadId: string;
     tabId: string | null;
   }>;
@@ -187,31 +187,31 @@ export class AppPreloadRuntime {
             listener(payload as import("@penkra/sdk").AppTransferProgressEvent),
           ) ?? (() => undefined),
       },
-      threads: {
+      folder: {
         current: {
           read: () =>
             this.#transport.threadsCall("current.read") as ReturnType<
-              PenkraTabRuntimeApi["threads"]["current"]["read"]
+              PenkraTabRuntimeApi["folder"]["current"]["read"]
             >,
         },
-        list: () =>
-          this.#transport.threadsCall("list") as ReturnType<PenkraTabRuntimeApi["threads"]["list"]>,
+        list: (input = {}) =>
+          this.#transport.threadsCall("list", input) as ReturnType<
+            PenkraTabRuntimeApi["folder"]["list"]
+          >,
         get: (input) =>
           this.#transport.threadsCall("get", input) as ReturnType<
-            PenkraTabRuntimeApi["threads"]["get"]
+            PenkraTabRuntimeApi["folder"]["get"]
           >,
         create: (input) =>
           this.#transport.threadsCall("create", input) as ReturnType<
-            PenkraTabRuntimeApi["threads"]["create"]
+            PenkraTabRuntimeApi["folder"]["create"]
           >,
-        add: (input) => this.#transport.threadsCall("add", input) as Promise<void>,
         select: (input) => this.#transport.threadsCall("select", input) as Promise<void>,
         reorder: (input) => this.#transport.threadsCall("reorder", input) as Promise<void>,
-        leave: (input) => this.#transport.threadsCall("leave", input) as Promise<void>,
         archive: (input) => this.#transport.threadsCall("archive", input) as Promise<void>,
         compose: (input) =>
           this.#transport.threadsCall("compose", input) as ReturnType<
-            PenkraTabRuntimeApi["threads"]["compose"]
+            PenkraTabRuntimeApi["folder"]["compose"]
           >,
         onState: (listener) => {
           let previous = "";
@@ -228,10 +228,10 @@ export class AppPreloadRuntime {
           });
           const read = async () => {
             try {
-              const state = (await this.#transport.threadsCall("list")) as ReadonlyArray<
-                import("@penkra/sdk").AppThreadState
+              const page = (await this.#transport.threadsCall("list", {})) as Awaited<
+                ReturnType<PenkraTabRuntimeApi["folder"]["list"]>
               >;
-              publish(state);
+              publish(page.threads);
             } catch {
               // The event stream remains authoritative across transient startup gaps.
             }
@@ -241,7 +241,7 @@ export class AppPreloadRuntime {
         },
         send: (input) =>
           this.#transport.threadsCall("send", input) as ReturnType<
-            PenkraTabRuntimeApi["threads"]["send"]
+            PenkraTabRuntimeApi["folder"]["send"]
           >,
       },
       models: {

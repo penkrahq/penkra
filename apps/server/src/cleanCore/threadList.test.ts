@@ -1,9 +1,10 @@
+import { seedThreadFolderFixture } from "./threadFixtures.ts";
 import { assert, it } from "@effect/vitest";
-import { SpaceId, ThreadDeckId, ThreadId } from "@penkra/contracts";
+import { FolderId, SpaceId, ThreadId } from "@penkra/contracts";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { listThreads, listDeckThreads } from "./threadList.ts";
+import { listThreads, listFolderThreads } from "./threadList.ts";
 import { createThread } from "./threadStore.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
@@ -15,24 +16,24 @@ it.effect("lists every thread with the columns the web reads", () =>
   withDb(
     Effect.gen(function* () {
       yield* runMigrations();
+      yield* seedThreadFolderFixture("list-folder", "space-1");
       yield* createThread({
         id: "thread-1",
         spaceId: SpaceId.makeUnsafe("space-1"),
+        folderId: "list-folder",
         title: "Hello",
         provider: "codex",
         model: "gpt-5.5",
         runtimeMode: "full-access",
-        workingDirectory: "/repo",
         createdBy: "agent",
         createdByThreadId: "parent-thread",
-        deckId: "deck:thread-1",
-        deckSortOrder: 2,
         sidebarSortOrder: 1,
         createdAt: "2026-10-09T00:00:00.000Z",
       });
       yield* createThread({
         id: "thread-2",
         spaceId: SpaceId.makeUnsafe("space-1"),
+        folderId: "list-folder",
         title: "Second",
         provider: "claudeAgent",
         model: "claude-sonnet-4-6",
@@ -42,7 +43,10 @@ it.effect("lists every thread with the columns the web reads", () =>
         createdAt: "2026-10-09T00:00:01.000Z",
       });
 
-      const page = yield* listThreads({ spaceId: SpaceId.makeUnsafe("space-1"), folderId: null });
+      const page = yield* listThreads({
+        spaceId: SpaceId.makeUnsafe("space-1"),
+        folderId: FolderId.makeUnsafe("list-folder"),
+      });
       const threads = page.threads;
       assert.deepStrictEqual(
         threads.map((thread) => thread.id),
@@ -51,11 +55,8 @@ it.effect("lists every thread with the columns the web reads", () =>
       assert.isNull(page.nextCursor);
       const first = threads.find((thread) => thread.id === "thread-1");
       assert.equal(first?.runtimeMode, "full-access");
-      assert.equal(first?.workingDirectory, "/repo");
       assert.equal(first?.createdBy, "agent");
       assert.equal(first?.createdByThreadId, "parent-thread");
-      assert.equal(first?.deckId, "deck:thread-1");
-      assert.equal(first?.deckSortOrder, 2);
       assert.equal(first?.openQuestionCount, 0);
       const second = threads.find((thread) => thread.id === "thread-2");
       assert.equal(second?.createdBy, "user");
@@ -65,7 +66,7 @@ it.effect("lists every thread with the columns the web reads", () =>
       // Keyset pagination: one row per page, cursor advances.
       const firstPage = yield* listThreads({
         spaceId: SpaceId.makeUnsafe("space-1"),
-        folderId: null,
+        folderId: FolderId.makeUnsafe("list-folder"),
         limit: 1,
       });
       assert.deepStrictEqual(
@@ -75,7 +76,7 @@ it.effect("lists every thread with the columns the web reads", () =>
       assert.isNotNull(firstPage.nextCursor);
       const secondPage = yield* listThreads({
         spaceId: SpaceId.makeUnsafe("space-1"),
-        folderId: null,
+        folderId: FolderId.makeUnsafe("list-folder"),
         limit: 1,
         after: firstPage.nextCursor,
       });
@@ -88,52 +89,55 @@ it.effect("lists every thread with the columns the web reads", () =>
   ),
 );
 
-it.effect(
-  "pages deck members in canonical order with the deck index and excludes deleted rows",
-  () =>
-    withDb(
-      Effect.gen(function* () {
-        yield* runMigrations();
-        const sql = yield* SqlClient.SqlClient;
-        const deckId = ThreadDeckId.makeUnsafe("deck");
-        for (let i = 0; i < 52; i++) {
-          yield* createThread({
-            id: "deck-thread-" + i.toString().padStart(2, "0"),
-            spaceId: SpaceId.makeUnsafe("space"),
-            title: "Member",
-            provider: "codex",
-            model: "gpt-5.5",
-            runtimeMode: "full-access",
-            createdBy: "user",
-            deckId,
-            deckSortOrder: Math.floor(i / 2),
-            createdAt: "2026-10-10T00:00:00.000Z",
-          });
-        }
-        yield* sql`UPDATE threads SET deleted_at = '2026-10-10T00:00:01.000Z' WHERE id = 'deck-thread-51'`;
-        const first = yield* listDeckThreads({ deckId, after: null });
-        assert.lengthOf(first.threads, 50);
-        assert.equal(first.threads[0]!.id, "deck-thread-00");
-        assert.equal(first.threads.at(-1)!.id, "deck-thread-49");
-        assert.isNotNull(first.nextCursor);
-        const next = yield* listDeckThreads({ deckId, after: first.nextCursor });
-        assert.deepStrictEqual(
-          next.threads.map((row) => row.id),
-          ["deck-thread-50"],
-        );
-        assert.isNull(next.nextCursor);
-        const empty = yield* listDeckThreads({
-          deckId: ThreadDeckId.makeUnsafe("empty"),
-          after: null,
+it.effect("pages folder members in sidebar order and excludes archived and deleted rows", () =>
+  withDb(
+    Effect.gen(function* () {
+      yield* runMigrations();
+      const sql = yield* SqlClient.SqlClient;
+      const folderId = FolderId.makeUnsafe("folder-list");
+      yield* sql`INSERT INTO projection_folders (folder_id, kind, space_id, title, workspace_root, scripts_json, created_at, updated_at) VALUES (${folderId}, 'project', 'space', 'Folder', NULL, '[]', '2026-10-10T00:00:00.000Z', '2026-10-10T00:00:00.000Z')`;
+      for (let i = 0; i < 53; i++) {
+        yield* createThread({
+          id: "folder-thread-" + i.toString().padStart(2, "0"),
+          spaceId: SpaceId.makeUnsafe("space"),
+          folderId,
+          sidebarSortOrder: i,
+          title: "Member",
+          provider: "codex",
+          model: "gpt-5.5",
+          runtimeMode: "full-access",
+          createdBy: "user",
+          createdAt: "2026-10-10T00:00:00.000Z",
         });
-        assert.deepStrictEqual(empty.threads, []);
-        assert.isNull(empty.nextCursor);
-        const plan = yield* sql<{ detail: string }>`EXPLAIN QUERY PLAN SELECT id FROM threads
-      WHERE deck_id = ${deckId} AND deleted_at IS NULL AND (deck_sort_order > 24 OR
-        (deck_sort_order = 24 AND id > ${ThreadId.makeUnsafe("deck-thread-49")}))
-      ORDER BY deck_sort_order, id LIMIT 50`;
-        assert.isTrue(plan.some((row) => row.detail.includes("idx_threads_deck_order")));
-        assert.isFalse(plan.some((row) => row.detail.includes("TEMP B-TREE")));
-      }),
-    ),
+      }
+      yield* sql`UPDATE threads SET deleted_at = '2026-10-10T00:00:01.000Z' WHERE id = 'folder-thread-51'`;
+      yield* sql`UPDATE threads SET archived_at = '2026-10-10T00:00:01.000Z' WHERE id = 'folder-thread-52'`;
+      const first = yield* listFolderThreads({
+        spaceId: SpaceId.makeUnsafe("space"),
+        folderId,
+        after: null,
+      });
+      assert.lengthOf(first.threads, 50);
+      assert.equal(first.threads[0]!.id, "folder-thread-00");
+      assert.equal(first.threads.at(-1)!.id, "folder-thread-49");
+      assert.isNotNull(first.nextCursor);
+      const next = yield* listFolderThreads({
+        spaceId: SpaceId.makeUnsafe("space"),
+        folderId,
+        after: first.nextCursor,
+      });
+      assert.deepStrictEqual(
+        next.threads.map((row) => row.id),
+        ["folder-thread-50"],
+      );
+      assert.isNull(next.nextCursor);
+      const empty = yield* listFolderThreads({
+        spaceId: SpaceId.makeUnsafe("space"),
+        folderId: FolderId.makeUnsafe("empty-folder"),
+        after: null,
+      });
+      assert.deepStrictEqual(empty.threads, []);
+      assert.isNull(empty.nextCursor);
+    }),
+  ),
 );

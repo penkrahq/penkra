@@ -4,7 +4,7 @@
 import type { AppThreadState } from "@penkra/sdk";
 import { useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { ThreadId } from "@penkra/contracts";
+import { FolderId, ThreadId } from "@penkra/contracts";
 
 import { useComposerDraftStore } from "../composerDraftStore";
 import {
@@ -13,17 +13,24 @@ import {
 } from "../desktopThreadApiBroker";
 import { deriveUnmountedThreadLiveState } from "../lib/desktopThreadState";
 import { useStore } from "../store";
+import { getThreadList, subscribeThreadList } from "../threadListStore";
+import { sortThreadsForSidebar } from "./Sidebar.logic";
 
-function deckStates(deckId: string): ReadonlyArray<AppThreadState> {
+function folderStates(folderId: FolderId): ReadonlyArray<AppThreadState> {
   const state = useStore.getState();
-  const deck = state.decks.find((candidate) => candidate.id === deckId);
-  if (!deck) return [];
+  const rows = sortThreadsForSidebar(
+    getThreadList().filter(
+      (row) => row.folderId === folderId && row.archivedAt === null && row.deletedAt === null,
+    ),
+    "created_at",
+  );
   const drafts = useComposerDraftStore.getState().draftsByThreadId;
-  const queuedCountForThread = (threadId: ThreadId) =>
-    state.threadTurnStateById?.[threadId]?.queuedMessageIds?.length ?? 0;
-  return deck.threadIds.flatMap((threadId) => {
-    const shell = state.threadShellById?.[threadId];
-    if (!shell) return [];
+  const queuedCountForThread = (threadId: ThreadId) => {
+    const row = rows.find((row) => row.id === threadId);
+    return row === undefined ? 0 : (JSON.parse(row.queue) as unknown[]).length;
+  };
+  return rows.flatMap((row, index) => {
+    const threadId = row.id;
     const draft = drafts[threadId];
     const live =
       getDesktopThreadLiveHandlers(threadId)?.read() ??
@@ -44,20 +51,16 @@ function deckStates(deckId: string): ReadonlyArray<AppThreadState> {
     return [
       {
         threadId,
-        deckId: shell.deckId,
-        title: shell.title,
-        order: shell.deckSortOrder,
-        archived: shell.archivedAt != null,
+        folderId,
+        title: row.title,
+        order: index,
+        archived: row.archivedAt != null,
         phase:
           live?.phase ??
-          (shell.hasPendingUserInput
-            ? "waiting"
-            : shell.workStatus === "running"
-              ? "running"
-              : "idle"),
+          (row.openQuestionCount > 0 ? "waiting" : row.state === "running" ? "running" : "idle"),
         activeTurnId:
           live?.activeTurnId ?? state.threadSessionById?.[threadId]?.activeTurnId ?? null,
-        pendingQuestion: live?.pendingUserInput ?? shell.hasPendingUserInput === true,
+        pendingQuestion: live?.pendingUserInput ?? row.openQuestionCount > 0,
         composer: {
           empty: !hasDraft,
           owner: hasDraft ? ("human" as const) : ("none" as const),
@@ -68,7 +71,7 @@ function deckStates(deckId: string): ReadonlyArray<AppThreadState> {
           hasAppSubmission: false,
         },
         steering: { pending: live?.steeringPending ?? false, hasAppSubmission: false },
-        updatedAt: shell.updatedAt ?? "1970-01-01T00:00:00.000Z",
+        updatedAt: row.updatedAt,
       },
     ];
   });
@@ -96,12 +99,12 @@ export function DesktopThreadApiBridge() {
     const publish = () => {
       scheduled = false;
       if (disposed) return;
-      for (const deck of useStore.getState().decks) {
-        const threads = deckStates(deck.id);
+      for (const folder of useStore.getState().folders) {
+        const threads = folderStates(folder.id);
         const fingerprint = JSON.stringify(threads);
-        if (fingerprints.get(deck.id) === fingerprint) continue;
-        fingerprints.set(deck.id, fingerprint);
-        bridge.publishState({ spaceId: deck.spaceId, deckId: deck.id, threads });
+        if (fingerprints.get(folder.id) === fingerprint) continue;
+        fingerprints.set(folder.id, fingerprint);
+        bridge.publishState({ spaceId: folder.spaceId, folderId: folder.id, threads });
       }
     };
     const schedule = () => {
@@ -110,12 +113,14 @@ export function DesktopThreadApiBridge() {
       queueMicrotask(publish);
     };
     const unsubscribeStore = useStore.subscribe(schedule);
+    const unsubscribeThreads = subscribeThreadList(schedule);
     const unsubscribeDrafts = useComposerDraftStore.subscribe(schedule);
     const unsubscribeLive = subscribeDesktopThreadLiveStateChanges(schedule);
     schedule();
     return () => {
       disposed = true;
       unsubscribeStore();
+      unsubscribeThreads();
       unsubscribeDrafts();
       unsubscribeLive();
     };

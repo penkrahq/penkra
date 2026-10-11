@@ -53,7 +53,7 @@ function controllerRequest() {
         app: "linear",
         operation: "issues.create",
         spaceId: "personal",
-        deckId: "deck-1",
+        folderId: "folder-1",
         threadId: "thread-1",
         tabId: "target-tab",
       },
@@ -103,7 +103,7 @@ describe("AppNodeControllerRuntime", () => {
       input: {
         handler: "explorer.stat",
         input: { relativePath: "app.js" },
-        context: { deckId: "deck-1", threadId: "thread-1", tabId: "tab-1" },
+        context: { folderId: "folder-1", threadId: "thread-1", tabId: "tab-1" },
       },
     });
     await vi.waitFor(() =>

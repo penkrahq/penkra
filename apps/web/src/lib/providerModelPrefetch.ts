@@ -35,12 +35,10 @@ export function resolveNewThreadModelPrefetchProvider(input: {
 }
 
 export function resolveNewThreadModelPrefetchCwd(input: {
-  draftWorkingDirectory?: string | null | undefined;
   projectCwd?: string | null | undefined;
   serverCwd?: string | null | undefined;
 }): string | null {
   return resolveProviderDiscoveryCwd({
-    activeThreadWorkingDirectory: input.draftWorkingDirectory ?? null,
     activeProjectCwd: input.projectCwd ?? null,
     serverCwd: input.serverCwd ?? null,
   });

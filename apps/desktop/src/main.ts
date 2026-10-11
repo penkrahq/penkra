@@ -650,7 +650,7 @@ function appTabAgentWindow(tab: DesktopAppTabDescriptor, threadId: string): Brow
   );
   const id = threadHomeWindow.presentingWindow(
     threadId,
-    tab.deckId,
+    tab.folderId,
     ready.map((window) => window.id),
   );
   return ready.find((window) => window.id === id) ?? null;
@@ -735,7 +735,7 @@ function recordPanelInteraction(windowId: number, insidePanel: boolean, source: 
 function routePanelShortcut(
   window: BrowserWindow,
   command: PanelShortcutCommand,
-  deckId: string | null,
+  folderId: string | null,
   sourceId: number,
 ): void {
   if (window.isDestroyed()) return;
@@ -743,7 +743,7 @@ function routePanelShortcut(
   console.info(
     `[panel-shortcut] window=${windowId} source=${sourceId} command=${command} panelFocused=${panelFocusState.get(windowId)}`,
   );
-  const effect = resolvePanelShortcutEffect(command, panelFocusState.get(windowId), deckId);
+  const effect = resolvePanelShortcutEffect(command, panelFocusState.get(windowId), folderId);
   switch (effect.kind) {
     case "new-window":
       createWindow({ cloneFrom: window });
@@ -752,7 +752,7 @@ function routePanelShortcut(
       window.webContents.send(IPC.menuAction, "open-find");
       return;
     case "close-panel-tab":
-      window.webContents.send(IPC.panelFocus.closePanelTab, { deckId: effect.deckId });
+      window.webContents.send(IPC.panelFocus.closePanelTab, { folderId: effect.folderId });
       return;
     case "none":
       return;
@@ -829,7 +829,7 @@ function announceAppTabOpened(descriptor: DesktopAppTabOpened): void {
     return;
   }
   console.info(
-    `[thread-home] tab-open thread=${descriptor.threadId} deck=${descriptor.deckId} target=${routed.targetWindowId ?? "background"} initiator=${descriptor.initiator}`,
+    `[thread-home] tab-open thread=${descriptor.threadId} folder=${descriptor.folderId} target=${routed.targetWindowId ?? "background"} initiator=${descriptor.initiator}`,
   );
   for (const delivery of routed.deliveries) {
     const window = readyWindows.find((candidate) => candidate.id === delivery.windowId);
@@ -867,7 +867,7 @@ function announceAppTabClosed(descriptor: DesktopAppTabClosed): void {
 
 function announceAgentThreadSelection(
   presentingThreadId: string,
-  deckId: string,
+  folderId: string,
   selectedThreadId: string,
 ): void {
   const ready = shellWindows().filter(
@@ -876,18 +876,18 @@ function announceAgentThreadSelection(
   const targetId = threadHomeWindow.select(
     presentingThreadId,
     selectedThreadId,
-    deckId,
+    folderId,
     ready.map((window) => window.id),
   );
   const target = ready.find((window) => window.id === targetId);
   if (!target) {
-    console.info(`[thread-home] select-deferred deck=${deckId} thread=${selectedThreadId}`);
+    console.info(`[thread-home] select-deferred folder=${folderId} thread=${selectedThreadId}`);
     return;
   }
   threadHomeWindow.agentNavigation(target.id, selectedThreadId);
   target.webContents.send(IPC.threadHomeSelect, { threadId: selectedThreadId });
   console.info(
-    `[thread-home] select window=${target.id} deck=${deckId} thread=${selectedThreadId}`,
+    `[thread-home] select window=${target.id} folder=${folderId} thread=${selectedThreadId}`,
   );
 }
 
@@ -956,10 +956,8 @@ type AppThreadOperationMethod =
   | "list"
   | "get"
   | "create"
-  | "add"
   | "select"
   | "reorder"
-  | "leave"
   | "archive"
   | "compose"
   | "send";
@@ -969,7 +967,7 @@ async function requestAppThreadOperation(
   identity: {
     appId: string;
     spaceId: string;
-    deckId?: string;
+    folderId?: string;
     threadId?: string;
     tabId?: string;
   },
@@ -980,8 +978,8 @@ async function requestAppThreadOperation(
   if (!identity.threadId) {
     throw new Error("Only an App surface attached to a Thread can use the Thread API.");
   }
-  if (!identity.deckId) {
-    throw new Error("Only an App surface attached to a Thread Deck can use the Thread API.");
+  if (!identity.folderId) {
+    throw new Error("Only an App surface attached to a folder can use the Thread API.");
   }
   if (!identity.tabId) {
     throw new Error("Only an App tab can use the current Thread API.");
@@ -1003,13 +1001,22 @@ async function requestAppThreadOperation(
     id: Crypto.randomUUID(),
     appId: identity.appId,
     spaceId: identity.spaceId,
-    deckId: identity.deckId,
+    folderId: identity.folderId,
     tabId: identity.tabId,
     threadId: identity.threadId,
   };
   let request: import("@penkra/contracts").DesktopThreadApiRequest;
-  if (method === "current.read" || method === "list") {
+  if (method === "current.read") {
     request = { ...base, method };
+  } else if (method === "list") {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("Folder list input must be an object.");
+    }
+    const cursor = (value as { cursor?: unknown }).cursor;
+    if (cursor !== undefined && typeof cursor !== "string") {
+      throw new Error("Folder list cursor must be a string.");
+    }
+    request = { ...base, method, input: cursor === undefined ? {} : { cursor } };
   } else if (method === "send") {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       throw new Error("Thread send input must be an object.");
@@ -1120,11 +1127,8 @@ async function requestAppThreadOperation(
       if (typeof targetThreadId !== "string" || targetThreadId.length === 0) {
         throw new Error(`Thread ${method} requires a target Thread ID.`);
       }
-      if (method === "add" || method === "reorder") {
-        const rawPosition = input.position;
-        const position = parseAppThreadDeckPosition(
-          rawPosition ?? (method === "add" ? { type: "end" } : undefined),
-        );
+      if (method === "reorder") {
+        const position = parseAppFolderPosition(input.position);
         request = {
           ...base,
           method,
@@ -1163,7 +1167,7 @@ async function requestAppThreadOperation(
             ? (result as { selectedThreadId?: string | null }).selectedThreadId
             : undefined;
     if (selectedThreadId)
-      announceAgentThreadSelection(identity.threadId, identity.deckId, selectedThreadId);
+      announceAgentThreadSelection(identity.threadId, identity.folderId, selectedThreadId);
     return result;
   } finally {
     if (!trustedCaller) {
@@ -1180,11 +1184,11 @@ async function requestAppThreadOperation(
   }
 }
 
-function parseAppThreadDeckPosition(
+function parseAppFolderPosition(
   value: unknown,
-): import("@penkra/contracts").DesktopThreadDeckPosition {
+): import("@penkra/contracts").DesktopFolderThreadPosition {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Thread Deck position must be an object.");
+    throw new Error("folder position must be an object.");
   }
   const position = value as { type?: unknown; threadId?: unknown };
   if (position.type === "start" || position.type === "end") {
@@ -1192,11 +1196,11 @@ function parseAppThreadDeckPosition(
   }
   if (position.type === "before" || position.type === "after") {
     if (typeof position.threadId !== "string" || position.threadId.length === 0) {
-      throw new Error(`Thread Deck ${position.type} position requires an anchor Thread ID.`);
+      throw new Error(`folder ${position.type} position requires an anchor Thread ID.`);
     }
     return { type: position.type, threadId: position.threadId };
   }
-  throw new Error("Thread Deck position type must be start, end, before, or after.");
+  throw new Error("folder position type must be start, end, before, or after.");
 }
 
 const qaWindowTracker = new DiagnosticsQaWindowTracker(
@@ -1227,19 +1231,19 @@ function acceptThreadApiState(event: Electron.IpcMainEvent, input: unknown): voi
   }
   const state = input as {
     spaceId?: unknown;
-    deckId?: unknown;
+    folderId?: unknown;
     threads?: unknown;
   };
   if (
     typeof state.spaceId !== "string" ||
-    typeof state.deckId !== "string" ||
+    typeof state.folderId !== "string" ||
     !Array.isArray(state.threads)
   ) {
     return;
   }
   const tabs = desktopAppRuntime?.appTabs;
   if (!tabs) return;
-  for (const tab of tabs.listFor(state.spaceId, state.deckId)) {
+  for (const tab of tabs.listFor(state.spaceId, state.folderId)) {
     tabs.sendEvent(tab.id, "threads.state", state.threads);
   }
 }
@@ -1300,7 +1304,7 @@ function revokeRuntimeV2FileScope(appId: string, spaceId: string): void {
 function retireAppGenerationAuthority(owner: {
   appId: string;
   spaceId: string;
-  deckId: string;
+  folderId: string;
   threadId: string;
   tabId: string;
   rendererId: number;
@@ -1348,7 +1352,7 @@ function retireAppGenerationAuthority(owner: {
 function retireAppTabAuthority(owner: {
   appId: string;
   spaceId: string;
-  deckId: string;
+  folderId: string;
   threadId: string;
   tabId: string;
 }): void {
@@ -1614,7 +1618,7 @@ async function openPenkraResource(input: {
   url?: string;
   requestedApp?: string;
   spaceId: string;
-  deckId: string;
+  folderId: string;
   threadId: string;
   callerKind?: "agent" | "user";
 }): Promise<unknown> {
@@ -1642,7 +1646,7 @@ async function openPenkraResource(input: {
         ? await runtime.appTabs.openInstalled({
             appId: resolved.appId,
             spaceId: input.spaceId,
-            deckId: input.deckId,
+            folderId: input.folderId,
             threadId: input.threadId,
             route: "/",
             state: { url: url.href },
@@ -1653,7 +1657,7 @@ async function openPenkraResource(input: {
             operation: resolved.operation,
             input: { url: url.href },
             spaceId: input.spaceId,
-            deckId: input.deckId,
+            folderId: input.folderId,
             threadId: input.threadId,
             callerKind: input.callerKind ?? "agent",
           });
@@ -1674,7 +1678,7 @@ async function openPenkraResource(input: {
     openWith: runtime.openWith,
     path: input.path ?? "",
     spaceId: input.spaceId,
-    deckId: input.deckId,
+    folderId: input.folderId,
     threadId: input.threadId,
     ...(input.requestedApp ? { requestedApp: input.requestedApp } : {}),
     ...(input.callerKind ? { callerKind: input.callerKind } : {}),
@@ -1689,7 +1693,7 @@ async function showPenkraResourceContextMenu(input: {
   path?: string;
   url?: string;
   spaceId: string;
-  deckId: string;
+  folderId: string;
   threadId: string;
   position: { x: number; y: number };
   ownerWindow?: BrowserWindow | null;
@@ -1735,7 +1739,7 @@ async function showPenkraResourceContextMenu(input: {
       ...resource,
       requestedApp: choice.requestedApp,
       spaceId: input.spaceId,
-      deckId: input.deckId,
+      folderId: input.folderId,
       threadId: input.threadId,
       callerKind: "user",
     });
@@ -1869,7 +1873,7 @@ function resizeAppTabWindow(windowId: number, width: number, height: number): vo
 
 async function presentAppTabInWindow(input: {
   tabId: string;
-  deckId: string;
+  folderId: string;
   threadId: string;
   windowId: number;
   bounds: Electron.Rectangle;
@@ -2041,11 +2045,6 @@ function parseRuntimeShellOpenExternalOptions(value: unknown): OpenExternalOptio
   if (record.activate !== undefined) {
     if (typeof record.activate !== "boolean") throw new Error("activate must be a boolean.");
     options.activate = record.activate;
-  }
-  if (record.workingDirectory !== undefined) {
-    if (typeof record.workingDirectory !== "string")
-      throw new Error("workingDirectory must be a string.");
-    options.workingDirectory = record.workingDirectory;
   }
   if (record.logUsage !== undefined) {
     if (typeof record.logUsage !== "boolean") throw new Error("logUsage must be a boolean.");
@@ -5653,7 +5652,7 @@ function registerIpcHandlers(): void {
   ipcMain.on(IPC.panelFocus.resolveShellShortcut, (event, input: unknown) => {
     const window = shellWindowForSender(event.sender);
     if (!window || !input || typeof input !== "object" || Array.isArray(input)) return;
-    const { command, insidePanel, deckId } = input as Record<string, unknown>;
+    const { command, insidePanel, folderId } = input as Record<string, unknown>;
     if (
       (command !== "new-window" && command !== "find" && command !== "close") ||
       typeof insidePanel !== "boolean"
@@ -5664,7 +5663,7 @@ function registerIpcHandlers(): void {
     routePanelShortcut(
       window,
       command,
-      typeof deckId === "string" && deckId.length > 0 ? deckId : null,
+      typeof folderId === "string" && folderId.length > 0 ? folderId : null,
       event.sender.id,
     );
   });
@@ -5704,12 +5703,12 @@ function registerIpcHandlers(): void {
       return;
     const { views, activeThreadId } = input as { views?: unknown; activeThreadId?: unknown };
     if (!Array.isArray(views) || typeof activeThreadId !== "string" || views.length > 16) return;
-    const validViews: Array<{ threadId: string; deckId: string }> = [];
+    const validViews: Array<{ threadId: string; folderId: string }> = [];
     for (const view of views) {
       if (!view || typeof view !== "object") return;
-      const { threadId, deckId } = view as { threadId?: unknown; deckId?: unknown };
-      if (typeof threadId !== "string" || typeof deckId !== "string") return;
-      validViews.push({ threadId, deckId });
+      const { threadId, folderId } = view as { threadId?: unknown; folderId?: unknown };
+      if (typeof threadId !== "string" || typeof folderId !== "string") return;
+      validViews.push({ threadId, folderId });
     }
     if (!validViews.some((view) => view.threadId === activeThreadId)) return;
     const window = shellWindowForSender(event.sender);
@@ -5725,14 +5724,14 @@ function registerIpcHandlers(): void {
       cloneUrl: window!.webContents.getURL(),
     });
     for (const view of validViews) {
-      const selectedThreadId = threadHomeWindow.consumeThreadSelection(view.deckId);
+      const selectedThreadId = threadHomeWindow.consumeThreadSelection(view.folderId);
       if (selectedThreadId && selectedThreadId !== activeThreadId) {
         threadHomeWindow.agentNavigation(window!.id, selectedThreadId);
         window!.webContents.send(IPC.threadHomeSelect, { threadId: selectedThreadId });
       }
     }
     console.info(
-      `[thread-home] view window=${event.sender.id} thread=${activeThreadId} decks=${validViews.map((view) => view.deckId).join(",")} focused=${window?.isFocused() ?? false}`,
+      `[thread-home] view window=${event.sender.id} thread=${activeThreadId} folders=${validViews.map((view) => view.folderId).join(",")} focused=${window?.isFocused() ?? false}`,
     );
   });
   ipcMain.removeAllListeners(IPC.threadHomeLeave);
@@ -5864,12 +5863,12 @@ function registerIpcHandlers(): void {
     const { method, input: value } = input as Record<string, unknown>;
     if (typeof method !== "string") throw new Error("Invalid App runtime method.");
     const tabId = rendererIdentity.tabId;
-    const deckId = rendererIdentity.deckId;
+    const folderId = rendererIdentity.folderId;
     const threadId = rendererIdentity.threadId;
-    if (!tabId || !deckId || !threadId) {
+    if (!tabId || !folderId || !threadId) {
       throw new Error("This App renderer is not attached to a tab.");
     }
-    const identity = { ...rendererIdentity, tabId, deckId, threadId };
+    const identity = { ...rendererIdentity, tabId, folderId, threadId };
     const rendererId = event.sender.id;
     switch (method) {
       case "files.list":
@@ -5947,7 +5946,7 @@ function registerIpcHandlers(): void {
           {
             appId: identity.appId,
             spaceId: identity.spaceId,
-            deckId: identity.deckId,
+            folderId: identity.folderId,
             tabId,
             rendererId,
             origin: runtime.identities.resolveOrigin(identity.appId, identity.spaceId),
@@ -5961,7 +5960,7 @@ function registerIpcHandlers(): void {
           {
             appId: identity.appId,
             spaceId: identity.spaceId,
-            deckId: identity.deckId,
+            folderId: identity.folderId,
             tabId,
             rendererId,
             origin: runtime.identities.resolveOrigin(identity.appId, identity.spaceId),
@@ -6024,7 +6023,7 @@ function registerIpcHandlers(): void {
             {
               appId: identity.appId,
               spaceId: identity.spaceId,
-              deckId: identity.deckId,
+              folderId: identity.folderId,
               tabId,
               rendererId,
             },
@@ -6051,7 +6050,7 @@ function registerIpcHandlers(): void {
         runtimeV2FileWatches.set(watchId, {
           appId: identity.appId,
           spaceId: identity.spaceId,
-          deckId: identity.deckId,
+          folderId: identity.folderId,
           threadId: identity.threadId,
           tabId,
           rendererId,
@@ -6110,7 +6109,7 @@ function registerIpcHandlers(): void {
           {
             appId: identity.appId,
             spaceId: identity.spaceId,
-            deckId: identity.deckId,
+            folderId: identity.folderId,
             tabId,
             rendererId,
           },
@@ -6133,7 +6132,7 @@ function registerIpcHandlers(): void {
           {
             appId: identity.appId,
             spaceId: identity.spaceId,
-            deckId: identity.deckId,
+            folderId: identity.folderId,
             tabId,
             rendererId,
           },
@@ -6153,7 +6152,7 @@ function registerIpcHandlers(): void {
         const owner = {
           appId: identity.appId,
           spaceId: identity.spaceId,
-          deckId: identity.deckId,
+          folderId: identity.folderId,
           tabId,
           rendererId,
         };
@@ -6170,7 +6169,7 @@ function registerIpcHandlers(): void {
         const watcher = runtimeV2FileWatches.take(watchId, {
           appId: identity.appId,
           spaceId: identity.spaceId,
-          deckId: identity.deckId,
+          folderId: identity.folderId,
           threadId: identity.threadId,
           tabId,
           rendererId,
@@ -6189,7 +6188,7 @@ function registerIpcHandlers(): void {
         return runtime.invokeController({
           appId: identity.appId,
           spaceId: identity.spaceId,
-          deckId: identity.deckId,
+          folderId: identity.folderId,
           threadId: identity.threadId,
           tabId,
           handler: request.handler,
@@ -6263,7 +6262,7 @@ function registerIpcHandlers(): void {
         const owner = {
           appId: identity.appId,
           spaceId: identity.spaceId,
-          deckId: identity.deckId,
+          folderId: identity.folderId,
           tabId,
           rendererId,
           origin: runtime.identities.resolveOrigin(identity.appId, identity.spaceId),
@@ -6376,7 +6375,7 @@ function registerIpcHandlers(): void {
     const { identity } = requireAppRenderer(event.sender.id);
     if (!identity.threadId) throw new Error("This App renderer is not attached to a thread.");
     return {
-      deckId: identity.deckId,
+      folderId: identity.folderId,
       threadId: identity.threadId,
       tabId: identity.tabId ?? null,
     };
@@ -7198,12 +7197,13 @@ function registerIpcHandlers(): void {
   });
   handleDesktopIpc(IPC.appTabs.list, async (event, scope: unknown) => {
     const tabs = requireShellAppTabs(event.sender.id).list();
-    const deckId = scope && typeof scope === "object" && "deckId" in scope ? scope.deckId : null;
+    const folderId =
+      scope && typeof scope === "object" && "folderId" in scope ? scope.folderId : null;
     const selected =
-      typeof deckId === "string"
+      typeof folderId === "string"
         ? threadHomeWindow.consume(
-            deckId,
-            tabs.filter((tab) => tab.deckId === deckId).map((tab) => tab.id),
+            folderId,
+            tabs.filter((tab) => tab.folderId === folderId).map((tab) => tab.id),
           )
         : null;
     return tabs.map((tab) => ({
@@ -7213,21 +7213,19 @@ function registerIpcHandlers(): void {
     }));
   });
   handleDesktopIpc(IPC.appTabs.setContext, async (event, input: unknown) => {
-    const { tabId, deckId, threadId } = parseSetAppTabContextRequest(input);
+    const { tabId, folderId, threadId } = parseSetAppTabContextRequest(input);
     requireShellAppTabs(event.sender.id).setContext(tabId, {
-      deckId,
+      folderId,
       threadId,
     });
   });
   handleDesktopIpc(IPC.appTabs.present, async (event, input: unknown) => {
     if (!input || typeof input !== "object" || Array.isArray(input)) return;
-    const { tabId, deckId, threadId, animate, animationStartedAtEpochMs, bounds } = input as Record<
-      string,
-      unknown
-    >;
+    const { tabId, folderId, threadId, animate, animationStartedAtEpochMs, bounds } =
+      input as Record<string, unknown>;
     if (
       typeof tabId !== "string" ||
-      typeof deckId !== "string" ||
+      typeof folderId !== "string" ||
       typeof threadId !== "string" ||
       !bounds ||
       typeof bounds !== "object" ||
@@ -7240,14 +7238,14 @@ function registerIpcHandlers(): void {
     traceAppTab("shell-present-ipc", {
       tabId,
       rendererId: event.sender.id,
-      deckId,
+      folderId,
       threadId,
       animate: animate === true,
       bounds: appBounds,
     });
     await presentAppTabInWindow({
       tabId,
-      deckId,
+      folderId,
       threadId,
       windowId: event.sender.id,
       bounds: appBounds,
@@ -7590,10 +7588,10 @@ function registerIpcHandlers(): void {
     const record = input as Record<string, unknown>;
     if (
       typeof record.spaceId !== "string" ||
-      typeof record.deckId !== "string" ||
+      typeof record.folderId !== "string" ||
       typeof record.threadId !== "string"
     ) {
-      throw new Error("Resource open requires Space, Thread Deck, and Thread IDs.");
+      throw new Error("Resource open requires Space, folder, and Thread IDs.");
     }
     const path = typeof record.path === "string" ? record.path : undefined;
     const url = typeof record.url === "string" ? record.url : undefined;
@@ -7604,7 +7602,7 @@ function registerIpcHandlers(): void {
     const context = {
       ...(requestedApp ? { requestedApp } : {}),
       spaceId: record.spaceId,
-      deckId: record.deckId,
+      folderId: record.folderId,
       threadId: record.threadId,
       callerKind: "user" as const,
     };
@@ -7624,10 +7622,10 @@ function registerIpcHandlers(): void {
     const record = input as Record<string, unknown>;
     if (
       typeof record.spaceId !== "string" ||
-      typeof record.deckId !== "string" ||
+      typeof record.folderId !== "string" ||
       typeof record.threadId !== "string"
     ) {
-      throw new Error("Resource context menu requires Space, Thread Deck, and Thread IDs.");
+      throw new Error("Resource context menu requires Space, folder, and Thread IDs.");
     }
     const position = record.position;
     if (!position || typeof position !== "object" || Array.isArray(position)) {
@@ -7650,7 +7648,7 @@ function registerIpcHandlers(): void {
     return showPenkraResourceContextMenu({
       ...(path ? { path } : { url: url! }),
       spaceId: record.spaceId,
-      deckId: record.deckId,
+      folderId: record.folderId,
       threadId: record.threadId,
       position: { x: point.x, y: point.y },
       ownerWindow: shellWindowForSender(event.sender),
@@ -8440,7 +8438,7 @@ if (hasSingleInstanceLock) {
         // chords still resolve their focused DOM region before main routes them.
         contents.send(IPC.panelFocus.shellShortcut, command);
       } else {
-        routePanelShortcut(owner.window, command, owner.tab.deckId, contents.id);
+        routePanelShortcut(owner.window, command, owner.tab.folderId, contents.id);
       }
     });
   });
@@ -8950,13 +8948,13 @@ async function bootstrap(): Promise<void> {
     runOnThread: runAgentThreadOperation,
     inheritThreadHome,
     observer: appTabObserver,
-    observationSurface: (threadId, deckId) => {
+    observationSurface: (threadId, folderId) => {
       const ready = shellWindows().filter(
         (window) => !window.isDestroyed() && !window.webContents.isLoadingMainFrame(),
       );
       const id = threadHomeWindow.presentingWindow(
         threadId,
-        deckId,
+        folderId,
         ready.map((window) => window.id),
       );
       return ready.find((window) => window.id === id)?.webContents.id ?? null;
@@ -8964,13 +8962,13 @@ async function bootstrap(): Promise<void> {
     activate: activateAppTabForAgent,
     presentation: appTabAgentPresentation,
     providerCredentialVault: desktopAppRuntime.providerCredentialVault,
-    thread: async ({ spaceId, deckId, threadId, method, value }) =>
+    thread: async ({ spaceId, folderId, threadId, method, value }) =>
       requestAppThreadOperation(
         desktopAppRuntime!,
         {
           appId: "penkra.host",
           spaceId,
-          deckId,
+          folderId,
           threadId,
           tabId: `host:${threadId}`,
         },

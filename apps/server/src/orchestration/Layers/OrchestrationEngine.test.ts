@@ -1,6 +1,6 @@
 import { updateThreadFixture } from "../../cleanCore/threadFixtures.ts";
 import { createThreadFixture } from "../../cleanCore/threadFixtures.ts";
-import { singletonThreadDeckId } from "@penkra/contracts";
+import {} from "@penkra/contracts";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -282,11 +282,9 @@ describe("OrchestrationEngine", () => {
         createThreadFixture(system.sql, {
           threadId: threadA,
           folderId: asFolderId("folder-slow-command-a"),
-          deckId: singletonThreadDeckId(threadA),
           title: "Thread A",
           modelSelection: { provider: "codex", model: "gpt-5-codex" },
           runtimeMode: "approval-required",
-          workingDirectory: null,
           createdAt: now(),
           connection: { kind: "selected", connectionId: null },
           creator: { kind: "user" },
@@ -443,11 +441,9 @@ describe("OrchestrationEngine", () => {
           createThreadFixture(system.sql, {
             threadId: threadId,
             folderId: folderId,
-            deckId: singletonThreadDeckId(threadId),
             title: "Ordering",
             modelSelection: { provider: "codex", model: "gpt-5-codex" },
             runtimeMode: "full-access",
-            workingDirectory: null,
             createdAt: createdAt,
             connection: { kind: "selected", connectionId: null },
             creator: { kind: "user" },
@@ -575,11 +571,9 @@ describe("OrchestrationEngine", () => {
         createThreadFixture(system.sql, {
           threadId: threadId,
           folderId: folderId,
-          deckId: singletonThreadDeckId(threadId),
           title: "Archive guard",
           modelSelection: { provider: "codex", model: "gpt-5-codex" },
           runtimeMode: "full-access",
-          workingDirectory: null,
           createdAt: createdAt,
           connection: { kind: "selected", connectionId: null },
           creator: { kind: "user" },
@@ -677,11 +671,9 @@ describe("OrchestrationEngine", () => {
         createThreadFixture(system.sql, {
           threadId: threadId,
           folderId: folderId,
-          deckId: singletonThreadDeckId(threadId),
           title: "Play after Stop",
           modelSelection: { provider: "codex", model: "gpt-5-codex" },
           runtimeMode: "full-access",
-          workingDirectory: null,
           createdAt: requestedAt,
           connection: { kind: "selected", connectionId: null },
           creator: { kind: "user" },
@@ -845,11 +837,9 @@ describe("OrchestrationEngine", () => {
         createThreadFixture(system.sql, {
           threadId: threadId,
           folderId: asFolderId(`folder-play-${blocker}`),
-          deckId: singletonThreadDeckId(threadId),
           title: "Play test",
           modelSelection: { provider: "codex", model: "gpt-5-codex" },
           runtimeMode: "full-access",
-          workingDirectory: null,
           createdAt: createdAt,
           connection: { kind: "selected", connectionId: null },
           creator: { kind: "user" },
@@ -931,11 +921,9 @@ describe("OrchestrationEngine", () => {
         createThreadFixture(system.sql, {
           threadId: threadId,
           folderId: folderId,
-          deckId: singletonThreadDeckId(threadId),
           title: "Concurrent Play thread",
           modelSelection: { provider: "codex", model: "gpt-5-codex" },
           runtimeMode: "full-access",
-          workingDirectory: null,
           createdAt: createdAt,
           connection: { kind: "selected", connectionId: null },
           creator: { kind: "user" },
@@ -1031,14 +1019,12 @@ describe("OrchestrationEngine", () => {
       createThreadFixture(system.sql, {
         threadId: threadId,
         folderId: asFolderId("project-engine-quiesce"),
-        deckId: singletonThreadDeckId(threadId),
         title: "Engine quiesce thread",
         modelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
         },
         runtimeMode: "approval-required",
-        workingDirectory: null,
         createdAt: createdAt,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
@@ -1193,14 +1179,12 @@ describe("OrchestrationEngine", () => {
       createThreadFixture(sql, {
         threadId: ThreadId.makeUnsafe("thread-1"),
         folderId: asFolderId("project-1"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-1")),
         title: "Thread",
         modelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
         },
         runtimeMode: "approval-required",
-        workingDirectory: null,
         createdAt: createdAt,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
@@ -1284,11 +1268,9 @@ describe("OrchestrationEngine", () => {
       createThreadFixture(sql, {
         threadId: threadId,
         folderId: asFolderId("project-managed-attachment"),
-        deckId: singletonThreadDeckId(threadId),
         title: "Managed attachment thread",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "approval-required",
-        workingDirectory: null,
         createdAt: createdAt,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
@@ -1693,14 +1675,12 @@ describe("OrchestrationEngine", () => {
       createThreadFixture(sql, {
         threadId: ThreadId.makeUnsafe("thread-atomic"),
         folderId: asFolderId("project-atomic"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-atomic")),
         title: "atomic",
         modelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
         },
         runtimeMode: "approval-required",
-        workingDirectory: null,
         createdAt: createdAt,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
@@ -1972,14 +1952,12 @@ describe("OrchestrationEngine", () => {
       createThreadFixture(sql, {
         threadId: ThreadId.makeUnsafe("thread-sync"),
         folderId: asFolderId("project-sync"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-sync")),
         title: "sync-before",
         modelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
         },
         runtimeMode: "approval-required",
-        workingDirectory: null,
         createdAt: createdAt,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
@@ -2121,14 +2099,12 @@ describe("OrchestrationEngine", () => {
       createThreadFixture(sql, {
         threadId: ThreadId.makeUnsafe("thread-deferred-recovery"),
         folderId: asFolderId("project-deferred-recovery"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-deferred-recovery")),
         title: "deferred-recovery",
         modelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
         },
         runtimeMode: "approval-required",
-        workingDirectory: null,
         createdAt: createdAt,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },

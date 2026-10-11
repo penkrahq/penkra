@@ -17,14 +17,6 @@ import type {
 
 const EMPTY_THREAD_SHELLS: ThreadShell[] = [];
 
-export interface ThreadWorkspaceMetadata {
-  workingDirectory: string | null;
-}
-
-const EMPTY_THREAD_WORKSPACE_METADATA: ThreadWorkspaceMetadata = Object.freeze({
-  workingDirectory: null,
-});
-
 function createStableEntitySelector<T extends { id: string }>(
   selectItems: (state: AppState) => readonly T[],
   id: string | null | undefined,
@@ -107,10 +99,7 @@ export function createAllThreadsSelector(): (state: AppState) => readonly Thread
  *  the shell is where `updatedAt` lives, and the sidebar both sorts by it
  *  (`components/Sidebar.logic.ts`) and renders it (`components/SidebarSearchPalette.tsx`).
  *
- *  So: cheaper and far less churny than `createAllThreadsSelector` (one new array per delta
- *  instead of rebuilding every thread's message/activity lists), but subscribers that must not
- *  re-render during streaming should select a narrower slice (e.g.
- *  `createThreadWorkspaceMetadataSelector`) rather than relying on this being stable. */
+ */
 export function createThreadShellsSelector(): (state: AppState) => readonly ThreadShell[] {
   return (state) => collectByIds(state.threadIds, state.threadShellById, EMPTY_THREAD_SHELLS);
 }
@@ -147,31 +136,6 @@ export function createThreadFolderIdSelector(
       return null;
     }
     return state.threadShellById?.[threadId]?.folderId ?? null;
-  };
-}
-
-export function createThreadWorkspaceMetadataSelector(
-  threadId: ThreadId | null | undefined,
-): (state: AppState) => ThreadWorkspaceMetadata {
-  let previousWorkingDirectory: string | null = null;
-  let previousResult = EMPTY_THREAD_WORKSPACE_METADATA;
-
-  return (state) => {
-    if (!threadId) {
-      return EMPTY_THREAD_WORKSPACE_METADATA;
-    }
-
-    // Shell-only: avoid subscribing preview panes to live message/activity detail slices.
-    const source = state.threadShellById?.[threadId];
-    const workingDirectory = source?.workingDirectory ?? null;
-    if (previousWorkingDirectory === workingDirectory) {
-      return previousResult;
-    }
-
-    previousWorkingDirectory = workingDirectory;
-    previousResult =
-      workingDirectory === null ? EMPTY_THREAD_WORKSPACE_METADATA : { workingDirectory };
-    return previousResult;
   };
 }
 

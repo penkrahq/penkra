@@ -67,14 +67,13 @@ describe("resolveNewThreadModelPrefetchProvider", () => {
 });
 
 describe("resolveNewThreadModelPrefetchCwd", () => {
-  it("prefers draft worktree, then project cwd, then server cwd", () => {
+  it("uses the folder cwd, then the server cwd", () => {
     expect(
       resolveNewThreadModelPrefetchCwd({
-        draftWorkingDirectory: "/tmp/worktree",
         projectCwd: "/tmp/project",
         serverCwd: "/tmp/server",
       }),
-    ).toBe("/tmp/worktree");
+    ).toBe("/tmp/project");
 
     expect(
       resolveNewThreadModelPrefetchCwd({

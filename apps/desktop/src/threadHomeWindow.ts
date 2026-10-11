@@ -1,4 +1,4 @@
-/** Window affinity is transient UI state. Thread and Deck records stay in the server. */
+/** Window affinity is transient UI state. Thread and Folder records stay in the server. */
 export class ThreadHomeWindow {
   readonly #home = new Map<string, number>();
   readonly #view = new Map<number, Map<string, string>>();
@@ -26,12 +26,12 @@ export class ThreadHomeWindow {
   view(
     windowId: number,
     threadId: string,
-    deckId: string,
+    folderId: string,
     userAction: boolean,
     active = true,
   ): void {
     const views = this.#view.get(windowId) ?? new Map<string, string>();
-    views.set(threadId, deckId);
+    views.set(threadId, folderId);
     this.#view.set(windowId, views);
     if (active) this.#activeThread.set(windowId, threadId);
     const agentNavigation = active && this.#consumeAgentNavigation(windowId, threadId);
@@ -40,11 +40,11 @@ export class ThreadHomeWindow {
 
   replaceViews(
     windowId: number,
-    views: readonly { threadId: string; deckId: string }[],
+    views: readonly { threadId: string; folderId: string }[],
     activeThreadId: string,
     userAction: boolean,
   ): { readonly windowId: number; readonly revision: number } {
-    this.#view.set(windowId, new Map(views.map((view) => [view.threadId, view.deckId])));
+    this.#view.set(windowId, new Map(views.map((view) => [view.threadId, view.folderId])));
     this.#activeThread.set(windowId, activeThreadId);
     const revision = (this.#syncRevision.get(windowId) ?? 0) + 1;
     this.#syncRevision.set(windowId, revision);
@@ -55,14 +55,14 @@ export class ThreadHomeWindow {
 
   snapshot(windowId: number): {
     readonly activeThreadId: string;
-    readonly views: readonly { threadId: string; deckId: string }[];
+    readonly views: readonly { threadId: string; folderId: string }[];
   } | null {
     const activeThreadId = this.#activeThread.get(windowId);
     const views = this.#view.get(windowId);
     if (!activeThreadId || !views?.has(activeThreadId)) return null;
     return {
       activeThreadId,
-      views: [...views].map(([threadId, deckId]) => ({ threadId, deckId })),
+      views: [...views].map(([threadId, folderId]) => ({ threadId, folderId })),
     };
   }
 
@@ -97,11 +97,11 @@ export class ThreadHomeWindow {
 
   presentingWindow(
     threadId: string,
-    deckId: string,
+    folderId: string,
     readyWindowIds: readonly number[],
   ): number | null {
     const showing = readyWindowIds.filter((id) =>
-      [...(this.#view.get(id)?.values() ?? [])].includes(deckId),
+      [...(this.#view.get(id)?.values() ?? [])].includes(folderId),
     );
     if (showing.length === 0) return null;
     const home = this.#home.get(threadId);
@@ -113,37 +113,37 @@ export class ThreadHomeWindow {
     return home !== undefined && readyWindowIds.includes(home) ? home : null;
   }
 
-  defer(deckId: string, tabId: string): void {
-    this.#pending.set(deckId, tabId);
+  defer(folderId: string, tabId: string): void {
+    this.#pending.set(folderId, tabId);
   }
 
   select(
     presentingThreadId: string,
     selectedThreadId: string,
-    deckId: string,
+    folderId: string,
     readyWindowIds: readonly number[],
   ): number | null {
-    const target = this.presentingWindow(presentingThreadId, deckId, readyWindowIds);
-    if (target === null) this.#pendingThreadSelection.set(deckId, selectedThreadId);
+    const target = this.presentingWindow(presentingThreadId, folderId, readyWindowIds);
+    if (target === null) this.#pendingThreadSelection.set(folderId, selectedThreadId);
     return target;
   }
 
-  consumeThreadSelection(deckId: string): string | null {
-    const threadId = this.#pendingThreadSelection.get(deckId) ?? null;
-    if (threadId !== null) this.#pendingThreadSelection.delete(deckId);
+  consumeThreadSelection(folderId: string): string | null {
+    const threadId = this.#pendingThreadSelection.get(folderId) ?? null;
+    if (threadId !== null) this.#pendingThreadSelection.delete(folderId);
     return threadId;
   }
 
-  consume(deckId: string, tabIds: readonly string[]): string | null {
-    const pending = this.#pending.get(deckId);
+  consume(folderId: string, tabIds: readonly string[]): string | null {
+    const pending = this.#pending.get(folderId);
     if (!pending || !tabIds.includes(pending)) return null;
-    this.#pending.delete(deckId);
+    this.#pending.delete(folderId);
     return pending;
   }
 
   forgetTab(tabId: string): void {
-    for (const [deckId, pending] of this.#pending) {
-      if (pending === tabId) this.#pending.delete(deckId);
+    for (const [folderId, pending] of this.#pending) {
+      if (pending === tabId) this.#pending.delete(folderId);
     }
   }
 }

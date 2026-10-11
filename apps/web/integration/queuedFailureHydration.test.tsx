@@ -32,9 +32,9 @@ describe("failed queued delivery hydration", () => {
         ) VALUES ('project-1', 'Project', '/tmp/project', NULL, '[]',
           '2026-09-27T00:00:00.000Z', '2026-09-27T00:00:01.000Z', NULL)`;
           yield* sql`INSERT INTO threads (
-          id, space_id, folder_id, deck_id, title, provider, model, runtime_mode, state, created_by,
+          id, space_id, folder_id, title, provider, model, runtime_mode, state, created_by,
           created_at, updated_at
-        ) VALUES (${threadId}, 'penkra-personal', 'project-1', 'deck:thread-1', 'Thread', 'codex',
+        ) VALUES (${threadId}, 'penkra-personal', 'project-1', 'Thread', 'codex',
           'gpt-5-codex', 'full-access', 'idle', 'user',
           '2026-09-27T00:00:00.000Z', '2026-09-27T00:00:01.000Z')`;
           yield* sql`INSERT INTO projection_thread_messages (

@@ -10,7 +10,7 @@ import {
   settings,
   storage,
   transfer,
-  threads,
+  folder,
   tab,
   type PenkraTabRuntimeApi,
 } from "./runtime";
@@ -50,16 +50,14 @@ function createBrowserMock(): PenkraTabRuntimeApi["browser"] {
   };
 }
 
-function createThreadsMock(): PenkraTabRuntimeApi["threads"] {
+function createThreadsMock(): PenkraTabRuntimeApi["folder"] {
   return {
     current: { read: vi.fn() },
     list: vi.fn(),
     get: vi.fn(),
     create: vi.fn(),
-    add: vi.fn(),
     select: vi.fn(),
     reorder: vi.fn(),
-    leave: vi.fn(),
     archive: vi.fn(),
     compose: vi.fn(),
     onState: vi.fn(),
@@ -156,7 +154,7 @@ describe("framework-neutral App runtime exports", () => {
       files: createFilesMock(),
       storage: createStorageMock(),
       transfer: createTransferMock(),
-      threads: createThreadsMock(),
+      folder: createThreadsMock(),
       models: { listPossible: vi.fn(async () => []) },
       open: vi.fn(),
       browser: createBrowserMock(),
@@ -219,7 +217,7 @@ describe("framework-neutral App runtime exports", () => {
     await models.listPossible();
     await browser.listExtensionActions();
     await browser.openExtensionAction({ extensionId: "dark-reader", pageId: "page-1" });
-    await threads.compose({
+    await folder.compose({
       threadId: "thread-linked",
       text: "Pause playbooks://run/run-1",
     });
@@ -244,7 +242,7 @@ describe("framework-neutral App runtime exports", () => {
       extensionId: "dark-reader",
       pageId: "page-1",
     });
-    expect(runtime.threads.compose).toHaveBeenCalledWith({
+    expect(runtime.folder.compose).toHaveBeenCalledWith({
       threadId: "thread-linked",
       text: "Pause playbooks://run/run-1",
     });
@@ -259,7 +257,7 @@ describe("framework-neutral App runtime exports", () => {
       files: createFilesMock(),
       storage: createStorageMock(),
       transfer: createTransferMock(),
-      threads: createThreadsMock(),
+      folder: createThreadsMock(),
       models: { listPossible: vi.fn(async () => []) },
       open: vi.fn(),
       browser: createBrowserMock(),

@@ -7,7 +7,7 @@ describe("AppDockPane", () => {
   it("renders loading chrome without an iframe or webview", () => {
     const html = renderToStaticMarkup(
       <AppDockPane
-        deckId="deck-1"
+        folderId="folder-1"
         threadId="thread-1"
         appName="Figma"
         iconDataUrl="data:image/svg+xml;base64,PHN2Zz48L3N2Zz4="
@@ -28,7 +28,7 @@ describe("AppDockPane", () => {
   it("does not publish an inactive tab as the visible native surface", () => {
     const html = renderToStaticMarkup(
       <AppDockPane
-        deckId="deck-1"
+        folderId="folder-1"
         threadId="thread-1"
         appName="Canvas"
         rendererId={17}

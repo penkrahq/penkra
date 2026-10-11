@@ -62,16 +62,16 @@ export function beginInlineFolderCreation(input: {
 type SidebarProject = {
   id: string;
   name: string;
-  sidebarSortOrder?: number | undefined;
+  sidebarSortOrder?: number | null | undefined;
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
 };
 type SidebarThreadSortInput = {
   createdAt: string;
-  sidebarSortOrder?: number | undefined;
+  sidebarSortOrder?: number | null | undefined;
   updatedAt?: string | undefined;
   latestTurn?: Thread["latestTurn"] | undefined;
-  lastVisitedAt?: Thread["lastVisitedAt"] | undefined;
+  lastVisitedAt?: Thread["lastVisitedAt"] | null | undefined;
   hasPendingApprovals?: boolean | undefined;
   hasPendingUserInput?: boolean | undefined;
   session?: Thread["session"] | undefined;
@@ -497,7 +497,7 @@ export function resolveThreadStatusPill(input: {
 
 /**
  * Adapts the canonical shell summary to the shared visible lifecycle resolver.
- * Every surface representing a Thread (sidebar rows, deck tabs, and future
+ * Every surface representing a Thread (sidebar rows, folder tabs, and future
  * switchers) must use this path instead of rendering the coarse work-status
  * rollup directly.
  */
@@ -904,7 +904,7 @@ export function getSidebarThreadIdsToPrewarm(input: {
   return [...prewarmedThreadIds];
 }
 
-function toSortableTimestamp(iso: string | undefined): number | null {
+function toSortableTimestamp(iso: string | null | undefined): number | null {
   if (!iso) return null;
   const ms = Date.parse(iso);
   return Number.isFinite(ms) ? ms : null;

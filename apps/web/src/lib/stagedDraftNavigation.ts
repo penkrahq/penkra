@@ -6,7 +6,7 @@
 const inFlightDraftNavigationBySlot = new Map<string, Promise<unknown>>();
 
 export function draftNavigationSlotKey(
-  container: { kind: "deck" | "folder"; id: string },
+  container: { kind: "folder"; id: string },
   entryPoint: string,
 ): string {
   return `${container.kind}\u0000${container.id}\u0000${entryPoint}`;

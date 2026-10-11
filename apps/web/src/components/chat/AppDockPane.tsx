@@ -10,9 +10,10 @@ import { appDockBoundsForWidth } from "../ui/sidebar";
 import { PanelStateMessage } from "./PanelStateMessage";
 
 export function AppDockPane(props: {
+  folderId: string;
   tabId: string;
   rendererId: number;
-  deckId: string;
+
   threadId: string;
   status: "unloaded" | "loading" | "ready" | "crashed" | null;
   visible: boolean;
@@ -33,13 +34,12 @@ export function AppDockPane(props: {
           rendererMonotonicMs: Math.round(performance.now()),
           documentVisibility: document.visibilityState,
           documentHasFocus: document.hasFocus(),
-          deckId: props.deckId,
           threadId: props.threadId,
           ...details,
         },
       });
     },
-    [props.deckId, props.tabId, props.threadId],
+    [props.folderId, props.tabId, props.threadId],
   );
   const present = useCallback(() => {
     const bridge = window.desktopBridge?.appTabs;
@@ -63,7 +63,7 @@ export function AppDockPane(props: {
     });
     void bridge.present({
       tabId: props.tabId,
-      deckId: props.deckId,
+      folderId: props.folderId,
       threadId: props.threadId,
       animate: props.animateEntrance,
       ...(props.animationStartedAtEpochMs === null
@@ -74,7 +74,7 @@ export function AppDockPane(props: {
   }, [
     props.animateEntrance,
     props.animationStartedAtEpochMs,
-    props.deckId,
+    props.folderId,
     props.tabId,
     props.threadId,
     props.status,
@@ -142,7 +142,7 @@ export function AppDockPane(props: {
   }, [
     props.animateEntrance,
     props.animationStartedAtEpochMs,
-    props.deckId,
+    props.folderId,
     props.status,
     props.tabId,
     props.threadId,
@@ -164,7 +164,7 @@ export function AppDockPane(props: {
       ref={rootRef}
       className="relative h-full min-h-0 w-full overflow-hidden"
       data-app-tab-id={props.visible ? props.tabId : undefined}
-      data-app-deck-id={props.visible ? props.deckId : undefined}
+      data-app-folder-id={props.visible ? props.folderId : undefined}
       data-app-thread-id={props.visible ? props.threadId : undefined}
     >
       {props.visible && presentation?.mode === "replica" ? (

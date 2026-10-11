@@ -7,7 +7,7 @@ import type { AppTabGenerationOwner } from "./appTabViewHost";
 export interface AppRendererIdentity {
   appId: string;
   spaceId: string;
-  deckId?: string;
+  folderId?: string;
   threadId?: string;
   tabId?: string;
 }
