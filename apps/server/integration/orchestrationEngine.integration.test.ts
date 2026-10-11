@@ -1,3 +1,4 @@
+import { LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL } from "../src/managedAttachmentPrincipal.ts";
 import { createThreadFixture } from "../src/cleanCore/threadFixtures.ts";
 import fs from "node:fs";
 import path from "node:path";
@@ -153,25 +154,28 @@ const startTurn = (input: {
   readonly text: string;
   readonly modelSelection?: ModelSelection;
 }) =>
-  input.harness.engine.dispatch({
-    type: "thread.turn.start",
-    commandId: CommandId.makeUnsafe(input.commandId),
-    threadId: THREAD_ID,
-    message: {
-      messageId: asMessageId(input.messageId),
-      role: "user",
-      text: input.text,
-      attachments: [],
+  input.harness.coordinator.dispatchTurnStart({
+    attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+    command: {
+      type: "thread.turn.start",
+      commandId: CommandId.makeUnsafe(input.commandId),
+      threadId: THREAD_ID,
+      message: {
+        messageId: asMessageId(input.messageId),
+        role: "user",
+        text: input.text,
+        attachments: [],
+      },
+      ...(input.modelSelection !== undefined
+        ? {
+            modelSelection: input.modelSelection,
+          }
+        : {}),
+      connectionId: INTEGRATION_CONNECTION_ID,
+      bindingRevision: 0,
+      runtimeMode: "approval-required",
+      createdAt: nowIso(),
     },
-    ...(input.modelSelection !== undefined
-      ? {
-          modelSelection: input.modelSelection,
-        }
-      : {}),
-    connectionId: INTEGRATION_CONNECTION_ID,
-    bindingRevision: 0,
-    runtimeMode: "approval-required",
-    createdAt: nowIso(),
   });
 
 it.live("runs a single turn end-to-end and persists canonical conversation state", () =>
@@ -277,18 +281,21 @@ it.live.skipIf(!process.env.CODEX_BINARY_PATH)(
           creator: { kind: "user" },
         });
 
-        yield* harness.engine.dispatch({
-          type: "thread.turn.start",
-          commandId: CommandId.makeUnsafe("cmd-turn-start-real-codex-1"),
-          threadId: THREAD_ID,
-          message: {
-            messageId: asMessageId("msg-real-codex-1"),
-            role: "user",
-            text: "Reply with exactly ALPHA.",
-            attachments: [],
+        yield* harness.coordinator.dispatchTurnStart({
+          attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+          command: {
+            type: "thread.turn.start",
+            commandId: CommandId.makeUnsafe("cmd-turn-start-real-codex-1"),
+            threadId: THREAD_ID,
+            message: {
+              messageId: asMessageId("msg-real-codex-1"),
+              role: "user",
+              text: "Reply with exactly ALPHA.",
+              attachments: [],
+            },
+            runtimeMode: "full-access",
+            createdAt: nowIso(),
           },
-          runtimeMode: "full-access",
-          createdAt: nowIso(),
         });
 
         const firstThread = yield* harness.waitForThread(
@@ -303,20 +310,23 @@ it.live.skipIf(!process.env.CODEX_BINARY_PATH)(
         );
         assert.equal(firstThread.session?.threadId, "thread-1");
 
-        yield* harness.engine.dispatch({
-          type: "thread.turn.start",
-          commandId: CommandId.makeUnsafe("cmd-turn-start-real-codex-2"),
-          threadId: THREAD_ID,
-          message: {
-            messageId: asMessageId("msg-real-codex-2"),
-            role: "user",
-            text: "Reply with exactly BETA.",
-            attachments: [],
+        yield* harness.coordinator.dispatchTurnStart({
+          attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+          command: {
+            type: "thread.turn.start",
+            commandId: CommandId.makeUnsafe("cmd-turn-start-real-codex-2"),
+            threadId: THREAD_ID,
+            message: {
+              messageId: asMessageId("msg-real-codex-2"),
+              role: "user",
+              text: "Reply with exactly BETA.",
+              attachments: [],
+            },
+            connectionId: INTEGRATION_CONNECTION_ID,
+            bindingRevision: 0,
+            runtimeMode: "approval-required",
+            createdAt: nowIso(),
           },
-          connectionId: INTEGRATION_CONNECTION_ID,
-          bindingRevision: 0,
-          runtimeMode: "approval-required",
-          createdAt: nowIso(),
         });
 
         const secondThread = yield* harness.waitForThread(
