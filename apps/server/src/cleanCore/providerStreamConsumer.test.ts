@@ -1,6 +1,6 @@
 import { seedThreadFolderFixture } from "./threadFixtures.ts";
 import { assert, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Cause, Effect, Exit } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import {
@@ -422,6 +422,144 @@ it.effect("an exit before turn start preserves an error state and inserts no cut
         yield* sql`SELECT seq FROM thread_items WHERE thread_id = 'thread-1'`,
         [],
       );
+    }),
+  ),
+);
+
+it.effect("a failed turn settlement rolls back state and items and publishes nothing", () =>
+  withDb(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const publisher = makeThreadPublisher();
+      yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
+      yield* createThread(baseThread);
+      yield* applyProviderEvent(publisher, {
+        type: "turn.started",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        at: baseThread.createdAt,
+      });
+      yield* upsertThreadItem({
+        threadId: "thread-1",
+        sourceId: "running-tool",
+        turnId: "turn-1",
+        kind: "tool",
+        status: "running",
+        text: "tool",
+        createdAt: baseThread.createdAt,
+        updatedAt: baseThread.createdAt,
+      });
+      const changes: unknown[] = [];
+      const outcomes: unknown[] = [];
+      const unsubscribe = publisher.subscribe("thread-1", (change) => changes.push(change));
+      const unsubscribeProvider = publisher.subscribeProvider((event) => outcomes.push(event));
+      yield* sql`CREATE TEMP TRIGGER fail_settlement BEFORE UPDATE OF status ON thread_items
+        WHEN NEW.source_id = 'running-tool'
+        BEGIN SELECT RAISE(ABORT, 'injected settlement failure'); END`;
+      const failed = yield* Effect.exit(
+        applyProviderEvent(publisher, {
+          type: "turn.ended",
+          threadId: "thread-1",
+          turnId: "turn-1",
+          state: "completed",
+          at: "2026-10-09T00:00:02.000Z",
+        }),
+      );
+      assert.isTrue(Exit.isFailure(failed));
+      if (Exit.isFailure(failed))
+        assert.include(Cause.pretty(failed.cause), "injected settlement failure");
+      assert.deepStrictEqual(
+        yield* sql`SELECT state, active_turn_id, updated_at FROM threads WHERE id='thread-1'`,
+        [{ state: "running", active_turn_id: "turn-1", updated_at: baseThread.createdAt }],
+      );
+      assert.deepStrictEqual(
+        yield* sql`SELECT status FROM thread_items WHERE source_id='running-tool'`,
+        [{ status: "running" }],
+      );
+      assert.deepStrictEqual(changes, []);
+      assert.deepStrictEqual(outcomes, []);
+      yield* sql`DROP TRIGGER fail_settlement`;
+      yield* applyProviderEvent(publisher, {
+        type: "turn.ended",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        state: "completed",
+        at: "2026-10-09T00:00:02.000Z",
+      });
+      assert.strictEqual(changes.length, 1);
+      assert.strictEqual(outcomes.length, 1);
+      assert.deepStrictEqual(
+        yield* sql`SELECT state, active_turn_id FROM threads WHERE id='thread-1'`,
+        [{ state: "idle", active_turn_id: null }],
+      );
+      assert.deepStrictEqual(
+        yield* sql`SELECT status FROM thread_items WHERE source_id='running-tool'`,
+        [{ status: "done" }],
+      );
+      unsubscribe();
+      unsubscribeProvider();
+    }),
+  ),
+);
+
+it.effect("a failed cutoff notice rolls back turn and item changes and publishes nothing", () =>
+  withDb(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const publisher = makeThreadPublisher();
+      yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
+      yield* createThread(baseThread);
+      yield* applyProviderEvent(publisher, {
+        type: "turn.started",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        at: baseThread.createdAt,
+      });
+      yield* upsertThreadItem({
+        threadId: "thread-1",
+        sourceId: "streaming-text",
+        turnId: "turn-1",
+        kind: "text",
+        status: "streaming",
+        text: "partial",
+        createdAt: baseThread.createdAt,
+        updatedAt: baseThread.createdAt,
+      });
+      const changes: unknown[] = [];
+      const outcomes: unknown[] = [];
+      const unsubscribe = publisher.subscribe("thread-1", (change) => changes.push(change));
+      const unsubscribeProvider = publisher.subscribeProvider((event) => outcomes.push(event));
+      yield* sql`CREATE TEMP TRIGGER fail_cutoff BEFORE INSERT ON thread_items
+        WHEN NEW.kind = 'notice'
+        BEGIN SELECT RAISE(ABORT, 'injected cutoff notice failure'); END`;
+      const failed = yield* Effect.exit(
+        applyProviderEvent(publisher, {
+          type: "provider.exited",
+          threadIds: ["thread-1"],
+          at: "2026-10-09T00:00:02.000Z",
+        }),
+      );
+      assert.isTrue(Exit.isFailure(failed));
+      if (Exit.isFailure(failed))
+        assert.include(Cause.pretty(failed.cause), "injected cutoff notice failure");
+      assert.deepStrictEqual(
+        yield* sql`SELECT state, active_turn_id FROM threads WHERE id='thread-1'`,
+        [{ state: "running", active_turn_id: "turn-1" }],
+      );
+      assert.deepStrictEqual(
+        yield* sql`SELECT status FROM thread_items WHERE source_id='streaming-text'`,
+        [{ status: "streaming" }],
+      );
+      assert.deepStrictEqual(
+        yield* sql`SELECT source_id FROM thread_items WHERE kind='notice'`,
+        [],
+      );
+      assert.deepStrictEqual(changes, []);
+      assert.deepStrictEqual(outcomes, []);
+      unsubscribe();
+      unsubscribeProvider();
     }),
   ),
 );

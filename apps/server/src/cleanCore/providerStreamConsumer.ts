@@ -63,18 +63,16 @@ export type CleanCoreProviderEvent =
 export const PROVIDER_CUTOFF_NOTICE = "This turn was cut off because the provider stopped.";
 
 /**
- * Apply one ordered provider event. Turn state is set only here — never
+ * Write one ordered provider event. Turn state is set only here — never
  * repaired from a reconciler — and every item write goes through the single
  * upsert, so replayed events are idempotent.
  */
-export const applyProviderEvent = (publisher: ThreadPublisher, event: CleanCoreProviderEvent) =>
+const writeProviderEvent = (event: CleanCoreProviderEvent) =>
   Effect.gen(function* () {
     switch (event.type) {
       case "turn.started": {
         yield* setThreadState(event.threadId, "running", event.turnId, null, event.at);
-        publisher.publish({ threadId: event.threadId });
-        publisher.publishProvider(event);
-        return;
+        return [event.threadId];
       }
       case "turn.ended": {
         yield* setThreadState(
@@ -91,14 +89,11 @@ export const applyProviderEvent = (publisher: ThreadPublisher, event: CleanCoreP
           event.at,
           event.turnId,
         );
-        publisher.publish({ threadId: event.threadId });
-        publisher.publishProvider(event);
-        return;
+        return [event.threadId];
       }
       case "item": {
         yield* upsertThreadItem(event.item);
-        publisher.publish({ threadId: event.threadId });
-        return;
+        return [event.threadId];
       }
       case "delta": {
         yield* appendThreadItemText(
@@ -108,43 +103,52 @@ export const applyProviderEvent = (publisher: ThreadPublisher, event: CleanCoreP
           event.delta,
           event.at,
         );
-        publisher.publish({ threadId: event.threadId });
-        return;
+        return [event.threadId];
       }
       case "question.answered": {
         yield* answerQuestion(event.threadId, event.sourceId, event.answerData, event.at);
-        publisher.publish({ threadId: event.threadId });
-        return;
+        return [event.threadId];
       }
       case "provider.exited": {
-        yield* Effect.forEach(
-          event.threadIds,
-          (threadId) =>
-            Effect.gen(function* () {
-              const sql = yield* SqlClient.SqlClient;
-              const rows =
-                yield* sql`SELECT id FROM threads WHERE id = ${threadId} AND state = 'running'`;
-              if (rows.length === 0) return;
-              yield* setThreadState(threadId, "idle", null, null, event.at);
-              // A cut-off turn leaves no running items behind.
-              yield* settleRunningItems(threadId, "interrupted", event.at);
-              yield* upsertThreadItem({
-                threadId,
-                sourceId: `provider-cutoff:${event.at}`,
-                kind: "notice",
-                status: "done",
-                text: PROVIDER_CUTOFF_NOTICE,
-                data: null,
-                createdAt: event.at,
-                updatedAt: event.at,
-              });
-              publisher.publish({ threadId });
-            }),
-          { discard: true },
+        const changedThreadIds = yield* Effect.forEach(event.threadIds, (threadId) =>
+          Effect.gen(function* () {
+            const sql = yield* SqlClient.SqlClient;
+            const rows =
+              yield* sql`SELECT id FROM threads WHERE id = ${threadId} AND state = 'running'`;
+            if (rows.length === 0) return [];
+            yield* setThreadState(threadId, "idle", null, null, event.at);
+            // A cut-off turn leaves no running items behind.
+            yield* settleRunningItems(threadId, "interrupted", event.at);
+            yield* upsertThreadItem({
+              threadId,
+              sourceId: `provider-cutoff:${event.at}`,
+              kind: "notice",
+              status: "done",
+              text: PROVIDER_CUTOFF_NOTICE,
+              data: null,
+              createdAt: event.at,
+              updatedAt: event.at,
+            });
+            return [threadId];
+          }),
         );
-        publisher.publishProvider(event);
-        return;
+        return changedThreadIds.flat();
       }
+    }
+  });
+
+/** Publish only committed row/item state; a failed write publishes nothing. */
+export const applyProviderEvent = (publisher: ThreadPublisher, event: CleanCoreProviderEvent) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const changedThreadIds = yield* sql.withTransaction(writeProviderEvent(event));
+    for (const threadId of changedThreadIds) publisher.publish({ threadId });
+    if (
+      event.type === "turn.started" ||
+      event.type === "turn.ended" ||
+      event.type === "provider.exited"
+    ) {
+      publisher.publishProvider(event);
     }
   });
 
