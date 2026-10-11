@@ -491,7 +491,6 @@ export function createWsNativeApi(): NativeApi {
       getProviderUsageSnapshot: (input) =>
         transport.request(WS_METHODS.serverGetProviderUsageSnapshot, input),
       listProviderUsage: (input) => transport.request(WS_METHODS.serverListProviderUsage, input),
-      getDiagnostics: () => transport.request(WS_METHODS.serverGetDiagnostics),
       transcribeVoice: requestVoiceTranscriptionUpload,
       upsertKeybinding: (input) => transport.request(WS_METHODS.serverUpsertKeybinding, input),
     },

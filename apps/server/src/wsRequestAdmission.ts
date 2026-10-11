@@ -29,7 +29,6 @@ const EXPENSIVE_READ_METHODS = new Set<string>([
   WS_METHODS.filesystemBrowse,
   WS_METHODS.serverGetProviderUsageSnapshot,
   WS_METHODS.serverListProviderUsage,
-  WS_METHODS.serverGetDiagnostics,
   WS_METHODS.serverTranscribeVoice,
   WS_METHODS.providerCompactThread,
   WS_METHODS.providerListCommands,

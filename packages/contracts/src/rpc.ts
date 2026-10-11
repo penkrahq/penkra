@@ -81,7 +81,6 @@ import {
 import {
   ServerConfig,
   ServerConfigStreamEvent,
-  ServerDiagnosticsResult,
   ServerGetEnvironmentResult,
   ServerGetProviderUsageSnapshotInput,
   ServerGetProviderUsageSnapshotResult,
@@ -508,12 +507,6 @@ export const WsServerListProviderUsageRpc = Rpc.make(WS_METHODS.serverListProvid
   error: WsRpcError,
 });
 
-export const WsServerGetDiagnosticsRpc = Rpc.make(WS_METHODS.serverGetDiagnostics, {
-  payload: Schema.Struct({}),
-  success: ServerDiagnosticsResult,
-  error: WsRpcError,
-});
-
 export const WsServerTranscribeVoiceRpc = Rpc.make(WS_METHODS.serverTranscribeVoice, {
   payload: ServerVoiceTranscriptionInput,
   success: ServerVoiceTranscriptionResult,
@@ -862,7 +855,6 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsServerStopLocalServerRpc,
   WsServerGetProviderUsageSnapshotRpc,
   WsServerListProviderUsageRpc,
-  WsServerGetDiagnosticsRpc,
   WsServerTranscribeVoiceRpc,
   WsServerUpsertKeybindingRpc,
   WsSubscribeServerLifecycleRpc,
