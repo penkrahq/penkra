@@ -6,7 +6,6 @@ import * as Path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  APP_COMMAND_MAX_RESPONSE_BYTES,
   AppCommandPipeServer,
   assertAppTabAgentAddressable,
   resolveAppCommandPipePath,
@@ -65,7 +64,7 @@ describe("AppCommandPipeServer", () => {
     });
   });
 
-  it("serializes role-labelled failures within the real bridge byte ceiling", () => {
+  it("preserves complete role-labelled failures across the bridge", () => {
     const message = "x".repeat(20 * 1024 * 1024);
     const serialized = serializeFailureResponse(
       new AppRuntimeFailureError({
@@ -76,14 +75,14 @@ describe("AppCommandPipeServer", () => {
       }),
     );
 
-    expect(Buffer.byteLength(serialized)).toBeLessThanOrEqual(APP_COMMAND_MAX_RESPONSE_BYTES);
+    expect(Buffer.byteLength(serialized)).toBeGreaterThan(32 * 1024 * 1024);
     expect(JSON.parse(serialized)).toMatchObject({
       ok: false,
       error: {
         failure: {
           kind: "operation",
-          secondary: [],
-          truncation: { secondaryBranchesRemoved: 1 },
+          primary: { kind: "leaf", code: "UPDATE_FAILED", message },
+          secondary: [{ role: "restore-state", failure: { kind: "leaf", message } }],
         },
       },
     });

@@ -615,6 +615,7 @@ describe("ClaudeAdapterLive", () => {
           PATH: "/managed/bin",
           CLAUDE_CONFIG_DIR: "/isolated/claude-config",
           CLAUDE_CODE_OAUTH_TOKEN: "target-token",
+          MAX_MCP_OUTPUT_TOKENS: "10000",
         },
         pathToClaudeCodeExecutable: "/managed/claude",
         settingSources: [],
@@ -868,6 +869,7 @@ describe("ClaudeAdapterLive", () => {
       });
 
       const createInput = harness.getLastCreateQueryInput();
+      assert.equal(createInput?.options.env?.MAX_MCP_OUTPUT_TOKENS, "10000");
       assert.equal(createInput?.options.permissionMode, "acceptEdits");
       assert.equal(createInput?.options.allowDangerouslySkipPermissions, undefined);
     }).pipe(

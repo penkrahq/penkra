@@ -21,9 +21,6 @@ import { assemblePenkraInstructions } from "./agentGateway/instructions/assemble
 const PIPE_ENV = "PENKRA_APP_COMMAND_PIPE";
 const TOKEN_ENV = "PENKRA_APP_COMMAND_TOKEN";
 const ADMIN_TOKEN_ENV = "PENKRA_APP_COMMAND_ADMIN_TOKEN";
-// A 2048px RGBA screenshot can encode to just under 24 MiB as base64 JSON.
-// Keep command requests bounded separately in the desktop controller RPC.
-const MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
 const TIMEOUT_MS = 30_000;
 const APP_OPERATION_TIMEOUT_MS = 15 * 60_000;
 const DEVELOPER_MUTATION_TIMEOUT_MS = 5 * 60_000;
@@ -1449,14 +1446,6 @@ async function request(method: string, params: unknown, env: NodeJS.ProcessEnv):
     });
     socket.on("data", (chunk) => {
       bytes = Buffer.concat([bytes, chunk]);
-      if (bytes.length > MAX_RESPONSE_BYTES) {
-        socket.destroy(
-          new Error(
-            `App command ${method} returned more than ${MAX_RESPONSE_BYTES} bytes, exceeding the response limit. Use a paginated, filtered, export, or file-handle operation instead.`,
-          ),
-        );
-        return;
-      }
       const newline = bytes.indexOf(10);
       if (newline < 0) return;
       clearTimeout(timer);

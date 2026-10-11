@@ -5,6 +5,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+import { INLINE_TOOL_RESULT_BYTES } from "@penkra/shared/toolResults";
 import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 
 import { ensureOpenCodeImageTransformPlugin } from "./openCodeImageTransformPlugin.ts";
@@ -49,5 +50,6 @@ export async function loadOpenCodeConfigContent(homeDir: string): Promise<string
   return JSON.stringify({
     ...(Object.keys(shared).length > 0 ? { mcp: shared } : {}),
     plugin: [pluginPath],
+    tool_output: { max_bytes: INLINE_TOOL_RESULT_BYTES, max_lines: INLINE_TOOL_RESULT_BYTES },
   });
 }

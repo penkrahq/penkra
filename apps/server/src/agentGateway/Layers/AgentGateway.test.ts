@@ -23,7 +23,7 @@ import {
   ThreadId,
   TurnId,
 } from "@penkra/contracts";
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 
 import { Deferred, Effect, Layer, Logger, Option, Stream } from "effect";
@@ -1140,6 +1140,19 @@ function toolResultJson(result: Record<string, unknown> | undefined): Record<str
   return JSON.parse(content[0]?.text ?? "{}") as Record<string, unknown>;
 }
 
+function readToolResultFile(result: Record<string, unknown> | undefined): string {
+  const reference = toolResultJson(result) as { resultFile: string; bytes: number };
+  assert.isString(reference.resultFile);
+  assert.include(reference.resultFile, "/tool-results/thread-parent/");
+  const text = readFileSync(reference.resultFile, "utf8");
+  assert.equal(Buffer.byteLength(text), reference.bytes);
+  return text;
+}
+
+function toolResultFileJson(result: Record<string, unknown> | undefined): Record<string, unknown> {
+  return JSON.parse(readToolResultFile(result)) as Record<string, unknown>;
+}
+
 function isToolError(result: Record<string, unknown> | undefined): boolean {
   return result?.isError === true;
 }
@@ -1711,12 +1724,35 @@ describe("AgentGateway", () => {
         args: { command: "penkra --help" },
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
-      const text = toolErrorText(response.result);
+      const text = readToolResultFile(response.result);
       assert.include(text, "`penkra context`");
       assert.include(text, "`penkra connections list`");
       assert.include(text, "`penkra models list`");
       assert.notInclude(text, "`penkra capabilities`");
       assert.notInclude(text, "penkra diagnostics");
+    }).pipe(Effect.provide(gatewayLayer));
+  });
+
+  it.effect("returns a file reference for a full over-budget thread-list operation", () => {
+    const title = "complete-result-".repeat(1000);
+    const { gatewayLayer, makeHarness } = makeHarnessLayer([
+      makeThreadShell("thread-parent"),
+      makeThreadShell("thread-large-result", { title }),
+    ]);
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_list_threads",
+        args: { threadId: ["thread-large-result"] },
+      });
+      assert.isFalse(isToolError(response.result), toolErrorText(response.result));
+      const reference = toolResultJson(response.result) as { resultFile: string; bytes: number };
+      assert.include(reference.resultFile, "/tool-results/thread-parent/");
+      const fullText = readFileSync(reference.resultFile, "utf8");
+      assert.equal(Buffer.byteLength(fullText), reference.bytes);
+      const fullResult = JSON.parse(fullText) as { threads: Array<{ title: string }> };
+      assert.equal(fullResult.threads[0]?.title, title);
     }).pipe(Effect.provide(gatewayLayer));
   });
 
@@ -2296,7 +2332,7 @@ describe("AgentGateway", () => {
         name: "penkra_list_models",
         args: { availability: "possible", provider: "opencode" },
       });
-      const payload = toolResultJson(response.result);
+      const payload = toolResultFileJson(response.result);
       const items = payload.items as Array<{
         provider: string;
         model: string;
@@ -2411,7 +2447,7 @@ describe("AgentGateway", () => {
         name: "penkra_list_threads",
         args: {},
       });
-      const payload = toolResultJson(response.result);
+      const payload = toolResultFileJson(response.result);
       const threads = payload.threads as Array<Record<string, unknown>>;
       assert.equal(threads.length, THREADS_PAGE_SIZE);
       assert.isString((payload.pageInfo as { nextCursor: string | null }).nextCursor);
@@ -2476,7 +2512,7 @@ describe("AgentGateway", () => {
     );
     return Effect.gen(function* () {
       const harness = yield* makeHarness;
-      const first = toolResultJson(
+      const first = toolResultFileJson(
         (yield* harness.callTool({
           token: "token-parent",
           name: "penkra_read_thread",
