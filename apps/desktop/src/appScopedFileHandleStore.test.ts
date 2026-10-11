@@ -26,8 +26,23 @@ describe("AppScopedFileHandleStore", () => {
     const first = await store.grant({ appId: "explorer", spaceId: "one", path });
     const second = await store.grant({ appId: "explorer", spaceId: "one", path });
 
+    expect(first.path).toBe(await FS.promises.realpath(path));
     expect(second).toEqual(first);
     expect(store.list("explorer", "one")).toEqual([first]);
+  });
+
+  it("returns canonical picker and restored-list paths under symlinked parents", async () => {
+    const directory = await temporaryDirectory();
+    await FS.promises.mkdir(Path.join(directory, "actual"));
+    await FS.promises.symlink("actual", Path.join(directory, "alias"));
+    const store = new AppScopedFileHandleStore();
+    const selected = await store.grant({
+      appId: "explorer",
+      spaceId: "one",
+      path: Path.join(directory, "alias"),
+    });
+    expect(selected.path).toBe(Path.join(directory, "actual"));
+    expect(store.list("explorer", "one")[0]?.path).toBe(selected.path);
   });
 
   it("does not expose a handle to another App or Space", async () => {
@@ -62,7 +77,7 @@ describe("AppScopedFileHandleStore", () => {
       path,
     });
 
-    expect(handle).toMatchObject({ kind: "file", name: "export.pen" });
+    expect(handle).toMatchObject({ kind: "file", name: "export.pen", path });
     expect(store.resolve("explorer", "one", handle.id).rootPath).toBe(path);
     await expect(FS.promises.access(path)).rejects.toThrow();
   });

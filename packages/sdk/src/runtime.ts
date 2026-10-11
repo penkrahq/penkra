@@ -90,6 +90,8 @@ export type AppContextMenuItem<T extends string = string> =
   | AppContextMenuSeparatorItem;
 
 export interface AppScopedFileHandle {
+  /** Absolute canonical path selected by the user or supplied by the host. */
+  path: string;
   id: string;
   kind: "file" | "directory";
   name: string;

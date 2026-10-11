@@ -15,7 +15,9 @@ export interface AppScopedFileHandleRecord {
   rootPath: string;
 }
 
-export type AppScopedFileHandle = Pick<AppScopedFileHandleRecord, "id" | "kind" | "name">;
+export type AppScopedFileHandle = Pick<AppScopedFileHandleRecord, "id" | "kind" | "name"> & {
+  path: string;
+};
 
 export class AppScopedFileHandleStore {
   readonly #handles = new Map<string, AppScopedFileHandleRecord>();
@@ -128,5 +130,5 @@ function isMissing(error: unknown): boolean {
 }
 
 function publicHandle(handle: AppScopedFileHandleRecord): AppScopedFileHandle {
-  return { id: handle.id, kind: handle.kind, name: handle.name };
+  return { id: handle.id, kind: handle.kind, name: handle.name, path: handle.rootPath };
 }
