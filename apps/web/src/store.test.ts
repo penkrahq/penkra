@@ -88,7 +88,7 @@ describe("store facade", () => {
     const project3 = FolderId.makeUnsafe("project-3");
     const state: AppState = {
       spaces: [],
-      archivedSpaces: [],
+
       folders: [
         makeProject({
           id: project1,
@@ -112,7 +112,7 @@ describe("store facade", () => {
           cwd: "/tmp/project-3",
         }),
       ],
-      archivedFolders: [],
+
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };
@@ -127,7 +127,7 @@ describe("store facade", () => {
     const project2 = FolderId.makeUnsafe("project-2");
     const state: AppState = {
       spaces: [],
-      archivedSpaces: [],
+
       folders: [
         makeProject({
           id: project1,
@@ -145,7 +145,7 @@ describe("store facade", () => {
           expanded: false,
         }),
       ],
-      archivedFolders: [],
+
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };
@@ -161,7 +161,7 @@ describe("store facade", () => {
   it("collapses all folders when toggled off", () => {
     const state: AppState = {
       spaces: [],
-      archivedSpaces: [],
+
       folders: [
         makeProject({
           id: FolderId.makeUnsafe("project-1"),
@@ -178,7 +178,7 @@ describe("store facade", () => {
           cwd: "/tmp/project-2",
         }),
       ],
-      archivedFolders: [],
+
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };
@@ -193,7 +193,7 @@ describe("store facade", () => {
     const project2 = FolderId.makeUnsafe("project-2");
     const state: AppState = {
       spaces: [],
-      archivedSpaces: [],
+
       folders: [
         makeProject({
           id: project1,
@@ -210,7 +210,7 @@ describe("store facade", () => {
           cwd: "/tmp/project-2",
         }),
       ],
-      archivedFolders: [],
+
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };
@@ -242,7 +242,7 @@ describe("store facade", () => {
     const project3 = FolderId.makeUnsafe("project-3");
     const initialState: AppState = {
       spaces: [],
-      archivedSpaces: [],
+
       folders: [
         makeProject({
           id: project2,
@@ -259,7 +259,7 @@ describe("store facade", () => {
           cwd: "/tmp/project-1",
         }),
       ],
-      archivedFolders: [],
+
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };
@@ -297,7 +297,7 @@ describe("store facade", () => {
     const project2 = FolderId.makeUnsafe("project-2");
     const initialState: AppState = {
       spaces: [],
-      archivedSpaces: [],
+
       folders: [
         makeProject({
           id: project1,
@@ -314,7 +314,7 @@ describe("store facade", () => {
           cwd: "/tmp/project-2",
         }),
       ],
-      archivedFolders: [],
+
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };

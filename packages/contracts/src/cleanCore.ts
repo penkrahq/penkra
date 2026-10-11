@@ -1,3 +1,5 @@
+import { CleanCoreThreadSummary } from "./threadSummary";
+export { CleanCoreThreadSummary } from "./threadSummary";
 import { Schema } from "effect";
 import { ProviderSkillReference, ProviderMentionReference } from "./providerDiscovery";
 
@@ -15,10 +17,12 @@ import {
 } from "./baseSchemas";
 import {
   ModelSelection,
+  ProviderKind,
   RuntimeMode,
   ProviderUserInputAnswers,
   OrchestrationThreadShell,
   OrchestrationFolderShell,
+  OrchestrationSpaceShell,
   ChatAttachment,
   ProviderStartOptions,
   AssistantDeliveryMode,
@@ -124,35 +128,6 @@ export const CleanCoreEditQueuedMessageInput = Schema.Struct({
 });
 export type CleanCoreEditQueuedMessageInput = typeof CleanCoreEditQueuedMessageInput.Type;
 
-export const CleanCoreThreadSummary = Schema.Struct({
-  id: ThreadId,
-  spaceId: SpaceId,
-  folderId: FolderId,
-  title: Schema.String,
-  provider: Schema.String,
-  connectionId: Schema.NullOr(ProviderConnectionId),
-  model: Schema.String,
-  modelOptions: Schema.NullOr(Schema.String),
-  runtimeMode: Schema.String,
-  state: Schema.String,
-  activeTurnId: Schema.NullOr(TurnId),
-  lastError: Schema.NullOr(Schema.String),
-  queue: Schema.String,
-  createdBy: Schema.String,
-  createdByThreadId: Schema.NullOr(ThreadId),
-  sidebarSortOrder: Schema.NullOr(Schema.Number),
-  lastActivityAt: Schema.NullOr(IsoDateTime),
-  lastMessagePreview: Schema.NullOr(Schema.String),
-  lastUserMessageAt: Schema.NullOr(IsoDateTime),
-  lastVisitedAt: Schema.NullOr(IsoDateTime),
-  openQuestionCount: NonNegativeInt,
-  archivedAt: Schema.NullOr(IsoDateTime),
-  deletedAt: Schema.NullOr(IsoDateTime),
-  createdAt: IsoDateTime,
-  updatedAt: IsoDateTime,
-});
-export type CleanCoreThreadSummary = typeof CleanCoreThreadSummary.Type;
-
 export const CleanCoreThreadListCursor = Schema.Struct({
   sidebarSortOrder: Schema.Number,
   createdAt: IsoDateTime,
@@ -240,7 +215,12 @@ export const CleanCoreThreadMovePosition = Schema.Union([
 export type CleanCoreThreadMovePosition = typeof CleanCoreThreadMovePosition.Type;
 
 export const CleanCoreSidebarChange = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("thread"), threadId: ThreadId }),
+  Schema.Struct({
+    kind: Schema.Literal("navigation.restored"),
+    spaces: Schema.Array(OrchestrationSpaceShell),
+    folders: Schema.Array(OrchestrationFolderShell),
+  }),
+  Schema.Struct({ kind: Schema.Literals(["thread", "thread.created"]), threadId: ThreadId }),
   Schema.Struct({
     kind: Schema.Literal("folder"),
     folderId: FolderId,
@@ -400,3 +380,58 @@ export class QueuedEditDraftNotEmptyError extends Schema.TaggedErrorClass<Queued
     message: Schema.String,
   },
 ) {}
+
+export const CleanCoreArchivedSpace = Schema.Struct({
+  id: SpaceId,
+  name: Schema.String,
+  folders: NonNegativeInt,
+  chats: NonNegativeInt,
+  archivedAt: IsoDateTime,
+});
+export const CleanCoreArchivedFolder = Schema.Struct({
+  id: FolderId,
+  name: Schema.String,
+  space: Schema.String,
+  chats: NonNegativeInt,
+  archivedAt: IsoDateTime,
+  iconDataUrl: Schema.NullOr(Schema.String),
+});
+export const CleanCoreArchivedChat = Schema.Struct({
+  id: ThreadId,
+  folderId: FolderId,
+  spaceId: SpaceId,
+  title: Schema.String,
+  folder: Schema.String,
+  space: Schema.String,
+  archivedAt: IsoDateTime,
+  provider: ProviderKind,
+  restoresFolder: Schema.Boolean,
+  restoresSpace: Schema.Boolean,
+});
+export type CleanCoreArchivedChat = typeof CleanCoreArchivedChat.Type;
+export const CleanCoreListArchivedNavigationResult = Schema.Struct({
+  totalChats: NonNegativeInt,
+  spaces: Schema.Array(CleanCoreArchivedSpace),
+  folders: Schema.Array(CleanCoreArchivedFolder),
+});
+export type CleanCoreListArchivedNavigationResult =
+  typeof CleanCoreListArchivedNavigationResult.Type;
+export const CleanCoreArchivedThreadCursor = Schema.Struct({
+  archivedAt: IsoDateTime,
+  id: ThreadId,
+});
+export type CleanCoreArchivedThreadCursor = typeof CleanCoreArchivedThreadCursor.Type;
+export const CleanCoreListArchivedThreadsInput = Schema.Struct({
+  cursor: Schema.NullOr(CleanCoreArchivedThreadCursor),
+});
+export type CleanCoreListArchivedThreadsInput = typeof CleanCoreListArchivedThreadsInput.Type;
+export const CleanCoreListArchivedThreadsResult = Schema.Struct({
+  threads: Schema.Array(CleanCoreArchivedChat),
+  nextCursor: Schema.NullOr(CleanCoreArchivedThreadCursor),
+});
+export type CleanCoreListArchivedThreadsResult = typeof CleanCoreListArchivedThreadsResult.Type;
+export const CleanCoreRestoreThreadInput = Schema.Struct({
+  threadId: ThreadId,
+  updatedAt: IsoDateTime,
+});
+export type CleanCoreRestoreThreadInput = typeof CleanCoreRestoreThreadInput.Type;

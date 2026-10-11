@@ -1,3 +1,9 @@
+import {
+  CleanCoreListArchivedNavigationResult,
+  CleanCoreListArchivedThreadsInput,
+  CleanCoreListArchivedThreadsResult,
+  CleanCoreRestoreThreadInput,
+} from "./cleanCore";
 import { Schema } from "effect";
 import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
@@ -723,6 +729,20 @@ export const WsCleanCoreSearchThreadsRpc = Rpc.make(WS_METHODS.cleanCoreSearchTh
   success: CleanCoreSearchThreadsResult,
   error: WsRpcError,
 });
+export const WsCleanCoreListArchivedNavigationRpc = Rpc.make(
+  WS_METHODS.cleanCoreListArchivedNavigation,
+  { payload: Schema.Struct({}), success: CleanCoreListArchivedNavigationResult, error: WsRpcError },
+);
+export const WsCleanCoreListArchivedThreadsRpc = Rpc.make(WS_METHODS.cleanCoreListArchivedThreads, {
+  payload: CleanCoreListArchivedThreadsInput,
+  success: CleanCoreListArchivedThreadsResult,
+  error: WsRpcError,
+});
+export const WsCleanCoreRestoreThreadRpc = Rpc.make(WS_METHODS.cleanCoreRestoreThread, {
+  payload: CleanCoreRestoreThreadInput,
+  success: Schema.Void,
+  error: WsRpcError,
+});
 export const WsCleanCoreListThreadsRpc = Rpc.make(WS_METHODS.cleanCoreListThreads, {
   payload: CleanCoreListThreadsInput,
   success: CleanCoreListThreadsResult,
@@ -795,6 +815,9 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsCleanCoreCreateThreadRpc,
   WsCleanCoreGetFoldersRpc,
   WsCleanCoreGetThreadShellRpc,
+  WsCleanCoreListArchivedNavigationRpc,
+  WsCleanCoreListArchivedThreadsRpc,
+  WsCleanCoreRestoreThreadRpc,
   WsCleanCoreListThreadsRpc,
   WsCleanCoreSearchThreadsRpc,
   WsCleanCoreGetThreadRuntimeRpc,

@@ -65,7 +65,7 @@ export const createThreadFromClient = (input: CleanCoreCreateThreadInput) =>
       }),
     );
     const row = yield* getThread(input.threadId);
-    if (inserted) publisher.publish({ threadId: input.threadId });
+    if (inserted) publisher.publishCreated({ threadId: input.threadId });
     return { thread: row, created: inserted };
   });
 

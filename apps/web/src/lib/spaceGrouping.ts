@@ -39,21 +39,15 @@ export function spaceDisplayName(spaceId: SpaceId, spaces: ReadonlyArray<Space>)
   return requireSpace(spaceId, spaces).name;
 }
 
-/**
- * Resolves a reference for an active-only surface. Archived Spaces remain authoritative
- * because historical project assignments deliberately survive archival, but their items
- * stay hidden until the Space is restored. A reference missing from both snapshots still
- * fails visibly.
- */
+/** A historical reference keeps its own name when its Space is archived. */
 export function activeSpaceDisplayNameForReference(
   spaceId: SpaceId,
   spaces: ReadonlyArray<Space>,
-  archivedSpaces: ReadonlyArray<Space>,
-): string | null {
-  const activeSpace = spaces.find((candidate) => candidate.id === spaceId);
-  if (activeSpace) return activeSpace.name;
-  if (archivedSpaces.some((candidate) => candidate.id === spaceId)) return null;
-  return requireSpace(spaceId, spaces).name;
+  referenceName?: string,
+): string {
+  return (
+    spaces.find((candidate) => candidate.id === spaceId)?.name ?? referenceName ?? "Archived space"
+  );
 }
 
 export function spaceDisplayIcon(spaceId: SpaceId, spaces: ReadonlyArray<Space>): SpaceIconName {

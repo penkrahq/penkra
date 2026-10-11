@@ -422,3 +422,14 @@ describe("terminalStateStore actions", () => {
     ]);
   });
 });
+
+it("removes only the archived/deleted thread's terminal state", () => {
+  const otherId = ThreadId.makeUnsafe("thread-still-live");
+  const store = useTerminalStateStore.getState();
+  store.openTerminalThreadPage(THREAD_ID);
+  store.openTerminalThreadPage(otherId);
+  const liveState = useTerminalStateStore.getState().terminalStateByThreadId[otherId];
+  store.removeThreadTerminalState(THREAD_ID);
+  expect(useTerminalStateStore.getState().terminalStateByThreadId[THREAD_ID]).toBeUndefined();
+  expect(useTerminalStateStore.getState().terminalStateByThreadId[otherId]).toBe(liveState);
+});

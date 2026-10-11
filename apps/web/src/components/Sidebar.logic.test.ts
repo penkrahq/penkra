@@ -32,6 +32,7 @@ import {
   resolveVisibleThreadWorkStatus,
   resolveThreadRowClassName,
   resolveThreadStatusPill,
+  resolveSidebarThreadSummaryStatus,
   shouldShowDebugFeatureFlagsMenu,
   shouldClearThreadSelectionOnMouseDown,
   sortFoldersForSidebar,
@@ -470,6 +471,29 @@ describe("resolveThreadStatusPill", () => {
       orchestrationStatus: "running" as const,
     },
   };
+
+  it.each([
+    { hasPendingApprovals: true, hasPendingUserInput: true, label: "Pending Approval" },
+    { hasPendingApprovals: false, hasPendingUserInput: true, label: "Awaiting Input" },
+    { hasPendingApprovals: false, hasPendingUserInput: false, label: "Working" },
+  ])("keeps $label priority for a running canonical summary", (status) => {
+    expect(
+      resolveSidebarThreadSummaryStatus({
+        thread: {
+          ...baseThread,
+          id: ThreadId.makeUnsafe("running-summary"),
+          folderId: FolderId.makeUnsafe("folder-summary"),
+          title: "Running summary",
+          modelSelection: { provider: "codex", model: "gpt-5.5" },
+          createdAt: baseThread.updatedAt,
+          workStatus: "running",
+          hasPendingApprovals: status.hasPendingApprovals,
+          hasPendingUserInput: status.hasPendingUserInput,
+        },
+        lastVisitedAt: undefined,
+      }),
+    ).toMatchObject({ label: status.label });
+  });
 
   it("shows pending approval before all other statuses", () => {
     expect(

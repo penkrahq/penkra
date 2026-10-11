@@ -106,7 +106,7 @@ function makeHarness() {
     listFolderShellPage: () => Effect.die("unused page method"),
     listThreadShellPage: () => Effect.die("unused page method"),
     hasActiveProviderThread: () => Effect.die("unused provider admission method"),
-    getShellSnapshot: () => Effect.die("unused snapshot method"),
+    getStartupSnapshot: () => Effect.die("unused snapshot method"),
     getActiveFolderByWorkspaceRoot: () => Effect.die("unused snapshot method"),
     getFolderShellsByIds: () => Effect.die("unused"),
     getFolderShellById: () => Effect.succeed(Option.some(FOLDER)),

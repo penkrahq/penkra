@@ -154,7 +154,9 @@ describe("clean-core draft promotion", () => {
   it("preserves opened detail when an already-created draft is promoted again", async () => {
     const request = input();
     useComposerDraftStore.getState().setProjectDraftThreadId(request.folderId, request.threadId);
-    useStore.getState().syncServerShellSnapshot(makeShellSnapshot(request.threadId));
+    useStore
+      .getState()
+      .syncServerThreadShell(request.threadId, makeShellSnapshot(request.threadId).threads[0]!);
     useStore.setState((state) => ({
       ...state,
       threadDetailSyncById: { ...state.threadDetailSyncById, [request.threadId]: "synced" },

@@ -18,8 +18,8 @@ import { describe, expect, it } from "vitest";
 
 import { applyOrchestrationEvents, applyOrchestrationEventsHotPath } from "./storeEventReducer";
 import {
+  applyShellEvent,
   syncServerThreadShell,
-  syncServerShellSnapshot,
   syncServerReadModel,
   syncServerThreadDetailHotPath,
 } from "./storeProjection";
@@ -32,7 +32,6 @@ import {
   makeProject,
   makeReadModelThread,
   makeReadModel,
-  makeShellSnapshot,
   threadsOf,
 } from "./storeTestFixtures";
 import { DEFAULT_RUNTIME_MODE } from "./types";
@@ -48,18 +47,20 @@ describe("store event reducer", () => {
       updatedAt: "2026-02-27T00:01:00.000Z",
     });
     const initial = syncServerReadModel(makeState(makeThread()), makeReadModel(oldRow));
-    let resolveReply!: (snapshot: ReturnType<typeof makeShellSnapshot>) => void;
-    const inFlight = new Promise<ReturnType<typeof makeShellSnapshot>>((resolve) => {
-      resolveReply = resolve;
-    });
+    let resolveReply!: (snapshot: import("@penkra/contracts").OrchestrationThreadShell) => void;
+    const inFlight = new Promise<import("@penkra/contracts").OrchestrationThreadShell>(
+      (resolve) => {
+        resolveReply = resolve;
+      },
+    );
     const newRow = {
       ...oldRow,
       title: "Newer broadcast",
       updatedAt: "2026-02-27T00:02:00.000Z",
     };
     const broadcast = syncServerThreadShell(initial, oldRow.id, newRow);
-    resolveReply({ ...makeShellSnapshot(oldRow), snapshotSequence: 2 });
-    const afterReply = syncServerShellSnapshot(broadcast, await inFlight);
+    resolveReply(oldRow);
+    const afterReply = syncServerThreadShell(broadcast, oldRow.id, await inFlight);
     expect(threadsOf(afterReply)[0]).toMatchObject({
       title: newRow.title,
       updatedAt: newRow.updatedAt,
@@ -754,8 +755,21 @@ describe("store event reducer", () => {
         restoredAt: "2026-07-15T10:00:01.200Z",
       }),
     ]);
+    // The domain event carries no complete row; restoration arrives as a shell broadcast.
+    state = applyShellEvent(state, {
+      kind: "space-upserted",
+      sequence: 4,
+      space: {
+        id: spaceId,
+        name: "Restored Work",
+        icon: "bag",
+        sortOrder: 0,
+        createdAt: "2026-07-15T10:00:00.000Z",
+        updatedAt: "2026-07-15T10:00:01.200Z",
+        archivedAt: null,
+      },
+    });
     expect(state.spaces[0]).toMatchObject({ id: spaceId, name: "Restored Work", icon: "bag" });
-    expect(state.archivedSpaces).toEqual([]);
 
     state = applyOrchestrationEvents(state, [
       makeDomainEvent("space.deleted", {
@@ -1879,9 +1893,9 @@ describe("store event reducer", () => {
     const next = applyOrchestrationEvents(
       {
         spaces: [],
-        archivedSpaces: [],
+
         folders: [],
-        archivedFolders: [],
+
         sidebarThreadSummaryById: {},
         threadsHydrated: false,
       },
@@ -1922,9 +1936,9 @@ describe("store event reducer", () => {
     const next = applyOrchestrationEvents(
       {
         spaces: [],
-        archivedSpaces: [],
+
         folders: [],
-        archivedFolders: [],
+
         sidebarThreadSummaryById: {},
         threadsHydrated: false,
       },
@@ -1956,7 +1970,7 @@ describe("store event reducer", () => {
   it("adopts authoritative folder titles from live folder.updated events", () => {
     const initialState: AppState = {
       spaces: [],
-      archivedSpaces: [],
+
       folders: [
         makeProject({
           id: FolderId.makeUnsafe("project-live"),
@@ -1969,7 +1983,7 @@ describe("store event reducer", () => {
           updatedAt: "2026-02-27T00:00:00.000Z",
         }),
       ],
-      archivedFolders: [],
+
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };
@@ -2020,9 +2034,9 @@ describe("store event reducer", () => {
     const next = applyOrchestrationEvents(
       {
         spaces: [],
-        archivedSpaces: [],
+
         folders: [makeProject({ id: FolderId.makeUnsafe("project-live") })],
-        archivedFolders: [],
+
         sidebarThreadSummaryById: {},
         threadsHydrated: true,
       },

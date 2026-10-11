@@ -1,3 +1,4 @@
+import { CleanCoreListArchivedThreadsInput, CleanCoreRestoreThreadInput } from "./cleanCore";
 import { Schema, Struct } from "effect";
 import { NonNegativeInt, FolderId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas";
 import {
@@ -151,6 +152,9 @@ export const WS_METHODS = {
   cleanCoreGetThreadShell: "cleanCore.getThreadShell",
   cleanCoreCreateThread: "cleanCore.createThread",
   cleanCoreSearchThreads: "cleanCore.searchThreads",
+  cleanCoreListArchivedNavigation: "cleanCore.listArchivedNavigation",
+  cleanCoreListArchivedThreads: "cleanCore.listArchivedThreads",
+  cleanCoreRestoreThread: "cleanCore.restoreThread",
   cleanCoreListThreads: "cleanCore.listThreads",
   cleanCoreUpdateThread: "cleanCore.updateThread",
   cleanCoreSubscribeSidebar: "cleanCore.subscribeSidebar",
@@ -304,6 +308,9 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.cleanCoreGetThreadShell, CleanCoreGetThreadShellInput),
   tagRequestBody(WS_METHODS.cleanCoreCreateThread, CleanCoreCreateThreadInput),
   tagRequestBody(WS_METHODS.cleanCoreSearchThreads, CleanCoreSearchThreadsInput),
+  tagRequestBody(WS_METHODS.cleanCoreListArchivedNavigation, Schema.Struct({})),
+  tagRequestBody(WS_METHODS.cleanCoreListArchivedThreads, CleanCoreListArchivedThreadsInput),
+  tagRequestBody(WS_METHODS.cleanCoreRestoreThread, CleanCoreRestoreThreadInput),
   tagRequestBody(WS_METHODS.cleanCoreListThreads, CleanCoreListThreadsInput),
   tagRequestBody(WS_METHODS.cleanCoreUpdateThread, CleanCoreUpdateThreadInput),
   tagRequestBody(WS_METHODS.cleanCoreSubscribeSidebar, Schema.Struct({})),

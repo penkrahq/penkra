@@ -7,6 +7,8 @@
 // Exports: loadThreadPage, refreshThreadPage, subscribeThreadList,
 //          getThreadList, useThreadList, useThreadSummary
 
+import type { CleanCoreSidebarChange } from "@penkra/contracts";
+
 import type {
   CleanCoreThreadSummary,
   CleanCoreThreadListCursor,
@@ -20,6 +22,21 @@ import { ensureNativeApi } from "./nativeApi";
 
 let threads: readonly CleanCoreThreadSummary[] = [];
 let byId = new Map<string, CleanCoreThreadSummary>();
+type ThreadRowChange = Extract<CleanCoreSidebarChange, { threadId: unknown }>;
+const rowListeners = new Map<
+  (change: ThreadRowChange, row: CleanCoreThreadSummary | null) => void,
+  (error: unknown) => void
+>();
+export function subscribeThreadRowChanges(
+  listener: (change: ThreadRowChange, row: CleanCoreThreadSummary | null) => void,
+  onError: (error: unknown) => void,
+): () => void {
+  rowListeners.set(listener, onError);
+  startLiveUpdates();
+  return () => {
+    rowListeners.delete(listener);
+  };
+}
 const listeners = new Set<() => void>();
 let liveSubscription: (() => void) | null = null;
 export interface ThreadListPageState {
@@ -146,7 +163,17 @@ function startLiveUpdates(): void {
   if (liveSubscription !== null) return;
   const api = ensureNativeApi();
   liveSubscription = api.cleanCore.onSidebarChange((change) => {
-    if (change.kind === "thread") void loadThread(change.threadId);
+    if (change.kind === "thread" || change.kind === "thread.created") {
+      void loadThread(change.threadId)
+        .then(() => {
+          const row = byId.get(change.threadId) ?? null;
+          for (const listener of rowListeners.keys()) listener(change, row);
+        })
+        .catch((error: unknown) => {
+          if (rowListeners.size === 0) throw error;
+          for (const onError of rowListeners.values()) onError(error);
+        });
+    }
   });
 }
 
@@ -166,6 +193,7 @@ export function resetThreadListForTests(): void {
   byId = new Map();
   threads = [];
   listeners.clear();
+  rowListeners.clear();
   pages = new Map();
   pendingPages.clear();
 }

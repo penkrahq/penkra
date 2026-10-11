@@ -573,12 +573,10 @@ function applyOrchestrationEvent(
     }
 
     case "space.archived":
-      return removeSpace(state, event.payload.spaceId, event.payload.archivedAt, true);
+      return removeSpace(state, event.payload.spaceId);
 
     case "space.restored": {
-      const existing =
-        state.archivedSpaces.find((space) => space.id === event.payload.spaceId) ??
-        state.spaces.find((space) => space.id === event.payload.spaceId);
+      const existing = state.spaces.find((space) => space.id === event.payload.spaceId);
       if (!existing) return state;
       return upsertSpace(state, {
         ...existing,
@@ -589,7 +587,7 @@ function applyOrchestrationEvent(
     }
 
     case "space.deleted":
-      return removeSpace(state, event.payload.spaceId, event.payload.deletedAt);
+      return removeSpace(state, event.payload.spaceId);
 
     case "folder.created":
       return upsertProject(

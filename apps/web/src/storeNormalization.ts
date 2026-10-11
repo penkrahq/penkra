@@ -8,7 +8,7 @@ import {
   type OrchestrationReadModel,
   type OrchestrationSpaceShell,
   type OrchestrationSessionStatus,
-  type OrchestrationShellSnapshot,
+  type OrchestrationThreadShell,
   type OrchestrationThreadActivity,
   type ProviderKind,
   ThreadId,
@@ -39,7 +39,7 @@ type ReadModelProject = OrchestrationReadModel["folders"][number];
 type ReadModelSpace = OrchestrationReadModel["spaces"][number];
 type ReadModelThread = OrchestrationReadModel["threads"][number];
 type ReadModelMessage = ReadModelThread["messages"][number];
-type ShellSnapshotThread = OrchestrationShellSnapshot["threads"][number];
+type ShellSnapshotThread = OrchestrationThreadShell;
 export type ProjectNormalizationInput = Pick<
   ReadModelProject,
   | "id"

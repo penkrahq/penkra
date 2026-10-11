@@ -9,6 +9,7 @@ import {
   threadListScopeKey,
   resetThreadListForTests,
   subscribeThreadList,
+  subscribeThreadRowChanges,
 } from "./threadListStore";
 
 const api = vi.hoisted(() => ({
@@ -144,5 +145,47 @@ it("keeps a newer move and visit when an older page reply arrives after a broadc
   release({ threads: [old], nextCursor: null });
   await pending;
   expect(getThreadListById().get(old.id)).toEqual(current);
+  unsubscribe();
+});
+
+it("delivers created and archived rows to broadcast consumers with one targeted read", async () => {
+  const thread = row("[]", "2026-10-10T00:00:01.000Z");
+  const received: unknown[] = [];
+  let resolveChange!: () => void;
+  const waitForChange = () =>
+    new Promise<void>((resolve) => {
+      resolveChange = resolve;
+    });
+  const unsubscribe = subscribeThreadRowChanges(
+    (change, row) => {
+      received.push({ change, row });
+      resolveChange();
+    },
+    (error) => {
+      throw error;
+    },
+  );
+  const broadcast = api.onSidebarChange.mock.calls[0]![0] as (
+    change: import("@penkra/contracts").CleanCoreSidebarChange,
+  ) => void;
+  api.getThread.mockResolvedValueOnce(thread);
+  const created = waitForChange();
+  broadcast({ kind: "thread.created", threadId: thread.id });
+  await created;
+  const archivedRow = {
+    ...thread,
+    archivedAt: "2026-10-10T00:00:02.000Z",
+    updatedAt: "2026-10-10T00:00:02.000Z",
+  };
+  api.getThread.mockResolvedValueOnce(archivedRow);
+  const archived = waitForChange();
+  broadcast({ kind: "thread", threadId: thread.id });
+  await archived;
+  expect(received).toEqual([
+    { change: { kind: "thread.created", threadId: thread.id }, row: thread },
+    { change: { kind: "thread", threadId: thread.id }, row: archivedRow },
+  ]);
+  expect(api.getThread).toHaveBeenCalledTimes(2);
+  expect(api.listThreads).not.toHaveBeenCalled();
   unsubscribe();
 });

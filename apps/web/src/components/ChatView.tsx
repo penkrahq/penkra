@@ -240,7 +240,7 @@ import {
 } from "~/projectScripts";
 import { runProjectCommandInTerminal } from "~/projectTerminalRunner";
 import { newCommandId, newMessageId, newFolderId, newThreadId } from "~/lib/utils";
-import { readNativeApi } from "~/nativeApi";
+import { readNativeApi, ensureNativeApi } from "~/nativeApi";
 import { promoteThreadCreate } from "~/lib/threadCreatePromotion";
 import { requireNewThreadSpaceId } from "~/lib/threadBootstrap";
 import { readFavoriteModelSlugs } from "~/lib/modelFavorites";
@@ -743,6 +743,7 @@ export default function ChatView(props: ChatViewProps) {
     (state) => state.threadShellById?.[props.threadId] !== undefined,
   );
   const [rowReadFailed, setRowReadFailed] = useState(false);
+  const shellReads = useRef(new Map<ThreadId, Promise<void>>());
   const readRow = useCallback(() => {
     setRowReadFailed(false);
     void loadThread(props.threadId)
@@ -754,12 +755,37 @@ export default function ChatView(props: ChatViewProps) {
   useEffect(() => {
     if (hasServerThread && row === null) readRow();
   }, [props.threadId, hasServerThread, row === null, readRow]);
-  if (hasServerThread && row === null)
+  const readShell = useCallback(() => {
+    setRowReadFailed(false);
+    let request = shellReads.current.get(props.threadId);
+    if (request === undefined) {
+      request = ensureNativeApi()
+        .cleanCore.getThreadShell({ threadId: props.threadId })
+        .then((shell) => {
+          if (shell === null) throw new Error("The thread is no longer available");
+          useStore.getState().syncServerThreadShell(props.threadId, shell);
+        });
+      shellReads.current.set(props.threadId, request);
+    }
+    void request.catch((error: unknown) => {
+      shellReads.current.delete(props.threadId);
+      setRowReadFailed(true);
+      toastManager.add({
+        type: "error",
+        title: "Could not load thread",
+        description: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }, [props.threadId]);
+  useEffect(() => {
+    if (row !== null && !hasServerThread) readShell();
+  }, [props.threadId, row !== null, hasServerThread, readShell]);
+  if ((hasServerThread && row === null) || (row !== null && !hasServerThread))
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center">
         <ThreadDetailHydrationState
           state={rowReadFailed ? "failed" : "loading"}
-          onRetry={readRow}
+          onRetry={row === null ? readRow : readShell}
         />
       </div>
     );

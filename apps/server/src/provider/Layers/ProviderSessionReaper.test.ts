@@ -60,7 +60,7 @@ function makeLayer(input: {
         listFolderShellPage: () => unsupported(),
         listThreadShellPage: () => unsupported(),
         hasActiveProviderThread: () => unsupported(),
-        getShellSnapshot: () => unsupported(),
+        getStartupSnapshot: () => unsupported(),
         getActiveFolderByWorkspaceRoot: () => unsupported(),
         getFolderShellsByIds: () => Effect.die("unused"),
         getFolderShellById: () => unsupported(),

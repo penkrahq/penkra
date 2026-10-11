@@ -18,7 +18,6 @@ export type ThreadActivationControllerInput = {
   navigate: Navigate;
   openChatThreadPage: (threadId: ThreadId) => void;
   openTerminalThreadPage: (threadId: ThreadId) => void;
-  prewarmThreadDetailForIntent: (threadId: ThreadId) => void;
   rememberLastThreadRouteNow: (nextLastThreadRoute: LastThreadRoute) => void;
   routeThreadId: ThreadId | null | undefined;
   selectedThreadCount: number;
@@ -39,7 +38,6 @@ export function activateThreadFromSidebarIntent(
   });
   if (activation.kind === "ignore") return;
 
-  input.prewarmThreadDetailForIntent(threadId);
   input.setOptimisticActiveThreadId(threadId);
   if (input.selectedThreadCount > 0) input.clearSelection();
   input.setSelectionAnchor(threadId);

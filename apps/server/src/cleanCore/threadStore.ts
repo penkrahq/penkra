@@ -57,6 +57,7 @@ export interface ThreadPublisher {
   /** Subscribe to every thread's changes. Returns an unsubscribe function. */
   readonly subscribeAll: (listener: (change: ThreadChange) => void) => () => void;
   readonly publish: (change: ThreadChange) => void;
+  readonly publishCreated: (change: ThreadChange) => void;
   readonly subscribeSidebar: (listener: (change: CleanCoreSidebarChange) => void) => () => void;
   readonly publishSidebar: (change: CleanCoreSidebarChange) => void;
 }
@@ -110,6 +111,12 @@ export const makeThreadPublisher = (): ThreadPublisher => {
     subscribeAll: (listener) => {
       all.add(listener);
       return () => all.delete(listener);
+    },
+    publishCreated: (change) => {
+      for (const listener of byThread.get(change.threadId) ?? []) listener(change);
+      for (const listener of all) listener(change);
+      for (const listener of sidebar)
+        listener({ kind: "thread.created", threadId: ThreadId.makeUnsafe(change.threadId) });
     },
     publish: (change) => {
       for (const listener of byThread.get(change.threadId) ?? []) listener(change);
