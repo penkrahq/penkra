@@ -62,8 +62,6 @@ export interface OrchestrationDispatchContext {
   readonly acceptedInitialProviderBinding?: Parameters<
     ThreadProviderBindingRepositoryShape["initializeThread"]
   >[0];
-  /** Exact native-fork journal committed atomically with its first provider binding. */
-  readonly acceptedInitialProviderForkOperationId?: string;
 }
 
 export interface OrchestrationProjectionCatchUpStatus {

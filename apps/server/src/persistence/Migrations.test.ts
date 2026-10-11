@@ -140,6 +140,7 @@ layer("removed provider data migration", (it) => {
         [185, "ArchivedThreadsIndex"],
         [186, "FolderAppTabs"],
         [187, "DropProviderAuthCircuits"],
+        [188, "DropUnusedBookkeeping"],
       ]);
 
       const threads = yield* sql<{ readonly threadId: string }>`
@@ -1023,6 +1024,7 @@ previousSpacesMigrationLayer("previous Spaces lineage", (it) => {
         [185, "ArchivedThreadsIndex"],
         [186, "FolderAppTabs"],
         [187, "DropProviderAuthCircuits"],
+        [188, "DropUnusedBookkeeping"],
       ]);
 
       const tracker = yield* trackerRows(sql);
@@ -1101,7 +1103,7 @@ penkraMigrationCompatibilityLayer("Penkra migration compatibility", (it) => {
         VALUES (54, 'ProjectPullRequestPins')
       `;
 
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 187 });
 
       const pins = yield* sql<{
         readonly folderId: string;
@@ -1121,6 +1123,11 @@ penkraMigrationCompatibilityLayer("Penkra migration compatibility", (it) => {
           pullRequestNumber: 42,
         },
       ]);
+      yield* runMigrations();
+      assert.deepStrictEqual(
+        yield* sql`SELECT name FROM sqlite_master WHERE name = 'project_pull_request_pins'`,
+        [],
+      );
     }),
   );
 });
@@ -1326,6 +1333,7 @@ reservedProductionIdentitiesLayer("reserved Production migration identities", (i
           [185, "ArchivedThreadsIndex"],
           [186, "FolderAppTabs"],
           [187, "DropProviderAuthCircuits"],
+          [188, "DropUnusedBookkeeping"],
         ],
       );
       // A database already at the reserved identities is not "too new": the
