@@ -4,54 +4,6 @@ import { describe, expect, it } from "vitest";
 import { MAX_STREAMS_PER_RPC_CLIENT, makeWsStreamAdmission } from "./wsStreamAdmission";
 
 describe("WsStreamAdmission", () => {
-  it("reports thread-scoped rejection evidence without changing admission semantics", async () => {
-    const recorded: Array<Record<string, unknown>> = [];
-    await Effect.gen(function* () {
-      const rejectionRecorded = yield* Deferred.make<void>();
-      const admission = yield* makeWsStreamAdmission({
-        recordRejection: (incident) =>
-          Effect.sync(() => recorded.push(incident)).pipe(
-            Effect.andThen(Deferred.succeed(rejectionRecorded, undefined)),
-          ),
-      });
-      const lease = yield* admission.acquire(1, { key: "thread.stream:1", threadId: "thread-1" });
-      const duplicate = yield* admission
-        .acquire(1, { key: "thread.stream:1", threadId: "thread-1" })
-        .pipe(Effect.exit);
-      yield* Deferred.await(rejectionRecorded);
-      expect(duplicate._tag).toBe("Failure");
-      expect(recorded).toEqual([
-        expect.objectContaining({
-          threadId: "thread-1",
-          reason: "duplicate",
-          errorCode: "STREAM_DUPLICATE_SUBSCRIPTION",
-        }),
-      ]);
-      yield* admission.release(lease);
-    }).pipe(Effect.runPromise);
-  });
-
-  it("returns a rejection without waiting for diagnostic persistence", async () => {
-    await Effect.gen(function* () {
-      const persistenceGate = yield* Deferred.make<void>();
-      const admission = yield* makeWsStreamAdmission({
-        recordRejection: () => Deferred.await(persistenceGate),
-      });
-      const lease = yield* admission.acquire(1, { key: "server.settings" });
-
-      const outcome = yield* Effect.raceFirst(
-        admission
-          .acquire(1, { key: "server.settings" })
-          .pipe(Effect.exit, Effect.as("rejected" as const)),
-        Effect.sleep(100).pipe(Effect.as("timed-out" as const)),
-      );
-
-      expect(outcome).toBe("rejected");
-      yield* Deferred.succeed(persistenceGate, undefined);
-      yield* admission.release(lease);
-    }).pipe(Effect.runPromise);
-  });
-
   it("holds a stream lease through interruption and releases it after finalization", async () => {
     await Effect.gen(function* () {
       const admission = yield* makeWsStreamAdmission();

@@ -47,7 +47,6 @@ import { ProviderNativeStateMaterializerLive } from "./provider/Layers/ProviderN
 import { ProviderNativeContinuationVerifierLive } from "./provider/Layers/ProviderNativeContinuationVerifier";
 import { ProviderNativeStateDeletionCoordinatorLive } from "./provider/Layers/ProviderNativeStateDeletionCoordinator";
 import { ProviderThreadSwitchCoordinatorLive } from "./orchestration/Layers/ProviderThreadSwitchCoordinator";
-import { ThreadDiagnosticsQueryLive } from "./diagnostics/Layers/ThreadDiagnosticsQuery";
 import { ManagedAttachmentCleanupLive } from "./managedAttachmentCleanup";
 import { ProviderHealthLive } from "./provider/Layers/ProviderHealth";
 import { makeServerProviderLayer } from "./provider/runtimeLayer";
@@ -108,7 +107,6 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(providerConnectionPersistenceLayer),
     Layer.provideMerge(providerLaunchResolverLayer),
     Layer.provideMerge(providerNativeStateMaterializerLayer),
-    Layer.provideMerge(ThreadDiagnosticsQueryLive),
   );
   const providerNativeStateDeletionCoordinatorLayer =
     ProviderNativeStateDeletionCoordinatorLive.pipe(
@@ -179,7 +177,6 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(QueuedTurnPromotionRepositoryLive),
     Layer.provideMerge(OrchestrationEventDeliveryRepositoryLive),
     Layer.provideMerge(ProviderRuntimeEventRepositoryLive),
-    Layer.provideMerge(ThreadDiagnosticsQueryLive),
     Layer.provideMerge(ServerSettingsLive),
     Layer.provideMerge(providerHealthLayer),
     Layer.provideMerge(providerTurnSelectionResolverLayer),
