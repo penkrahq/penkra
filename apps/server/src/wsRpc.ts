@@ -1,3 +1,4 @@
+import { getFolderAppTabs, updateFolderAppTabs } from "./cleanCore/folderAppTabs.ts";
 import { listArchivedNavigation, listArchivedThreads, restoreThread } from "./cleanCore/archive.ts";
 import { ensureDurableThreadWorkspace } from "./scratchWorkspaces.ts";
 import { setThreadConnection, setThreadModel, renameThread } from "./cleanCore/threadStore.ts";
@@ -1439,6 +1440,10 @@ const makeWsRpcHandlersLayer = () =>
             ),
             "Failed to create and send the thread",
           ),
+        [WS_METHODS.cleanCoreGetFolderAppTabs]: (input) =>
+          rpcEffect(getFolderAppTabs(input), "Failed to read App tabs"),
+        [WS_METHODS.cleanCoreUpdateFolderAppTabs]: (input) =>
+          rpcEffect(updateFolderAppTabs(input), "Failed to update App tabs"),
         [WS_METHODS.cleanCoreCreateThread]: (input) =>
           rpcEffect(
             Effect.gen(function* () {

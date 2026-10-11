@@ -2,6 +2,8 @@
 // Purpose: Pure state transitions for App tabs in a Thread Folder's right panel.
 // Layer: UI state helpers
 
+import type { CleanCoreFolderAppTabs } from "@penkra/contracts";
+
 export interface RightDockPane {
   id: string;
   kind: "app";
@@ -28,7 +30,7 @@ export interface RightDockFolderState {
 }
 
 export interface OpenPaneInput {
-  preserveSelection?: boolean;
+  preserveSelection: boolean;
   paneId: string;
   kind: "app";
   appId: string;
@@ -49,77 +51,22 @@ export function createDefaultRightDockState(): RightDockFolderState {
   return { open: false, panes: [], activePaneId: null, width: null };
 }
 
-function createPane(input: OpenPaneInput): RightDockPane {
+/** Apply the folder row while keeping only this window's runtime data and width. */
+export function applyFolderAppTabsInState(
+  state: RightDockFolderState,
+  tabs: CleanCoreFolderAppTabs,
+  runtimeById: Readonly<Record<string, Partial<RightDockPane> | undefined>>,
+): RightDockFolderState {
   return {
-    id: input.paneId,
-    kind: "app",
-    appId: input.appId,
-    appSpaceId: input.appSpaceId,
-    appSlug: input.appSlug,
-    appName: input.appName,
-    ...(input.appIconDataUrl === undefined ? {} : { appIconDataUrl: input.appIconDataUrl }),
-    ...(input.appPresentationTitle === undefined
-      ? {}
-      : { appPresentationTitle: input.appPresentationTitle }),
-    ...(input.appPresentationIconUrl === undefined
-      ? {}
-      : { appPresentationIconUrl: input.appPresentationIconUrl }),
-    ...(input.appRendererId === undefined ? {} : { appRendererId: input.appRendererId }),
-    ...(input.appDocumentUrl === undefined ? {} : { appDocumentUrl: input.appDocumentUrl }),
-    appRoute: input.appRoute,
-    ...(input.appState === undefined ? {} : { appState: input.appState }),
-    appStatus: input.appStatus,
+    open: tabs.open,
+    activePaneId: tabs.activePaneId,
+    width: state.width,
+    panes: tabs.panes.map((pane) => ({
+      appStatus: "unloaded",
+      ...runtimeById[pane.id],
+      ...pane,
+    })),
   };
-}
-
-export function openPaneInState(
-  state: RightDockFolderState,
-  input: OpenPaneInput,
-): RightDockFolderState {
-  const existing = state.panes.find((pane) => pane.id === input.paneId);
-  if (existing) {
-    const pane = createPane(input);
-    const panes = state.panes.map((candidate) =>
-      candidate.id === input.paneId ? pane : candidate,
-    );
-    return input.preserveSelection
-      ? { ...state, panes }
-      : { ...state, open: true, panes, activePaneId: existing.id };
-  }
-  const pane = createPane(input);
-  return input.preserveSelection
-    ? { ...state, panes: [...state.panes, pane] }
-    : { ...state, open: true, panes: [...state.panes, pane], activePaneId: pane.id };
-}
-
-export function closePaneInState(
-  state: RightDockFolderState,
-  paneId: string,
-): RightDockFolderState {
-  const removedIndex = state.panes.findIndex((pane) => pane.id === paneId);
-  if (removedIndex === -1) return state;
-  const panes = state.panes.filter((pane) => pane.id !== paneId);
-  const activePaneId =
-    state.activePaneId === paneId
-      ? (panes[Math.min(removedIndex, panes.length - 1)]?.id ?? null)
-      : state.activePaneId;
-  return { ...state, open: panes.length > 0 && state.open, panes, activePaneId };
-}
-
-export function setActivePaneInState(
-  state: RightDockFolderState,
-  paneId: string,
-): RightDockFolderState {
-  if (!state.panes.some((pane) => pane.id === paneId)) return state;
-  return { ...state, open: true, activePaneId: paneId };
-}
-
-export function setDockOpenInState(
-  state: RightDockFolderState,
-  open: boolean,
-): RightDockFolderState {
-  const nextOpen = open && state.panes.length > 0;
-  return state.open === nextOpen ? state : { ...state, open: nextOpen };
 }
 
 export function setDockWidthInState(

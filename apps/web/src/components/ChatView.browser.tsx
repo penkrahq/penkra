@@ -1676,6 +1676,13 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
     }
     return { threadId: body.threadId, messageId: body.messageId, removed };
   }
+  if (tag === WS_METHODS.cleanCoreGetFolderAppTabs) {
+    return {
+      folderId: body.folderId,
+      updatedAt: fixture.snapshot.updatedAt,
+      tabs: { open: false, panes: [], activePaneId: null },
+    };
+  }
   if (tag === WS_METHODS.cleanCoreGetThreadShell) {
     const thread = fixture.snapshot.threads.find((thread) => thread.id === body.threadId);
     return thread ? createThreadShellFromReadModel(thread) : null;

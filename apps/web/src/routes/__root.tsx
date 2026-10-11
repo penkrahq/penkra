@@ -1,3 +1,4 @@
+import { applyFolderAppTabs } from "../rightDockStore";
 import type { AppState } from "../storeState";
 import { upsertSpace, upsertProject } from "../storeProjection";
 import { applyThreadRow, subscribeThreadRowChanges } from "../threadListStore";
@@ -764,6 +765,10 @@ function EventRouter() {
   useEffect(
     () =>
       ensureNativeApi().cleanCore.onSidebarChange((change) => {
+        if (change.kind === "folder.appTabs") {
+          applyFolderAppTabs(change);
+          return;
+        }
         if (change.kind !== "navigation.restored") return;
         useStore.setState((state) => {
           let next: AppState = state;

@@ -1,5 +1,5 @@
 // FILE: appTabRestore.logic.ts
-// Purpose: Classifies the narrow startup race where the shell loads before the App host.
+// Purpose: Restore retained native App tabs and identify their folder and Space.
 
 import type { DesktopAppTabDescriptor } from "@penkra/contracts";
 
@@ -9,16 +9,6 @@ interface AppTabSpaceIdentity {
   folderId: string;
   threadId: string;
   spaceId: string;
-}
-
-export const APP_TAB_HOST_READY_RETRY_LIMIT = 50;
-
-export function shouldRetryAppTabHostReady(error: unknown, attempt: number): boolean {
-  return (
-    attempt < APP_TAB_HOST_READY_RETRY_LIMIT &&
-    error instanceof Error &&
-    error.message.includes("The App tab host is not ready")
-  );
 }
 
 export function shouldMountAppDockPane(
@@ -73,12 +63,9 @@ export async function restoreAppTab(
     const tab = tabs.find((candidate) => candidate.id === pane.id);
     if (
       tab &&
-      (tab.appId !== pane.appId ||
-        tab.spaceId !== pane.appSpaceId ||
-        tab.folderId !== folderId ||
-        tab.threadId !== threadId)
+      (tab.appId !== pane.appId || tab.spaceId !== pane.appSpaceId || tab.folderId !== folderId)
     ) {
-      throw new Error(`App tab ${pane.id} belongs to a different Thread or Space.`);
+      throw new Error(`App tab ${pane.id} belongs to a different folder or Space.`);
     }
     return tab;
   };

@@ -214,7 +214,54 @@ export const CleanCoreThreadMovePosition = Schema.Union([
 ]);
 export type CleanCoreThreadMovePosition = typeof CleanCoreThreadMovePosition.Type;
 
+export const CleanCoreFolderAppPane = Schema.Struct({
+  id: Schema.String,
+  kind: Schema.Literal("app"),
+  appId: Schema.String,
+  appSpaceId: Schema.String,
+  appSlug: Schema.String,
+  appName: Schema.String,
+  appRoute: Schema.String,
+});
+export type CleanCoreFolderAppPane = typeof CleanCoreFolderAppPane.Type;
+export const CleanCoreFolderAppTabs = Schema.Struct({
+  open: Schema.Boolean,
+  panes: Schema.Array(CleanCoreFolderAppPane),
+  activePaneId: Schema.NullOr(Schema.String),
+});
+export type CleanCoreFolderAppTabs = typeof CleanCoreFolderAppTabs.Type;
+export const CleanCoreGetFolderAppTabsInput = Schema.Struct({ folderId: FolderId });
+export type CleanCoreGetFolderAppTabsInput = typeof CleanCoreGetFolderAppTabsInput.Type;
+export const CleanCoreFolderAppTabsResult = Schema.Struct({
+  folderId: FolderId,
+  tabs: CleanCoreFolderAppTabs,
+  updatedAt: IsoDateTime,
+});
+export type CleanCoreFolderAppTabsResult = typeof CleanCoreFolderAppTabsResult.Type;
+export const CleanCoreUpdateFolderAppTabsInput = Schema.Struct({
+  folderId: FolderId,
+  updatedAt: IsoDateTime,
+  update: Schema.Union([
+    Schema.Struct({
+      action: Schema.Literal("open"),
+      pane: CleanCoreFolderAppPane,
+      preserveSelection: Schema.Boolean,
+    }),
+    Schema.Struct({ action: Schema.Literal("close"), paneId: Schema.String }),
+    Schema.Struct({ action: Schema.Literal("select"), paneId: Schema.String }),
+    Schema.Struct({ action: Schema.Literal("reorder"), paneIds: Schema.Array(Schema.String) }),
+    Schema.Struct({ action: Schema.Literal("show"), open: Schema.Boolean }),
+    Schema.Struct({
+      action: Schema.Literal("navigate"),
+      paneId: Schema.String,
+      appRoute: Schema.String,
+    }),
+  ]),
+});
+export type CleanCoreUpdateFolderAppTabsInput = typeof CleanCoreUpdateFolderAppTabsInput.Type;
+
 export const CleanCoreSidebarChange = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("folder.appTabs"), ...CleanCoreFolderAppTabsResult.fields }),
   Schema.Struct({
     kind: Schema.Literal("navigation.restored"),
     spaces: Schema.Array(OrchestrationSpaceShell),

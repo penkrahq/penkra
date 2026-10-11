@@ -127,6 +127,9 @@ import {
   CleanCoreListThreadItemsPageInput,
   CleanCoreListThreadItemsPageResult,
   CleanCoreCreateThreadInput,
+  CleanCoreGetFolderAppTabsInput,
+  CleanCoreUpdateFolderAppTabsInput,
+  CleanCoreFolderAppTabsResult,
   CleanCoreCreateAndSendThreadInput,
   CleanCoreCreateAndSendThreadResponse,
   CleanCoreThreadSummary,
@@ -726,6 +729,16 @@ export const WsCleanCoreCreateAndSendThreadRpc = Rpc.make(WS_METHODS.cleanCoreCr
   success: CleanCoreCreateAndSendThreadResponse,
   error: WsRpcError,
 });
+export const WsCleanCoreGetFolderAppTabsRpc = Rpc.make(WS_METHODS.cleanCoreGetFolderAppTabs, {
+  payload: CleanCoreGetFolderAppTabsInput,
+  success: Schema.NullOr(CleanCoreFolderAppTabsResult),
+  error: WsRpcError,
+});
+export const WsCleanCoreUpdateFolderAppTabsRpc = Rpc.make(WS_METHODS.cleanCoreUpdateFolderAppTabs, {
+  payload: CleanCoreUpdateFolderAppTabsInput,
+  success: CleanCoreFolderAppTabsResult,
+  error: WsRpcError,
+});
 export const WsCleanCoreCreateThreadRpc = Rpc.make(WS_METHODS.cleanCoreCreateThread, {
   payload: CleanCoreCreateThreadInput,
   success: CleanCoreCreateThreadResponse,
@@ -820,6 +833,8 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsCleanCoreCancelQueuedMessageRpc,
   WsCleanCoreEditQueuedMessageRpc,
   WsCleanCoreCreateThreadRpc,
+  WsCleanCoreGetFolderAppTabsRpc,
+  WsCleanCoreUpdateFolderAppTabsRpc,
   WsCleanCoreCreateAndSendThreadRpc,
   WsCleanCoreGetFoldersRpc,
   WsCleanCoreGetThreadShellRpc,

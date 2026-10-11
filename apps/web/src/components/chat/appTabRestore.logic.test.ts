@@ -2,24 +2,14 @@ import type { DesktopAppTabDescriptor } from "@penkra/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  APP_TAB_HOST_READY_RETRY_LIMIT,
   createAppTabRestoreRequest,
   isAppPaneInSpace,
   isAppTabOutsideFolderSpace,
   shouldMountAppDockPane,
-  shouldRetryAppTabHostReady,
   restoreAppTab,
 } from "./appTabRestore.logic";
 
 describe("App tab restoration readiness", () => {
-  it("retries only the bounded App-host startup race", () => {
-    const notReady = new Error("The App tab host is not ready.");
-    expect(shouldRetryAppTabHostReady(notReady, 0)).toBe(true);
-    expect(shouldRetryAppTabHostReady(notReady, APP_TAB_HOST_READY_RETRY_LIMIT)).toBe(false);
-    expect(shouldRetryAppTabHostReady(new Error("Canvas is not enabled"), 0)).toBe(false);
-    expect(shouldRetryAppTabHostReady("The App tab host is not ready.", 0)).toBe(false);
-  });
-
   it("mounts App panes only after the current host confirms their IDs", () => {
     const confirmed = new Set(["current-tab"]);
     expect(shouldMountAppDockPane("current-tab", confirmed)).toBe(true);
@@ -80,7 +70,10 @@ describe("App tab restoration readiness", () => {
     };
     const open = vi.fn(async () => tab);
     await expect(
-      restoreAppTab(pane, "folder-1", "thread-1", { list: async () => [tab], open }),
+      restoreAppTab(pane, "folder-1", "another-thread-in-folder", {
+        list: async () => [tab],
+        open,
+      }),
     ).resolves.toBe(tab);
     expect(open).not.toHaveBeenCalled();
 
