@@ -531,13 +531,14 @@ const OPEN_OPERATION: HostOperationDeclaration = {
   command: "penkra open",
   summary: "Open one local path or URL through an eligible installed App or the operating system.",
   instructions:
-    "Supply exactly one of path or url. Relative paths resolve against the caller Thread's working directory. Supply with only when the user explicitly selected an eligible handler; opening is separate from importing or mutating content.",
+    "Supply exactly one of path or url. Relative paths resolve against the caller Thread's working directory. Supply with only when the user explicitly selected an eligible handler; opening is separate from importing or mutating content. Opens in a new tab. Pass --tab-id from `tabs list` to open in that tab instead.",
   input: {
     type: "object",
     properties: {
       path: { type: "string", minLength: 1 },
       url: { type: "string", minLength: 1 },
       with: { type: "string", minLength: 1, description: "Explicitly selected App slug." },
+      tabId: TAB_ID,
     },
     additionalProperties: false,
   },
@@ -686,16 +687,15 @@ export async function executePenkraExecCommand(
     }
     if (args[1] === "open") {
       const parsed = structuredArguments(args.slice(2), parsedRequest);
-      rejectUnacceptedArguments("penkra open", parsed, { acceptsTabId: false });
+      rejectUnacceptedArguments("penkra open", parsed, { acceptsTabId: true });
       if (parsed.help)
         throw new Error(
           "penkra open --help does not accept other arguments. Run penkra open --help on its own.",
         );
-      const supplied = parseOperationInput(
-        OPEN_OPERATION.input,
-        parsed.input,
-        parsed.named,
-      ) as Record<string, unknown>;
+      const supplied = parseOperationInput(OPEN_OPERATION.input, parsed.input, {
+        ...parsed.named,
+        ...(parsed.tabId === undefined ? {} : { "tab-id": parsed.tabId }),
+      }) as Record<string, unknown>;
       const rawPath = supplied.path;
       const url = supplied.url;
       if ((rawPath === undefined) === (url === undefined)) {
@@ -713,6 +713,7 @@ export async function executePenkraExecCommand(
         {
           ...(path ? { path } : { url }),
           ...(supplied.with ? { requestedApp: supplied.with } : {}),
+          ...(supplied.tabId === undefined ? {} : { tabId: supplied.tabId }),
           spaceId: requireContextText(context.spaceId, "spaceId"),
           folderId: requireContextText(context.folderId, "folderId"),
           threadId: requireContextText(context.threadId, "threadId"),

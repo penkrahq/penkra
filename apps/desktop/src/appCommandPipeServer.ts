@@ -196,6 +196,7 @@ export class AppCommandPipeServer {
         path?: string;
         url?: string;
         requestedApp?: string;
+        tabId?: string;
         spaceId: string;
         folderId: string;
         threadId: string;
@@ -256,6 +257,7 @@ export class AppCommandPipeServer {
       path?: string;
       url?: string;
       requestedApp?: string;
+      tabId?: string;
       spaceId: string;
       folderId: string;
       threadId: string;
@@ -668,6 +670,7 @@ export class AppCommandPipeServer {
         const url = optionalString(params.url, "url");
         if ((path === null) === (url === null)) throw new Error("Supply exactly one path or URL.");
         const requestedApp = optionalString(params.requestedApp, "requestedApp");
+        const tabId = optionalString(params.tabId, "tabId");
         return {
           ok: true,
           id: request.id,
@@ -676,6 +679,7 @@ export class AppCommandPipeServer {
               ...(path === null ? {} : { path }),
               ...(url === null ? {} : { url }),
               ...(requestedApp === null ? {} : { requestedApp }),
+              ...(tabId === null ? {} : { tabId }),
               spaceId: context.spaceId,
               folderId: context.folderId,
               threadId: context.threadId,
@@ -687,8 +691,7 @@ export class AppCommandPipeServer {
         const context = this.#context(params);
         const slug = requiredString(params.app, "app");
         const operation = requiredString(params.operation, "operation");
-        const requestedTabId = optionalString(params.tabId, "tabId");
-        const tabId = requestedTabId ?? this.#implicitOperationTab(context, slug)?.id;
+        const tabId = optionalString(params.tabId, "tabId");
         const result = await this.#onThread(context.threadId, () =>
           this.#broker.invoke({
             app: slug,
@@ -699,7 +702,7 @@ export class AppCommandPipeServer {
             threadId: context.threadId,
             callerKind: "agent",
             signal,
-            ...(tabId === undefined ? {} : { tabId }),
+            ...(tabId === null ? {} : { tabId }),
           }),
         );
         return { ok: true, id: request.id, result };
@@ -909,7 +912,9 @@ export class AppCommandPipeServer {
     return this.#registry;
   }
 
-  #context(params: Record<string, unknown>): DesktopAppTabDescriptor {
+  #context(
+    params: Record<string, unknown>,
+  ): Pick<DesktopAppTabDescriptor, "spaceId" | "folderId" | "threadId"> {
     const explicitTabId = optionalString(params.tabId, "tabId");
     const explicitSpaceId = optionalString(params.spaceId, "spaceId");
     const explicitFolderId = optionalString(params.folderId, "folderId");
@@ -920,32 +925,12 @@ export class AppCommandPipeServer {
     ) {
       throw new Error("spaceId, folderId, and threadId must be supplied together.");
     }
+    if (explicitSpaceId !== null && explicitFolderId !== null && explicitThreadId !== null) {
+      return { spaceId: explicitSpaceId, folderId: explicitFolderId, threadId: explicitThreadId };
+    }
     const tab = explicitTabId
       ? this.#tabs.list().find((candidate) => candidate.id === explicitTabId)
-      : explicitSpaceId === null
-        ? this.#tabs.current()
-        : undefined;
-    if (explicitSpaceId !== null && explicitFolderId !== null && explicitThreadId !== null) {
-      if (tab && (tab.spaceId !== explicitSpaceId || tab.folderId !== explicitFolderId)) {
-        throw new Error(`App tab ${tab.id} does not belong to the requested Space and folder.`);
-      }
-      return {
-        ...(tab ?? {
-          id: "",
-          rendererId: -1,
-          appId: "",
-          slug: "",
-          name: "",
-          iconDataUrl: null,
-          spaceId: explicitSpaceId,
-          folderId: explicitFolderId,
-          threadId: explicitThreadId,
-          route: "/",
-          status: "ready",
-        }),
-        threadId: explicitThreadId,
-      };
-    }
+      : this.#tabs.current();
     if (!tab)
       throw new Error(
         explicitTabId
@@ -988,20 +973,6 @@ export class AppCommandPipeServer {
 
   #onThread<T>(threadId: string, operation: () => Promise<T>): Promise<T> {
     return this.#runOnThread?.(threadId, operation) ?? operation();
-  }
-
-  #implicitOperationTab(
-    context: Pick<DesktopAppTabDescriptor, "spaceId" | "folderId">,
-    slug: string,
-  ): DesktopAppTabDescriptor | undefined {
-    const matching = this.#tabs
-      .list()
-      .filter(
-        (tab) =>
-          tab.spaceId === context.spaceId && tab.folderId === context.folderId && tab.slug === slug,
-      );
-    if (matching.length === 1) return matching[0];
-    return undefined;
   }
 
   #tab(params: Record<string, unknown>): DesktopAppTabDescriptor {

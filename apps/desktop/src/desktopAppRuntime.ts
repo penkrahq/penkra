@@ -107,6 +107,7 @@ function requireControllerRecord(value: unknown, label: string): Record<string, 
 }
 
 export async function startDesktopAppRuntime(input: {
+  resolveFolderTitle: (folderId: string) => Promise<string>;
   userDataPath: string;
   appPreloadPath: string;
   appControllerRunnerPath: string;
@@ -203,6 +204,7 @@ export async function startDesktopAppRuntime(input: {
   };
   const broker = new AppOperationBroker({
     installationState: () => store.snapshot(),
+    resolveFolderTitle: input.resolveFolderTitle,
     tabs,
     resolveIdentity: (appId, spaceId) => identities.resolve(appId, spaceId),
     ensureController: (appId, spaceId) => ensureAppRuntimeActive(appId, spaceId),

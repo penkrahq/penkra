@@ -316,7 +316,6 @@ describe("AppCommandPipeServer", () => {
       spaceId: "personal",
       folderId: "folder-1",
       threadId: "thread-1",
-      tabId: "tab-sales",
       signal: expect.any(AbortSignal),
     });
 
@@ -347,7 +346,6 @@ describe("AppCommandPipeServer", () => {
       spaceId: "personal",
       folderId: "folder-1",
       threadId: "thread-1",
-      tabId: "tab-canvas",
       signal: expect.any(AbortSignal),
     });
 

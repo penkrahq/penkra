@@ -61,6 +61,7 @@ describe("desktop App runtime composition", () => {
     Object.defineProperty(process, "platform", { value: "linux" });
     try {
       const runtime = await startDesktopAppRuntime({
+        resolveFolderTitle: async () => "App test",
         userDataPath: root,
         appPreloadPath: "/trusted/appPreload.js",
         appControllerRunnerPath: "/trusted/appNodeControllerRunner.js",

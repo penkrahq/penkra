@@ -210,6 +210,7 @@ import { ShellWindowRegistry } from "./shellWindowRegistry";
 import { prepareDesktopDiagnosticsWriter } from "./desktopDiagnosticsStartup";
 import { panelFocusState } from "./panelFocus";
 import { ThreadHomeWindow } from "./threadHomeWindow";
+import { readDesktopFolderAppTabs } from "./desktopFolderAppTabsClient";
 import { executeDesktopThreadCommand } from "./desktopThreadClient";
 import { announceAppTabOpened as routeAppTabOpened } from "./appTabOpenedRouting";
 import {
@@ -1617,6 +1618,7 @@ async function openPenkraResource(input: {
   path?: string;
   url?: string;
   requestedApp?: string;
+  tabId?: string;
   spaceId: string;
   folderId: string;
   threadId: string;
@@ -1624,6 +1626,8 @@ async function openPenkraResource(input: {
 }): Promise<unknown> {
   const runtime = desktopAppRuntime;
   if (!runtime) throw recordDesktopServiceUnavailable(new Error("The App runtime is not ready."));
+  if (input.tabId !== undefined)
+    await runtime.broker.resolveTabInFolder(input.tabId, input.spaceId, input.folderId);
   if (input.url) {
     const url = new URL(input.url);
     if (url.protocol !== "http:" && url.protocol !== "https:") {
@@ -1641,26 +1645,16 @@ async function openPenkraResource(input: {
       await shell.openExternal(url.href);
       return { destination: "system", intent, url: url.href };
     }
-    const result =
-      resolved.operation === "tab.open"
-        ? await runtime.appTabs.openInstalled({
-            appId: resolved.appId,
-            spaceId: input.spaceId,
-            folderId: input.folderId,
-            threadId: input.threadId,
-            route: "/",
-            state: { url: url.href },
-            initiator: input.callerKind ?? "agent",
-          })
-        : await runtime.broker.invoke({
-            app: resolved.slug,
-            operation: resolved.operation,
-            input: { url: url.href },
-            spaceId: input.spaceId,
-            folderId: input.folderId,
-            threadId: input.threadId,
-            callerKind: input.callerKind ?? "agent",
-          });
+    const result = await runtime.broker.invoke({
+      app: resolved.slug,
+      operation: resolved.operation,
+      input: { url: url.href },
+      spaceId: input.spaceId,
+      folderId: input.folderId,
+      threadId: input.threadId,
+      ...(input.tabId === undefined ? {} : { tabId: input.tabId }),
+      callerKind: input.callerKind ?? "agent",
+    });
     return {
       destination: "app",
       appId: resolved.appId,
@@ -1670,12 +1664,14 @@ async function openPenkraResource(input: {
     };
   }
 
+  if (input.path === undefined) throw new Error("Resource open requires a path or URL.");
   return openLocalAppResource({
     broker: runtime.broker,
     fileHandles: runtimeV2FileHandles,
     intents: runtime.intents,
     openWith: runtime.openWith,
-    path: input.path ?? "",
+    path: input.path,
+    ...(input.tabId === undefined ? {} : { tabId: input.tabId }),
     spaceId: input.spaceId,
     folderId: input.folderId,
     threadId: input.threadId,
@@ -7598,7 +7594,14 @@ function registerIpcHandlers(): void {
       throw new Error("Resource open requires exactly one path or URL.");
     }
     const requestedApp = typeof record.requestedApp === "string" ? record.requestedApp : undefined;
+    if (
+      record.tabId !== undefined &&
+      (typeof record.tabId !== "string" || record.tabId.length === 0)
+    ) {
+      throw new Error("Resource tab ID must be a non-empty string.");
+    }
     const context = {
+      ...(record.tabId === undefined ? {} : { tabId: record.tabId as string }),
       ...(requestedApp ? { requestedApp } : {}),
       spaceId: record.spaceId,
       folderId: record.folderId,
@@ -8538,6 +8541,15 @@ async function bootstrap(): Promise<void> {
   registerIpcHandlers();
   writeDesktopLogHeader("bootstrap ipc handlers registered");
   desktopAppRuntime = await startDesktopAppRuntime({
+    resolveFolderTitle: async (folderId) => {
+      if (!backendHttpUrl) throw new Error("The backend is not ready.");
+      const row = await readDesktopFolderAppTabs(
+        { url: backendHttpUrl, token: DESKTOP_BACKEND_SHUTDOWN_TOKEN },
+        folderId,
+      );
+      if (row === null) throw new Error("The folder is not available.");
+      return row.folderTitle;
+    },
     userDataPath: app.getPath("userData"),
     appPreloadPath: Path.join(__dirname, "appPreload.js"),
     appControllerRunnerPath: Path.join(__dirname, "appNodeControllerRunner.js"),
