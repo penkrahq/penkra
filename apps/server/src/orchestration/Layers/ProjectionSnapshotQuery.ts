@@ -114,7 +114,9 @@ const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
   }),
 );
 type PendingInteractionRow = typeof OrchestrationPendingInteraction.Type;
-const ProjectionThreadSessionDbRowSchema = ProjectionThreadSession;
+const ProjectionThreadSessionDbRowSchema = ProjectionThreadSession.mapFields(
+  Struct.omit(["runtimeMode"]),
+);
 const ProjectionLatestTurnDbRowSchema = Schema.Struct({
   threadId: ProjectionThread.fields.threadId,
   turnId: TurnId,
@@ -363,7 +365,6 @@ function toProjectedSession(row: ProjectionThreadSessionDbRow): OrchestrationSes
     threadId: row.threadId,
     status: row.status,
     providerName: row.providerName,
-    runtimeMode: row.runtimeMode,
     activeTurnId: row.activeTurnId,
     lastError: row.lastError,
     updatedAt: row.updatedAt,
@@ -531,13 +532,11 @@ function toProjectedThreadShellFromStoredSummary(input: {
   return {
     id: threadRow.threadId,
     folderId: threadRow.folderId,
-    sidebarSortOrder: threadRow.sidebarSortOrder,
     title: threadRow.title,
     modelSelection: threadRow.modelSelection,
     ...(threadRow.connectionSelectionExplicit
       ? { connectionId: threadRow.connectionId ?? null }
       : {}),
-    runtimeMode: threadRow.runtimeMode,
     creationSource: threadRow.creationSource ?? null,
     sourceThreadId: threadRow.sourceThreadId ?? null,
     sourceTurnId: threadRow.sourceTurnId ?? null,
@@ -547,12 +546,9 @@ function toProjectedThreadShellFromStoredSummary(input: {
     subagentNickname: threadRow.subagentNickname ?? null,
     subagentRole: threadRow.subagentRole ?? null,
     latestTurn: input.latestTurn,
-    latestUserMessageAt: threadRow.latestUserMessageAt,
     hasPendingApprovals: threadRow.pendingApprovalCount > 0,
     hasPendingUserInput: threadRow.pendingUserInputCount > 0,
     workStatus: threadRow.workStatus,
-    lastMessagePreview: threadRow.lastMessagePreview,
-    lastActivityAt: threadRow.lastActivityAt,
     createdAt: threadRow.createdAt,
     updatedAt: threadRow.updatedAt,
     archivedAt: threadRow.archivedAt ?? null,
@@ -573,19 +569,20 @@ interface ProjectedThreadAssemblyInput {
 
 function assembleProjectedThread(
   input: ProjectedThreadAssemblyInput,
-  summary: ReturnType<typeof deriveThreadSummaryMetadata>,
+  summary: Pick<
+    ReturnType<typeof deriveThreadSummaryMetadata>,
+    "hasPendingApprovals" | "hasPendingUserInput"
+  >,
 ): OrchestrationThread {
   const { threadRow } = input;
   return {
     id: threadRow.threadId,
     folderId: threadRow.folderId,
-    sidebarSortOrder: threadRow.sidebarSortOrder,
     title: threadRow.title,
     modelSelection: threadRow.modelSelection,
     ...(threadRow.connectionSelectionExplicit
       ? { connectionId: threadRow.connectionId ?? null }
       : {}),
-    runtimeMode: threadRow.runtimeMode,
     creationSource: threadRow.creationSource ?? null,
     sourceThreadId: threadRow.sourceThreadId ?? null,
     sourceTurnId: threadRow.sourceTurnId ?? null,
@@ -600,12 +597,9 @@ function assembleProjectedThread(
     updatedAt: threadRow.updatedAt,
     archivedAt: threadRow.archivedAt ?? null,
     deletedAt: threadRow.deletedAt,
-    latestUserMessageAt: summary.latestUserMessageAt,
     hasPendingApprovals: summary.hasPendingApprovals,
     hasPendingUserInput: summary.hasPendingUserInput,
     workStatus: threadRow.workStatus,
-    lastMessagePreview: threadRow.lastMessagePreview,
-    lastActivityAt: threadRow.lastActivityAt,
     messages: input.messages,
     queuedMessageIds: input.queuedMessageIds ?? [],
     activities: input.activities,
@@ -637,7 +631,6 @@ function toProjectedCommandThread(input: {
       pendingInteractions: [],
     },
     {
-      latestUserMessageAt: input.threadRow.latestUserMessageAt,
       hasPendingApprovals: input.threadRow.pendingApprovalCount > 0,
       hasPendingUserInput: input.threadRow.pendingUserInputCount > 0,
     },
@@ -675,8 +668,6 @@ const THREAD_SHELL_COLUMNS = `
           json_patch(json_object('provider', t.provider, 'model', t.model), CASE WHEN t.model_options IS NULL THEN '{}' ELSE json_object('options', json(t.model_options)) END) AS "modelSelection",
           t.connection_id AS "connectionId",
           1 AS "connectionSelectionExplicit",
-          t.runtime_mode AS "runtimeMode",
-          COALESCE(t.sidebar_sort_order, 0) AS "sidebarSortOrder",
           CASE t.created_by WHEN 'agent' THEN 'penkra_mcp' WHEN 'provider_native' THEN 'provider_native' ELSE NULL END AS "creationSource",
           t.created_by_thread_id AS "sourceThreadId",
           NULL AS "sourceTurnId",
@@ -686,13 +677,9 @@ const THREAD_SHELL_COLUMNS = `
           NULL AS "subagentNickname",
           NULL AS "subagentRole",
           t.active_turn_id AS "latestTurnId",
-          t.last_user_message_at AS "latestUserMessageAt",
-          t.last_visited_at AS "lastVisitedAt",
           0 AS "pendingApprovalCount",
           t.open_question_count AS "pendingUserInputCount",
           CASE WHEN t.state = 'running' THEN 'running' WHEN t.state = 'error' OR t.open_question_count > 0 THEN 'attention' WHEN t.last_activity_at > COALESCE(t.last_visited_at, '') THEN 'done' ELSE 'idle' END AS "workStatus",
-          t.last_message_preview AS "lastMessagePreview",
-          t.last_activity_at AS "lastActivityAt",
           t.created_at AS "createdAt",
           t.updated_at AS "updatedAt",
           t.archived_at AS "archivedAt",
@@ -711,7 +698,7 @@ const THREAD_SHELL_JOINS = `
 const THREAD_SHELL_CONTEXT_COLUMNS = `
   CASE WHEN s.thread_id IS NULL THEN NULL ELSE json_object(
     'threadId', s.thread_id, 'status', s.status, 'providerName', s.provider_name,
-    'runtimeMode', s.runtime_mode, 'activeTurnId', s.active_turn_id,
+    'activeTurnId', s.active_turn_id,
     'lastError', s.last_error, 'updatedAt', s.updated_at) END AS sessionJson,
   CASE WHEN lt.turn_id IS NULL THEN NULL ELSE json_object(
     'threadId', lt.thread_id, 'turnId', lt.turn_id, 'providerTurnId', lt.provider_turn_id,
@@ -1024,8 +1011,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           json_patch(json_object('provider', provider, 'model', model), CASE WHEN model_options IS NULL THEN '{}' ELSE json_object('options', json(model_options)) END) AS "modelSelection",
           connection_id AS "connectionId",
           1 AS "connectionSelectionExplicit",
-          runtime_mode AS "runtimeMode",
-          COALESCE(sidebar_sort_order, 0) AS "sidebarSortOrder",
           CASE created_by WHEN 'agent' THEN 'penkra_mcp' WHEN 'provider_native' THEN 'provider_native' ELSE NULL END AS "creationSource",
           created_by_thread_id AS "sourceThreadId",
           NULL AS "sourceTurnId",
@@ -1035,13 +1020,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           NULL AS "subagentNickname",
           NULL AS "subagentRole",
           active_turn_id AS "latestTurnId",
-          last_user_message_at AS "latestUserMessageAt",
-          last_visited_at AS "lastVisitedAt",
           0 AS "pendingApprovalCount",
           open_question_count AS "pendingUserInputCount",
           CASE WHEN state = 'running' THEN 'running' WHEN state = 'error' OR open_question_count > 0 THEN 'attention' WHEN last_activity_at > COALESCE(last_visited_at, '') THEN 'done' ELSE 'idle' END AS "workStatus",
-          last_message_preview AS "lastMessagePreview",
-          last_activity_at AS "lastActivityAt",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           archived_at AS "archivedAt",
@@ -1340,7 +1321,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           provider_name AS "providerName",
           provider_session_id AS "providerSessionId",
           provider_thread_id AS "providerThreadId",
-          runtime_mode AS "runtimeMode",
           active_turn_id AS "activeTurnId",
           last_error AS "lastError",
           updated_at AS "updatedAt"
@@ -1509,8 +1489,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           json_patch(json_object('provider', provider, 'model', model), CASE WHEN model_options IS NULL THEN '{}' ELSE json_object('options', json(model_options)) END) AS "modelSelection",
           connection_id AS "connectionId",
           1 AS "connectionSelectionExplicit",
-          runtime_mode AS "runtimeMode",
-          COALESCE(sidebar_sort_order, 0) AS "sidebarSortOrder",
           CASE created_by WHEN 'agent' THEN 'penkra_mcp' WHEN 'provider_native' THEN 'provider_native' ELSE NULL END AS "creationSource",
           created_by_thread_id AS "sourceThreadId",
           NULL AS "sourceTurnId",
@@ -1520,13 +1498,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           NULL AS "subagentNickname",
           NULL AS "subagentRole",
           active_turn_id AS "latestTurnId",
-          last_user_message_at AS "latestUserMessageAt",
-          last_visited_at AS "lastVisitedAt",
           0 AS "pendingApprovalCount",
           open_question_count AS "pendingUserInputCount",
           CASE WHEN state = 'running' THEN 'running' WHEN state = 'error' OR open_question_count > 0 THEN 'attention' WHEN last_activity_at > COALESCE(last_visited_at, '') THEN 'done' ELSE 'idle' END AS "workStatus",
-          last_message_preview AS "lastMessagePreview",
-          last_activity_at AS "lastActivityAt",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           archived_at AS "archivedAt",
@@ -2078,7 +2052,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           provider_name AS "providerName",
           provider_session_id AS "providerSessionId",
           provider_thread_id AS "providerThreadId",
-          runtime_mode AS "runtimeMode",
           active_turn_id AS "activeTurnId",
           last_error AS "lastError",
           updated_at AS "updatedAt"

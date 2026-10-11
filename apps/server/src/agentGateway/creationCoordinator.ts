@@ -5,7 +5,6 @@ import {
   ThreadId,
   ModelSelection,
   RuntimeMode,
-  type OrchestrationThreadShell,
   type PenkraCreateThreadInput,
   type ProviderKind,
   PenkraCreateThreadResult,
@@ -39,9 +38,6 @@ interface CreationCoordinatorDependencies {
     ReadonlyMap<ProviderKind, AgentGatewayProviderAvailability>,
     unknown
   >;
-  readonly requireThreadShell: (
-    threadId: string,
-  ) => Effect.Effect<OrchestrationThreadShell, ToolInputError>;
   readonly onThreadCreated?: (
     creatorThreadId: string,
     childThreadId: string,
@@ -60,7 +56,11 @@ export const makeCreateThreadHandler = (dependencies: CreationCoordinatorDepende
   Effect.succeed((input: PenkraCreateThreadInput, context: GatewayCreationContext) =>
     Effect.gen(function* () {
       yield* context.assertAuthority();
-      const caller = yield* dependencies.requireThreadShell(context.callerThreadId);
+      const caller = yield* dependencies.lifecycle.get(ThreadId.makeUnsafe(context.callerThreadId));
+      if (caller === null || caller.deletedAt !== null)
+        return yield* Effect.fail(
+          new ToolInputError(`Thread "${context.callerThreadId}" was not found.`),
+        );
       const folderId = FolderId.makeUnsafe(
         input.folderId === undefined ? caller.folderId : input.folderId,
       );
@@ -76,7 +76,10 @@ export const makeCreateThreadHandler = (dependencies: CreationCoordinatorDepende
         return yield* Effect.fail(
           new ToolInputError("Created Threads must remain in the caller Thread's Space."),
         );
-      const runtimeMode = input.runtimeMode === undefined ? caller.runtimeMode : input.runtimeMode;
+      const runtimeMode =
+        input.runtimeMode === undefined
+          ? Schema.decodeUnknownSync(RuntimeMode)(caller.runtimeMode)
+          : input.runtimeMode;
       if (runtimeMode === "full-access" && caller.runtimeMode !== "full-access")
         return yield* Effect.fail(
           new ToolInputError(

@@ -65,6 +65,16 @@ it.effect(
             Effect.provideService(ThreadPublisher, publisher),
           ),
       };
+      yield* lifecycle.create({
+        threadId: callerId,
+        folderId,
+        title: "Caller",
+        modelSelection: { provider: "codex", model: "gpt-5.5" },
+        runtimeMode: "full-access",
+        createdAt: at,
+        creator: { kind: "user" },
+        connection: { kind: "selected", connectionId: null },
+      });
       let failLaunch = true;
       let dispatches = 0;
       const coordinator = {
@@ -119,12 +129,10 @@ it.effect(
         folderId,
         title: "Caller",
         modelSelection: { provider: "codex", model: "gpt-5.5" },
-        runtimeMode: "full-access",
         subagentAgentId: null,
         subagentNickname: null,
         subagentRole: null,
         latestTurn: null,
-        latestUserMessageAt: null,
         archivedAt: null,
         session: null,
         createdAt: at,
@@ -148,7 +156,6 @@ it.effect(
         loadProviderAvailabilities: Effect.succeed(
           new Map([["codex", { enabled: true, available: true, authStatus: "authenticated" }]]),
         ),
-        requireThreadShell: () => Effect.succeed(caller),
       };
       const handler = yield* makeCreateThreadHandler(dependencies);
       const input = {
@@ -169,7 +176,7 @@ it.effect(
       const retained = yield* sql<{
         id: ThreadId;
         connectionId: string;
-      }>`SELECT id, connection_id AS "connectionId" FROM threads`;
+      }>`SELECT id, connection_id AS "connectionId" FROM threads WHERE id != ${callerId}`;
       assert.equal(retained.length, 1);
       assert.equal(retained[0]!.connectionId, accountA);
       assert.equal((yield* sql`SELECT source_id FROM thread_items WHERE kind='user'`).length, 0);
@@ -185,7 +192,7 @@ it.effect(
       });
       assert.deepStrictEqual(yield* restartedHandler(input, context), retry);
       assert.equal(dispatches, 2);
-      assert.equal((yield* sql`SELECT id FROM threads`).length, 1);
+      assert.equal((yield* sql`SELECT id FROM threads WHERE id != ${callerId}`).length, 1);
       assert.equal(
         (yield* sql`SELECT source_id FROM thread_items WHERE kind='user' AND status='sent'`).length,
         1,

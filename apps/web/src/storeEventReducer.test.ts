@@ -1,6 +1,7 @@
-import { createStore } from "zustand/vanilla";
 // FILE: storeEventReducer.test.ts
 // Purpose: Exercises orchestration domain-event reduction and batching.
+
+import { createStore } from "zustand/vanilla";
 
 import {
   ApprovalRequestId,
@@ -45,7 +46,6 @@ describe("store event reducer", () => {
     const oldRow = makeReadModelThread({
       title: "Older reply",
       updatedAt: "2026-02-27T00:01:00.000Z",
-      lastVisitedAt: null,
     });
     const initial = syncServerReadModel(makeState(makeThread()), makeReadModel(oldRow));
     let resolveReply!: (snapshot: ReturnType<typeof makeShellSnapshot>) => void;
@@ -55,7 +55,6 @@ describe("store event reducer", () => {
     const newRow = {
       ...oldRow,
       title: "Newer broadcast",
-      lastVisitedAt: "2026-02-27T00:02:00.000Z",
       updatedAt: "2026-02-27T00:02:00.000Z",
     };
     const broadcast = syncServerThreadShell(initial, oldRow.id, newRow);
@@ -64,7 +63,6 @@ describe("store event reducer", () => {
     expect(threadsOf(afterReply)[0]).toMatchObject({
       title: newRow.title,
       updatedAt: newRow.updatedAt,
-      lastVisitedAt: newRow.lastVisitedAt,
     });
     expect(afterReply.sidebarThreadSummaryById[oldRow.id]?.title).toBe(newRow.title);
     expect(syncServerThreadShell(broadcast, oldRow.id, oldRow)).toBe(broadcast);
@@ -146,7 +144,6 @@ describe("store event reducer", () => {
         title: `Worker ${index}`,
         creationSource: "penkra_mcp",
         sourceThreadId: ThreadId.makeUnsafe("thread-1"),
-        sidebarSortOrder: index,
         createdAt: "2026-09-06T00:10:00.000Z",
         updatedAt: "2026-09-06T00:10:00.000Z",
       }),
@@ -304,7 +301,6 @@ describe("store event reducer", () => {
           threadId: ThreadId.makeUnsafe("thread-1"),
           status: "running",
           providerName: "claudeAgent",
-          runtimeMode: DEFAULT_RUNTIME_MODE,
           activeTurnId: TurnId.makeUnsafe("earlier-turn"),
           lastError: null,
           updatedAt: "2026-09-27T00:00:00.000Z",
@@ -405,7 +401,6 @@ describe("store event reducer", () => {
             threadId,
             status: "interrupted",
             providerName: "codex",
-            runtimeMode: "full-access",
             activeTurnId: null,
             lastError: null,
             updatedAt: stoppedAt,
@@ -483,7 +478,6 @@ describe("store event reducer", () => {
             threadId,
             status: "interrupted",
             providerName: "codex",
-            runtimeMode: "full-access",
             activeTurnId: null,
             lastError: null,
             updatedAt: startedAt,
@@ -1016,7 +1010,6 @@ describe("store event reducer", () => {
             threadId,
             status: "starting",
             providerName: "codex",
-            runtimeMode: DEFAULT_RUNTIME_MODE,
             activeTurnId: null,
             lastError: null,
             updatedAt: "2026-09-07T01:00:00.500Z",
@@ -1399,8 +1392,6 @@ describe("store event reducer", () => {
           folderId: FolderId.makeUnsafe("project-1"),
           title: "Second thread",
           modelSelection: { provider: "codex", model: "gpt-5.6-sol" },
-          runtimeMode: DEFAULT_RUNTIME_MODE,
-          sidebarSortOrder: 1,
           creationSource: null,
           sourceThreadId: null,
           subagentAgentId: null,
@@ -1470,7 +1461,6 @@ describe("store event reducer", () => {
           threadId: ThreadId.makeUnsafe("thread-1"),
           status: "error",
           providerName: "codex",
-          runtimeMode: "full-access",
           activeTurnId: null,
           lastError: "provider crashed",
           updatedAt: "2026-02-27T00:02:00.000Z",
@@ -1507,7 +1497,6 @@ describe("store event reducer", () => {
           threadId: ThreadId.makeUnsafe("thread-1"),
           status: "interrupted",
           providerName: "codex",
-          runtimeMode: "full-access",
           activeTurnId: TurnId.makeUnsafe("turn-running"),
           lastError: null,
           updatedAt: "2026-02-27T00:02:00.000Z",
@@ -1546,7 +1535,6 @@ describe("store event reducer", () => {
           threadId: ThreadId.makeUnsafe("thread-1"),
           status: "running",
           providerName: "codex",
-          runtimeMode: "full-access",
           activeTurnId: providerTurnId,
           lastError: null,
           updatedAt: "2026-02-27T00:02:00.000Z",
@@ -1622,7 +1610,6 @@ describe("store event reducer", () => {
             threadId,
             status: "ready",
             providerName: "codex",
-            runtimeMode: DEFAULT_RUNTIME_MODE,
             activeTurnId: null,
             lastError: null,
             updatedAt: "2026-02-27T00:01:03.100Z",
@@ -1679,7 +1666,6 @@ describe("store event reducer", () => {
           threadId,
           status,
           providerName: "codex",
-          runtimeMode: DEFAULT_RUNTIME_MODE,
           activeTurnId,
           lastError: status === "error" ? "provider crashed" : null,
           updatedAt: "2026-02-27T00:00:01.000Z",
@@ -1794,7 +1780,6 @@ describe("store event reducer", () => {
               threadId,
               status: "ready",
               providerName: provider,
-              runtimeMode: DEFAULT_RUNTIME_MODE,
               activeTurnId: null,
               lastError: null,
               updatedAt: "2026-09-11T09:10:20.236Z",
@@ -1875,7 +1860,6 @@ describe("store event reducer", () => {
             threadId: ThreadId.makeUnsafe("thread-1"),
             status,
             providerName: "codex",
-            runtimeMode: "full-access",
             activeTurnId: null,
             lastError: null,
             updatedAt: "2026-02-27T00:02:00.000Z",
@@ -2197,7 +2181,6 @@ describe("store event reducer", () => {
             threadId,
             status: "interrupted",
             providerName: "codex",
-            runtimeMode: "full-access",
             activeTurnId: null,
             lastError: null,
             updatedAt: completedAt,
@@ -2263,7 +2246,6 @@ describe("store event reducer", () => {
           threadId,
           status,
           providerName: "claudeAgent",
-          runtimeMode: "full-access",
           activeTurnId,
           lastError: null,
           updatedAt,
@@ -2352,7 +2334,7 @@ describe("store event reducer", () => {
   });
 
   it("adopts runtime mode from user-dispatched turns", () => {
-    const initialState = makeState(makeThread({ runtimeMode: "approval-required" }));
+    const initialState = makeState(makeThread({}));
 
     const next = applyOrchestrationEvents(initialState, [
       makeDomainEvent("thread.turn-start-requested", {
@@ -2365,7 +2347,7 @@ describe("store event reducer", () => {
       }),
     ]);
 
-    expect(threadsOf(next)[0]?.runtimeMode).toBe("full-access");
+    expect(threadsOf(next)[0]).not.toHaveProperty("runtimeMode");
   });
 
   it("does not truncate streamed assistant text when completion only carries the trailing chunk", () => {
@@ -3097,7 +3079,6 @@ describe("store event reducer", () => {
             threadId,
             status: "running",
             providerName: "codex",
-            runtimeMode: "full-access",
             activeTurnId: turnId,
             lastError: null,
             updatedAt: "2026-02-27T00:04:00.000Z",

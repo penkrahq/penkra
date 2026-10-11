@@ -324,12 +324,18 @@ it.live.skipIf(!process.env.CODEX_BINARY_PATH)(
           (entry) =>
             entry.session?.status === "ready" &&
             entry.session.providerName === "codex" &&
-            entry.session.runtimeMode === "approval-required" &&
             entry.messages.some(
               (message) => message.role === "assistant" && message.text.includes("BETA"),
             ),
           180_000,
         );
+        assert.equal(
+          (yield* harness.providerService.listSessions()).find(
+            (session) => session.threadId === THREAD_ID,
+          )?.runtimeMode,
+          "approval-required",
+        );
+
         assert.equal(secondThread.session?.threadId, "thread-1");
       }),
     ),

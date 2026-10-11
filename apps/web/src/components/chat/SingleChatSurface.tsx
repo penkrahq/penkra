@@ -1,3 +1,4 @@
+import { useThreadSummary } from "../../threadListStore";
 import type { DesktopAppTabDescriptor } from "@penkra/contracts";
 import { type FolderId, type ThreadId } from "@penkra/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
@@ -12,7 +13,7 @@ import {
 import { selectRightDockState, useRightDockStore } from "../../rightDockStore";
 import type { RightDockPane } from "../../rightDockStore.logic";
 import { useStore } from "../../store";
-import { createProjectSelector, createSidebarThreadSummariesSelector } from "../../storeSelectors";
+import { createProjectSelector } from "../../storeSelectors";
 import ChatView from "../ChatView";
 import { RouteInsetSurface } from "../RouteInsetSurface";
 import { IconButton } from "../ui/icon-button";
@@ -120,14 +121,13 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
   const activeProject = useStore(
     useMemo(() => createProjectSelector(props.folderId), [props.folderId]),
   );
-  const threadSummaries = useStore(useMemo(() => createSidebarThreadSummariesSelector(), []));
+  const threadSummary = useThreadSummary(props.threadId);
   const loadingAppPaneIdsRef = useRef(new Set<string>());
   const [confirmedAppPaneIds, setConfirmedAppPaneIds] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
   const currentSpaceId = resolveAppsLauncherSpaceId({
-    persistedSpaceId:
-      threadSummaries.find((thread) => thread.id === props.threadId)?.spaceId ?? null,
+    persistedSpaceId: threadSummary?.spaceId ?? null,
     draftSpaceId: draftThread?.spaceId ?? null,
     projectSpaceId: activeProject?.spaceId ?? null,
   });

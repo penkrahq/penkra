@@ -25,15 +25,13 @@ export function buildSidebarThreadRows(
   details: Readonly<Record<string, SidebarThreadSummary>>,
 ): readonly SidebarThreadRow[] {
   return rows.flatMap((row) => {
-    // The sidebar's folder lists contain assigned threads; unassigned rows are not folder members.
-    if (row.folderId === null || row.deletedAt !== null) return [];
+    if (row.deletedAt !== null) return [];
     const detail = details[row.id];
     return [
       {
         id: row.id,
         folderId: row.folderId,
-        // Display scope remains shell metadata; database scope is used only for page queries.
-        ...(detail?.spaceId === undefined ? {} : { spaceId: detail.spaceId }),
+        spaceId: row.spaceId,
         title: row.title,
         modelSelection: Schema.decodeUnknownSync(ModelSelection)({
           provider: row.provider,

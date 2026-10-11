@@ -29,6 +29,7 @@ const thread = {
 } as unknown as OrchestrationThread;
 const command = {
   type: "thread.turn.recover",
+  runtimeMode: "full-access",
   reason: "play",
   threadId,
   commandId: CommandId.makeUnsafe("a4ae8208-c6c1-4dbd-8ef9-375b58da97c5"),

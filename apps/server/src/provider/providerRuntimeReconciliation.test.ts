@@ -28,7 +28,6 @@ function threadShell(overrides: Partial<OrchestrationThreadShell> = {}): Orchest
     folderId: FolderId.makeUnsafe("project-reconcile"),
     title: "Runtime reconciliation",
     modelSelection: { provider: "codex", model: "gpt-5.6" },
-    runtimeMode: "full-access",
     creationSource: null,
     sourceThreadId: null,
     sourceTurnId: null,
@@ -52,7 +51,6 @@ function threadShell(overrides: Partial<OrchestrationThreadShell> = {}): Orchest
       threadId: THREAD_ID,
       status: "running",
       providerName: "codex",
-      runtimeMode: "full-access",
       activeTurnId: OLD_TURN_ID,
       lastError: null,
       updatedAt: "2026-07-23T20:00:00.000Z",
@@ -545,7 +543,6 @@ describe("planProviderRuntimeReconciliation", () => {
     thread: OrchestrationThreadShell,
   ): ReadonlyArray<unknown> => {
     const now = new Date(NOW).toISOString();
-    const runtimeMode = thread.session?.runtimeMode ?? thread.runtimeMode;
     const session: OrchestrationSession = {
       threadId: plan.threadId,
       status:
@@ -560,10 +557,6 @@ describe("planProviderRuntimeReconciliation", () => {
         plan.action === "settle-terminal-projection"
           ? plan.terminalSession.providerName
           : plan.provider,
-      runtimeMode:
-        plan.action === "settle-terminal-projection"
-          ? plan.terminalSession.runtimeMode
-          : runtimeMode,
       activeTurnId:
         plan.action === "align-running-turn"
           ? plan.runtimeTurnId

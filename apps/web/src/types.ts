@@ -148,11 +148,9 @@ export interface Thread {
   codexThreadId: string | null;
   folderId: FolderId;
   spaceId?: SpaceId | null;
-  sidebarSortOrder?: number;
   title: string;
   modelSelection: ModelSelection;
   connectionId?: ProviderConnectionId | null;
-  runtimeMode: RuntimeMode;
   session: ThreadSession | null;
   messages: ChatMessage[];
   queuedMessageIds?: MessageId[];
@@ -164,18 +162,14 @@ export interface Thread {
   updatedAt?: string | undefined;
   latestTurn: OrchestrationLatestTurn | null;
   pendingTurnStartMessageId?: MessageId | null;
-  lastVisitedAt?: string | undefined;
   creationSource?: ThreadCreationSource | null;
   sourceThreadId?: ThreadId | null;
   subagentAgentId?: string | null;
   subagentNickname?: string | null;
   subagentRole?: string | null;
-  latestUserMessageAt?: string | null;
   hasPendingApprovals?: boolean;
   hasPendingUserInput?: boolean;
   workStatus?: "idle" | "running" | "done" | "attention";
-  lastMessagePreview?: string | null;
-  lastActivityAt?: string | null;
   pendingInteractions?: OrchestrationPendingInteraction[];
   activities: OrchestrationThreadActivity[];
 }
@@ -186,11 +180,9 @@ export interface ThreadShell {
   codexThreadId: string | null;
   folderId: FolderId;
   spaceId?: SpaceId | null;
-  sidebarSortOrder?: number;
   title: string;
   modelSelection: ModelSelection;
   connectionId?: ProviderConnectionId | null;
-  runtimeMode: RuntimeMode;
   error: string | null;
   errorSource?: "delivery" | undefined;
   createdAt: string;
@@ -201,14 +193,10 @@ export interface ThreadShell {
   subagentAgentId?: string | null;
   subagentNickname?: string | null;
   subagentRole?: string | null;
-  latestUserMessageAt?: string | null;
   hasPendingApprovals?: boolean;
   hasPendingUserInput?: boolean;
   workStatus?: "idle" | "running" | "done" | "attention";
-  lastMessagePreview?: string | null;
-  lastActivityAt?: string | null;
   pendingInteractions?: OrchestrationPendingInteraction[];
-  lastVisitedAt?: string | undefined;
 }
 
 export interface ThreadTurnState {

@@ -11,12 +11,12 @@ import {
   type CleanCoreQueuedMessage,
   type CleanCoreCreateThreadInput,
   type CleanCoreThreadUpdate,
-  type OrchestrationThread,
+  type OrchestrationThread as ContractThread,
   EventId,
   MessageId,
   ORCHESTRATION_WS_METHODS,
   ProviderConnectionId,
-  type OrchestrationReadModel,
+  type OrchestrationReadModel as ContractReadModel,
   type OrchestrationEvent,
   type FolderId,
   type ServerConfig,
@@ -96,6 +96,18 @@ vi.mock("../lib/composerImageBlobStore", async (importOriginal) => {
       composerBlobReadHarness.override?.(key) ?? original.readComposerImageBlob(key),
   };
 });
+
+type OrchestrationThread = ContractThread & {
+  runtimeMode: import("@penkra/contracts").RuntimeMode;
+  sidebarSortOrder?: number;
+  lastActivityAt?: string | null;
+  lastMessagePreview?: string | null;
+  latestUserMessageAt?: string | null;
+  lastVisitedAt?: string | null;
+};
+type OrchestrationReadModel = Omit<ContractReadModel, "threads"> & {
+  threads: readonly OrchestrationThread[];
+};
 
 const THREAD_ID = "thread-browser-test" as ThreadId;
 const OTHER_THREAD_ID = "thread-browser-test-other" as ThreadId;
@@ -379,7 +391,6 @@ function createSnapshotForTargetUser(options: {
           threadId: THREAD_ID,
           status: options.sessionStatus ?? "ready",
           providerName: "codex",
-          runtimeMode: "full-access",
           activeTurnId: null,
           lastError: null,
           updatedAt: NOW_ISO,
@@ -639,7 +650,6 @@ function publishThreadToFixture(): void {
                       threadId: stored.id,
                       providerName: stored.session.provider,
                       status: stored.session.orchestrationStatus,
-                      runtimeMode: stored.runtimeMode,
                       activeTurnId: stored.session.activeTurnId ?? null,
                       lastError: stored.session.lastError ?? null,
                       updatedAt: stored.session.updatedAt,
@@ -711,7 +721,6 @@ function addThreadToSnapshot(
           threadId,
           status: "ready",
           providerName: "codex",
-          runtimeMode: "full-access",
           activeTurnId: null,
           lastError: null,
           updatedAt: NOW_ISO,
@@ -1724,7 +1733,7 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
             case "runtimeMode":
               return {
                 ...thread,
-                runtimeMode: input.runtimeMode as OrchestrationThread["runtimeMode"],
+                runtimeMode: input.runtimeMode as import("@penkra/contracts").RuntimeMode,
                 updatedAt: input.updatedAt,
               };
             default:
@@ -2899,7 +2908,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
             threadId: THREAD_ID,
             status,
             providerName: "claudeAgent",
-            runtimeMode: "full-access",
             activeTurnId,
             lastError: null,
             updatedAt,
@@ -3465,7 +3473,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
                               threadId: id,
                               providerName: thread.session.provider,
                               status: thread.session.orchestrationStatus,
-                              runtimeMode: thread.runtimeMode,
                               activeTurnId: thread.session.activeTurnId ?? null,
                               lastError: thread.session.lastError ?? null,
                               updatedAt: thread.session.updatedAt,
@@ -4337,7 +4344,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
               threadId: THREAD_ID,
               status: "interrupted",
               providerName: "codex",
-              runtimeMode: "full-access",
               activeTurnId: null,
               lastError: null,
               updatedAt: completedAt,

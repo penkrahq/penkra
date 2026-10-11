@@ -12,9 +12,9 @@ import {
   TurnId,
   type OrchestrationEvent,
   type OrchestrationGetThreadTurnsPageResult,
-  type OrchestrationReadModel,
+  type OrchestrationReadModel as ContractReadModel,
   type OrchestrationSyncStreamItem,
-  type OrchestrationThread,
+  type OrchestrationThread as ContractThread,
   type ModelSelection,
   type ServerConfig,
   type WsWelcomePayload,
@@ -48,6 +48,18 @@ import { getThreadFromState } from "../threadDerivation";
 import { makeActivity } from "../storeTestFixtures";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
 import { resetWsNativeApiForTest } from "../wsNativeApi";
+
+type OrchestrationThread = ContractThread & {
+  runtimeMode: import("@penkra/contracts").RuntimeMode;
+  sidebarSortOrder?: number;
+  lastActivityAt?: string | null;
+  lastMessagePreview?: string | null;
+  latestUserMessageAt?: string | null;
+  lastVisitedAt?: string | null;
+};
+type OrchestrationReadModel = Omit<ContractReadModel, "threads"> & {
+  threads: readonly OrchestrationThread[];
+};
 
 const THREAD_ID = ThreadId.makeUnsafe("thread-root-browser-test");
 const OTHER_THREAD_ID = ThreadId.makeUnsafe("thread-other-browser-test");
@@ -123,7 +135,6 @@ function createThread(input: {
       threadId: input.id,
       status: "ready",
       providerName: "codex",
-      runtimeMode: "full-access",
       activeTurnId: null,
       lastError: null,
       updatedAt: NOW_ISO,

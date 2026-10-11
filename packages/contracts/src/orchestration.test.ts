@@ -170,6 +170,7 @@ it.effect("allows client Play recovery while keeping restart recovery server-onl
   Effect.gen(function* () {
     const command = {
       type: "thread.turn.recover",
+      runtimeMode: "full-access",
       reason: "play",
       commandId: "cmd-play",
       threadId: "thread-1",
@@ -584,7 +585,7 @@ it.effect("decodes thread.turn-start-requested defaults for provider and runtime
   }),
 );
 
-it.effect("decodes orchestration session runtime mode defaults", () =>
+it.effect("keeps preferred runtime mode out of orchestration sessions", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeOrchestrationSession({
       threadId: "thread-1",
@@ -596,7 +597,7 @@ it.effect("decodes orchestration session runtime mode defaults", () =>
       lastError: null,
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
-    assert.strictEqual(parsed.runtimeMode, DEFAULT_RUNTIME_MODE);
+    assert.strictEqual(Object.hasOwn(parsed, "runtimeMode"), false);
   }),
 );
 

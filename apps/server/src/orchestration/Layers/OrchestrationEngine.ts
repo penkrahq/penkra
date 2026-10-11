@@ -1,3 +1,5 @@
+import { findThread } from "../../cleanCore/threadList.ts";
+import { RuntimeMode } from "@penkra/contracts";
 import type {
   ChatAttachment,
   OrchestrationEvent,
@@ -819,6 +821,24 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         command = {
           ...startCommand,
           message: { ...startCommand.message, attachments },
+        };
+      }
+
+      if (command.type === "thread.turn.recover") {
+        const row = yield* findThread(command.threadId).pipe(
+          Effect.provideService(SqlClient.SqlClient, sql),
+          Effect.mapError(toPersistenceSqlError("OrchestrationEngine.recoveryThread")),
+        );
+        if (row === null)
+          return yield* Effect.fail(
+            new OrchestrationCommandInvariantError({
+              commandType: command.type,
+              detail: `Thread '${command.threadId}' was not found.`,
+            }),
+          );
+        command = {
+          ...command,
+          runtimeMode: Schema.decodeUnknownSync(RuntimeMode)(row.runtimeMode),
         };
       }
 

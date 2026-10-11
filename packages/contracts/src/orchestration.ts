@@ -437,7 +437,6 @@ export const OrchestrationSession = Schema.Struct({
   threadId: ThreadId,
   status: OrchestrationSessionStatus,
   providerName: Schema.NullOr(TrimmedNonEmptyString),
-  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
   activeTurnId: Schema.NullOr(TurnId),
   lastError: Schema.NullOr(TrimmedNonEmptyString),
   updatedAt: IsoDateTime,
@@ -520,12 +519,10 @@ export type OrchestrationPendingInteraction = typeof OrchestrationPendingInterac
 export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
   folderId: FolderId,
-  sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   /** Thread's current preferred Connection; null means anonymous route. */
   connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
-  runtimeMode: RuntimeMode,
   creationSource: Schema.optional(Schema.NullOr(ThreadCreationSource)).pipe(
     Schema.withDecodingDefault(() => null),
   ),
@@ -552,13 +549,9 @@ export const OrchestrationThread = Schema.Struct({
   pendingTurnStartMessageId: Schema.optional(Schema.NullOr(MessageId)).pipe(
     Schema.withDecodingDefault(() => null),
   ),
-  latestUserMessageAt: Schema.optional(Schema.NullOr(IsoDateTime)),
-  lastVisitedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   hasPendingApprovals: Schema.optional(Schema.Boolean),
   hasPendingUserInput: Schema.optional(Schema.Boolean),
   workStatus: Schema.optional(Schema.Literals(["idle", "running", "done", "attention"])),
-  lastMessagePreview: Schema.optional(Schema.NullOr(Schema.String)),
-  lastActivityAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)).pipe(
@@ -578,11 +571,9 @@ export type OrchestrationThread = typeof OrchestrationThread.Type;
 export const OrchestrationThreadShell = Schema.Struct({
   id: ThreadId,
   folderId: FolderId,
-  sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
-  runtimeMode: RuntimeMode,
   creationSource: Schema.optional(Schema.NullOr(ThreadCreationSource)).pipe(
     Schema.withDecodingDefault(() => null),
   ),
@@ -606,13 +597,9 @@ export const OrchestrationThreadShell = Schema.Struct({
     Schema.withDecodingDefault(() => null),
   ),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
-  latestUserMessageAt: Schema.optional(Schema.NullOr(IsoDateTime)),
-  lastVisitedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   hasPendingApprovals: Schema.optional(Schema.Boolean),
   hasPendingUserInput: Schema.optional(Schema.Boolean),
   workStatus: Schema.optional(Schema.Literals(["idle", "running", "done", "attention"])),
-  lastMessagePreview: Schema.optional(Schema.NullOr(Schema.String)),
-  lastActivityAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)).pipe(
@@ -936,6 +923,7 @@ const ThreadTurnRecoverCommand = Schema.Struct({
   interruptedTurnId: Schema.optional(TurnId),
   connectionId: Schema.NullOr(ProviderConnectionId),
   bindingRevision: NonNegativeInt,
+  runtimeMode: RuntimeMode,
   createdAt: IsoDateTime,
 });
 

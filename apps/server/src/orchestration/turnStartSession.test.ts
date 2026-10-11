@@ -11,7 +11,6 @@ function makeSession(status: OrchestrationSession["status"]): OrchestrationSessi
     threadId: THREAD_ID,
     status,
     providerName: "codex",
-    runtimeMode: "approval-required",
     activeTurnId: null,
     lastError: status === "error" ? "runtime exploded" : null,
     updatedAt: "2026-07-20T00:00:00.000Z",
@@ -23,7 +22,6 @@ function derive(currentSession: OrchestrationSession | null) {
     threadId: THREAD_ID,
     currentSession,
     providerName: "opencode",
-    requestedRuntimeMode: "full-access",
     requestedAt: REQUESTED_AT,
   });
 }
@@ -34,18 +32,16 @@ describe("deriveTurnStartSession", () => {
       threadId: THREAD_ID,
       status: "starting",
       providerName: "opencode",
-      runtimeMode: "full-access",
       activeTurnId: null,
       lastError: null,
       updatedAt: REQUESTED_AT,
     });
   });
 
-  it("preserves established provider settings when restarting an idle session", () => {
+  it("preserves the established provider when restarting an idle session", () => {
     expect(derive(makeSession("ready"))).toMatchObject({
       status: "starting",
       providerName: "codex",
-      runtimeMode: "approval-required",
       activeTurnId: null,
       lastError: null,
     });

@@ -1,4 +1,7 @@
-import { type FolderId, ThreadId } from "@penkra/contracts";
+import { Schema } from "effect";
+import { RuntimeMode } from "@penkra/contracts";
+import { getThreadListById } from "../threadListStore";
+import { ProviderKind, type FolderId, ThreadId } from "@penkra/contracts";
 import { getDefaultModel } from "@penkra/shared/model";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { startTransition } from "react";
@@ -130,7 +133,23 @@ export function useHandleNewThread() {
     const projectDefaultModelSelection =
       useStore.getState().folders.find((project) => project.id === folderId)
         ?.defaultModelSelection ?? null;
-    const activeThreadSnapshot = createActiveThreadSnapshot(activeThread, folderId);
+    const activeRow = focusedThreadId ? getThreadListById().get(focusedThreadId) : undefined;
+    const activeThreadSnapshot = createActiveThreadSnapshot(
+      activeRow === undefined
+        ? null
+        : {
+            folderId: activeRow.folderId,
+            modelSelection: {
+              provider: Schema.decodeUnknownSync(ProviderKind)(activeRow.provider),
+              model: activeRow.model,
+              ...(activeRow.modelOptions === null
+                ? {}
+                : { options: JSON.parse(activeRow.modelOptions) }),
+            },
+            runtimeMode: Schema.decodeUnknownSync(RuntimeMode)(activeRow.runtimeMode),
+          },
+      folderId,
+    );
     const activeDraftThreadSnapshot = createActiveDraftThreadSnapshot(activeDraftThread, folderId);
     const resolveCreationState = (
       targetThreadId: ThreadId,

@@ -2,10 +2,12 @@
 // Purpose: Stable Zustand selectors for entity lookups and lightweight sidebar projections.
 // Exports: Selector factories used by routes and sidebar-heavy components.
 
+import { Schema } from "effect";
+import { ProviderKind, type CleanCoreThreadSummary } from "@penkra/contracts";
+
 import type { FolderId, ThreadId } from "@penkra/contracts";
 
 import type { AppState } from "./storeState";
-import { resolveThreadDisplayProvider } from "./lib/threadDisplayProvider";
 import { collectByIds, getThreadFromState, getThreadsFromState } from "./threadDerivation";
 import type {
   ComposerThreadMentionSource,
@@ -153,83 +155,26 @@ export function isPersistedThreadOpenable(
   return shell !== undefined && shell.archivedAt == null;
 }
 
-export function createSidebarThreadSummariesSelector(): (
-  state: AppState,
-) => readonly SidebarThreadSummary[] {
-  let previousThreadIds: readonly ThreadId[] | undefined;
-  let previousSummaryById: Record<string, SidebarThreadSummary> | undefined;
-  let previousSummaries: readonly SidebarThreadSummary[] = [];
-
-  return (state) => {
-    const threadIds = state.threadIds;
-    if (threadIds === previousThreadIds && state.sidebarThreadSummaryById === previousSummaryById) {
-      return previousSummaries;
-    }
-
-    previousThreadIds = threadIds;
-    previousSummaryById = state.sidebarThreadSummaryById;
-    previousSummaries = (threadIds ?? []).flatMap((threadId) => {
-      const summary = state.sidebarThreadSummaryById[threadId];
-      return summary ? [summary] : [];
-    });
-    return previousSummaries;
-  };
-}
-
 export function createComposerThreadMentionSourcesSelector(): (
-  state: AppState,
+  rows: readonly CleanCoreThreadSummary[],
 ) => readonly ComposerThreadMentionSource[] {
-  let previousThreadIds: AppState["threadIds"] | undefined;
-  let previousSummaryById: AppState["threadShellById"] | undefined;
+  let previousRows: readonly CleanCoreThreadSummary[] | undefined;
   let previousSources: readonly ComposerThreadMentionSource[] = [];
-
-  return (state) => {
-    const threadIds = state.threadIds;
-    const summaryById = state.threadShellById;
-    if (threadIds === previousThreadIds && summaryById === previousSummaryById) {
-      return previousSources;
-    }
-    previousThreadIds = threadIds;
-    previousSummaryById = summaryById;
-
-    const nextSources = (threadIds ?? []).flatMap((threadId) => {
-      const thread = summaryById?.[threadId];
-      return thread
-        ? [
-            {
-              id: thread.id,
-              folderId: thread.folderId,
-              title: thread.title,
-              provider: resolveThreadDisplayProvider(thread),
-              createdAt: thread.createdAt,
-              latestUserMessageAt: thread.latestUserMessageAt ?? null,
-              ...(thread.archivedAt !== undefined ? { archivedAt: thread.archivedAt } : {}),
-              ...(thread.lastVisitedAt !== undefined
-                ? { lastVisitedAt: thread.lastVisitedAt }
-                : {}),
-            } satisfies ComposerThreadMentionSource,
-          ]
-        : [];
-    });
-    if (
-      nextSources.length === previousSources.length &&
-      nextSources.every((source, index) => {
-        const previous = previousSources[index];
-        return (
-          source.id === previous?.id &&
-          source.folderId === previous.folderId &&
-          source.title === previous.title &&
-          source.provider === previous.provider &&
-          source.createdAt === previous.createdAt &&
-          source.archivedAt === previous.archivedAt &&
-          source.lastVisitedAt === previous.lastVisitedAt &&
-          source.latestUserMessageAt === previous.latestUserMessageAt
-        );
-      })
-    ) {
-      return previousSources;
-    }
-    previousSources = nextSources;
+  return (rows) => {
+    if (rows === previousRows) return previousSources;
+    previousRows = rows;
+    previousSources = rows
+      .filter((row) => row.deletedAt === null)
+      .map((row) => ({
+        id: row.id,
+        folderId: row.folderId,
+        title: row.title,
+        provider: Schema.decodeUnknownSync(ProviderKind)(row.provider),
+        createdAt: row.createdAt,
+        archivedAt: row.archivedAt,
+        latestUserMessageAt: row.lastUserMessageAt,
+        lastVisitedAt: row.lastVisitedAt === null ? undefined : row.lastVisitedAt,
+      }));
     return previousSources;
   };
 }

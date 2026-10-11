@@ -1,19 +1,12 @@
 // FILE: store.test.ts
 // Purpose: Exercises the public store facade, persistence, and simple UI actions.
 
-import {
-  FolderId,
-  SpaceId,
-  ThreadId,
-  TurnId,
-  type OrchestrationReadModel,
-} from "@penkra/contracts";
+import { FolderId, SpaceId, ThreadId, type OrchestrationReadModel } from "@penkra/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import {
   applySpaceOrder,
   collapseFoldersExcept,
-  markThreadUnread,
   renameProjectLocally,
   reorderFolders,
   setAllFoldersExpanded,
@@ -28,7 +21,6 @@ import {
   makeReadModelThread,
   makeReadModel,
   makeReadModelProject,
-  threadsOf,
 } from "./storeTestFixtures";
 
 describe("store facade", () => {
@@ -88,45 +80,6 @@ describe("store facade", () => {
 
     expect(reordered.spaces.map((space) => space.id)).toEqual([sideSpaceId, workSpaceId]);
     expect(reordered.spaces.map((space) => space.sortOrder)).toEqual([0, 1]);
-  });
-
-  it("markThreadUnread moves lastVisitedAt before completion for a completed thread", () => {
-    const latestTurnCompletedAt = "2026-02-25T12:30:00.000Z";
-    const initialState = makeState(
-      makeThread({
-        latestTurn: {
-          turnId: TurnId.makeUnsafe("turn-1"),
-          state: "completed",
-          requestedAt: "2026-02-25T12:28:00.000Z",
-          startedAt: "2026-02-25T12:28:30.000Z",
-          completedAt: latestTurnCompletedAt,
-          assistantMessageId: null,
-        },
-        lastVisitedAt: "2026-02-25T12:35:00.000Z",
-      }),
-    );
-
-    const next = markThreadUnread(initialState, ThreadId.makeUnsafe("thread-1"));
-
-    const updatedThread = threadsOf(next)[0];
-    expect(updatedThread).toBeDefined();
-    expect(updatedThread?.lastVisitedAt).toBe("2026-02-25T12:29:59.999Z");
-    expect(Date.parse(updatedThread?.lastVisitedAt ?? "")).toBeLessThan(
-      Date.parse(latestTurnCompletedAt),
-    );
-  });
-
-  it("markThreadUnread does not change a thread without a completed turn", () => {
-    const initialState = makeState(
-      makeThread({
-        latestTurn: null,
-        lastVisitedAt: "2026-02-25T12:35:00.000Z",
-      }),
-    );
-
-    const next = markThreadUnread(initialState, ThreadId.makeUnsafe("thread-1"));
-
-    expect(next).toEqual(initialState);
   });
 
   it("reorderFolders moves a project to a target index", () => {

@@ -417,13 +417,11 @@ export function buildLocalDraftThread(
     spaceId: draftThread.spaceId ?? null,
     title: draftThread.entryPoint === "terminal" ? "New terminal" : "New thread",
     modelSelection: fallbackModelSelection,
-    runtimeMode: draftThread.runtimeMode,
     session: null,
     messages: [],
     error,
     createdAt: draftThread.createdAt,
     latestTurn: null,
-    lastVisitedAt: draftThread.createdAt,
     activities: [],
   };
 }

@@ -544,7 +544,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           assistantDeliveryMode: DEFAULT_ASSISTANT_DELIVERY_MODE,
           dispatchMode: "queue",
           dispatchOrigin: "automation",
-          runtimeMode: thread.runtimeMode,
+          runtimeMode: command.runtimeMode,
           createdAt: command.createdAt,
         },
       };

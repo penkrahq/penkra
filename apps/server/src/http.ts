@@ -1,3 +1,6 @@
+import { toPersistenceSqlError } from "./persistence/Errors.ts";
+import { RuntimeMode } from "@penkra/contracts";
+import { ThreadLifecycle } from "./cleanCore/threadLifecycle.ts";
 import nodePath from "node:path";
 
 import Mime from "@effect/platform-node/Mime";
@@ -737,6 +740,13 @@ const threadExportEffectRouteLayer = HttpRouter.add(
     if (Option.isNone(threadOption))
       return HttpServerResponse.text("Not Found", { status: 404, headers: corsHeaders });
     const thread = threadOption.value;
+    const lifecycle = yield* ThreadLifecycle;
+    const canonical = yield* lifecycle
+      .get(thread.id)
+      .pipe(Effect.mapError(toPersistenceSqlError("thread.export.canonical")));
+    if (canonical === null)
+      return HttpServerResponse.text("Not Found", { status: 404, headers: corsHeaders });
+    const runtimeMode = Schema.decodeUnknownSync(RuntimeMode)(canonical.runtimeMode);
 
     const blockedReason = threadExportBlockedReason(thread);
     if (blockedReason !== null) {
@@ -745,7 +755,7 @@ const threadExportEffectRouteLayer = HttpRouter.add(
 
     const fileName = threadArchiveFileName({ title: thread.title, isoTimestamp: thread.updatedAt });
     return HttpServerResponse.stream(
-      Stream.fromAsyncIterable(threadArchiveChunks(thread), (cause) => cause),
+      Stream.fromAsyncIterable(threadArchiveChunks(thread, runtimeMode), (cause) => cause),
       {
         status: 200,
         contentType: "application/zip",

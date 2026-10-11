@@ -1,10 +1,11 @@
+import { RuntimeMode } from "@penkra/contracts";
 import { getThread } from "../../cleanCore/threadList.ts";
 import type { ProviderKind } from "@penkra/contracts";
 import { ApprovalRequestId, CommandId, TurnId, type OrchestrationEvent } from "@penkra/contracts";
 import { isPendingInteractionNotFoundFailure } from "@penkra/shared/threadSummary";
 import { shouldInterruptProvisionalCompletion } from "@penkra/shared/turnContinuation";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { Effect, FileSystem, Layer, Option, Path, Stream } from "effect";
+import { Effect, FileSystem, Layer, Option, Path, Schema, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import {
@@ -750,11 +751,13 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             threadId: event.payload.threadId,
             currentSession: Option.getOrNull(currentSession),
             providerName: thread.provider as ProviderKind,
-            requestedRuntimeMode: event.payload.runtimeMode,
             requestedAt: event.payload.createdAt,
           });
           if (turnStartSession !== null) {
-            yield* projectionThreadSessionRepository.upsert(turnStartSession);
+            yield* projectionThreadSessionRepository.upsert({
+              ...turnStartSession,
+              runtimeMode: event.payload.runtimeMode,
+            });
           }
           yield* sql`
             INSERT INTO restart_turn_recoveries (
@@ -850,11 +853,15 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
                 });
               }
             }
+            const canonical = yield* getThread(event.payload.threadId).pipe(
+              Effect.provideService(SqlClient.SqlClient, sql),
+              Effect.mapError(toPersistenceSqlError("ProjectionPipeline.sessionThread:query")),
+            );
             yield* projectionThreadSessionRepository.upsert({
               threadId: event.payload.threadId,
               status: event.payload.session.status,
               providerName: event.payload.session.providerName,
-              runtimeMode: event.payload.session.runtimeMode,
+              runtimeMode: Schema.decodeUnknownSync(RuntimeMode)(canonical.runtimeMode),
               activeTurnId: event.payload.session.activeTurnId,
               lastError: event.payload.session.lastError,
               updatedAt: event.payload.session.updatedAt,

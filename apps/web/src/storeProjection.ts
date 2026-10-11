@@ -74,11 +74,9 @@ function toThreadShell(thread: Thread): ThreadShell {
     codexThreadId: thread.codexThreadId,
     folderId: thread.folderId,
     spaceId: thread.spaceId ?? null,
-    sidebarSortOrder: thread.sidebarSortOrder ?? 0,
     title: thread.title,
     modelSelection: thread.modelSelection,
     ...(thread.connectionId !== undefined ? { connectionId: thread.connectionId } : {}),
-    runtimeMode: thread.runtimeMode,
     error: thread.error,
     ...(thread.errorSource !== undefined ? { errorSource: thread.errorSource } : {}),
     createdAt: thread.createdAt,
@@ -89,9 +87,6 @@ function toThreadShell(thread: Thread): ThreadShell {
     subagentAgentId: thread.subagentAgentId ?? null,
     subagentNickname: thread.subagentNickname ?? null,
     subagentRole: thread.subagentRole ?? null,
-    ...(thread.latestUserMessageAt !== undefined
-      ? { latestUserMessageAt: thread.latestUserMessageAt }
-      : {}),
     ...(thread.hasPendingApprovals !== undefined
       ? { hasPendingApprovals: thread.hasPendingApprovals }
       : {}),
@@ -99,14 +94,9 @@ function toThreadShell(thread: Thread): ThreadShell {
       ? { hasPendingUserInput: thread.hasPendingUserInput }
       : {}),
     ...(thread.workStatus !== undefined ? { workStatus: thread.workStatus } : {}),
-    ...(thread.lastMessagePreview !== undefined
-      ? { lastMessagePreview: thread.lastMessagePreview }
-      : {}),
-    ...(thread.lastActivityAt !== undefined ? { lastActivityAt: thread.lastActivityAt } : {}),
     ...(thread.pendingInteractions !== undefined
       ? { pendingInteractions: thread.pendingInteractions }
       : {}),
-    ...(thread.lastVisitedAt !== undefined ? { lastVisitedAt: thread.lastVisitedAt } : {}),
   };
 }
 function toThreadTurnState(thread: Thread): ThreadTurnState {
@@ -1072,7 +1062,7 @@ function commitThreadProjection(
 
 function deriveThreadStateSignals(
   thread: Thread,
-): Pick<Thread, "latestUserMessageAt" | "hasPendingApprovals" | "hasPendingUserInput"> {
+): Pick<Thread, "hasPendingApprovals" | "hasPendingUserInput"> {
   const metadata = deriveThreadSummaryMetadata({
     messages: thread.messages,
     activities: thread.activities,
@@ -1081,7 +1071,6 @@ function deriveThreadStateSignals(
     (interaction) => interaction.status === "pending" || interaction.status === "retryable",
   );
   return {
-    latestUserMessageAt: metadata.latestUserMessageAt,
     hasPendingApprovals:
       actionableInteractions?.some((interaction) => interaction.interactionKind === "approval") ??
       metadata.hasPendingApprovals,
@@ -1094,7 +1083,6 @@ function deriveThreadStateSignals(
 function withDerivedThreadStateSignals(thread: Thread): Thread {
   const nextSignals = deriveThreadStateSignals(thread);
   if (
-    thread.latestUserMessageAt === nextSignals.latestUserMessageAt &&
     thread.hasPendingApprovals === nextSignals.hasPendingApprovals &&
     thread.hasPendingUserInput === nextSignals.hasPendingUserInput
   ) {

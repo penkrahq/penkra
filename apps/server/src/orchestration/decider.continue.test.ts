@@ -48,6 +48,7 @@ function play(thread: OrchestrationThread, expectedTurnId = turnId) {
     readModel: { ...createEmptyReadModel(now), threads: [thread] },
     command: {
       type: "thread.turn.recover",
+      runtimeMode: "full-access",
       reason: "play",
       commandId: CommandId.makeUnsafe("continue-command"),
       threadId,
@@ -151,6 +152,7 @@ describe("archived thread admission", () => {
     async (reason) => {
       const command: OrchestrationCommand = {
         type: "thread.turn.recover",
+        runtimeMode: "full-access",
         ...base,
         reason,
         turnId,

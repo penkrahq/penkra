@@ -359,7 +359,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
       const commandThread = commandModel.threads[0];
       assert.isDefined(commandThread);
-      assert.equal(commandThread.latestUserMessageAt, "2026-02-24T00:00:03.500Z");
+      assert.notProperty(commandThread, "latestUserMessageAt");
       assert.equal(commandThread.hasPendingApprovals, false);
       assert.equal(commandThread.hasPendingUserInput, true);
       assert.deepEqual(commandThread.messages, []);
@@ -404,8 +404,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             provider: "codex",
             model: "gpt-5-codex",
           },
-          runtimeMode: "full-access",
-          sidebarSortOrder: 0,
           creationSource: null,
           sourceThreadId: null,
           sourceTurnId: null,
@@ -414,12 +412,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           subagentAgentId: null,
           subagentNickname: null,
           subagentRole: null,
-          latestUserMessageAt: "2026-02-24T00:00:03.500Z",
           hasPendingApprovals: true,
           hasPendingUserInput: true,
           workStatus: "attention",
-          lastMessagePreview: "hello from projection",
-          lastActivityAt: "2026-02-24T00:00:06.750Z",
           latestTurn: {
             turnId: asTurnId("turn-1"),
             providerTurnId: asTurnId("provider-turn-1"),
@@ -501,7 +496,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             threadId: ThreadId.makeUnsafe("thread-1"),
             status: "running",
             providerName: "codex",
-            runtimeMode: "approval-required",
             activeTurnId: asTurnId("turn-1"),
             lastError: null,
             updatedAt: "2026-02-24T00:00:07.000Z",
@@ -1474,8 +1468,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             provider: "codex",
             model: "gpt-5-codex",
           },
-          runtimeMode: "full-access",
-          sidebarSortOrder: 0,
           creationSource: null,
           sourceThreadId: null,
           sourceTurnId: null,
@@ -1492,12 +1484,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             completedAt: "2026-03-03T00:00:05.000Z",
             assistantMessageId: null,
           },
-          latestUserMessageAt: "2026-03-03T00:00:02.500Z",
           hasPendingApprovals: false,
           hasPendingUserInput: true,
           workStatus: "attention",
-          lastMessagePreview: null,
-          lastActivityAt: null,
           createdAt: "2026-03-03T00:00:02.000Z",
           updatedAt: "2026-03-03T00:00:03.000Z",
           archivedAt: null,
@@ -1505,7 +1494,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             threadId: ThreadId.makeUnsafe("thread-shell"),
             status: "ready",
             providerName: "codex",
-            runtimeMode: "full-access",
             activeTurnId: null,
             lastError: null,
             updatedAt: "2026-03-03T00:00:04.000Z",

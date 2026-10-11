@@ -367,7 +367,6 @@ export default function Sidebar() {
     }
   }, [spaces, folders]);
   const markThreadVisited = useStore((store) => store.markThreadVisited);
-  const markThreadUnread = useStore((store) => store.markThreadUnread);
   const persistThreadVisit = useCallback(
     (threadId: ThreadId, lastVisitedAt: string) => {
       void markThreadVisited(threadId, lastVisitedAt).catch((error: unknown) => {
@@ -1116,9 +1115,6 @@ export default function Sidebar() {
         const completedAtMs = Date.parse(thread.latestTurn?.completedAt ?? "");
         if (!Number.isNaN(completedAtMs)) {
           deferThreadReadAcknowledgementIfActive(threadId, activeSidebarThreadId);
-        }
-        markThreadUnread(threadId);
-        if (!Number.isNaN(completedAtMs)) {
           persistThreadVisit(threadId, new Date(completedAtMs - 1).toISOString());
         }
         return;
@@ -1161,7 +1157,6 @@ export default function Sidebar() {
       copyThreadIdToClipboard,
       clearDismissedThreadStatus,
       clearThreadNotification,
-      markThreadUnread,
       activeSidebarThreadId,
       persistThreadVisit,
       openThreadInlineRename,
@@ -1205,9 +1200,6 @@ export default function Sidebar() {
           const completedAtMs = Date.parse(completedAt ?? "");
           if (!Number.isNaN(completedAtMs)) {
             deferThreadReadAcknowledgementIfActive(id, activeSidebarThreadId);
-          }
-          markThreadUnread(id);
-          if (!Number.isNaN(completedAtMs)) {
             persistThreadVisit(id, new Date(completedAtMs - 1).toISOString());
           }
         }
@@ -1232,7 +1224,6 @@ export default function Sidebar() {
       archiveThread,
       clearSelection,
       clearDismissedThreadStatus,
-      markThreadUnread,
       activeSidebarThreadId,
       persistThreadVisit,
       removeFromSelection,

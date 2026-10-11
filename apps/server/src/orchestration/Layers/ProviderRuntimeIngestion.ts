@@ -1830,7 +1830,6 @@ const make = Effect.gen(function* () {
                 threadId: thread.id,
                 status,
                 providerName: event.provider,
-                runtimeMode: thread.session?.runtimeMode ?? "full-access",
                 activeTurnId: nextActiveTurnId,
                 lastError,
                 updatedAt: now,
@@ -1872,7 +1871,7 @@ const make = Effect.gen(function* () {
 
       if (event.type === "user-input.resolved") {
         const inferredRuntimeMode = inferRuntimeModeFromUserInputAnswers(event.payload.answers);
-        if (inferredRuntimeMode && inferredRuntimeMode !== thread.runtimeMode) {
+        if (inferredRuntimeMode) {
           if (
             yield* setThreadRuntimeMode({
               threadId: thread.id,
@@ -2064,7 +2063,6 @@ const make = Effect.gen(function* () {
                 threadId: thread.id,
                 status: "error",
                 providerName: event.provider,
-                runtimeMode: thread.session?.runtimeMode ?? "full-access",
                 activeTurnId: eventTurnId ?? null,
                 lastError: authFailure
                   ? `${authFailure.summary}\nProvider detail: ${authFailure.detail}`

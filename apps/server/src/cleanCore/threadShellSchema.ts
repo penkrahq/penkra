@@ -4,7 +4,6 @@ import {
   ProviderConnectionId,
   NonNegativeInt,
   FolderId,
-  RuntimeMode,
   ThreadId,
   TurnId,
 } from "@penkra/contracts";
@@ -16,8 +15,6 @@ export const ProjectionThread = Schema.Struct({
   title: Schema.String,
   modelSelection: ModelSelection,
   connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
-  runtimeMode: RuntimeMode,
-  sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   creationSource: Schema.optional(
     Schema.NullOr(Schema.Literals(["penkra_mcp", "provider_native"])),
   ).pipe(Schema.withDecodingDefault(() => null)),
@@ -35,20 +32,10 @@ export const ProjectionThread = Schema.Struct({
   subagentNickname: Schema.optional(Schema.NullOr(Schema.String)),
   subagentRole: Schema.optional(Schema.NullOr(Schema.String)),
   latestTurnId: Schema.NullOr(TurnId),
-  latestUserMessageAt: Schema.NullOr(IsoDateTime),
-  lastVisitedAt: Schema.optional(Schema.NullOr(IsoDateTime)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
   pendingApprovalCount: NonNegativeInt,
   pendingUserInputCount: NonNegativeInt,
   workStatus: Schema.optional(Schema.Literals(["idle", "running", "done", "attention"])).pipe(
     Schema.withDecodingDefault(() => "idle" as const),
-  ),
-  lastMessagePreview: Schema.optional(Schema.NullOr(Schema.String)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
-  lastActivityAt: Schema.optional(Schema.NullOr(IsoDateTime)).pipe(
-    Schema.withDecodingDefault(() => null),
   ),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,

@@ -1,6 +1,9 @@
 // FILE: ProviderThreadSwitchCoordinator.ts
 // Purpose: Crash-recoverable interrupt, verify, and atomic switch admission saga.
 
+import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { findThread } from "../../cleanCore/threadList.ts";
+
 import {
   OrchestrationCommand,
   ProviderNativeStateGenerationId,
@@ -97,6 +100,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
   const threadBindings = yield* ThreadProviderBindingRepository;
   const provider = yield* ProviderService;
   const projections = yield* ProjectionSnapshotQuery;
+  const sql = yield* SqlClient.SqlClient;
   const launches = yield* ProviderLaunchResolver;
   const resolver = yield* ProviderTurnSelectionResolver;
   const verifier = yield* ProviderNativeContinuationVerifier;
@@ -766,9 +770,13 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           .getThreadShellById(input.command.threadId)
           .pipe(mapOperationError("Could not inspect the new thread before provider admission."));
         const existingThread = Option.getOrUndefined(projectedThread);
+        const canonical = yield* findThread(input.command.threadId).pipe(
+          Effect.provideService(SqlClient.SqlClient, sql),
+          mapOperationError("Could not inspect the new thread before provider admission."),
+        );
         if (
           existingThread !== undefined &&
-          (existingThread.latestTurn != null || existingThread.latestUserMessageAt != null)
+          (existingThread.latestTurn != null || canonical?.lastUserMessageAt != null)
         ) {
           return yield* fail(
             "This Thread predates managed Connections and cannot continue. Start a new Thread.",
