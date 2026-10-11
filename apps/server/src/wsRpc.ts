@@ -1,7 +1,7 @@
 import { getFolderAppTabs, updateFolderAppTabs } from "./cleanCore/folderAppTabs.ts";
 import { listArchivedNavigation, listArchivedThreads, restoreThread } from "./cleanCore/archive.ts";
 import { ensureDurableThreadWorkspace } from "./scratchWorkspaces.ts";
-import { setThreadConnection, setThreadModel, renameThread } from "./cleanCore/threadStore.ts";
+import { renameThread } from "./cleanCore/threadStore.ts";
 import { createAndSendThread } from "./cleanCore/createAndSendThread.ts";
 import { createThreadFromClient, ThreadLifecycle } from "./cleanCore/threadLifecycle.ts";
 import { ThreadSender } from "./cleanCore/ThreadSender.ts";
@@ -1220,12 +1220,6 @@ const makeWsRpcHandlersLayer = () =>
               const update = input.update;
               const publish = (threadId: string) => threadPublisher.publish({ threadId });
               switch (update.action) {
-                case "connection":
-                  if (yield* setThreadConnection(update)) publish(update.threadId);
-                  return;
-                case "model":
-                  if (yield* setThreadModel(update)) publish(update.threadId);
-                  return;
                 case "rename":
                 case "archive":
                 case "delete":

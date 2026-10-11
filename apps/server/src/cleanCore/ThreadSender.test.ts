@@ -27,6 +27,7 @@ import { ThreadProviderBindingRepository } from "../persistence/Services/ThreadP
 import { ProviderService } from "../provider/Services/ProviderService.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import { applyProviderEvent } from "./providerStreamConsumer.ts";
+import { setThreadDraft } from "./threadDraft.ts";
 import { enqueueMessage, readThreadQueue } from "./threadQueue.ts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
@@ -114,7 +115,7 @@ it.effect("delivers a queued message on model B after the composer changes from 
     assert.equal(result.delivery, "queued");
     assert.deepStrictEqual(
       yield* sql`SELECT connection_id, native_state_id FROM threads WHERE id='thread-1'`,
-      [{ connection_id: "new-connection", native_state_id: "old-native" }],
+      [{ connection_id: "old-connection", native_state_id: "old-native" }],
     );
     assert.deepStrictEqual(Object.keys((yield* readThreadQueue("thread-1"))[0]!).sort(), [
       "attachments",
@@ -124,7 +125,30 @@ it.effect("delivers a queued message on model B after the composer changes from 
       "senderThreadId",
       "text",
     ]);
-    yield* sql`UPDATE threads SET model='model-B' WHERE id='thread-1'`;
+    yield* setThreadDraft(
+      publisher,
+      "thread-1",
+      JSON.stringify({
+        prompt: "",
+        attachments: [],
+        files: [],
+        modelSelectionByProvider: { codex: { provider: "codex", model: "model-B" } },
+        connectionSelectionByProvider: { codex: "new-connection" },
+        activeProvider: "codex",
+      }),
+      "2099-10-09T00:00:02.500Z",
+    );
+    assert.deepStrictEqual(
+      yield* sql`SELECT connection_id, native_state_id, model, active_turn_id FROM threads WHERE id='thread-1'`,
+      [
+        {
+          connection_id: "old-connection",
+          native_state_id: "old-native",
+          model: "model-A",
+          active_turn_id: "active-turn",
+        },
+      ],
+    );
     yield* applyProviderEvent(publisher, {
       type: "turn.ended",
       threadId: "thread-1",
@@ -865,4 +889,114 @@ for (const content of [
         assert.deepStrictEqual(changes, []);
       }).pipe(Effect.scoped, Effect.provide(NodeSqliteClient.layerMemory())),
   );
+}
+
+for (const provider of ["codex", "claudeAgent"] as const) {
+  for (const sameAccount of [true, false]) {
+    it.effect(
+      `${provider} now ${sameAccount ? "steers the same account" : "interrupts before delivery to a different account"}`,
+      () =>
+        Effect.gen(function* () {
+          yield* runMigrations();
+          const sql = yield* SqlClient.SqlClient;
+          yield* sql`INSERT INTO projection_folders (folder_id, title, workspace_root, scripts_json, space_id, created_at, updated_at) VALUES ('now-folder', 'Folder', NULL, '[]', 'space', '2026-10-11T00:00:00.000Z', '2026-10-11T00:00:00.000Z')`;
+          yield* createThread({
+            id: "now-thread",
+            folderId: "now-folder",
+            spaceId: "space",
+            title: "Now",
+            provider,
+            model: "model-A",
+            runtimeMode: "full-access",
+            createdBy: "user",
+            createdAt: "2026-10-11T00:00:00.000Z",
+          });
+          yield* sql`UPDATE threads SET connection_id='account-A', native_state_id='native-A' WHERE id='now-thread'`;
+          yield* setThreadState(
+            "now-thread",
+            "running",
+            "old-turn",
+            null,
+            "2026-10-11T00:00:01.000Z",
+          );
+          const publisher = makeThreadPublisher();
+          const order: string[] = [];
+          const selectedConnection = sameAccount ? "account-A" : "account-B";
+          yield* setThreadDraft(
+            publisher,
+            "now-thread",
+            JSON.stringify({
+              prompt: "",
+              attachments: [],
+              files: [],
+              modelSelectionByProvider: { [provider]: { provider, model: "model-B" } },
+              connectionSelectionByProvider: { [provider]: selectedConnection },
+            }),
+            "2026-10-11T00:00:02.000Z",
+          );
+          const sender = yield* makeThreadSender.pipe(
+            Effect.provideService(ServerConfig, {
+              stateDir: senderStateDir,
+            } as typeof ServerConfig.Service),
+            Effect.provide(ManagedAttachmentRepositoryLive),
+            Effect.provideService(ThreadPublisher, publisher),
+            Effect.provideService(ThreadProviderBindingRepository, {
+              getRuntimeBinding: () => Effect.succeed(Option.none()),
+            } as unknown as typeof ThreadProviderBindingRepository.Service),
+            Effect.provideService(ProviderService, {
+              interruptTurn: () =>
+                Effect.gen(function* () {
+                  order.push("interrupt");
+                  yield* applyProviderEvent(publisher, {
+                    type: "turn.ended",
+                    threadId: "now-thread",
+                    turnId: "old-turn",
+                    state: "interrupted",
+                    error: null,
+                    at: "2026-10-11T00:00:03.000Z",
+                  });
+                }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.orDie),
+            } as unknown as typeof ProviderService.Service),
+            Effect.provideService(ProviderThreadSwitchCoordinator, {
+              dispatchTurnStart: ({ command }) =>
+                Effect.gen(function* () {
+                  order.push("dispatch");
+                  assert.equal(command.connectionId, selectedConnection);
+                  assert.equal(command.modelSelection!.model, "model-B");
+                  assert.equal(command.dispatchMode, sameAccount ? "steer" : "queue");
+                  yield* applyProviderEvent(publisher, {
+                    type: "turn.started",
+                    threadId: "now-thread",
+                    turnId: "new-turn",
+                    at: command.createdAt,
+                  });
+                  publisher.publishDispatch({
+                    type: "acknowledged",
+                    threadId: command.threadId,
+                    messageId: command.message.messageId,
+                    turnId: "new-turn",
+                  });
+                  return { sequence: 1 };
+                }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.orDie),
+              dispatchQueuedTurn: () => Effect.die("No legacy queue"),
+              recoverOpen: Effect.void,
+            }),
+          );
+          const result = yield* sender.send({
+            threadId: ThreadId.makeUnsafe("now-thread"),
+            message: {
+              messageId: MessageId.makeUnsafe("now-message"),
+              text: "continue",
+              attachments: [],
+              senderThreadId: null,
+              dispatchOrigin: "user",
+              queuedAt: "2026-10-11T00:00:02.000Z",
+            },
+            dispatchMode: "steer",
+          });
+          assert.equal(result.delivery, sameAccount ? "steered" : "interrupted");
+          assert.deepStrictEqual(order, sameAccount ? ["dispatch"] : ["interrupt", "dispatch"]);
+        }).pipe(Effect.scoped, Effect.provide(NodeSqliteClient.layerMemory())),
+    );
+  }
 }

@@ -1,3 +1,4 @@
+import { commitThreadTurnSelection } from "../../cleanCore/threadTurnSelection.ts";
 import { findThread } from "../../cleanCore/threadList.ts";
 import { RuntimeMode } from "@penkra/contracts";
 import type {
@@ -1048,6 +1049,33 @@ const makeOrchestrationEngine = Effect.gen(function* () {
               detail: "The verified provider switch journal entry no longer exists.",
             });
           }
+        }
+
+        if (
+          command.type === "thread.turn.start" ||
+          command.type === "thread.turn.dispatch-queued"
+        ) {
+          const initial = envelope.acceptedInitialProviderBinding;
+          const switched = envelope.acceptedProviderSwitch?.commit;
+          const native = switched?.kind === "native-state" ? switched.input : initial;
+          yield* commitThreadTurnSelection({
+            threadId: command.threadId,
+            modelSelection: command.modelSelection,
+            connectionId:
+              switched === undefined
+                ? initial === undefined
+                  ? command.connectionId
+                  : initial.connectionId
+                : switched.input.connectionId,
+            nativeState:
+              native === undefined
+                ? undefined
+                : { id: native.generation.id, providerSessionId: native.providerSessionId },
+            updatedAt: command.createdAt,
+          }).pipe(
+            Effect.provideService(SqlClient.SqlClient, sql),
+            Effect.mapError(toPersistenceSqlError("OrchestrationEngine.commitThreadTurnSelection")),
+          );
         }
 
         if (command.type === "thread.turn.start") {

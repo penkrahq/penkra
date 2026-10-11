@@ -747,39 +747,3 @@ export const publishSidebarRows = (
       }
     }
   });
-
-export const setThreadConnection = (
-  input: Extract<CleanCoreThreadUpdate, { action: "connection" }>,
-) =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    const changed =
-      yield* sql`UPDATE threads SET connection_id = ${input.connectionId}, updated_at = ${input.updatedAt} WHERE id = ${input.threadId} AND deleted_at IS NULL AND connection_id IS NOT ${input.connectionId} RETURNING id`;
-    return changed.length !== 0;
-  });
-
-export const setThreadModel = (input: Extract<CleanCoreThreadUpdate, { action: "model" }>) =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    const rows = yield* sql<{
-      provider: string;
-      connectionId: string | null;
-    }>`SELECT provider, connection_id AS "connectionId" FROM threads WHERE id = ${input.threadId} AND deleted_at IS NULL`;
-    const row = rows[0];
-    if (row === undefined) return yield* Effect.fail(new Error("The thread does not exist."));
-    if (row.provider !== input.modelSelection.provider)
-      return yield* Effect.fail(
-        new Error(
-          "This thread uses a different provider. To use another provider, start a new thread.",
-        ),
-      );
-    const options =
-      input.modelSelection.options === undefined
-        ? null
-        : JSON.stringify(input.modelSelection.options);
-    const connectionId =
-      input.connection.kind === "keep" ? row.connectionId : input.connection.connectionId;
-    const changed =
-      yield* sql`UPDATE threads SET model = ${input.modelSelection.model}, model_options = ${options}, connection_id = ${connectionId}, updated_at = ${input.updatedAt} WHERE id = ${input.threadId} AND (model IS NOT ${input.modelSelection.model} OR model_options IS NOT ${options} OR connection_id IS NOT ${connectionId}) RETURNING id`;
-    return changed.length !== 0;
-  });

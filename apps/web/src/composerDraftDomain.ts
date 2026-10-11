@@ -124,6 +124,7 @@ export interface ComposerThreadDraftState {
   skills: ProviderSkillReference[];
   mentions: ProviderMentionReference[];
   modelSelectionByProvider: Partial<Record<ProviderKind, ModelSelection>>;
+  connectionSelectionByProvider: Partial<Record<ProviderKind, ProviderConnectionId | null>>;
   activeProvider: ProviderKind | null;
   runtimeMode: RuntimeMode | null;
 }
@@ -223,6 +224,11 @@ export interface ComposerDraftStoreState {
   setTerminalContexts: (threadId: ThreadId, contexts: TerminalContextDraft[]) => void;
   setSkills: (threadId: ThreadId, skills: ProviderSkillReference[]) => void;
   setMentions: (threadId: ThreadId, mentions: ProviderMentionReference[]) => void;
+  setConnectionSelection: (
+    threadId: ThreadId,
+    provider: ProviderKind,
+    connectionId: ProviderConnectionId | null,
+  ) => void;
   setModelSelection: (
     threadId: ThreadId,
     modelSelection: ModelSelection | null | undefined,
@@ -405,6 +411,7 @@ export function createEmptyThreadDraft(): ComposerThreadDraftState {
     skills: [],
     mentions: [],
     modelSelectionByProvider: {},
+    connectionSelectionByProvider: {},
     activeProvider: null,
     runtimeMode: null,
   };
@@ -696,6 +703,7 @@ export function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
     draft.skills.length === 0 &&
     draft.mentions.length === 0 &&
     Object.keys(draft.modelSelectionByProvider).length === 0 &&
+    Object.keys(draft.connectionSelectionByProvider).length === 0 &&
     draft.activeProvider === null &&
     draft.runtimeMode === null
   );
@@ -741,6 +749,7 @@ const EMPTY_THREAD_DRAFT = Object.freeze<ComposerThreadDraftState>({
   skills: EMPTY_SKILLS,
   mentions: EMPTY_MENTIONS,
   modelSelectionByProvider: EMPTY_MODEL_SELECTION_BY_PROVIDER,
+  connectionSelectionByProvider: Object.freeze({}),
   activeProvider: null,
   runtimeMode: null,
 });

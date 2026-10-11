@@ -17,22 +17,58 @@ export const createThreadFixture = (sql: SqlClient.SqlClient, input: CleanCoreCr
     ),
   );
 
-import type { CleanCoreThreadUpdate } from "@penkra/contracts";
-import { setThreadModel, setThreadConnection } from "./threadStore.ts";
+import type {
+  ModelSelection,
+  ProviderConnectionId,
+  ThreadId,
+  CleanCoreThreadUpdate,
+} from "@penkra/contracts";
 import { updateThreadLifecycle } from "./threadLifecycle.ts";
 
+/** Seeds admitted runtime selections directly; composer picks belong to the draft. */
 export const updateThreadFixture = (
   sql: SqlClient.SqlClient,
-  input: Extract<
-    CleanCoreThreadUpdate,
-    { action: "model" | "connection" | "rename" | "archive" | "delete" }
-  >,
+  input:
+    | Extract<CleanCoreThreadUpdate, { action: "rename" | "archive" | "delete" }>
+    | {
+        action: "connection";
+        threadId: ThreadId;
+        connectionId: ProviderConnectionId | null;
+        updatedAt: string;
+      }
+    | {
+        action: "model";
+        threadId: ThreadId;
+        modelSelection: ModelSelection;
+        connection:
+          | { kind: "keep" }
+          | { kind: "selected"; connectionId: ProviderConnectionId | null };
+        updatedAt: string;
+      },
 ) => {
   const write =
     input.action === "model"
-      ? setThreadModel(input)
+      ? Effect.gen(function* () {
+          const rows = yield* sql<{
+            provider: string;
+            connectionId: string | null;
+          }>`SELECT provider, connection_id AS "connectionId" FROM threads WHERE id = ${input.threadId}`;
+          const row = rows[0]!;
+          if (row.provider !== input.modelSelection.provider)
+            return yield* Effect.fail(
+              new Error(
+                "This thread uses a different provider. To use another provider, start a new thread.",
+              ),
+            );
+          const connectionId =
+            input.connection.kind === "keep" ? row.connectionId : input.connection.connectionId;
+          yield* sql`UPDATE threads SET model = ${input.modelSelection.model}, model_options = ${input.modelSelection.options === undefined ? null : JSON.stringify(input.modelSelection.options)}, connection_id = ${connectionId}, updated_at = ${input.updatedAt} WHERE id = ${input.threadId}`;
+          return true;
+        })
       : input.action === "connection"
-        ? setThreadConnection(input)
+        ? sql`UPDATE threads SET connection_id = ${input.connectionId}, updated_at = ${input.updatedAt} WHERE id = ${input.threadId}`.pipe(
+            Effect.as(true),
+          )
         : updateThreadLifecycle(input).pipe(
             Effect.provideService(ThreadPublisher, makeThreadPublisher()),
           );

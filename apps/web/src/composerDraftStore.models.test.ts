@@ -1,4 +1,4 @@
-import { ThreadId, type ModelSelection } from "@penkra/contracts";
+import { ProviderConnectionId, ThreadId, type ModelSelection } from "@penkra/contracts";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   deriveEffectiveComposerModelState,
@@ -786,4 +786,26 @@ describe("composerDraftStore provider-scoped option updates", () => {
       }),
     );
   });
+});
+
+describe("composer account draft", () => {
+  beforeEach(resetComposerDraftStore);
+  it.each(["codex", "claudeAgent", "opencode"] as const)(
+    "keeps %s account choices in the thread draft independently of other drafts",
+    (provider) => {
+      const selected = ThreadId.makeUnsafe("selected-thread");
+      const other = ThreadId.makeUnsafe("other-thread");
+      const connectionId = ProviderConnectionId.makeUnsafe("new-account");
+      useComposerDraftStore.getState().setConnectionSelection(selected, provider, connectionId);
+      const state = useComposerDraftStore.getState();
+      expect(state.draftsByThreadId[selected]!.connectionSelectionByProvider).toEqual({
+        [provider]: connectionId,
+      });
+      expect(state.draftsByThreadId[other]).toBeUndefined();
+      state.setPrompt(selected, "");
+      expect(
+        useComposerDraftStore.getState().draftsByThreadId[selected]!.connectionSelectionByProvider,
+      ).toEqual({ [provider]: connectionId });
+    },
+  );
 });

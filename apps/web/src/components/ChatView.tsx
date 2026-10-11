@@ -66,7 +66,6 @@ import {
   supportsThreadCompaction,
 } from "~/lib/providerDiscoveryReactQuery";
 import {
-  providerConnectionQueryKeys,
   providerConnectionsQueryOptions,
   threadProviderBindingQueryOptions,
 } from "~/lib/providerConnectionsReactQuery";
@@ -1770,19 +1769,7 @@ function ChatViewContent({
         : { stickyConnectionByProvider };
     });
   }, [hasThreadStarted, providerConnectionsQuery.data]);
-  const threadProviderBindingQuery = useQuery(
-    threadProviderBindingQueryOptions(isServerThread ? activeThreadId : null),
-  );
-  type PendingConnectionSelection = Partial<Record<ProviderKind, ProviderConnectionId | null>>;
-  const [selectedConnectionByThread, setSelectedConnectionByThread] = useState<
-    Partial<Record<ThreadId, PendingConnectionSelection>>
-  >({});
-  const pendingConnectionUpdateRef = useRef<{
-    threadId: ThreadId;
-    promise: Promise<unknown>;
-  } | null>(null);
   const selectedConnectionByProvider = (() => {
-    const pendingConnectionByProvider = selectedConnectionByThread[threadId] ?? {};
     const defaults = { ...stickyConnectionByProvider };
     if (serverSettings) {
       for (const provider of Object.keys(serverSettings.providers) as ProviderKind[]) {
@@ -1790,52 +1777,10 @@ function ChatViewContent({
         if (connectionId !== undefined) defaults[provider] = connectionId;
       }
     }
-    if (serverThread?.connectionId !== undefined) {
-      return {
-        ...defaults,
-        [serverThread.modelSelection.provider]: serverThread.connectionId,
-        ...pendingConnectionByProvider,
-      };
-    }
-    if (hasThreadStarted) {
-      const provider = serverThread?.modelSelection.provider;
-      const bindingConnectionId = threadProviderBindingQuery.data?.binding?.connectionId;
-      return provider
-        ? {
-            ...defaults,
-            [provider]: bindingConnectionId ?? defaults[provider] ?? null,
-            ...pendingConnectionByProvider,
-          }
-        : { ...defaults, ...pendingConnectionByProvider };
-    }
-    return { ...defaults, ...pendingConnectionByProvider };
+    if (serverThread?.connectionId !== undefined)
+      defaults[serverThread.modelSelection.provider] = serverThread.connectionId;
+    return { ...defaults, ...composerDraft.connectionSelectionByProvider };
   })();
-  const setSelectedConnectionByProvider = useCallback(
-    (update: (current: PendingConnectionSelection) => PendingConnectionSelection) => {
-      setSelectedConnectionByThread((current) => ({
-        ...current,
-        [threadId]: update(current[threadId] ?? {}),
-      }));
-    },
-    [threadId],
-  );
-  useEffect(() => {
-    if (!serverThread || serverThread.connectionId === undefined) return;
-    const provider = serverThread.modelSelection.provider;
-    setSelectedConnectionByThread((current) => {
-      const pending = current[serverThread.id];
-      if (
-        !pending ||
-        !Object.prototype.hasOwnProperty.call(pending, provider) ||
-        pending[provider] !== serverThread.connectionId
-      ) {
-        return current;
-      }
-      const nextPending = { ...pending };
-      delete nextPending[provider];
-      return { ...current, [serverThread.id]: nextPending };
-    });
-  }, [serverThread?.connectionId, serverThread?.id, serverThread?.modelSelection.provider]);
   const configuredProviderKinds = useMemo(() => {
     const activeInstallations = new Set(
       providerConnectionsQuery.data?.installations
@@ -1928,8 +1873,10 @@ function ChatViewContent({
       if (explicitlySelected) {
         connectionId = selectedConnectionByProvider[provider];
       } else if (hasThreadStarted) {
-        if (threadProviderBindingQuery.data === undefined) continue;
-        connectionId = threadProviderBindingQuery.data.binding?.connectionId;
+        connectionId =
+          serverThread?.modelSelection.provider === provider
+            ? serverThread.connectionId
+            : undefined;
       } else {
         const anonymous = snapshot.anonymousRoutes.find((route) => route.harness === provider);
         connectionId =
@@ -1979,7 +1926,7 @@ function ChatViewContent({
     hasThreadStarted,
     providerConnectionsQuery.data,
     selectedConnectionByProvider,
-    threadProviderBindingQuery.data,
+    serverThread,
   ]);
   const providerModelDiscoveryCwd = resolveProviderDiscoveryCwd({
     activeProjectCwd: activeProject?.cwd ?? null,
@@ -2118,10 +2065,9 @@ function ChatViewContent({
     );
   }, [providerConnectionsQuery.data, selectedProvider]);
   const handleConnectionChange = (connectionId: ProviderConnectionId | null) => {
-    setSelectedConnectionByProvider((current) => ({
-      ...current,
-      [selectedProvider]: connectionId,
-    }));
+    useComposerDraftStore
+      .getState()
+      .setConnectionSelection(threadId, selectedProvider, connectionId);
     void saveDefaultConnection(selectedProvider, connectionId)
       .then((settings) => queryClient.setQueryData(serverQueryKeys.settings(), settings))
       .catch((error) =>
@@ -2137,38 +2083,6 @@ function ChatViewContent({
         [selectedProvider]: connectionId,
       },
     }));
-    if (serverThread) {
-      const api = readNativeApi();
-      if (api) {
-        const update = api.cleanCore.updateThread({
-          update: {
-            action: "connection",
-            threadId: serverThread.id,
-            connectionId,
-            updatedAt: new Date().toISOString(),
-          },
-        });
-        pendingConnectionUpdateRef.current = { threadId: serverThread.id, promise: update };
-        void update
-          .catch((error: unknown) => {
-            setSelectedConnectionByProvider((current) => {
-              if (current[selectedProvider] !== connectionId) return current;
-              const next = { ...current };
-              delete next[selectedProvider];
-              return next;
-            });
-            setStoreThreadError(
-              serverThread.id,
-              error instanceof Error ? error.message : "Couldn't change this thread's Connection.",
-            );
-          })
-          .finally(() => {
-            if (pendingConnectionUpdateRef.current?.promise === update) {
-              pendingConnectionUpdateRef.current = null;
-            }
-          });
-      }
-    }
   };
   const handleManageConnections = useCallback(() => {
     void navigate({ to: "/settings", search: { section: "providers" } });
@@ -3261,12 +3175,15 @@ function ChatViewContent({
       setContinueInFlight(null);
     }
   }, [activeLatestTurn, activeThread?.session?.updatedAt, activeThreadId, continueInFlight]);
+  const threadProviderBindingQuery = useQuery(
+    threadProviderBindingQueryOptions(isServerThread ? activeThreadId : null),
+  );
   const bindingForContinue = threadProviderBindingQuery.data?.binding;
   const canShowContinue = shouldShowComposerContinue({
     thread: activeThread,
     isServerThread,
     hydration: threadDetailHydration,
-    binding: bindingForContinue,
+    model: bindingForContinue == null ? undefined : serverThread?.modelSelection.model,
     hiddenTurnId: hiddenContinueTurnId,
     continueInFlight: continueInFlight !== null,
     sendBusy: isSendBusy,
@@ -3290,7 +3207,7 @@ function ChatViewContent({
       activeTurnId: activeSessionTurnId,
       isServerThread,
       hydration: threadDetailHydration,
-      bindingModelAvailable: bindingForContinue?.modelId != null,
+      bindingModelAvailable: serverThread?.modelSelection.model != null,
       archived: activeThread?.archivedAt != null,
       queuedMessageCount: activeThread?.queuedMessageIds?.length ?? 0,
       pendingTurnStart: activeThread?.pendingTurnStartMessageId != null,
@@ -3315,7 +3232,7 @@ function ChatViewContent({
     activeThread?.session?.orchestrationStatus,
     activeThread?.session?.status,
     activeThreadId,
-    bindingForContinue?.modelId,
+    serverThread?.modelSelection.model,
     canShowContinue,
     composerSendState.hasSendableContent,
     continueHiddenForTurn,
@@ -4696,33 +4613,7 @@ function ChatViewContent({
         provider,
         model: resolvedModel,
       };
-      const nextConnectionId = resolveSelectedConnection(provider, resolvedModel) ?? null;
-      useComposerDraftStore.getState().setStickyModelSelection(nextModelSelection);
-      if (serverThread) {
-        const api = readNativeApi();
-        if (api) {
-          void api.cleanCore
-            .updateThread({
-              update: {
-                action: "model",
-                threadId: activeThread.id,
-                modelSelection: nextModelSelection,
-                connection: hasThreadStarted
-                  ? { kind: "keep" }
-                  : { kind: "selected", connectionId: nextConnectionId },
-                updatedAt: new Date().toISOString(),
-              },
-            })
-            .catch((error: unknown) =>
-              setStoreThreadError(
-                activeThread.id,
-                error instanceof Error ? error.message : "Couldn't change this thread's model.",
-              ),
-            );
-        }
-      } else {
-        setComposerDraftModelSelectionAndSticky(activeThread.id, nextModelSelection);
-      }
+      setComposerDraftModelSelectionAndSticky(activeThread.id, nextModelSelection);
       scheduleComposerFocus();
     },
     [
@@ -4732,10 +4623,6 @@ function ChatViewContent({
       setComposerDraftModelSelectionAndSticky,
       customModelsByProvider,
       selectableModelOptionsByProvider,
-      serverThread,
-      hasThreadStarted,
-      resolveSelectedConnection,
-      setStoreThreadError,
     ],
   );
 
@@ -5049,18 +4936,6 @@ function ChatViewContent({
     const lateSendHandlers = lateComposerSendHandlersRef.current;
     if (!api || !lateSendHandlers || !activeThread || isVoiceTranscribing) {
       return false;
-    }
-    const pendingConnectionUpdate = pendingConnectionUpdateRef.current;
-    if (queuedTurn === undefined && pendingConnectionUpdate?.threadId === activeThread.id) {
-      try {
-        await pendingConnectionUpdate.promise;
-      } catch (error) {
-        setThreadError(
-          activeThread.id,
-          error instanceof Error ? error.message : "Couldn't change this thread's Connection.",
-        );
-        return false;
-      }
     }
     const existingPreparation = getActiveComposerSendPreparation(activeThread.id);
     if (existingPreparation) {
@@ -5490,9 +5365,8 @@ function ChatViewContent({
       )?.availableConnectionIds;
       const availableConnectionOptions =
         availableConnectionIds === undefined ? {} : { availableConnectionIds };
-      const startedThreadBindingLoaded = threadProviderBindingQuery.data !== undefined;
-      const startedThreadBindingConnectionId =
-        threadProviderBindingQuery.data?.binding?.connectionId;
+      const startedThreadBindingLoaded = serverThread !== undefined;
+      const startedThreadBindingConnectionId = serverThread?.connectionId;
       try {
         detachCapturedHydratedImagesFromNewerDraft();
         selectedConnectionIdForSend = await resolveComposerConnectionAtAdmission({
@@ -5903,14 +5777,6 @@ function ChatViewContent({
         );
         resetLocalDispatch();
       }
-      await queryClient.invalidateQueries({
-        queryKey: providerConnectionQueryKeys.thread(threadIdForSend),
-      });
-      setSelectedConnectionByProvider((current) => {
-        const next = { ...current };
-        delete next[selectedModelSelectionForSend.provider];
-        return next;
-      });
     })().catch(async (err: unknown) => {
       // Uploads start in parallel with workspace/session preparation. If any
       // earlier step fails, settle that promise and release every staged blob.
@@ -7604,7 +7470,7 @@ function ChatViewContent({
         error={activeThread.error}
         onDismiss={dismissActiveThreadError}
         onRetry={() => {
-          const connectionId = threadProviderBindingQuery.data?.binding?.connectionId;
+          const connectionId = serverThread?.connectionId;
           const api = readNativeApi();
           if (!connectionId || !api) return;
           void api.provider.retryAuthConnection({ connectionId }).catch((error) =>

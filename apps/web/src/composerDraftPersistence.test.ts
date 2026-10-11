@@ -1,4 +1,4 @@
-import { ThreadId } from "@penkra/contracts";
+import { ProviderConnectionId, ThreadId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import { createEmptyThreadDraft } from "./composerDraftDomain";
@@ -15,7 +15,13 @@ describe("composer draft server payload", () => {
       ...createEmptyThreadDraft(),
       prompt: "please build the thing",
       pastedTexts: [
-        { id: "p1", createdAt: "2026-10-09T00:00:00.000Z", text: "pasted body", lineCount: 1, charCount: 11 },
+        {
+          id: "p1",
+          createdAt: "2026-10-09T00:00:00.000Z",
+          text: "pasted body",
+          lineCount: 1,
+          charCount: 11,
+        },
       ],
       fileComments: [
         { id: "c1", path: "src/app.ts", startLine: 3, endLine: 5, text: "check this" },
@@ -23,7 +29,12 @@ describe("composer draft server payload", () => {
       skills: [{ name: "skill-a", path: "skills/a" }],
       mentions: [{ name: "app.ts", path: "src/app.ts" }],
       assistantSelections: [
-        { type: "assistant-selection" as const, id: "s1", assistantMessageId: "m1", text: "picked" },
+        {
+          type: "assistant-selection" as const,
+          id: "s1",
+          assistantMessageId: "m1",
+          text: "picked",
+        },
       ],
       terminalContexts: [
         {
@@ -41,11 +52,7 @@ describe("composer draft server payload", () => {
 
     const payload = serializeComposerThreadDraft(draft);
     expect(payload).not.toBeNull();
-    const hydrated = await hydrateComposerThreadDraftFromServer(
-      THREAD_ID,
-      payload!,
-      async () => 0,
-    );
+    const hydrated = await hydrateComposerThreadDraftFromServer(THREAD_ID, payload!, async () => 0);
 
     expect(hydrated.prompt).toBe("please build the thing");
     expect(hydrated.pastedTexts.map((entry) => entry.id)).toEqual(["p1"]);
@@ -67,4 +74,30 @@ describe("composer draft server payload", () => {
     expect(payload).not.toHaveProperty("appliedVoiceJobIds");
     expect(payload).not.toHaveProperty("promptHistorySavedDraft");
   });
+});
+
+it.each(["codex", "claudeAgent", "opencode"] as const)(
+  "round-trips %s account and model picks with no composed content",
+  async (provider) => {
+    const draft = createEmptyThreadDraft();
+    draft.modelSelectionByProvider[provider] = { provider, model: "model-B" };
+    draft.connectionSelectionByProvider[provider] = ProviderConnectionId.makeUnsafe("account-B");
+    draft.activeProvider = provider;
+    const payload = serializeComposerThreadDraft(draft)!;
+    expect(payload.prompt).toBe("");
+    const reloaded = await hydrateComposerThreadDraftFromServer(THREAD_ID, payload, async () => 0);
+    expect(reloaded.modelSelectionByProvider).toEqual(draft.modelSelectionByProvider);
+    expect(reloaded.connectionSelectionByProvider).toEqual(draft.connectionSelectionByProvider);
+  },
+);
+
+it("keeps an explicit anonymous account selection through a draft reload", async () => {
+  const draft = createEmptyThreadDraft();
+  draft.connectionSelectionByProvider.opencode = null;
+  const payload = serializeComposerThreadDraft(draft)!;
+  expect(payload).not.toBeNull();
+  expect(
+    (await hydrateComposerThreadDraftFromServer(THREAD_ID, payload, async () => 0))
+      .connectionSelectionByProvider,
+  ).toEqual({ opencode: null });
 });

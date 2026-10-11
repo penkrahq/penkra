@@ -4,7 +4,13 @@
 // Layer: Server clean core
 // Exports: ThreadDraft, getThreadDraft, setThreadDraft
 
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
+import {
+  ModelSelection,
+  ProviderKind,
+  ProviderConnectionId,
+  type CleanCoreSendMessageInput,
+} from "@penkra/contracts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { updateThreadDraft, type ThreadPublisher } from "./threadStore.ts";
@@ -42,3 +48,44 @@ export const setThreadDraft = (
     publisher.publish({ threadId });
     return yield* getThreadDraft(threadId);
   });
+
+export const DraftSelection = Schema.Struct({
+  modelSelectionByProvider: Schema.optionalKey(
+    Schema.Record(ProviderKind, Schema.optionalKey(ModelSelection)),
+  ),
+  connectionSelectionByProvider: Schema.optionalKey(
+    Schema.Record(ProviderKind, Schema.optionalKey(Schema.NullOr(ProviderConnectionId))),
+  ),
+  activeProvider: Schema.optionalKey(Schema.NullOr(ProviderKind)),
+});
+
+/** Consuming composer content keeps its selection for the next queue delivery. */
+export function draftAfterSend(
+  draft: string | null,
+  provider: string,
+  selection: Pick<CleanCoreSendMessageInput, "modelSelection" | "connectionId"> | undefined,
+): string | null {
+  const current = draft === null ? {} : Schema.decodeUnknownSync(DraftSelection)(JSON.parse(draft));
+  const modelSelectionByProvider = { ...current.modelSelectionByProvider };
+  const connectionSelectionByProvider = { ...current.connectionSelectionByProvider };
+  const harness = Schema.decodeUnknownSync(ProviderKind)(provider);
+  if (selection?.modelSelection !== undefined)
+    modelSelectionByProvider[harness] = selection.modelSelection;
+  if (selection?.connectionId !== undefined)
+    connectionSelectionByProvider[harness] = selection.connectionId;
+  const activeProvider = selection?.modelSelection?.provider ?? current.activeProvider;
+  if (
+    Object.keys(modelSelectionByProvider).length === 0 &&
+    Object.keys(connectionSelectionByProvider).length === 0 &&
+    activeProvider == null
+  )
+    return null;
+  return JSON.stringify({
+    prompt: "",
+    attachments: [],
+    files: [],
+    modelSelectionByProvider,
+    connectionSelectionByProvider,
+    ...(activeProvider === undefined ? {} : { activeProvider }),
+  });
+}
