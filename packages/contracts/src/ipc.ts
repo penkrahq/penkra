@@ -774,8 +774,6 @@ export interface DesktopComposerDraftsBridge {
 
 export interface DesktopBridge {
   getWsUrl: () => string | null;
-  /** Disposable Dev QA only: invoke the same main command as File > New Window. */
-  qaOpenWindow?: () => void;
   /**
    * Absolute filesystem path for a File from drag/drop or file inputs.
    * Electron only (`webUtils.getPathForFile`). Returns null when unavailable.
