@@ -6,6 +6,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
   CommandId,
+  ProviderConnectionId,
   EventId,
   MessageId,
   FolderId,
@@ -246,7 +247,6 @@ describe("OrchestrationEngine", () => {
           commandId: CommandId.makeUnsafe("slow-read-11118"),
           threadId: threadA,
           connectionId: null,
-          bindingRevision: 0,
           recoveryMessageId: MessageId.makeUnsafe("slow-recover-11118"),
           createdAt: now(),
         }),
@@ -278,7 +278,6 @@ describe("OrchestrationEngine", () => {
             commandId: CommandId.makeUnsafe("slow-read-11921"),
             threadId: threadA,
             connectionId: null,
-            bindingRevision: 0,
             recoveryMessageId: MessageId.makeUnsafe("slow-recover-11921"),
             createdAt: now(),
           }),
@@ -488,7 +487,6 @@ describe("OrchestrationEngine", () => {
                 interruptedTurnId: interruptedTurnId!,
                 recoveryMessageId: asMessageId("recovery-after-assistant-order"),
                 connectionId: null,
-                bindingRevision: 0,
                 createdAt,
               }),
             ),
@@ -597,8 +595,8 @@ describe("OrchestrationEngine", () => {
     }
   });
 
-  it("admits Play after a started turn is interrupted by user Stop", async () => {
-    const system = await createOrchestrationSystem({ withRuntimeBinding: true });
+  it("admits Play from the canonical row without a binding query after user Stop", async () => {
+    const system = await createOrchestrationSystem();
     const threadId = ThreadId.makeUnsafe("thread-play-after-user-stop");
     const folderId = asFolderId("folder-play-after-user-stop");
     const turnId = asTurnId("turn-play-after-user-stop");
@@ -750,7 +748,6 @@ describe("OrchestrationEngine", () => {
             interruptedTurnId: turnId,
             recoveryMessageId: asMessageId("msg-play-stop-recovery"),
             connectionId: null,
-            bindingRevision: 0,
             createdAt: stoppedAt,
           }),
         ),
@@ -776,8 +773,8 @@ describe("OrchestrationEngine", () => {
     }
   });
 
-  it("rejects Play through the engine with a pending approval", async () => {
-    const blocker = "pending approval";
+  it("rejects Play through the engine with a pending question", async () => {
+    const blocker = "pending question";
     const system = await createOrchestrationSystem({ withRuntimeBinding: true });
     const threadId = ThreadId.makeUnsafe(`thread-play-${blocker}`);
     const turnId = asTurnId(`turn-play-${blocker}`);
@@ -837,7 +834,7 @@ describe("OrchestrationEngine", () => {
             INSERT INTO projection_pending_interactions (
               interaction_kind, request_id, thread_id, turn_id, lifecycle_generation,
               status, decision, response_command_id, response_requested_at, created_at, resolved_at
-            ) VALUES ('approval', 'real-pending-play-approval', ${threadId}, ${turnId}, NULL,
+            ) VALUES ('userInput', 'real-pending-play-question', ${threadId}, ${turnId}, NULL,
               'pending', NULL, NULL, NULL, ${createdAt}, NULL)
           `);
       await expect(
@@ -852,7 +849,6 @@ describe("OrchestrationEngine", () => {
             interruptedTurnId: turnId,
             recoveryMessageId: asMessageId(`recovery-play-blocked-${blocker}`),
             connectionId: null,
-            bindingRevision: 0,
             createdAt,
           }),
         ),
@@ -930,7 +926,6 @@ describe("OrchestrationEngine", () => {
             interruptedTurnId: turnId,
             recoveryMessageId: MessageId.makeUnsafe(`message-concurrent-play-${index}`),
             connectionId: null,
-            bindingRevision: 0,
             createdAt,
           }),
         );
@@ -940,13 +935,12 @@ describe("OrchestrationEngine", () => {
             type: "thread.turn.recover",
             runtimeMode: "full-access",
             reason: "play",
-            commandId: CommandId.makeUnsafe("cmd-concurrent-play-stale-binding"),
+            commandId: CommandId.makeUnsafe("cmd-concurrent-play-stale-connection"),
             threadId,
             turnId,
             interruptedTurnId: turnId,
-            recoveryMessageId: MessageId.makeUnsafe("message-concurrent-play-stale-binding"),
-            connectionId: null,
-            bindingRevision: 1,
+            recoveryMessageId: MessageId.makeUnsafe("message-concurrent-play-stale-connection"),
+            connectionId: ProviderConnectionId.makeUnsafe("another-account"),
             createdAt,
           }),
         ),

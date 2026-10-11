@@ -168,8 +168,6 @@ import type {
   ProviderConnectionsSnapshotInput,
   RetryProviderAuthConnectionInput,
   TerminateProviderConnectionInput,
-  ThreadProviderBindingSnapshot,
-  ThreadProviderBindingSnapshotInput,
 } from "./providerConnections";
 
 export interface ContextMenuItem<T extends string = string> {
@@ -1088,9 +1086,6 @@ export interface NativeApi {
       input?: ProviderConnectionsSnapshotInput,
     ) => Promise<ProviderConnectionsSnapshot>;
     retryAuthConnection: (input: RetryProviderAuthConnectionInput) => Promise<void>;
-    getThreadBinding: (
-      input: ThreadProviderBindingSnapshotInput,
-    ) => Promise<ThreadProviderBindingSnapshot>;
     createStaticConnection: (
       input: CreateStaticProviderConnectionInput,
     ) => Promise<ProviderConnection>;

@@ -530,7 +530,6 @@ export function createWsNativeApi(): NativeApi {
       getConnections: (input = {}) => transport.request(WS_METHODS.providerGetConnections, input),
       retryAuthConnection: (input) =>
         transport.request(WS_METHODS.providerRetryAuthConnection, input),
-      getThreadBinding: (input) => transport.request(WS_METHODS.providerGetThreadBinding, input),
       createStaticConnection: (input) =>
         transport.request(WS_METHODS.providerCreateStaticConnection, input),
       beginConnectionLogin: (input) =>

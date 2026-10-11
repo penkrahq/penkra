@@ -534,7 +534,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           messageId: command.recoveryMessageId,
           recoveryReason: command.reason ?? "restart",
           connectionId: command.connectionId,
-          bindingRevision: command.bindingRevision,
           assistantDeliveryMode: DEFAULT_ASSISTANT_DELIVERY_MODE,
           dispatchMode: "queue",
           dispatchOrigin: "automation",

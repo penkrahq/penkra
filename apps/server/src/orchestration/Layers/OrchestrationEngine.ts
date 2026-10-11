@@ -862,23 +862,23 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         let admittedEventBases = eventBases;
 
         if (command.type === "thread.turn.recover" && command.reason === "play") {
-          const bindingOption =
-            threadProviderBindings === undefined
-              ? Option.none()
-              : yield* threadProviderBindings.getRuntimeBinding(command.threadId).pipe(
-                  Effect.mapError(
-                    (cause) =>
-                      new OrchestrationCommandInvariantError({
-                        commandType: command.type,
-                        detail: `The runtime binding could not be read: ${cause.message}`,
-                      }),
-                  ),
-                );
-          const binding = Option.getOrUndefined(bindingOption);
+          const rows = yield* sql<{ connectionId: string | null; model: string }>`
+            SELECT connection_id AS "connectionId", model FROM threads
+            WHERE id=${command.threadId} AND archived_at IS NULL AND deleted_at IS NULL
+          `.pipe(
+            Effect.mapError(
+              (cause) =>
+                new OrchestrationCommandInvariantError({
+                  commandType: command.type,
+                  detail: `The thread could not be read: ${cause.message}`,
+                }),
+            ),
+          );
+          const row = rows[0];
           if (
-            !binding?.modelId ||
-            binding.connectionId !== command.connectionId ||
-            binding.revision !== command.bindingRevision
+            row === undefined ||
+            row.model.length === 0 ||
+            row.connectionId !== command.connectionId
           ) {
             return yield* new OrchestrationCommandInvariantError({
               commandType: command.type,

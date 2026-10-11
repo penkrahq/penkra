@@ -178,12 +178,12 @@ it.effect("allows client Play recovery while keeping restart recovery server-onl
       interruptedTurnId: "turn-1",
       recoveryMessageId: "message-play",
       connectionId: null,
-      bindingRevision: 0,
       createdAt: "2026-09-26T00:00:00.000Z",
     };
     const parsed = yield* decodeClientOrchestrationCommand(command);
     assert.strictEqual(parsed.type, "thread.turn.recover");
     assert.strictEqual(parsed.reason, "play");
+    assert.strictEqual("bindingRevision" in parsed, false);
     const restart = yield* Effect.exit(
       decodeClientOrchestrationCommand({ ...command, reason: "restart" }),
     );

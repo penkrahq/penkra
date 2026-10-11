@@ -56,7 +56,6 @@ function play(thread: OrchestrationThread, expectedTurnId = turnId) {
       interruptedTurnId: expectedTurnId,
       recoveryMessageId: MessageId.makeUnsafe("invisible-continue-message"),
       connectionId: null,
-      bindingRevision: 0,
       createdAt: now,
     },
   });
@@ -159,7 +158,6 @@ describe("archived thread admission", () => {
         interruptedTurnId: turnId,
         recoveryMessageId: MessageId.makeUnsafe("recovery-message"),
         connectionId: null,
-        bindingRevision: 0,
         createdAt: now,
       };
       await expect(decide(threadWith({ archivedAt: now }), command)).rejects.toMatchObject({

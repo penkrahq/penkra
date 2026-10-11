@@ -152,14 +152,6 @@ export const ProviderConnectionsSnapshot = Schema.Struct({
 });
 export type ProviderConnectionsSnapshot = typeof ProviderConnectionsSnapshot.Type;
 
-export const ThreadProviderBindingSnapshotInput = Schema.Struct({ threadId: ThreadId });
-export type ThreadProviderBindingSnapshotInput = typeof ThreadProviderBindingSnapshotInput.Type;
-export const ThreadProviderBindingSnapshot = Schema.Struct({
-  state: Schema.NullOr(ThreadHarnessState),
-  binding: Schema.NullOr(ThreadRuntimeBinding),
-});
-export type ThreadProviderBindingSnapshot = typeof ThreadProviderBindingSnapshot.Type;
-
 export const CreateStaticProviderConnectionInput = Schema.Struct({
   harness: ProviderKind,
   authenticationTargetId: TrimmedNonEmptyString,
