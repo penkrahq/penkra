@@ -3762,6 +3762,16 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
             reply: "once",
           },
         });
+        // Repeated echoes also cannot create an approval event.
+        eventQueue.push({
+          id: "evt-duplicate-permission-replied",
+          type: "permission.replied",
+          properties: {
+            sessionID: "opencode-session-1",
+            requestID: "permission-late-1",
+            reply: "once",
+          },
+        });
         // A queued question flushes the stream: the queue is FIFO, so its
         // user-input.requested must be the next event, proving the late echo emitted nothing.
         eventQueue.push({

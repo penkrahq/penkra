@@ -332,33 +332,6 @@ function toToolLifecycleItemType(toolName: string): ToolLifecycleItemType {
   return "dynamic_tool_call";
 }
 
-function mapPermissionToRequestType(
-  permission: string,
-): "command_execution_approval" | "file_read_approval" | "file_change_approval" | "unknown" {
-  switch (permission) {
-    case "bash":
-      return "command_execution_approval";
-    case "read":
-      return "file_read_approval";
-    case "edit":
-      return "file_change_approval";
-    default:
-      return "unknown";
-  }
-}
-
-function mapPermissionDecision(reply: "once" | "always" | "reject"): string {
-  switch (reply) {
-    case "once":
-      return "accept";
-    case "always":
-      return "acceptForSession";
-    case "reject":
-    default:
-      return "decline";
-  }
-}
-
 function resolveTurnSnapshot(
   context: OpenCodeSessionContext,
   turnId: TurnId,
@@ -2436,97 +2409,58 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                 : context.session.runtimeMode === "full-access"
                   ? "once"
                   : "reject";
-            if (policyReply !== undefined) {
-              context.policyResolvedPermissionIds.add(event.properties.id);
-              const replyExit = yield* Effect.exit(
-                runOpenCodeSdk("permission.reply", () =>
-                  context.client.permission.reply({
-                    requestID: event.properties.id,
-                    reply: policyReply,
-                  }),
-                ),
-              );
-              if (Exit.isSuccess(replyExit)) {
-                break;
-              }
-              context.policyResolvedPermissionIds.delete(event.properties.id);
-              const detail = openCodeRuntimeErrorDetail(Cause.squash(replyExit.cause));
-              yield* Effect.logWarning(
-                `${adapterConfig.displayName} permission policy reply failed`,
-                Cause.squash(replyExit.cause),
-              );
-              // Full Access must never degrade into a human approval. Abort the
-              // provider turn and surface an actionable failure instead.
-              yield* runOpenCodeSdk("session.abort", () =>
-                context.client.session.abort({
-                  sessionID: context.openCodeSessionId,
+            context.policyResolvedPermissionIds.add(event.properties.id);
+            const replyExit = yield* Effect.exit(
+              runOpenCodeSdk("permission.reply", () =>
+                context.client.permission.reply({
+                  requestID: event.properties.id,
+                  reply: policyReply,
                 }),
-              ).pipe(Effect.ignore({ log: true }));
-              if (turnId !== undefined && context.activeTurnId === turnId) {
-                yield* completeOpenCodeTurn(context, {
-                  turnId,
-                  raw: event,
-                  errorMessage: `${adapterConfig.displayName} could not apply ${policyReply === "reject" ? "Plan-mode" : "Full-access"} permission policy: ${detail}`,
-                });
-              } else {
-                yield* emit(context, {
-                  ...buildEventBase({
-                    threadId: context.session.threadId,
-                    raw: event,
-                  }),
-                  type: "runtime.warning",
-                  payload: {
-                    message: openCodeActionableWarningMessage(
-                      OPENCODE_ACTIONABLE_WARNING_CLASSES.permissionPolicyFailure,
-                      `${adapterConfig.displayName} could not apply its permission policy.`,
-                    ),
-                    detail,
-                  },
-                });
-              }
+              ),
+            );
+            if (Exit.isSuccess(replyExit)) {
               break;
             }
-            context.pendingPermissions.set(event.properties.id, event.properties);
-            yield* emit(context, {
-              ...buildEventBase({
-                threadId: context.session.threadId,
-                turnId,
-                requestId: event.properties.id,
-                raw: event,
+            context.policyResolvedPermissionIds.delete(event.properties.id);
+            const detail = openCodeRuntimeErrorDetail(Cause.squash(replyExit.cause));
+            yield* Effect.logWarning(
+              `${adapterConfig.displayName} permission policy reply failed`,
+              Cause.squash(replyExit.cause),
+            );
+            // Full Access must never degrade into a human approval. Abort the
+            // provider turn and surface an actionable failure instead.
+            yield* runOpenCodeSdk("session.abort", () =>
+              context.client.session.abort({
+                sessionID: context.openCodeSessionId,
               }),
-              type: "request.opened",
-              payload: {
-                requestType: mapPermissionToRequestType(event.properties.permission),
-                detail:
-                  event.properties.patterns.length > 0
-                    ? event.properties.patterns.join("\n")
-                    : event.properties.permission,
-                args: event.properties.metadata,
-              },
-            });
+            ).pipe(Effect.ignore({ log: true }));
+            if (turnId !== undefined && context.activeTurnId === turnId) {
+              yield* completeOpenCodeTurn(context, {
+                turnId,
+                raw: event,
+                errorMessage: `${adapterConfig.displayName} could not apply ${policyReply === "reject" ? "Plan-mode" : "Full-access"} permission policy: ${detail}`,
+              });
+            } else {
+              yield* emit(context, {
+                ...buildEventBase({
+                  threadId: context.session.threadId,
+                  raw: event,
+                }),
+                type: "runtime.warning",
+                payload: {
+                  message: openCodeActionableWarningMessage(
+                    OPENCODE_ACTIONABLE_WARNING_CLASSES.permissionPolicyFailure,
+                    `${adapterConfig.displayName} could not apply its permission policy.`,
+                  ),
+                  detail,
+                },
+              });
+            }
             break;
           }
 
           case "permission.replied": {
-            if (context.policyResolvedPermissionIds.delete(event.properties.requestID)) {
-              // Penkra policy resolved this request; nothing was surfaced to the UI.
-              break;
-            }
-            const request = context.pendingPermissions.get(event.properties.requestID);
-            context.pendingPermissions.delete(event.properties.requestID);
-            yield* emit(context, {
-              ...buildEventBase({
-                threadId: context.session.threadId,
-                turnId,
-                requestId: event.properties.requestID,
-                raw: event,
-              }),
-              type: "request.resolved",
-              payload: {
-                requestType: request ? mapPermissionToRequestType(request.permission) : "unknown",
-                decision: mapPermissionDecision(event.properties.reply),
-              },
-            });
+            context.policyResolvedPermissionIds.delete(event.properties.requestID);
             break;
           }
 
