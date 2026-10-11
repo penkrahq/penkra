@@ -1,6 +1,6 @@
 import { assert, it } from "@effect/vitest";
 import { ProviderConnectionId } from "@penkra/contracts";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, PubSub } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
@@ -62,7 +62,9 @@ it.effect("a replacement profile releases the previous auth block", () =>
     `;
     yield* circuits.open({ connectionId, failure, now });
     assert.lengthOf(yield* circuits.get(connectionId), 1);
+    const releases = yield* circuits.subscribeReleases;
     yield* sql`UPDATE provider_connections SET profile_ref = 'new-profile' WHERE connection_id = ${connectionId}`;
     assert.lengthOf(yield* circuits.get(connectionId), 0);
+    assert.strictEqual((yield* PubSub.take(releases)).connectionId, connectionId);
   }).pipe(provideCircuits),
 );

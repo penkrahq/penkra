@@ -90,6 +90,7 @@ import { ProviderDiscoveryService } from "../../provider/Services/ProviderDiscov
 import { classifyProviderAuthFailure } from "../../provider/providerAuthFailure.ts";
 import {
   ProviderAuthCircuits,
+  type ProviderAuthCircuit,
   ProviderAuthCircuitsLive,
 } from "../../provider/providerAuthCircuit.ts";
 import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
@@ -501,6 +502,7 @@ const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const threadPublisher = yield* ThreadPublisher;
   const authCircuits = yield* ProviderAuthCircuits;
+  const authReleases = yield* authCircuits.subscribeReleases;
   const providerDiscovery = yield* ProviderDiscoveryService;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const providerThreadSwitchCoordinator = yield* ProviderThreadSwitchCoordinator;
@@ -2913,6 +2915,36 @@ const make = Effect.gen(function* () {
     yield* drainQueuedTurnsForThread(event.threadId, { allowStartingSession: true });
   });
 
+  // All release causes use this consumer: retry, sign-in, credential save,
+  // profile replacement, and a provider-confirmed successful turn.
+  const releaseAuthConnection = Effect.fnUntraced(function* (circuit: ProviderAuthCircuit) {
+    const rows = yield* sql<{ readonly threadId: string }>`
+      SELECT id AS "threadId" FROM threads
+      WHERE connection_id = ${circuit.connectionId} AND archived_at IS NULL AND deleted_at IS NULL
+    `;
+    for (const row of rows) {
+      const threadId = ThreadId.makeUnsafe(row.threadId);
+      const thread = yield* resolveThread(threadId);
+      const session = thread?.session;
+      if (session?.status === "error" && session.lastError?.startsWith(circuit.summary)) {
+        const now = new Date().toISOString();
+        yield* setThreadSession({
+          threadId,
+          session: {
+            ...session,
+            status: "ready",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: now,
+          },
+          expectedSession: session,
+          createdAt: now,
+        });
+      }
+      yield* drainQueuedTurnsForThread(threadId);
+    }
+  });
+
   const recoverQueuedTurnPromotions = Effect.gen(function* () {
     yield* Effect.forEach(yield* queuedTurnPromotions.listPendingThreadIds, (rawThreadId) =>
       Effect.gen(function* () {
@@ -4556,6 +4588,10 @@ const make = Effect.gen(function* () {
   const start = seedThreadModelSelections.pipe(
     Effect.andThen(
       Effect.all([
+        Stream.fromSubscription(authReleases).pipe(
+          Stream.runForEach(releaseAuthConnection),
+          Effect.forkScoped,
+        ),
         startProviderIntentSource.pipe(Effect.andThen(recoverQueuedTurnPromotionsSafely)),
         Stream.runForEach(providerService.streamEvents, (event) => {
           if (
@@ -4627,7 +4663,6 @@ const make = Effect.gen(function* () {
         return;
       }
       yield* authCircuits.close(connectionId);
-      yield* recoverQueuedTurnPromotions;
     });
 
   const listBlockingDeliveries: ProviderCommandReactorShape["listBlockingDeliveries"] = (input) =>

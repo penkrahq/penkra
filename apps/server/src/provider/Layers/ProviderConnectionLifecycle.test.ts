@@ -1,5 +1,5 @@
 import { assert, it } from "@effect/vitest";
-import { Deferred, Effect, Fiber, Layer, Option } from "effect";
+import { Deferred, Effect, Fiber, Layer, Option, PubSub } from "effect";
 
 import { ProviderConnectionRepositoryLive } from "../../persistence/Layers/ProviderConnections.ts";
 import { runMigrations } from "../../persistence/Migrations.ts";
@@ -136,6 +136,7 @@ layer("ProviderConnectionLifecycle", (it) => {
         now: "2026-08-08T00:00:00.000Z",
       });
       assert.lengthOf(yield* circuits.get(created.id), 1);
+      const releases = yield* circuits.subscribeReleases;
       const verifiedAgain = yield* lifecycle.createStatic({
         harness: "opencode",
         authenticationTargetId: "opencode-go",
@@ -144,6 +145,7 @@ layer("ProviderConnectionLifecycle", (it) => {
       });
       assert.strictEqual(verifiedAgain.id, created.id);
       assert.lengthOf(yield* circuits.get(created.id), 0);
+      assert.strictEqual((yield* PubSub.take(releases)).connectionId, created.id);
 
       const terminated = yield* lifecycle.terminate({
         connectionId: created.id,
