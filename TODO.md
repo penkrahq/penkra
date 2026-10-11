@@ -392,6 +392,28 @@ C. A "+" draft tab lives only in window memory until its first send.
 - An unused draft has no close action: it disappears when the window closes or reloads. Pressing "+" while the folder already has an unused draft selects that draft instead of making another (`projectDraftThreadIdByFolderId`).
 - Tests: "+" makes no server call; closing the window leaves no thread row; the first send creates exactly one thread; "+" twice yields one draft tab.
 
+D. Settings "Spaces" becomes "Archive" (operator-approved design, 2026-10-10). A drops `archivedSpaces`/`archivedFolders` from the snapshot, so A and D land in the same commit.
+- Design reference: branch `archive-design` (commits 0a2c392e0, 02dbc22cd), file `apps/web/src/components/settings/pages/spaces/SettingsSpacesPage.tsx`. It uses fixture data; copy its layout and replace the `FIXTURE_*` data and the row-removing `onRestore` with the real reads and commands below. The design is the spec for layout, text and icons.
+- Navigation: in `apps/web/src/components/settings/settings-page/SettingsPage.tsx` the entry is label "Archive", icon `IconArchive`, subtitle "Restore archived Spaces, Folders, and chats.", placed directly before "Account". Make the same label and description change in `apps/web/src/settingsNavigation.ts`. Rename the page id `spaces` to `archive` everywhere (`_chat.settings.tsx`, `SettingsPageContent.tsx`, the page folder and file `pages/archive/SettingsArchivePage.tsx`, its browser test). No alias for the old id.
+- Page content, top to bottom, each with a heading and count: Spaces, then Folders, then Chats. There is no Active list and no footer note. An empty section shows the dashed "No archived …" box.
+  - Space row: `IconStack2`, name, "N folders · N chats · archived <date>".
+  - Folder row: `FolderStateIcon open={false} iconDataUrl={folder.iconDataUrl}` (its own icon, otherwise the normal folder icon), name, "<space> · N chats · archived <date>".
+  - Chat row: `ProviderIcon provider={thread.provider}`, title, "<space> · <folder> · archived <date>". If the chat's folder or space is archived, add the line "Also restores Folder “X” with only this chat" or "Also restores Space “S” and Folder “X” with only this chat".
+  - Every row's only action is "Restore". There is no open, delete or rename, except that the existing name-clash rename dialog for restoring a Space stays.
+- Server reads, new clean-core RPCs:
+  - `listArchivedNavigation` returns all archived, not deleted spaces and folders in one call, each ordered by `archived_at DESC, id`, with per-row folder and chat counts. These lists are short, so there is no paging.
+  - `listArchivedThreads({ cursor })` returns pages of `THREADS_PAGE_SIZE` (50), newest archived first (`ORDER BY archived_at DESC, id DESC`, keyset cursor `(archivedAt, id)`, 2.8 rules). Each row includes the folder and space names, plus whether each is archived. Add a migration with `CREATE INDEX idx_threads_archived ON threads(archived_at DESC, id DESC) WHERE deleted_at IS NULL AND archived_at IS NOT NULL`. The test asserts that EXPLAIN QUERY PLAN uses it.
+  - The page loads navigation once on open, loads chat page 1 on open, and shows "Show N more" for the next page.
+- Restore semantics:
+  - Restore Space and Restore Folder use the existing `restoreSpace` and `restoreProject`; their behaviour is unchanged.
+  - Restore chat clears that thread's `archived_at`. If its folder is archived, it also clears the folder's `archived_at`; if its space is archived, it also clears the space's. Do this in one transaction and one command, `cleanCore.restoreThread`. The folder's or space's other archived chats keep their `archived_at`.
+  - After any restore, the row leaves the list and the sidebar shows the restored items through the existing broadcasts.
+- Remove the archived-navigation state from the web store (`archivedSpaces`, `archivedFolders` in `storeState.ts`, `storeProjection.ts`, `storeEventReducer.ts`, `spaceGrouping.ts`). `Sidebar.tsx` `activeSpaceDisplayNameForReference` stops reading archived spaces: a reference to an archived space shows the name that reference already carries, or "Archived space".
+- Tests:
+  - Server: navigation returns archived spaces and folders with correct counts; the chat page order and cursor are correct across 120 rows; restoring a chat in an archived folder inside an archived space unarchives exactly those three rows, and a sibling archived chat stays archived.
+  - Browser: the page renders the three sections in order; "Show more" fetches page 2; the chat row shows its provider icon; the folder row shows its custom icon.
+- Done when: `git grep -n "archivedSpaces\|archivedFolders\|SettingsSpacesPage" -- apps packages` shows no matches; typecheck, lint (0 errors), server and web suites pass.
+
 ## 3. Migration of Production (in place, keep every chat)
 
 0. **Rehearsal copies:** made only with `sqlite3 'file:<Production>?mode=ro' "VACUUM INTO '<dest>'"` (never by copying `state.sqlite`, `-wal`, `-shm` files; that produced a corrupt copy on 2026-10-09 whose counts must not be used). The copy can be made only while Penkra is quit: Penkra opens `state.sqlite` with `PRAGMA locking_mode = EXCLUSIVE` (`apps/server/src/persistence/Layers/Sqlite.ts:82`), so every other process gets "database is locked (5)" for as long as Penkra runs. Measured 2026-10-10: a read-only `SELECT` with `.timeout 10000` still failed. A busy timeout cannot fix this, so do not add one. Before making a copy, ask the operator to quit Penkra. Run the copy and the `integrity_check`, then tell the operator Penkra can be reopened. Every copy must return `ok` from `PRAGMA integrity_check` before use.
