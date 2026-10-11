@@ -5355,7 +5355,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
     );
   });
 
-  it.effect("restores unfinished Claude tasks from the resume cursor on the next turn", () => {
+  it.effect("starts a resumed Claude session with an empty in-memory task list", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
@@ -5365,48 +5365,70 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
         Stream.runCollect,
         Effect.forkChild,
       );
-
+      const resume = "550e8400-e29b-41d4-a716-446655440000";
       const session = yield* adapter.startSession({
         threadId: THREAD_ID,
         provider: "claudeAgent",
         runtimeMode: "full-access",
         resumeCursor: {
           threadId: THREAD_ID,
+          resume,
           trackedTasks: [
             {
-              id: "task-1",
-              subject: "Inspect files",
-              description: "Find the relevant files",
-              activeForm: "Inspecting files",
+              id: "old-task",
+              subject: "Old unfinished work",
               status: "in_progress",
-              owner: null,
               blockedBy: [],
-            },
-            {
-              id: "task-2",
-              subject: "Patch UI",
-              status: "pending",
-              blockedBy: ["task-1"],
             },
           ],
         },
       });
+      assert.deepEqual(session.resumeCursor, { threadId: THREAD_ID, resume });
+      yield* adapter.sendTurn({ threadId: session.threadId, input: "New work", attachments: [] });
+      harness.query.emit({
+        type: "stream_event",
+        session_id: "sdk-session-new-task-group",
+        uuid: "stream-new-task-create",
+        parent_tool_use_id: null,
+        event: {
+          type: "content_block_start",
+          index: 0,
+          content_block: {
+            type: "tool_use",
+            id: "tool-new-task-create",
+            name: "TaskCreate",
+            input: {
+              subject: "New work",
+              description: "Handle the new request",
+            },
+          },
+        },
+      } as unknown as SDKMessage);
 
-      // Metadata-only legacy cursors can restore the local task projection, but
-      // must not be re-advertised as an exact provider-native continuation.
-      assert.equal(session.resumeCursor, undefined);
-
-      yield* adapter.sendTurn({
-        threadId: session.threadId,
-        input: "continue",
-        attachments: [],
-      });
+      harness.query.emit({
+        type: "user",
+        session_id: "sdk-session-new-task-group",
+        uuid: "user-new-task-create-result",
+        parent_tool_use_id: null,
+        tool_use_result: {
+          task: { id: "new-task", subject: "New work" },
+        },
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "tool-new-task-create",
+              content: "Task created successfully",
+            },
+          ],
+        },
+      } as unknown as SDKMessage);
 
       const taskEvents = Array.from(yield* Fiber.join(taskEventFiber));
-      assert.deepEqual(taskEvents[0]?.payload.tasks, [
-        { task: "Inspecting files", status: "inProgress" },
-        { task: "Patch UI", status: "pending" },
-      ]);
+      assert.deepEqual(taskEvents[0]?.payload.tasks, [{ task: "New work", status: "pending" }]);
+      const sessions = yield* adapter.listSessions();
+      assert.equal(Object.hasOwn(sessions[0]?.resumeCursor as object, "trackedTasks"), false);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
@@ -5417,36 +5439,76 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
     const harness = makeHarness();
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
+
+      const completedTaskFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter((event) => event.type === "turn.tasks.updated"),
+        Stream.take(1),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      yield* adapter.sendTurn({ threadId: session.threadId, input: "Old work", attachments: [] });
+      harness.query.emit({
+        type: "stream_event",
+        session_id: "sdk-session-old-task-group",
+        uuid: "stream-old-task-list",
+        parent_tool_use_id: null,
+        event: {
+          type: "content_block_start",
+          index: 0,
+          content_block: {
+            type: "tool_use",
+            id: "tool-old-task-list",
+            name: "TaskList",
+            input: {},
+          },
+        },
+      } as unknown as SDKMessage);
+      harness.query.emit({
+        type: "user",
+        session_id: "sdk-session-old-task-group",
+        uuid: "user-old-task-list",
+        parent_tool_use_id: null,
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "tool-old-task-list",
+              content: JSON.stringify({
+                tasks: [
+                  {
+                    id: "old-task",
+                    subject: "Old completed work",
+                    status: "completed",
+                    blockedBy: [],
+                  },
+                ],
+              }),
+            },
+          ],
+        },
+      } as unknown as SDKMessage);
+      const completedTaskEvents = Array.from(yield* Fiber.join(completedTaskFiber));
+      assert.deepEqual(completedTaskEvents[0]?.payload.tasks, [
+        { task: "Old completed work", status: "completed" },
+      ]);
       const taskEventFiber = yield* adapter.streamEvents.pipe(
         Stream.filter((event) => event.type === "turn.tasks.updated"),
         Stream.take(1),
         Stream.runCollect,
         Effect.forkChild,
       );
-
-      const session = yield* adapter.startSession({
-        threadId: THREAD_ID,
-        provider: "claudeAgent",
-        runtimeMode: "full-access",
-        resumeCursor: {
-          threadId: THREAD_ID,
-          trackedTasks: [
-            {
-              id: "old-task",
-              subject: "Old completed work",
-              status: "completed",
-              blockedBy: [],
-            },
-          ],
-        },
-      });
-
       const turn = yield* adapter.sendTurn({
         threadId: session.threadId,
         input: "start unrelated work",
         attachments: [],
       });
-      assert.equal(turn.resumeCursor, undefined);
+      assert.equal(Object.hasOwn(turn.resumeCursor as object, "trackedTasks"), false);
 
       harness.query.emit({
         type: "stream_event",
@@ -6850,8 +6912,6 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       assert.deepEqual(session.resumeCursor, {
         threadId: RESUME_THREAD_ID,
         resume: "550e8400-e29b-41d4-a716-446655440000",
-        resumeSessionAt: "assistant-99",
-        turnCount: 3,
       });
 
       const createInput = harness.getLastCreateQueryInput();
@@ -7008,7 +7068,6 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       assert.deepEqual(activeSessions[0]?.resumeCursor, {
         threadId: THREAD_ID,
         resume: durableSessionId,
-        turnCount: 0,
       });
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),

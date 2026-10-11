@@ -137,7 +137,6 @@ import {
   hasOnlyCompletedClaudeTasks,
   hasUnfinishedClaudeTasks,
   normalizeClaudeTodoTasks,
-  parseClaudeTrackedTasks,
   type ClaudeTrackedTask,
 } from "../claudeTaskTracker.ts";
 import {
@@ -219,14 +218,6 @@ type PromptQueueItem =
   | {
       readonly type: "terminate";
     };
-
-interface ClaudeResumeState {
-  readonly threadId?: ThreadId;
-  readonly resume?: string;
-  readonly resumeSessionAt?: string;
-  readonly turnCount?: number;
-  readonly trackedTasks?: ReadonlyArray<ClaudeTrackedTask>;
-}
 
 interface ClaudeTurnState {
   readonly turnId: TurnId;
@@ -365,7 +356,6 @@ interface ClaudeSessionContext {
   lastKnownAutoCompactThreshold: number | undefined;
   contextUsageControlEnabled: boolean;
   lastKnownTokenUsage: ThreadTokenUsageSnapshot | undefined;
-  lastAssistantUuid: string | undefined;
   lastThreadStartedId: string | undefined;
   // One semantic compaction survives the SDK's repeated `status: compacting`
   // heartbeats. Journal events remain unique, while itemId ties the visible
@@ -562,10 +552,6 @@ function neverResolvingUserMessageStream(): AsyncIterable<SDKUserMessage> {
 
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
-}
-
-function isSyntheticClaudeThreadId(value: string): boolean {
-  return value.startsWith("claude-thread-");
 }
 
 // Claude hook system messages can carry transient session ids; only durable
@@ -779,45 +765,10 @@ function toPermissionMode(value: unknown): PermissionMode | undefined {
   }
 }
 
-function readClaudeResumeState(resumeCursor: unknown): ClaudeResumeState | undefined {
-  if (!resumeCursor || typeof resumeCursor !== "object") {
-    return undefined;
-  }
-  const cursor = resumeCursor as {
-    threadId?: unknown;
-    resume?: unknown;
-    sessionId?: unknown;
-    resumeSessionAt?: unknown;
-    turnCount?: unknown;
-    trackedTasks?: unknown;
-  };
-
-  const threadIdCandidate = typeof cursor.threadId === "string" ? cursor.threadId : undefined;
-  const threadId =
-    threadIdCandidate && !isSyntheticClaudeThreadId(threadIdCandidate)
-      ? ThreadId.makeUnsafe(threadIdCandidate)
-      : undefined;
-  const resumeCandidate =
-    typeof cursor.resume === "string"
-      ? cursor.resume
-      : typeof cursor.sessionId === "string"
-        ? cursor.sessionId
-        : undefined;
-  const resume = resumeCandidate && isUuid(resumeCandidate) ? resumeCandidate : undefined;
-  const resumeSessionAt =
-    typeof cursor.resumeSessionAt === "string" ? cursor.resumeSessionAt : undefined;
-  const turnCountValue = typeof cursor.turnCount === "number" ? cursor.turnCount : undefined;
-  const trackedTasks = parseClaudeTrackedTasks(cursor.trackedTasks);
-
-  return {
-    ...(threadId ? { threadId } : {}),
-    ...(resume ? { resume } : {}),
-    ...(resumeSessionAt ? { resumeSessionAt } : {}),
-    ...(turnCountValue !== undefined && Number.isInteger(turnCountValue) && turnCountValue >= 0
-      ? { turnCount: turnCountValue }
-      : {}),
-    ...(trackedTasks.length > 0 ? { trackedTasks } : {}),
-  };
+function readClaudeResumeSessionId(resumeCursor: unknown): string | undefined {
+  if (!resumeCursor || typeof resumeCursor !== "object") return undefined;
+  const { resume } = resumeCursor as { readonly resume?: unknown };
+  return typeof resume === "string" && isUuid(resume) ? resume : undefined;
 }
 
 function classifyToolItemType(toolName: string): CanonicalItemType {
@@ -1925,11 +1876,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         const resumeCursor = {
           threadId,
           resume: context.resumeSessionId,
-          ...(context.lastAssistantUuid ? { resumeSessionAt: context.lastAssistantUuid } : {}),
-          turnCount: context.turns.length,
-          ...(context.trackedTasks.size > 0
-            ? { trackedTasks: Array.from(context.trackedTasks.values()) }
-            : {}),
         };
 
         context.session = {
@@ -2625,7 +2571,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           // only; subagent completion must not poll them.
           contextUsageControlEnabled: false,
           lastKnownTokenUsage: undefined,
-          lastAssistantUuid: undefined,
           lastThreadStartedId: undefined,
           activeCompaction: undefined,
           rerouteOriginalApiModelId: undefined,
@@ -3263,7 +3208,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           }
         }
 
-        context.lastAssistantUuid = message.uuid;
         yield* updateResumeCursor(context);
       });
 
@@ -4167,7 +4111,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               // starts a fresh Claude session and bootstraps Penkra's retained
               // transcript instead of replaying the same broken id forever.
               context.resumeSessionId = undefined;
-              context.lastAssistantUuid = undefined;
               context.session = {
                 ...context.session,
                 // `null` is an explicit tombstone. An omitted cursor only
@@ -4355,9 +4298,8 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         }
 
         const startedAt = yield* nowIso;
-        const resumeState = readClaudeResumeState(input.resumeCursor);
         const threadId = input.threadId;
-        const existingResumeSessionId = resumeState?.resume;
+        const existingResumeSessionId = readClaudeResumeSessionId(input.resumeCursor);
         const newSessionId =
           existingResumeSessionId === undefined ? yield* Random.nextUUIDv4 : undefined;
         const sessionId = existingResumeSessionId ?? newSessionId;
@@ -4375,9 +4317,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         const pendingApprovals = new Map<ApprovalRequestId, PendingApproval>();
         const pendingUserInputs = new Map<ApprovalRequestId, PendingUserInput>();
         const inFlightTools = new Map<number, ToolInFlight>();
-        const trackedTasks = new Map<string, ClaudeTrackedTask>(
-          (resumeState?.trackedTasks ?? []).map((task) => [task.id, task]),
-        );
+        const trackedTasks = new Map<string, ClaudeTrackedTask>();
 
         const contextRef = yield* Ref.make<ClaudeSessionContext | undefined>(undefined);
 
@@ -4961,13 +4901,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                   resumeCursor: {
                     ...(threadId ? { threadId } : {}),
                     resume: existingResumeSessionId,
-                    ...(resumeState?.resumeSessionAt
-                      ? { resumeSessionAt: resumeState.resumeSessionAt }
-                      : {}),
-                    turnCount: resumeState?.turnCount ?? 0,
-                    ...(trackedTasks.size > 0
-                      ? { trackedTasks: Array.from(trackedTasks.values()) }
-                      : {}),
                   },
                 }
               : {}),
@@ -5012,7 +4945,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             lastKnownAutoCompactThreshold: requestedAutoCompactWindowTokens,
             contextUsageControlEnabled: true,
             lastKnownTokenUsage: undefined,
-            lastAssistantUuid: resumeState?.resumeSessionAt,
             lastThreadStartedId: undefined,
             activeCompaction: undefined,
             rerouteOriginalApiModelId: undefined,
@@ -5132,7 +5064,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
 
     const verifyNativeResume: NonNullable<ClaudeAdapterShape["verifyNativeResume"]> = (input) =>
       Effect.gen(function* () {
-        const resume = readClaudeResumeState(input.sourceResumeCursor)?.resume;
+        const resume = readClaudeResumeSessionId(input.sourceResumeCursor);
         if (!resume) {
           return yield* new ProviderAdapterValidationError({
             provider: PROVIDER,

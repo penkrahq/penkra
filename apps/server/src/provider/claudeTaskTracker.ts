@@ -147,19 +147,6 @@ function mergeTaskUpdate(
   };
 }
 
-export function parseClaudeTrackedTasks(value: unknown): ReadonlyArray<ClaudeTrackedTask> {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value
-    .map((entry) =>
-      entry && typeof entry === "object" && !Array.isArray(entry)
-        ? trackedTaskFromRecord(entry as Record<string, unknown>)
-        : undefined,
-    )
-    .filter((task): task is ClaudeTrackedTask => task !== undefined);
-}
-
 export function normalizeClaudeTodoTasks(input: Record<string, unknown>): {
   readonly tasks: ReadonlyArray<RuntimeTaskListItem>;
 } | null {
