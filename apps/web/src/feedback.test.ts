@@ -175,23 +175,19 @@ describe("submitFeedback", () => {
     vi.stubEnv("VITE_FEEDBACK_ENDPOINT", "");
     const fetchImplementation = vi.fn<typeof fetch>();
 
-    await expect(submitFeedback(submission, fetchImplementation)).rejects.toThrow(
-      "Feedback delivery is not configured",
-    );
+    await expect(
+      submitFeedback(submission, new AbortController().signal, fetchImplementation),
+    ).rejects.toThrow("Feedback delivery is not configured");
     expect(fetchImplementation).not.toHaveBeenCalled();
   });
 
   it("uses the configured endpoint and Penkra request marker", async () => {
     vi.stubEnv("VITE_FEEDBACK_ENDPOINT", "https://feedback.penkra.test/report");
-    vi.stubGlobal("window", {
-      setTimeout: globalThis.setTimeout,
-      clearTimeout: globalThis.clearTimeout,
-    });
     const fetchImplementation = vi.fn<typeof fetch>(
       async () => new Response(null, { status: 204 }),
     );
 
-    await submitFeedback(submission, fetchImplementation);
+    await submitFeedback(submission, new AbortController().signal, fetchImplementation);
 
     expect(fetchImplementation).toHaveBeenCalledWith(
       "https://feedback.penkra.test/report",
@@ -203,5 +199,33 @@ describe("submitFeedback", () => {
         },
       }),
     );
+  });
+  it("keeps an unanswered request pending until the caller cancels it", async () => {
+    vi.stubEnv("VITE_FEEDBACK_ENDPOINT", "https://feedback.penkra.test/report");
+    const controller = new AbortController();
+    const fetchImplementation = vi.fn<typeof fetch>(
+      (_url, options) =>
+        new Promise((_resolve, reject) => {
+          options?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Cancelled", "AbortError")),
+            { once: true },
+          );
+        }),
+    );
+    const delivery = submitFeedback(submission, controller.signal, fetchImplementation);
+    expect(fetchImplementation.mock.calls[0]?.[1]?.signal).toBe(controller.signal);
+    expect(controller.signal.aborted).toBe(false);
+    controller.abort();
+    await expect(delivery).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("preserves a network failure without replacing it with a timeout", async () => {
+    vi.stubEnv("VITE_FEEDBACK_ENDPOINT", "https://feedback.penkra.test/report");
+    const failure = new TypeError("Network unavailable");
+    const fetchImplementation = vi.fn<typeof fetch>().mockRejectedValue(failure);
+    await expect(
+      submitFeedback(submission, new AbortController().signal, fetchImplementation),
+    ).rejects.toBe(failure);
   });
 });

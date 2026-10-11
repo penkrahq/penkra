@@ -52,8 +52,6 @@ export interface FeedbackSubmission {
   diagnostics: FeedbackDiagnostics;
 }
 
-const FEEDBACK_REQUEST_TIMEOUT_MS = 20_000;
-
 function formatStateFlags(diagnostics: FeedbackThreadContext): string {
   const flags: string[] = [];
   if (diagnostics.hasThreadError) flags.push("the thread was in an error state");
@@ -145,6 +143,7 @@ function feedbackEndpoint(): string | null {
 
 export async function submitFeedback(
   submission: FeedbackSubmission,
+  signal: AbortSignal,
   fetchImplementation: typeof fetch = fetch,
 ): Promise<void> {
   const endpoint = feedbackEndpoint();
@@ -153,29 +152,18 @@ export async function submitFeedback(
       "Feedback delivery is not configured. Please report this issue through Penkra HQ.",
     );
   }
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), FEEDBACK_REQUEST_TIMEOUT_MS);
-  try {
-    const response = await fetchImplementation(endpoint, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-penkra-feedback": "1",
-      },
-      body: JSON.stringify(submission),
-      signal: controller.signal,
-    });
-    if (response.ok) return;
+  const response = await fetchImplementation(endpoint, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-penkra-feedback": "1",
+    },
+    body: JSON.stringify(submission),
+    signal,
+  });
+  if (response.ok) return;
 
-    const payload = (await response.json().catch(() => null)) as { error?: unknown } | null;
-    const message = typeof payload?.error === "string" ? payload.error.trim() : "";
-    throw new Error(message || `Feedback could not be sent (${response.status}).`);
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") {
-      throw new Error("Feedback delivery timed out. Please try again.");
-    }
-    throw error;
-  } finally {
-    window.clearTimeout(timeout);
-  }
+  const payload = (await response.json().catch(() => null)) as { error?: unknown } | null;
+  const message = typeof payload?.error === "string" ? payload.error.trim() : "";
+  throw new Error(message || `Feedback could not be sent (${response.status}).`);
 }
