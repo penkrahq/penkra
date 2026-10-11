@@ -46,7 +46,6 @@ import type {
 import type { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem";
 import type {
   ServerConfig,
-  ServerDiagnosticsResult,
   ServerGetEnvironmentResult,
   ServerGetProviderUsageSnapshotInput,
   ServerGetProviderUsageSnapshotResult,
@@ -1057,7 +1056,6 @@ export interface NativeApi {
     listProviderUsage: (
       input: ServerListProviderUsageInput,
     ) => Promise<ServerListProviderUsageResult>;
-    getDiagnostics: () => Promise<ServerDiagnosticsResult>;
     transcribeVoice: (
       input: ServerVoiceTranscriptionInput,
     ) => Promise<ServerVoiceTranscriptionResult>;

@@ -179,7 +179,6 @@ export const WS_METHODS = {
   serverStopLocalServer: "server.stopLocalServer",
   serverGetProviderUsageSnapshot: "server.getProviderUsageSnapshot",
   serverListProviderUsage: "server.listProviderUsage",
-  serverGetDiagnostics: "server.getDiagnostics",
   serverTranscribeVoice: "server.transcribeVoice",
   serverUpsertKeybinding: "server.upsertKeybinding",
   subscribeServerLifecycle: "server.subscribeLifecycle",
@@ -334,7 +333,6 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.serverStopLocalServer, ServerStopLocalServerInput),
   tagRequestBody(WS_METHODS.serverGetProviderUsageSnapshot, ServerGetProviderUsageSnapshotInput),
   tagRequestBody(WS_METHODS.serverListProviderUsage, ServerListProviderUsageInput),
-  tagRequestBody(WS_METHODS.serverGetDiagnostics, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverTranscribeVoice, ServerVoiceTranscriptionInput),
   tagRequestBody(WS_METHODS.serverUpsertKeybinding, KeybindingRule),
 

@@ -5,7 +5,6 @@ import { renameThread } from "./cleanCore/threadStore.ts";
 import { createAndSendThread } from "./cleanCore/createAndSendThread.ts";
 import { createThreadFromClient, ThreadLifecycle } from "./cleanCore/threadLifecycle.ts";
 import { ThreadSender } from "./cleanCore/ThreadSender.ts";
-import { execFile } from "node:child_process";
 
 import {
   ApprovalRequestId,
@@ -32,7 +31,6 @@ import {
   type OrchestrationThreadDetailSnapshot,
   type OrchestrationThreadStreamItem,
   type ServerConfigStreamEvent,
-  type ServerDiagnosticsResult,
   type ServerLifecycleStreamEvent,
   ServerProviderUpdateError,
 } from "@penkra/contracts";
@@ -84,7 +82,6 @@ import { ProviderConnectionRepository } from "./persistence/Services/ProviderCon
 import { ProviderInstallationRepository } from "./persistence/Services/ProviderInstallations";
 import { listProviderUsage } from "./providerUsage";
 import { getProviderUsageSnapshot } from "./providerUsageSnapshot";
-import { redactSensitiveProcessArgs } from "./processArgumentRedaction";
 import { ServerEnvironment } from "./environment/Services/ServerEnvironment";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
@@ -130,9 +127,6 @@ import { makeSyncAcknowledgements } from "./wsSyncAcknowledgements";
 import { wsRpcErrorCode } from "./wsRpcErrorMapping";
 import { findThreadGuardInvariant } from "./orchestration/Errors.ts";
 
-const MAX_DIAGNOSTIC_CHILD_PROCESSES = 80;
-const MAX_DIAGNOSTIC_ARGS_CHARS = 500;
-
 class WsRequestAdmissionMiddleware extends RpcMiddleware.Service<WsRequestAdmissionMiddleware>()(
   "penkra/WsRequestAdmissionMiddleware",
   { error: WsRpcError, requiredForClient: false },
@@ -162,78 +156,6 @@ const wsRequestAdmissionMiddlewareLayer = Layer.effect(
 
 // Relative subdirectories scaffolded under a freshly created chat container workspace root.
 const CHAT_WORKSPACE_SUBDIRECTORIES = ["work", "outputs"] as const;
-
-interface ProcessTableRow {
-  readonly pid: number;
-  readonly ppid: number;
-  readonly rssBytes: number;
-  readonly virtualSizeBytes: number;
-  readonly command: string;
-  readonly args: string;
-}
-
-function redactAndTruncateProcessArgs(args: string): string {
-  const redacted = redactSensitiveProcessArgs(args);
-  return redacted.length > MAX_DIAGNOSTIC_ARGS_CHARS
-    ? `${redacted.slice(0, Math.max(0, MAX_DIAGNOSTIC_ARGS_CHARS - 15))}... [truncated]`
-    : redacted;
-}
-
-function parseProcessTable(output: string): ProcessTableRow[] {
-  const rows: ProcessTableRow[] = [];
-  for (const line of output.split(/\r?\n/)) {
-    const match = line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\S+)(?:\s+(.*))?$/);
-    if (!match) {
-      continue;
-    }
-    rows.push({
-      pid: Number(match[1]),
-      ppid: Number(match[2]),
-      rssBytes: Number(match[3]) * 1024,
-      virtualSizeBytes: Number(match[4]) * 1024,
-      command: match[5] ?? "",
-      args: redactAndTruncateProcessArgs(match[6] ?? ""),
-    });
-  }
-  return rows;
-}
-
-function collectDescendantProcesses(
-  rows: readonly ProcessTableRow[],
-  rootPid: number,
-): ProcessTableRow[] {
-  const childrenByParent = new Map<number, ProcessTableRow[]>();
-  for (const row of rows) {
-    const children = childrenByParent.get(row.ppid) ?? [];
-    children.push(row);
-    childrenByParent.set(row.ppid, children);
-  }
-
-  const descendants: ProcessTableRow[] = [];
-  const stack = [...(childrenByParent.get(rootPid) ?? [])];
-  while (stack.length > 0) {
-    const row = stack.pop()!;
-    descendants.push(row);
-    stack.push(...(childrenByParent.get(row.pid) ?? []));
-  }
-  return descendants.toSorted((left, right) => right.rssBytes - left.rssBytes);
-}
-
-function readDescendantProcesses(rootPid: number): Promise<ProcessTableRow[]> {
-  if (process.platform === "win32") {
-    return Promise.resolve([]);
-  }
-  return new Promise((resolve) => {
-    execFile(
-      "ps",
-      ["-axo", "pid=,ppid=,rss=,vsz=,comm=,args="],
-      { maxBuffer: 2 * 1024 * 1024 },
-      (_error, stdout) => {
-        resolve(collectDescendantProcesses(parseProcessTable(stdout), rootPid));
-      },
-    );
-  });
-}
 
 function toWsRpcError(cause: unknown, fallbackMessage: string) {
   const code = wsRpcErrorCode(cause);
@@ -1391,39 +1313,6 @@ const makeWsRpcHandlersLayer = () =>
           rpcEffect(getProviderUsageSnapshot(input), "Failed to load provider usage"),
         [WS_METHODS.serverListProviderUsage]: (input) =>
           rpcEffect(listProviderUsage(input), "Failed to load provider usage"),
-        [WS_METHODS.serverGetDiagnostics]: () =>
-          rpcEffect(
-            Effect.gen(function* () {
-              const [projection, fullChildProcesses] = yield* Effect.all([
-                projectionReadModelQuery.getCounts(),
-                Effect.promise(() => readDescendantProcesses(process.pid)),
-              ]);
-              const memory = process.memoryUsage();
-              const diagnostics: ServerDiagnosticsResult = {
-                generatedAt: new Date().toISOString(),
-                process: {
-                  pid: process.pid,
-                  uptimeSeconds: Math.max(0, Math.round(process.uptime())),
-                  memory: {
-                    rssBytes: Math.max(0, Math.round(memory.rss)),
-                    heapTotalBytes: Math.max(0, Math.round(memory.heapTotal)),
-                    heapUsedBytes: Math.max(0, Math.round(memory.heapUsed)),
-                    externalBytes: Math.max(0, Math.round(memory.external)),
-                    arrayBuffersBytes: Math.max(0, Math.round(memory.arrayBuffers)),
-                  },
-                },
-                childProcesses: fullChildProcesses.slice(0, MAX_DIAGNOSTIC_CHILD_PROCESSES),
-                childProcessTotalCount: fullChildProcesses.length,
-                childProcessTotalRssBytes: fullChildProcesses.reduce(
-                  (total, processRow) => total + processRow.rssBytes,
-                  0,
-                ),
-                projection,
-              };
-              return diagnostics;
-            }),
-            "Failed to load server diagnostics",
-          ),
         [WS_METHODS.serverTranscribeVoice]: (input) =>
           rpcEffect(
             Effect.gen(function* () {
