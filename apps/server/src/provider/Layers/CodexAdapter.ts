@@ -9,7 +9,6 @@
 import {
   type ChatAttachment,
   type CanonicalItemType,
-  type CanonicalRequestType,
   type ModelSelection,
   type ProviderComposerCapabilities,
   type ProviderEvent,
@@ -25,7 +24,6 @@ import {
   RuntimeItemId,
   RuntimeRequestId,
   RuntimeTaskId,
-  ProviderApprovalDecision,
   ProviderItemId,
   ThreadId,
   TurnId,
@@ -510,67 +508,6 @@ function itemStatus(
   return rawStatus === "failed" || rawStatus === "declined" ? rawStatus : "completed";
 }
 
-function toRequestTypeFromMethod(method: string): CanonicalRequestType {
-  switch (method) {
-    case "item/commandExecution/requestApproval":
-      return "command_execution_approval";
-    case "item/fileRead/requestApproval":
-      return "file_read_approval";
-    case "item/fileChange/requestApproval":
-      return "file_change_approval";
-    case "applyPatchApproval":
-      return "apply_patch_approval";
-    case "execCommandApproval":
-      return "exec_command_approval";
-    case "item/tool/requestUserInput":
-      return "tool_user_input";
-    case "item/tool/call":
-      return "dynamic_tool_call";
-    case "account/chatgptAuthTokens/refresh":
-      return "auth_tokens_refresh";
-    default:
-      return "unknown";
-  }
-}
-
-function isApprovalRequestType(requestType: CanonicalRequestType): boolean {
-  return (
-    requestType === "command_execution_approval" ||
-    requestType === "file_read_approval" ||
-    requestType === "file_change_approval" ||
-    requestType === "apply_patch_approval" ||
-    requestType === "exec_command_approval"
-  );
-}
-
-function toRequestTypeFromKind(kind: unknown): CanonicalRequestType {
-  switch (kind) {
-    case "command":
-      return "command_execution_approval";
-    case "file-read":
-      return "file_read_approval";
-    case "file-change":
-      return "file_change_approval";
-    default:
-      return "unknown";
-  }
-}
-
-function toRequestTypeFromResolvedPayload(
-  payload: Record<string, unknown> | undefined,
-): CanonicalRequestType {
-  const request = asObject(payload?.request);
-  const method = asString(request?.method) ?? asString(payload?.method);
-  if (method) {
-    return toRequestTypeFromMethod(method);
-  }
-  const requestKind = asString(request?.kind) ?? asString(payload?.requestKind);
-  if (requestKind) {
-    return toRequestTypeFromKind(requestKind);
-  }
-  return "unknown";
-}
-
 function toCanonicalUserInputAnswers(
   answers: ProviderUserInputAnswers | undefined,
 ): ProviderUserInputAnswers {
@@ -997,46 +934,7 @@ function mapToRuntimeEvents(
       ];
     }
 
-    const requestType = toRequestTypeFromMethod(event.method);
-    // Codex uses JSON-RPC server requests for both human approval gates and
-    // ordinary host-handled work such as `item/tool/call`. Only the former is
-    // an interaction request; tool calls have their own item lifecycle events.
-    if (!isApprovalRequestType(requestType)) {
-      return [];
-    }
-
-    const detail =
-      asString(payload?.command) ?? asString(payload?.reason) ?? asString(payload?.prompt);
-    return [
-      {
-        ...runtimeEventBase(event, canonicalThreadId),
-        type: "request.opened",
-        payload: {
-          requestType,
-          ...(detail ? { detail } : {}),
-          ...(event.payload !== undefined ? { args: event.payload } : {}),
-        },
-      },
-    ];
-  }
-
-  if (event.method === "item/requestApproval/decision" && event.requestId) {
-    const decision = Schema.decodeUnknownSync(ProviderApprovalDecision)(payload?.decision);
-    const requestType =
-      event.requestKind !== undefined
-        ? toRequestTypeFromKind(event.requestKind)
-        : toRequestTypeFromMethod(event.method);
-    return [
-      {
-        ...runtimeEventBase(event, canonicalThreadId),
-        type: "request.resolved",
-        payload: {
-          requestType,
-          ...(decision ? { decision } : {}),
-          ...(event.payload !== undefined ? { resolution: event.payload } : {}),
-        },
-      },
-    ];
+    return [];
   }
 
   if (event.method === "session/connecting") {
@@ -1327,28 +1225,6 @@ function mapToRuntimeEvents(
           ...(asNumber(payload?.elapsedSeconds) !== undefined
             ? { elapsedSeconds: asNumber(payload?.elapsedSeconds) }
             : {}),
-        },
-      },
-    ];
-  }
-
-  if (event.method === "serverRequest/resolved") {
-    const requestType =
-      toRequestTypeFromResolvedPayload(payload) !== "unknown"
-        ? toRequestTypeFromResolvedPayload(payload)
-        : event.requestId && event.requestKind !== undefined
-          ? toRequestTypeFromKind(event.requestKind)
-          : "unknown";
-    if (!isApprovalRequestType(requestType)) {
-      return [];
-    }
-    return [
-      {
-        ...runtimeEventBase(event, canonicalThreadId),
-        type: "request.resolved",
-        payload: {
-          requestType,
-          ...(event.payload !== undefined ? { resolution: event.payload } : {}),
         },
       },
     ];
@@ -1946,16 +1822,6 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
         catch: (cause) => toRequestError(threadId, "thread/compact/start", cause),
       });
 
-    const respondToRequest: CodexAdapterShape["respondToRequest"] = (
-      threadId,
-      requestId,
-      decision,
-    ) =>
-      Effect.tryPromise({
-        try: () => manager.respondToRequest(threadId, requestId, decision),
-        catch: (cause) => toRequestError(threadId, "item/requestApproval/decision", cause),
-      });
-
     const respondToUserInput: CodexAdapterShape["respondToUserInput"] = (
       threadId,
       requestId,
@@ -2262,7 +2128,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
       readThread,
       rollbackThread,
       compactThread,
-      respondToRequest,
+
       respondToUserInput,
       stopSession,
       listSessions,

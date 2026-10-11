@@ -266,7 +266,7 @@ describe("Codex Penkra harness policy", () => {
         createdAt: "2026-08-10T00:00:00.000Z",
         updatedAt: "2026-08-10T00:00:00.000Z",
       },
-      pendingApprovals: new Map(),
+
       pendingUserInputs: new Map(),
       collabReceiverTurns: new Map(),
       collabReceiverParents: new Map(),
@@ -420,7 +420,7 @@ describe("Codex Penkra harness policy", () => {
         createdAt: "2026-09-29T00:00:00.000Z",
         updatedAt: "2026-09-29T00:00:00.000Z",
       },
-      pendingApprovals: new Map(),
+
       pendingUserInputs: new Map(),
       collabReceiverTurns: new Map(),
       collabReceiverParents: new Map(),
@@ -518,7 +518,7 @@ function createSendTurnHarness(runtimeMode: "approval-required" | "full-access" 
       planType: null,
       sparkEnabled: true,
     },
-    pendingApprovals: new Map(),
+
     pendingUserInputs: new Map(),
     collabReceiverTurns: new Map(),
     collabReceiverParents: new Map(),
@@ -668,7 +668,7 @@ function createThreadControlHarness() {
       createdAt: "2026-02-10T00:00:00.000Z",
       updatedAt: "2026-02-10T00:00:00.000Z",
     },
-    pendingApprovals: new Map(),
+
     pendingUserInputs: new Map(),
     collabReceiverTurns: new Map(),
     collabReceiverParents: new Map(),
@@ -719,7 +719,7 @@ function createPendingUserInputHarness() {
       createdAt: "2026-02-10T00:00:00.000Z",
       updatedAt: "2026-02-10T00:00:00.000Z",
     },
-    pendingApprovals: new Map(),
+
     pendingUserInputs: new Map([
       [
         "req-user-input-1",
@@ -757,97 +757,6 @@ function createPendingUserInputHarness() {
   return { manager, context, requireSession, writeMessage, emitEvent };
 }
 
-function createPendingApprovalHarness(
-  runtimeMode: "approval-required" | "full-access" = "approval-required",
-) {
-  const manager = new CodexAppServerManager();
-  const context = {
-    lifecycleGeneration: "generation-request-a",
-    session: {
-      provider: "codex",
-      status: "ready",
-      threadId: "thread_1",
-      runtimeMode,
-      model: "gpt-5.3-codex",
-      activeTurnId: undefined as string | undefined,
-      resumeCursor: { threadId: "thread_1" },
-      createdAt: "2026-02-10T00:00:00.000Z",
-      updatedAt: "2026-02-10T00:00:00.000Z",
-    },
-    account: {
-      type: "unknown",
-      planType: null,
-      sparkEnabled: true,
-    },
-    pendingApprovals: new Map([
-      [
-        "req-approval-1",
-        {
-          requestId: "req-approval-1",
-          jsonRpcId: 42,
-          method: "item/commandExecution/requestApproval" as const,
-          requestKind: "command" as const,
-          threadId: asThreadId("thread_1"),
-        },
-      ],
-    ]),
-    pendingUserInputs: new Map(),
-    sessionApprovalOverride: undefined as
-      | undefined
-      | {
-          approvalPolicy: "never";
-          sandboxPolicy: { type: "dangerFullAccess" };
-        },
-    collabReceiverTurns: new Map(),
-    collabReceiverParents: new Map(),
-    reviewTurnIds: new Set<string>(),
-    terminalTurnIds: new Set<string>(),
-  };
-
-  const requireSession = vi
-    .spyOn(
-      manager as unknown as { requireSession: (sessionId: string) => unknown },
-      "requireSession",
-    )
-    .mockReturnValue(context);
-  const writeMessage = vi
-    .spyOn(
-      manager as unknown as {
-        writeMessage: (...args: unknown[]) => Promise<void>;
-      },
-      "writeMessage",
-    )
-    .mockResolvedValue(undefined);
-  const emitEvent = vi
-    .spyOn(manager as unknown as { emitEvent: (...args: unknown[]) => void }, "emitEvent")
-    .mockImplementation(() => {});
-  const sendRequest = vi
-    .spyOn(
-      manager as unknown as {
-        sendRequest: (...args: unknown[]) => Promise<unknown>;
-      },
-      "sendRequest",
-    )
-    .mockResolvedValue({
-      turn: {
-        id: "turn_1",
-      },
-    });
-  const updateSession = vi
-    .spyOn(manager as unknown as { updateSession: (...args: unknown[]) => void }, "updateSession")
-    .mockImplementation(() => {});
-
-  return {
-    manager,
-    context,
-    requireSession,
-    writeMessage,
-    emitEvent,
-    sendRequest,
-    updateSession,
-  };
-}
-
 function createCollabNotificationHarness() {
   const manager = new CodexAppServerManager();
   const context = {
@@ -868,14 +777,9 @@ function createCollabNotificationHarness() {
       sparkEnabled: true,
     },
     pending: new Map(),
-    pendingApprovals: new Map(),
+
     pendingUserInputs: new Map(),
-    sessionApprovalOverride: undefined as
-      | undefined
-      | {
-          approvalPolicy: "never";
-          sandboxPolicy: { type: "dangerFullAccess" };
-        },
+
     collabReceiverTurns: new Map<string, string>(),
     collabReceiverParents: new Map<string, string>(),
     reviewTurnIds: new Set<string>(),
@@ -1040,7 +944,7 @@ describe("Codex app-server teardown", () => {
       stdoutFramer: new CodexJsonlFramer(),
       stdinWriter: new CodexJsonlWriter(child.stdin),
       pending: new Map(),
-      pendingApprovals: new Map(),
+
       pendingUserInputs: new Map(),
       collabReceiverTurns: new Map(),
       collabReceiverParents: new Map(),
@@ -1120,7 +1024,7 @@ describe("Codex app-server teardown", () => {
       stdoutFramer: new CodexJsonlFramer(),
       stdinWriter: new CodexJsonlWriter(child.stdin),
       pending: new Map(),
-      pendingApprovals: new Map(),
+
       pendingUserInputs: new Map(),
       collabReceiverTurns: new Map(),
       collabReceiverParents: new Map(),
@@ -1193,7 +1097,7 @@ describe("Codex app-server teardown", () => {
       stdoutFramer: new CodexJsonlFramer(),
       stdinWriter: new CodexJsonlWriter(child.stdin),
       pending: new Map(),
-      pendingApprovals: new Map(),
+
       pendingUserInputs: new Map(),
       collabReceiverTurns: new Map(),
       collabReceiverParents: new Map(),
@@ -1259,7 +1163,7 @@ describe("Codex app-server teardown", () => {
           },
         ],
       ]),
-      pendingApprovals: new Map(),
+
       pendingUserInputs: new Map(),
       collabReceiverTurns: new Map(),
       collabReceiverParents: new Map(),
@@ -1340,7 +1244,7 @@ describe("Codex app-server teardown", () => {
           },
         ],
       ]),
-      pendingApprovals: new Map(),
+
       pendingUserInputs: new Map(),
       collabReceiverTurns: new Map([["child-provider-thread", asTurnId("parent-turn")]]),
       collabReceiverParents: new Map([["child-provider-thread", "parent-provider-thread"]]),
@@ -1521,7 +1425,7 @@ describe("Codex app-server teardown", () => {
             },
           ],
         ]),
-        pendingApprovals: new Map(),
+
         pendingUserInputs: new Map(),
         collabReceiverTurns: new Map(),
         collabReceiverParents: new Map(),
@@ -3505,7 +3409,7 @@ describe("CodexAppServerManager discovery", () => {
         close: vi.fn(),
       },
       pending: new Map(),
-      pendingApprovals: new Map(),
+
       pendingUserInputs: new Map(),
       collabReceiverTurns: new Map(),
       collabReceiverParents: new Map(),
@@ -4008,110 +3912,6 @@ describe("provider thread control", () => {
   });
 });
 
-describe("respondToRequest", () => {
-  it("keeps acceptForSession active for later Codex turns", async () => {
-    const { manager, context, requireSession, writeMessage, emitEvent, sendRequest } =
-      createPendingApprovalHarness();
-
-    await manager.respondToRequest(asThreadId("thread_1"), "req-approval-1", "acceptForSession");
-
-    expect(requireSession).toHaveBeenCalledWith("thread_1");
-    expect(writeMessage).toHaveBeenCalledWith(context, {
-      id: 42,
-      result: {
-        decision: "acceptForSession",
-      },
-    });
-    expect(context.sessionApprovalOverride).toEqual(fullAccessTurnOverrides);
-    expect(emitEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        method: "item/requestApproval/decision",
-        lifecycleGeneration: "generation-request-a",
-        requestKind: "command",
-        payload: {
-          requestId: "req-approval-1",
-          requestKind: "command",
-          decision: "acceptForSession",
-        },
-      }),
-    );
-
-    await manager.sendTurn({
-      threadId: asThreadId("thread_1"),
-      input: "Continue without asking again",
-    });
-
-    expect(sendRequest).toHaveBeenLastCalledWith(context, "turn/start", {
-      threadId: "thread_1",
-      ...fullAccessTurnOverrides,
-      summary: "auto",
-      input: [
-        {
-          type: "text",
-          text: "Continue without asking again",
-          text_elements: [],
-        },
-      ],
-      model: "gpt-5.3-codex",
-      collaborationMode: {
-        mode: "default",
-        settings: {
-          model: "gpt-5.3-codex",
-          reasoning_effort: "medium",
-          developer_instructions: CODEX_DEVELOPER_INSTRUCTIONS,
-        },
-      },
-    });
-  });
-
-  it("auto-resolves later approval requests during an always-allowed Codex session", async () => {
-    const { manager, context, writeMessage, emitEvent } = createPendingApprovalHarness();
-
-    await manager.respondToRequest(asThreadId("thread_1"), "req-approval-1", "acceptForSession");
-    writeMessage.mockClear();
-    emitEvent.mockClear();
-
-    await (
-      manager as unknown as {
-        handleServerRequest: (context: unknown, request: Record<string, unknown>) => Promise<void>;
-      }
-    ).handleServerRequest(context, {
-      jsonrpc: "2.0",
-      id: 99,
-      method: "item/fileChange/requestApproval",
-      params: {
-        turnId: "turn_2",
-        itemId: "item_file_change",
-        path: "apps/web/src/components/chat/ComposerPendingApprovalActions.tsx",
-      },
-    });
-
-    expect(context.pendingApprovals.size).toBe(0);
-    expect(writeMessage).toHaveBeenCalledWith(context, {
-      id: 99,
-      result: {
-        decision: "acceptForSession",
-      },
-    });
-    expect(emitEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        kind: "notification",
-        method: "item/requestApproval/decision",
-        turnId: "turn_2",
-        itemId: "item_file_change",
-        requestKind: "file-change",
-        payload: expect.objectContaining({
-          requestKind: "file-change",
-          decision: "acceptForSession",
-        }),
-      }),
-    );
-    expect(
-      emitEvent.mock.calls.some(([event]) => (event as { kind?: string }).kind === "request"),
-    ).toBe(false);
-  });
-});
-
 describe("respondToUserInput", () => {
   it("serializes canonical answers to Codex native answer objects", async () => {
     const { manager, context, requireSession, writeMessage, emitEvent } =
@@ -4174,48 +3974,6 @@ describe("respondToUserInput", () => {
         },
       }),
     );
-  });
-
-  it("tracks file-read approval requests with the correct method", async () => {
-    const manager = new CodexAppServerManager();
-    const context = {
-      session: {
-        sessionId: "sess_1",
-        provider: "codex",
-        status: "ready",
-        threadId: asThreadId("thread_1"),
-        resumeCursor: { threadId: "thread_1" },
-        createdAt: "2026-02-10T00:00:00.000Z",
-        updatedAt: "2026-02-10T00:00:00.000Z",
-      },
-      pendingApprovals: new Map(),
-      pendingUserInputs: new Map(),
-      collabReceiverTurns: new Map(),
-      collabReceiverParents: new Map(),
-    };
-    type ApprovalRequestContext = {
-      session: typeof context.session;
-      pendingApprovals: typeof context.pendingApprovals;
-      pendingUserInputs: typeof context.pendingUserInputs;
-    };
-
-    await (
-      manager as unknown as {
-        handleServerRequest: (
-          context: ApprovalRequestContext,
-          request: Record<string, unknown>,
-        ) => Promise<void>;
-      }
-    ).handleServerRequest(context, {
-      jsonrpc: "2.0",
-      id: 42,
-      method: "item/fileRead/requestApproval",
-      params: {},
-    });
-
-    const request = Array.from(context.pendingApprovals.values())[0];
-    expect(request?.requestKind).toBe("file-read");
-    expect(request?.method).toBe("item/fileRead/requestApproval");
   });
 });
 
@@ -4390,55 +4148,6 @@ describe("collab child conversation routing", () => {
     );
   });
 
-  it("preserves an inferred child approval route through the decision event", async () => {
-    const { manager, context, emitEvent, writeMessage } = createCollabNotificationHarness();
-
-    await handleServerRequestForTest(manager, context, {
-      id: 42,
-      method: "item/commandExecution/requestApproval",
-      params: {
-        threadId: "child_provider_unmapped",
-        turnId: "turn_child_unmapped",
-        itemId: "call_child_unmapped",
-        command: "bun install",
-      },
-    });
-
-    const pendingRequest = Array.from(context.pendingApprovals.values())[0];
-    expect(pendingRequest).toEqual(
-      expect.objectContaining({
-        providerThreadId: "child_provider_unmapped",
-        providerParentThreadId: "provider_parent",
-      }),
-    );
-    await manager.respondToRequest(asThreadId("thread_1"), pendingRequest.requestId, "accept");
-
-    expect(writeMessage).toHaveBeenCalledWith(context, {
-      id: 42,
-      result: { decision: "accept" },
-    });
-    expect(emitEvent).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
-        kind: "request",
-        method: "item/commandExecution/requestApproval",
-        turnId: "turn_child_unmapped",
-        providerThreadId: "child_provider_unmapped",
-        providerParentThreadId: "provider_parent",
-      }),
-    );
-    expect(emitEvent).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        kind: "notification",
-        method: "item/requestApproval/decision",
-        turnId: "turn_child_unmapped",
-        providerThreadId: "child_provider_unmapped",
-        providerParentThreadId: "provider_parent",
-      }),
-    );
-  });
-
   it("preserves an unmapped child user-input route through the answered event", async () => {
     const { manager, context, emitEvent, writeMessage } = createCollabNotificationHarness();
 
@@ -4493,42 +4202,6 @@ describe("collab child conversation routing", () => {
       expect.objectContaining({
         kind: "notification",
         method: "item/tool/requestUserInput/answered",
-        providerThreadId: "child_provider_unmapped",
-        providerParentThreadId: "provider_parent",
-      }),
-    );
-  });
-
-  it("preserves the inferred child route when session approvals resolve immediately", async () => {
-    const { manager, context, emitEvent, writeMessage } = createCollabNotificationHarness();
-    context.sessionApprovalOverride = {
-      approvalPolicy: "never",
-      sandboxPolicy: { type: "dangerFullAccess" },
-    };
-
-    await handleServerRequestForTest(manager, context, {
-      id: 44,
-      method: "item/fileChange/requestApproval",
-      params: {
-        threadId: "child_provider_unmapped",
-        turnId: "turn_child_unmapped",
-        itemId: "file_child_unmapped",
-        path: "apps/server/src/example.ts",
-      },
-    });
-
-    expect(context.pendingApprovals.size).toBe(0);
-    expect(writeMessage).toHaveBeenCalledWith(context, {
-      id: 44,
-      result: { decision: "acceptForSession" },
-    });
-    expect(emitEvent).toHaveBeenCalledTimes(1);
-    expect(emitEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        kind: "notification",
-        method: "item/requestApproval/decision",
-        turnId: "turn_child_unmapped",
-        itemId: "file_child_unmapped",
         providerThreadId: "child_provider_unmapped",
         providerParentThreadId: "provider_parent",
       }),
@@ -4836,60 +4509,6 @@ describe("collab child conversation routing", () => {
     );
     expect(updateSession).not.toHaveBeenCalled();
   });
-
-  it("preserves child approval requests and annotates the parent turn", async () => {
-    const { manager, context, emitEvent } = createCollabNotificationHarness();
-
-    (
-      manager as unknown as {
-        handleServerNotification: (context: unknown, notification: Record<string, unknown>) => void;
-      }
-    ).handleServerNotification(context, {
-      method: "item/completed",
-      params: {
-        item: {
-          type: "collabAgentToolCall",
-          id: "call_collab_1",
-          receiverThreadIds: ["child_provider_1"],
-        },
-        threadId: "provider_parent",
-        turnId: "turn_parent",
-      },
-    });
-    emitEvent.mockClear();
-
-    await (
-      manager as unknown as {
-        handleServerRequest: (context: unknown, request: Record<string, unknown>) => Promise<void>;
-      }
-    ).handleServerRequest(context, {
-      id: 42,
-      method: "item/commandExecution/requestApproval",
-      params: {
-        threadId: "child_provider_1",
-        turnId: "turn_child_1",
-        itemId: "call_child_1",
-        command: "bun install",
-      },
-    });
-
-    expect(Array.from(context.pendingApprovals.values())[0]).toEqual(
-      expect.objectContaining({
-        turnId: "turn_child_1",
-        itemId: "call_child_1",
-      }),
-    );
-    expect(emitEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        method: "item/commandExecution/requestApproval",
-        turnId: "turn_child_1",
-        parentTurnId: "turn_parent",
-        itemId: "call_child_1",
-        providerThreadId: "child_provider_1",
-        providerParentThreadId: "provider_parent",
-      }),
-    );
-  });
 });
 
 describe("handleServerNotification error normalization", () => {
@@ -5163,7 +4782,7 @@ describe("CodexAppServerManager process teardown", () => {
         removeListener: vi.fn(),
       },
       pending: new Map(),
-      pendingApprovals: new Map(),
+
       pendingUserInputs: new Map(),
       collabReceiverTurns: new Map(),
       collabReceiverParents: new Map(),
@@ -5240,7 +4859,7 @@ describe("CodexAppServerManager process teardown", () => {
         removeListener: vi.fn(),
       },
       pending: new Map(),
-      pendingApprovals: new Map(),
+
       pendingUserInputs: new Map(),
       collabReceiverTurns: new Map(),
       collabReceiverParents: new Map(),
@@ -5357,4 +4976,34 @@ describe("codex approval policy (0.14.4: approvals removed)", () => {
       expect(mapCodexRuntimeModeToTurnOverrides(mode).approvalPolicy).toBe("never");
     }
   });
+});
+
+describe("native permission policy", () => {
+  it.each(["full-access", "approval-required"] as const)(
+    "replies directly in %s mode without publishing an approval",
+    async (runtimeMode) => {
+      const { manager, context } = createSendTurnHarness(runtimeMode);
+      const writeMessage = vi
+        .spyOn(
+          manager as unknown as { writeMessage: (...args: unknown[]) => Promise<void> },
+          "writeMessage",
+        )
+        .mockResolvedValue(undefined);
+      const emitEvent = vi
+        .spyOn(manager as unknown as { emitEvent: (...args: unknown[]) => void }, "emitEvent")
+        .mockImplementation(() => {});
+      for (const method of [
+        "item/commandExecution/requestApproval",
+        "item/fileChange/requestApproval",
+        "item/fileRead/requestApproval",
+      ]) {
+        await handleServerRequestForTest(manager, context, { id: method, method, params: {} });
+        expect(writeMessage).toHaveBeenLastCalledWith(context, {
+          id: method,
+          result: { decision: runtimeMode === "full-access" ? "accept" : "decline" },
+        });
+      }
+      expect(emitEvent).not.toHaveBeenCalled();
+    },
+  );
 });

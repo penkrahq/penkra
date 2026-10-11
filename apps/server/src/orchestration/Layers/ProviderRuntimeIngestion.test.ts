@@ -94,7 +94,7 @@ function createProviderServiceHarness() {
     interruptTurn: () => unsupported(),
     stopTask: () => unsupported(),
     backgroundTask: () => unsupported(),
-    respondToRequest: () => unsupported(),
+
     respondToUserInput: () => unsupported(),
     stopSession: () => unsupported(),
     listSessions: () => Effect.succeed([...runtimeSessions]),

@@ -367,7 +367,7 @@ describe("ProviderCommandReactor", () => {
     const hasLiveRuntimeTasks = vi.fn<NonNullable<ProviderServiceShape["hasLiveRuntimeTasks"]>>(
       () => Effect.succeed(false),
     );
-    const respondToRequest = vi.fn<ProviderServiceShape["respondToRequest"]>(() => Effect.void);
+
     const respondToUserInput = vi.fn<ProviderServiceShape["respondToUserInput"]>(() => Effect.void);
     const rollbackConversation = vi.fn<ProviderServiceShape["rollbackConversation"]>(
       () => Effect.void,
@@ -459,7 +459,7 @@ describe("ProviderCommandReactor", () => {
       stopTask,
       backgroundTask,
       hasLiveRuntimeTasks,
-      respondToRequest: respondToRequest as ProviderServiceShape["respondToRequest"],
+
       respondToUserInput: respondToUserInput as ProviderServiceShape["respondToUserInput"],
       stopSession: stopSession as ProviderServiceShape["stopSession"],
       stopRuntimeSession: stopRuntimeSession as NonNullable<
@@ -814,7 +814,7 @@ describe("ProviderCommandReactor", () => {
       stopTask,
       backgroundTask,
       hasLiveRuntimeTasks,
-      respondToRequest,
+
       respondToUserInput,
       rollbackConversation,
       stopSession,

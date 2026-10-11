@@ -6,7 +6,6 @@ import {
   ModelSelection,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
-  ProviderApprovalDecision,
   ProviderApprovalPolicy,
   ProviderKind,
   ProviderRequestKind,
@@ -113,14 +112,6 @@ export const ProviderCompactThreadInput = Schema.Struct({
   threadId: ThreadId,
 });
 export type ProviderCompactThreadInput = typeof ProviderCompactThreadInput.Type;
-
-export const ProviderRespondToRequestInput = Schema.Struct({
-  threadId: ThreadId,
-  requestId: TrimmedNonEmptyString,
-  lifecycleGeneration: Schema.optional(TrimmedNonEmptyString),
-  decision: ProviderApprovalDecision,
-});
-export type ProviderRespondToRequestInput = typeof ProviderRespondToRequestInput.Type;
 
 export const ProviderRespondToUserInputInput = Schema.Struct({
   threadId: ThreadId,

@@ -23,7 +23,6 @@ import {
   type ProviderUserInputAnswers,
   ThreadId,
   TurnId,
-  type ProviderApprovalDecision,
   type ProviderEvent,
   type ProviderSession,
   type ProviderSessionStartInput,
@@ -87,6 +86,7 @@ import {
   type McpStartupStatusEntry,
   type McpToolInventoryEntry,
 } from "./provider/computerUseCapability.ts";
+import { providerPermissionDecision } from "./provider/providerPermissionPolicy.ts";
 
 const log = createLogger("codex");
 const SESSION_STOPPED_REQUEST_MESSAGE = "Session stopped before request completed.";
@@ -136,22 +136,6 @@ interface PendingRequest {
   reject: (error: Error) => void;
 }
 
-interface PendingApprovalRequest {
-  requestId: string;
-  jsonRpcId: string | number;
-  method:
-    | "item/commandExecution/requestApproval"
-    | "item/fileChange/requestApproval"
-    | "item/fileRead/requestApproval";
-  requestKind: ProviderRequestKind;
-  threadId: ThreadId;
-  turnId?: TurnId;
-  parentTurnId?: TurnId;
-  itemId?: ProviderItemId;
-  providerThreadId?: string;
-  providerParentThreadId?: string;
-}
-
 interface PendingUserInputRequest {
   requestId: string;
   jsonRpcId: string | number;
@@ -179,13 +163,6 @@ type CodexSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
 type CodexTurnSandboxPolicy = {
   readonly type: "readOnly" | "workspaceWrite" | "dangerFullAccess";
 };
-type CodexSessionApprovalOverride = {
-  readonly approvalPolicy: "never";
-  readonly sandboxPolicy: {
-    readonly type: "dangerFullAccess";
-  };
-};
-
 interface CodexSessionContext {
   readonly gatewaySessionLease?: AgentGatewaySessionLease;
   session: ProviderSession;
@@ -204,9 +181,7 @@ interface CodexSessionContext {
   stdoutEndTimer?: ReturnType<typeof setTimeout>;
   detachStdout?: () => void;
   pending: Map<PendingRequestKey, PendingRequest>;
-  pendingApprovals: Map<string, PendingApprovalRequest>;
   pendingUserInputs: Map<string, PendingUserInputRequest>;
-  sessionApprovalOverride?: CodexSessionApprovalOverride;
   collabReceiverTurns: Map<string, TurnId>;
   collabReceiverParents: Map<string, string>;
   reviewTurnIds: Set<TurnId>;
@@ -652,23 +627,6 @@ export function mapCodexRuntimeModeToTurnOverrides(runtimeMode: RuntimeMode): {
         sandboxPolicy: { type: "dangerFullAccess" },
       };
   }
-}
-
-const CODEX_ALWAYS_ALLOW_SESSION_TURN_OVERRIDES: CodexSessionApprovalOverride = {
-  approvalPolicy: "never",
-  sandboxPolicy: { type: "dangerFullAccess" },
-};
-
-// Penkra re-sends turn-level Codex permission overrides, so keep "always allow"
-// as live session state instead of relying on one native approval reply.
-function resolveCodexTurnOverrides(context: CodexSessionContext): {
-  readonly approvalPolicy: CodexApprovalPolicy;
-  readonly sandboxPolicy: CodexTurnSandboxPolicy;
-} {
-  return (
-    context.sessionApprovalOverride ??
-    mapCodexRuntimeModeToTurnOverrides(context.session.runtimeMode)
-  );
 }
 
 export function resolveCodexModelForAccount(
@@ -1249,7 +1207,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         stdoutFramer: new CodexJsonlFramer(),
         stdinWriter: new CodexJsonlWriter(child.stdin),
         pending: new Map(),
-        pendingApprovals: new Map(),
         pendingUserInputs: new Map(),
         collabReceiverTurns: new Map(),
         collabReceiverParents: new Map(),
@@ -1597,7 +1554,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       ...(input.clientMessageId !== undefined
         ? { clientUserMessageId: input.clientMessageId }
         : {}),
-      ...resolveCodexTurnOverrides(context),
+      ...mapCodexRuntimeModeToTurnOverrides(context.session.runtimeMode),
     };
     const normalizedModel = resolveCodexModelForAccount(
       normalizeCodexModelSlug(input.model ?? context.session.model),
@@ -2009,76 +1966,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
   }
 
-  private async resolveApprovalRequest(
-    context: CodexSessionContext,
-    pendingRequest: PendingApprovalRequest,
-    decision: ProviderApprovalDecision,
-  ): Promise<void> {
-    await this.writeMessage(context, {
-      id: pendingRequest.jsonRpcId,
-      result: {
-        decision,
-      },
-    });
-
-    this.emitEvent({
-      id: EventId.makeUnsafe(randomUUID()),
-      kind: "notification",
-      provider: "codex",
-      threadId: context.session.threadId,
-      createdAt: new Date().toISOString(),
-      ...(context.lifecycleGeneration !== undefined
-        ? { lifecycleGeneration: context.lifecycleGeneration }
-        : {}),
-      method: "item/requestApproval/decision",
-      turnId: pendingRequest.turnId,
-      parentTurnId: pendingRequest.parentTurnId,
-      itemId: pendingRequest.itemId,
-      providerThreadId: pendingRequest.providerThreadId,
-      providerParentThreadId: pendingRequest.providerParentThreadId,
-      requestId: pendingRequest.requestId,
-      requestKind: pendingRequest.requestKind,
-      payload: {
-        requestId: pendingRequest.requestId,
-        requestKind: pendingRequest.requestKind,
-        decision,
-      },
-    });
-  }
-
-  private async resolveRemainingSessionApprovalRequests(
-    context: CodexSessionContext,
-  ): Promise<void> {
-    const remainingRequests = Array.from(context.pendingApprovals.values());
-    context.pendingApprovals.clear();
-    for (const pendingRequest of remainingRequests) {
-      await this.resolveApprovalRequest(context, pendingRequest, "acceptForSession");
-    }
-  }
-
-  async respondToRequest(
-    threadId: ThreadId,
-    requestId: string,
-    decision: ProviderApprovalDecision,
-  ): Promise<void> {
-    const context = this.requireSession(threadId);
-    const pendingRequest = context.pendingApprovals.get(requestId);
-    if (!pendingRequest) {
-      throw new CodexPendingInteractionNotFoundError(
-        `Unknown pending approval request: ${requestId}`,
-      );
-    }
-
-    context.pendingApprovals.delete(requestId);
-    if (decision === "acceptForSession") {
-      context.sessionApprovalOverride = CODEX_ALWAYS_ALLOW_SESSION_TURN_OVERRIDES;
-    }
-    await this.resolveApprovalRequest(context, pendingRequest, decision);
-    if (decision === "acceptForSession") {
-      await this.resolveRemainingSessionApprovalRequests(context);
-    }
-  }
-
   async respondToUserInput(
     threadId: ThreadId,
     requestId: string,
@@ -2135,7 +2022,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   }
 
   private hasPendingHumanRequests(context: CodexSessionContext): boolean {
-    return context.pendingApprovals.size > 0 || context.pendingUserInputs.size > 0;
+    return context.pendingUserInputs.size > 0;
   }
 
   /**
@@ -2151,32 +2038,16 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     context: CodexSessionContext,
     reason: string,
   ): Promise<void> {
-    const pendingApprovals = Array.from(context.pendingApprovals.values());
     const pendingUserInputs = Array.from(context.pendingUserInputs.values());
-    if (pendingApprovals.length === 0 && pendingUserInputs.length === 0) {
+    if (pendingUserInputs.length === 0) {
       return;
     }
 
     log.info("settling pending codex human requests", {
       threadId: context.session.threadId,
       reason,
-      pendingApprovals: pendingApprovals.length,
       pendingUserInputs: pendingUserInputs.length,
     });
-
-    for (const pendingRequest of pendingApprovals) {
-      try {
-        await this.resolveApprovalRequest(context, pendingRequest, "cancel");
-      } catch (error) {
-        log.warn("failed to settle pending codex approval request", {
-          threadId: context.session.threadId,
-          reason,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      } finally {
-        context.pendingApprovals.delete(pendingRequest.requestId);
-      }
-    }
 
     for (const pendingRequest of pendingUserInputs) {
       try {
@@ -2784,7 +2655,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       stdoutFramer: new CodexJsonlFramer(),
       stdinWriter: new CodexJsonlWriter(child.stdin),
       pending: new Map(),
-      pendingApprovals: new Map(),
       pendingUserInputs: new Map(),
       collabReceiverTurns: new Map(),
       collabReceiverParents: new Map(),
@@ -2833,11 +2703,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         this.discoverySessionIdleTimers.delete(discoveryKey);
         return;
       }
-      if (
-        context.pending.size > 0 ||
-        context.pendingApprovals.size > 0 ||
-        context.pendingUserInputs.size > 0
-      ) {
+      if (context.pending.size > 0 || context.pendingUserInputs.size > 0) {
         this.scheduleDiscoverySessionIdleStop(discoveryKey);
         return;
       }
@@ -3577,31 +3443,14 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       providerParentThreadId,
     } = resolvedCollaborationRoute;
     const requestKind = this.requestKindForMethod(request.method);
-    let requestId: string | undefined;
     if (requestKind) {
-      requestId = randomUUID();
-      const pendingRequest: PendingApprovalRequest = {
-        requestId,
-        jsonRpcId: request.id,
-        method:
-          requestKind === "command"
-            ? "item/commandExecution/requestApproval"
-            : requestKind === "file-read"
-              ? "item/fileRead/requestApproval"
-              : "item/fileChange/requestApproval",
-        requestKind,
-        threadId: context.session.threadId,
-        ...(rawRoute.turnId ? { turnId: rawRoute.turnId } : {}),
-        ...(childParentTurnId ? { parentTurnId: childParentTurnId } : {}),
-        ...(rawRoute.itemId ? { itemId: rawRoute.itemId } : {}),
-        ...(providerThreadId ? { providerThreadId } : {}),
-        ...(providerParentThreadId ? { providerParentThreadId } : {}),
-      };
-      if (context.sessionApprovalOverride) {
-        await this.resolveApprovalRequest(context, pendingRequest, "acceptForSession");
-        return;
-      }
-      context.pendingApprovals.set(requestId, pendingRequest);
+      await this.writeMessage(context, {
+        id: request.id,
+        result: {
+          decision: providerPermissionDecision(context.session.runtimeMode),
+        },
+      });
+      return;
     }
 
     const isUserInputRequest = request.method === "item/tool/requestUserInput";
@@ -3610,8 +3459,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     const userInputQuestions = isUserInputRequest
       ? parseCodexUserInputQuestions(asObject(request.params))
       : undefined;
-    if (isUserInputRequest && userInputQuestions) {
-      requestId = randomUUID();
+    const requestId = isUserInputRequest && userInputQuestions ? randomUUID() : undefined;
+    if (requestId !== undefined) {
       context.pendingUserInputs.set(requestId, {
         requestId,
         jsonRpcId: request.id,
@@ -3639,7 +3488,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       ...(rawRoute.itemId ? { itemId: rawRoute.itemId } : {}),
       ...(providerThreadId ? { providerThreadId } : {}),
       ...(providerParentThreadId ? { providerParentThreadId } : {}),
-      requestId,
+      ...(requestId === undefined ? {} : { requestId }),
       requestKind,
       payload: request.params,
     });
