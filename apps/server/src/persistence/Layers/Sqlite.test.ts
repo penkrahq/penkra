@@ -10,6 +10,10 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { makeSqlitePersistenceLive } from "./Sqlite.ts";
+import { runMigrations } from "../Migrations.ts";
+import * as NodeSqliteClient from "../NodeSqliteClient.ts";
+import { claudeThreadProjectName } from "../../provider/claudeThreadNativeState.ts";
+import { providerNativeStateRoot } from "../../provider/providerNativeStatePaths.ts";
 
 const tempDirectories: Array<string> = [];
 
@@ -67,6 +71,56 @@ afterEach(async () => {
 });
 
 describe("SQLite persistence", () => {
+  it("startup moves a pre-upgrade Claude conversation into the thread's native-state folder", async () => {
+    const dbPath = await makeDbPath();
+    const stateDir = path.dirname(dbPath);
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* runMigrations({ toMigrationInclusive: 175 });
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`INSERT INTO projection_folders (folder_id, title, scripts_json, space_id, created_at, updated_at)
+        VALUES ('folder', 'Folder', '[]', 'penkra-personal', '2026-10-11T00:00:00Z', '2026-10-11T00:00:00Z')`;
+        yield* sql`INSERT INTO projection_threads (thread_id, folder_id, title, model_selection_json, created_at, updated_at)
+        VALUES ('startup-thread', 'folder', 'Chat', '{"provider":"claudeAgent","model":"sonnet"}', '2026-10-11T00:00:00Z', '2026-10-11T00:00:00Z')`;
+        yield* sql`INSERT INTO provider_native_state_generations (native_state_generation_id, owner_thread_id, harness_kind, adapter_schema_version, state_manifest_json, lifecycle, created_at)
+        VALUES ('startup-native', 'startup-thread', 'claudeAgent', 'managed-native-state-v1', '{}', 'active', '2026-10-11T00:00:00Z')`;
+      }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: dbPath }))),
+    );
+    const oldRoot = path.join(
+      stateDir,
+      "provider-thread-native-state",
+      claudeThreadProjectName("startup-thread"),
+    );
+    const text = '{"type":"user","message":{"content":"preserved"}}\n';
+    await fs.mkdir(path.join(oldRoot, "project"), { recursive: true });
+    await fs.writeFile(path.join(oldRoot, "project", "session.jsonl"), text);
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        expect(yield* sql`SELECT id, native_state_id FROM threads`).toEqual([
+          { id: "startup-thread", native_state_id: "startup-native" },
+        ]);
+        expect(yield* sql`PRAGMA foreign_key_check`).toEqual([]);
+        yield* Effect.promise(async () => {
+          expect(
+            await fs.readFile(
+              path.join(
+                providerNativeStateRoot(stateDir, "startup-native"),
+                "claude",
+                "project",
+                "session.jsonl",
+              ),
+              "utf8",
+            ),
+          ).toBe(text);
+          await expect(fs.stat(oldRoot)).rejects.toMatchObject({ code: "ENOENT" });
+        });
+      }).pipe(
+        Effect.provide(makeSqlitePersistenceLive(dbPath).pipe(Layer.provide(NodeServices.layer))),
+      ),
+    );
+  });
+
   it("owns the live WAL exclusively without exposing a shared-memory sidecar", async () => {
     const dbPath = await makeDbPath();
 

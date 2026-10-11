@@ -13,7 +13,6 @@ import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts"
 import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
 import {
   claudeAccountsMatch,
-  claudeAccountTransitionMatchesCommittedBinding,
   readClaudeThreadAccount,
   rememberClaudeThreadAccount,
 } from "../claudeThreadNativeState.ts";
@@ -492,7 +491,8 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
           // revision-checked Connection change is carried into the switch saga,
           // which changes ownership only after the new binding commits.
           const recorded = yield* Effect.tryPromise({
-            try: () => readClaudeThreadAccount(config.stateDir, input.threadId),
+            try: () =>
+              readClaudeThreadAccount(config.stateDir, state.value.nativeStateGenerationId),
             catch: (cause) =>
               new ProviderTurnSelectionResolutionError({
                 detail: "Could not read the Thread's Claude account.",
@@ -505,29 +505,10 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
             binding.value.connectionId !== null;
           if (recorded !== null && !claudeConnectionsShareAccount(recorded, connection)) {
             if (!explicitConnectionSwitch) {
-              const committedTransition = yield* Effect.tryPromise({
-                try: () =>
-                  claudeAccountTransitionMatchesCommittedBinding({
-                    stateDir: config.stateDir,
-                    threadId: input.threadId,
-                    connectionId,
-                    bindingRevision: binding.value.revision,
-                    account: {
-                      authenticationMethodId: connection.authenticationMethodId,
-                      providerIdentityId: connection.providerIdentityId,
-                    },
-                  }),
-                catch: (cause) =>
-                  new ProviderTurnSelectionResolutionError({
-                    detail: "Could not read the pending Claude account transition.",
-                    cause,
-                  }),
-              });
-              if (!committedTransition)
-                return yield* fail(
-                  "This thread's Claude conversation belongs to a different Claude account. Use a Connection signed in to that account, or start a new thread.",
-                  "connection_unauthorized",
-                );
+              return yield* fail(
+                "This thread's Claude conversation belongs to a different Claude account. Use a Connection signed in to that account, or start a new thread.",
+                "connection_unauthorized",
+              );
             } else {
               claudeAccountTransition = {
                 source: recorded,
@@ -567,21 +548,17 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
               };
             }
           }
-          if (recorded === null) {
+          if (recorded === null && !explicitConnectionSwitch) {
             // For pre-upgrade Threads, verify the source Connection before
             // assigning ownership. A rejected switch must not claim the Thread.
             yield* Effect.tryPromise({
               try: () =>
                 rememberClaudeThreadAccount({
                   stateDir: config.stateDir,
-                  threadId: input.threadId,
+                  nativeStateId: state.value.nativeStateGenerationId,
                   account: {
-                    authenticationMethodId:
-                      claudeAccountTransition?.source.authenticationMethodId ??
-                      connection.authenticationMethodId,
-                    providerIdentityId:
-                      claudeAccountTransition?.source.providerIdentityId ??
-                      connection.providerIdentityId,
+                    authenticationMethodId: connection.authenticationMethodId,
+                    providerIdentityId: connection.providerIdentityId,
                   },
                 }),
               catch: (cause) =>

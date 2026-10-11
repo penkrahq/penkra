@@ -16,6 +16,9 @@ import {
   type CleanCoreSendResult,
   type ProviderConnectionId,
   type CleanCoreSendMessageInput,
+  type ProviderKind,
+  type OrchestrationThread,
+  PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
 } from "@penkra/contracts";
 import { Deferred, Effect, Layer, Option, Schema, Semaphore, ServiceMap } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -31,6 +34,60 @@ import { ThreadPublisher } from "./ThreadPublisher.ts";
 import { deliverMessage, sendMessage, type SendDriver } from "./sendMessage.ts";
 import { readThreadQueue, QueuedMessage } from "./threadQueue.ts";
 import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
+
+import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { ProviderAdapterValidationError } from "../provider/Errors.ts";
+import {
+  formatReconstructedContinuation,
+  selectReconstructedContinuation,
+} from "../provider/reconstructedContinuation.ts";
+
+export const buildReconstructedTurnInput = Effect.fnUntraced(function* (
+  input: {
+    readonly threadId: ThreadId;
+    readonly provider: ProviderKind;
+    readonly currentMessageId: string;
+    readonly currentInput: string;
+  },
+  projectionSnapshotQuery: typeof ProjectionSnapshotQuery.Service,
+) {
+  const messages: OrchestrationThread["messages"][number][] = [];
+  const activities: OrchestrationThread["activities"][number][] = [];
+  let before: string | undefined;
+  let foundCompaction = false;
+  do {
+    const page = yield* projectionSnapshotQuery.getThreadTurnsPage({
+      threadId: input.threadId,
+      ...(before ? { before } : {}),
+    });
+    messages.push(...page.messages);
+    activities.push(...page.activities);
+    foundCompaction = page.activities.some((activity) => activity.kind === "context-compaction");
+    if (foundCompaction || !page.hasOlder || page.nextCursor === null) break;
+    before = page.nextCursor;
+  } while (true);
+
+  const hasPriorTranscript = messages.some((message) => message.id !== input.currentMessageId);
+  if (!hasPriorTranscript && !foundCompaction) return null;
+  const continuation = selectReconstructedContinuation({
+    messages,
+    activities,
+    currentMessageId: input.currentMessageId,
+  });
+  const reconstructed = formatReconstructedContinuation({
+    threadId: input.threadId,
+    continuation,
+    currentInput: input.currentInput,
+  });
+  if (reconstructed.length > PROVIDER_SEND_TURN_MAX_INPUT_CHARS) {
+    return yield* new ProviderAdapterValidationError({
+      provider: input.provider,
+      operation: "thread.turn.reconstruct",
+      issue: `The deterministic retained transcript is ${reconstructed.length} characters, exceeding the provider input limit of ${PROVIDER_SEND_TURN_MAX_INPUT_CHARS}. Penkra did not trim or discard it.`,
+    });
+  }
+  return reconstructed;
+});
 
 export type ThreadSendInput = CleanCoreSendMessageInput;
 export class ThreadSender extends ServiceMap.Service<

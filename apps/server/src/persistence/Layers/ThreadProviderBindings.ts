@@ -1,7 +1,7 @@
 // FILE: ThreadProviderBindings.ts
 // Purpose: SQLite implementation of exact native state and optimistic runtime bindings.
 
-import { ThreadId, ThreadRuntimeBinding } from "@penkra/contracts";
+import { ThreadRuntimeBinding } from "@penkra/contracts";
 import { Effect, Layer, Option, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
@@ -90,23 +90,6 @@ const makeThreadProviderBindingRepository = Effect.gen(function* () {
     effect.pipe(
       Effect.mapError(toPersistenceSqlOrDecodeError(`${operation}:query`, `${operation}:decode`)),
     );
-
-  const listClaudeThreadsForConnection: ThreadProviderBindingRepositoryShape["listClaudeThreadsForConnection"] =
-    (connectionId) =>
-      mapped(
-        "ThreadProviderBindingRepository.listClaudeThreadsForConnection",
-        sql<{ readonly threadId: string }>`
-          SELECT state.thread_id AS "threadId"
-          FROM thread_harness_states AS state
-          JOIN thread_runtime_bindings AS binding ON binding.thread_id = state.thread_id
-          JOIN threads AS thread ON thread.id = state.thread_id
-          WHERE state.harness_kind = 'claudeAgent'
-            AND binding.connection_id = ${connectionId}
-            AND thread.deleted_at IS NULL
-        `,
-      ).pipe(
-        Effect.map((rows) => rows.map((row) => ({ threadId: ThreadId.makeUnsafe(row.threadId) }))),
-      );
 
   const initializeThreadInCurrentTransaction: ThreadProviderBindingRepositoryShape["initializeThread"] =
     (input) =>
@@ -227,7 +210,6 @@ const makeThreadProviderBindingRepository = Effect.gen(function* () {
       );
 
   return {
-    listClaudeThreadsForConnection,
     createNativeStateGeneration: (input) =>
       mapped(
         "ThreadProviderBindingRepository.createNativeStateGeneration",

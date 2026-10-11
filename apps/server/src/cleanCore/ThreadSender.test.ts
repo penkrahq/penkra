@@ -12,6 +12,7 @@ import { ManagedAttachmentRepositoryLive } from "../persistence/Layers/ManagedAt
 import { assert, it } from "@effect/vitest";
 import {
   MessageId,
+  ProviderConnectionId,
   ThreadId,
   TurnId,
   QueuedEditDraftNotEmptyError,
@@ -29,6 +30,114 @@ import { applyProviderEvent } from "./providerStreamConsumer.ts";
 import { enqueueMessage, readThreadQueue } from "./threadQueue.ts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
+
+it.effect("delivers a queued message on model B after the composer changes from model A", () =>
+  Effect.gen(function* () {
+    yield* runMigrations();
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql`INSERT INTO projection_folders (folder_id, title, workspace_root, scripts_json, space_id, created_at, updated_at)
+      VALUES ('sender-folder', 'Sender folder', NULL, '[]', 'space-1', '2026-10-09T00:00:00.000Z', '2026-10-09T00:00:00.000Z')`;
+    yield* createThread({
+      folderId: "sender-folder",
+      id: "thread-1",
+      spaceId: "space-1",
+      title: "Queue",
+      provider: "codex",
+      model: "model-A",
+      runtimeMode: "full-access",
+      createdBy: "user",
+      createdAt: "2026-10-09T00:00:00.000Z",
+    });
+    yield* sql`UPDATE threads SET connection_id='old-connection', native_state_id='old-native' WHERE id='thread-1'`;
+    yield* setThreadState("thread-1", "running", "active-turn", null, "2026-10-09T00:00:01.000Z");
+    const publisher = makeThreadPublisher();
+    const drained = yield* Deferred.make<void>();
+    const scope = yield* Effect.scope;
+    publisher.subscribe("thread-1", () => {
+      Effect.runSync(
+        Effect.forkIn(
+          Effect.gen(function* () {
+            if ((yield* readThreadQueue("thread-1")).length === 0)
+              yield* Deferred.succeed(drained, undefined);
+          }).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
+          scope,
+        ),
+      );
+    });
+    const selections: string[] = [];
+    const sender = yield* makeThreadSender.pipe(
+      Effect.provideService(ServerConfig, {
+        stateDir: senderStateDir,
+      } as typeof ServerConfig.Service),
+      Effect.provide(ManagedAttachmentRepositoryLive),
+      Effect.provideService(ThreadPublisher, publisher),
+      Effect.provideService(ProviderThreadSwitchCoordinator, {
+        dispatchTurnStart: ({ command }) =>
+          Effect.gen(function* () {
+            selections.push(command.modelSelection!.model);
+            assert.equal(command.connectionId, "new-connection");
+            yield* applyProviderEvent(publisher, {
+              type: "turn.started",
+              threadId: command.threadId,
+              turnId: "next-turn",
+              at: command.createdAt,
+            });
+            publisher.publishDispatch({
+              type: "acknowledged",
+              threadId: command.threadId,
+              messageId: command.message.messageId,
+              turnId: "next-turn",
+            });
+            return { sequence: 1 };
+          }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.orDie),
+        dispatchQueuedTurn: () => Effect.die("No legacy queue"),
+        recoverOpen: Effect.void,
+      }),
+      Effect.provideService(ThreadProviderBindingRepository, {
+        getRuntimeBinding: () => Effect.succeed(Option.none()),
+      } as unknown as typeof ThreadProviderBindingRepository.Service),
+      Effect.provideService(ProviderService, {} as typeof ProviderService.Service),
+    );
+    const result = yield* sender.send({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      dispatchMode: "queue",
+      connectionId: ProviderConnectionId.makeUnsafe("new-connection"),
+      message: {
+        messageId: MessageId.makeUnsafe("queued-model"),
+        text: "next",
+        attachments: [],
+        senderThreadId: null,
+        dispatchOrigin: "user",
+        queuedAt: "2026-10-09T00:00:02.000Z",
+      },
+    });
+    assert.equal(result.delivery, "queued");
+    assert.deepStrictEqual(
+      yield* sql`SELECT connection_id, native_state_id FROM threads WHERE id='thread-1'`,
+      [{ connection_id: "new-connection", native_state_id: "old-native" }],
+    );
+    assert.deepStrictEqual(Object.keys((yield* readThreadQueue("thread-1"))[0]!).sort(), [
+      "attachments",
+      "dispatchOrigin",
+      "messageId",
+      "queuedAt",
+      "senderThreadId",
+      "text",
+    ]);
+    yield* sql`UPDATE threads SET model='model-B' WHERE id='thread-1'`;
+    yield* applyProviderEvent(publisher, {
+      type: "turn.ended",
+      threadId: "thread-1",
+      turnId: "active-turn",
+      state: "completed",
+      error: null,
+      at: "2026-10-09T00:00:03.000Z",
+    });
+    yield* Deferred.await(drained);
+    assert.deepStrictEqual(selections, ["model-B"]);
+    assert.deepStrictEqual(yield* readThreadQueue("thread-1"), []);
+  }).pipe(Effect.scoped, Effect.provide(NodeSqliteClient.layerMemory())),
+);
 
 for (const workspaceRoot of [null, "/repo"]) {
   it.effect(

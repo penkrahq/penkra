@@ -7,7 +7,8 @@ import { promisify } from "node:util";
 import { mkdir, readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 
-import { ProviderConnectionId } from "@penkra/contracts";
+import { ProviderConnectionId, THREADS_PAGE_SIZE } from "@penkra/contracts";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { Effect, Layer, Option } from "effect";
 
 import { ServerConfig } from "../../config.ts";
@@ -16,7 +17,6 @@ import { ProviderConnectionLoginRepository } from "../../persistence/Services/Pr
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 import { ConnectionRateLimits } from "../../providerUsage/ConnectionRateLimits.ts";
 import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
-import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { buildProviderChildEnvironment } from "../../providerChildEnvironment.ts";
 import {
   readCodexManagedAccount,
@@ -134,7 +134,7 @@ export function makeProviderConnectionLoginCoordinator(
     const connections = yield* ProviderConnectionRepository;
     const usageFacts = yield* ConnectionRateLimits;
     const installations = yield* ProviderInstallationRepository;
-    const threadBindings = yield* ThreadProviderBindingRepository;
+    const sql = yield* SqlClient.SqlClient;
     const credentials = yield* ProviderCredentialBroker;
     const authCircuits = yield* ProviderAuthCircuits;
     const handles = new Map<
@@ -160,35 +160,45 @@ export function makeProviderConnectionLoginCoordinator(
     }) =>
       Effect.gen(function* () {
         if (input.harness !== "claudeAgent") return;
-        const boundThreads = yield* threadBindings
-          .listClaudeThreadsForConnection(input.connectionId)
-          .pipe(
-            Effect.mapError(
-              (cause) =>
+        let cursor: string | null = null;
+        while (true) {
+          const boundThreads: ReadonlyArray<{ threadId: string; nativeStateId: string }> =
+            yield* sql<{ threadId: string; nativeStateId: string }>`
+            SELECT id AS threadId, native_state_id AS nativeStateId FROM threads
+            WHERE provider = 'claudeAgent' AND connection_id = ${input.connectionId}
+              AND native_state_id IS NOT NULL AND deleted_at IS NULL
+              ${cursor === null ? sql`` : sql`AND id > ${cursor}`}
+            ORDER BY id LIMIT ${THREADS_PAGE_SIZE}
+          `.pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProviderConnectionLoginError({
+                    detail: "Could not inspect Claude threads before rotating their credentials.",
+                    cause,
+                  }),
+              ),
+            );
+          for (const thread of boundThreads) {
+            yield* Effect.tryPromise({
+              try: async () => {
+                await rememberClaudeThreadAccount({
+                  stateDir: config.stateDir,
+                  nativeStateId: thread.nativeStateId,
+                  account: {
+                    authenticationMethodId: input.authenticationMethodId,
+                    providerIdentityId: input.providerIdentityId,
+                  },
+                });
+              },
+              catch: (cause) =>
                 new ProviderConnectionLoginError({
-                  detail: "Could not inspect Claude Threads before rotating their credentials.",
+                  detail: "Could not record a Claude Thread's account before credential rotation.",
                   cause,
                 }),
-            ),
-          );
-        for (const thread of boundThreads) {
-          yield* Effect.tryPromise({
-            try: async () => {
-              await rememberClaudeThreadAccount({
-                stateDir: config.stateDir,
-                threadId: thread.threadId,
-                account: {
-                  authenticationMethodId: input.authenticationMethodId,
-                  providerIdentityId: input.providerIdentityId,
-                },
-              });
-            },
-            catch: (cause) =>
-              new ProviderConnectionLoginError({
-                detail: "Could not record a Claude Thread's account before credential rotation.",
-                cause,
-              }),
-          });
+            });
+          }
+          if (boundThreads.length < THREADS_PAGE_SIZE) break;
+          cursor = boundThreads[boundThreads.length - 1]!.threadId;
         }
       });
     const startLogin = options.startLogin ?? startCodexManagedAccountLogin;

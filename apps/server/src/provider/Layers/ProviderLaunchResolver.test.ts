@@ -24,9 +24,10 @@ import {
   claudeThreadProjectName,
   claudeThreadTranscriptPath,
   readClaudeThreadAccount,
-  stageClaudeThreadAccountTransition,
 } from "../claudeThreadNativeState.ts";
 import { ProviderLaunchResolverLive } from "./ProviderLaunchResolver.ts";
+import { ProviderNativeStateMaterializer } from "../Services/ProviderNativeStateMaterializer.ts";
+import { ProviderNativeStateMaterializerLive } from "./ProviderNativeStateMaterializer.ts";
 
 const threadId = ThreadId.makeUnsafe("launch-thread");
 const connectionId = ProviderConnectionId.makeUnsafe("launch-connection");
@@ -323,18 +324,10 @@ it.effect("rejects a QA fixture installation in an ordinary server profile", () 
 
 const claudeActiveProfileRef = "provider-profile:claude-active-profile";
 const claudeOtherConnectionId = ProviderConnectionId.makeUnsafe("launch-claude-other-connection");
-let claudeBoundConnectionId: typeof connectionId | typeof claudeOtherConnectionId | null = null;
-let claudeBindingRevision = 7;
 const claudeSessionId = "550e8400-e29b-41d4-a716-446655440088";
 const claudeDependencies = Layer.mergeAll(
   configLayer,
   Layer.succeed(ThreadProviderBindingRepository, {
-    getRuntimeBinding: () =>
-      Effect.succeed(
-        claudeBoundConnectionId === null
-          ? Option.none()
-          : Option.some({ connectionId: claudeBoundConnectionId, revision: claudeBindingRevision }),
-      ),
     getHarnessState: () =>
       Effect.succeed(
         Option.some({
@@ -412,7 +405,11 @@ it.effect("links a Claude Thread's canonical project into the selected login pro
   Effect.gen(function* () {
     const config = yield* ServerConfig;
     const activeRoot = providerConnectionProfileRoot(config.stateDir, "claude-active-profile");
-    const transcript = claudeThreadTranscriptPath(config.stateDir, threadId, claudeSessionId);
+    const transcript = claudeThreadTranscriptPath(
+      config.stateDir,
+      "native-claude-launch",
+      claudeSessionId,
+    );
     const real = `${JSON.stringify({
       type: "assistant",
       uuid: "assistant-real",
@@ -463,7 +460,11 @@ it.effect("ignores an old profile transcript so the Thread can rebuild from Penk
       "old-cwd",
       `${claudeSessionId}.jsonl`,
     );
-    const canonical = claudeThreadTranscriptPath(config.stateDir, threadId, claudeSessionId);
+    const canonical = claudeThreadTranscriptPath(
+      config.stateDir,
+      "native-claude-launch",
+      claudeSessionId,
+    );
     const bytes = '{"type":"user","message":{"role":"user","content":"legacy"}}\n';
     yield* Effect.promise(async () => {
       await mkdir(Path.dirname(legacy), { recursive: true });
@@ -487,63 +488,65 @@ it.effect("ignores an old profile transcript so the Thread can rebuild from Penk
   ),
 );
 
-it.effect("links a different Claude account only after the staged binding commits", () =>
-  Effect.gen(function* () {
-    const config = yield* ServerConfig;
-    const resolver = yield* ProviderLaunchResolver;
-    claudeBoundConnectionId = connectionId;
-    claudeBindingRevision = 7;
-    try {
+it.effect(
+  "a new Claude connection resumes the copied native folder and leaves the old folder untouched",
+  () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig;
+      const resolver = yield* ProviderLaunchResolver;
+      const materializer = yield* ProviderNativeStateMaterializer;
+      const source = ProviderNativeStateGenerationId.makeUnsafe("native-claude-launch");
+      const target = ProviderNativeStateGenerationId.makeUnsafe("native-claude-account-switch");
+      const transcript = claudeThreadTranscriptPath(config.stateDir, source, claudeSessionId);
+      const text = '{"type":"user","message":{"content":"exact source conversation"}}\n';
       yield* resolver.resolve({ threadId, connectionId, internalProviderId: null });
-      yield* Effect.promise(() =>
-        stageClaudeThreadAccountTransition({
-          stateDir: config.stateDir,
-          threadId,
-          transition: {
-            commandId: "launch-account-switch",
-            connectionId: claudeOtherConnectionId,
-            bindingRevision: 8,
-            source: {
-              authenticationMethodId: "claude-account",
-              providerIdentityId: "person@example.com",
-            },
-            target: {
-              authenticationMethodId: "claude-account",
-              providerIdentityId: "other@example.com",
-            },
-          },
-        }),
+      yield* Effect.promise(() => writeFile(transcript, text));
+      const sourceOwner = yield* Effect.promise(() =>
+        readClaudeThreadAccount(config.stateDir, source),
       );
-      // Pre-commit access is limited to the isolated target copy for exact
-      // native-resume verification; Thread ownership still belongs to source.
-      yield* resolver.resolve({
+      yield* materializer.clone({
+        harness: "claudeAgent",
+        providerSessionId: claudeSessionId,
+        sourceGenerationId: source,
+        targetGenerationId: target,
+      });
+      const launch = yield* resolver.resolve({
         threadId,
         connectionId: claudeOtherConnectionId,
         internalProviderId: null,
+        nativeStateGenerationId: target,
       });
+      const link = Path.join(
+        launch.profileRoot,
+        "claude-config",
+        "projects",
+        claudeThreadProjectName(threadId),
+      );
+      const copiedTranscript = claudeThreadTranscriptPath(config.stateDir, target, claudeSessionId);
       assert.strictEqual(
-        (yield* Effect.promise(() => readClaudeThreadAccount(config.stateDir, threadId)))
+        yield* Effect.promise(() => readlink(link)),
+        Path.dirname(copiedTranscript),
+      );
+      assert.strictEqual(
+        yield* Effect.promise(() => readFile(Path.join(link, `${claudeSessionId}.jsonl`), "utf8")),
+        text,
+      );
+      assert.strictEqual(launch.connectionId, claudeOtherConnectionId);
+      assert.strictEqual(
+        (yield* Effect.promise(() => readClaudeThreadAccount(config.stateDir, target)))
           ?.providerIdentityId,
-        "person@example.com",
+        "other@example.com",
       );
-      claudeBoundConnectionId = claudeOtherConnectionId;
-      claudeBindingRevision = 8;
-      yield* resolver.resolve({
-        threadId,
-        connectionId: claudeOtherConnectionId,
-        internalProviderId: null,
-      });
-      const oldAccount = yield* Effect.exit(
-        resolver.resolve({ threadId, connectionId, internalProviderId: null }),
+      yield* Effect.promise(() => writeFile(copiedTranscript, "new account continuation"));
+      assert.strictEqual(yield* Effect.promise(() => readFile(transcript, "utf8")), text);
+      assert.deepStrictEqual(
+        yield* Effect.promise(() => readClaudeThreadAccount(config.stateDir, source)),
+        sourceOwner,
       );
-      assert.strictEqual(oldAccount._tag, "Failure");
-    } finally {
-      claudeBoundConnectionId = null;
-      claudeBindingRevision = 7;
-    }
-  }).pipe(
-    Effect.provide(ProviderLaunchResolverLive.pipe(Layer.provide(claudeDependencies))),
-    Effect.provide(claudeDependencies),
-    Effect.provide(NodeServices.layer),
-  ),
+    }).pipe(
+      Effect.provide(ProviderNativeStateMaterializerLive.pipe(Layer.provide(claudeDependencies))),
+      Effect.provide(ProviderLaunchResolverLive.pipe(Layer.provide(claudeDependencies))),
+      Effect.provide(claudeDependencies),
+      Effect.provide(NodeServices.layer),
+    ),
 );

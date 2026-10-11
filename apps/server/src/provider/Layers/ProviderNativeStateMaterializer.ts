@@ -1,7 +1,7 @@
 // FILE: ProviderNativeStateMaterializer.ts
 // Purpose: Crash-safe filesystem materialization for provider-native state.
 
-import { cp, lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import * as Path from "node:path";
 import { randomUUID } from "node:crypto";
 import { backup as backupSqlite, DatabaseSync } from "node:sqlite";
@@ -12,8 +12,8 @@ import { providerNativeStateRoot } from "../providerNativeStatePaths.ts";
 import { requireOneExactCodexRollout } from "../codexManagedNativeState.ts";
 import {
   CLAUDE_SESSION_MARKER_FILE,
-  claudeThreadHasConversation,
-  claudeThreadStateRoot,
+  claudeProjectHasConversation,
+  claudeNativeProjectRoot,
 } from "../claudeThreadNativeState.ts";
 import {
   ProviderNativeStateMaterializationError,
@@ -54,8 +54,6 @@ async function copyEntry(sourceRoot: string, targetRoot: string, source: string)
   });
 }
 
-const CLAUDE_FORK_STATE_MANIFEST = "claude-fork-state.json";
-
 const OPEN_CODE_NATIVE_ENTRIES = ["snapshot", "storage", "tool-output", "repos", "plan"] as const;
 
 async function snapshotOpenCodeDatabase(sourceRoot: string, targetRoot: string): Promise<void> {
@@ -88,8 +86,14 @@ async function exactNativeEntries(input: {
           input.providerSessionId,
         ),
       ];
-    case "claudeAgent":
-      throw new Error("Claude state is owned by its Thread, outside provider generations.");
+    case "claudeAgent": {
+      const entries: string[] = [];
+      for (const name of ["project", "session-env", "tasks", "file-history"]) {
+        const entry = Path.join(input.sourceRoot, name);
+        if (await exists(entry)) entries.push(entry);
+      }
+      return entries;
+    }
     case "opencode": {
       const entries: string[] = [];
       for (const name of OPEN_CODE_NATIVE_ENTRIES) {
@@ -131,82 +135,45 @@ export const makeProviderNativeStateMaterializer = Effect.gen(function* () {
               throw cause;
             }
           }
-          if (input.harness === "claudeAgent") {
-            if (!input.sourceThreadId || !input.targetThreadId) {
-              throw new Error("Claude native state requires source and target Thread identities.");
-            }
-            const sourceThreadRoot = claudeThreadStateRoot(config.stateDir, input.sourceThreadId);
-            const targetThreadRoot = claudeThreadStateRoot(config.stateDir, input.targetThreadId);
-            const forking = sourceThreadRoot !== targetThreadRoot;
-            const hasConversation = await claudeThreadHasConversation(
-              config.stateDir,
-              input.sourceThreadId,
-              input.providerSessionId,
-            );
-            // A switch keeps the Thread-owned conversation and can always rebuild
-            // from Penkra's transcript, so it never fails here. A fork needs the
-            // exact source conversation to copy before it can be created.
-            if (!hasConversation && forking) {
-              throw new Error("The exact Thread-owned Claude session is unavailable.");
-            }
-            let publishedForkState = false;
-            const forkStaging = `${targetThreadRoot}.staging-${randomUUID()}`;
-            try {
-              await mkdir(staging, { mode: 0o700 });
-              if (forking) {
-                // An exact fork creates a different Thread. Its native state must
-                // be independent; a Connection switch of one Thread never copies.
-                if (await exists(targetThreadRoot)) {
-                  throw new Error("The fork target Thread already owns Claude native state.");
-                }
-                await mkdir(Path.dirname(targetThreadRoot), { recursive: true, mode: 0o700 });
-                await cp(sourceThreadRoot, forkStaging, {
-                  recursive: true,
-                  force: false,
-                  errorOnExist: true,
-                });
-                await rename(forkStaging, targetThreadRoot);
-                publishedForkState = true;
-                await writeFile(
-                  Path.join(staging, CLAUDE_FORK_STATE_MANIFEST),
-                  JSON.stringify({ targetThreadId: input.targetThreadId }),
-                  { mode: 0o600 },
-                );
-              }
-              await writeFile(
-                Path.join(staging, CLAUDE_SESSION_MARKER_FILE),
-                JSON.stringify({
-                  providerSessionId: input.providerSessionId,
-                  ...(hasConversation ? {} : { requiresReconstruction: true }),
-                }),
-                { mode: 0o600 },
-              );
-              await rename(staging, target);
-              return target;
-            } catch (cause) {
-              await rm(forkStaging, { recursive: true, force: true });
-              if (publishedForkState) {
-                await rm(targetThreadRoot, { recursive: true, force: true });
-              }
-              await rm(staging, { recursive: true, force: true });
-              throw cause;
-            }
-          }
-          const sourceStat = await lstat(generationSource);
-          if (!sourceStat.isDirectory()) {
+          const sourceExists = await exists(generationSource);
+          if (sourceExists && !(await lstat(generationSource)).isDirectory()) {
             throw new Error("source generation is not a directory");
+          }
+          if (!sourceExists && input.harness !== "claudeAgent") {
+            throw new Error(`The provider-native state folder is missing: ${generationSource}`);
           }
           try {
             await mkdir(staging, { mode: 0o700 });
             if (input.harness === "opencode") {
               await snapshotOpenCodeDatabase(generationSource, staging);
             }
-            const entries = await exactNativeEntries({
-              harness: input.harness,
-              providerSessionId: input.providerSessionId,
-              sourceRoot: generationSource,
-            });
-            for (const entry of entries) await copyEntry(generationSource, staging, entry);
+            const sourceRoot =
+              input.harness === "claudeAgent"
+                ? await claudeNativeProjectRoot(generationSource)
+                : generationSource;
+            const copyTarget =
+              input.harness === "claudeAgent" ? Path.join(staging, "claude") : staging;
+            const requiresReconstruction =
+              input.harness === "claudeAgent" &&
+              !(await claudeProjectHasConversation(sourceRoot, input.providerSessionId));
+            const entries = requiresReconstruction
+              ? []
+              : await exactNativeEntries({
+                  harness: input.harness,
+                  providerSessionId: input.providerSessionId,
+                  sourceRoot,
+                });
+            for (const entry of entries) await copyEntry(sourceRoot, copyTarget, entry);
+            if (input.harness === "claudeAgent") {
+              await writeFile(
+                Path.join(staging, CLAUDE_SESSION_MARKER_FILE),
+                JSON.stringify({
+                  providerSessionId: input.providerSessionId,
+                  ...(requiresReconstruction ? { requiresReconstruction: true } : {}),
+                }),
+                { mode: 0o600 },
+              );
+            }
             await rename(staging, target);
           } catch (cause) {
             await rm(staging, { recursive: true, force: true });
@@ -219,67 +186,18 @@ export const makeProviderNativeStateMaterializer = Effect.gen(function* () {
       });
     });
 
-  const discard: ProviderNativeStateMaterializerShape["discard"] = (generationId) =>
-    Effect.tryPromise({
-      try: async () => {
-        const generationRoot = providerNativeStateRoot(config.stateDir, generationId);
-        const forkManifest = await readFile(
-          Path.join(generationRoot, CLAUDE_FORK_STATE_MANIFEST),
-          "utf8",
-        ).catch((cause: NodeJS.ErrnoException) => {
-          if (cause.code === "ENOENT") return null;
-          throw cause;
-        });
-        if (forkManifest !== null) {
-          const decoded: unknown = JSON.parse(forkManifest);
-          if (
-            typeof decoded !== "object" ||
-            decoded === null ||
-            !("targetThreadId" in decoded) ||
-            typeof decoded.targetThreadId !== "string"
-          )
-            throw new Error("Claude fork state manifest is invalid.");
-          await rm(claudeThreadStateRoot(config.stateDir, decoded.targetThreadId), {
-            recursive: true,
-            force: true,
-          });
-        }
-        await rm(generationRoot, {
-          recursive: true,
-          force: true,
-        });
-      },
-      catch: (cause) =>
-        failure("Could not discard an uncommitted provider-native state generation.", cause),
-    });
-
-  const finalize: ProviderNativeStateMaterializerShape["finalize"] = (generationId) =>
-    Effect.tryPromise({
-      try: async () => {
-        const generationRoot = providerNativeStateRoot(config.stateDir, generationId);
-        await rm(Path.join(generationRoot, CLAUDE_FORK_STATE_MANIFEST), { force: true });
-      },
-      catch: (cause) => failure("Could not finalize the provider-native state generation.", cause),
-    });
-
-  const discardThreadState: ProviderNativeStateMaterializerShape["discardThreadState"] = (
-    threadId,
-  ) =>
+  const discard: ProviderNativeStateMaterializerShape["discard"] = (nativeStateId) =>
     Effect.tryPromise({
       try: () =>
-        rm(claudeThreadStateRoot(config.stateDir, threadId), {
+        rm(providerNativeStateRoot(config.stateDir, nativeStateId), {
           recursive: true,
           force: true,
         }),
-      catch: (cause) => failure("Could not discard a Thread's owned Claude state.", cause),
+      catch: (cause) =>
+        failure("Could not discard an uncommitted provider-native state folder.", cause),
     });
 
-  return {
-    clone,
-    discard,
-    finalize,
-    discardThreadState,
-  } satisfies ProviderNativeStateMaterializerShape;
+  return { clone, discard } satisfies ProviderNativeStateMaterializerShape;
 });
 
 export const ProviderNativeStateMaterializerLive = Layer.effect(
