@@ -5,7 +5,7 @@ import { randomBytes } from "node:crypto";
 
 const BOUNDARY_NONCE = randomBytes(16).toString("hex");
 
-// Ported verbatim from agent-browser cli/src/native/recording-cursor.js.
+// Agent input overlay, based on agent-browser cli/src/native/recording-cursor.js.
 export const AGENT_CURSOR_SOURCE = `(() => {
   globalThis.__agentBrowserRecordingCursorCleanup?.();
   let host, pointer, shadow;
@@ -32,18 +32,18 @@ export const AGENT_CURSOR_SOURCE = `(() => {
     document.documentElement.appendChild(host);
   }
 
-  function update(event) {
-    if (!event.isTrusted || event.pointerType !== 'mouse') return;
+  function update(input) {
     mount();
     if (!pointer) return;
     pointer.style.display = 'block';
-    pointer.style.transform = \`translate3d(\${event.clientX}px,\${event.clientY}px,0)\`;
-    pointer.classList.toggle('pressed', event.buttons !== 0);
-    if (event.type === 'pointerdown') {
+    pointer.style.transform = \`translate3d(\${input.x}px,\${input.y}px,0)\`;
+    if (input.type === 'mousePressed') pointer.classList.toggle('pressed', true);
+    if (input.type === 'mouseReleased') pointer.classList.toggle('pressed', false);
+    if (input.type === 'mousePressed') {
       const ripple = document.createElement('div');
       ripple.className = 'ripple';
-      ripple.style.left = \`\${event.clientX}px\`;
-      ripple.style.top = \`\${event.clientY}px\`;
+      ripple.style.left = \`\${input.x}px\`;
+      ripple.style.top = \`\${input.y}px\`;
       ripple.addEventListener('animationend', () => ripple.remove(), { once: true });
       shadow.insertBefore(ripple, pointer);
     }
@@ -54,14 +54,9 @@ export const AGENT_CURSOR_SOURCE = `(() => {
     removers.push(() => removeEventListener(type, handler, true));
   }
 
-  listen('pointermove', update);
-  listen('pointerdown', update);
-  listen('pointerup', update);
-  listen('pointerout', event => {
-    if ((!event.relatedTarget || event.relatedTarget.localName === 'iframe') && pointer) pointer.style.display = 'none';
-  });
   listen('DOMContentLoaded', mount);
   mount();
+  globalThis.__penkraAgentCursorUpdate = update;
   globalThis.__agentBrowserRecordingCursorHide = () => {
     if (pointer) {
       pointer.style.display = 'none';
@@ -72,6 +67,7 @@ export const AGENT_CURSOR_SOURCE = `(() => {
     disposed = true;
     removers.forEach(remove => remove());
     host?.remove();
+    delete globalThis.__penkraAgentCursorUpdate;
     delete globalThis.__agentBrowserRecordingCursorHide;
     delete globalThis.__agentBrowserRecordingCursorCleanup;
   };

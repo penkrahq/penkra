@@ -491,6 +491,23 @@ describe("AppTabObserver", () => {
         (call) => call[0] === "Runtime.callFunctionOn" && JSON.stringify(call).includes("outline"),
       ),
     ).toBe(true);
+    const inputs = sendCommand.mock.calls
+      .filter(([method]) => method === "Input.dispatchMouseEvent")
+      .map(([, input]) => input);
+    const updates = sendCommand.mock.calls
+      .filter(
+        ([method, params]) =>
+          method === "Runtime.evaluate" &&
+          String(params?.expression).startsWith("globalThis.__penkraAgentCursorUpdate?.("),
+      )
+      .map(([, params]) =>
+        JSON.parse(
+          String(params?.expression).slice("globalThis.__penkraAgentCursorUpdate?.(".length, -1),
+        ),
+      );
+    expect(updates).toEqual(inputs);
+    expect(updates.some((input) => input.type === "mousePressed")).toBe(true);
+    expect(updates.some((input) => input.type === "mouseReleased")).toBe(true);
   });
 
   it("keeps only the active document cursor visible until the owning turn completes", async () => {
