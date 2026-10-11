@@ -27,7 +27,6 @@ import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { copyTextToClipboard } from "../hooks/useCopyToClipboard";
-import { recordWebConsumedFailure } from "../webFailureCoverage";
 import { resolveDiffThemeName, type DiffThemeName } from "../lib/diffRendering";
 import { dedentCode, parseCodeFenceInfo, type CodeFenceInfo } from "../lib/codeFence";
 import { getFileIconName } from "../file-icons";
@@ -673,7 +672,7 @@ function MarkdownCodeBlock({
           copiedTimerRef.current = null;
         }, 1200);
       })
-      .catch(() => recordWebConsumedFailure("runtime"));
+      .catch(() => undefined);
   };
   const toggleWrap = () => setWrap((previous) => !previous);
 

@@ -1,8 +1,6 @@
 // FILE: pairingBootstrap.ts
 // Purpose: Exchanges one-time remote pairing links before the application opens a WebSocket.
 
-import { recordWebConsumedFailure } from "./webFailureCoverage";
-
 const PAIRING_PATH = "/pair";
 
 interface PairingLocation {
@@ -77,7 +75,6 @@ export async function bootstrapPairingSession(
       return "failed";
     }
   } catch {
-    recordWebConsumedFailure("runtime");
     dependencies.renderFailure();
     return "failed";
   }

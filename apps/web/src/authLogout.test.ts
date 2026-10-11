@@ -5,42 +5,23 @@ import { logoutCurrentBrowserSession } from "./authLogout";
 
 describe("logoutCurrentBrowserSession", () => {
   it.each(["logout", "navigation"] as const)(
-    "records a fixed incident when %s fails",
+    "reports the original error when %s fails",
     async (failureAt) => {
-      const recordDiagnosticIncident = vi.fn().mockResolvedValue(undefined);
-      vi.stubGlobal("window", { desktopBridge: { recordDiagnosticIncident } });
-      try {
-        const failure = new Error("private failure detail");
-        const onError = vi.fn();
-        await expect(
-          logoutCurrentBrowserSession({
-            confirm: async () => true,
-            logout: async () => {
-              if (failureAt === "logout") throw failure;
-            },
-            navigate: () => {
-              if (failureAt === "navigation") throw failure;
-            },
-            onError,
-          }),
-        ).resolves.toBe("failed");
-        expect(onError).toHaveBeenCalledWith(failure);
-        expect(recordDiagnosticIncident).toHaveBeenCalledWith({
-          traceId: expect.any(String),
-          spanId: expect.any(String),
-          kind: "command.failed",
-          code: "APP_OPERATION_FAILED",
-          where: "browser.client_runtime",
-          severity: "error",
-          expected: { accepted: true },
-          actual: { accepted: false },
-        });
-        expect(JSON.stringify(recordDiagnosticIncident.mock.calls)).not.toContain(
-          "private failure detail",
-        );
-      } finally {
-        vi.unstubAllGlobals();
-      }
+      const failure = new Error("private failure detail");
+      const onError = vi.fn();
+      await expect(
+        logoutCurrentBrowserSession({
+          confirm: async () => true,
+          logout: async () => {
+            if (failureAt === "logout") throw failure;
+          },
+          navigate: () => {
+            if (failureAt === "navigation") throw failure;
+          },
+          onError,
+        }),
+      ).resolves.toBe("failed");
+      expect(onError).toHaveBeenCalledWith(failure);
     },
   );
 
