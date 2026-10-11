@@ -86,23 +86,6 @@ describe("derivePenkraMcpToolTitle", () => {
       ["penkra_list_folders", "Penkra is listing folders", "Penkra listed folders"],
       ["penkra_list_threads", "Penkra is listing threads", "Penkra listed threads"],
       ["penkra_read_thread", "Penkra is reading a thread", "Penkra read a thread"],
-      [
-        "penkra_read_thread_activity",
-        "Penkra is reading thread activity",
-        "Penkra read thread activity",
-      ],
-      ["penkra_read_thread_events", "Penkra is reading thread events", "Penkra read thread events"],
-      [
-        "penkra_read_thread_runtime_events",
-        "Penkra is reading thread runtime events",
-        "Penkra read thread runtime events",
-      ],
-      ["penkra_diagnose_thread", "Penkra is diagnosing a thread", "Penkra diagnosed a thread"],
-      [
-        "penkra_retry_thread_projection",
-        "Penkra is retrying thread projection",
-        "Penkra retried thread projection",
-      ],
       ["penkra_create_thread", "Penkra is creating a thread", "Penkra created a thread"],
       ["penkra_send_message", "Penkra is sending a message", "Penkra sent a message"],
       ["penkra_interrupt_thread", "Penkra is interrupting a thread", "Penkra interrupted a thread"],
@@ -398,7 +381,10 @@ describe("deriveReadableCommandDisplay", () => {
 
   it("summarizes inline script commands without leaking the script body", () => {
     expect(
-      deriveReadableCommandDisplay(`node -e "const fs = require('fs'); console.log(fs.cwd)"`, "running"),
+      deriveReadableCommandDisplay(
+        `node -e "const fs = require('fs'); console.log(fs.cwd)"`,
+        "running",
+      ),
     ).toEqual({
       verb: "Running",
       target: "node script",

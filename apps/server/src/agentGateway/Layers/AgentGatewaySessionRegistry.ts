@@ -46,7 +46,7 @@ export function makeAgentGatewaySessionRegistry(options?: {
         issuedAt,
         ...(lifecycleGeneration === undefined ? {} : { lifecycleGeneration }),
         activeTurnId: null,
-        capabilities: new Set(["thread:read", "thread:write", "diagnostics:read"]),
+        capabilities: new Set(["thread:read", "thread:write"]),
       };
       sessions.set(token, identity);
       sessionsByKey.set(sessionKey, identity);

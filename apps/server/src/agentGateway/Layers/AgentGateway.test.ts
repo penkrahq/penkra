@@ -5,7 +5,6 @@ import { ThreadSender, type ThreadSendInput } from "../../cleanCore/ThreadSender
 import { assert, describe, it } from "@effect/vitest";
 import type {
   OrchestrationCommand,
-  OrchestrationEvent,
   OrchestrationFolderShell,
   OrchestrationThread,
   OrchestrationThreadShell as ContractThreadShell,
@@ -42,20 +41,6 @@ import type {
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { QueuedTurnPromotionRepository } from "../../persistence/Services/QueuedTurnPromotions.ts";
-import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
-import { OrchestrationEventDeliveryRepository } from "../../persistence/Services/OrchestrationEventDeliveries.ts";
-import {
-  ProviderRuntimeEventRepository,
-  type PersistedProviderRuntimeEvent,
-  type ProviderRuntimeOpenTurn,
-  type ProviderRuntimeProjectionFailure,
-} from "../../persistence/Services/ProviderRuntimeEvents.ts";
-import { ThreadDiagnosticsQuery } from "../../diagnostics/Services/ThreadDiagnosticsQuery.ts";
-import type {
-  DiagnosticThreadActivity,
-  OperationalDiagnostic,
-} from "../../diagnostics/Services/ThreadDiagnosticsQuery.ts";
-import type { ProviderBlockingDeliveryEvidence } from "../../persistence/Services/OrchestrationEventDeliveries.ts";
 import { ProviderDiscoveryService } from "../../provider/Services/ProviderDiscoveryService.ts";
 import { ProviderHealth } from "../../provider/Services/ProviderHealth.ts";
 import { connectionFixture } from "../../provider/defaultConnection.test-fixture.ts";
@@ -224,11 +209,6 @@ const TEST_TOOL_COMMANDS: Readonly<Record<string, ReadonlyArray<string>>> = {
   penkra_list_folders: ["penkra", "folders", "list"],
   penkra_list_threads: ["penkra", "threads", "list"],
   penkra_read_thread: ["penkra", "threads", "read"],
-  penkra_read_thread_activity: ["penkra", "diagnostics", "threads", "activity"],
-  penkra_read_thread_events: ["penkra", "diagnostics", "threads", "events"],
-  penkra_read_thread_runtime_events: ["penkra", "diagnostics", "threads", "runtime-events"],
-  penkra_diagnose_thread: ["penkra", "diagnostics", "threads", "diagnose"],
-  penkra_retry_thread_projection: ["penkra", "diagnostics", "threads", "retry-projection"],
   penkra_create_thread: ["penkra", "threads", "create"],
   penkra_send_message: ["penkra", "threads", "send"],
   penkra_interrupt_thread: ["penkra", "threads", "interrupt"],
@@ -281,20 +261,12 @@ function makeHarnessLayer(
     };
     readonly projectScripts?: OrchestrationFolderShell["scripts"];
     readonly extraFolders?: ReadonlyArray<OrchestrationFolderShell>;
-    readonly diagnosticActivities?: ReadonlyArray<DiagnosticThreadActivity>;
-    readonly diagnosticEvents?: ReadonlyArray<OrchestrationEvent>;
-    readonly providerRuntimeEvents?: ReadonlyArray<PersistedProviderRuntimeEvent>;
-    readonly providerRuntimeOpenTurns?: ReadonlyArray<ProviderRuntimeOpenTurn>;
-    readonly clearProviderRuntimeOpenTurnsAfterRead?: boolean;
     readonly endParentTurnOnSecondShellRead?: boolean;
     readonly replaceParentTurnOnFirstShellRead?: boolean;
     readonly projectParentTurnOnSecondShellRead?: {
       readonly turnId: string;
       readonly providerTurnId: string;
     };
-    readonly providerRuntimeProjectionFailure?: ProviderRuntimeProjectionFailure;
-    readonly operationalDiagnostics?: ReadonlyArray<OperationalDiagnostic>;
-    readonly providerDeliveryBlockers?: ReadonlyArray<ProviderBlockingDeliveryEvidence>;
   } = {},
 ) {
   const dispatched: Array<OrchestrationCommand> = [];
@@ -329,7 +301,7 @@ function makeHarnessLayer(
       capabilities:
         token === "token-parent-readonly"
           ? new Set(["thread:read"] as const)
-          : new Set(["thread:read", "thread:write", "diagnostics:read"] as const),
+          : new Set(["thread:read", "thread:write"] as const),
     };
   };
   const commandReceiptsLayer = Layer.succeed(OrchestrationCommandReceiptRepository, {
@@ -758,150 +730,6 @@ function makeHarnessLayer(
       }),
   } as unknown as (typeof ProjectionSnapshotQuery)["Service"]);
 
-  const diagnosticsLayer = Layer.succeed(ThreadDiagnosticsQuery, {
-    getActivityCoverage: (threadId: string) =>
-      Effect.succeed({
-        highWaterSequence: Math.max(
-          0,
-          ...(options.diagnosticActivities ?? [])
-            .filter((activity) => activity.threadId === threadId)
-            .map((activity) => activity.sequence),
-        ),
-        unsequencedCount: 0,
-      }),
-    listActivities: (input: {
-      threadId: string;
-      throughSequenceInclusive?: number;
-      beforeSequenceExclusive?: number;
-      limit: number;
-      turnId?: string;
-      kinds?: ReadonlyArray<string>;
-    }) =>
-      Effect.succeed(
-        (options.diagnosticActivities ?? [])
-          .filter((activity) => activity.threadId === input.threadId)
-          .filter(
-            (activity) =>
-              activity.sequence <= (input.throughSequenceInclusive ?? Number.MAX_SAFE_INTEGER),
-          )
-          .filter(
-            (activity) =>
-              activity.sequence < (input.beforeSequenceExclusive ?? Number.MAX_SAFE_INTEGER),
-          )
-          .filter((activity) => input.turnId === undefined || activity.turnId === input.turnId)
-          .filter((activity) => input.kinds === undefined || input.kinds.includes(activity.kind))
-          .toSorted((left, right) => right.sequence - left.sequence)
-          .slice(0, input.limit),
-      ),
-    recordOperationalDiagnostic: () => Effect.void,
-    listOperationalDiagnostics: (input: { threadId: string; limit: number }) =>
-      Effect.succeed(
-        (options.operationalDiagnostics ?? [])
-          .filter((incident) => incident.threadId === input.threadId)
-          .slice(0, input.limit),
-      ),
-  });
-  const eventStoreLayer = Layer.succeed(OrchestrationEventStore, {
-    append: () => Effect.die("append is not used by the gateway harness"),
-    getHighWaterSequence: () => Effect.succeed(0),
-    getThreadHighWaterSequence: (threadId: string) =>
-      Effect.succeed(
-        Math.max(
-          0,
-          ...(options.diagnosticEvents ?? [])
-            .filter((event) => event.aggregateId === threadId)
-            .map((event) => event.sequence),
-        ),
-      ),
-    readThreadEvents: (input: {
-      threadId: string;
-      throughSequenceInclusive: number;
-      beforeSequenceExclusive?: number;
-      limit: number;
-      eventTypes?: ReadonlyArray<string>;
-    }) =>
-      Effect.succeed(
-        (options.diagnosticEvents ?? [])
-          .filter((event) => event.aggregateId === input.threadId)
-          .filter((event) => event.sequence <= input.throughSequenceInclusive)
-          .filter(
-            (event) => event.sequence < (input.beforeSequenceExclusive ?? Number.MAX_SAFE_INTEGER),
-          )
-          .filter(
-            (event) => input.eventTypes === undefined || input.eventTypes.includes(event.type),
-          )
-          .toSorted((left, right) => right.sequence - left.sequence)
-          .slice(0, input.limit),
-      ),
-    readFromSequence: () => Stream.empty,
-    readAll: () => Stream.empty,
-  });
-  const eventDeliveriesLayer = Layer.succeed(OrchestrationEventDeliveryRepository, {
-    listBlockingDeliveries: (input: { threadId?: string; limit: number }) =>
-      Effect.succeed(
-        (options.providerDeliveryBlockers ?? [])
-          .filter((blocker) => input.threadId === undefined || blocker.threadId === input.threadId)
-          .slice(0, input.limit),
-      ),
-  } as unknown as (typeof OrchestrationEventDeliveryRepository)["Service"]);
-  let providerRuntimeOpenTurnReads = 0;
-  const providerRuntimeEventsLayer = Layer.succeed(ProviderRuntimeEventRepository, {
-    getThreadCursor: () => Effect.succeed(0),
-    getThreadProjectionFailure: (threadId: string) =>
-      Effect.succeed(
-        options.providerRuntimeProjectionFailure?.threadId === threadId
-          ? options.providerRuntimeProjectionFailure
-          : null,
-      ),
-    releaseQuarantinedThread: (input: { threadId: string }) =>
-      Effect.succeed(
-        options.providerRuntimeProjectionFailure?.threadId === input.threadId &&
-          options.providerRuntimeProjectionFailure.status === "quarantined",
-      ),
-    getThreadCoverage: (threadId: string) => {
-      const events = (options.providerRuntimeEvents ?? []).filter(
-        (row) => row.event.threadId === threadId,
-      );
-      return Effect.succeed({
-        retainedCount: events.length,
-        oldestSequence: events.length === 0 ? null : Math.min(...events.map((row) => row.sequence)),
-        highWaterSequence: Math.max(0, ...events.map((row) => row.sequence)),
-      });
-    },
-    readThreadEvents: (input: {
-      threadId: string;
-      throughSequenceInclusive: number;
-      beforeSequenceExclusive?: number;
-      limit: number;
-      turnId?: string;
-      eventTypes?: ReadonlyArray<string>;
-    }) =>
-      Effect.succeed(
-        (options.providerRuntimeEvents ?? [])
-          .filter((row) => row.event.threadId === input.threadId)
-          .filter((row) => row.sequence <= input.throughSequenceInclusive)
-          .filter(
-            (row) => row.sequence < (input.beforeSequenceExclusive ?? Number.MAX_SAFE_INTEGER),
-          )
-          .filter((row) => input.turnId === undefined || row.event.turnId === input.turnId)
-          .filter(
-            (row) => input.eventTypes === undefined || input.eventTypes.includes(row.event.type),
-          )
-          .toSorted((left, right) => right.sequence - left.sequence)
-          .slice(0, input.limit),
-      ),
-    listOpenTurnsByThreadId: (threadId: string) =>
-      Effect.sync(() => {
-        providerRuntimeOpenTurnReads += 1;
-        if (options.clearProviderRuntimeOpenTurnsAfterRead && providerRuntimeOpenTurnReads > 1) {
-          return [];
-        }
-        return (options.providerRuntimeOpenTurns ?? []).filter(
-          (turn) => turn.threadId === threadId,
-        );
-      }),
-  } as unknown as (typeof ProviderRuntimeEventRepository)["Service"]);
-
   const engineLayer = Layer.succeed(OrchestrationEngineService, {
     dispatch: (command: OrchestrationCommand) =>
       Effect.sleep(options.dispatchDelayMs ?? 0).pipe(
@@ -1176,10 +1004,6 @@ function makeHarnessLayer(
       } as unknown as (typeof ProviderConnectionRepository)["Service"]),
     ),
     Layer.provide(Layer.mergeAll(projectionTurnsLayer, queuedTurnPromotionsLayer)),
-    Layer.provide(diagnosticsLayer),
-    Layer.provide(eventStoreLayer),
-    Layer.provide(eventDeliveriesLayer),
-    Layer.provide(providerRuntimeEventsLayer),
     Layer.provide(ServerConfig.layerTest(process.cwd(), process.cwd())),
     Layer.provide(
       Layer.mergeAll(
@@ -1332,7 +1156,7 @@ describe("AgentGateway", () => {
     makeThreadShell("thread-archived", { archivedAt: NOW }),
   ];
 
-  for (const projection of ["terminal", "missing", "stale-ledger"] as const) {
+  for (const projection of ["terminal", "missing", "running"] as const) {
     it.effect(`accepts a live provider turn with ${projection} projection evidence`, () => {
       const nativeTurnId = "claude-native-live";
       const parent = makeThreadShell("thread-parent", {
@@ -1358,21 +1182,10 @@ describe("AgentGateway", () => {
           updatedAt: NOW,
         },
       });
-      const { gatewayLayer, makeHarness } = makeHarnessLayer(
-        [parent, ...baseThreads.filter((thread) => thread.id !== "thread-parent")],
-        projection === "stale-ledger"
-          ? {
-              providerRuntimeOpenTurns: [
-                {
-                  threadId: "thread-parent",
-                  turnId: "old-native-turn",
-                  firstSequence: 1,
-                  updatedAt: NOW,
-                },
-              ],
-            }
-          : {},
-      );
+      const { gatewayLayer, makeHarness } = makeHarnessLayer([
+        parent,
+        ...baseThreads.filter((thread) => thread.id !== "thread-parent"),
+      ]);
       return Effect.gen(function* () {
         const harness = yield* makeHarness;
         const response = yield* harness.callTool({
@@ -1443,15 +1256,7 @@ describe("AgentGateway", () => {
           })
         : thread,
     );
-    const openRuntimeTurn = {
-      threadId: "thread-parent",
-      turnId: "sdk-background-turn",
-      firstSequence: 23,
-      updatedAt: NOW,
-    };
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(threads, {
-      providerRuntimeOpenTurns: [openRuntimeTurn],
-    });
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(threads, {});
     return Effect.gen(function* () {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
@@ -1493,14 +1298,6 @@ describe("AgentGateway", () => {
         : thread,
     );
     const { gatewayLayer, makeHarness } = makeHarnessLayer(threads, {
-      providerRuntimeOpenTurns: [
-        {
-          threadId: "thread-parent",
-          turnId: "turn-parent-active",
-          firstSequence: 42,
-          updatedAt: NOW,
-        },
-      ],
       endParentTurnOnSecondShellRead: true,
     });
     return Effect.gen(function* () {
@@ -1751,24 +1548,6 @@ describe("AgentGateway", () => {
     },
   );
 
-  it.effect("requires the explicit diagnostics capability for forensic tools", () => {
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const response = yield* harness.callTool({
-        token: "token-parent-readonly",
-        name: "penkra_diagnose_thread",
-        args: { threadId: "thread-parent" },
-      });
-      const error = toolResultJson(response.result).error as {
-        code: string;
-        details: { requiredCapability: string };
-      };
-      assert.equal(error.code, "capability_denied");
-      assert.equal(error.details.requiredCapability, "diagnostics:read");
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
   it.effect("answers initialize with instructions and lists tools", () => {
     const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
     return Effect.gen(function* () {
@@ -1937,6 +1716,7 @@ describe("AgentGateway", () => {
       assert.include(text, "`penkra connections list`");
       assert.include(text, "`penkra models list`");
       assert.notInclude(text, "`penkra capabilities`");
+      assert.notInclude(text, "penkra diagnostics");
     }).pipe(Effect.provide(gatewayLayer));
   });
 
@@ -2945,398 +2725,6 @@ describe("AgentGateway", () => {
     },
   );
 
-  it.effect("pages thread activity with an opaque stable cursor", () => {
-    const activities: ReadonlyArray<DiagnosticThreadActivity> = [1, 2, 3].map((sequence) => ({
-      activityId: `activity-${sequence}`,
-      threadId: "thread-parent",
-      turnId: "turn-parent",
-      tone: "info",
-      kind: "tool",
-      summary: `activity ${sequence}`,
-      payload: { sequence },
-      sequence,
-      createdAt: NOW,
-    }));
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
-      diagnosticActivities: activities,
-    });
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const first = toolResultJson(
-        (yield* harness.callTool({
-          token: "token-parent",
-          name: "penkra_read_thread_activity",
-          args: { threadId: "thread-parent", limit: 1, includeDetails: true },
-        })).result,
-      );
-      assert.equal((first.activities as Array<{ sequence: number }>)[0]?.sequence, 3);
-      assert.isString(first.nextCursor);
-      const second = toolResultJson(
-        (yield* harness.callTool({
-          token: "token-parent",
-          name: "penkra_read_thread_activity",
-          args: {
-            threadId: "thread-parent",
-            limit: 1,
-            cursor: first.nextCursor,
-          },
-        })).result,
-      );
-      assert.equal((second.activities as Array<{ sequence: number }>)[0]?.sequence, 2);
-      assert.deepInclude(second.coverage as Record<string, unknown>, {
-        highWaterSequence: 3,
-        sourceComplete: true,
-      });
-      const changedFilter = yield* harness.callTool({
-        token: "token-parent",
-        name: "penkra_read_thread_activity",
-        args: {
-          threadId: "thread-parent",
-          limit: 1,
-          kinds: ["error"],
-          cursor: first.nextCursor,
-        },
-      });
-      assert.isTrue(isToolError(changedFilter.result));
-      assert.include(toolErrorText(changedFilter.result), "not a valid activity cursor");
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
-  it.effect("paginates coalesced message updates as one logical event", () => {
-    const threadId = ThreadId.makeUnsafe("thread-parent");
-    const messageEvents = Array.from({ length: 301 }, (_, index) => {
-      const sequence = index + 2;
-      return {
-        sequence,
-        type: "thread.message-sent",
-        eventId: EventId.makeUnsafe(`event-message-${sequence}`),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: NOW,
-        commandId: null,
-        causationEventId: null,
-        correlationId: null,
-        metadata: {},
-        payload: {
-          threadId,
-          messageId: MessageId.makeUnsafe("message-streamed"),
-          role: "assistant",
-          text: `delta-${sequence}`,
-          turnId: TurnId.makeUnsafe("turn-parent"),
-          streaming: sequence !== 302,
-          createdAt: NOW,
-          updatedAt: NOW,
-        },
-      } as OrchestrationEvent;
-    });
-    const olderEvent = {
-      sequence: 1,
-      type: "thread.session-stop-requested",
-      eventId: EventId.makeUnsafe("event-archived-1"),
-      aggregateKind: "thread",
-      aggregateId: threadId,
-      occurredAt: NOW,
-      commandId: null,
-      causationEventId: null,
-      correlationId: null,
-      metadata: {},
-      payload: { threadId, createdAt: NOW },
-    } as OrchestrationEvent;
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
-      diagnosticEvents: [olderEvent, ...messageEvents],
-    });
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const first = toolResultJson(
-        (yield* harness.callTool({
-          token: "token-parent",
-          name: "penkra_read_thread_events",
-          args: { threadId, limit: 1 },
-        })).result,
-      );
-      assert.deepInclude((first.events as Array<Record<string, unknown>>)[0] ?? {}, {
-        sequence: 302,
-        coalescedEventCount: 301,
-      });
-      assert.isString(first.nextCursor);
-
-      const second = toolResultJson(
-        (yield* harness.callTool({
-          token: "token-parent",
-          name: "penkra_read_thread_events",
-          args: { threadId, limit: 1, cursor: first.nextCursor },
-        })).result,
-      );
-      assert.deepInclude((second.events as Array<Record<string, unknown>>)[0] ?? {}, {
-        sequence: 1,
-        type: "thread.session-stop-requested",
-      });
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
-  it.effect("combines durable events, delivery blockers, and stream incidents in diagnosis", () => {
-    const threadId = ThreadId.makeUnsafe("thread-parent");
-    const legacyIncidentRows: ReadonlyArray<OperationalDiagnostic> = [
-      {
-        sequence: 1,
-        threadId: "thread-parent",
-        source: "server",
-        kind: "ws.stream-admission-rejected",
-        severity: "warning",
-        code: "THREAD_STREAM_CAPACITY_EXCEEDED",
-        detail: { reason: "thread-capacity" },
-        occurredAt: NOW,
-      },
-      {
-        sequence: 2,
-        threadId: "thread-parent",
-        source: "server",
-        kind: "ws.thread-stream-events-dropped",
-        severity: "error",
-        code: "THREAD_STREAM_EVENTS_DROPPED",
-        detail: { label: "orchestration.thread-detail", capacity: 1024, droppedAtLeast: 1 },
-        occurredAt: NOW,
-      },
-      {
-        sequence: 3,
-        threadId: "thread-parent",
-        source: "server",
-        kind: "ws.thread-stream-resnapshot-required",
-        severity: "warning",
-        code: "ORCHESTRATION_RESNAPSHOT_REQUIRED",
-        detail: { snapshotSequence: 1, highWaterSequence: 4, replayCount: 3, replayLimit: 1024 },
-        occurredAt: NOW,
-      },
-      {
-        sequence: 4,
-        threadId: "thread-parent",
-        source: "server",
-        kind: "provider.native-continuation-verification",
-        severity: "error",
-        code: "NATIVE_CONTINUATION_VERIFICATION_FAILED",
-        detail: { stage: "validate-resumed-identity", errorMessage: "identity mismatch" },
-        occurredAt: NOW,
-      },
-    ];
-    const events: ReadonlyArray<OrchestrationEvent> = [
-      {
-        sequence: 7,
-        type: "thread.session-stop-requested",
-        eventId: EventId.makeUnsafe("event-diagnostic-7"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: NOW,
-        commandId: null,
-        causationEventId: null,
-        correlationId: null,
-        metadata: {},
-        payload: { threadId, createdAt: NOW },
-      },
-    ];
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
-      diagnosticEvents: events,
-      providerRuntimeEvents: [
-        {
-          sequence: 9,
-          event: {
-            type: "runtime.error",
-            eventId: EventId.makeUnsafe("runtime-event-diagnostic-9"),
-            provider: "codex",
-            threadId,
-            turnId: TurnId.makeUnsafe("turn-parent"),
-            createdAt: NOW,
-            payload: { message: "stream failed" },
-          },
-        },
-      ],
-      providerRuntimeProjectionFailure: {
-        sequence: 9,
-        eventId: "runtime-event-diagnostic-9",
-        threadId: "thread-parent",
-        turnId: "turn-parent",
-        eventType: "runtime.error",
-        errorFingerprint: "projection-fingerprint",
-        errorDetail: "projection failed deterministically",
-        attemptCount: 12,
-        firstFailedAt: NOW,
-        lastFailedAt: NOW,
-        nextRetryAt: NOW,
-        status: "quarantined",
-        quarantinedAt: NOW,
-        resolvedAt: null,
-      },
-      operationalDiagnostics: legacyIncidentRows,
-      providerDeliveryBlockers: [
-        {
-          consumerName: "provider-command-reactor.v1",
-          eventSequence: 7,
-          eventId: EventId.makeUnsafe("event-diagnostic-7"),
-          eventType: "thread.turn-start-requested",
-          occurredAt: NOW,
-          threadId,
-          state: "dead",
-          attemptCount: 3,
-          lastError: "provider failed",
-          updatedAt: NOW,
-          lastReconciliationOutcome: null,
-          lastReconciledAt: null,
-          lastReconciledBy: null,
-          lastReconciliationNote: null,
-        },
-      ],
-    });
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const payload = toolResultJson(
-        (yield* harness.callTool({
-          token: "token-parent",
-          name: "penkra_diagnose_thread",
-          args: { threadId: "thread-parent" },
-        })).result,
-      );
-      assert.equal((payload.recentEvents as Array<{ sequence: number }>)[0]?.sequence, 7);
-      assert.equal((payload.recentRuntimeEvents as Array<{ sequence: number }>)[0]?.sequence, 9);
-      assert.lengthOf(payload.providerDeliveryBlockers as Array<unknown>, 1);
-      assert.deepInclude(payload.providerRuntimeProjection as Record<string, unknown>, {
-        threadCursor: 0,
-      });
-      assert.equal(
-        (
-          payload.providerRuntimeProjection as {
-            failure: { status: string; errorFingerprint: string };
-          }
-        ).failure.status,
-        "quarantined",
-      );
-      assert.deepEqual(payload.operationalIncidents, legacyIncidentRows);
-      assert.includeMembers(
-        (payload.findings as Array<{ code: string }>).map((finding) => finding.code),
-        [
-          "provider_delivery_blocked",
-          "provider_runtime_projection_quarantined",
-          "THREAD_STREAM_CAPACITY_EXCEEDED",
-          "THREAD_STREAM_EVENTS_DROPPED",
-          "ORCHESTRATION_RESNAPSHOT_REQUIRED",
-          "NATIVE_CONTINUATION_VERIFICATION_FAILED",
-        ],
-      );
-      const retryPayload = toolResultJson(
-        (yield* harness.callTool({
-          token: "token-parent",
-          name: "penkra_retry_thread_projection",
-          args: { threadId: "thread-parent" },
-        })).result,
-      );
-      assert.equal(retryPayload.released, true);
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
-  it.effect("warns only when observed pending delivery contradicts a starting session", () => {
-    const threadId = ThreadId.makeUnsafe("thread-orphaned-startup");
-    const pendingMessageId = MessageId.makeUnsafe("message-queued-successor");
-    const shell = makeThreadShell(threadId, {
-      session: {
-        threadId,
-        status: "starting",
-        providerName: "codex",
-        activeTurnId: null,
-        lastError: null,
-        updatedAt: NOW,
-      },
-    });
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(
-      [makeThreadShell("thread-parent"), shell],
-      {
-        threadDetails: new Map([
-          [
-            threadId,
-            {
-              ...makeThreadDetail(shell),
-              pendingTurnStartMessageId: pendingMessageId,
-              messages: [
-                {
-                  id: pendingMessageId,
-                  turnId: null,
-                  role: "user",
-                  text: "queued successor",
-                  delivery: { state: "queued", queued: true, sequence: 1 },
-                  streaming: false,
-                  source: "native",
-                  sequence: 1,
-                  createdAt: NOW,
-                  updatedAt: NOW,
-                },
-              ],
-            },
-          ],
-        ]),
-      },
-    );
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      const payload = toolResultJson(
-        (yield* harness.callTool({
-          token: "token-parent",
-          name: "penkra_diagnose_thread",
-          args: { threadId },
-        })).result,
-      );
-      assert.includeMembers(
-        (payload.findings as Array<{ code: string }>).map((finding) => finding.code),
-        ["provider_starting_pending_delivery_inconsistent"],
-      );
-
-      for (const deliveryState of ["starting", "steering"] as const) {
-        harness.setThreadDetail({
-          ...makeThreadDetail(shell),
-          pendingTurnStartMessageId: pendingMessageId,
-          messages: [
-            {
-              id: pendingMessageId,
-              turnId: null,
-              role: "user",
-              text: `${deliveryState} attempt`,
-              delivery: { state: deliveryState, queued: false, sequence: 2 },
-              streaming: false,
-              source: "native",
-              sequence: 2,
-              createdAt: NOW,
-              updatedAt: NOW,
-            },
-          ],
-        });
-        const validPayload = toolResultJson(
-          (yield* harness.callTool({
-            token: "token-parent",
-            name: "penkra_diagnose_thread",
-            args: { threadId },
-          })).result,
-        );
-        assert.notInclude(
-          (validPayload.findings as Array<{ code: string }>).map((finding) => finding.code),
-          "provider_starting_pending_delivery_inconsistent",
-        );
-      }
-
-      harness.setThreadDetail({
-        ...makeThreadDetail(shell),
-        pendingTurnStartMessageId: pendingMessageId,
-        messages: [],
-      });
-      const boundedPayload = toolResultJson(
-        (yield* harness.callTool({
-          token: "token-parent",
-          name: "penkra_diagnose_thread",
-          args: { threadId },
-        })).result,
-      );
-      assert.notInclude(
-        (boundedPayload.findings as Array<{ code: string }>).map((finding) => finding.code),
-        "provider_starting_pending_delivery_inconsistent",
-      );
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
   it.effect(
     "lists safe Connection identities and discovers concrete or anonymous model routes",
     () => {
@@ -3635,27 +3023,6 @@ describe("AgentGateway", () => {
       assert.equal(
         (toolResultJson(duringLag.result).caller as { turnId?: unknown }).turnId,
         "native-turn-ahead-of-projection",
-      );
-    }).pipe(Effect.provide(gatewayLayer));
-  });
-
-  it.effect("rejects retry-projection from an idle caller turn", () => {
-    const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
-    return Effect.gen(function* () {
-      const harness = yield* makeHarness;
-      harness.setThreadDetail(
-        makeThreadDetail(makeThreadShell("thread-parent", { session: null, latestTurn: null })),
-      );
-      harness.endTurn("thread-parent", "codex", "turn-parent-active");
-      const response = yield* harness.callTool({
-        token: "token-parent",
-        name: "penkra_retry_thread_projection",
-        args: { threadId: "thread-parent" },
-      });
-      assert.isTrue(isToolError(response.result));
-      assert.equal(
-        (toolResultJson(response.result).error as { code: string }).code,
-        "caller_turn_inactive",
       );
     }).pipe(Effect.provide(gatewayLayer));
   });

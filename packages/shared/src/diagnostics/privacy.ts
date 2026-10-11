@@ -168,7 +168,7 @@ const enumValues = {
     "active_execution_lookup_failed",
     "authorized_turn_no_longer_active",
   ],
-  capability: ["thread:read", "thread:write", "diagnostics:read"],
+  capability: ["thread:read", "thread:write"],
   bootStage: [
     ...PRE_STORE_BOOT_STAGES,
     "provider-native-state-deletion.recover",

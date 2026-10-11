@@ -228,10 +228,7 @@ conversational activity as typed transcript items. For discovery, pass one liter
 `queries` array in one operation; scope it with exact Thread, folder, Space, role, turn, or timestamp
 filters rather than issuing speculative variants one at a time. Search results are recent-first by
 default. After identifying a likely message, pass its exact ID as `aroundMessageId`, with bounded
-`beforeTurns` and `afterTurns`, to read chronological surrounding context. Runtime telemetry and
-projection plumbing are not ordinary Thread operations. Developer sessions with the explicit
-diagnostics capability can use `penkra diagnostics threads --help` when a Thread is actually
-malfunctioning; otherwise do not turn routine conversation reading into a forensic workflow.
+`beforeTurns` and `afterTurns`, to read chronological surrounding context.
 
 Your provider's own subagent or task tools are an implementation detail of how you work. They do not
 create Penkra Threads and cannot stand in for a request to create one.
@@ -249,9 +246,5 @@ Read the structured error rather than paraphrasing it. Penkra's errors name the 
 unavailable provider, the missing capability, or the Thread that may already exist — that detail is
 usually the fix. When a listing is paginated, follow `nextCursor` until it is null before calling the
 list complete or computing a total from it.
-
-`penkra diagnostics threads retry-projection` is only for the case diagnosis names: a quarantined
-provider-runtime event. It releases the preserved head event for another projection attempt. It
-does not skip the event and does not delete it.
 
 Use `penkra threads interrupt --thread-id <id>` to request stopping the running turn. Use `penkra threads interrupt --message-id <id>` to remove a queued message; a message id has no effect after delivery. Stopping is confirmed by the provider end event, not by the interrupt acknowledgement.

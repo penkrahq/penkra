@@ -35,10 +35,6 @@ import {
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { QueuedTurnPromotionRepository } from "../../persistence/Services/QueuedTurnPromotions.ts";
-import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
-import { OrchestrationEventDeliveryRepository } from "../../persistence/Services/OrchestrationEventDeliveries.ts";
-import { ProviderRuntimeEventRepository } from "../../persistence/Services/ProviderRuntimeEvents.ts";
-import { ThreadDiagnosticsQuery } from "../../diagnostics/Services/ThreadDiagnosticsQuery.ts";
 import { AgentGateway, type AgentGatewayShape } from "../Services/AgentGateway.ts";
 import { AgentGatewayCredentials } from "../Services/AgentGatewayCredentials.ts";
 import { AgentGatewayToolBridge } from "../Services/AgentGatewayToolBridge.ts";
@@ -85,7 +81,6 @@ import {
 import { makeCreateThreadHandler } from "../creationCoordinator.ts";
 import { requestAppRuntimeBridge } from "../../appRuntimeCli.ts";
 import { makeThreadReadTools } from "../threadReadTools.ts";
-import { makeThreadDiagnosticTools } from "../threadDiagnosticTools.ts";
 import { executePenkraExecCommand } from "../../appRuntimeCli.ts";
 import type { PenkraExecCommandInput } from "../../appRuntimeCli.ts";
 import { requireThreadSpaceId } from "../threadSpaceContext.ts";
@@ -171,10 +166,6 @@ export const makeAgentGateway = Effect.gen(function* () {
   const threadBindings = yield* ThreadProviderBindingRepository;
   const projectionTurns = yield* ProjectionTurnRepository;
   const queuedTurnPromotions = yield* QueuedTurnPromotionRepository;
-  const eventStore = yield* OrchestrationEventStore;
-  const eventDeliveries = yield* OrchestrationEventDeliveryRepository;
-  const providerRuntimeEvents = yield* ProviderRuntimeEventRepository;
-  const diagnostics = yield* ThreadDiagnosticsQuery;
   const serverConfig = yield* ServerConfig;
   const managedAttachments = yield* ManagedAttachmentRepository;
   const loadProviderAvailabilities = Effect.gen(function* () {
@@ -260,14 +251,6 @@ export const makeAgentGateway = Effect.gen(function* () {
       homeDir: serverConfig.homeDir,
       chatWorkspaceRoot: serverConfig.chatWorkspaceRoot,
     },
-  });
-  const diagnosticTools = makeThreadDiagnosticTools({
-    snapshotQuery,
-    diagnostics,
-    eventStore,
-    providerRuntimeEvents,
-    eventDeliveries,
-    requireThreadShell,
   });
 
   // --- write tools ----------------------------------------------------------
@@ -538,7 +521,6 @@ export const makeAgentGateway = Effect.gen(function* () {
 
   const internalCommandTools = [
     ...readTools,
-    ...diagnosticTools,
     createThread,
     sendMessage,
     interruptThread,
@@ -633,31 +615,6 @@ export const makeAgentGateway = Effect.gen(function* () {
       ["threads", "read"],
       requireInternalTool("penkra_read_thread"),
       "penkra threads read --thread-id <thread-id> [--turn-id <penkra-turn-handle>]",
-    ),
-    command(
-      ["diagnostics", "threads", "activity"],
-      requireInternalTool("penkra_read_thread_activity"),
-      "penkra diagnostics threads activity --thread-id <thread-id> --include-details true",
-    ),
-    command(
-      ["diagnostics", "threads", "events"],
-      requireInternalTool("penkra_read_thread_events"),
-      "penkra diagnostics threads events --thread-id <thread-id>",
-    ),
-    command(
-      ["diagnostics", "threads", "runtime-events"],
-      requireInternalTool("penkra_read_thread_runtime_events"),
-      "penkra diagnostics threads runtime-events --thread-id <thread-id>",
-    ),
-    command(
-      ["diagnostics", "threads", "diagnose"],
-      requireInternalTool("penkra_diagnose_thread"),
-      "penkra diagnostics threads diagnose --thread-id <thread-id>",
-    ),
-    command(
-      ["diagnostics", "threads", "retry-projection"],
-      requireInternalTool("penkra_retry_thread_projection"),
-      "penkra diagnostics threads retry-projection --thread-id <thread-id>",
     ),
     command(
       ["threads", "create"],

@@ -1,7 +1,7 @@
 import type { ProviderKind, ThreadId } from "@penkra/contracts";
 import { ServiceMap } from "effect";
 
-export type AgentGatewayCapability = "thread:read" | "thread:write" | "diagnostics:read";
+export type AgentGatewayCapability = "thread:read" | "thread:write";
 
 export interface AgentGatewaySessionIdentity {
   readonly sessionKey: string;
