@@ -85,14 +85,14 @@ describe("folder App-tab routing", () => {
     panelFocus.recordInteraction(1, true);
     expect(route([window(1)]).targetWindowId).toBe(1);
   });
-  it("tracks focus and removes closed windows without an unrelated default", () => {
+  it("tracks focus without dropping windows outside focus history", () => {
     const order = new AppTabWindowFocusOrder();
     order.focus(1);
     order.focus(2);
     order.focus(1);
-    expect(order.order([window(1), window(2), window(3)]).map((w) => w.id)).toEqual([1, 2]);
+    expect(order.order([window(1), window(2), window(3)]).map((w) => w.id)).toEqual([1, 2, 3]);
     order.close(1);
-    expect(order.order([window(1), window(2)]).map((w) => w.id)).toEqual([2]);
+    expect(order.order([window(1), window(2)]).map((w) => w.id)).toEqual([2, 1]);
   });
   it("uses focus order for background opening when every showing window is busy", () => {
     const { panelFocus, route } = setup();
@@ -121,5 +121,21 @@ describe("folder App-tab routing", () => {
     expect(appTabFolderUnavailable("Work", false).message).toBe(
       'Folder "Work" is not open in any window.',
     );
+  });
+  it("chooses a never-focused window when it alone shows the folder", () => {
+    const { route, home } = setup();
+    home.view(3, "thread-c", "folder-a", false);
+    const order = new AppTabWindowFocusOrder();
+    order.focus(1);
+    order.focus(2);
+    expect(
+      route(
+        order.order([
+          window(1, { folderId: "elsewhere" }),
+          window(2, { visible: false }),
+          window(3),
+        ]),
+      ).targetWindowId,
+    ).toBe(3);
   });
 });
