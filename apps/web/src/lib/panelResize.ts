@@ -1,8 +1,5 @@
 // FILE: panelResize.ts
-// Purpose: Pure DOM helpers for chat/split panel resizing — the drag overlay that
-//          keeps pointer events in the React layer over native App views and the
-//          composer width feasibility probe. Extracted from the chat route so the
-//          route file holds orchestration, not low-level DOM measurement.
+// Purpose: Probe composer width feasibility while resizing chat/split panels.
 // Layer: Web panel layout utilities
 
 import { SINGLE_CHAT_PANE_SCOPE_ID } from "./chatPaneScope";
@@ -76,21 +73,4 @@ function findComposerForm(paneScopeId: string): HTMLElement | null {
     }
   }
   return null;
-}
-
-// Native App views can receive pointer input above the shell; this keeps resizing in React.
-export function createPanelResizeOverlay(): HTMLDivElement {
-  const overlay = document.createElement("div");
-  overlay.setAttribute("data-panel-resize-overlay", "true");
-  overlay.style.position = "fixed";
-  overlay.style.inset = "0";
-  overlay.style.zIndex = "2147483647";
-  overlay.style.cursor = "col-resize";
-  overlay.style.background = "transparent";
-  document.body.append(overlay);
-  return overlay;
-}
-
-export function removePanelResizeOverlay(overlay: HTMLDivElement): void {
-  overlay.remove();
 }
