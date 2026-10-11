@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createAppTabRestoreRequest,
   isAppPaneInSpace,
-  isAppTabOutsideFolderSpace,
   shouldMountAppDockPane,
   restoreAppTab,
 } from "./appTabRestore.logic";
@@ -100,29 +99,5 @@ describe("App tab restoration readiness", () => {
     };
     expect(isAppPaneInSpace(pane, "space-1")).toBe(true);
     expect(isAppPaneInSpace(pane, "space-2")).toBe(false);
-  });
-
-  it("discards only tabs attached to the moved folder's previous Space", () => {
-    expect(
-      isAppTabOutsideFolderSpace(
-        { folderId: "folder-1", threadId: "thread-1", spaceId: "space-1" },
-        "folder-1",
-        "space-2",
-      ),
-    ).toBe(true);
-    expect(
-      isAppTabOutsideFolderSpace(
-        { folderId: "folder-1", threadId: "thread-1", spaceId: "space-2" },
-        "folder-1",
-        "space-2",
-      ),
-    ).toBe(false);
-    expect(
-      isAppTabOutsideFolderSpace(
-        { folderId: "folder-2", threadId: "thread-2", spaceId: "space-1" },
-        "folder-1",
-        "space-2",
-      ),
-    ).toBe(false);
   });
 });

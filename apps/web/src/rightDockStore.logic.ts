@@ -30,7 +30,6 @@ export interface RightDockFolderState {
 }
 
 export interface OpenPaneInput {
-  preserveSelection: boolean;
   paneId: string;
   kind: "app";
   appId: string;

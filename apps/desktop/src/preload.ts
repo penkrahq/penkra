@@ -283,6 +283,8 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   },
   appTabs: {
     claimActivation: (requestId) => ipcRenderer.invoke(IPC.appTabs.claimActivation, requestId),
+    failActivation: (requestId, message) =>
+      ipcRenderer.invoke(IPC.appTabs.failActivation, requestId, message),
     onActivationRequested: (listener) => {
       const wrapped = (_event: Electron.IpcRendererEvent, input: Parameters<typeof listener>[0]) =>
         listener(input);

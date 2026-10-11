@@ -1,43 +1,82 @@
 // FILE: appTabOpenedRouting.ts
-// Purpose: Route App-tab selection without changing OS focus.
+// Purpose: Choose one window on the folder without disturbing a busy right panel.
 
 import type { DesktopAppTabOpened } from "@penkra/contracts";
-
 import type { PanelFocusState } from "./panelFocus";
 import type { ThreadHomeWindow } from "./threadHomeWindow";
 
+export interface AppTabRoutingWindow {
+  id: number;
+  focused: boolean;
+  visible: boolean;
+  minimized: boolean;
+  spaceId: string | null;
+  folderId: string | null;
+}
+
+/** Window focus history is local to this desktop process. */
+export class AppTabWindowFocusOrder {
+  #ids: number[] = [];
+  focus(id: number): void {
+    this.#ids = [id, ...this.#ids.filter((entry) => entry !== id)];
+  }
+  close(id: number): void {
+    this.#ids = this.#ids.filter((entry) => entry !== id);
+  }
+  order(windows: readonly AppTabRoutingWindow[]): AppTabRoutingWindow[] {
+    const byId = new Map(windows.map((window) => [window.id, window]));
+    return this.#ids.flatMap((id) => {
+      const window = byId.get(id);
+      return window ? [window] : [];
+    });
+  }
+}
+
+/** Windows arrive in focus order; the home window has priority when eligible. */
 export function announceAppTabOpened(input: {
-  descriptor: DesktopAppTabOpened;
-  windows: readonly { id: number; focused: boolean }[];
+  descriptor: Pick<DesktopAppTabOpened, "threadId" | "folderId" | "spaceId" | "initiator">;
+  windows: readonly AppTabRoutingWindow[];
   home: ThreadHomeWindow;
   panelFocus: PanelFocusState;
-}): {
-  targetWindowId: number | null;
-  deliveries: readonly { windowId: number; selection: "activate" | "preserve" }[];
-} {
-  const { descriptor, windows, home, panelFocus } = input;
-  const targetWindowId = home.presentingWindow(
-    descriptor.threadId,
-    descriptor.folderId,
-    windows.map((window) => window.id),
+}): { targetWindowId: number | null; backgroundWindowId: number | null; folderShown: boolean } {
+  const { descriptor, home, panelFocus } = input;
+  const showing = input.windows.filter(
+    (window) =>
+      window.visible &&
+      !window.minimized &&
+      window.spaceId === descriptor.spaceId &&
+      window.folderId === descriptor.folderId,
   );
-  const target = windows.find((window) => window.id === targetWindowId);
-  const agentOpen = descriptor.initiator === "agent";
-  const preserveFocusedPanel =
-    agentOpen &&
-    target !== undefined &&
-    panelFocus.shouldPreserveAgentOpen(target.id, target.focused);
-  if (agentOpen && target && descriptor.selection === "activate" && !preserveFocusedPanel) {
-    panelFocus.agentSwitchedPanel(target.id, target.focused);
-  }
-  if (!target && descriptor.selection === "activate")
-    home.defer(descriptor.folderId, descriptor.id);
+  const eligible = showing.filter(
+    (window) =>
+      descriptor.initiator !== "agent" ||
+      !panelFocus.shouldPreserveAgentOpen(window.id, window.focused),
+  );
+  const targetWindowId =
+    eligible.length === 0
+      ? null
+      : home.presentingWindow(
+          descriptor.threadId,
+          descriptor.folderId,
+          eligible.map((window) => window.id),
+        );
   return {
     targetWindowId,
-    deliveries: windows.map((window) => ({
-      windowId: window.id,
-      selection:
-        window.id === targetWindowId && !preserveFocusedPanel ? descriptor.selection : "preserve",
-    })),
+    backgroundWindowId: targetWindowId === null ? (showing[0]?.id ?? null) : null,
+    folderShown: showing.length > 0,
   };
+}
+
+export function appTabFolderUnavailable(
+  folderTitle: string,
+  folderShown: boolean,
+): Error & { code: string; dispatched: boolean } {
+  return Object.assign(
+    new Error(
+      folderShown
+        ? `You are working in the right panel of every window showing folder "${folderTitle}".`
+        : `Folder "${folderTitle}" is not open in any window.`,
+    ),
+    { code: "TAB_FOLDER_NOT_AVAILABLE", dispatched: false },
+  );
 }

@@ -66,6 +66,15 @@ describe("desktop App runtime composition", () => {
         appPreloadPath: "/trusted/appPreload.js",
         appControllerRunnerPath: "/trusted/appNodeControllerRunner.js",
         ipcMain: ipcMain as never,
+        onBeforeTabOpened: async () => {
+          throw new Error("This startup fixture does not open tabs.");
+        },
+        onTabRouteChanged: async () => {
+          throw new Error("This startup fixture does not navigate tabs.");
+        },
+        onCloseTab: async () => {
+          throw new Error("This startup fixture does not close tabs.");
+        },
         onTabOpened: () => undefined,
         onTabState: () => undefined,
         onTabClosed: () => undefined,

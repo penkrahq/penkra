@@ -587,6 +587,22 @@ describe("AppCommandPipeServer", () => {
       result: { kind: "image" },
     });
     expect(screenshot).toHaveBeenCalledWith("tab-1", "d1", undefined);
+    expect(activate).toHaveBeenCalledTimes(2);
+    activate.mockRejectedValueOnce(
+      Object.assign(
+        new Error('You are working in the right panel of every window showing folder "Work".'),
+        { code: "TAB_FOLDER_NOT_AVAILABLE", dispatched: false },
+      ),
+    );
+    await expect(
+      send(path, {
+        id: "busy-screenshot",
+        token: "secret",
+        method: "tabs.screenshot",
+        params: { spaceId: "personal", folderId: "folder-1", threadId: "thread-1", tabId: "tab-1" },
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { code: "TAB_FOLDER_NOT_AVAILABLE" } });
+    expect(screenshot).toHaveBeenCalledOnce();
 
     await expect(
       send(path, {

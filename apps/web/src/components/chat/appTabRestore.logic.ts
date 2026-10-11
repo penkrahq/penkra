@@ -5,12 +5,6 @@ import type { DesktopAppTabDescriptor } from "@penkra/contracts";
 
 import type { RightDockPane } from "../../rightDockStore.logic";
 
-interface AppTabSpaceIdentity {
-  folderId: string;
-  threadId: string;
-  spaceId: string;
-}
-
 export function shouldMountAppDockPane(
   tabId: string,
   confirmedTabIds: ReadonlySet<string>,
@@ -20,14 +14,6 @@ export function shouldMountAppDockPane(
 
 export function isAppPaneInSpace(pane: RightDockPane, spaceId: string): boolean {
   return pane.appSpaceId === spaceId;
-}
-
-export function isAppTabOutsideFolderSpace(
-  tab: AppTabSpaceIdentity,
-  folderId: string,
-  spaceId: string,
-): boolean {
-  return tab.folderId === folderId && tab.spaceId !== spaceId;
 }
 
 export function createAppTabRestoreRequest(

@@ -11,12 +11,10 @@ export function selectedPanelTabForFolder(state: RightDockFolderState | undefine
 export function closeSelectedPanelTabForFolder(input: {
   folderId: string;
   state: RightDockFolderState | undefined;
-  closeNativeTab: (tabId: string) => void;
   closePane: (folderId: string, paneId: string) => void;
 }): string | null {
   const paneId = selectedPanelTabForFolder(input.state);
   if (!paneId) return null;
-  input.closeNativeTab(paneId);
   input.closePane(input.folderId, paneId);
   return paneId;
 }

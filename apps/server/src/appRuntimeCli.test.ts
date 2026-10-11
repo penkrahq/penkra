@@ -844,6 +844,18 @@ describe("penkra_exec_command discovery", () => {
     );
   });
 
+  it("explains a background open without suggesting a retry", async () => {
+    const help = await executePenkraExecCommand(
+      command("penkra", "open", "--help"),
+      context,
+      {},
+      async () => [],
+    );
+    expect(help).toContain(
+      "The tab is open but not shown because you are working in the right panel (or the folder is not open); it shows when you select it.",
+    );
+  });
+
   it("points unknown core commands back to the canonical help command", async () => {
     await expect(
       executePenkraExecCommand(command("penkra", "app", "unknown"), context, {}, async () => []),

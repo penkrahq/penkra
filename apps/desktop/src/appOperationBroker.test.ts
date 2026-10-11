@@ -93,6 +93,7 @@ function crossAppState(): AppInstallationState {
 function tab(id: string, overrides: Partial<AppTabEndpoint> = {}): AppTabEndpoint {
   return {
     id,
+    isVisible: () => false,
     appId: "com.acme.linear",
     spaceId: "personal",
     folderId: "folder-1",
@@ -667,4 +668,36 @@ describe("AppOperationBroker", () => {
     expect(opened[0]?.navigate).toHaveBeenLastCalledWith({ route: "/third" });
     expect(opened[1]?.navigate).toHaveBeenCalledTimes(1);
   });
+  it.each([false, true])(
+    "reports visibility %s after an agent opens a new tab",
+    async (visible) => {
+      let runtime!: AppOperationBroker;
+      const open = vi.fn(async () => {
+        const endpoint = tab("new-tab", { isVisible: () => visible });
+        runtime.registerTab(endpoint);
+        return endpoint;
+      });
+      runtime = broker(enabledState, { open });
+      runtime.registerController({
+        appId: "com.acme.linear",
+        spaceId: "personal",
+        handlers: {
+          "issues.create": async (_input, context) => ({
+            tabId: (await context.tabs.open({ route: "/" })).id,
+          }),
+        },
+      });
+      await expect(
+        runtime.invoke({
+          app: "linear",
+          operation: "issues.create",
+          input: {},
+          spaceId: "personal",
+          folderId: "folder-1",
+          threadId: "thread-1",
+          callerKind: "agent",
+        }),
+      ).resolves.toEqual({ tabId: "new-tab", visible });
+    },
+  );
 });

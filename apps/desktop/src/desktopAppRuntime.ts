@@ -11,6 +11,7 @@ import {
   type ShortcutDetails,
 } from "electron";
 import type {
+  CleanCoreFolderAppTabsResult,
   DesktopAppTabClosed,
   DesktopAppTabDescriptor,
   DesktopAppTabOpened,
@@ -112,7 +113,13 @@ export async function startDesktopAppRuntime(input: {
   appControllerRunnerPath: string;
   ipcMain: Pick<IpcMain, "on" | "removeListener">;
   onBeforeInput?: (event: Electron.Event, input: Electron.Input) => void;
-  onTabOpened: (descriptor: DesktopAppTabOpened) => void;
+  onBeforeTabOpened: (descriptor: DesktopAppTabOpened) => Promise<CleanCoreFolderAppTabsResult>;
+  onTabOpened: (
+    descriptor: DesktopAppTabOpened,
+    folderTabs: CleanCoreFolderAppTabsResult,
+  ) => void | Promise<void>;
+  onTabRouteChanged: (descriptor: DesktopAppTabDescriptor) => Promise<void>;
+  onCloseTab: (descriptor: DesktopAppTabDescriptor) => Promise<void>;
   onTabState: (descriptor: DesktopAppTabDescriptor) => void;
   onTabClosed: (descriptor: DesktopAppTabClosed) => void;
   onTabPresentation?: (windowId: number, state: DesktopAppTabPresentation) => void;
@@ -386,7 +393,10 @@ export async function startDesktopAppRuntime(input: {
     windowById: (rendererId) =>
       BrowserWindow.getAllWindows().find((window) => window.webContents.id === rendererId) ?? null,
     ...(input.onBeforeInput === undefined ? {} : { onBeforeInput: input.onBeforeInput }),
+    onBeforeOpened: input.onBeforeTabOpened,
     onOpened: input.onTabOpened,
+    onRouteChanged: input.onTabRouteChanged,
+    onCloseTab: input.onCloseTab,
     onState: input.onTabState,
     onClosed: input.onTabClosed,
     ...(input.onTabPresentation === undefined ? {} : { onPresentation: input.onTabPresentation }),

@@ -522,18 +522,22 @@ export class AppCommandPipeServer {
             ),
           ),
         };
-      case "tabs.screenshot":
+      case "tabs.screenshot": {
+        const tab = this.#tab(params);
+        if (!this.#activate) throw new Error("Tab activation is unavailable.");
+        await this.#activate(tab, this.#scope(params).threadId, signal);
         return {
           ok: true,
           id: request.id,
           result: await this.#observe(params, () =>
             this.#observer.screenshot(
-              this.#tab(params).id,
+              tab.id,
               observationDocument(params),
               optionalString(params.outputPath, "outputPath") ?? undefined,
             ),
           ),
         };
+      }
       case "tabs.record":
       case "tabs.trace":
       case "tabs.har":

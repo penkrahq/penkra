@@ -5,6 +5,8 @@
 import * as FS from "node:fs/promises";
 import * as Path from "node:path";
 
+import { FolderId } from "@penkra/contracts";
+
 import { app, BrowserWindow, ipcMain, protocol } from "electron";
 
 import { startDesktopAppRuntime } from "./desktopAppRuntime";
@@ -47,6 +49,26 @@ void runHostPhase("electron-ready", () => app.whenReady())
         appPreloadPath: Path.join(__dirname, "appPreload.js"),
         appControllerRunnerPath: Path.join(__dirname, "appNodeControllerRunner.js"),
         ipcMain,
+        onBeforeTabOpened: async (tab) => ({
+          folderId: FolderId.makeUnsafe(tab.folderId),
+          folderTitle: "App test",
+          updatedAt: new Date().toISOString(),
+          tabs: {
+            panes: [
+              {
+                id: tab.id,
+                kind: "app",
+                appId: tab.appId,
+                appSpaceId: tab.spaceId,
+                appSlug: tab.slug,
+                appName: tab.name,
+                appRoute: tab.route,
+              },
+            ],
+          },
+        }),
+        onTabRouteChanged: async () => undefined,
+        onCloseTab: async () => undefined,
         onTabOpened: () => undefined,
         onTabState: () => undefined,
         onTabClosed: () => undefined,
