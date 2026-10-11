@@ -849,15 +849,6 @@ const ThreadTurnInterruptCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
-const ThreadQueuedTurnCancelCommand = Schema.Struct({
-  type: Schema.Literal("thread.turn.cancel-queued"),
-  commandId: CommandId,
-  threadId: ThreadId,
-  messageId: MessageId,
-  turnId: Schema.optional(TurnId),
-  createdAt: IsoDateTime,
-});
-
 const ThreadQueuedTurnSteerCommand = Schema.Struct({
   type: Schema.Literal("thread.turn.steer-queued"),
   commandId: CommandId,
@@ -1009,7 +1000,6 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadTurnStartCommand,
   ThreadTurnPlayCommand,
   ThreadTurnInterruptCommand,
-  ThreadQueuedTurnCancelCommand,
   ThreadQueuedTurnSteerCommand,
   ThreadTaskStopCommand,
   ThreadTaskBackgroundCommand,
@@ -1035,7 +1025,6 @@ export const ClientOrchestrationCommand = Schema.Union([
   ClientThreadTurnStartCommand,
   ThreadTurnPlayCommand,
   ThreadTurnInterruptCommand,
-  ThreadQueuedTurnCancelCommand,
   ThreadQueuedTurnSteerCommand,
   ThreadTaskStopCommand,
   ThreadTaskBackgroundCommand,
@@ -1171,7 +1160,6 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.turn-queued",
   "thread.turn-start-requested",
   "thread.turn-interrupt-requested",
-  "thread.turn-cancel-queued-requested",
   "thread.turn-steer-queued-requested",
   "thread.turn-start-cancelled",
   "thread.task-stop-requested",
@@ -1558,11 +1546,6 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.turn-interrupt-requested"),
     payload: ThreadTurnInterruptRequestedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("thread.turn-cancel-queued-requested"),
-    payload: ThreadQueuedTurnMutationRequestedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

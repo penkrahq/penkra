@@ -745,16 +745,6 @@ function makeHarnessLayer(
               );
             }
             dispatched.push(command);
-            if (command.type === "thread.turn.cancel-queued" && command.turnId !== undefined) {
-              const key = `${command.threadId}:${command.turnId}`;
-              const projected = projectionTurnsByKey.get(key);
-              if (projected) {
-                projectionTurnsByKey.set(key, {
-                  ...projected,
-                  state: "cancelled",
-                });
-              }
-            }
             const advancedTurnState = options.advanceParentTurnAfterDispatch?.state ?? "running";
             if (
               options.advanceParentTurnAfterDispatch?.commandType === command.type &&
