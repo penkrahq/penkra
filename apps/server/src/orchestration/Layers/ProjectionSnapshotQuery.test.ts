@@ -1,5 +1,4 @@
 import {
-  ApprovalRequestId,
   CommandId,
   EventId,
   MessageId,
@@ -1126,7 +1125,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       const expectedPendingInteractions = [
         {
           interactionKind: "userInput" as const,
-          requestId: ApprovalRequestId.makeUnsafe("request-retryable"),
+          requestId: "request-retryable",
           threadId,
           turnId: null,
           lifecycleGeneration: "generation-current",

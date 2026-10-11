@@ -6,7 +6,6 @@ import * as Path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 
 import {
-  ApprovalRequestId,
   EventId,
   MessageId,
   type ProviderComposerCapabilities,
@@ -138,7 +137,7 @@ interface PendingRequest {
 }
 
 interface PendingApprovalRequest {
-  requestId: ApprovalRequestId;
+  requestId: string;
   jsonRpcId: string | number;
   method:
     | "item/commandExecution/requestApproval"
@@ -154,7 +153,7 @@ interface PendingApprovalRequest {
 }
 
 interface PendingUserInputRequest {
-  requestId: ApprovalRequestId;
+  requestId: string;
   jsonRpcId: string | number;
   threadId: ThreadId;
   turnId?: TurnId;
@@ -205,8 +204,8 @@ interface CodexSessionContext {
   stdoutEndTimer?: ReturnType<typeof setTimeout>;
   detachStdout?: () => void;
   pending: Map<PendingRequestKey, PendingRequest>;
-  pendingApprovals: Map<ApprovalRequestId, PendingApprovalRequest>;
-  pendingUserInputs: Map<ApprovalRequestId, PendingUserInputRequest>;
+  pendingApprovals: Map<string, PendingApprovalRequest>;
+  pendingUserInputs: Map<string, PendingUserInputRequest>;
   sessionApprovalOverride?: CodexSessionApprovalOverride;
   collabReceiverTurns: Map<string, TurnId>;
   collabReceiverParents: Map<string, string>;
@@ -2059,7 +2058,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
   async respondToRequest(
     threadId: ThreadId,
-    requestId: ApprovalRequestId,
+    requestId: string,
     decision: ProviderApprovalDecision,
   ): Promise<void> {
     const context = this.requireSession(threadId);
@@ -2082,7 +2081,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
   async respondToUserInput(
     threadId: ThreadId,
-    requestId: ApprovalRequestId,
+    requestId: string,
     answers: ProviderUserInputAnswers,
   ): Promise<void> {
     const context = this.requireSession(threadId);
@@ -3578,9 +3577,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       providerParentThreadId,
     } = resolvedCollaborationRoute;
     const requestKind = this.requestKindForMethod(request.method);
-    let requestId: ApprovalRequestId | undefined;
+    let requestId: string | undefined;
     if (requestKind) {
-      requestId = ApprovalRequestId.makeUnsafe(randomUUID());
+      requestId = randomUUID();
       const pendingRequest: PendingApprovalRequest = {
         requestId,
         jsonRpcId: request.id,
@@ -3612,7 +3611,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       ? parseCodexUserInputQuestions(asObject(request.params))
       : undefined;
     if (isUserInputRequest && userInputQuestions) {
-      requestId = ApprovalRequestId.makeUnsafe(randomUUID());
+      requestId = randomUUID();
       context.pendingUserInputs.set(requestId, {
         requestId,
         jsonRpcId: request.id,

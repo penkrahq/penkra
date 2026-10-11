@@ -1,14 +1,6 @@
 import { Schema } from "effect";
 import { TrimmedNonEmptyString } from "./baseSchemas";
-import {
-  ApprovalRequestId,
-  EventId,
-  IsoDateTime,
-  MessageId,
-  ProviderItemId,
-  ThreadId,
-  TurnId,
-} from "./baseSchemas";
+import { EventId, IsoDateTime, MessageId, ProviderItemId, ThreadId, TurnId } from "./baseSchemas";
 import {
   ChatAttachment,
   ModelSelection,
@@ -124,7 +116,7 @@ export type ProviderCompactThreadInput = typeof ProviderCompactThreadInput.Type;
 
 export const ProviderRespondToRequestInput = Schema.Struct({
   threadId: ThreadId,
-  requestId: ApprovalRequestId,
+  requestId: TrimmedNonEmptyString,
   lifecycleGeneration: Schema.optional(TrimmedNonEmptyString),
   decision: ProviderApprovalDecision,
 });
@@ -132,7 +124,7 @@ export type ProviderRespondToRequestInput = typeof ProviderRespondToRequestInput
 
 export const ProviderRespondToUserInputInput = Schema.Struct({
   threadId: ThreadId,
-  requestId: ApprovalRequestId,
+  requestId: TrimmedNonEmptyString,
   lifecycleGeneration: Schema.optional(TrimmedNonEmptyString),
   answers: ProviderUserInputAnswers,
 });
@@ -151,7 +143,7 @@ export const ProviderEvent = Schema.Struct({
   turnId: Schema.optional(TurnId),
   parentTurnId: Schema.optional(TurnId),
   itemId: Schema.optional(ProviderItemId),
-  requestId: Schema.optional(ApprovalRequestId),
+  requestId: Schema.optional(TrimmedNonEmptyString),
   requestKind: Schema.optional(ProviderRequestKind),
   lifecycleGeneration: Schema.optional(TrimmedNonEmptyString),
   providerThreadId: Schema.optional(TrimmedNonEmptyString),

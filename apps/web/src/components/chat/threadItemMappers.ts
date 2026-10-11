@@ -10,7 +10,6 @@
 //   threadItemToPendingUserInput, threadItemToUserContent, ThreadItemUserContent
 
 import {
-  ApprovalRequestId,
   type MessageDispatchOrigin,
   MessageId,
   type OrchestrationThreadActivity,
@@ -77,8 +76,7 @@ const TOOL_STATUS_BY_ITEM_STATUS: Record<string, PenkraMcpToolStatus> = {
 
 export function threadItemToActivity(item: CleanCoreThreadItem): OrchestrationThreadActivity {
   const data = parseThreadItemData(item.data);
-  const hasActivityShape =
-    data !== null && ("payload" in data || "kind" in data || "tone" in data);
+  const hasActivityShape = data !== null && ("payload" in data || "kind" in data || "tone" in data);
   const rawPayload = hasActivityShape
     ? (data?.payload ?? null)
     : (data ?? { detail: item.text ?? null });
@@ -86,7 +84,10 @@ export function threadItemToActivity(item: CleanCoreThreadItem): OrchestrationTh
   // status so the derivation and the command label follow it.
   const toolStatus = item.kind === "tool" ? TOOL_STATUS_BY_ITEM_STATUS[item.status] : undefined;
   const payload =
-    toolStatus !== undefined && rawPayload !== null && typeof rawPayload === "object" && !Array.isArray(rawPayload)
+    toolStatus !== undefined &&
+    rawPayload !== null &&
+    typeof rawPayload === "object" &&
+    !Array.isArray(rawPayload)
       ? { ...(rawPayload as Record<string, unknown>), status: toolStatus }
       : rawPayload;
   return {
@@ -120,7 +121,7 @@ export function threadItemToPendingUserInput(item: CleanCoreThreadItem): Pending
     : [];
   const requestId = stripQuestionPrefix(item.sourceId);
   return {
-    requestId: ApprovalRequestId.makeUnsafe(requestId),
+    requestId: requestId,
     createdAt: item.createdAt,
     questions,
   };

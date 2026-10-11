@@ -4,7 +4,6 @@
 // Depends on: wsTransport mock plus contracts channel constants.
 
 import {
-  ApprovalRequestId,
   CommandId,
   type ContextMenuItem,
   EventId,
@@ -429,7 +428,7 @@ describe("wsNativeApi", () => {
 
     const input = {
       threadId: ThreadId.makeUnsafe("thread-1"),
-      requestId: ApprovalRequestId.makeUnsafe("request-1"),
+      requestId: "request-1",
       answers: {
         Runtime: ["Bun", "Node"],
       },

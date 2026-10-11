@@ -7,7 +7,6 @@ import { createThreadFromClient, ThreadLifecycle } from "./cleanCore/threadLifec
 import { ThreadSender } from "./cleanCore/ThreadSender.ts";
 
 import {
-  ApprovalRequestId,
   type ProviderConnectionId,
   CommandId,
   DEFAULT_TERMINAL_ID,
@@ -1156,7 +1155,7 @@ const makeWsRpcHandlersLayer = () =>
           rpcEffect(
             providerService.respondToUserInput({
               threadId: input.threadId,
-              requestId: ApprovalRequestId.makeUnsafe(input.requestId),
+              requestId: input.requestId,
               ...(input.lifecycleGeneration !== undefined
                 ? { lifecycleGeneration: input.lifecycleGeneration }
                 : {}),

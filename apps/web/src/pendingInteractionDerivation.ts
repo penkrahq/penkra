@@ -1,5 +1,4 @@
 import {
-  ApprovalRequestId,
   type OrchestrationPendingInteraction,
   type OrchestrationThreadActivity,
   type UserInputQuestion,
@@ -11,7 +10,7 @@ import {
 import { orderedActivities } from "./workLog";
 
 export interface PendingUserInput {
-  requestId: ApprovalRequestId;
+  requestId: string;
   lifecycleGeneration?: string;
   createdAt: string;
   questions: ReadonlyArray<UserInputQuestion>;
@@ -19,7 +18,7 @@ export interface PendingUserInput {
 
 type PendingInteractionKind = OrchestrationPendingInteraction["interactionKind"];
 
-interface PendingInteractionReplay<T extends { requestId: ApprovalRequestId }> {
+interface PendingInteractionReplay<T extends { requestId: string }> {
   interactionKind: PendingInteractionKind;
   requestedActivityKind: string;
   resolvedActivityKind: string;
@@ -27,7 +26,7 @@ interface PendingInteractionReplay<T extends { requestId: ApprovalRequestId }> {
   parseRequested: (input: {
     activity: OrchestrationThreadActivity;
     payload: Record<string, unknown> | null;
-    requestId: ApprovalRequestId;
+    requestId: string;
     lifecycleGeneration: string | undefined;
   }) => T | null;
 }
@@ -43,9 +42,9 @@ function activityLifecycleGeneration(payload: Record<string, unknown> | null): s
   return typeof generation === "string" && generation.length > 0 ? generation : undefined;
 }
 
-function deletePendingInteraction<T extends { requestId: ApprovalRequestId }>(
+function deletePendingInteraction<T extends { requestId: string }>(
   openByInstance: Map<string, T>,
-  requestId: ApprovalRequestId,
+  requestId: string,
   lifecycleGeneration: string | undefined,
 ): void {
   if (lifecycleGeneration !== undefined) {
@@ -57,7 +56,7 @@ function deletePendingInteraction<T extends { requestId: ApprovalRequestId }>(
   }
 }
 
-function replacePendingInteraction<T extends { requestId: ApprovalRequestId }>(
+function replacePendingInteraction<T extends { requestId: string }>(
   openByInstance: Map<string, T>,
   pending: T,
   lifecycleGeneration: string | undefined,
@@ -66,7 +65,7 @@ function replacePendingInteraction<T extends { requestId: ApprovalRequestId }>(
   openByInstance.set(pendingRequestInstanceKey(pending.requestId, lifecycleGeneration), pending);
 }
 
-function retainActionableSettlements<T extends { requestId: ApprovalRequestId }>(
+function retainActionableSettlements<T extends { requestId: string }>(
   openByInstance: Map<string, T>,
   settlements: ReadonlyArray<OrchestrationPendingInteraction> | undefined,
   interactionKind: PendingInteractionKind,
@@ -95,7 +94,7 @@ function retainActionableSettlements<T extends { requestId: ApprovalRequestId }>
   }
 }
 
-function replayPendingInteractions<T extends { requestId: ApprovalRequestId; createdAt: string }>(
+function replayPendingInteractions<T extends { requestId: string; createdAt: string }>(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
   settlements: ReadonlyArray<OrchestrationPendingInteraction> | undefined,
   replay: PendingInteractionReplay<T>,
@@ -104,10 +103,7 @@ function replayPendingInteractions<T extends { requestId: ApprovalRequestId; cre
 
   for (const activity of orderedActivities(activities)) {
     const payload = activityPayload(activity);
-    const requestId =
-      typeof payload?.requestId === "string"
-        ? ApprovalRequestId.makeUnsafe(payload.requestId)
-        : null;
+    const requestId = typeof payload?.requestId === "string" ? payload.requestId : null;
     if (!requestId) {
       continue;
     }

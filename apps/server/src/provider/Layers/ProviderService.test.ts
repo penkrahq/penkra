@@ -17,7 +17,6 @@ import type {
   ProviderTurnStartResult,
 } from "@penkra/contracts";
 import {
-  ApprovalRequestId,
   EventId,
   type ProviderKind,
   ProviderSessionStartInput,
@@ -59,7 +58,6 @@ import { AnalyticsService } from "../../telemetry/Services/AnalyticsService.ts";
 import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
 import { makeAgentGatewaySessionRegistry } from "../../agentGateway/Layers/AgentGatewaySessionRegistry.ts";
 
-const asRequestId = (value: string): ApprovalRequestId => ApprovalRequestId.makeUnsafe(value);
 const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
 const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
@@ -931,7 +929,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
       const failure = yield* Effect.flip(
         provider.respondToUserInput({
           threadId: asThreadId("thread-without-provider-owner"),
-          requestId: asRequestId("question-without-provider-owner"),
+          requestId: "question-without-provider-owner",
           lifecycleGeneration: "retired-generation",
           answers: { format: "Guide" },
         }),
@@ -990,7 +988,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
       const staleResponse = yield* Effect.result(
         provider.respondToRequest({
           threadId,
-          requestId: asRequestId("request-from-old-generation"),
+          requestId: "request-from-old-generation",
           lifecycleGeneration: String(firstGeneration),
           decision: "accept",
         }),
@@ -1009,7 +1007,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
       const staleUserInputResponse = yield* Effect.result(
         provider.respondToUserInput({
           threadId,
-          requestId: asRequestId("user-input-from-old-generation"),
+          requestId: "user-input-from-old-generation",
           lifecycleGeneration: String(firstGeneration),
           answers: { answer: "stale" },
         }),
@@ -1295,7 +1293,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
       const missingApprovalGeneration = yield* Effect.result(
         provider.respondToRequest({
           threadId,
-          requestId: asRequestId("claude-approval-without-generation"),
+          requestId: "claude-approval-without-generation",
           decision: "accept",
         }),
       );
@@ -1313,7 +1311,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
       const missingUserInputGeneration = yield* Effect.result(
         provider.respondToUserInput({
           threadId,
-          requestId: asRequestId("claude-user-input-without-generation"),
+          requestId: "claude-user-input-without-generation",
           answers: { answer: "continue" },
         }),
       );
@@ -1329,13 +1327,13 @@ routing.layer("ProviderServiceLive routing", (it) => {
 
       yield* provider.respondToRequest({
         threadId,
-        requestId: asRequestId("claude-approval-current-generation"),
+        requestId: "claude-approval-current-generation",
         lifecycleGeneration,
         decision: "accept",
       });
       yield* provider.respondToUserInput({
         threadId,
-        requestId: asRequestId("claude-user-input-current-generation"),
+        requestId: "claude-user-input-current-generation",
         lifecycleGeneration,
         answers: { answer: "continue" },
       });
@@ -1386,17 +1384,17 @@ routing.layer("ProviderServiceLive routing", (it) => {
 
       yield* provider.respondToRequest({
         threadId: session.threadId,
-        requestId: asRequestId("req-1"),
+        requestId: "req-1",
         lifecycleGeneration,
         decision: "accept",
       });
       assert.deepEqual(routing.codex.respondToRequest.mock.calls, [
-        [session.threadId, asRequestId("req-1"), "accept"],
+        [session.threadId, "req-1", "accept"],
       ]);
 
       yield* provider.respondToUserInput({
         threadId: session.threadId,
-        requestId: asRequestId("req-user-input-1"),
+        requestId: "req-user-input-1",
         lifecycleGeneration,
         answers: {
           sandbox_mode: "workspace-write",
@@ -1405,7 +1403,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
       assert.deepEqual(routing.codex.respondToUserInput.mock.calls, [
         [
           session.threadId,
-          asRequestId("req-user-input-1"),
+          "req-user-input-1",
           {
             sandbox_mode: "workspace-write",
           },
@@ -1480,24 +1478,24 @@ routing.layer("ProviderServiceLive routing", (it) => {
 
         yield* provider.respondToRequest({
           threadId,
-          requestId: asRequestId("req-live-approval"),
+          requestId: "req-live-approval",
           decision: "accept",
         });
         yield* provider.respondToUserInput({
           threadId,
-          requestId: asRequestId("req-live-user-input"),
+          requestId: "req-live-user-input",
           answers: {
             answer: "continue",
           },
         });
 
         assert.deepEqual(routing.codex.respondToRequest.mock.calls, [
-          [threadId, asRequestId("req-live-approval"), "accept"],
+          [threadId, "req-live-approval", "accept"],
         ]);
         assert.deepEqual(routing.codex.respondToUserInput.mock.calls, [
           [
             threadId,
-            asRequestId("req-live-user-input"),
+            "req-live-user-input",
             {
               answer: "continue",
             },

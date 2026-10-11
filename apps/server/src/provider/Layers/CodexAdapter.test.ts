@@ -3,7 +3,6 @@ import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
-  ApprovalRequestId,
   EventId,
   ProviderItemId,
   type ProviderApprovalDecision,
@@ -95,7 +94,7 @@ class FakeCodexManager extends CodexAppServerManager {
   public respondToRequestImpl = vi.fn(
     async (
       _threadId: ThreadId,
-      _requestId: ApprovalRequestId,
+      _requestId: string,
       _decision: ProviderApprovalDecision,
     ): Promise<void> => undefined,
   );
@@ -103,7 +102,7 @@ class FakeCodexManager extends CodexAppServerManager {
   public respondToUserInputImpl = vi.fn(
     async (
       _threadId: ThreadId,
-      _requestId: ApprovalRequestId,
+      _requestId: string,
       _answers: ProviderUserInputAnswers,
     ): Promise<void> => undefined,
   );
@@ -149,7 +148,7 @@ class FakeCodexManager extends CodexAppServerManager {
 
   override respondToRequest(
     threadId: ThreadId,
-    requestId: ApprovalRequestId,
+    requestId: string,
     decision: ProviderApprovalDecision,
   ): Promise<void> {
     return this.respondToRequestImpl(threadId, requestId, decision);
@@ -157,7 +156,7 @@ class FakeCodexManager extends CodexAppServerManager {
 
   override respondToUserInput(
     threadId: ThreadId,
-    requestId: ApprovalRequestId,
+    requestId: string,
     answers: ProviderUserInputAnswers,
   ): Promise<void> {
     return this.respondToUserInputImpl(threadId, requestId, answers);
@@ -1358,7 +1357,7 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         threadId: asThreadId("thread-1"),
         createdAt: new Date().toISOString(),
         method: "serverRequest/resolved",
-        requestId: ApprovalRequestId.makeUnsafe("req-1"),
+        requestId: "req-1",
         payload: {
           request: {
             method: "item/commandExecution/requestApproval",
@@ -1394,7 +1393,7 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         threadId: asThreadId("thread-1"),
         createdAt: new Date().toISOString(),
         method: "serverRequest/resolved",
-        requestId: ApprovalRequestId.makeUnsafe("req-file-read-1"),
+        requestId: "req-file-read-1",
         payload: {
           request: {
             method: "item/fileRead/requestApproval",
@@ -1562,7 +1561,7 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
           createdAt: new Date().toISOString(),
           lifecycleGeneration: "generation-request-a",
           method: "item/tool/requestUserInput",
-          requestId: ApprovalRequestId.makeUnsafe("req-user-input-1"),
+          requestId: "req-user-input-1",
           payload: {
             questions: [
               {
@@ -1587,7 +1586,7 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
           createdAt: new Date().toISOString(),
           lifecycleGeneration: "generation-request-a",
           method: "item/tool/requestUserInput/answered",
-          requestId: ApprovalRequestId.makeUnsafe("req-user-input-1"),
+          requestId: "req-user-input-1",
           payload: {
             answers: {
               sandbox_mode: {

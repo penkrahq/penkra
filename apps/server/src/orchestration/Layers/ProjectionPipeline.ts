@@ -1,7 +1,7 @@
 import { RuntimeMode } from "@penkra/contracts";
 import { getThread } from "../../cleanCore/threadList.ts";
 import type { ProviderKind } from "@penkra/contracts";
-import { ApprovalRequestId, CommandId, TurnId, type OrchestrationEvent } from "@penkra/contracts";
+import { CommandId, TurnId, type OrchestrationEvent } from "@penkra/contracts";
 import { isPendingInteractionNotFoundFailure } from "@penkra/shared/threadSummary";
 import { shouldInterruptProvisionalCompletion } from "@penkra/shared/turnContinuation";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -98,9 +98,9 @@ function payloadNonEmptyString(payload: unknown, key: string): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-function extractActivityRequestId(payload: unknown): ApprovalRequestId | null {
+function extractActivityRequestId(payload: unknown): string | null {
   const requestId = payloadRecord(payload)?.requestId;
-  return typeof requestId === "string" ? ApprovalRequestId.makeUnsafe(requestId) : null;
+  return typeof requestId === "string" ? requestId : null;
 }
 
 function extractApprovalFailureSettlementStatus(

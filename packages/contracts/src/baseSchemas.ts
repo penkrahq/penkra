@@ -60,5 +60,3 @@ export const RuntimeRequestId = makeEntityId("RuntimeRequestId");
 export type RuntimeRequestId = typeof RuntimeRequestId.Type;
 export const RuntimeTaskId = makeEntityId("RuntimeTaskId");
 export type RuntimeTaskId = typeof RuntimeTaskId.Type;
-export const ApprovalRequestId = makeEntityId("ApprovalRequestId");
-export type ApprovalRequestId = typeof ApprovalRequestId.Type;

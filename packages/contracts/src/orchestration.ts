@@ -3,7 +3,6 @@ import { Option, Schema, SchemaIssue } from "effect";
 import { ClaudeModelOptions, CodexModelOptions, OpenCodeModelOptions } from "./model";
 import { ProviderMentionReference, ProviderSkillReference } from "./providerDiscovery";
 import {
-  ApprovalRequestId,
   CommandId,
   EventId,
   IsoDateTime,
@@ -498,7 +497,7 @@ export type ProjectionPendingInteractionDecision = typeof ProjectionPendingInter
 /** Unresolved provider interaction settlement exposed to thread-detail consumers. */
 export const OrchestrationPendingInteraction = Schema.Struct({
   interactionKind: ProjectionPendingInteractionKind,
-  requestId: ApprovalRequestId,
+  requestId: TrimmedNonEmptyString,
   threadId: ThreadId,
   turnId: Schema.NullOr(TurnId),
   lifecycleGeneration: Schema.NullOr(TrimmedNonEmptyString),
@@ -1355,7 +1354,7 @@ export const OrchestrationEventMetadata = Schema.Struct({
   providerTurnId: Schema.optional(TrimmedNonEmptyString),
   providerItemId: Schema.optional(ProviderItemId),
   adapterKey: Schema.optional(TrimmedNonEmptyString),
-  requestId: Schema.optional(ApprovalRequestId),
+  requestId: Schema.optional(TrimmedNonEmptyString),
   ingestedAt: Schema.optional(IsoDateTime),
 });
 export type OrchestrationEventMetadata = typeof OrchestrationEventMetadata.Type;

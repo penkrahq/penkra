@@ -1,4 +1,4 @@
-import { ApprovalRequestId, ThreadId } from "@penkra/contracts";
+import { ThreadId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 
@@ -14,7 +14,7 @@ layer("ProjectionPendingInteractionRepository", (it) => {
   it.effect("keeps equal provider request ids independent across threads and kinds", () =>
     Effect.gen(function* () {
       const repository = yield* ProjectionPendingInteractionRepository;
-      const requestId = ApprovalRequestId.makeUnsafe("shared-provider-request");
+      const requestId = "shared-provider-request";
       const firstThreadId = ThreadId.makeUnsafe("thread-provider-request-a");
       const secondThreadId = ThreadId.makeUnsafe("thread-provider-request-b");
       const base = {
@@ -86,7 +86,7 @@ layer("ProjectionPendingInteractionRepository", (it) => {
       ).entries()) {
         yield* repository.upsert({
           interactionKind: "userInput",
-          requestId: ApprovalRequestId.makeUnsafe(`request-${status}`),
+          requestId: `request-${status}`,
           threadId,
           turnId: null,
           lifecycleGeneration: "generation-before-restart",

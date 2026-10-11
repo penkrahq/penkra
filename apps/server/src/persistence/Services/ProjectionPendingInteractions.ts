@@ -1,12 +1,12 @@
 /** Durable settlement authority shared by approvals and structured user input. */
 import {
-  ApprovalRequestId,
   CommandId,
   IsoDateTime,
   ProjectionPendingInteractionDecision,
   ProjectionPendingInteractionKind,
   ProjectionPendingInteractionStatus,
   ThreadId,
+  TrimmedNonEmptyString,
   TurnId,
 } from "@penkra/contracts";
 import { Option, Schema, ServiceMap } from "effect";
@@ -16,7 +16,7 @@ import type { ProjectionRepositoryError } from "../Errors.ts";
 
 export const ProjectionPendingInteraction = Schema.Struct({
   interactionKind: ProjectionPendingInteractionKind,
-  requestId: ApprovalRequestId,
+  requestId: TrimmedNonEmptyString,
   threadId: ThreadId,
   turnId: Schema.NullOr(TurnId),
   lifecycleGeneration: Schema.NullOr(Schema.String),
@@ -36,7 +36,7 @@ export const ListProjectionPendingInteractionsInput = Schema.Struct({
 export const GetProjectionPendingInteractionInput = Schema.Struct({
   threadId: ThreadId,
   interactionKind: ProjectionPendingInteractionKind,
-  requestId: ApprovalRequestId,
+  requestId: TrimmedNonEmptyString,
 });
 
 export const DeleteProjectionPendingInteractionInput = GetProjectionPendingInteractionInput;

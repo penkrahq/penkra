@@ -4,7 +4,6 @@ import { execFileSync } from "node:child_process";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
-  ApprovalRequestId,
   ProviderConnectionId,
   ProviderInstallationId,
   ProviderKind,
@@ -466,7 +465,7 @@ export const makeOrchestrationIntegrationHarness = (
           .getByIdentity({
             threadId: ThreadId.makeUnsafe(threadId),
             interactionKind: "approval",
-            requestId: ApprovalRequestId.makeUnsafe(requestId),
+            requestId: requestId,
           })
           .pipe(
             Effect.map((row) =>

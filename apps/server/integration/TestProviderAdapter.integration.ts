@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 
 import {
-  ApprovalRequestId,
   EventId,
   ProviderApprovalDecision,
   ProviderRuntimeEvent,
@@ -196,7 +195,7 @@ export interface TestProviderAdapterHarness {
   readonly listActiveSessionIds: () => ReadonlyArray<ThreadId>;
   readonly getApprovalResponses: (threadId: ThreadId) => ReadonlyArray<{
     readonly threadId: ThreadId;
-    readonly requestId: ApprovalRequestId;
+    readonly requestId: string;
     readonly decision: ProviderApprovalDecision;
   }>;
 }
@@ -238,7 +237,7 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
       ThreadId,
       Array<{
         readonly threadId: ThreadId;
-        readonly requestId: ApprovalRequestId;
+        readonly requestId: string;
         readonly decision: ProviderApprovalDecision;
       }>
     >();
@@ -572,7 +571,7 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
       threadId: ThreadId,
     ): ReadonlyArray<{
       readonly threadId: ThreadId;
-      readonly requestId: ApprovalRequestId;
+      readonly requestId: string;
       readonly decision: ProviderApprovalDecision;
     }> => {
       const responses = approvalResponsesBySession.get(threadId);
