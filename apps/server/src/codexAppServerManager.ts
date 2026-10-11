@@ -67,8 +67,6 @@ import {
   prepareManagedCodexResume,
 } from "./provider/codexManagedNativeState.ts";
 import { createLogger } from "./logger";
-import { recordCodexTransportFailure } from "./diagnostics/codexTransportFailure";
-import { recordCodexManagerFailure } from "./diagnostics/codexManagerFailure";
 import { transcribeVoiceWithChatGptSession } from "./voiceTranscription.ts";
 import {
   CodexAppServerTransportError,
@@ -109,7 +107,6 @@ export function recordCodexCapabilityPreflightFailure(input: {
   if (input.stopping && input.error instanceof CodexSessionStoppedRequestError) {
     return;
   }
-  recordCodexManagerFailure();
   log.warn("Computer Use capability preflight failed", {
     threadId: input.threadId,
     error: input.error,
@@ -515,16 +512,10 @@ export function shouldRetryCodexPreThreadOpenFailure(input: {
 // Bounds the best-effort answers written to parked server requests: a child that
 // stopped draining stdin must never hold session teardown hostage.
 function withCodexPendingSettleDeadline(settle: Promise<unknown>): Promise<void> {
-  let settled = false;
   return Promise.race([
-    settle
-      .finally(() => {
-        settled = true;
-      })
-      .then(() => undefined),
+    settle.then(() => undefined),
     new Promise<void>((resolve) => {
       setTimeout(() => {
-        if (!settled) recordCodexManagerFailure();
         resolve();
       }, CODEX_PENDING_SETTLE_DEADLINE_MS).unref();
     }),
@@ -1120,7 +1111,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       if (signal?.aborted) throw error;
       // Older codex builds (< extra-roots support) keep working; Penkra-only
       // skills simply stay invisible to codex on those versions.
-      recordCodexManagerFailure();
       log.warn("skills/extraRoots/set unavailable", { error });
     }
   }
@@ -1148,12 +1138,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       } catch (error) {
         if (signal?.aborted) throw error;
         if (!shouldRetryPluginListWithoutMarketplaceKinds(error)) throw error;
-        recordCodexManagerFailure();
         await this.sendRequest(context, "plugin/list", { cwds: [cwd] }, undefined, signal);
       }
     } catch (error) {
       if (signal?.aborted) throw error;
-      recordCodexManagerFailure();
       if (isPluginListUnavailable(error)) {
         log.warn("Codex plugin reconciliation is unavailable in this runtime", {
           error,
@@ -1173,7 +1161,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       );
     } catch (error) {
       if (signal?.aborted) throw error;
-      recordCodexManagerFailure();
       if (!shouldRetrySkillsListWithCwdFallback(error)) throw error;
       await this.sendRequest(context, "skills/list", { cwd, forceReload: true }, undefined, signal);
     }
@@ -1299,7 +1286,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         log.info("model/list response", { modelListResponse });
       } catch (error) {
         if (signal?.aborted) throw error;
-        recordCodexManagerFailure();
         log.warn("model/list failed", { error });
       }
       try {
@@ -1319,7 +1305,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         });
       } catch (error) {
         if (signal?.aborted) throw error;
-        recordCodexManagerFailure();
         log.warn("account/read failed", { error });
       }
 
@@ -1492,7 +1477,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       return { ...context.session };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to start Codex session.";
-      if (!signal?.aborted && !context?.transportFailureHandled) recordCodexManagerFailure();
       const retryPreThreadOpen = shouldRetryCodexPreThreadOpenFailure({
         startupAttempt,
         aborted: signal?.aborted === true,
@@ -1580,7 +1564,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       resumeCursor: context.session.resumeCursor,
     });
     if (!providerThreadId) {
-      recordCodexManagerFailure();
       throw new Error("Session is missing provider resume thread id.");
     }
     const turnStartParams: {
@@ -1637,12 +1620,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const turn = this.readObject(this.readObject(response), "turn");
       const turnIdRaw = this.readString(turn, "id");
       if (!turnIdRaw) {
-        recordCodexManagerFailure();
         throw new Error("turn/start response did not include a turn id.");
       }
       const turnId = TurnId.makeUnsafe(turnIdRaw);
       if (pendingStart.turnId !== undefined && pendingStart.turnId !== turnId) {
-        recordCodexManagerFailure();
         throw new Error("turn/start response does not match the registered native turn.");
       }
       pendingStart.turnId = turnId;
@@ -1703,7 +1684,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       resumeCursor: context.session.resumeCursor,
     });
     if (!providerThreadId) {
-      recordCodexManagerFailure();
       throw new Error("Session is missing provider resume thread id.");
     }
 
@@ -1718,7 +1698,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           : {}),
       });
     } catch (steerError) {
-      recordCodexManagerFailure();
       // The turn can complete after the caller's live-state check but before
       // app-server handles turn/steer. A JSON-RPC error proves the steer was
       // not accepted, but its generic error code does not identify that race.
@@ -1734,7 +1713,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         });
         activity = inspectCodexThreadActivity(threadResponse);
       } catch {
-        recordCodexManagerFailure();
         throw steerError;
       }
       if (activity.active) {
@@ -1750,7 +1728,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
     const turnIdRaw = this.readString(this.readObject(response), "turnId");
     if (!turnIdRaw) {
-      recordCodexManagerFailure();
       throw new Error("turn/steer response did not include a turn id.");
     }
     const turnId = TurnId.makeUnsafe(turnIdRaw);
@@ -1787,7 +1764,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       resumeCursor: context.session.resumeCursor,
     });
     if (!providerThreadId) {
-      recordCodexManagerFailure();
       throw new Error("Session is missing a provider resume thread id.");
     }
 
@@ -1800,7 +1776,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     const turn = this.readObject(this.readObject(response), "turn");
     const turnIdRaw = this.readString(turn, "id");
     if (!turnIdRaw) {
-      recordCodexManagerFailure();
       throw new Error("review/start response did not include a turn id.");
     }
     const turnId = TurnId.makeUnsafe(turnIdRaw);
@@ -1869,7 +1844,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         turnId: effectiveTurnId,
       });
     } catch (error) {
-      recordCodexManagerFailure();
       log.warn("[codex-review] turn/interrupt failed", {
         threadId,
         providerThreadId,
@@ -1959,7 +1933,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     try {
       await this.interruptTurn(threadId, turnId);
     } catch (error) {
-      recordCodexManagerFailure();
       log.warn("turn/interrupt failed while abandoning a stalled codex turn", {
         threadId,
         turnId,
@@ -2010,7 +1983,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       resumeCursor: context.session.resumeCursor,
     });
     if (!providerThreadId) {
-      recordCodexManagerFailure();
       throw new Error("Session is missing a provider resume thread id.");
     }
 
@@ -2029,7 +2001,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       resumeCursor: context.session.resumeCursor,
     });
     if (!providerThreadId) {
-      recordCodexManagerFailure();
       throw new Error("Session is missing a provider resume thread id.");
     }
     const response = await this.sendRequest(context, "thread/revert", {
@@ -2051,7 +2022,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       resumeCursor: context.session.resumeCursor,
     });
     if (!providerThreadId) {
-      recordCodexManagerFailure();
       throw new Error("Session is missing a provider resume thread id.");
     }
 
@@ -2095,7 +2065,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         providerThreadId,
       }).pipe(this.runPromise);
     } catch (error) {
-      recordCodexManagerFailure();
       this.updateSession(context, {
         status: "error",
         lastError: error instanceof Error ? error.message : context.session.lastError,
@@ -2268,7 +2237,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       try {
         await this.resolveApprovalRequest(context, pendingRequest, "cancel");
       } catch (error) {
-        recordCodexManagerFailure();
         log.warn("failed to settle pending codex approval request", {
           threadId: context.session.threadId,
           reason,
@@ -2283,7 +2251,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       try {
         await this.resolveUserInputRequest(context, pendingRequest, {});
       } catch (error) {
-        recordCodexManagerFailure();
         log.warn("failed to settle pending codex user-input request", {
           threadId: context.session.threadId,
           reason,
@@ -2299,7 +2266,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     try {
       await teardownChildProcessTree(context.child, this.teardownProcessTree);
     } catch (cause) {
-      recordCodexManagerFailure();
       const detail = cause instanceof Error ? cause.message : String(cause);
       throw new Error(
         `Failed to prove Codex app-server process-tree exit for '${context.session.threadId}': ${detail}`,
@@ -2438,7 +2404,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         ...(input.forceReload ? { forceReload: true } : {}),
       });
     } catch (error) {
-      recordCodexManagerFailure();
       if (!shouldRetrySkillsListWithCwdFallback(error)) {
         throw error;
       }
@@ -2492,7 +2457,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     const context = this.requireSession(threadId);
     const providerThreadId = readResumeCursorThreadId(context.session.resumeCursor);
     if (!providerThreadId) {
-      recordCodexManagerFailure();
       throw new Error(`Session is missing provider resume thread id: ${threadId}`);
     }
     return this.refreshComputerUseCapabilityHealth(context, providerThreadId);
@@ -2548,7 +2512,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       }
       const nextCursor: string | null = asString(response.nextCursor)?.trim() || null;
       if (nextCursor && seenCursors.has(nextCursor)) {
-        recordCodexManagerFailure();
         throw new Error("mcpServerStatus/list returned a repeated pagination cursor.");
       }
       if (nextCursor) seenCursors.add(nextCursor);
@@ -2621,7 +2584,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       });
       const threadId = this.readString(this.readObject(this.readObject(opened), "thread"), "id");
       if (!threadId) {
-        recordCodexManagerFailure();
         throw new Error("Auth probe could not open a Codex thread.");
       }
       context.authProbeThreadId = threadId;
@@ -2642,7 +2604,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const turn = this.readObject(this.readObject(response), "turn");
       const rawTurnId = this.readString(turn, "id");
       if (!rawTurnId) {
-        recordCodexManagerFailure();
         throw new Error("Auth probe did not receive a Codex turn id.");
       }
       if (this.readString(turn, "status") === "completed") return true;
@@ -2706,7 +2667,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       });
       return result;
     } catch (error) {
-      recordCodexManagerFailure();
       if (!cached) throw error;
       log.warn("model/list refresh failed; retaining stale catalog", {
         cacheKey,
@@ -2919,14 +2879,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         const accountReadResponse = await this.sendRequest(context, "account/read", {});
         context.account = readCodexAccountSnapshot(accountReadResponse);
       } catch {
-        recordCodexManagerFailure();
         // Discovery can still function without account metadata.
       }
       this.updateSession(context, { status: "ready" });
       this.scheduleDiscoverySessionIdleStop(discoveryKey);
       return context;
     } catch (error) {
-      recordCodexManagerFailure();
       await this.stopDiscoverySession(discoveryKey);
       throw error;
     }
@@ -2954,7 +2912,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       }
 
       void this.stopDiscoverySession(discoveryKey).catch((error) => {
-        recordCodexManagerFailure();
         log.warn("Failed to stop idle Codex discovery session", {
           discoveryKey,
           error,
@@ -3129,7 +3086,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   private handleTransportFailure(context: CodexSessionContext, cause: unknown): void {
     if (context.stopping || context.transportFailureHandled) return;
     context.transportFailureHandled = true;
-    recordCodexTransportFailure();
     if (context.stdoutEndTimer) {
       clearTimeout(context.stdoutEndTimer);
       delete context.stdoutEndTimer;
@@ -3164,7 +3120,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       ? this.stopDiscoverySession(context.session.cwd ?? "")
       : this.stopSession(context.session.threadId);
     void stopping.catch((stopError) => {
-      recordCodexManagerFailure();
       log.error("failed to stop Codex session after transport error", {
         threadId: context.session.threadId,
         error: stopError,
@@ -3960,7 +3915,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const timeout = setTimeout(() => {
         context.pending.delete(String(id));
         signal?.removeEventListener("abort", onAbort);
-        recordCodexManagerFailure();
         reject(new Error(`Timed out waiting for ${method}.`));
       }, timeoutMs);
 
@@ -4075,8 +4029,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       ) {
         return;
       }
-
-      recordCodexManagerFailure();
 
       context.collabReceiverTurns.clear();
       context.collabReceiverParents.clear();
@@ -4239,7 +4191,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     const threadIdRaw =
       this.readString(thread, "id") ?? this.readString(responseRecord, "threadId");
     if (!threadIdRaw) {
-      recordCodexManagerFailure();
       throw new Error(`${method} response did not include a thread id.`);
     }
     return threadIdRaw;
@@ -4757,7 +4708,6 @@ async function assertSupportedCodexCliVersion(input: {
   try {
     assertCodexWorkingDirectoryExists(input.cwd);
   } catch (error) {
-    recordCodexManagerFailure();
     if (error instanceof CodexWorkingDirectoryAccessError) {
       log.error("Codex workspace access preflight failed", {
         cwd: error.cwd,
@@ -4804,7 +4754,6 @@ async function assertSupportedCodexCliVersion(input: {
     },
     (error: unknown) => {
       // Never cache a failure: the user may install or upgrade Codex at any time.
-      recordCodexManagerFailure();
       if (codexCliVersionGates.get(key) === entry) {
         codexCliVersionGates.delete(key);
       }
