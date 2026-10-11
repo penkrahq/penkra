@@ -74,7 +74,7 @@ import { bindDesktopParentPid } from "@penkra/shared/desktopParentLifecycle";
 import { NetService } from "@penkra/shared/Net";
 import { POSSIBLE_MODEL_CATALOG } from "@penkra/shared/possibleModels";
 import { applyShellEnvironmentHydrationMarker } from "@penkra/shared/shell";
-import { RotatingFileSink } from "@penkra/shared/logging";
+import { ProcessLogFile } from "@penkra/shared/logging";
 import {
   DiagnosticsSpoolWriter,
   markDiagnosticWorkerExited,
@@ -568,10 +568,8 @@ function diagnosticsQaShellEnabled(): boolean {
 const COMMIT_HASH_PATTERN = /^[0-9a-f]{7,40}$/i;
 const COMMIT_HASH_DISPLAY_LENGTH = 12;
 const LOG_DIR = Path.join(STATE_DIR, "logs");
-const DESKTOP_LOG_FILE_NAME = "desktop-main.log";
-const BACKEND_LOG_FILE_NAME = "server-child.log";
-const LOG_FILE_MAX_BYTES = 10 * 1024 * 1024;
-const LOG_FILE_MAX_FILES = 10;
+const DESKTOP_LOG_FILE_NAME = "desktop.log";
+const BACKEND_LOG_FILE_NAME = "server.log";
 const APP_RUN_ID = Crypto.randomBytes(6).toString("hex");
 const DESKTOP_BACKEND_SHUTDOWN_TOKEN = Crypto.randomBytes(32).toString("hex");
 // Electron's single-instance lock is scoped through userData on Windows/Linux.
@@ -1789,8 +1787,9 @@ let desktopQuitInitiator: string | null = null;
 let desktopProtocolRegistered = false;
 let aboutCommitHashCache: string | null | undefined;
 let appUpdateYmlCache: Record<string, string> | null | undefined;
-let desktopLogSink: RotatingFileSink | null = null;
-let backendLogSink: RotatingFileSink | null = null;
+let desktopLogSink: ProcessLogFile | null = null;
+const backendStdoutWrite = process.stdout.write.bind(process.stdout);
+const backendStderrWrite = process.stderr.write.bind(process.stderr);
 let restoreStdIoCapture: (() => void) | null = null;
 let unreadBackgroundNotificationCount = 0;
 let appTabObserver: AppTabObserver | null = null;
@@ -2230,14 +2229,6 @@ function writeDesktopLogHeader(message: string): void {
   desktopLogSink.write(`[${logTimestamp()}] [${logScope("desktop")}] ${message}\n`);
 }
 
-function writeBackendSessionBoundary(phase: "START" | "END", details: string): void {
-  if (!backendLogSink) return;
-  const normalizedDetails = sanitizeLogValue(details);
-  backendLogSink.write(
-    `[${logTimestamp()}] ---- APP SESSION ${phase} run=${APP_RUN_ID} ${normalizedDetails} ----\n`,
-  );
-}
-
 function safeConsoleError(...args: Parameters<typeof console.error>): void {
   try {
     console.error(...args);
@@ -2460,7 +2451,7 @@ function writeDesktopStreamChunk(
 }
 
 function installStdIoCapture(): void {
-  if (!app.isPackaged || desktopLogSink === null || restoreStdIoCapture !== null) {
+  if (desktopLogSink === null || restoreStdIoCapture !== null) {
     return;
   }
 
@@ -2498,35 +2489,13 @@ function installStdIoCapture(): void {
   };
 }
 
-function initializePackagedLogging(): void {
-  if (!app.isPackaged) return;
-  try {
-    desktopLogSink = new RotatingFileSink({
-      filePath: Path.join(LOG_DIR, DESKTOP_LOG_FILE_NAME),
-      maxBytes: LOG_FILE_MAX_BYTES,
-      maxFiles: LOG_FILE_MAX_FILES,
-    });
-    backendLogSink = new RotatingFileSink({
-      filePath: Path.join(LOG_DIR, BACKEND_LOG_FILE_NAME),
-      maxBytes: LOG_FILE_MAX_BYTES,
-      maxFiles: LOG_FILE_MAX_FILES,
-    });
-    installStdIoCapture();
-    writeDesktopLogHeader(`runtime log capture enabled logDir=${LOG_DIR}`);
-  } catch (error) {
-    recordDiagnosticIncident({
-      kind: "command.failed",
-      code: "EXTERNAL_CALL_FAILED",
-      where: "desktop.log_setup",
-      severity: "error",
-      actual: { outcome: "failed" },
-    });
-    // Logging setup should never block app startup.
-    console.error("[desktop] failed to initialize packaged logging", error);
-  }
+function initializeLogging(): void {
+  desktopLogSink = new ProcessLogFile(Path.join(LOG_DIR, DESKTOP_LOG_FILE_NAME));
+  installStdIoCapture();
+  writeDesktopLogHeader(`runtime log capture enabled logDir=${LOG_DIR}`);
 }
 
-initializePackagedLogging();
+initializeLogging();
 
 function getDestructiveMenuIcon(): Electron.NativeImage | undefined {
   if (desktopPlatform.platform !== "darwin") return undefined;
@@ -5301,22 +5270,19 @@ function startBackend(trigger: BackendStartTrigger = "lifecycle"): void {
   const closeBackendSession = (details: string) => {
     if (backendSessionClosed) return;
     backendSessionClosed = true;
-    writeBackendSessionBoundary("END", details);
+    writeDesktopLogHeader(`backend stopped ${sanitizeLogValue(details)}`);
   };
-  writeBackendSessionBoundary(
-    "START",
+  writeDesktopLogHeader(
     `pid=${child.pid ?? "unknown"} port=${backendPort} cwd=${resolveBackendCwd()}`,
   );
-  const backendLogDestination = backendLogSink;
   const backendOutputCapture = captureBackendProcessOutput({
     stdout: child.stdout,
     stderr: child.stderr,
-    ...(backendLogDestination ? { writeLog: (chunk) => backendLogDestination.write(chunk) } : {}),
     writeStdout: (chunk) => {
-      process.stdout.write(chunk);
+      backendStdoutWrite(chunk);
     },
     writeStderr: (chunk) => {
-      process.stderr.write(chunk);
+      backendStderrWrite(chunk);
     },
     detectors: [listeningDetector, startupBlockDetector, outputTailDetector],
   });

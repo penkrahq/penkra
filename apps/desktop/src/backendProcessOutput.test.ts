@@ -33,28 +33,6 @@ describe("captureBackendProcessOutput", () => {
     await capture.drained;
   });
 
-  it("writes to the packaged log without duplicating output to stdio", async () => {
-    const stdout = new PassThrough();
-    const logged: Buffer[] = [];
-    const forwarded: Buffer[] = [];
-
-    const capture = captureBackendProcessOutput({
-      stdout,
-      stderr: null,
-      writeLog: (chunk) => logged.push(chunk),
-      writeStdout: (chunk) => forwarded.push(chunk),
-      writeStderr: (chunk) => forwarded.push(chunk),
-      detectors: [],
-    });
-
-    stdout.write("packaged backend output");
-
-    expect(Buffer.concat(logged).toString("utf8")).toBe("packaged backend output");
-    expect(forwarded).toEqual([]);
-    stdout.end();
-    await capture.drained;
-  });
-
   it("does not report drained until both output streams finish", async () => {
     const stdout = new PassThrough();
     const stderr = new PassThrough();

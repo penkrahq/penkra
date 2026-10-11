@@ -3,6 +3,31 @@ import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { fsyncDirectory } from "./fsyncDirectory";
 
+// Startup logging: rotate once per process start; keep the previous complete log.
+export const PROCESS_LOG_ROTATION_BYTES = 50 * 1024 * 1024;
+
+export class ProcessLogFile {
+  constructor(private readonly filePath: string) {
+    try {
+      fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
+      if (fs.existsSync(filePath) && fs.statSync(filePath).size > PROCESS_LOG_ROTATION_BYTES) {
+        fs.rmSync(`${filePath}.1`, { force: true });
+        fs.renameSync(filePath, `${filePath}.1`);
+      }
+    } catch {
+      // Logging must not prevent startup.
+    }
+  }
+
+  write(chunk: string | Buffer): void {
+    try {
+      fs.appendFileSync(this.filePath, chunk, { mode: 0o600 });
+    } catch {
+      // Logging must not interrupt the process.
+    }
+  }
+}
+
 export interface RotatingFileSinkOptions {
   readonly filePath: string;
   readonly maxBytes: number;
