@@ -16,12 +16,10 @@ export function isMissingFileError(error: unknown): boolean {
 
 export function recoverMissingFile<A, E, R>(
   operation: Effect.Effect<A, E, R>,
-  recordUnexpected: () => void,
 ): Effect.Effect<A | null, E, R> {
   return operation.pipe(
     Effect.catch((error) => {
       if (isMissingFileError(error)) return Effect.succeed(null);
-      recordUnexpected();
       return Effect.fail(error);
     }),
   );

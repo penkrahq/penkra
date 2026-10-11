@@ -114,7 +114,6 @@ import {
 } from "./diagnostics/qaRuntimeActions";
 import { armQaProviderSwitch, clearQaProviderSwitch } from "./diagnostics/qaProviderSwitch";
 import { recordServerQaAction } from "./diagnostics/qaProofBuild";
-import { recordWsRpcFailure } from "./diagnostics/wsRpcFailure";
 import { listThreadItemsPage } from "./cleanCore/threadItemsPage.ts";
 import { findThread, listThreads, searchThreads } from "./cleanCore/threadList.ts";
 import { getThreadDraft, setThreadDraft } from "./cleanCore/threadDraft.ts";
@@ -128,7 +127,7 @@ import {
 } from "./cleanCore/threadStore.ts";
 import { ThreadPublisher } from "./cleanCore/ThreadPublisher.ts";
 import { sidebarChangeStream, threadChangeStream } from "./cleanCore/threadChangeStream.ts";
-import { recoverMissingFile } from "./diagnostics/missingFileRecovery";
+import { recoverMissingFile } from "./missingFileRecovery";
 import { WorkspaceWatcher } from "./workspaceWatcher";
 import { makeWsRequestAdmission } from "./wsRequestAdmission";
 import {
@@ -364,9 +363,7 @@ const makeWsRpcHandlersLayer = () =>
               : rawWorkspaceRoot;
         const normalizedWorkspaceRoot = path.resolve(expandedWorkspaceRoot);
         const statWorkspace = () =>
-          recoverMissingFile(fileSystem.stat(normalizedWorkspaceRoot), () =>
-            recordWsRpcFailure(),
-          ).pipe(
+          recoverMissingFile(fileSystem.stat(normalizedWorkspaceRoot)).pipe(
             Effect.mapError(
               (cause) => new WsRpcError({ message: "Failed to inspect project directory", cause }),
             ),
@@ -519,7 +516,7 @@ const makeWsRpcHandlersLayer = () =>
           if (trackedServer) {
             yield* devServerManager
               .stop({ folderId: trackedServer.folderId })
-              .pipe(Effect.catch(() => Effect.sync(() => recordWsRpcFailure())));
+              .pipe(Effect.catch(() => Effect.void));
           }
         }
         return result;
@@ -833,24 +830,10 @@ const makeWsRpcHandlersLayer = () =>
                         ? yield* Effect.gen(function* () {
                             const thread = yield* projectionReadModelQuery
                               .getThreadDetailById(normalizedCommand.threadId)
-                              .pipe(
-                                Effect.catch(() =>
-                                  Effect.sync(() => {
-                                    recordWsRpcFailure(diagnosticContext);
-                                    return Option.none();
-                                  }),
-                                ),
-                              );
+                              .pipe(Effect.catch(() => Effect.succeed(Option.none())));
                             const binding = yield* threadProviderBindings
                               .getRuntimeBinding(normalizedCommand.threadId)
-                              .pipe(
-                                Effect.catch(() =>
-                                  Effect.sync(() => {
-                                    recordWsRpcFailure(diagnosticContext);
-                                    return Option.none();
-                                  }),
-                                ),
-                              );
+                              .pipe(Effect.catch(() => Effect.succeed(Option.none())));
                             return describeRejectedPlay(
                               normalizedCommand,
                               Option.getOrNull(thread),
@@ -1230,7 +1213,7 @@ const makeWsRpcHandlersLayer = () =>
                   threadId: input.threadId,
                   terminalId: input.terminalId ?? DEFAULT_TERMINAL_ID,
                   data: input.data,
-                }).pipe(Effect.catch(() => Effect.sync(() => recordWsRpcFailure()))),
+                }).pipe(Effect.catch(() => Effect.void)),
               ),
             ),
             "Failed to write terminal",
