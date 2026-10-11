@@ -222,24 +222,6 @@ export const WsOrchestrationGetPendingStartOutcomeRpc = Rpc.make(
   },
 );
 
-export const WsOrchestrationListProviderDeliveryBlockersRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.listProviderDeliveryBlockers,
-  {
-    payload: OrchestrationRpcSchemas.listProviderDeliveryBlockers.input,
-    success: OrchestrationRpcSchemas.listProviderDeliveryBlockers.output,
-    error: WsRpcError,
-  },
-);
-
-export const WsOrchestrationReconcileProviderDeliveryRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.reconcileProviderDelivery,
-  {
-    payload: OrchestrationRpcSchemas.reconcileProviderDelivery.input,
-    success: OrchestrationRpcSchemas.reconcileProviderDelivery.output,
-    error: WsRpcError,
-  },
-);
-
 export const WsOrchestrationSubscribeSyncRpc = Rpc.make(ORCHESTRATION_WS_METHODS.subscribeSync, {
   payload: OrchestrationRpcSchemas.subscribeSync.input,
   success: OrchestrationSyncStreamItem,
@@ -839,8 +821,6 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsOrchestrationGetThreadDetailSnapshotRpc,
   WsOrchestrationGetThreadTurnsPageRpc,
   WsOrchestrationGetPendingStartOutcomeRpc,
-  WsOrchestrationListProviderDeliveryBlockersRpc,
-  WsOrchestrationReconcileProviderDeliveryRpc,
   WsOrchestrationSubscribeSyncRpc,
   WsOrchestrationAcknowledgeSyncRpc,
   WsOrchestrationSubscribeShellRpc,

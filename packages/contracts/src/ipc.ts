@@ -90,10 +90,6 @@ import type {
   OrchestrationGetPendingStartOutcomeResult,
   OrchestrationImportThreadInput,
   OrchestrationImportThreadResult,
-  OrchestrationListProviderDeliveryBlockersInput,
-  OrchestrationListProviderDeliveryBlockersResult,
-  OrchestrationReconcileProviderDeliveryInput,
-  OrchestrationReconcileProviderDeliveryResult,
   OrchestrationEvent,
   OrchestrationReadModel,
   OrchestrationShellStreamItem,
@@ -1161,12 +1157,6 @@ export interface NativeApi {
     importThread: (
       input: OrchestrationImportThreadInput,
     ) => Promise<OrchestrationImportThreadResult>;
-    listProviderDeliveryBlockers: (
-      input?: OrchestrationListProviderDeliveryBlockersInput,
-    ) => Promise<OrchestrationListProviderDeliveryBlockersResult>;
-    reconcileProviderDelivery: (
-      input: OrchestrationReconcileProviderDeliveryInput,
-    ) => Promise<OrchestrationReconcileProviderDeliveryResult>;
     subscribeShell: () => Promise<void>;
     unsubscribeShell: () => Promise<void>;
     subscribeThread: (input: OrchestrationSubscribeThreadInput) => Promise<void>;

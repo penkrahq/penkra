@@ -9,19 +9,7 @@
 import { ServiceMap } from "effect";
 import type { Effect, Scope } from "effect";
 
-import type { ProviderConnectionId, ThreadId } from "@penkra/contracts";
-import type {
-  ProviderBlockingDeliveryEvidence,
-  ProviderDeliveryReconciliationOutcome,
-} from "../../persistence/Services/OrchestrationEventDeliveries.ts";
-
-export interface ProviderDeliveryReconciliationResult {
-  readonly eventSequence: number;
-  readonly threadId: ThreadId;
-  readonly outcome: ProviderDeliveryReconciliationOutcome;
-  readonly state: "retry" | "succeeded" | "dead" | "uncertain" | "abandoned";
-  readonly reconciledAt: string;
-}
+import type { ProviderConnectionId } from "@penkra/contracts";
 
 /**
  * ProviderCommandReactorShape - Service API for provider command reactors.
@@ -54,20 +42,6 @@ export interface ProviderCommandReactorShape {
   readonly retryAuthConnection: (
     connectionId: ProviderConnectionId,
   ) => Effect.Effect<void, unknown>;
-
-  readonly listBlockingDeliveries: (input: {
-    readonly threadId?: string | undefined;
-    readonly limit: number;
-  }) => Effect.Effect<ReadonlyArray<ProviderBlockingDeliveryEvidence>, unknown>;
-
-  readonly reconcileDelivery: (input: {
-    readonly eventSequence: number;
-    readonly threadId: ThreadId;
-    readonly expectedState: "dead" | "uncertain";
-    readonly outcome: ProviderDeliveryReconciliationOutcome;
-    readonly reconciledBy: string;
-    readonly note?: string | undefined;
-  }) => Effect.Effect<ProviderDeliveryReconciliationResult | null, unknown>;
 }
 
 /**

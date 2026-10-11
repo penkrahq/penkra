@@ -907,10 +907,16 @@ describe("ProviderCommandReactor", () => {
         `);
         return rows[0] ?? null;
       },
-      getOutboxBlocker: async (threadId: string) =>
-        (await runtime.runPromise(reactor.listBlockingDeliveries({ threadId, limit: 100 }))).find(
-          (entry) => entry.consumerName === "provider-intent-outbox.v1",
-        ) ?? null,
+      getOutboxBlocker: async (threadId: string) => {
+        const [row] = await runtime.runPromise(sql<{
+          readonly eventSequence: number;
+          readonly threadId: string;
+          readonly state: "dead" | "uncertain";
+        }>`SELECT event_sequence AS "eventSequence", thread_id AS "threadId", state
+          FROM provider_intent_outbox WHERE thread_id=${threadId} AND state IN ('dead', 'uncertain')
+          ORDER BY event_sequence LIMIT 1`);
+        return row ?? null;
+      },
       prepareLegacyCutover: async () => {
         const rows = await runtime.runPromise(sql<{ readonly sequence: number }>`
           SELECT COALESCE(MAX(sequence), 0) AS sequence FROM orchestration_events
@@ -1700,7 +1706,7 @@ describe("ProviderCommandReactor", () => {
     );
   });
 
-  it("keeps a lane blocked and exposes evidence when its runtime cannot be fenced", async () => {
+  it("keeps a lane blocked when its runtime cannot be fenced", async () => {
     const harness = await createHarness({
       interruptTurn: () =>
         Effect.fail(
@@ -1778,44 +1784,9 @@ describe("ProviderCommandReactor", () => {
         createdAt: now,
       }),
     );
-    const blockers = await Effect.runPromise(
-      harness.reactor.listBlockingDeliveries({ threadId: "thread-1", limit: 10 }),
-    );
-    expect(blockers).toContainEqual(
-      expect.objectContaining({
-        consumerName: "provider-intent-outbox.v1",
-        state: "uncertain",
-        threadId: "thread-1",
-      }),
-    );
+    const blocker = await harness.getOutboxBlocker("thread-1");
+    expect(blocker).toMatchObject({ state: "uncertain", threadId: "thread-1" });
     expect(harness.stopTask).not.toHaveBeenCalled();
-    const blocker = blockers.find((entry) => entry.consumerName === "provider-intent-outbox.v1")!;
-    await expect(
-      Effect.runPromise(
-        harness.reactor.reconcileDelivery({
-          eventSequence: blocker.eventSequence,
-          threadId: ThreadId.makeUnsafe("thread-1"),
-          expectedState: "uncertain",
-          outcome: "abandon",
-          reconciledBy: "test-operator",
-        }),
-      ),
-    ).rejects.toThrow("Provider runtime exit could not be proven");
-    expect(harness.stopTask).not.toHaveBeenCalled();
-
-    harness.stopRuntimeSession.mockImplementation(() => Effect.void);
-    const reconciled = await Effect.runPromise(
-      harness.reactor.reconcileDelivery({
-        eventSequence: blocker.eventSequence,
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        expectedState: "uncertain",
-        outcome: "abandon",
-        reconciledBy: "test-operator",
-        note: "Runtime exit was proven on the second attempt.",
-      }),
-    );
-    expect(reconciled?.state).toBe("abandoned");
-    await waitFor(() => harness.stopTask.mock.calls.length === 1);
   });
 
   it("REL-01B gate: keeps quarantine when provider fencing cannot be proven", async () => {
@@ -1893,94 +1864,6 @@ describe("ProviderCommandReactor", () => {
         ),
       ),
     ).toBe(true);
-  });
-
-  it("REL-01D gate: retries an ambiguous provider command only after explicit reconciliation", async () => {
-    let interruptAttempts = 0;
-    const harness = await createHarness({
-      interruptTurn: () => {
-        interruptAttempts += 1;
-        return interruptAttempts === 1
-          ? Effect.fail(
-              new ProviderAdapterRequestError({
-                provider: "codex",
-                method: "turn/interrupt",
-                detail: "connection closed after request write",
-              }),
-            )
-          : Effect.void;
-      },
-    });
-    const now = new Date().toISOString();
-    const threadId = ThreadId.makeUnsafe("thread-1");
-    const turnId = asTurnId("turn-operator-retry");
-    await seedRollbackTarget(harness, {
-      messageId: asMessageId("user-message-operator-retry"),
-      turnId: asTurnId("turn-operator-retry-rolled-back"),
-      createdAt: now,
-    });
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.session.set",
-        commandId: CommandId.makeUnsafe("cmd-operator-retry-session"),
-        threadId,
-        session: {
-          threadId,
-          status: "running",
-          providerName: "codex",
-          activeTurnId: turnId,
-          lastError: null,
-          updatedAt: now,
-        },
-        createdAt: now,
-      }),
-    );
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.conversation.rollback",
-        commandId: CommandId.makeUnsafe("cmd-operator-retry-rollback"),
-        threadId,
-        messageId: asMessageId("user-message-operator-retry"),
-        numTurns: 1,
-        createdAt: now,
-      }),
-    );
-
-    await waitFor(async () =>
-      (
-        await Effect.runPromise(harness.reactor.listBlockingDeliveries({ threadId, limit: 10 }))
-      ).some((entry) => entry.consumerName === "provider-intent-outbox.v1"),
-    );
-    expect(interruptAttempts).toBe(1);
-    // The ambiguous command stays unexecuted until an operator decides.
-    expect(harness.rollbackConversation.mock.calls.length).toBe(0);
-    const requested = (
-      await Effect.runPromise(harness.reactor.listBlockingDeliveries({ threadId, limit: 10 }))
-    ).find((entry) => entry.consumerName === "provider-intent-outbox.v1")!;
-
-    const reconciled = await Effect.runPromise(
-      harness.reactor.reconcileDelivery({
-        eventSequence: requested.eventSequence,
-        threadId,
-        expectedState: "uncertain",
-        outcome: "safe_retry",
-        reconciledBy: "test-operator",
-        note: "Provider confirms the first request was not accepted.",
-      }),
-    );
-
-    expect(reconciled).toMatchObject({
-      eventSequence: requested.eventSequence,
-      threadId,
-      outcome: "safe_retry",
-      state: "retry",
-    });
-    await waitFor(() => interruptAttempts === 2);
-    expect(harness.rollbackConversation.mock.calls.length).toBe(1);
-    await waitFor(
-      async () => (await harness.getOutboxJob(requested.eventSequence))?.state === "succeeded",
-    );
   });
 
   it("REL-01D gate: resumes an operator-authorized retry after process loss", async () => {
@@ -5263,64 +5146,6 @@ describe("ProviderCommandReactor", () => {
     expect(dispatched).toMatchObject({ modelSelection: modelB });
   });
 
-  it("steers exactly once after replaying across the post-claim failure window", async () => {
-    const harness = await createHarness();
-    const messageId = asMessageId("msg-steer-replay-safe");
-    await seedQueuedTurnBehindLiveTurn(harness, {
-      liveTurnId: asTurnId("turn-live-during-steer-replay"),
-      messageId,
-      text: "steer me replay-safely",
-    });
-    harness.steerTurn.mockClear();
-
-    const startCommandIds: Array<string> = [];
-    harness.interceptEngineDispatch((command) => {
-      if (command.type !== "thread.turn.start" || command.message.messageId !== messageId) {
-        return undefined;
-      }
-      startCommandIds.push(command.commandId);
-      if (startCommandIds.length === 1) {
-        return Effect.fail(
-          new OrchestrationCommandInvariantError({
-            commandType: command.type,
-            detail: "simulated process loss after durable action claim",
-          }),
-        );
-      }
-      return undefined;
-    });
-
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.turn.steer-queued",
-        commandId: CommandId.makeUnsafe("cmd-steer-replay-safe"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        messageId,
-        createdAt: new Date().toISOString(),
-      }),
-    );
-    await waitFor(() => startCommandIds.length === 1);
-    await waitFor(async () => (await harness.getOutboxBlocker("thread-1")) !== null);
-    const blocker = (await harness.getOutboxBlocker("thread-1"))!;
-    await Effect.runPromise(
-      harness.reactor.reconcileDelivery({
-        eventSequence: blocker.eventSequence,
-        threadId: ThreadId.makeUnsafe(blocker.threadId),
-        expectedState: blocker.state === "dead" ? "dead" : "uncertain",
-        outcome: "safe_retry",
-        reconciledBy: "test",
-      }),
-    );
-
-    await waitFor(() => harness.steerTurn.mock.calls.length === 1);
-    expect(startCommandIds).toHaveLength(2);
-    expect(startCommandIds[1]).toBe(startCommandIds[0]);
-    expect(harness.steerTurn.mock.calls[0]?.[0]).toMatchObject({
-      threadId: ThreadId.makeUnsafe("thread-1"),
-      input: "steer me replay-safely",
-    });
-  });
-
   it("waits for the exact interrupted OpenCode turn before promoting a durable steer", async () => {
     const harness = await createHarness({
       threadModelSelection: {
@@ -6024,62 +5849,6 @@ describe("ProviderCommandReactor", () => {
       state: "queued",
       claimOwner: null,
       attemptCount: 0,
-    });
-  });
-
-  it("releases a timed-out promoted turn when its live provider turn settles", async () => {
-    const harness = await createHarness({
-      commandEventTimeout: Duration.millis(25),
-    });
-    await seedQueuedTurnBehindLiveTurn(harness, {
-      liveTurnId: asTurnId("turn-running-timeout"),
-      messageId: asMessageId("msg-queue-timeout-1"),
-      text: "first queued turn times out after provider acceptance",
-    });
-    await seedQueuedTurnBehindLiveTurn(harness, {
-      liveTurnId: asTurnId("turn-running-timeout"),
-      messageId: asMessageId("msg-queue-timeout-2"),
-      text: "second queued turn must drain after settlement",
-    });
-
-    const timedOutTurnId = asTurnId("turn-provider-accepted-before-timeout");
-    harness.sendTurn.mockImplementationOnce(() =>
-      Effect.sync(() =>
-        harness.setRuntimeSessionTurnState({
-          threadId: "thread-1",
-          status: "running",
-          activeTurnId: timedOutTurnId,
-        }),
-      ).pipe(Effect.andThen(Effect.never)),
-    );
-
-    await settleLiveTurn(harness, {
-      turnId: asTurnId("turn-running-timeout"),
-      eventId: "evt-turn-completed-timeout",
-    });
-    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
-    await waitFor(async () => (await harness.getOutboxBlocker("thread-1")) !== null);
-
-    const blocker = (await harness.getOutboxBlocker("thread-1"))!;
-    await Effect.runPromise(
-      harness.reactor.reconcileDelivery({
-        eventSequence: blocker.eventSequence,
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        expectedState: "uncertain",
-        outcome: "accepted",
-        reconciledBy: "test-operator",
-        note: "The provider accepted the timed-out turn.",
-      }),
-    );
-
-    await settleLiveTurn(harness, {
-      turnId: timedOutTurnId,
-      eventId: "evt-provider-turn-completed-after-timeout",
-    });
-    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
-    expect(harness.sendTurn.mock.calls[1]?.[0]).toMatchObject({
-      threadId: ThreadId.makeUnsafe("thread-1"),
-      input: "second queued turn must drain after settlement",
     });
   });
 

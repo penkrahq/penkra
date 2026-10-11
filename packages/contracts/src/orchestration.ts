@@ -26,8 +26,6 @@ export const ORCHESTRATION_WS_METHODS = {
   getPendingStartOutcome: "orchestration.getPendingStartOutcome",
   dispatchCommand: "orchestration.dispatchCommand",
   importThread: "orchestration.importThread",
-  listProviderDeliveryBlockers: "orchestration.listProviderDeliveryBlockers",
-  reconcileProviderDelivery: "orchestration.reconcileProviderDelivery",
   subscribeSync: "orchestration.subscribeSync",
   acknowledgeSync: "orchestration.acknowledgeSync",
   subscribeShell: "orchestration.subscribeShell",
@@ -1598,65 +1596,6 @@ export type OrchestrationGetSnapshotInput = typeof OrchestrationGetSnapshotInput
 const OrchestrationGetSnapshotResult = OrchestrationReadModel;
 export type OrchestrationGetSnapshotResult = typeof OrchestrationGetSnapshotResult.Type;
 
-export const ProviderDeliveryReconciliationOutcome = Schema.Literals([
-  "accepted",
-  "safe_retry",
-  "abandon",
-]);
-export type ProviderDeliveryReconciliationOutcome =
-  typeof ProviderDeliveryReconciliationOutcome.Type;
-
-export const ProviderDeliveryBlockingEvidence = Schema.Struct({
-  consumerName: Schema.String,
-  eventSequence: NonNegativeInt,
-  eventId: EventId,
-  eventType: Schema.String,
-  occurredAt: IsoDateTime,
-  threadId: ThreadId,
-  state: Schema.Literals(["dead", "uncertain"]),
-  attemptCount: NonNegativeInt,
-  lastError: Schema.NullOr(Schema.String),
-  updatedAt: IsoDateTime,
-  lastReconciliationOutcome: Schema.NullOr(ProviderDeliveryReconciliationOutcome),
-  lastReconciledAt: Schema.NullOr(IsoDateTime),
-  lastReconciledBy: Schema.NullOr(Schema.String),
-  lastReconciliationNote: Schema.NullOr(Schema.String),
-});
-export type ProviderDeliveryBlockingEvidence = typeof ProviderDeliveryBlockingEvidence.Type;
-
-export const OrchestrationListProviderDeliveryBlockersInput = Schema.Struct({
-  threadId: Schema.optional(ThreadId),
-  limit: Schema.optional(PositiveInt),
-});
-export type OrchestrationListProviderDeliveryBlockersInput =
-  typeof OrchestrationListProviderDeliveryBlockersInput.Type;
-
-export const OrchestrationListProviderDeliveryBlockersResult = Schema.Array(
-  ProviderDeliveryBlockingEvidence,
-);
-export type OrchestrationListProviderDeliveryBlockersResult =
-  typeof OrchestrationListProviderDeliveryBlockersResult.Type;
-
-export const OrchestrationReconcileProviderDeliveryInput = Schema.Struct({
-  eventSequence: NonNegativeInt,
-  threadId: ThreadId,
-  expectedState: Schema.Literals(["dead", "uncertain"]),
-  outcome: ProviderDeliveryReconciliationOutcome,
-  note: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(2_000))),
-});
-export type OrchestrationReconcileProviderDeliveryInput =
-  typeof OrchestrationReconcileProviderDeliveryInput.Type;
-
-export const OrchestrationReconcileProviderDeliveryResult = Schema.Struct({
-  eventSequence: NonNegativeInt,
-  threadId: ThreadId,
-  outcome: ProviderDeliveryReconciliationOutcome,
-  state: Schema.Literals(["retry", "succeeded", "dead", "uncertain", "abandoned"]),
-  reconciledAt: IsoDateTime,
-});
-export type OrchestrationReconcileProviderDeliveryResult =
-  typeof OrchestrationReconcileProviderDeliveryResult.Type;
-
 export const OrchestrationSubscribeShellInput = Schema.Struct({});
 export type OrchestrationSubscribeShellInput = typeof OrchestrationSubscribeShellInput.Type;
 
@@ -1790,14 +1729,6 @@ export const OrchestrationRpcSchemas = {
   importThread: {
     input: OrchestrationImportThreadInput,
     output: OrchestrationImportThreadResult,
-  },
-  listProviderDeliveryBlockers: {
-    input: OrchestrationListProviderDeliveryBlockersInput,
-    output: OrchestrationListProviderDeliveryBlockersResult,
-  },
-  reconcileProviderDelivery: {
-    input: OrchestrationReconcileProviderDeliveryInput,
-    output: OrchestrationReconcileProviderDeliveryResult,
   },
   subscribeSync: {
     input: OrchestrationSubscribeSyncInput,
