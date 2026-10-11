@@ -56,8 +56,6 @@ import { ProjectionThread } from "../../cleanCore/threadShellSchema.ts";
 import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import {
   ProjectionSnapshotQuery,
-  type ProjectionOpenTurnCount,
-  type ProjectionStreamingAssistantMessage,
   type ProjectionSnapshotCounts,
   type ProjectionSnapshotSequence,
   type ProjectionSnapshotQueryShape,
@@ -83,11 +81,6 @@ const MAX_SNAPSHOT_THREAD_ACTIVITIES = ORCHESTRATION_THREAD_HYDRATION_LIMITS.sum
 // activity rows per turn, so a 500-row tail dropped the previous turns' work log.
 const MAX_THREAD_DETAIL_ACTIVITIES = ORCHESTRATION_THREAD_HYDRATION_LIMITS.detailActivities;
 const THREAD_TURN_PAGE_SIZE = 20;
-const ProjectionStreamingAssistantMessageRow = Schema.Struct({
-  threadId: ThreadId,
-  messageId: MessageId,
-  turnId: Schema.NullOr(TurnId),
-});
 const ProjectionThreadMessageCountRow = Schema.Struct({ count: NonNegativeInt });
 const ProjectionFolderDbRowSchema = ProjectionFolder.mapFields(
   Struct.assign({
@@ -132,10 +125,6 @@ const ProjectionLatestTurnDbRowSchema = Schema.Struct({
 const ProjectionUnboundTurnStartDbRowSchema = Schema.Struct({
   messageId: MessageId,
 });
-const ProjectionOpenTurnCountRowSchema = Schema.Struct({
-  threadId: ThreadId,
-  count: NonNegativeInt,
-});
 const ProjectionQueuedMessageDbRowSchema = Schema.Struct({
   messageId: MessageId,
 });
@@ -155,10 +144,6 @@ const SpaceIdLookupInput = Schema.Struct({
 });
 const ThreadIdLookupInput = Schema.Struct({
   threadId: ThreadId,
-});
-const StaleInFlightThreadLookupInput = Schema.Struct({
-  updatedBefore: IsoDateTime,
-  limit: Schema.Number,
 });
 const ThreadMessagesByThreadLookupInput = Schema.Struct({
   threadId: ThreadId,
@@ -1030,76 +1015,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       if (page.length < 50) return rows;
       after = page[page.length - 1]!.threadId;
     }
-  });
-
-  const listStaleInFlightThreadIdRows = SqlSchema.findAll({
-    Request: StaleInFlightThreadLookupInput,
-    Result: ProjectionThreadIdLookupRowSchema,
-    execute: ({ updatedBefore, limit }) =>
-      sql`
-        SELECT threads.id AS "threadId"
-        FROM threads
-        -- LEFT, not INNER: a thread whose runtime binding row was already
-        -- removed is exactly the thread most likely to be stuck running with
-        -- nothing left to settle it. Archived threads are included for the same
-        -- reason - archiving does not stop a turn.
-        LEFT JOIN provider_session_runtime AS runtime
-          ON runtime.thread_id = threads.id
-        LEFT JOIN projection_thread_sessions AS sessions
-          ON sessions.thread_id = threads.id
-        WHERE threads.deleted_at IS NULL
-          AND (
-            (
-              sessions.active_turn_id IS NOT NULL
-              AND sessions.status <> 'error'
-            )
-            OR (
-              COALESCE(sessions.status, '') <> 'starting'
-              AND EXISTS (
-                SELECT 1
-                FROM projection_turns AS running_turn
-                WHERE running_turn.thread_id = threads.id
-                  AND running_turn.state = 'running'
-                  AND running_turn.started_at IS NOT NULL
-                  AND running_turn.completed_at IS NULL
-              )
-            )
-            OR json_extract(runtime.runtime_payload_json, '$.activeTurnId') IS NOT NULL
-          )
-          -- Use the latest lifecycle or projected-output timestamp. Streaming
-          -- output advances threads.updated_at even when the session row stays
-          -- unchanged for the full turn.
-          AND MAX(COALESCE(sessions.updated_at, threads.updated_at), threads.updated_at) <= ${updatedBefore}
-        ORDER BY MAX(COALESCE(sessions.updated_at, threads.updated_at), threads.updated_at) ASC, threads.id ASC
-        LIMIT ${Math.max(1, Math.min(1_000, Math.floor(limit)))}
-      `,
-  });
-
-  const listOpenTurnCountRows = SqlSchema.findAll({
-    Request: Schema.Void,
-    Result: ProjectionOpenTurnCountRowSchema,
-    execute: () =>
-      sql`
-        SELECT thread_id AS "threadId", COUNT(*) AS "count"
-        FROM projection_turns
-        WHERE state = 'running'
-        GROUP BY thread_id
-        ORDER BY thread_id ASC
-      `,
-  });
-
-  const listStreamingAssistantMessageRows = SqlSchema.findAll({
-    Request: Schema.Void,
-    Result: ProjectionStreamingAssistantMessageRow,
-    execute: () => sql`
-      SELECT
-        thread_id AS "threadId",
-        message_id AS "messageId",
-        turn_id AS "turnId"
-      FROM projection_thread_messages
-      WHERE role = 'assistant' AND is_streaming = 1
-      ORDER BY thread_id ASC, created_at ASC, message_id ASC
-    `,
   });
 
   const countThreadMessageRows = SqlSchema.findAll({
@@ -2428,19 +2343,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         ),
       );
 
-  const listStaleInFlightThreadIds: ProjectionSnapshotQueryShape["listStaleInFlightThreadIds"] = (
-    input,
-  ) =>
-    listStaleInFlightThreadIdRows(input).pipe(
-      Effect.mapError(
-        toPersistenceSqlOrDecodeError(
-          "ProjectionSnapshotQuery.listStaleInFlightThreadIds:query",
-          "ProjectionSnapshotQuery.listStaleInFlightThreadIds:decodeRows",
-        ),
-      ),
-      Effect.map((rows) => rows.map((row) => row.threadId)),
-    );
-
   const getCounts: ProjectionSnapshotQueryShape["getCounts"] = () =>
     readProjectionCounts(undefined).pipe(
       Effect.mapError(
@@ -2702,30 +2604,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       ),
     );
 
-  const listOpenTurnCounts: ProjectionSnapshotQueryShape["listOpenTurnCounts"] = () =>
-    listOpenTurnCountRows(undefined).pipe(
-      Effect.map((rows) => rows satisfies ReadonlyArray<ProjectionOpenTurnCount>),
-      Effect.mapError(
-        toPersistenceSqlOrDecodeError(
-          "ProjectionSnapshotQuery.listOpenTurnCounts:query",
-          "ProjectionSnapshotQuery.listOpenTurnCounts:decodeRows",
-        ),
-      ),
-    );
-
-  const listStreamingAssistantMessages: ProjectionSnapshotQueryShape["listStreamingAssistantMessages"] =
-    () =>
-      listStreamingAssistantMessageRows(undefined).pipe(
-        Effect.map((rows) => rows satisfies ReadonlyArray<ProjectionStreamingAssistantMessage>),
-        Effect.mapError(
-          toPersistenceSqlOrDecodeError(
-            "ProjectionSnapshotQuery.listStreamingAssistantMessages:query",
-            "ProjectionSnapshotQuery.listStreamingAssistantMessages:decodeRows",
-          ),
-        ),
-      );
-
-  // Hydrate a full thread detail projection without opening its own transaction.
   const loadThreadDetail = (
     threadId: ThreadId,
     options: { readonly messageLimit: number | null; readonly tracePrefix: string } = {
@@ -3308,9 +3186,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     listThreadShellPage,
     getCounts,
     getSnapshotSequence,
-    listStaleInFlightThreadIds,
-    listOpenTurnCounts,
-    listStreamingAssistantMessages,
     countThreadMessages,
     searchThreadMessages,
     getThreadMessageContext,
