@@ -35,7 +35,9 @@ it.effect(
       const events =
         yield* sql`SELECT * FROM connection_usage_turn_events ORDER BY source_event_id`;
       const spaces = yield* sql`SELECT * FROM projection_spaces ORDER BY space_id`;
-      assert.deepStrictEqual(yield* runMigrations(), [[189, "DropUnusedDiagnosticsAndRateLimits"]]);
+      assert.deepStrictEqual(yield* runMigrations({ toMigrationInclusive: 189 }), [
+        [189, "DropUnusedDiagnosticsAndRateLimits"],
+      ]);
       assert.deepStrictEqual(
         yield* sql`SELECT * FROM connection_usage_daily ORDER BY utc_day, connection_id`,
         usage,
@@ -51,6 +53,7 @@ it.effect(
         [],
       );
       assert.deepStrictEqual(yield* sql`PRAGMA foreign_key_check`, []);
+      yield* runMigrations();
       assert.deepStrictEqual(yield* runMigrations(), []);
     }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
 );

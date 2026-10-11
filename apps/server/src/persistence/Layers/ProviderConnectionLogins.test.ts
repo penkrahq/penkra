@@ -49,7 +49,11 @@ it.layer(NodeSqliteClient.layerMemory())("in-process Connection sign-in", (it) =
         Option.getOrThrow(yield* logins.get(record.operationId)).state,
         "completed",
       );
-      assert.deepStrictEqual(yield* sql`SELECT operation_id FROM provider_connection_logins`, []);
+      assert.deepStrictEqual(
+        yield* sql`SELECT name FROM sqlite_master WHERE type = 'table'
+        AND name IN ('provider_connection_logins', 'provider_connection_operations')`,
+        [],
+      );
       assert.deepStrictEqual(
         yield* sql`SELECT profile_ref FROM provider_credential_profiles WHERE profile_ref = ${record.profileRef}`,
         [{ profile_ref: record.profileRef }],
