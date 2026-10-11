@@ -7,7 +7,6 @@
  * @module CliConfig
  */
 import OS from "node:os";
-import { randomBytes } from "node:crypto";
 import { Config, Data, Effect, FileSystem, Layer, Option, Path, Schema, ServiceMap } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 import { NetService } from "@penkra/shared/Net";
@@ -46,11 +45,7 @@ import { ProviderConnectionLoginCoordinator } from "./provider/Services/Provider
 import { ProviderNativeStateDeletionCoordinator } from "./provider/Services/ProviderNativeStateDeletionCoordinator";
 import { Server } from "./effectServer";
 import { ServerLoggerLive } from "./serverLogger";
-import { DiagnosticsStore, parseDiagnosticsBundleSignature } from "./diagnostics/store";
-import { installDiagnosticsStore, recordDiagnosticIncident } from "./diagnostics/recorder";
-import { noteDiagnosticsStoreReady, notePreStoreBootFailure } from "./diagnostics/preStoreStartup";
 import { runStartupStage } from "./startupTiming";
-import { version as serverPackageVersion } from "../package.json" with { type: "json" };
 import { ServerSettingsService } from "./serverSettings";
 import { formatHostForUrl, isLoopbackHost, isWildcardHost } from "./startupAccess";
 import { AnalyticsServiceLayerLive } from "./telemetry/Layers/AnalyticsService";
@@ -328,19 +323,7 @@ export const recordStartupHeartbeat = Effect.gen(function* () {
 
   const { threadCount, folderCount } = yield* projectionSnapshotQuery.getCounts().pipe(
     Effect.catch((cause) =>
-      Effect.sync(() =>
-        recordDiagnosticIncident({
-          traceId: randomBytes(16).toString("hex"),
-          spanId: randomBytes(8).toString("hex"),
-          kind: "external.failed",
-          code: "EXTERNAL_CALL_FAILED",
-          where: "server.boot",
-          severity: "warn",
-        }),
-      ).pipe(
-        Effect.andThen(
-          Effect.logWarning("failed to gather startup projection counts for telemetry", { cause }),
-        ),
+      Effect.logWarning("failed to gather startup projection counts for telemetry", { cause }).pipe(
         Effect.as({
           threadCount: 0,
           folderCount: 0,
@@ -406,35 +389,15 @@ const makeServerProgram = (input: CliInput) => {
     yield* cliConfig.fixPath;
 
     const config = yield* ServerConfig;
-    const diagnostics = yield* Effect.acquireRelease(
-      Effect.sync(() => {
-        try {
-          return new DiagnosticsStore({
-            stateDir: config.stateDir,
-            appVersion: process.env.PENKRA_APP_VERSION ?? serverPackageVersion,
-            buildId: process.env.PENKRA_DIAGNOSTICS_BUILD_ID ?? "unknown",
-            ...(process.env.PENKRA_DIAGNOSTICS_BUNDLE_PATH
-              ? {
-                  bundlePath: process.env.PENKRA_DIAGNOSTICS_BUNDLE_PATH,
-                  bundleSignature: parseDiagnosticsBundleSignature(
-                    process.env.PENKRA_DIAGNOSTICS_BUNDLE_SIGNATURE,
-                  )!,
-                }
-              : {}),
-            process: "server",
-          });
-        } catch (cause) {
-          notePreStoreBootFailure("diagnostics_store");
-          throw cause;
-        }
-      }),
-      (store) => Effect.sync(() => store.close()),
-    );
-    yield* Effect.acquireRelease(
-      Effect.sync(() => installDiagnosticsStore(diagnostics)),
-      (uninstall) => Effect.sync(uninstall),
-    );
-    noteDiagnosticsStoreReady();
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    yield* fs
+      .remove(path.join(config.stateDir, "diagnostics"), { recursive: true, force: true })
+      .pipe(
+        Effect.catch((cause) =>
+          Effect.logWarning("could not remove retired diagnostics files", { cause }),
+        ),
+      );
     if (!config.devUrl && !config.staticDir) {
       yield* Effect.logWarning(
         "web bundle missing and no VITE_DEV_SERVER_URL; web UI unavailable",
@@ -518,22 +481,9 @@ const makeServerProgram = (input: CliInput) => {
       const target = startupPairingUrl ?? config.devUrl?.toString() ?? bindUrl;
       yield* openDeps.openBrowser(target).pipe(
         Effect.catch(() =>
-          Effect.sync(() =>
-            recordDiagnosticIncident({
-              traceId: randomBytes(16).toString("hex"),
-              spanId: randomBytes(8).toString("hex"),
-              kind: "external.failed",
-              code: "EXTERNAL_CALL_FAILED",
-              where: "server.boot",
-              severity: "warn",
-            }),
-          ).pipe(
-            Effect.andThen(
-              Effect.logInfo("browser auto-open unavailable", {
-                hint: `Open ${target} in your browser.`,
-              }),
-            ),
-          ),
+          Effect.logInfo("browser auto-open unavailable", {
+            hint: `Open ${target} in your browser.`,
+          }),
         ),
       );
     }

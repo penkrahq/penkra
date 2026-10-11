@@ -1,7 +1,6 @@
 export * from "./auth";
 export * from "./appRuntimeFailure";
 export * from "./baseSchemas";
-export * from "./diagnostics";
 export * from "./cleanCore";
 export * from "./ipc";
 export * from "./terminal";

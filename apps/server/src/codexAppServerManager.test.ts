@@ -55,8 +55,6 @@ import {
 import { CodexJsonlFramer, CodexJsonlWriter } from "./codexAppServerTransport";
 import { ensureDurableThreadWorkspace } from "./scratchWorkspaces";
 import { acquireAgentGatewaySessionLease } from "./agentGateway/sessionLease.ts";
-import { installDiagnosticsStore } from "./diagnostics/recorder.ts";
-import { DiagnosticsStore, openDiagnosticsReader } from "./diagnostics/store.ts";
 
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
 const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
@@ -69,11 +67,9 @@ const approvalRequiredTurnOverrides = {
   sandboxPolicy: { type: "readOnly" },
 } as const;
 
-describe("Codex capability preflight diagnostics", () => {
-  it("ignores an intentional session stop but records an unexpected failure", () => {
-    const stateDir = mkdtempSync(path.join(os.tmpdir(), "penkra-codex-preflight-diagnostics-"));
-    const store = new DiagnosticsStore({ stateDir, appVersion: "0.14.3", process: "server" });
-    const uninstall = installDiagnosticsStore(store);
+describe("Codex capability preflight logging", () => {
+  it("ignores an intentional session stop but warns about unexpected failures", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     try {
       const threadId = asThreadId("thread-preflight-diagnostics");
       recordCodexCapabilityPreflightFailure({
@@ -91,18 +87,15 @@ describe("Codex capability preflight diagnostics", () => {
         threadId,
         error: new Error("MCP capability probe failed"),
       });
-      const db = openDiagnosticsReader(stateDir)!;
-      try {
-        expect(db.prepare("SELECT code, count FROM incidents").all()).toEqual([
-          { code: "EXTERNAL_CALL_FAILED", count: 2 },
-        ]);
-      } finally {
-        db.close();
+      expect(warn).toHaveBeenCalledTimes(2);
+      for (const [line] of warn.mock.calls) {
+        expect(line).toContain("Computer Use capability preflight failed");
+        expect(line).toContain(threadId);
       }
+      expect(warn.mock.calls[0]?.[0]).toContain("Session stopped before request completed.");
+      expect(warn.mock.calls[1]?.[0]).toContain("MCP capability probe failed");
     } finally {
-      uninstall();
-      store.close();
-      rmSync(stateDir, { recursive: true, force: true });
+      warn.mockRestore();
     }
   });
 });
@@ -5354,7 +5347,7 @@ describe.skipIf(!process.env.CODEX_BINARY_PATH)("startSession live Codex resume"
         },
       });
 
-      expect(resumedSession.threadId).toBe(originalThreadId);
+      expect(resumedSession.threadId).toBe(firstSession.threadId);
 
       const resumedSnapshotBeforeTurn = await manager.readThread(resumedSession.threadId);
       expect(resumedSnapshotBeforeTurn.threadId).toBe(originalThreadId);
