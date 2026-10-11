@@ -8,16 +8,8 @@ import { ProviderKind, type CleanCoreThreadSummary } from "@penkra/contracts";
 import type { FolderId, ThreadId } from "@penkra/contracts";
 
 import type { AppState } from "./storeState";
-import { collectByIds, getThreadFromState, getThreadsFromState } from "./threadDerivation";
-import type {
-  ComposerThreadMentionSource,
-  Project,
-  SidebarThreadSummary,
-  Thread,
-  ThreadShell,
-} from "./types";
-
-const EMPTY_THREAD_SHELLS: ThreadShell[] = [];
+import { getThreadFromState, getThreadsFromState } from "./threadDerivation";
+import type { ComposerThreadMentionSource, Project, Thread } from "./types";
 
 function createStableEntitySelector<T extends { id: string }>(
   selectItems: (state: AppState) => readonly T[],
@@ -89,44 +81,6 @@ export function createAllThreadsSelector(): (state: AppState) => readonly Thread
     previousActivityByThreadId = state.activityByThreadId;
     previousThreads = getThreadsFromState(state);
     return previousThreads;
-  };
-}
-
-/** Shell-only projection of all threads, in `threadIds` order.
- *
- *  It reads only `threadIds` + `threadShellById`, so it never rebuilds for message/activity
- *  *content* changes — but it is NOT fully stable while a turn streams: `ThreadShell.updatedAt`
- *  is part of the shell, and `threadShellsEqual` compares it, so every delta that advances
- *  `updatedAt` writes a new shell and yields a new array here. That comparison has to stay:
- *  the shell is where `updatedAt` lives, and the sidebar both sorts by it
- *  (`components/Sidebar.logic.ts`) and renders it (`components/SidebarSearchPalette.tsx`).
- *
- */
-export function createThreadShellsSelector(): (state: AppState) => readonly ThreadShell[] {
-  return (state) => collectByIds(state.threadIds, state.threadShellById, EMPTY_THREAD_SHELLS);
-}
-
-/** True when no known thread has any messages (vacuously true with zero threads).
- *  Reads message id lists only, so streaming content updates do not invalidate it. */
-export function createAllThreadsMessagelessSelector(): (state: AppState) => boolean {
-  let previousThreadIds: readonly ThreadId[] | undefined;
-  let previousMessageIdsByThreadId: AppState["messageIdsByThreadId"] | undefined;
-  let previousResult = true;
-
-  return (state) => {
-    if (
-      previousThreadIds === state.threadIds &&
-      previousMessageIdsByThreadId === state.messageIdsByThreadId
-    ) {
-      return previousResult;
-    }
-
-    previousThreadIds = state.threadIds;
-    previousMessageIdsByThreadId = state.messageIdsByThreadId;
-    previousResult = (state.threadIds ?? []).every(
-      (threadId) => (state.messageIdsByThreadId?.[threadId]?.length ?? 0) === 0,
-    );
-    return previousResult;
   };
 }
 

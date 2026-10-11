@@ -9,7 +9,7 @@ import type {
   SpaceId,
   ThreadId,
 } from "@penkra/contracts";
-import { OrchestrationCommand, ORCHESTRATION_WS_METHODS } from "@penkra/contracts";
+import { OrchestrationCommand } from "@penkra/contracts";
 import {
   Cause,
   Deferred,
@@ -73,13 +73,11 @@ import {
 import { decideOrchestrationCommand } from "../decider.ts";
 import { isProviderIntentEvent } from "../providerIntentClassification.ts";
 import { userStopPending } from "../userStopPending.ts";
-import { FOLDER_METADATA_SNAPSHOT_PROJECTORS } from "../folderMetadataProjection.ts";
 import { createEmptyReadModel, projectEvent } from "../projector.ts";
 import {
   OrchestrationProjectionPipeline,
   type ShellMetadataOrchestrationEvent,
 } from "../Services/ProjectionPipeline.ts";
-import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
   OrchestrationEngineService,
@@ -90,7 +88,6 @@ import {
 
 const ORCHESTRATION_DISPATCH_TIMEOUT_MS = DIAGNOSTIC_LIMITS.commandDispatchMs;
 const DEFERRED_PROJECTION_RETRY_DELAYS_MS = [100, 500, 2_000, 10_000, 30_000] as const;
-const REQUIRED_REPAIR_PROJECTORS = Object.values(ORCHESTRATION_PROJECTOR_NAMES);
 
 type CommandExecutionState = "queued" | "in-flight" | "abandoned";
 type DispatchTimeoutDecision = { kind: "abandon" } | { kind: "wait" };
@@ -486,8 +483,8 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         Effect.flatMap(() =>
           Effect.fail(
             new OrchestrationCommandInternalError({
-              commandId: "repair-local-state",
-              commandType: ORCHESTRATION_WS_METHODS.repairState,
+              commandId: "refresh-command-read-model",
+              commandType: "orchestration.refreshCommandReadModel",
               detail:
                 "Projection state changed, but the refreshed command snapshot could not be loaded.",
             }),
@@ -564,92 +561,6 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   ): Effect.Effect<OrchestrationReadModel, OrchestrationDispatchError> =>
     prepareCommandReadModel(command).pipe(
       Effect.map((next) => (next === undefined ? commandReadModel : next.model)),
-    );
-
-  // Rebuild only the folder/space projection rows and snapshot cursors.
-  // Existing thread/chat projection rows stay in place so older installs do not
-  // lose history that is no longer fully represented in orchestration_events.
-  const resetDerivedProjectionState = sql.withTransaction(
-    Effect.gen(function* () {
-      yield* sql`DELETE FROM projection_spaces`;
-      yield* sql`DELETE FROM projection_folders`;
-      yield* sql`
-        DELETE FROM projection_state
-        WHERE projector IN ${sql.in(FOLDER_METADATA_SNAPSHOT_PROJECTORS)}
-      `;
-    }),
-  );
-
-  const backupDerivedProjectionState = sql.withTransaction(
-    Effect.gen(function* () {
-      yield* sql`DROP TABLE IF EXISTS temp_repair_projection_spaces`;
-      yield* sql`DROP TABLE IF EXISTS temp_repair_projection_folders`;
-      yield* sql`DROP TABLE IF EXISTS temp_repair_projection_state`;
-      yield* sql`CREATE TEMP TABLE temp_repair_projection_spaces AS SELECT * FROM projection_spaces`;
-      yield* sql`CREATE TEMP TABLE temp_repair_projection_folders AS SELECT * FROM projection_folders`;
-      yield* sql`CREATE TEMP TABLE temp_repair_projection_state AS SELECT * FROM projection_state`;
-    }),
-  );
-
-  const restoreDerivedProjectionState = sql.withTransaction(
-    Effect.gen(function* () {
-      yield* sql`DELETE FROM projection_spaces`;
-      yield* sql`INSERT INTO projection_spaces SELECT * FROM temp_repair_projection_spaces`;
-      yield* sql`DELETE FROM projection_folders`;
-      yield* sql`INSERT INTO projection_folders SELECT * FROM temp_repair_projection_folders`;
-      yield* sql`DELETE FROM projection_state`;
-      yield* sql`INSERT INTO projection_state SELECT * FROM temp_repair_projection_state`;
-    }),
-  );
-
-  const dropProjectionRepairBackup = sql.withTransaction(
-    Effect.gen(function* () {
-      yield* sql`DROP TABLE IF EXISTS temp_repair_projection_spaces`;
-      yield* sql`DROP TABLE IF EXISTS temp_repair_projection_folders`;
-      yield* sql`DROP TABLE IF EXISTS temp_repair_projection_state`;
-    }),
-  );
-
-  const verifyProjectionRepairFence = (repairFence: number) =>
-    Effect.gen(function* () {
-      if (repairFence === 0) {
-        return;
-      }
-      const rows = yield* sql<{
-        readonly projector: string;
-        readonly lastAppliedSequence: number;
-      }>`
-        SELECT
-          projector,
-          last_applied_sequence AS "lastAppliedSequence"
-        FROM projection_state
-        WHERE projector IN ${sql.in(REQUIRED_REPAIR_PROJECTORS)}
-      `;
-      const cursorByProjector = new Map(
-        rows.map((row) => [row.projector, row.lastAppliedSequence] as const),
-      );
-      const laggingProjectors = REQUIRED_REPAIR_PROJECTORS.filter(
-        (projector) => (cursorByProjector.get(projector) ?? -1) < repairFence,
-      );
-      if (laggingProjectors.length > 0) {
-        return yield* new OrchestrationCommandInternalError({
-          commandId: "repair-local-state",
-          commandType: ORCHESTRATION_WS_METHODS.repairState,
-          detail:
-            `Rebuilt local projections did not reach captured event fence ${repairFence}. ` +
-            `Lagging projectors: ${laggingProjectors.join(", ")}.`,
-        });
-      }
-    }).pipe(
-      Effect.catchTag("SqlError", (sqlError) =>
-        Effect.fail(
-          new OrchestrationCommandInternalError({
-            commandId: "repair-local-state",
-            commandType: ORCHESTRATION_WS_METHODS.repairState,
-            detail: `Failed to verify the rebuilt projection fence: ${sqlError.message}`,
-          }),
-        ),
-      ),
     );
 
   // Callers must build this effect inside a fiber (see `runEnvelope`): the body
@@ -1602,135 +1513,6 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       );
     });
 
-  // Used by the settings screen to rebuild local indexes without deleting chats.
-  const repairState: OrchestrationEngineShape["repairState"] = () =>
-    maintenanceLock.withPermits(1)(
-      Effect.gen(function* () {
-        yield* Effect.log("repairing orchestration projection state");
-        const previousCommandReadModel = commandReadModel;
-        const repairFence = yield* eventStore.getHighWaterSequence().pipe(
-          Effect.mapError(
-            (error) =>
-              new OrchestrationCommandInternalError({
-                commandId: "repair-local-state",
-                commandType: ORCHESTRATION_WS_METHODS.repairState,
-                detail: `Failed to capture the durable event fence before repair: ${error.message}`,
-              }),
-          ),
-        );
-
-        yield* backupDerivedProjectionState.pipe(
-          Effect.catchTag("SqlError", (sqlError) =>
-            Effect.logError("failed to back up derived orchestration projection state").pipe(
-              Effect.annotateLogs({
-                cause: Cause.pretty(Cause.fail(sqlError)),
-              }),
-              Effect.flatMap(() =>
-                Effect.fail(
-                  new OrchestrationCommandInternalError({
-                    commandId: "repair-local-state",
-                    commandType: ORCHESTRATION_WS_METHODS.repairState,
-                    detail: "Failed to stage the current local state before rebuilding it.",
-                  }),
-                ),
-              ),
-            ),
-          ),
-        );
-
-        yield* resetDerivedProjectionState.pipe(
-          Effect.catchTag("SqlError", (sqlError) =>
-            Effect.logError("failed to reset derived orchestration projection state").pipe(
-              Effect.annotateLogs({
-                cause: Cause.pretty(Cause.fail(sqlError)),
-              }),
-              Effect.tap(() =>
-                restoreDerivedProjectionState.pipe(
-                  Effect.catchCause(() =>
-                    Effect.logWarning(
-                      "failed to restore orchestration projection backup after reset failure",
-                    ),
-                  ),
-                ),
-              ),
-              Effect.flatMap(() =>
-                Effect.fail(
-                  new OrchestrationCommandInternalError({
-                    commandId: "repair-local-state",
-                    commandType: ORCHESTRATION_WS_METHODS.repairState,
-                    detail: "Failed to clear the local projection cache before rebuilding it.",
-                  }),
-                ),
-              ),
-            ),
-          ),
-        );
-
-        const rebuildResult = yield* Effect.exit(
-          projectionPipeline.bootstrap.pipe(
-            Effect.flatMap(() => verifyProjectionRepairFence(repairFence)),
-          ),
-        );
-        if (rebuildResult._tag === "Failure") {
-          const restoreResult = yield* Effect.exit(restoreDerivedProjectionState);
-          if (restoreResult._tag === "Failure") {
-            commandReadModel = previousCommandReadModel;
-            return yield* Effect.logError(
-              "failed to restore orchestration projection backup after rebuild failure",
-            ).pipe(
-              Effect.annotateLogs({
-                rebuildCause: Cause.pretty(rebuildResult.cause),
-                restoreCause: Cause.pretty(restoreResult.cause),
-              }),
-              Effect.flatMap(() =>
-                Effect.fail(
-                  new OrchestrationCommandInternalError({
-                    commandId: "repair-local-state",
-                    commandType: ORCHESTRATION_WS_METHODS.repairState,
-                    detail:
-                      "Projection repair failed and its staged backup could not be restored. Restart Penkra before retrying repair.",
-                  }),
-                ),
-              ),
-            );
-          }
-
-          commandReadModel = previousCommandReadModel;
-          yield* dropProjectionRepairBackup.pipe(Effect.catchCause(() => Effect.void));
-          const typedFailure = Cause.findErrorOption(rebuildResult.cause);
-          const repairError = Option.filter(
-            typedFailure,
-            (error): error is OrchestrationCommandInternalError =>
-              Schema.is(OrchestrationCommandInternalError)(error),
-          );
-          return yield* Effect.logError(
-            "failed to rebuild orchestration projections from event log",
-          ).pipe(
-            Effect.annotateLogs({
-              cause: Cause.pretty(rebuildResult.cause),
-            }),
-            Effect.flatMap(() =>
-              Effect.fail(
-                Option.getOrElse(
-                  repairError,
-                  () =>
-                    new OrchestrationCommandInternalError({
-                      commandId: "repair-local-state",
-                      commandType: ORCHESTRATION_WS_METHODS.repairState,
-                      detail: "Failed to rebuild local projections from the saved event history.",
-                    }),
-                ),
-              ),
-            ),
-          );
-        }
-
-        const snapshot = yield* refreshCommandReadModelFromProjectionState;
-        yield* dropProjectionRepairBackup.pipe(Effect.catchCause(() => Effect.void));
-        return snapshot;
-      }),
-    );
-
   return {
     quiesce,
     drain,
@@ -1744,7 +1526,6 @@ const makeOrchestrationEngine = Effect.gen(function* () {
     getEventHighWaterSequence,
     subscribeDomainEvents,
     dispatch,
-    repairState,
     // Each access creates a fresh PubSub subscription so that multiple
     // consumers (Effect RPC, ProviderRuntimeIngestion, etc.)
     // each independently receive all domain events.

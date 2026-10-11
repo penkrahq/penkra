@@ -600,7 +600,6 @@ export function createWsNativeApi(): NativeApi {
         );
       },
       importThread: (input) => transport.request(ORCHESTRATION_WS_METHODS.importThread, input),
-      repairState: () => transport.request(ORCHESTRATION_WS_METHODS.repairState),
       listProviderDeliveryBlockers: (input = {}) =>
         transport.request(ORCHESTRATION_WS_METHODS.listProviderDeliveryBlockers, input),
       reconcileProviderDelivery: (input) =>

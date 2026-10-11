@@ -14,11 +14,6 @@ const harness = vi.hoisted(() => ({
     availableEditors: [],
   },
   auth: { authenticated: true, role: "client" },
-  threadShells: [] as unknown[],
-  allThreadsMessageless: false,
-  folders: [{ id: "project-1" }],
-  threadsHydrated: true,
-  syncServerReadModel: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-query", () => ({
@@ -32,20 +27,6 @@ vi.mock("~/lib/serverReactQuery", () => ({
   serverAuthSessionQueryOptions: () => ({ queryKey: ["auth"] }),
 }));
 
-vi.mock("~/storeSelectors", () => ({
-  createThreadShellsSelector: () => () => harness.threadShells,
-  createAllThreadsMessagelessSelector: () => () => harness.allThreadsMessageless,
-}));
-
-vi.mock("~/store", () => ({
-  useStore: (selector: (store: Record<string, unknown>) => unknown) =>
-    selector({
-      folders: harness.folders,
-      threadsHydrated: harness.threadsHydrated,
-      syncServerReadModel: harness.syncServerReadModel,
-    }),
-}));
-
 import { AdvancedSettingsPanel } from "./AdvancedSettingsPanel";
 
 describe("AdvancedSettingsPanel", () => {
@@ -53,25 +34,15 @@ describe("AdvancedSettingsPanel", () => {
     document.body.innerHTML = "";
   });
 
-  it("owns recovery eligibility, shared disclosure motion, and the release-history handoff", async () => {
+  it("keeps browser session, keybindings and release-history controls without journal recovery", async () => {
     const onOpenReleaseHistory = vi.fn();
     await render(
       <AdvancedSettingsPanel active onOpenReleaseHistory={onOpenReleaseHistory} resetEpoch={0} />,
     );
 
-    const repairButton = page.getByRole("button", { name: "Repair state" });
-    expect((repairButton.element() as HTMLButtonElement).disabled).toBe(false);
     expect(document.body.textContent).toContain("Authenticated as client.");
-
-    const disclosureButton = page.getByRole("button", { name: "What this does" });
-    expect(disclosureButton.element().getAttribute("aria-expanded")).toBe("false");
-    const disclosureShell = disclosureButton.element().parentElement?.querySelector("div[inert]");
-    expect(disclosureShell?.className).toContain("duration-150");
-    await disclosureButton.click();
-    await vi.waitFor(() =>
-      expect(disclosureButton.element().getAttribute("aria-expanded")).toBe("true"),
-    );
-
+    expect(document.body.textContent).not.toContain("Recovery tools");
+    expect(page.getByRole("button", { name: "Open file" }).element()).toBeTruthy();
     await page.getByRole("button", { name: "View release history" }).click();
     expect(onOpenReleaseHistory).toHaveBeenCalledOnce();
   });

@@ -120,19 +120,6 @@ export interface OrchestrationEngineShape {
   ) => Effect.Effect<OrchestrationDispatchResult, OrchestrationDispatchError, never>;
 
   /**
-   * Repair folder-facing projection state for older installs without clearing
-   * existing chat rows.
-   *
-   * Replays the snapshot-related projector cursors and refreshes the in-memory
-   * command model from projection state.
-   */
-  readonly repairState: () => Effect.Effect<
-    OrchestrationReadModel,
-    OrchestrationDispatchError | OrchestrationEventStoreError,
-    never
-  >;
-
-  /**
    * Reload the command-facing read model from projection tables after
    * maintenance code mutates projection state outside the command queue.
    */
