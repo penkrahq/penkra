@@ -762,6 +762,7 @@ const FolderUpdateCommand = Schema.Struct({
   commandId: CommandId,
   folderId: FolderId,
   title: Schema.optional(TrimmedNonEmptyString),
+  workspaceRoot: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
   iconDataUrl: Schema.optional(Schema.NullOr(FolderIconDataUrl)),

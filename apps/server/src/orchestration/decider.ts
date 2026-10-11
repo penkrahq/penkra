@@ -375,13 +375,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         folderId: command.folderId,
       });
-      if (command.workspaceRoot !== null) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail:
-            "Folders are virtual containers. Set the physical directory on the thread instead.",
-        });
-      }
       yield* requireSpace({ readModel, command, spaceId: command.spaceId });
       yield* requireFolderNameAvailable({
         readModel,
@@ -400,7 +393,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           folderId: command.folderId,
           title: command.title,
-          workspaceRoot: null,
+          workspaceRoot: command.workspaceRoot,
           defaultModelSelection: command.defaultModelSelection ?? null,
           scripts: [],
           iconDataUrl: null,
@@ -444,6 +437,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           folderId: command.folderId,
           ...(command.title !== undefined ? { title: command.title } : {}),
+          ...(command.workspaceRoot !== undefined ? { workspaceRoot: command.workspaceRoot } : {}),
           ...(command.defaultModelSelection !== undefined
             ? { defaultModelSelection: command.defaultModelSelection }
             : {}),

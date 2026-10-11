@@ -248,6 +248,8 @@ type ProjectContextMenuId =
   | "rename"
   | "set-icon"
   | "remove-icon"
+  | "choose-directory"
+  | "remove-directory"
   | "archive";
 
 type ProjectNativeContextMenuId = ProjectContextMenuId | "new-space" | `move-to-space:${string}`;
@@ -1480,6 +1482,26 @@ export default function Sidebar() {
         folderIconInputRef.current?.click();
         return;
       }
+      if (clicked === "choose-directory" || clicked === "remove-directory") {
+        try {
+          const workspaceRoot =
+            clicked === "choose-directory" ? await api.dialogs.pickFolder() : null;
+          if (clicked === "choose-directory" && workspaceRoot === null) return;
+          await api.orchestration.dispatchCommand({
+            type: "folder.update",
+            commandId: newCommandId(),
+            folderId,
+            workspaceRoot,
+          });
+        } catch (error) {
+          toastManager.add({
+            type: "error",
+            title: "Unable to update folder directory",
+            description: error instanceof Error ? error.message : "Try again.",
+          });
+        }
+        return;
+      }
       if (clicked === "remove-icon") {
         await updateFolderIcon(folderId, null);
         return;
@@ -1572,6 +1594,8 @@ export default function Sidebar() {
         label: project.iconDataUrl ? "Change icon…" : "Add icon…",
       },
       ...(project.iconDataUrl ? [{ id: "remove-icon" as const, label: "Remove icon" }] : []),
+      { id: "choose-directory", label: "Choose directory…" },
+      ...(project.cwd ? [{ id: "remove-directory" as const, label: "Remove directory" }] : []),
     );
     if (canArchive) {
       items.push({

@@ -2209,27 +2209,51 @@ describe("OrchestrationEngine", () => {
     await runtime.dispose();
   });
 
-  it("rejects physical roots on ordinary folders", async () => {
+  it("stores a folder directory on creation and applies updates and removal", async () => {
     const system = await createOrchestrationSystem();
     const { engine, sql } = system;
-    const createdAt = now();
-
-    await expect(
-      system.run(
+    const folderId = asFolderId("folder-with-root");
+    try {
+      await system.run(
         engine.dispatch({
           type: "folder.create",
           commandId: CommandId.makeUnsafe("cmd-folder-with-root"),
-          folderId: asFolderId("folder-with-root"),
+          folderId,
           spaceId: TEST_SPACE_ID,
           title: "Folder",
           workspaceRoot: "/tmp/folder-root",
           defaultModelSelection: null,
-          createdAt,
+          createdAt: now(),
         }),
-      ),
-    ).rejects.toThrow("Folders are virtual containers");
-
-    await system.dispose();
+      );
+      const readRoot = () =>
+        system.run(
+          sql<{
+            workspaceRoot: string | null;
+          }>`SELECT workspace_root AS "workspaceRoot" FROM projection_folders WHERE folder_id=${folderId}`,
+        );
+      expect(await readRoot()).toEqual([{ workspaceRoot: "/tmp/folder-root" }]);
+      await system.run(
+        engine.dispatch({
+          type: "folder.update",
+          commandId: CommandId.makeUnsafe("cmd-folder-change-root"),
+          folderId,
+          workspaceRoot: "/tmp/new-folder-root",
+        }),
+      );
+      expect(await readRoot()).toEqual([{ workspaceRoot: "/tmp/new-folder-root" }]);
+      await system.run(
+        engine.dispatch({
+          type: "folder.update",
+          commandId: CommandId.makeUnsafe("cmd-folder-clear-root"),
+          folderId,
+          workspaceRoot: null,
+        }),
+      );
+      expect(await readRoot()).toEqual([{ workspaceRoot: null }]);
+    } finally {
+      await system.dispose();
+    }
   });
 
   it("keeps the worker alive when a command throws while its pipeline is built", async () => {
