@@ -218,6 +218,7 @@ const canonicalThreadLayer = Layer.effectDiscard(
 const dependencies = Layer.mergeAll(
   Layer.succeed(ServerConfig, { stateDir: runtimeStateDir } as never),
   Layer.succeed(ProviderInstallationRepository, {
+    getActiveRecord: () => Effect.die("not expected"),
     activate: () => Effect.die("not expected"),
     list: () => Effect.succeed([]),
     getRecord: () => Effect.succeed(Option.none()),
@@ -613,6 +614,7 @@ const realSelectionDependencies = Layer.mergeAll(
     list: () => Effect.succeed([]),
   } as never),
   Layer.succeed(ProviderInstallationRepository, {
+    getActiveRecord: () => Effect.succeed(Option.some({ id: installationId })),
     list: () =>
       Effect.succeed([
         {

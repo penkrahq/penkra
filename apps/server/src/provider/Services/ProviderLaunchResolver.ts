@@ -40,13 +40,10 @@ export interface ProviderLaunchResolverShape {
     readonly nativeStateIdentity: string;
     /** Present for a real Claude Thread; discovery launches have no conversation. */
     readonly claudeThreadId?: ThreadId;
-    /** Existing thread bindings may remain pinned to a retained installation. */
-    readonly allowRetiredInstallation?: boolean;
   }) => Effect.Effect<ProviderLaunchSpec, ProviderLaunchResolutionError>;
   readonly resolve: (input: {
     readonly threadId: ThreadId;
     readonly connectionId: ProviderConnectionId | null;
-    readonly installationId: ProviderInstallationId;
     readonly internalProviderId: string | null;
     /** New, not-yet-committed generation used by transactional switch preflight. */
     readonly nativeStateGenerationId?: ProviderNativeStateGenerationId;

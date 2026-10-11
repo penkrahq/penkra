@@ -64,8 +64,7 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
       if (
         Option.isNone(installation) ||
         installation.value.harness !== input.harness ||
-        (installation.value.lifecycle !== "active" &&
-          !(input.allowRetiredInstallation === true && installation.value.lifecycle === "retired"))
+        installation.value.lifecycle !== "active"
       ) {
         return yield* fail("The selected managed installation is not active for this harness.");
       }
@@ -265,14 +264,24 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
         return yield* fail("The thread has not started a provider harness.");
       const nativeStateGenerationId =
         input.nativeStateGenerationId ?? state.value.nativeStateGenerationId;
+      const activeInstallation = yield* installations.getActiveRecord(state.value.harness).pipe(
+        Effect.mapError(
+          (cause) =>
+            new ProviderLaunchResolutionError({
+              detail: "Could not read the active managed installation.",
+              cause,
+            }),
+        ),
+      );
+      if (Option.isNone(activeInstallation))
+        return yield* fail("No active managed installation exists for this harness.");
       const launch = yield* resolveProfile({
         harness: state.value.harness,
         connectionId: input.connectionId,
-        installationId: input.installationId,
+        installationId: activeInstallation.value.id,
         internalProviderId: input.internalProviderId,
         nativeStateIdentity: nativeStateGenerationId,
         claudeThreadId: input.threadId,
-        allowRetiredInstallation: true,
       });
       return launch;
     });

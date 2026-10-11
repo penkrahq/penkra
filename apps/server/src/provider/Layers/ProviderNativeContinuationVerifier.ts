@@ -166,7 +166,6 @@ export const makeProviderNativeContinuationVerifier = Effect.gen(function* () {
           .resolve({
             threadId: input.selection.threadId,
             connectionId: input.selection.connectionId,
-            installationId: input.selection.installationId,
             internalProviderId: input.selection.internalProviderId,
             nativeStateGenerationId: input.targetGenerationId,
           })

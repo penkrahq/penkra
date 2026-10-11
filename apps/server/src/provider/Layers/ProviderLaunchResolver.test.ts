@@ -32,6 +32,8 @@ const threadId = ThreadId.makeUnsafe("launch-thread");
 const connectionId = ProviderConnectionId.makeUnsafe("launch-connection");
 const installationId = ProviderInstallationId.makeUnsafe("launch-installation");
 const retiredInstallationId = ProviderInstallationId.makeUnsafe("launch-installation-retired");
+const nextInstallationId = ProviderInstallationId.makeUnsafe("launch-installation-new");
+let activeLaunchInstallationId = installationId;
 const qaFixtureInstallationId = ProviderInstallationId.makeUnsafe("launch-qa-fixture");
 const timestamp = "2026-08-08T00:00:00.000Z";
 const codexProfileRef = "provider-profile:credential-generation-two";
@@ -59,6 +61,7 @@ const dependencies = Layer.mergeAll(
       ),
   } as never),
   Layer.succeed(ProviderInstallationRepository, {
+    getActiveRecord: () => Effect.succeed(Option.some({ id: activeLaunchInstallationId })),
     getRecord: (id: typeof installationId) =>
       Effect.succeed(
         Option.some({
@@ -67,7 +70,7 @@ const dependencies = Layer.mergeAll(
           version: "1.18.10",
           platform: "darwin",
           architecture: "arm64",
-          executablePath: "/managed/opencode",
+          executablePath: id === nextInstallationId ? "/managed/opencode-new" : "/managed/opencode",
           artifactSource: "github-release",
           artifactUrl: "https://example.invalid/opencode",
           artifactSha256: "a".repeat(64),
@@ -119,7 +122,6 @@ layer("ProviderLaunchResolver", (it) => {
       const launch = yield* resolver.resolve({
         threadId,
         connectionId,
-        installationId,
         internalProviderId: "opencode-go",
       });
       const environment = launch.childEnvironment({
@@ -140,16 +142,15 @@ layer("ProviderLaunchResolver", (it) => {
     }),
   );
 
-  it.effect("keeps an existing thread pinned to a retained installation", () =>
+  it.effect("launches the active installation and rejects a retained discovery profile", () =>
     Effect.gen(function* () {
       const resolver = yield* ProviderLaunchResolver;
-      const pinned = yield* resolver.resolve({
+      const launch = yield* resolver.resolve({
         threadId,
         connectionId,
-        installationId: retiredInstallationId,
         internalProviderId: "opencode-go",
       });
-      assert.strictEqual(pinned.installationId, retiredInstallationId);
+      assert.strictEqual(launch.installationId, installationId);
 
       const newThreadProfile = yield* Effect.exit(
         resolver.resolveProfile({
@@ -161,6 +162,32 @@ layer("ProviderLaunchResolver", (it) => {
         }),
       );
       assert.strictEqual(newThreadProfile._tag, "Failure");
+    }),
+  );
+  it.effect("the next process launch reads the newly active installation", () =>
+    Effect.gen(function* () {
+      const resolver = yield* ProviderLaunchResolver;
+      const first = yield* resolver.resolve({
+        threadId,
+        connectionId,
+        internalProviderId: "opencode-go",
+      });
+      activeLaunchInstallationId = nextInstallationId;
+      try {
+        const next = yield* resolver.resolve({
+          threadId,
+          connectionId,
+          internalProviderId: "opencode-go",
+        });
+        assert.strictEqual(first.installationId, installationId);
+        assert.strictEqual(first.binaryPath, "/managed/opencode");
+        assert.strictEqual(next.installationId, nextInstallationId);
+        assert.strictEqual(next.binaryPath, "/managed/opencode-new");
+        assert.strictEqual(next.nativeStateRoot, first.nativeStateRoot);
+        assert.notStrictEqual(next.isolationKey, first.isolationKey);
+      } finally {
+        activeLaunchInstallationId = installationId;
+      }
     }),
   );
 });
@@ -185,6 +212,7 @@ const codexDependencies = Layer.mergeAll(
       ),
   } as never),
   Layer.succeed(ProviderInstallationRepository, {
+    getActiveRecord: () => Effect.succeed(Option.some({ id: installationId })),
     getRecord: (id: typeof installationId) =>
       Effect.succeed(
         Option.some({
@@ -242,7 +270,6 @@ it.effect("keeps the real OS home for a Connection-scoped Codex keyring", () =>
     const launch = yield* resolver.resolve({
       threadId,
       connectionId,
-      installationId,
       internalProviderId: null,
     });
     const environment = launch.childEnvironment({
@@ -325,6 +352,7 @@ const claudeDependencies = Layer.mergeAll(
       ),
   } as never),
   Layer.succeed(ProviderInstallationRepository, {
+    getActiveRecord: () => Effect.succeed(Option.some({ id: installationId })),
     getRecord: () =>
       Effect.succeed(
         Option.some({
@@ -399,7 +427,6 @@ it.effect("links a Claude Thread's canonical project into the selected login pro
     const launch = yield* resolver.resolve({
       threadId,
       connectionId,
-      installationId,
       internalProviderId: null,
     });
     const projectName = claudeThreadProjectName(threadId);
@@ -443,7 +470,7 @@ it.effect("ignores an old profile transcript so the Thread can rebuild from Penk
       await writeFile(legacy, bytes);
     });
     const resolver = yield* ProviderLaunchResolver;
-    yield* resolver.resolve({ threadId, connectionId, installationId, internalProviderId: null });
+    yield* resolver.resolve({ threadId, connectionId, internalProviderId: null });
     assert.isFalse(
       yield* Effect.promise(() =>
         access(canonical).then(
@@ -467,7 +494,7 @@ it.effect("links a different Claude account only after the staged binding commit
     claudeBoundConnectionId = connectionId;
     claudeBindingRevision = 7;
     try {
-      yield* resolver.resolve({ threadId, connectionId, installationId, internalProviderId: null });
+      yield* resolver.resolve({ threadId, connectionId, internalProviderId: null });
       yield* Effect.promise(() =>
         stageClaudeThreadAccountTransition({
           stateDir: config.stateDir,
@@ -492,7 +519,6 @@ it.effect("links a different Claude account only after the staged binding commit
       yield* resolver.resolve({
         threadId,
         connectionId: claudeOtherConnectionId,
-        installationId,
         internalProviderId: null,
       });
       assert.strictEqual(
@@ -505,11 +531,10 @@ it.effect("links a different Claude account only after the staged binding commit
       yield* resolver.resolve({
         threadId,
         connectionId: claudeOtherConnectionId,
-        installationId,
         internalProviderId: null,
       });
       const oldAccount = yield* Effect.exit(
-        resolver.resolve({ threadId, connectionId, installationId, internalProviderId: null }),
+        resolver.resolve({ threadId, connectionId, internalProviderId: null }),
       );
       assert.strictEqual(oldAccount._tag, "Failure");
     } finally {
