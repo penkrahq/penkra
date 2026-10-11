@@ -1,5 +1,5 @@
 // FILE: ProviderThreadSwitchCoordinator.ts
-// Purpose: Durable admission boundary for send-time Connection/model switches.
+// Purpose: Canonical admission boundary for send-time Connection/model switches.
 
 import type { OrchestrationCommand } from "@penkra/contracts";
 import { Data, Effect, ServiceMap } from "effect";
@@ -8,10 +8,7 @@ import type { ManagedAttachmentPrincipal } from "../../managedAttachmentPrincipa
 import type { ProviderTurnSelectionFailureCode } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
 
 type ProviderThreadSwitchCoordinatorErrorFields = {
-  readonly code:
-    | ProviderTurnSelectionFailureCode
-    | "switch_operation_failed"
-    | "switch_wait_timeout";
+  readonly code: ProviderTurnSelectionFailureCode | "switch_operation_failed";
   readonly detail: string;
   readonly cause?: unknown;
 };
@@ -45,7 +42,6 @@ export interface ProviderThreadSwitchCoordinatorShape {
     readonly attachmentPrincipal: ManagedAttachmentPrincipal;
     readonly cwd?: string;
   }) => Effect.Effect<{ readonly sequence: number }, ProviderThreadSwitchCoordinatorError>;
-  readonly recoverOpen: Effect.Effect<void, never>;
 }
 
 export class ProviderThreadSwitchCoordinator extends ServiceMap.Service<

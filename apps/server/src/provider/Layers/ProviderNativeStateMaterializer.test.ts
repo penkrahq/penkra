@@ -5,7 +5,6 @@ import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import * as Path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Effect, Layer } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { ServerConfig } from "../../config.ts";
 import { providerNativeStateRoot, providerOpaquePathKey } from "../providerNativeStatePaths.ts";
@@ -49,7 +48,7 @@ layer("ProviderNativeStateMaterializer", (it) => {
       yield* Effect.promise(() => writeFile(rollout, '{"session":"exact"}'));
       yield* Effect.promise(() => writeFile(`${sourceRoot}/profile-secret.json`, "secret"));
 
-      const targetRoot = yield* materializer.clone({
+      const { root: targetRoot } = yield* materializer.clone({
         harness: "codex",
         providerSessionId: sessionId,
         sourceGenerationId: source,
@@ -114,7 +113,7 @@ layer("ProviderNativeStateMaterializer", (it) => {
             `${JSON.stringify({ type: "user", message: { role: "user", content: "hello" } })}\n`,
           );
         });
-        const targetRoot = yield* materializer.clone({
+        const { root: targetRoot, providerSessionId: copiedSessionId } = yield* materializer.clone({
           harness: "claudeAgent",
           providerSessionId: sessionId,
           sourceGenerationId: source,
@@ -134,11 +133,15 @@ layer("ProviderNativeStateMaterializer", (it) => {
           yield* Effect.promise(() => readFile(transcript, "utf8")),
           `${JSON.stringify({ type: "user", message: { role: "user", content: "hello" } })}\n`,
         );
-        assert.deepStrictEqual(
-          JSON.parse(
-            yield* Effect.promise(() => readFile(`${targetRoot}/claude-session.json`, "utf8")),
+        assert.strictEqual(copiedSessionId, sessionId);
+        assert.strictEqual(
+          yield* Effect.promise(() =>
+            access(Path.join(targetRoot, "claude-session.json")).then(
+              () => true,
+              () => false,
+            ),
           ),
-          { providerSessionId: sessionId },
+          false,
         );
       }),
   );
@@ -179,7 +182,7 @@ layer("ProviderNativeStateMaterializer", (it) => {
           );
           await writeFile(Path.join(root, "account.json"), JSON.stringify(owner));
         });
-        const targetRoot = yield* materializer.clone({
+        const { root: targetRoot } = yield* materializer.clone({
           harness: "claudeAgent",
           providerSessionId: "scoped-session",
           sourceGenerationId: source,
@@ -247,15 +250,43 @@ layer("ProviderNativeStateMaterializer", (it) => {
               `missing-${missing}-target`,
             ),
           });
-          assert.deepStrictEqual(
-            JSON.parse(
-              yield* Effect.promise(() =>
-                readFile(Path.join(target, "claude-session.json"), "utf8"),
+          assert.strictEqual(target.providerSessionId, null);
+          assert.strictEqual(
+            yield* Effect.promise(() => access(target.root).then(() => true)),
+            true,
+          );
+          assert.strictEqual(
+            yield* Effect.promise(() =>
+              access(Path.join(target.root, "claude-session.json")).then(
+                () => true,
+                () => false,
               ),
             ),
-            { providerSessionId: "missing-session", requiresReconstruction: true },
+            false,
           );
         }),
+    );
+  }
+
+  for (const harness of ["codex", "opencode"] as const) {
+    it.effect(`starts fresh when an existing ${harness} folder has no conversation`, () =>
+      Effect.gen(function* () {
+        const config = yield* ServerConfig;
+        const materializer = yield* ProviderNativeStateMaterializer;
+        const source = `empty-${harness}-source`;
+        yield* Effect.promise(() =>
+          mkdir(providerNativeStateRoot(config.stateDir, source), { recursive: true }),
+        );
+        const copied = yield* materializer.clone({
+          harness,
+          providerSessionId: "missing-session",
+          sourceGenerationId: source,
+          targetGenerationId: `empty-${harness}-target`,
+        });
+        assert.strictEqual(copied.providerSessionId, null);
+        yield* Effect.promise(() => access(copied.root));
+        yield* Effect.promise(() => access(providerNativeStateRoot(config.stateDir, source)));
+      }),
     );
   }
 
@@ -284,7 +315,7 @@ layer("ProviderNativeStateMaterializer", (it) => {
       );
       yield* Effect.promise(() => writeFile(`${sourceRoot}/xdg-data/opencode/auth.json`, "secret"));
 
-      const targetRoot = yield* materializer.clone({
+      const { root: targetRoot } = yield* materializer.clone({
         harness: "opencode",
         providerSessionId: "ses_exact",
         sourceGenerationId: source,

@@ -55,7 +55,6 @@ function harness() {
   const dispatch = vi.fn(async () => ({ sequence: 1 }));
   const updateThread = vi.fn(async () => undefined);
   const dispatchTurn = vi.fn(async () => ({ sequence: 1 }));
-  const bindingRevision = vi.fn(async () => 7);
   const stageAttachment = vi.fn(async () => ({
     type: "file" as const,
     id: "file",
@@ -75,7 +74,6 @@ function harness() {
     },
     getThread: async (id) => rows.find((row) => row.id === id) ?? null,
     listThreads,
-    bindingRevision,
     createThread,
     dispatch,
     dispatchTurn,
@@ -89,7 +87,6 @@ function harness() {
     dispatch,
     dispatchTurn,
     updateThread,
-    bindingRevision,
     stageAttachment,
     setGate: (value: Promise<void>) => {
       gate = value;
@@ -153,7 +150,6 @@ for (const windows of ["zero windows", "one window", "window closes mid-operatio
       }
       if (method === "send") expect(h.dispatchTurn).toHaveBeenCalledOnce();
       if (method === "compose") expect(value).toHaveProperty("composeId");
-      if (method === "send") expect(h.bindingRevision).toHaveBeenCalledWith("target");
     });
   });
 }

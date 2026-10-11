@@ -23,7 +23,6 @@ import {
 import { Deferred, Effect, Layer, Option, Schema, Semaphore, ServiceMap } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { ProviderThreadSwitchCoordinator } from "../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
-import { ThreadProviderBindingRepository } from "../persistence/Services/ThreadProviderBindings.ts";
 import { ProviderService } from "../provider/Services/ProviderService.ts";
 import {
   CurrentManagedAttachmentPrincipal,
@@ -120,7 +119,6 @@ export const makeThreadSender = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const publisher = yield* ThreadPublisher;
   const coordinator = yield* ProviderThreadSwitchCoordinator;
-  const bindings = yield* ThreadProviderBindingRepository;
   const provider = yield* ProviderService;
   const managedAttachments = yield* ManagedAttachmentRepository;
   const decodeDraftSelection = Schema.decodeUnknownSync(DraftSelection);
@@ -227,7 +225,6 @@ export const makeThreadSender = Effect.gen(function* () {
                 ? draftConnection
                 : row.connectionId;
           const runtimeMode = Schema.decodeUnknownSync(RuntimeMode)(row.runtimeMode);
-          const binding = yield* bindings.getRuntimeBinding(threadId);
           const reply = yield* Deferred.make<string, Error>();
           const unsubscribe = publisher.subscribeDispatch(
             threadId,
@@ -268,7 +265,6 @@ export const makeThreadSender = Effect.gen(function* () {
               ...(input.assistantDeliveryMode === undefined
                 ? {}
                 : { assistantDeliveryMode: input.assistantDeliveryMode }),
-              bindingRevision: Option.isSome(binding) ? binding.value.revision : 0,
               createdAt: new Date().toISOString(),
             },
             attachmentPrincipal: principal,

@@ -1,3 +1,4 @@
+import { ThreadPublisherLive } from "../../cleanCore/ThreadPublisher.ts";
 import { updateThreadFixture } from "../../cleanCore/threadFixtures.ts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { createThreadFixture } from "../../cleanCore/threadFixtures.ts";
@@ -17,15 +18,10 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 
 import { ServerConfig } from "../../config.ts";
 import { LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL } from "../../managedAttachmentPrincipal.ts";
-import { PersistenceSqlError } from "../../persistence/Errors.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
-import { ProviderThreadSwitchOperationRepository } from "../../persistence/Services/ProviderThreadSwitchOperations.ts";
 import { QueuedTurnPromotionRepository } from "../../persistence/Services/QueuedTurnPromotions.ts";
-import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
-import { ProviderLaunchResolver } from "../../provider/Services/ProviderLaunchResolver.ts";
-import { ProviderNativeContinuationVerifier } from "../../provider/Services/ProviderNativeContinuationVerifier.ts";
 import { ProviderNativeStateMaterializer } from "../../provider/Services/ProviderNativeStateMaterializer.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
@@ -49,83 +45,13 @@ async function makeSystem(options?: {
   readonly resolverFailure?: "provider_mismatch" | "connection_unauthorized" | "selection_failed";
   readonly failResolverOnce?: boolean;
   readonly failResolverOnCall?: number;
-  readonly commitFault?: { readonly target: "binding" | "journal"; readonly errcode: number };
-  readonly bindingCasConflict?: boolean;
 }) {
   const threadId = ThreadId.makeUnsafe("queued-switch-thread");
   let resolverCalls = 0;
-  let binding = {
-    threadId,
-    connectionId: oldConnection as typeof oldConnection | typeof newConnection | null,
-    installationId,
-    internalProviderId: null,
-    modelId: oldModel,
-    revision: 1,
-    createdAt: at,
-    updatedAt: at,
-  };
-  let operation: any;
   const services = Layer.mergeAll(
-    Layer.succeed(ThreadProviderBindingRepository, {
-      getHarnessState: () =>
-        Effect.succeed(Option.some({ threadId, harness: "codex", revision: 0 })),
-      getRuntimeBinding: () => Effect.sync(() => Option.some(binding)),
-      updateRuntimeBindingInCurrentTransaction: (input: any) =>
-        options?.commitFault?.target === "binding"
-          ? Effect.fail(
-              new PersistenceSqlError({
-                operation:
-                  "ThreadProviderBindingRepository.updateRuntimeBindingInCurrentTransaction",
-                detail: "SQLite commit failed",
-                cause: { errcode: options.commitFault.errcode },
-              }),
-            )
-          : Effect.sync(() => {
-              if (options?.bindingCasConflict) return Option.none();
-              if (binding.revision !== input.expectedRevision) return Option.none();
-              binding = {
-                ...binding,
-                connectionId: input.connectionId,
-                modelId: input.modelId,
-                revision: binding.revision + 1,
-                updatedAt: input.updatedAt,
-              };
-              return Option.some(binding);
-            }),
-    } as never),
-    Layer.succeed(ProviderThreadSwitchOperationRepository, {
-      get: () => Effect.sync(() => Option.fromNullishOr(operation)),
-      begin: (input: any) => Effect.sync(() => (operation = input)),
-      markInterruptedWithSettledSelection: (input: any) =>
-        Effect.sync(() => {
-          operation = { ...operation, state: "interrupted", selectionJson: input.selectionJson };
-          return Option.some(operation);
-        }),
-      transition: (input: any) =>
-        Effect.sync(() => {
-          operation = { ...operation, ...input };
-          return Option.some(operation);
-        }),
-      markCommittedInCurrentTransaction: () =>
-        options?.commitFault?.target === "journal"
-          ? Effect.fail(
-              new PersistenceSqlError({
-                operation:
-                  "ProviderThreadSwitchOperationRepository.markCommittedInCurrentTransaction",
-                detail: "SQLite commit failed",
-                cause: { errcode: options.commitFault.errcode },
-              }),
-            )
-          : Effect.sync(() => {
-              operation = { ...operation, state: "committed" };
-              return Option.some(operation);
-            }),
-      listOpen: () => Effect.succeed([]),
-    } as never),
-    Layer.succeed(ProviderService, { listSessions: () => Effect.succeed([]) } as never),
-    Layer.succeed(ProviderLaunchResolver, {} as never),
-    Layer.succeed(ProviderNativeContinuationVerifier, {} as never),
-    Layer.succeed(ProviderNativeStateMaterializer, {} as never),
+    ThreadPublisherLive,
+    Layer.succeed(ProviderService, { stopSession: () => Effect.void } as never),
+    Layer.succeed(ProviderNativeStateMaterializer, { discard: () => Effect.void } as never),
     Layer.succeed(ProviderTurnSelectionResolver, {
       resolveExisting: (input: any) =>
         Effect.gen(function* () {
@@ -151,24 +77,31 @@ async function makeSystem(options?: {
               }),
             );
           }
+          const sql = yield* SqlClient.SqlClient;
+          const rows = yield* sql<{
+            connectionId: ProviderConnectionId | null;
+            modelId: string;
+            nativeStateId: string | null;
+            providerSessionId: string | null;
+          }>`SELECT connection_id AS "connectionId",model AS "modelId",native_state_id AS "nativeStateId",provider_session_id AS "providerSessionId" FROM threads WHERE id=${threadId}`;
+          const current = rows[0]!;
           const connectionId =
-            input.connectionId === undefined ? binding.connectionId : input.connectionId;
-          const modelId = input.modelSelection?.model ?? binding.modelId;
+            input.connectionId === undefined ? current.connectionId : input.connectionId;
+          const modelId = input.modelSelection?.model ?? current.modelId;
           return {
             threadId,
             harness: "codex",
             connectionId,
             connectionLabel: connectionId === null ? null : "Test",
-            previousConnectionId: binding.connectionId,
-            previousModelId: binding.modelId,
-            previousInstallationId: installationId,
+            previousConnectionId: current.connectionId,
+            previousModelId: current.modelId,
             installationId,
             internalProviderId: null,
             modelId,
             modelLabel: modelId,
-            stateRevision: 0,
-            bindingRevision: binding.revision,
-            changed: connectionId !== binding.connectionId || modelId !== binding.modelId,
+            nativeStateId: current.nativeStateId,
+            providerSessionId: current.providerSessionId,
+            changed: connectionId !== current.connectionId || modelId !== current.modelId,
             requiresNativeStateMaterialization: false,
           };
         }),
@@ -204,12 +137,16 @@ async function makeSystem(options?: {
     engine: await runtime.runPromise(Effect.service(OrchestrationEngineService)),
     coordinator: await runtime.runPromise(Effect.service(ProviderThreadSwitchCoordinator)),
     queue: await runtime.runPromise(Effect.service(QueuedTurnPromotionRepository)),
-    binding: () => binding,
-    operation: () => operation,
-    resolverCalls: () => resolverCalls,
-    setOperation: (value: any) => {
-      operation = value;
-    },
+    selection: () =>
+      runtime.runPromise(
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          return (yield* sql<{
+            connectionId: string | null;
+            modelId: string;
+          }>`SELECT connection_id AS "connectionId",model AS "modelId" FROM threads WHERE id=${threadId}`)[0]!;
+        }),
+      ),
     dispose: () => runtime.dispose(),
   };
 }
@@ -261,101 +198,19 @@ async function seedThreadForAdmission(s: Awaited<ReturnType<typeof makeSystem>>)
       modelSelection: { provider: "codex", model: oldModel },
       runtimeMode: "full-access",
       createdAt: at,
-      connection: { kind: "selected", connectionId: null },
+      connection: { kind: "selected", connectionId: oldConnection },
       creator: { kind: "user" },
     }),
   );
 }
 
 describe("queued selection through real admission", () => {
-  it.each([
-    ["binding", 5, "provider_switch_commit_retryable"],
-    ["binding", 6, "provider_switch_commit_retryable"],
-    ["binding", 10, "provider_switch_commit_retryable"],
-    ["binding", 19, "provider_switch_commit_failed"],
-    ["journal", 5, "provider_switch_commit_retryable"],
-    ["journal", 6, "provider_switch_commit_retryable"],
-    ["journal", 10, "provider_switch_commit_retryable"],
-    ["journal", 19, "provider_switch_commit_failed"],
-  ] as const)("classifies %s commit SQLite result %i", async (target, errcode, code) => {
-    const s = await makeSystem({ commitFault: { target, errcode } });
-    try {
-      await seedThreadForAdmission(s);
-      const command = { ...queuedCommand(s.threadId), connectionId: newConnection };
-      const failure = await s
-        .run(
-          s.coordinator.dispatchQueuedTurn({
-            command,
-            attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-          }),
-        )
-        .catch((cause: unknown) => cause);
-      expect(failure).toMatchObject({ cause: { code } });
-      expect(s.operation()?.state).toBe(errcode === 19 ? "failed" : "verified");
-    } finally {
-      await s.dispose();
-    }
-  });
-
-  it("also preserves the direct turn-start switch journal on transient SQLite I/O", async () => {
-    const s = await makeSystem({ commitFault: { target: "binding", errcode: 10 } });
-    try {
-      await seedThreadForAdmission(s);
-      const queued = queuedCommand(s.threadId);
-      await expect(
-        s.run(
-          s.coordinator.dispatchTurnStart({
-            command: {
-              type: "thread.turn.start",
-              commandId: queued.commandId,
-              threadId: s.threadId,
-              turnId: queued.turnId,
-              message: {
-                messageId: queued.messageId,
-                role: "user",
-                text: "Continue",
-                attachments: [],
-              },
-              modelSelection: queued.modelSelection,
-              connectionId: newConnection,
-              bindingRevision: queued.bindingRevision,
-              runtimeMode: queued.runtimeMode,
-              dispatchMode: queued.dispatchMode,
-              createdAt: queued.createdAt,
-            },
-            attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-          }),
-        ),
-      ).rejects.toMatchObject({ cause: { code: "provider_switch_commit_retryable" } });
-      expect(s.operation()?.state).toBe("verified");
-    } finally {
-      await s.dispose();
-    }
-  });
-
-  it("treats a binding compare-and-swap refusal as terminal", async () => {
-    const s = await makeSystem({ bindingCasConflict: true });
-    try {
-      await seedThreadForAdmission(s);
-      const command = { ...queuedCommand(s.threadId), connectionId: newConnection };
-      await expect(
-        s.run(
-          s.coordinator.dispatchQueuedTurn({
-            command,
-            attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-          }),
-        ),
-      ).rejects.toMatchObject({ cause: { code: "provider_binding_stale" } });
-      expect(s.operation()?.state).toBe("failed");
-    } finally {
-      await s.dispose();
-    }
-  });
   it.each(["connection_unauthorized", "provider_mismatch"] as const)(
     "preserves the %s resolver refusal for a queued admission",
     async (code) => {
       const s = await makeSystem({ resolverFailure: code });
       try {
+        await seedThreadForAdmission(s);
         await expect(
           s.run(
             s.coordinator.dispatchQueuedTurn({
@@ -370,52 +225,10 @@ describe("queued selection through real admission", () => {
     },
   );
 
-  it("identifies a failed persisted switch without inspecting its reason text", async () => {
-    const s = await makeSystem();
-    try {
-      const command = queuedCommand(s.threadId);
-      s.setOperation({
-        id: `provider-switch:${command.commandId}`,
-        state: "failed",
-        commandJson: JSON.stringify(command),
-        selectionJson: JSON.stringify({
-          threadId: s.threadId,
-          harness: "codex",
-          connectionId: oldConnection,
-          connectionLabel: "Test",
-          previousConnectionId: oldConnection,
-          previousModelId: oldModel,
-          previousInstallationId: installationId,
-          installationId,
-          internalProviderId: null,
-          modelId: oldModel,
-          modelLabel: oldModel,
-          stateRevision: 0,
-          bindingRevision: 1,
-          changed: false,
-          requiresNativeStateMaterialization: false,
-        }),
-        failureReason: "A verified provider switch may only accompany a thread turn start.",
-      });
-      await expect(
-        s.run(
-          s.coordinator.dispatchQueuedTurn({
-            command,
-            attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-          }),
-        ),
-      ).rejects.toMatchObject({
-        code: "switch_operation_failed",
-        detail: "A verified provider switch may only accompany a thread turn start.",
-      });
-    } finally {
-      await s.dispose();
-    }
-  });
-
   it("allows a transient selection lookup to be retried", async () => {
     const s = await makeSystem({ resolverFailure: "selection_failed", failResolverOnce: true });
     try {
+      await seedThreadForAdmission(s);
       const command = queuedCommand(s.threadId);
       await expect(
         s.run(
@@ -432,38 +245,12 @@ describe("queued selection through real admission", () => {
             attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
           }),
         ),
-      ).rejects.not.toMatchObject({ code: "switch_operation_failed" });
+      ).resolves.toHaveProperty("sequence");
     } finally {
       await s.dispose();
     }
   });
 
-  it("keeps an open switch journal retryable after a transient settled-source lookup", async () => {
-    const s = await makeSystem({ resolverFailure: "selection_failed", failResolverOnCall: 2 });
-    try {
-      const command = { ...queuedCommand(s.threadId), connectionId: newConnection };
-      await expect(
-        s.run(
-          s.coordinator.dispatchQueuedTurn({
-            command,
-            attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-          }),
-        ),
-      ).rejects.toMatchObject({ code: "selection_failed" });
-      expect(s.operation()?.state).toBe("pending");
-      await expect(
-        s.run(
-          s.coordinator.dispatchQueuedTurn({
-            command,
-            attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-          }),
-        ),
-      ).rejects.not.toMatchObject({ code: "switch_operation_failed" });
-      expect(s.resolverCalls()).toBe(3);
-    } finally {
-      await s.dispose();
-    }
-  });
   it.each(["model", "connection", "unchanged", "anonymous"] as const)(
     "promotes with %s selection",
     async (kind) => {
@@ -502,7 +289,7 @@ describe("queued selection through real admission", () => {
             modelSelection: { provider: "codex", model: oldModel },
             runtimeMode: "full-access",
             createdAt: at,
-            connection: { kind: "selected", connectionId: null },
+            connection: { kind: "selected", connectionId: oldConnection },
             creator: { kind: "user" },
           }),
         );
@@ -605,7 +392,6 @@ describe("queued selection through real admission", () => {
               messageId,
               modelSelection: { provider: "codex", model: desiredModel },
               connectionId: desiredConnection,
-              bindingRevision: s.binding().revision,
               runtimeMode: "full-access",
               dispatchMode: "queue",
               createdAt: at,
@@ -632,15 +418,12 @@ describe("queued selection through real admission", () => {
           payload: {
             messageId,
             connectionId: desiredConnection,
-            bindingRevision: kind === "unchanged" ? 1 : 2,
           },
         });
-        expect(s.binding()).toMatchObject({
+        expect(await s.selection()).toMatchObject({
           connectionId: desiredConnection,
           modelId: desiredModel,
-          revision: kind === "unchanged" ? 1 : 2,
         });
-        expect(s.operation()?.state).toBe(kind === "unchanged" ? undefined : "committed");
         expect(await s.run(s.queue.hasPendingMessage({ threadId: s.threadId, messageId }))).toBe(
           false,
         );

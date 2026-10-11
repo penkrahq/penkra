@@ -1,22 +1,14 @@
 // FILE: ProviderTurnSelectionResolver.ts
-// Purpose: Resolve one exact, revision-checked provider selection for an existing thread.
+// Purpose: Resolve a provider selection from the canonical thread row.
 
 import {
-  NonNegativeInt as NonNegativeIntSchema,
   ProviderConnectionId as ProviderConnectionIdSchema,
   ProviderInstallationId as ProviderInstallationIdSchema,
   ProviderKind as ProviderKindSchema,
   ThreadId as ThreadIdSchema,
   TrimmedNonEmptyString as TrimmedNonEmptyStringSchema,
 } from "@penkra/contracts";
-import type {
-  ModelSelection,
-  ProviderConnectionId,
-  ProviderInstallationId,
-  ProviderKind,
-  ProviderNativeStateGenerationId,
-  ThreadId,
-} from "@penkra/contracts";
+import type { ModelSelection, ProviderConnectionId, ThreadId } from "@penkra/contracts";
 import { Data, Effect, Schema, ServiceMap } from "effect";
 
 export const ResolvedProviderTurnSelection = Schema.Struct({
@@ -26,27 +18,14 @@ export const ResolvedProviderTurnSelection = Schema.Struct({
   connectionLabel: Schema.NullOr(TrimmedNonEmptyStringSchema),
   previousConnectionId: Schema.NullOr(ProviderConnectionIdSchema),
   previousModelId: Schema.NullOr(TrimmedNonEmptyStringSchema),
-  previousInstallationId: Schema.NullOr(ProviderInstallationIdSchema),
   installationId: ProviderInstallationIdSchema,
   internalProviderId: Schema.NullOr(TrimmedNonEmptyStringSchema),
   modelId: TrimmedNonEmptyStringSchema,
   modelLabel: TrimmedNonEmptyStringSchema,
-  stateRevision: NonNegativeIntSchema,
-  bindingRevision: NonNegativeIntSchema,
+  nativeStateId: Schema.NullOr(Schema.String),
+  providerSessionId: Schema.NullOr(Schema.String),
   changed: Schema.Boolean,
   requiresNativeStateMaterialization: Schema.Boolean,
-  claudeAccountTransition: Schema.optional(
-    Schema.Struct({
-      source: Schema.Struct({
-        authenticationMethodId: TrimmedNonEmptyStringSchema,
-        providerIdentityId: Schema.NullOr(TrimmedNonEmptyStringSchema),
-      }),
-      target: Schema.Struct({
-        authenticationMethodId: TrimmedNonEmptyStringSchema,
-        providerIdentityId: Schema.NullOr(TrimmedNonEmptyStringSchema),
-      }),
-    }),
-  ),
 });
 export type ResolvedProviderTurnSelection = typeof ResolvedProviderTurnSelection.Type;
 
@@ -90,37 +69,6 @@ export interface ProviderTurnSelectionResolverShape {
     readonly modelSelection: ModelSelection;
     readonly connectionId?: ProviderConnectionId | null;
   }) => Effect.Effect<ProviderConnectionId | null, ProviderTurnSelectionResolutionError>;
-  readonly resolveInitial: (input: {
-    readonly threadId: ThreadId;
-    readonly nativeStateGenerationId: ProviderNativeStateGenerationId;
-    readonly modelSelection?: ModelSelection;
-    /** Must be explicit; null requests an adapter-authorized anonymous route. */
-    readonly connectionId?: ProviderConnectionId | null;
-    readonly createdAt: string;
-  }) => Effect.Effect<
-    {
-      readonly selection: ResolvedProviderTurnSelection;
-      readonly initialization: {
-        readonly generation: {
-          readonly id: ProviderNativeStateGenerationId;
-          readonly ownerThreadId: ThreadId;
-          readonly harness: ProviderKind;
-          readonly adapterSchemaVersion: string;
-          readonly stateManifestJson: string;
-          readonly createdAt: string;
-        };
-        readonly threadId: ThreadId;
-        readonly providerSessionId: null;
-        readonly nativeStateLocatorJson: string;
-        readonly connectionId: ProviderConnectionId | null;
-        readonly installationId: ProviderInstallationId;
-        readonly internalProviderId: string | null;
-        readonly modelId: string;
-        readonly createdAt: string;
-      };
-    },
-    ProviderTurnSelectionResolutionError
-  >;
   readonly resolveExisting: (input: {
     readonly threadId: ThreadId;
     readonly modelSelection?: ModelSelection;

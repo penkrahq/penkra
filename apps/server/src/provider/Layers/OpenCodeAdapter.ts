@@ -3675,48 +3675,6 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         },
       );
 
-      const verifyNativeResume: NonNullable<OpenCodeAdapterShape["verifyNativeResume"]> = (input) =>
-        Effect.scoped(
-          Effect.gen(function* () {
-            const openCodeSessionId = extractResumeSessionId(input.sourceResumeCursor);
-            if (!openCodeSessionId) {
-              return yield* new OpenCodeRuntimeError({
-                operation: "session.get",
-                detail: `${adapterConfig.displayName} resume cursor does not contain an exact session id.`,
-              });
-            }
-
-            const directory =
-              input.cwd ?? extractResumeCwd(input.sourceResumeCursor) ?? serverConfig.cwd;
-            const server = yield* openCodeRuntime.connectToOpenCodeServer({
-              binaryPath: input.managedLaunch.binaryPath,
-              cliSpec: adapterConfig.cliSpec,
-              cwd: directory,
-              poolIsolationKey: input.managedLaunch.isolationKey,
-              processEnv: input.managedLaunch.childEnvironment(process.env),
-            });
-            const client = openCodeRuntime.createOpenCodeSdkClient({
-              baseUrl: server.url,
-              directory,
-              cliSpec: adapterConfig.cliSpec,
-            });
-            const session = yield* runOpenCodeSdk("session.get", () =>
-              client.session.get({ sessionID: openCodeSessionId }),
-            );
-            if (session.data?.id !== openCodeSessionId) {
-              return yield* new OpenCodeRuntimeError({
-                operation: "session.get",
-                detail: `${adapterConfig.displayName} returned a different session identity while verifying the continuation.`,
-              });
-            }
-
-            return {
-              providerSessionId: openCodeSessionId,
-              resumeCursor: input.sourceResumeCursor,
-            };
-          }).pipe(Effect.mapError(toAdapterRequestError)),
-        );
-
       const sendTurn: OpenCodeAdapterShape["sendTurn"] = Effect.fn("sendTurn")(function* (input) {
         const context = ensureAdapterSessionContext(input.threadId);
         const turnId = TurnId.makeUnsafe(`${adapterConfig.turnIdPrefix}-${randomUUID()}`);
@@ -4461,7 +4419,6 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           supportsNativeSlashCommandDiscovery: provider === "opencode",
         },
         startSession,
-        verifyNativeResume,
         sendTurn,
         interruptTurn,
         respondToRequest,

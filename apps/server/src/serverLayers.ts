@@ -34,17 +34,12 @@ import { ProviderInstallationRepositoryLive } from "./persistence/Layers/Provide
 import { ProviderConnectionRepositoryLive } from "./persistence/Layers/ProviderConnections";
 import { ConnectionRateLimitsLive } from "./providerUsage/ConnectionRateLimits";
 import { ProviderConnectionLoginRepositoryLive } from "./persistence/Layers/ProviderConnectionLogins";
-import { ThreadProviderBindingRepositoryLive } from "./persistence/Layers/ThreadProviderBindings";
-import { ProviderThreadSwitchOperationRepositoryLive } from "./persistence/Layers/ProviderThreadSwitchOperations";
-import { ProviderNativeStateDeletionRepositoryLive } from "./persistence/Layers/ProviderNativeStateDeletions";
 import { ProviderCredentialBrokerLive } from "./provider/providerCredentialBroker";
 import { ProviderConnectionLifecycleLive } from "./provider/Layers/ProviderConnectionLifecycle";
 import { ProviderConnectionLoginCoordinatorLive } from "./provider/Layers/ProviderConnectionLoginCoordinator";
 import { ProviderLaunchResolverLive } from "./provider/Layers/ProviderLaunchResolver";
 import { ProviderTurnSelectionResolverLive } from "./provider/Layers/ProviderTurnSelectionResolver";
 import { ProviderNativeStateMaterializerLive } from "./provider/Layers/ProviderNativeStateMaterializer";
-import { ProviderNativeContinuationVerifierLive } from "./provider/Layers/ProviderNativeContinuationVerifier";
-import { ProviderNativeStateDeletionCoordinatorLive } from "./provider/Layers/ProviderNativeStateDeletionCoordinator";
 import { ProviderThreadSwitchCoordinatorLive } from "./orchestration/Layers/ProviderThreadSwitchCoordinator";
 import { ManagedAttachmentCleanupLive } from "./managedAttachmentCleanup";
 import { ProviderHealthLive } from "./provider/Layers/ProviderHealth";
@@ -65,9 +60,6 @@ export function makeServerRuntimeServicesLayer(
     ProviderConnectionRepositoryLive,
     ConnectionRateLimitsLive,
     ProviderConnectionLoginRepositoryLive,
-    ThreadProviderBindingRepositoryLive,
-    ProviderThreadSwitchOperationRepositoryLive,
-    ProviderNativeStateDeletionRepositoryLive,
   );
   const providerConnectionLifecycleLayer = ProviderConnectionLifecycleLive.pipe(
     Layer.provideMerge(providerConnectionPersistenceLayer),
@@ -102,21 +94,10 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(providerConnectionPersistenceLayer),
     Layer.provideMerge(runtimeServicesLayer),
   );
-  const providerNativeContinuationVerifierLayer = ProviderNativeContinuationVerifierLive.pipe(
-    Layer.provideMerge(providerConnectionPersistenceLayer),
-    Layer.provideMerge(providerLaunchResolverLayer),
-    Layer.provideMerge(providerNativeStateMaterializerLayer),
-  );
-  const providerNativeStateDeletionCoordinatorLayer =
-    ProviderNativeStateDeletionCoordinatorLive.pipe(
-      Layer.provideMerge(providerConnectionPersistenceLayer),
-      Layer.provideMerge(providerNativeStateMaterializerLayer),
-    );
   const providerThreadSwitchCoordinatorLayer = ProviderThreadSwitchCoordinatorLive.pipe(
     Layer.provideMerge(runtimeServicesLayer),
     Layer.provideMerge(providerConnectionPersistenceLayer),
     Layer.provideMerge(providerTurnSelectionResolverLayer),
-    Layer.provideMerge(providerNativeContinuationVerifierLayer),
     Layer.provideMerge(providerNativeStateMaterializerLayer),
     Layer.provideMerge(providerLaunchResolverLayer),
   );
@@ -195,8 +176,6 @@ export function makeServerRuntimeServicesLayer(
     providerLaunchResolverLayer,
     providerTurnSelectionResolverLayer,
     providerNativeStateMaterializerLayer,
-    providerNativeStateDeletionCoordinatorLayer,
-    providerNativeContinuationVerifierLayer,
     providerThreadSwitchCoordinatorLayer,
     providerHealthLayer,
     orchestrationReactorLayer,

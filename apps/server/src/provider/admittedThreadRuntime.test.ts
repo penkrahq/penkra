@@ -8,21 +8,26 @@ import { dirname, join } from "node:path";
 import {
   ProviderConnectionId,
   ProviderInstallationId,
-  ProviderNativeStateGenerationId,
   ThreadId,
   type ProviderKind,
 } from "@penkra/contracts";
-import { Effect, Option } from "effect";
+import { Effect, ManagedRuntime } from "effect";
 import { afterEach, expect, it, vi } from "vitest";
 
 import { resolveAdmittedThreadRuntime } from "./admittedThreadRuntime.ts";
 import { claudeThreadTranscriptPath } from "./claudeThreadNativeState.ts";
 import { ProviderLaunchResolutionError } from "./Services/ProviderLaunchResolver.ts";
 import type { ResolvedProviderTurnSelection } from "./Services/ProviderTurnSelectionResolver.ts";
-import type { ThreadHarnessStateRecord } from "../persistence/Services/ThreadProviderBindings.ts";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
+import { runMigrations } from "../persistence/Migrations.ts";
+import { createThread } from "../cleanCore/threadStore.ts";
+import { seedThreadFolderFixture } from "../cleanCore/threadFixtures.ts";
 
 const directories: string[] = [];
+const runtimes: Array<ManagedRuntime.ManagedRuntime<SqlClient.SqlClient, unknown>> = [];
 afterEach(async () => {
+  await Promise.all(runtimes.splice(0).map((runtime) => runtime.dispose()));
   await Promise.all(
     directories.splice(0).map((path) => rm(path, { recursive: true, force: true })),
   );
@@ -34,21 +39,30 @@ async function fixture(provider: ProviderKind, providerSessionId: string | null)
   const threadId = ThreadId.makeUnsafe("thread");
   const connectionId = ProviderConnectionId.makeUnsafe("connection");
   const installationId = ProviderInstallationId.makeUnsafe("installation");
-  const nativeStateGenerationId = ProviderNativeStateGenerationId.makeUnsafe("native");
+  const nativeStateId = "native";
   const at = "2026-10-11T00:00:00.000Z";
-  const state: ThreadHarnessStateRecord = {
-    threadId,
-    harness: provider,
-    nativeStateGenerationId,
-    providerSessionId,
-    nativeStateLocatorJson: JSON.stringify(
-      providerSessionId === null ? null : { resume: providerSessionId },
-    ),
-    lastVerifiedResumeAt: null,
-    revision: 2,
-    createdAt: at,
-    updatedAt: at,
-  };
+  const runtime = ManagedRuntime.make(NodeSqliteClient.layerMemory());
+  runtimes.push(runtime);
+  const sql = await runtime.runPromise(
+    Effect.gen(function* () {
+      yield* runMigrations();
+      yield* seedThreadFolderFixture("runtime-folder", "runtime-space");
+      yield* createThread({
+        id: threadId,
+        provider,
+        folderId: "runtime-folder",
+        spaceId: "runtime-space",
+        title: "Runtime",
+        model: "model",
+        runtimeMode: "full-access",
+        createdBy: "user",
+        createdAt: at,
+      });
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`UPDATE threads SET connection_id=${connectionId},native_state_id=${nativeStateId},provider_session_id=${providerSessionId} WHERE id=${threadId}`;
+      return sql;
+    }),
+  );
   const selection: ResolvedProviderTurnSelection = {
     threadId,
     harness: provider,
@@ -56,18 +70,16 @@ async function fixture(provider: ProviderKind, providerSessionId: string | null)
     connectionLabel: "Selected",
     previousConnectionId: connectionId,
     previousModelId: "model",
-    previousInstallationId: installationId,
     installationId,
     internalProviderId: null,
     modelId: "model",
     modelLabel: "Model",
-    stateRevision: 2,
-    bindingRevision: 3,
+    nativeStateId,
+    providerSessionId,
     changed: false,
     requiresNativeStateMaterialization: false,
   };
   const resolveExisting = vi.fn(() => Effect.succeed(selection));
-  const getHarnessState = vi.fn(() => Effect.succeed(Option.some(state)));
   const resolve = vi.fn(() =>
     Effect.succeed({
       binaryPath: "/provider",
@@ -87,18 +99,18 @@ async function fixture(provider: ProviderKind, providerSessionId: string | null)
   };
   const dependencies = {
     stateDir,
-    threadProviderBindings: { getHarnessState },
+    sql,
     providerTurnSelectionResolver: { resolveExisting },
     providerLaunchResolver: { resolve },
   };
-  return { input, dependencies, state, selection, resolve, resolveExisting, getHarnessState };
+  return { input, dependencies, selection, resolve, resolveExisting, sql };
 }
 
 it("starts fresh without materializing when a previously connected Claude thread has no session", async () => {
   const f = await fixture("claudeAgent", null);
   const result = await Effect.runPromise(resolveAdmittedThreadRuntime(f.input, f.dependencies));
   expect(result.resumeCursor).toBeUndefined();
-  expect(result.requiresReconstruction).toBe(false);
+  expect(result.requiresReconstruction).toBe(true);
   expect(f.resolve).toHaveBeenCalledExactlyOnceWith({
     threadId: f.input.threadId,
     connectionId: f.input.connectionId,
@@ -117,20 +129,12 @@ it("requests transcript reconstruction when the Claude conversation is missing",
   expect(result.requiresReconstruction).toBe(true);
 });
 
-it("passes the exact Claude resume cursor and its held task metadata when conversation files exist", async () => {
+it("passes only the canonical Claude session id when conversation files exist", async () => {
   const f = await fixture("claudeAgent", "conversation");
-  const cursor = {
-    resume: "conversation",
-    resumeSessionAt: "assistant-uuid",
-    turnCount: 4,
-    trackedTasks: [{ taskId: "task", status: "running" }],
-  };
-  f.getHarnessState.mockImplementation(() =>
-    Effect.succeed(Option.some({ ...f.state, nativeStateLocatorJson: JSON.stringify(cursor) })),
-  );
+  const cursor = { resume: "conversation" };
   const path = claudeThreadTranscriptPath(
     f.dependencies.stateDir,
-    f.state.nativeStateGenerationId,
+    f.selection.nativeStateId!,
     "conversation",
   );
   await mkdir(dirname(path), { recursive: true });
@@ -154,19 +158,8 @@ it("refuses an unadmitted Connection change before preparing a process", async (
 
 it("refuses native state changed after admission before preparing a process", async () => {
   const f = await fixture("codex", "conversation");
-  f.getHarnessState.mockImplementation(() =>
-    Effect.succeed(Option.some({ ...f.state, revision: 4 })),
-  );
-  await expect(
-    Effect.runPromise(resolveAdmittedThreadRuntime(f.input, f.dependencies)),
-  ).rejects.toMatchObject({ _tag: "ProviderAdapterValidationError" });
-  expect(f.resolve).not.toHaveBeenCalled();
-});
-
-it("refuses malformed resume data before preparing a process", async () => {
-  const f = await fixture("codex", "conversation");
-  f.getHarnessState.mockImplementation(() =>
-    Effect.succeed(Option.some({ ...f.state, nativeStateLocatorJson: "{" })),
+  await Effect.runPromise(
+    f.sql`UPDATE threads SET native_state_id='changed' WHERE id=${f.input.threadId}`,
   );
   await expect(
     Effect.runPromise(resolveAdmittedThreadRuntime(f.input, f.dependencies)),

@@ -48,7 +48,7 @@ it.effect("first send creates one thread and one message, including on retry", (
           dispatchCount += 1;
           assert.equal(cwd, expectedCwd);
           if (cwd === undefined) throw new Error("The turn must have a directory.");
-          assert.equal(command.bindingRevision, 12);
+          assert.equal(command.connectionId, null);
           assert.isTrue(command.commandId.length > 0);
           publisher.publishProvider({
             type: "turn.started",
@@ -65,7 +65,6 @@ it.effect("first send creates one thread and one message, including on retry", (
           return { sequence: 1 };
         }),
       dispatchQueuedTurn: () => Effect.die("no old queue"),
-      recoverOpen: Effect.void,
     };
     const sender = yield* makeThreadSender.pipe(
       Effect.provideService(ServerConfig, {

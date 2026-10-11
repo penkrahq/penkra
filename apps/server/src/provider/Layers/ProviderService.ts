@@ -62,7 +62,10 @@ import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogg
 import { AnalyticsService } from "../../telemetry/Services/AnalyticsService.ts";
 import { PersistenceDecodeError } from "../../persistence/Errors.ts";
 import { ProviderRuntimeEventRepository } from "../../persistence/Services/ProviderRuntimeEvents.ts";
-import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
+import { readThreadNativeState } from "../../cleanCore/threadNativeState.ts";
+import { ThreadPublisher } from "../../cleanCore/ThreadPublisher.ts";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { parseOpenCodeModelSlug } from "../opencodeRuntime.ts";
 import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
 import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
 import {
@@ -2551,13 +2554,14 @@ export function makeDurableProviderServiceLive(options?: ProviderServiceLiveOpti
   );
 }
 
-/** Production managed runtime: durable events plus exact native binding updates. */
+/** Managed runtime: event ingestion and canonical provider-native resume identity. */
 export function makeManagedDurableProviderServiceLive(options?: ProviderServiceLiveOptions) {
   return Layer.effect(
     ProviderService,
     Effect.gen(function* () {
       const runtimeEvents = yield* ProviderRuntimeEventRepository;
-      const bindings = yield* ThreadProviderBindingRepository;
+      const sql = yield* SqlClient.SqlClient;
+      const publisher = yield* ThreadPublisher;
       const launchResolver = yield* ProviderLaunchResolver;
       return yield* makeProviderService({
         ...options,
@@ -2589,55 +2593,39 @@ export function makeManagedDurableProviderServiceLive(options?: ProviderServiceL
             .pipe(Effect.asVoid),
         persistNativeResumeCursor: ({ threadId, provider, resumeCursor }) =>
           Effect.gen(function* () {
-            const state = yield* bindings.getHarnessState(threadId);
+            const state = yield* readThreadNativeState(threadId).pipe(
+              Effect.provideService(SqlClient.SqlClient, sql),
+            );
             if (Option.isNone(state)) return;
-            if (state.value.harness !== provider) {
-              return yield* Effect.fail(new Error("Provider-native cursor harness mismatch."));
-            }
-            const nativeStateLocatorJson = JSON.stringify(resumeCursor);
+            if (state.value.provider !== provider)
+              return yield* Effect.fail(new Error("Provider-native cursor provider mismatch."));
             const providerSessionId = providerNativeResumeIdentity(provider, resumeCursor);
-            if (resumeCursor !== null && providerSessionId === null) {
+            if (resumeCursor !== null && providerSessionId === null)
               return yield* Effect.fail(new Error("Provider-native cursor has no exact identity."));
-            }
-            if (
-              state.value.providerSessionId === providerSessionId &&
-              state.value.nativeStateLocatorJson === nativeStateLocatorJson
-            ) {
-              return;
-            }
-            const updated = yield* bindings.replaceNativeState({
-              threadId,
-              expectedRevision: state.value.revision,
-              nativeStateGenerationId: state.value.nativeStateGenerationId,
-              providerSessionId,
-              nativeStateLocatorJson,
-              verifiedAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-            });
-            if (Option.isNone(updated)) {
-              return yield* Effect.fail(
-                new Error("Provider-native cursor revision changed during persistence."),
-              );
-            }
+            const changed =
+              yield* sql`UPDATE threads SET provider_session_id=${providerSessionId}, updated_at=${new Date().toISOString()}
+              WHERE id=${threadId} AND provider=${provider} AND provider_session_id IS NOT ${providerSessionId} AND deleted_at IS NULL RETURNING id`;
+            if (changed.length !== 0) publisher.publish({ threadId });
           }),
         resolveManagedLaunch: ({ threadId, provider }) =>
           Effect.gen(function* () {
-            const state = yield* bindings.getHarnessState(threadId);
-            const binding = yield* bindings.getRuntimeBinding(threadId);
-            if (Option.isNone(state) || Option.isNone(binding)) {
+            const state = yield* readThreadNativeState(threadId).pipe(
+              Effect.provideService(SqlClient.SqlClient, sql),
+            );
+            if (Option.isNone(state))
+              return yield* Effect.fail(new Error("The thread does not exist."));
+            if (state.value.provider !== provider)
               return yield* Effect.fail(
-                new Error("The thread has no exact managed provider binding."),
+                new Error("The requested provider does not match the thread."),
               );
-            }
-            if (state.value.harness !== provider) {
-              return yield* Effect.fail(
-                new Error("The requested provider does not match the thread harness."),
-              );
-            }
+            const internalProvider =
+              provider === "opencode" ? parseOpenCodeModelSlug(state.value.model) : null;
+            if (provider === "opencode" && internalProvider === null)
+              return yield* Effect.fail(new Error("The OpenCode model has no provider prefix."));
             const launch = yield* launchResolver.resolve({
               threadId,
-              connectionId: binding.value.connectionId,
-              internalProviderId: binding.value.internalProviderId,
+              connectionId: state.value.connectionId,
+              internalProviderId: internalProvider === null ? null : internalProvider.providerID,
             });
             return {
               binaryPath: launch.binaryPath,

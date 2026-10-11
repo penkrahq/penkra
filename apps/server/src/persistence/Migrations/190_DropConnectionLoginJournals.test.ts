@@ -38,7 +38,9 @@ it.effect("drops both unused journals and preserves durable credentials and Conn
     yield* seed;
     const profiles = yield* sql`SELECT * FROM provider_credential_profiles ORDER BY profile_ref`;
     const connections = yield* sql`SELECT * FROM provider_connections ORDER BY connection_id`;
-    assert.deepStrictEqual(yield* runMigrations(), [[190, "DropConnectionLoginJournals"]]);
+    assert.deepStrictEqual(yield* runMigrations({ toMigrationInclusive: 190 }), [
+      [190, "DropConnectionLoginJournals"],
+    ]);
     assert.deepStrictEqual(
       yield* sql`SELECT * FROM provider_credential_profiles ORDER BY profile_ref`,
       profiles,
@@ -53,7 +55,7 @@ it.effect("drops both unused journals and preserves durable credentials and Conn
       [],
     );
     assert.deepStrictEqual(yield* sql`PRAGMA foreign_key_check`, []);
-    assert.deepStrictEqual(yield* runMigrations(), []);
+    assert.deepStrictEqual(yield* runMigrations({ toMigrationInclusive: 190 }), []);
   }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
 );
 

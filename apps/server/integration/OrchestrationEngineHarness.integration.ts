@@ -308,7 +308,6 @@ export const makeOrchestrationIntegrationHarness = (
     } as typeof ProviderLaunchResolver.Service);
     const providerTurnSelectionResolverLayer = Layer.succeed(ProviderTurnSelectionResolver, {
       resolveNewThreadConnection: () => Effect.succeed(INTEGRATION_CONNECTION_ID),
-      resolveInitial: () => Effect.die("Initial binding admission is not used by this harness."),
       resolveExisting: (selection) =>
         Effect.succeed({
           threadId: selection.threadId,
@@ -317,13 +316,12 @@ export const makeOrchestrationIntegrationHarness = (
           connectionLabel: "Integration",
           previousConnectionId: INTEGRATION_CONNECTION_ID,
           previousModelId: selection.modelSelection?.model ?? null,
-          previousInstallationId: INTEGRATION_INSTALLATION_ID,
           installationId: INTEGRATION_INSTALLATION_ID,
           internalProviderId: null,
           modelId: selection.modelSelection?.model ?? "integration-model",
           modelLabel: selection.modelSelection?.model ?? "Integration model",
-          stateRevision: 0,
-          bindingRevision: 0,
+          nativeStateId: null,
+          providerSessionId: null,
           changed: false,
           requiresNativeStateMaterialization: false,
         }),
@@ -382,7 +380,6 @@ export const makeOrchestrationIntegrationHarness = (
                     }),
                 ),
               ),
-          recoverOpen: Effect.void,
         };
       }),
     ).pipe(Layer.provideMerge(runtimeServicesLayer));

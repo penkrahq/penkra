@@ -30,7 +30,6 @@ import {
   ProviderCommandReactor,
   type ProviderCommandReactorShape,
 } from "./orchestration/Services/ProviderCommandReactor";
-import { ProviderThreadSwitchCoordinator } from "./orchestration/Services/ProviderThreadSwitchCoordinator";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { settleRunningThreadsOnStartup } from "./cleanCore/providerStreamConsumer.ts";
 import { ThreadPublisher } from "./cleanCore/ThreadPublisher.ts";
@@ -64,7 +63,6 @@ export interface ServerShape {
     | OrchestrationEngineService
     | OrchestrationReactor
     | ProviderCommandReactor
-    | ProviderThreadSwitchCoordinator
     | ProjectionSnapshotQuery
     | ProviderSessionReaper
     | ThreadPublisher
@@ -151,7 +149,6 @@ export const createEffectServer = Effect.fn(function* (
   const orchestrationEngine = yield* OrchestrationEngineService;
   const orchestrationReactor = yield* OrchestrationReactor;
   const providerCommandReactor = yield* ProviderCommandReactor;
-  const providerThreadSwitchCoordinator = yield* ProviderThreadSwitchCoordinator;
   const providerService = yield* ProviderService;
   const providerSessionReaper = yield* ProviderSessionReaper;
   const threadPublisher = yield* ThreadPublisher;
@@ -268,7 +265,6 @@ export const createEffectServer = Effect.fn(function* (
   // readiness path.
   yield* Effect.gen(function* () {
     yield* orchestrationReactor.reconcileSettledOpenTurns;
-    yield* providerThreadSwitchCoordinator.recoverOpen;
   }).pipe(
     Effect.catchCause((cause) =>
       Effect.logWarning("post-ready restart recovery failed", { cause }),

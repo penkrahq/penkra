@@ -28,3 +28,15 @@ export function providerNativeResumeIdentity(
   }
   return null;
 }
+
+/** Resume data is derived from the thread's single provider-native identity. */
+export function providerNativeResumeCursor(provider: ProviderKind, providerSessionId: string) {
+  switch (provider) {
+    case "codex":
+      return { threadId: providerSessionId };
+    case "claudeAgent":
+      return { resume: providerSessionId };
+    case "opencode":
+      return { openCodeSessionId: providerSessionId };
+  }
+}

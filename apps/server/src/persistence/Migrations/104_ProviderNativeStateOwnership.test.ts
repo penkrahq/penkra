@@ -1,17 +1,12 @@
-import { ProviderNativeStateGenerationId, ThreadId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
-import { Effect, Layer } from "effect";
+import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
-import { ProviderNativeStateDeletionRepositoryLive } from "../Layers/ProviderNativeStateDeletions.ts";
-import { ProviderNativeStateDeletionRepository } from "../Services/ProviderNativeStateDeletions.ts";
 
 const sqlLayer = NodeSqliteClient.layerMemory();
-const layer = it.layer(
-  Layer.mergeAll(sqlLayer, ProviderNativeStateDeletionRepositoryLive.pipe(Layer.provide(sqlLayer))),
-);
+const layer = it.layer(sqlLayer);
 
 layer("104_ProviderNativeStateOwnership", (it) => {
   it.effect("queues every generation owned by a permanently deleted thread", () =>
@@ -73,21 +68,6 @@ layer("104_ProviderNativeStateOwnership", (it) => {
         { generationId: "cleanup-current", ownerThreadId: "cleanup-thread", state: "pending" },
         { generationId: "cleanup-retained", ownerThreadId: "cleanup-thread", state: "pending" },
       ]);
-
-      const deletions = yield* ProviderNativeStateDeletionRepository;
-      for (const generationId of ["cleanup-current", "cleanup-retained"] as const) {
-        const id = ProviderNativeStateGenerationId.makeUnsafe(generationId);
-        yield* deletions.markDeleting(id);
-        yield* deletions.finalize({
-          generationId: id,
-          ownerThreadId: ThreadId.makeUnsafe("cleanup-thread"),
-        });
-      }
-      const remaining = yield* sql<{ readonly count: number }>`
-        SELECT count(*) AS count FROM provider_native_state_generations
-        WHERE owner_thread_id = 'cleanup-thread'
-      `;
-      assert.deepStrictEqual(remaining, [{ count: 0 }]);
     }),
   );
 });
