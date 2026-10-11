@@ -1,5 +1,5 @@
 // FILE: ProviderNativeStateMaterializer.ts
-// Purpose: Atomically clone and clean exact native provider state generations.
+// Purpose: Atomically clone and clean exact native provider state folders.
 
 import { type ProviderKind } from "@penkra/contracts";
 import { Data, Effect, ServiceMap } from "effect";
@@ -16,8 +16,8 @@ export interface ProviderNativeStateMaterializerShape {
   readonly clone: (input: {
     readonly harness: ProviderKind;
     readonly providerSessionId: string | null;
-    readonly sourceGenerationId: string | null;
-    readonly targetGenerationId: string;
+    readonly sourceNativeStateId: string | null;
+    readonly targetNativeStateId: string;
   }) => Effect.Effect<
     { readonly root: string; readonly providerSessionId: string | null },
     ProviderNativeStateMaterializationError

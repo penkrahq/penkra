@@ -246,9 +246,8 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
       );
       if (Option.isNone(state))
         return yield* fail("The thread has not started a provider harness.");
-      const nativeStateGenerationId = input.nativeStateGenerationId ?? state.value.nativeStateId;
-      if (nativeStateGenerationId === null)
-        return yield* fail("The thread has no native-state folder.");
+      const nativeStateId = state.value.nativeStateId;
+      if (nativeStateId === null) return yield* fail("The thread has no native-state folder.");
       const activeInstallation = yield* installations.getActiveRecord(state.value.provider).pipe(
         Effect.mapError(
           (cause) =>
@@ -265,7 +264,7 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
         connectionId: input.connectionId,
         installationId: activeInstallation.value.id,
         internalProviderId: input.internalProviderId,
-        nativeStateIdentity: nativeStateGenerationId,
+        nativeStateIdentity: nativeStateId,
         claudeThreadId: input.threadId,
       });
       return launch;

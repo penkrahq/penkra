@@ -4,7 +4,6 @@ import {
   type ProviderKind,
   ProviderConnectionId,
   ProviderInstallationId,
-  ProviderNativeStateGenerationId,
   ThreadId,
 } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
@@ -477,8 +476,8 @@ it.effect(
       const config = yield* ServerConfig;
       const resolver = yield* ProviderLaunchResolver;
       const materializer = yield* ProviderNativeStateMaterializer;
-      const source = ProviderNativeStateGenerationId.makeUnsafe("native-claude-launch");
-      const target = ProviderNativeStateGenerationId.makeUnsafe("native-claude-account-switch");
+      const source = "native-claude-launch";
+      const target = "native-claude-account-switch";
       const transcript = claudeThreadTranscriptPath(config.stateDir, source, claudeSessionId);
       const text = '{"type":"user","message":{"content":"exact source conversation"}}\n';
       yield* resolver.resolve({ threadId, connectionId, internalProviderId: null });
@@ -489,14 +488,15 @@ it.effect(
       yield* materializer.clone({
         harness: "claudeAgent",
         providerSessionId: claudeSessionId,
-        sourceGenerationId: source,
-        targetGenerationId: target,
+        sourceNativeStateId: source,
+        targetNativeStateId: target,
       });
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`UPDATE threads SET connection_id=${claudeOtherConnectionId}, native_state_id=${target} WHERE id=${threadId}`;
       const launch = yield* resolver.resolve({
         threadId,
         connectionId: claudeOtherConnectionId,
         internalProviderId: null,
-        nativeStateGenerationId: target,
       });
       const link = Path.join(
         launch.profileRoot,

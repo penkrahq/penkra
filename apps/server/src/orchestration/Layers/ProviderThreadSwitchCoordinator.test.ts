@@ -401,7 +401,7 @@ layer("canonical turn selection", (it) => {
       const f = yield* fixture("opencode", { running: true });
       f.settleWith("settled-native");
       yield* f.send({ dispatchMode: "steer" });
-      assert.strictEqual(f.clones[0]?.sourceGenerationId, "settled-native");
+      assert.strictEqual(f.clones[0]?.sourceNativeStateId, "settled-native");
       assert.deepStrictEqual(f.order, ["interrupt", "stop", "copy", "dispatch"]);
     }),
   );

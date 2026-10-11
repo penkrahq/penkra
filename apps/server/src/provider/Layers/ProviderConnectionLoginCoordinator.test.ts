@@ -1,12 +1,7 @@
 import { FolderId } from "@penkra/contracts";
 import { createThreadFixture } from "../../cleanCore/threadFixtures.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import {
-  ProviderConnectionId,
-  ProviderInstallationId,
-  ProviderNativeStateGenerationId,
-  ThreadId,
-} from "@penkra/contracts";
+import { ProviderConnectionId, ProviderInstallationId, ThreadId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Deferred, Effect, Layer, Option, PubSub } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -691,24 +686,22 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
         creator: { kind: "user" },
         createdAt: timestamp,
       });
-      const generationId = ProviderNativeStateGenerationId.makeUnsafe(
-        "legacy-disconnect-generation",
-      );
-      yield* sql`UPDATE threads SET native_state_id = ${generationId}, provider_session_id = ${sessionId} WHERE id = ${threadId}`;
+      const nativeStateId = "legacy-disconnect-native-state";
+      yield* sql`UPDATE threads SET native_state_id = ${nativeStateId}, provider_session_id = ${sessionId} WHERE id = ${threadId}`;
       yield* coordinator.terminateProfile({
         connectionId: completed.connectionId,
         reason: "disconnected",
       });
       assert.isFalse(
         yield* Effect.promise(() =>
-          access(claudeThreadTranscriptPath(config.stateDir, generationId, sessionId)).then(
+          access(claudeThreadTranscriptPath(config.stateDir, nativeStateId, sessionId)).then(
             () => true,
             () => false,
           ),
         ),
       );
       assert.deepStrictEqual(
-        yield* Effect.promise(() => readClaudeThreadAccount(config.stateDir, generationId)),
+        yield* Effect.promise(() => readClaudeThreadAccount(config.stateDir, nativeStateId)),
         { authenticationMethodId: "claude-account", providerIdentityId: "legacy@example.com" },
       );
       assert.isTrue(
