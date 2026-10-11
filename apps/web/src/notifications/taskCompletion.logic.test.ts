@@ -805,9 +805,9 @@ describe("collectInputNeededThreadCandidates", () => {
     const activities = [
       {
         id: EventId.makeUnsafe("activity-approval-1"),
-        tone: "approval" as const,
-        kind: "approval.requested",
-        summary: "Command approval requested",
+        tone: "info" as const,
+        kind: "user-input.requested",
+        summary: "User input requested",
         payload: {
           requestId: "approval-request-1",
           requestKind: "command",
@@ -827,23 +827,6 @@ describe("collectInputNeededThreadCandidates", () => {
 });
 
 describe("buildInputNeededCopy", () => {
-  it("describes approvals succinctly", () => {
-    expect(
-      buildInputNeededCopy({
-        kind: "approval",
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        folderId: FolderId.makeUnsafe("project-1"),
-        title: "Polish notifications",
-        createdAt: "2026-04-05T10:00:04.000Z",
-        requestId: "approval-request-1",
-        requestKind: "command",
-      }),
-    ).toEqual({
-      title: "Input needed",
-      body: "Polish notifications: Command approval requested.",
-    });
-  });
-
   it("describes user-input requests succinctly", () => {
     expect(
       buildInputNeededCopy({

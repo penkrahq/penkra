@@ -13,8 +13,6 @@ export interface PendingThreadRequestIds {
   userInputRequestIds: ReadonlyArray<string>;
 }
 
-export type PendingThreadRequestKind = "approval" | "user-input";
-export type ApprovalRequestKind = "command" | "file-read" | "file-change";
 export const PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE = "PENDING_INTERACTION_NOT_FOUND" as const;
 
 export function pendingRequestInstanceKey(requestId: string, lifecycleGeneration?: string): string {
@@ -43,23 +41,6 @@ function compareActivitiesByOrder(
 
 function toPayloadRecord(payload: unknown): Record<string, unknown> | null {
   return payload && typeof payload === "object" ? (payload as Record<string, unknown>) : null;
-}
-
-export function approvalRequestKindFromRequestType(
-  requestType: unknown,
-): ApprovalRequestKind | null {
-  switch (requestType) {
-    case "command_execution_approval":
-    case "exec_command_approval":
-      return "command";
-    case "file_read_approval":
-      return "file-read";
-    case "file_change_approval":
-    case "apply_patch_approval":
-      return "file-change";
-    default:
-      return null;
-  }
 }
 
 export function isPendingInteractionNotFoundFailure(payload: unknown): boolean {
@@ -94,13 +75,6 @@ function replaceOpenRequest(
 ): void {
   deleteOpenRequest(openRequests, requestId, undefined);
   openRequests.set(pendingRequestInstanceKey(requestId, lifecycleGeneration), requestId);
-}
-
-export function buildStalePendingRequestFailureDetail(
-  requestKind: PendingThreadRequestKind,
-  requestId: string,
-): string {
-  return `Stale pending ${requestKind} request: ${requestId}. Provider callback state does not survive app restarts or recovered sessions. Restart the turn to continue.`;
 }
 
 function hasStructuredUserInputQuestions(payload: Record<string, unknown> | null): boolean {

@@ -55,6 +55,7 @@ const makeProjectionPendingInteractionRepository = Effect.gen(function* () {
         resolved_at AS "resolvedAt"
       FROM projection_pending_interactions
       WHERE thread_id = ${threadId}
+        AND interaction_kind = 'userInput'
       ORDER BY created_at ASC, interaction_kind ASC, request_id ASC
     `,
   });
@@ -97,7 +98,7 @@ const makeProjectionPendingInteractionRepository = Effect.gen(function* () {
         created_at AS "createdAt",
         resolved_at AS "resolvedAt"
       FROM projection_pending_interactions
-      WHERE status <> 'confirmed'
+      WHERE interaction_kind = 'userInput' AND status <> 'confirmed'
       ORDER BY created_at ASC, thread_id ASC, interaction_kind ASC, request_id ASC
     `,
   });

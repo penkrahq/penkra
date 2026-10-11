@@ -429,17 +429,6 @@ export function runtimeTurnState(
     : "completed";
 }
 
-function requestKindFromCanonicalRequestType(
-  requestType: string | undefined,
-): "command" | "file-read" | "file-change" | undefined {
-  if (requestType === "command_execution_approval" || requestType === "exec_command_approval")
-    return "command";
-  if (requestType === "file_read_approval") return "file-read";
-  return requestType === "file_change_approval" || requestType === "apply_patch_approval"
-    ? "file-change"
-    : undefined;
-}
-
 export function projectProviderRuntimeActivities(
   event: ProviderRuntimeEvent,
   identity?: { readonly turnId: TurnId | null },
@@ -515,51 +504,6 @@ export function projectProviderRuntimeActivities(
           kind: "context-window.configured",
           summary: "Context window configured",
           payload,
-          ...projectedTurn,
-          ...maybeSequence,
-        },
-      ];
-    }
-
-    case "request.opened":
-    case "request.resolved": {
-      if (event.payload.requestType === "tool_user_input") {
-        return [];
-      }
-      const requestKind = requestKindFromCanonicalRequestType(event.payload.requestType);
-      const requestId = nonEmptyTrimmed(event.requestId);
-      return [
-        {
-          id: event.eventId,
-          createdAt: event.createdAt,
-          tone: "approval",
-          kind: event.type === "request.opened" ? "approval.requested" : "approval.resolved",
-          summary:
-            event.type === "request.resolved"
-              ? "Approval resolved"
-              : requestKind === "command"
-                ? "Command approval requested"
-                : requestKind === "file-read"
-                  ? "File-read approval requested"
-                  : requestKind === "file-change"
-                    ? "File-change approval requested"
-                    : "Approval requested",
-          payload: toActivityPayload({
-            // Omitted, never `undefined`: `Schema.Json` rejects a member that is
-            // explicitly present and undefined.
-            ...(requestId ? { requestId: requestId } : {}),
-            ...(event.lifecycleGeneration !== undefined
-              ? { lifecycleGeneration: event.lifecycleGeneration }
-              : {}),
-            ...(requestKind ? { requestKind } : {}),
-            requestType: event.payload.requestType,
-            ...(event.type === "request.opened" && event.payload.detail
-              ? { detail: truncateDetail(event.payload.detail) }
-              : {}),
-            ...(event.type === "request.resolved" && event.payload.decision
-              ? { decision: event.payload.decision }
-              : {}),
-          }),
           ...projectedTurn,
           ...maybeSequence,
         },

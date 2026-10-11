@@ -1109,7 +1109,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         ) AS ranked
         WHERE activity_rank <= ${MAX_SNAPSHOT_THREAD_ACTIVITIES}
           OR (
-            kind IN ('approval.requested', 'user-input.requested')
+            kind = 'user-input.requested'
             AND json_extract(payload_json, '$.requestId') IS NOT NULL
             AND NOT EXISTS (
               SELECT 1
@@ -1118,14 +1118,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 AND json_extract(later.payload_json, '$.requestId') =
                   json_extract(ranked.payload_json, '$.requestId')
                 AND (
-                  (ranked.kind = 'approval.requested' AND later.kind = 'approval.resolved')
-                  OR (
-                    ranked.kind = 'approval.requested'
-                    AND later.kind = 'provider.approval.respond.failed'
-                    AND json_extract(later.payload_json, '$.failureCode') =
-                      'PENDING_INTERACTION_NOT_FOUND'
-                  )
-                  OR (ranked.kind = 'user-input.requested' AND later.kind = 'user-input.resolved')
+                  (ranked.kind = 'user-input.requested' AND later.kind = 'user-input.resolved')
                   OR (
                     ranked.kind = 'user-input.requested'
                     AND later.kind = 'provider.user-input.respond.failed'
@@ -1181,7 +1174,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         created_at AS "createdAt",
         resolved_at AS "resolvedAt"
       FROM projection_pending_interactions
-      WHERE status <> 'confirmed'
+      WHERE interaction_kind = 'userInput' AND status <> 'confirmed'
       ORDER BY thread_id ASC, created_at ASC, interaction_kind ASC, request_id ASC
     `,
   });
@@ -1837,7 +1830,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               )
             )
             OR (
-              kind IN ('approval.requested', 'user-input.requested')
+              kind = 'user-input.requested'
               AND json_extract(payload_json, '$.requestId') IS NOT NULL
               AND NOT EXISTS (
                 SELECT 1
@@ -1846,14 +1839,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   AND json_extract(later.payload_json, '$.requestId') =
                     json_extract(ranked.payload_json, '$.requestId')
                   AND (
-                    (ranked.kind = 'approval.requested' AND later.kind = 'approval.resolved')
-                    OR (
-                      ranked.kind = 'approval.requested'
-                      AND later.kind = 'provider.approval.respond.failed'
-                      AND json_extract(later.payload_json, '$.failureCode') =
-                        'PENDING_INTERACTION_NOT_FOUND'
-                    )
-                    OR (ranked.kind = 'user-input.requested' AND later.kind = 'user-input.resolved')
+                    (ranked.kind = 'user-input.requested' AND later.kind = 'user-input.resolved')
                     OR (
                       ranked.kind = 'user-input.requested'
                       AND later.kind = 'provider.user-input.respond.failed'
@@ -1910,7 +1896,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         resolved_at AS "resolvedAt"
       FROM projection_pending_interactions
       WHERE thread_id = ${threadId}
-        AND status <> 'confirmed'
+        AND interaction_kind = 'userInput' AND status <> 'confirmed'
       ORDER BY created_at ASC, interaction_kind ASC, request_id ASC
     `,
   });

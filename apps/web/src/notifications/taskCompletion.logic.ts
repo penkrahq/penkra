@@ -22,13 +22,12 @@ export interface CompletedThreadCandidate {
 }
 
 export interface ThreadAttentionCandidate {
-  kind: "approval" | "user-input";
+  kind: "user-input";
   threadId: Thread["id"];
   folderId: Thread["folderId"];
   title: string;
   requestId: string;
   createdAt: string;
-  requestKind?: "command" | "file-read" | "file-change";
   summary?: string;
 }
 
@@ -626,17 +625,6 @@ export function collectCompletedTerminalCandidates(
   return candidates;
 }
 
-function approvalSummary(requestKind: "command" | "file-read" | "file-change"): string {
-  switch (requestKind) {
-    case "command":
-      return "Command approval requested.";
-    case "file-read":
-      return "File-read approval requested.";
-    case "file-change":
-      return "File-change approval requested.";
-  }
-}
-
 // Compare consecutive activity snapshots and emit only fresh input-needed transitions.
 export function collectThreadAttentionCandidates(
   previousThreads: readonly Thread[],
@@ -729,11 +717,7 @@ export function buildThreadAttentionCopy(candidate: ThreadAttentionCandidate): {
 } {
   const normalizedTitle = candidate.title.trim();
   const threadLabel = normalizedTitle.length > 0 ? normalizedTitle : "Untitled thread";
-  const summary =
-    candidate.summary ??
-    (candidate.kind === "approval"
-      ? approvalSummary(candidate.requestKind ?? "command")
-      : "User input requested.");
+  const summary = candidate.summary ?? "User input requested.";
 
   return {
     title: "Input needed",

@@ -58,9 +58,6 @@ export type ApplyOrchestrationEventOptions = {
 type ReadModelThread = import("@penkra/contracts").OrchestrationReadModel["threads"][number];
 
 const THREAD_SUMMARY_ACTIVITY_KINDS = new Set([
-  "approval.requested",
-  "approval.resolved",
-  "provider.approval.respond.failed",
   "user-input.requested",
   "user-input.resolved",
   "provider.user-input.respond.failed",
@@ -92,15 +89,11 @@ function reconcilePendingInteractionsFromActivity(
 ): Thread["pendingInteractions"] {
   const activity = event.payload.activity;
   const interactionKind =
-    activity.kind === "approval.requested" ||
-    activity.kind === "approval.resolved" ||
-    activity.kind === "provider.approval.respond.failed"
-      ? ("approval" as const)
-      : activity.kind === "user-input.requested" ||
-          activity.kind === "user-input.resolved" ||
-          activity.kind === "provider.user-input.respond.failed"
-        ? ("userInput" as const)
-        : null;
+    activity.kind === "user-input.requested" ||
+    activity.kind === "user-input.resolved" ||
+    activity.kind === "provider.user-input.respond.failed"
+      ? ("userInput" as const)
+      : null;
   if (interactionKind === null) {
     return pendingInteractions;
   }
@@ -119,15 +112,12 @@ function reconcilePendingInteractionsFromActivity(
     interaction.requestId === requestId &&
     (lifecycleGeneration === null || interaction.lifecycleGeneration === lifecycleGeneration);
 
-  if (activity.kind === "approval.resolved" || activity.kind === "user-input.resolved") {
+  if (activity.kind === "user-input.resolved") {
     const next = existing.filter((interaction) => !matchesIdentity(interaction));
     return next.length === existing.length ? pendingInteractions : next;
   }
 
-  if (
-    activity.kind === "provider.approval.respond.failed" ||
-    activity.kind === "provider.user-input.respond.failed"
-  ) {
+  if (activity.kind === "provider.user-input.respond.failed") {
     const responseCommandId = payload?.responseCommandId;
     if (typeof responseCommandId !== "string" || responseCommandId.length === 0) {
       return pendingInteractions;

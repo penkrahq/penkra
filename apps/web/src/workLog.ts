@@ -14,10 +14,6 @@ import {
   decodeSubagentReceiverAgents,
   decodeSubagentReceiverThreadIds,
 } from "@penkra/shared/subagents";
-import {
-  approvalRequestKindFromRequestType,
-  type ApprovalRequestKind,
-} from "@penkra/shared/threadSummary";
 import { summarizeToolRawOutput } from "@penkra/shared/toolOutputSummary";
 import { pluralize } from "@penkra/shared/text";
 import { PROVIDER_DESCRIPTORS } from "@penkra/shared/providerMetadata";
@@ -37,7 +33,7 @@ import {
 } from "./lib/toolCallDetails";
 import type { ChatMessage } from "./types";
 
-export type WorkLogRequestKind = ApprovalRequestKind;
+export type WorkLogRequestKind = "command" | "file-read" | "file-change";
 
 const THREAD_SELECTION_ACTIVITY_KINDS = new Set(["connection-changed", "model-changed"]);
 
@@ -1933,7 +1929,7 @@ function extractWorkLogRequestKind(
   ) {
     return payload.requestKind;
   }
-  return approvalRequestKindFromRequestType(payload?.requestType) ?? undefined;
+  return undefined;
 }
 
 function pushChangedFile(target: string[], seen: Set<string>, value: unknown) {

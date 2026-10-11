@@ -77,9 +77,11 @@ describe("thread shell event relevance", () => {
   });
 
   it("keeps events that update shell fields or summary state", () => {
-    expect(shouldPublishThreadShellForEvent(activityEvent("approval.requested"))).toBe(true);
-    expect(shouldRefreshThreadShellSummary(activityEvent("approval.requested"))).toBe(true);
-    expect(shouldApplyDeferredThreadShellSummary(activityEvent("approval.requested"))).toBe(false);
+    expect(shouldPublishThreadShellForEvent(activityEvent("user-input.requested"))).toBe(true);
+    expect(shouldRefreshThreadShellSummary(activityEvent("user-input.requested"))).toBe(true);
+    expect(shouldApplyDeferredThreadShellSummary(activityEvent("user-input.requested"))).toBe(
+      false,
+    );
     expect(shouldPublishThreadShellForEvent(messageEvent({ role: "user", streaming: false }))).toBe(
       true,
     );

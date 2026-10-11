@@ -147,8 +147,8 @@ layer("ProviderConnectionRepository", (it) => {
       `;
       yield* sql`
         INSERT INTO thread_runtime_bindings (
-          thread_id, connection_id, installation_id, binding_revision, created_at, updated_at
-        ) VALUES ('identity-thread', ${duplicateId}, 'identity-installation', 0,
+          thread_id, connection_id, installation_id, created_at, updated_at
+        ) VALUES ('identity-thread', ${duplicateId}, 'identity-installation',
           '2026-08-08T00:00:00.000Z', '2026-08-08T00:00:00.000Z')
       `;
       const reactivated = yield* repository.reactivateIdentity({

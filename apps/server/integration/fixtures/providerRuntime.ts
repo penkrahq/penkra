@@ -110,7 +110,7 @@ export const codexTurnToolFixture = [
   },
 ] satisfies ReadonlyArray<LegacyProviderRuntimeEvent>;
 
-export const codexTurnApprovalFixture = [
+export const codexTurnContinuationFixture = [
   {
     type: "turn.started",
     ...baseEvent("evt-21", "2026-02-23T00:02:00.000Z"),
@@ -119,35 +119,13 @@ export const codexTurnApprovalFixture = [
     payload: {},
   },
   {
-    type: "request.opened",
-    ...baseEvent("evt-22", "2026-02-23T00:02:00.100Z"),
-    threadId: THREAD_ID,
-    turnId: TURN_ID,
-    requestId: REQUEST_ID,
-    payload: {
-      requestType: "command_execution_approval",
-      detail: "Please approve command",
-    },
-  },
-  {
-    type: "request.resolved",
-    ...baseEvent("evt-23", "2026-02-23T00:02:00.200Z"),
-    threadId: THREAD_ID,
-    turnId: TURN_ID,
-    requestId: REQUEST_ID,
-    payload: {
-      requestType: "command_execution_approval",
-      decision: "accept",
-    },
-  },
-  {
     type: "content.delta",
     ...baseEvent("evt-24", "2026-02-23T00:02:00.300Z"),
     threadId: THREAD_ID,
     turnId: TURN_ID,
     payload: {
       streamKind: "assistant_text",
-      delta: "Approval received and command executed.\n",
+      delta: "Continuation completed.\n",
     },
   },
   {

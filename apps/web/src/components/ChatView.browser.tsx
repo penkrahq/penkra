@@ -3300,18 +3300,18 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await waitForLayout();
       expect(getScrollContainerDistanceFromBottom(scrollContainer)).toBeGreaterThan(0);
 
-      // Activity-only changes (approval and tool rows) must not drag a reader
+      // Activity-only changes (tool rows) must not drag a reader
       // who has scrolled up back to the live edge.
       syncActiveThread((thread) => ({
         ...thread,
         activities: [
           ...thread.activities,
           {
-            id: EventId.makeUnsafe("activity-auto-follow-approval"),
+            id: EventId.makeUnsafe("activity-auto-follow-tool"),
             createdAt: isoAt(1_204),
-            kind: "approval.requested",
-            summary: "Command approval requested",
-            tone: "approval",
+            kind: "tool.progress",
+            summary: "Tool in progress",
+            tone: "tool",
             turnId: activeTurnId,
             payload: {
               requestId: "request-auto-follow",

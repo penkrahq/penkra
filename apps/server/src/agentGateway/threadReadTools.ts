@@ -191,7 +191,6 @@ const findLiteralRanges = (text: string, queries: ReadonlyArray<string>) => {
 const AGENT_TRANSCRIPT_INCLUDES: ReadonlyArray<AgentTranscriptInclude> = [
   "messages",
   "tools",
-  "approvals",
   "user-input",
   "tasks",
   "compaction",
@@ -845,7 +844,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           include: {
             type: "string",
             description:
-              '"all" (default) or a comma-separated subset of messages, tools, approvals, user-input, tasks, compaction, turns.',
+              '"all" (default) or a comma-separated subset of messages, tools, user-input, tasks, compaction, turns.',
           },
           limit: {
             type: "number",

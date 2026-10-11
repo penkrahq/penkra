@@ -258,9 +258,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             'activity-2',
             'thread-1',
             'turn-1',
-            'approval',
-            'approval.requested',
-            'Command approval requested',
+            'info',
+            'user-input.requested',
+            'User input requested',
             '{"requestId":"approval-1","requestKind":"command"}',
             '2026-02-24T00:00:06.500Z'
           ),
@@ -464,9 +464,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             },
             {
               id: asEventId("activity-2"),
-              tone: "approval",
-              kind: "approval.requested",
-              summary: "Command approval requested",
+              tone: "info",
+              kind: "user-input.requested",
+              summary: "User input requested",
               payload: { requestId: "approval-1", requestKind: "command" },
               turnId: asTurnId("turn-1"),
               createdAt: "2026-02-24T00:00:06.500Z",
@@ -551,12 +551,12 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           created_at
         )
         VALUES (
-          'approval-old',
+          'question-old',
           'thread-activity-cap',
           NULL,
           'approval',
-          'approval.requested',
-          'Command approval requested',
+          'user-input.requested',
+          'User input requested',
           '{"requestId":"approval-1","requestKind":"command"}',
           0,
           '2026-02-24T00:00:00.000Z'
@@ -593,7 +593,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       const snapshot = yield* snapshotQuery.getSnapshot();
       const snapshotActivities = snapshot.threads[0]?.activities ?? [];
       assert.equal(snapshotActivities.length, 501);
-      assert.equal(snapshotActivities[0]?.id, asEventId("approval-old"));
+      assert.equal(snapshotActivities[0]?.id, asEventId("question-old"));
       assert.equal(snapshotActivities[1]?.id, asEventId("activity-5"));
       assert.equal(snapshotActivities.at(-1)?.id, asEventId("activity-504"));
 
@@ -604,7 +604,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       assert.isTrue(Option.isSome(detail));
       const detailActivities = Option.isSome(detail) ? detail.value.activities : [];
       assert.equal(detailActivities.length, 506);
-      assert.equal(detailActivities[0]?.id, asEventId("approval-old"));
+      assert.equal(detailActivities[0]?.id, asEventId("question-old"));
       assert.equal(detailActivities[1]?.id, asEventId("activity-0"));
       assert.equal(detailActivities.at(-1)?.id, asEventId("activity-504"));
 
@@ -626,23 +626,23 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         )
         VALUES
           (
-            'approval-old',
+            'question-old',
             'thread-activity-cap',
             NULL,
-            'approval',
-            'approval.requested',
-            'Command approval requested',
+            'info',
+            'user-input.requested',
+            'User input requested',
             '{"requestId":"approval-1","requestKind":"command"}',
             0,
             '2026-02-24T00:00:00.000Z'
           ),
           (
-            'approval-resolved-old',
+            'question-resolved-old',
             'thread-activity-cap',
             NULL,
             'approval',
-            'approval.resolved',
-            'Command approval resolved',
+            'user-input.resolved',
+            'User input resolved',
             '{"requestId":"approval-1","decision":"accept"}',
             1,
             '2026-02-24T00:00:00.000Z'
@@ -690,8 +690,8 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         ? resolvedDetail.value.activities
         : [];
       assert.equal(resolvedDetailActivities.length, 507);
-      assert.equal(resolvedDetailActivities[0]?.id, asEventId("approval-old"));
-      assert.equal(resolvedDetailActivities[1]?.id, asEventId("approval-resolved-old"));
+      assert.equal(resolvedDetailActivities[0]?.id, asEventId("question-old"));
+      assert.equal(resolvedDetailActivities[1]?.id, asEventId("question-resolved-old"));
       assert.equal(resolvedDetailActivities.at(-1)?.id, asEventId("resolved-activity-504"));
 
       // Canonical notices have no legacy sequence. A newer canonical resolution
@@ -707,8 +707,8 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           activity_id, thread_id, turn_id, tone, kind, summary,
           payload_json, sequence, created_at
         ) VALUES (
-          'approval-old', 'thread-activity-cap', NULL, 'approval',
-          'approval.requested', 'Command approval requested',
+          'question-old', 'thread-activity-cap', NULL, 'approval',
+          'user-input.requested', 'User input requested',
           '{"requestId":"approval-1","requestKind":"command"}', 0,
           '2026-02-24T00:00:00.000Z'
         )
@@ -730,8 +730,8 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         INSERT INTO notices (
           notice_id, thread_id, turn_id, kind, tone, summary, detail_json, created_at
         ) VALUES (
-          'approval-resolved-canonical', 'thread-activity-cap', NULL,
-          'approval.resolved', 'info', 'Command approval resolved',
+          'question-resolved-canonical', 'thread-activity-cap', NULL,
+          'user-input.resolved', 'info', 'User input resolved',
           '{"requestId":"approval-1","decision":"accept"}',
           '2026-02-24T00:00:01.000Z'
         )
@@ -746,10 +746,10 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       );
       assert.equal(
         canonicalResolvedActivities.at(-1)?.id,
-        asEventId("approval-resolved-canonical"),
+        asEventId("question-resolved-canonical"),
       );
       assert.isFalse(
-        canonicalResolvedActivities.some((activity) => activity.id === asEventId("approval-old")),
+        canonicalResolvedActivities.some((activity) => activity.id === asEventId("question-old")),
       );
     }),
   );
@@ -1114,7 +1114,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           ),
           (
             'approval', 'request-confirmed', 'thread-causal-message-snapshot', NULL,
-            'generation-current', 'confirmed', 'command-approval',
+            'generation-current', 'pending', 'command-approval',
             '2026-07-14T12:12:00.000Z', '2026-07-14T12:11:30.000Z',
             '2026-07-14T12:12:01.000Z'
           )

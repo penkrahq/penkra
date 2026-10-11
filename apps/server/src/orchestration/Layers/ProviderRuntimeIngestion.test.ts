@@ -532,22 +532,20 @@ describe("ProviderRuntimeIngestion", () => {
 
   it.each(
     PROVIDER_KINDS.flatMap((provider) =>
-      (["question", "approval"] as const).flatMap((kind) =>
-        (
-          [
-            "retired",
-            "live",
-            "current-generation",
-            "successor-generation",
-            "successor-reused-request",
-            "retired-projection-live-owner",
-          ] as const
-        ).map((state) => ({ provider, kind, state })),
-      ),
+      (
+        [
+          "retired",
+          "live",
+          "current-generation",
+          "successor-generation",
+          "successor-reused-request",
+          "retired-projection-live-owner",
+        ] as const
+      ).map((state) => ({ provider, state })),
     ),
   )(
-    "replays $provider $kind with owner=$state without reviving expired requests",
-    async ({ provider, kind, state }) => {
+    "replays $provider question with owner=$state without reviving expired requests",
+    async ({ provider, state }) => {
       const retired = state === "retired" || state === "retired-projection-live-owner";
       const successor = state === "successor-generation" || state === "successor-reused-request";
       const expires = state === "retired" || successor;
@@ -557,29 +555,22 @@ describe("ProviderRuntimeIngestion", () => {
       const restartedAt = "2026-09-12T04:21:19.523Z";
       await Effect.runPromise(
         harness.runtimeEventRepository.append({
-          ...(kind === "question"
-            ? {
-                type: "user-input.requested" as const,
-                payload: {
-                  questions: [
-                    {
-                      id: "format",
-                      header: "Format",
-                      question: "Which format?",
-                      options: [
-                        {
-                          label: "Guide",
-                          description: "Write a practical guide.",
-                        },
-                      ],
-                    },
-                  ],
-                },
-              }
-            : {
-                type: "request.opened" as const,
-                payload: { requestType: "command_execution_approval" },
-              }),
+          type: "user-input.requested" as const,
+          payload: {
+            questions: [
+              {
+                id: "format",
+                header: "Format",
+                question: "Which format?",
+                options: [
+                  {
+                    label: "Guide",
+                    description: "Write a practical guide.",
+                  },
+                ],
+              },
+            ],
+          },
           eventId: asEventId("evt-question-before-crash"),
           provider,
           createdAt,
@@ -627,7 +618,7 @@ describe("ProviderRuntimeIngestion", () => {
             threadId,
             activity: {
               id: EventId.makeUnsafe("current-request"),
-              kind: kind === "question" ? "user-input.requested" : "approval.requested",
+              kind: "user-input.requested",
               tone: "info",
               summary: "Current request",
               turnId: null,
@@ -635,18 +626,14 @@ describe("ProviderRuntimeIngestion", () => {
               payload: {
                 requestId: "question-before-crash",
                 lifecycleGeneration: "new-generation",
-                ...(kind === "question"
-                  ? {
-                      questions: [
-                        {
-                          id: "current",
-                          header: "Current",
-                          question: "Current question?",
-                          options: [{ label: "Yes", description: "Continue" }],
-                        },
-                      ],
-                    }
-                  : { requestType: "command_execution_approval" }),
+                questions: [
+                  {
+                    id: "current",
+                    header: "Current",
+                    question: "Current question?",
+                    options: [{ label: "Yes", description: "Continue" }],
+                  },
+                ],
               },
             },
             createdAt: restartedAt,
@@ -670,16 +657,7 @@ describe("ProviderRuntimeIngestion", () => {
       const pending = derivePendingThreadRequestIds({
         activities: thread?.activities ?? [],
       });
-      const pendingRequestIds =
-        kind === "question"
-          ? pending.userInputRequestIds
-          : (
-              await Effect.runPromise(harness.sql<{ requestId: string }>`
-                SELECT request_id AS "requestId" FROM projection_pending_interactions
-                WHERE thread_id = ${threadId} AND interaction_kind = 'approval' AND status = 'pending'
-                ORDER BY request_id
-              `)
-            ).map((row) => row.requestId);
+      const pendingRequestIds = pending.userInputRequestIds;
       expect(pendingRequestIds).toEqual(
         expires && state !== "successor-reused-request" ? [] : ["question-before-crash"],
       );
@@ -6197,78 +6175,6 @@ describe("ProviderRuntimeIngestion", () => {
     expect(secondMessage?.streaming).toBe(true);
   });
 
-  it("maps canonical request events into approval activities with requestKind", async () => {
-    const harness = await createHarness();
-    const now = new Date().toISOString();
-
-    harness.emit({
-      type: "request.opened",
-      eventId: asEventId("evt-request-opened"),
-      provider: "codex",
-      createdAt: now,
-      threadId: asThreadId("thread-1"),
-      lifecycleGeneration: "approval-generation",
-      requestId: "req-open",
-      payload: {
-        requestType: "command_execution_approval",
-        detail: "pwd",
-      },
-    });
-
-    harness.emit({
-      type: "request.resolved",
-      eventId: asEventId("evt-request-resolved"),
-      provider: "codex",
-      createdAt: now,
-      threadId: asThreadId("thread-1"),
-      lifecycleGeneration: "approval-generation",
-      requestId: "req-open",
-      payload: {
-        requestType: "command_execution_approval",
-        decision: "accept",
-      },
-    });
-
-    await waitForThread(
-      harness.snapshotQuery,
-      (entry) =>
-        entry.activities.some(
-          (activity: ProviderRuntimeTestActivity) => activity.kind === "approval.requested",
-        ) &&
-        entry.activities.some(
-          (activity: ProviderRuntimeTestActivity) => activity.kind === "approval.resolved",
-        ),
-    );
-
-    const readModel = await Effect.runPromise(
-      harness.snapshotQuery.getSnapshot().pipe(Effect.orDie),
-    );
-    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
-    expect(thread).toBeDefined();
-
-    const requested = thread?.activities.find(
-      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-request-opened",
-    );
-    const requestedPayload =
-      requested?.payload && typeof requested.payload === "object"
-        ? (requested.payload as Record<string, unknown>)
-        : undefined;
-    expect(requestedPayload?.requestKind).toBe("command");
-    expect(requestedPayload?.requestType).toBe("command_execution_approval");
-    expect(requestedPayload?.lifecycleGeneration).toBe("approval-generation");
-
-    const resolved = thread?.activities.find(
-      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-request-resolved",
-    );
-    const resolvedPayload =
-      resolved?.payload && typeof resolved.payload === "object"
-        ? (resolved.payload as Record<string, unknown>)
-        : undefined;
-    expect(resolvedPayload?.requestKind).toBe("command");
-    expect(resolvedPayload?.requestType).toBe("command_execution_approval");
-    expect(resolvedPayload?.lifecycleGeneration).toBe("approval-generation");
-  });
-
   it("bounds large tool activity data while keeping command metadata", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
@@ -6869,10 +6775,10 @@ describe("ProviderRuntimeIngestion", () => {
       harness.sql<{ readonly threadId: string }>`
         INSERT INTO thread_runtime_bindings (
           thread_id, connection_id, installation_id, internal_provider_id, model_id,
-          binding_revision, created_at, updated_at
+          created_at, updated_at
         )
         SELECT 'thread-1', 'claude-account', installation_id, NULL, 'claude-opus-5',
-               0, '2026-08-23T12:00:00.000Z', '2026-08-23T12:00:00.000Z'
+               '2026-08-23T12:00:00.000Z', '2026-08-23T12:00:00.000Z'
         FROM provider_installations
         WHERE harness_kind = 'claudeAgent' AND lifecycle = 'active'
         LIMIT 1
@@ -7630,20 +7536,6 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
     harness.emit({
-      type: "request.opened",
-      eventId: asEventId("evt-unmapped-child-approval-requested"),
-      provider: "codex",
-      createdAt: now,
-      threadId: asThreadId("thread-1"),
-      turnId: childTurnId,
-      requestId: "req-unmapped-child-approval",
-      providerRefs,
-      payload: {
-        requestType: "command_execution_approval",
-        detail: "run child command",
-      },
-    });
-    harness.emit({
       type: "user-input.requested",
       eventId: asEventId("evt-unmapped-child-user-input-requested"),
       provider: "codex",
@@ -7673,9 +7565,6 @@ describe("ProviderRuntimeIngestion", () => {
       harness.snapshotQuery,
       (thread) =>
         thread.activities.some(
-          (activity) => activity.id === "evt-unmapped-child-approval-requested",
-        ) &&
-        thread.activities.some(
           (activity) => activity.id === "evt-unmapped-child-user-input-requested",
         ),
       2000,
@@ -7684,30 +7573,12 @@ describe("ProviderRuntimeIngestion", () => {
     expect(pendingChildThread.activities).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: "evt-unmapped-child-approval-requested",
-          kind: "approval.requested",
-        }),
-        expect.objectContaining({
           id: "evt-unmapped-child-user-input-requested",
           kind: "user-input.requested",
         }),
       ]),
     );
 
-    harness.emit({
-      type: "request.resolved",
-      eventId: asEventId("evt-unmapped-child-approval-resolved"),
-      provider: "codex",
-      createdAt: now,
-      threadId: asThreadId("thread-1"),
-      turnId: childTurnId,
-      requestId: "req-unmapped-child-approval",
-      providerRefs,
-      payload: {
-        requestType: "command_execution_approval",
-        decision: "accept",
-      },
-    });
     harness.emit({
       type: "user-input.resolved",
       eventId: asEventId("evt-unmapped-child-user-input-resolved"),
@@ -7765,8 +7636,6 @@ describe("ProviderRuntimeIngestion", () => {
             message.streaming === false,
         ) &&
         [
-          "evt-unmapped-child-approval-requested",
-          "evt-unmapped-child-approval-resolved",
           "evt-unmapped-child-user-input-requested",
           "evt-unmapped-child-user-input-resolved",
           "evt-unmapped-child-tasks",

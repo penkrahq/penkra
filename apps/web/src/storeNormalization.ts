@@ -58,7 +58,7 @@ export type ProjectNormalizationInput = Pick<
 export const MAX_THREAD_MESSAGES = ORCHESTRATION_THREAD_HYDRATION_LIMITS.messages;
 const MAX_THREAD_ACTIVITIES = ORCHESTRATION_THREAD_HYDRATION_LIMITS.detailActivities;
 const LOCAL_USER_MESSAGE_RETENTION_MS = 10_000;
-const PENDING_INTERACTION_REQUEST_KINDS = new Set(["approval.requested", "user-input.requested"]);
+const PENDING_INTERACTION_REQUEST_KINDS = new Set(["user-input.requested"]);
 
 /**
  * Transcript order follows durable causality, not wall-clock admission alone.
@@ -1224,17 +1224,16 @@ function pendingInteractionRequestIds(
     if (requestId === null) {
       continue;
     }
-    if (activity.kind === "approval.requested" || activity.kind === "user-input.requested") {
+    if (activity.kind === "user-input.requested") {
       pendingRequestIds.add(requestId);
       continue;
     }
-    if (activity.kind === "approval.resolved" || activity.kind === "user-input.resolved") {
+    if (activity.kind === "user-input.resolved") {
       pendingRequestIds.delete(requestId);
       continue;
     }
     if (
-      (activity.kind === "provider.approval.respond.failed" ||
-        activity.kind === "provider.user-input.respond.failed") &&
+      activity.kind === "provider.user-input.respond.failed" &&
       isPendingInteractionNotFoundFailure(activity.payload)
     ) {
       pendingRequestIds.delete(requestId);

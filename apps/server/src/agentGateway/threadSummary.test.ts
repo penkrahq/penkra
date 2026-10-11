@@ -307,16 +307,16 @@ describe("packAgentTranscriptPage", () => {
     const page = packAgentTranscriptPage({
       messages: [makeMessage(0)],
       activities: [
-        makeActivity("approval", "approval.requested", 1),
+        makeActivity("question", "user-input.requested", 1),
         makeActivity("compaction", "context-compaction", 2),
         makeActivity("telemetry", "context-window.updated", 3),
       ],
-      include: new Set(["approvals"]),
+      include: new Set(["user-input"]),
     });
 
     assert.deepEqual(
       page.items.map((item) => item.type),
-      ["approval"],
+      ["user-input"],
     );
   });
 
