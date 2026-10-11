@@ -1,19 +1,14 @@
 // FILE: ProviderConnectionLifecycle.ts
-// Purpose: Exact, recoverable Connection lifecycle implementation with no credential fallback.
+// Purpose: Create and terminate Connections without a durable operation journal.
 
 import { randomUUID } from "node:crypto";
 import {
   type ProviderConnection,
   ProviderConnectionId,
-  ProviderConnectionTerminationReason,
-  ProviderKind,
+  type ProviderKind,
 } from "@penkra/contracts";
-import { Effect, Layer, Option, Schema } from "effect";
+import { Effect, Layer, Option } from "effect";
 
-import {
-  type ProviderConnectionOperationRecord,
-  ProviderConnectionOperationRepository,
-} from "../../persistence/Services/ProviderConnectionOperations.ts";
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 import type { ProviderConnectionRecord } from "../../persistence/Services/ProviderConnections.ts";
 import { ProviderCredentialBroker } from "../providerCredentialBroker.ts";
@@ -25,21 +20,14 @@ import {
   type ProviderConnectionLifecycleShape,
 } from "../Services/ProviderConnectionLifecycle.ts";
 
-const CreatePayload = Schema.Struct({
-  harness: ProviderKind,
-  authenticationTargetId: Schema.String,
-  authenticationMethodId: Schema.String,
-  label: Schema.String,
-  providerIdentityId: Schema.NullOr(Schema.String),
-  createdAt: Schema.String,
-});
-type CreatePayload = typeof CreatePayload.Type;
-
-const TerminatePayload = Schema.Struct({
-  reason: ProviderConnectionTerminationReason,
-  terminatedAt: Schema.String,
-});
-type TerminatePayload = typeof TerminatePayload.Type;
+interface CreatePayload {
+  readonly harness: ProviderKind;
+  readonly authenticationTargetId: string;
+  readonly authenticationMethodId: string;
+  readonly label: string;
+  readonly providerIdentityId: string | null;
+  readonly createdAt: string;
+}
 
 const fail = (detail: string, cause?: unknown) =>
   Effect.fail(
@@ -48,26 +36,6 @@ const fail = (detail: string, cause?: unknown) =>
       ...(cause === undefined ? {} : { cause }),
     }),
   );
-
-const parseCreatePayload = (json: string, operationId: string) =>
-  Effect.try({
-    try: () => Schema.decodeUnknownSync(CreatePayload)(JSON.parse(json)),
-    catch: (cause) =>
-      new ProviderConnectionLifecycleError({
-        detail: `Connection operation ${operationId} has an invalid recovery payload.`,
-        cause,
-      }),
-  });
-
-const parseTerminatePayload = (json: string, operationId: string) =>
-  Effect.try({
-    try: () => Schema.decodeUnknownSync(TerminatePayload)(JSON.parse(json)),
-    catch: (cause) =>
-      new ProviderConnectionLifecycleError({
-        detail: `Connection operation ${operationId} has an invalid recovery payload.`,
-        cause,
-      }),
-  });
 
 const toPublicConnection = (record: ProviderConnectionRecord): ProviderConnection => ({
   id: record.id,
@@ -110,35 +78,34 @@ export function makeProviderConnectionLifecycle(
 ): Effect.Effect<
   ProviderConnectionLifecycleShape,
   never,
-  ProviderConnectionOperationRepository | ProviderConnectionRepository | ProviderCredentialBroker
+  ProviderConnectionRepository | ProviderCredentialBroker
 > {
   return Effect.gen(function* () {
-    const operations = yield* ProviderConnectionOperationRepository;
     const connections = yield* ProviderConnectionRepository;
     const credentials = yield* ProviderCredentialBroker;
     const newId = input.newId ?? randomUUID;
     const now = input.now ?? (() => new Date().toISOString());
     const validateSecret = input.validateSecret ?? ((request) => request.validate(request.secret));
 
-    const transition = (transitionInput: Parameters<typeof operations.transition>[0]) =>
-      operations.transition(transitionInput).pipe(
-        Effect.mapError(
-          (cause) =>
-            new ProviderConnectionLifecycleError({
-              detail: `Could not persist Connection operation ${transitionInput.id}.`,
-              cause,
+    const activeConnections = new Set<ProviderConnectionId>();
+    const withOperation = <A>(
+      connectionId: ProviderConnectionId,
+      failureDetail: string,
+      effect: Effect.Effect<A, ProviderConnectionLifecycleError>,
+    ) =>
+      Effect.suspend(() => {
+        if (activeConnections.has(connectionId)) return fail(failureDetail);
+        activeConnections.add(connectionId);
+        return effect.pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              activeConnections.delete(connectionId);
             }),
-        ),
-        Effect.flatMap(
-          Option.match({
-            onNone: () => fail(`Connection operation ${transitionInput.id} no longer exists.`),
-            onSome: Effect.succeed,
-          }),
-        ),
-      );
+          ),
+        );
+      });
 
     const completeCreate = (operation: {
-      readonly id: string;
       readonly connectionId: ProviderConnectionId;
       readonly credentialRef: string;
       readonly payload: CreatePayload;
@@ -236,15 +203,6 @@ export function makeProviderConnectionLifecycle(
                                 cause,
                               }),
                           ),
-                          Effect.andThen(
-                            transition({
-                              id: operation.id,
-                              state: "failed",
-                              credentialRef: operation.credentialRef,
-                              failureReason: createError.detail,
-                              updatedAt: now(),
-                            }),
-                          ),
                           Effect.andThen(Effect.fail(createError)),
                         ),
                     }),
@@ -253,134 +211,7 @@ export function makeProviderConnectionLifecycle(
               ),
             );
         }
-        yield* transition({
-          id: operation.id,
-          state: "completed",
-          credentialRef: operation.credentialRef,
-          failureReason: null,
-          updatedAt: now(),
-        });
         return connection;
-      });
-
-    const recoverOne = (operation: ProviderConnectionOperationRecord) =>
-      Effect.gen(function* () {
-        if (!operation.credentialRef) {
-          return yield* fail(`Connection operation ${operation.id} has no credential reference.`);
-        }
-        if (operation.kind === "create-static") {
-          const payload = yield* parseCreatePayload(operation.payloadJson, operation.id);
-          let state = operation.state;
-          if (state === "pending") {
-            const exists = yield* credentials.has(operation.credentialRef).pipe(
-              Effect.mapError(
-                (cause) =>
-                  new ProviderConnectionLifecycleError({
-                    detail: "Could not inspect the encrypted credential during recovery.",
-                    cause,
-                  }),
-              ),
-            );
-            if (!exists) {
-              yield* transition({
-                id: operation.id,
-                state: "failed",
-                credentialRef: operation.credentialRef,
-                failureReason: "Credential storage did not complete before restart.",
-                updatedAt: now(),
-              });
-              return;
-            }
-            yield* transition({
-              id: operation.id,
-              state: "credential-stored",
-              credentialRef: operation.credentialRef,
-              failureReason: null,
-              updatedAt: now(),
-            });
-            state = "credential-stored";
-          }
-          if (state === "credential-stored") {
-            yield* completeCreate({
-              id: operation.id,
-              connectionId: operation.connectionId,
-              credentialRef: operation.credentialRef,
-              payload,
-            });
-          }
-          return;
-        }
-
-        const payload = yield* parseTerminatePayload(operation.payloadJson, operation.id);
-        let state = operation.state;
-        if (state === "pending") {
-          const exists = yield* credentials.has(operation.credentialRef).pipe(
-            Effect.mapError(
-              (cause) =>
-                new ProviderConnectionLifecycleError({
-                  detail: "Could not inspect the encrypted credential during recovery.",
-                  cause,
-                }),
-            ),
-          );
-          if (exists) {
-            yield* credentials.remove(operation.credentialRef).pipe(
-              Effect.mapError(
-                (cause) =>
-                  new ProviderConnectionLifecycleError({
-                    detail: "Could not remove the encrypted Connection credential.",
-                    cause,
-                  }),
-              ),
-            );
-          }
-          yield* transition({
-            id: operation.id,
-            state: "credential-removed",
-            credentialRef: operation.credentialRef,
-            failureReason: null,
-            updatedAt: now(),
-          });
-          state = "credential-removed";
-        }
-        if (state === "credential-removed") {
-          const terminated = yield* connections
-            .terminate({
-              id: operation.connectionId,
-              reason: payload.reason,
-              terminatedAt: payload.terminatedAt,
-            })
-            .pipe(
-              Effect.mapError(
-                (cause) =>
-                  new ProviderConnectionLifecycleError({
-                    detail: "Could not terminate the Connection.",
-                    cause,
-                  }),
-              ),
-            );
-          if (Option.isNone(terminated)) {
-            const record = yield* connections.getRecord(operation.connectionId).pipe(
-              Effect.mapError(
-                (cause) =>
-                  new ProviderConnectionLifecycleError({
-                    detail: "Could not verify Connection termination.",
-                    cause,
-                  }),
-              ),
-            );
-            if (Option.isNone(record) || record.value.lifecycle !== "terminated") {
-              return yield* fail("Connection termination did not commit.");
-            }
-          }
-          yield* transition({
-            id: operation.id,
-            state: "completed",
-            credentialRef: operation.credentialRef,
-            failureReason: null,
-            updatedAt: now(),
-          });
-        }
       });
 
     const createStatic: ProviderConnectionLifecycleShape["createStatic"] = (createInput) =>
@@ -444,7 +275,6 @@ export function makeProviderConnectionLifecycle(
               left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
           )[0];
         const connectionId = canonical?.id ?? ProviderConnectionId.makeUnsafe(newId());
-        const operationId = newId();
         const credentialRef = `provider-secret:${connectionId}`;
         const createdAt = now();
         const label = yield* Effect.try({
@@ -470,71 +300,40 @@ export function makeProviderConnectionLifecycle(
           providerIdentityId,
           createdAt,
         };
-        yield* operations
-          .begin({
-            id: operationId,
-            connectionId,
-            kind: "create-static",
-            state: "pending",
-            credentialRef,
-            payloadJson: JSON.stringify(payload),
-            failureReason: null,
-            createdAt,
-            updatedAt: createdAt,
-          })
-          .pipe(
-            Effect.mapError(
-              (cause) =>
-                new ProviderConnectionLifecycleError({
-                  detail: "Could not begin Connection creation.",
-                  cause,
-                }),
-            ),
-          );
-        yield* credentials.store(createInput.secret, credentialRef).pipe(
-          Effect.mapError(
-            (cause) =>
-              new ProviderConnectionLifecycleError({
-                detail: cause.message,
-                cause,
-              }),
-          ),
-          Effect.catch((storeError) =>
-            credentials.has(credentialRef).pipe(
+        return yield* withOperation(
+          connectionId,
+          "Could not begin Connection creation.",
+          Effect.gen(function* () {
+            yield* credentials.store(createInput.secret, credentialRef).pipe(
               Effect.mapError(
                 (cause) =>
                   new ProviderConnectionLifecycleError({
-                    detail: "Could not determine whether credential storage committed.",
+                    detail: cause.message,
                     cause,
                   }),
               ),
-              Effect.flatMap((exists) =>
-                exists
-                  ? Effect.succeed(credentialRef)
-                  : transition({
-                      id: operationId,
-                      state: "failed",
-                      credentialRef,
-                      failureReason: storeError.detail,
-                      updatedAt: now(),
-                    }).pipe(Effect.andThen(Effect.fail(storeError))),
+              Effect.catch((storeError) =>
+                credentials.has(credentialRef).pipe(
+                  Effect.mapError(
+                    (cause) =>
+                      new ProviderConnectionLifecycleError({
+                        detail: "Could not determine whether credential storage committed.",
+                        cause,
+                      }),
+                  ),
+                  Effect.flatMap((exists) =>
+                    exists ? Effect.succeed(credentialRef) : Effect.fail(storeError),
+                  ),
+                ),
               ),
-            ),
-          ),
+            );
+            return yield* completeCreate({
+              connectionId,
+              credentialRef,
+              payload,
+            });
+          }),
         );
-        yield* transition({
-          id: operationId,
-          state: "credential-stored",
-          credentialRef,
-          failureReason: null,
-          updatedAt: now(),
-        });
-        return yield* completeCreate({
-          id: operationId,
-          connectionId,
-          credentialRef,
-          payload,
-        });
       });
 
     const terminate: ProviderConnectionLifecycleShape["terminate"] = (terminateInput) =>
@@ -554,75 +353,71 @@ export function makeProviderConnectionLifecycle(
         if (Option.isNone(record) || record.value.lifecycle !== "active") {
           return yield* fail("The active Connection does not exist.");
         }
-        if (!record.value.credentialRef || record.value.profileRef) {
+        const credentialRef = record.value.credentialRef;
+        if (!credentialRef || record.value.profileRef) {
           return yield* fail("This Connection is not a static credential Connection.");
         }
-        const operationId = newId();
         const terminatedAt = now();
-        const payload: TerminatePayload = {
-          reason: terminateInput.reason,
-          terminatedAt,
-        };
-        yield* operations
-          .begin({
-            id: operationId,
-            connectionId: terminateInput.connectionId,
-            kind: "terminate",
-            state: "pending",
-            credentialRef: record.value.credentialRef,
-            payloadJson: JSON.stringify(payload),
-            failureReason: null,
-            createdAt: terminatedAt,
-            updatedAt: terminatedAt,
-          })
-          .pipe(
-            Effect.mapError(
-              (cause) =>
-                new ProviderConnectionLifecycleError({
-                  detail: "Could not begin Connection termination.",
-                  cause,
-                }),
-            ),
-          );
-        yield* recoverOne({
-          id: operationId,
-          connectionId: terminateInput.connectionId,
-          kind: "terminate",
-          state: "pending",
-          credentialRef: record.value.credentialRef,
-          payloadJson: JSON.stringify(payload),
-          failureReason: null,
-          createdAt: terminatedAt,
-          updatedAt: terminatedAt,
-        });
-        const terminated = yield* connections.getRecord(terminateInput.connectionId).pipe(
-          Effect.mapError(
-            (cause) =>
-              new ProviderConnectionLifecycleError({
-                detail: "Could not read the terminated Connection.",
-                cause,
-              }),
-          ),
+        return yield* withOperation(
+          terminateInput.connectionId,
+          "Could not begin Connection termination.",
+          Effect.gen(function* () {
+            const exists = yield* credentials.has(credentialRef).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProviderConnectionLifecycleError({
+                    detail: "Could not inspect the encrypted credential during termination.",
+                    cause,
+                  }),
+              ),
+            );
+            if (exists)
+              yield* credentials.remove(credentialRef).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProviderConnectionLifecycleError({
+                      detail: "Could not remove the encrypted Connection credential.",
+                      cause,
+                    }),
+                ),
+              );
+            const result = yield* connections
+              .terminate({
+                id: terminateInput.connectionId,
+                reason: terminateInput.reason,
+                terminatedAt,
+              })
+              .pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProviderConnectionLifecycleError({
+                      detail: "Could not terminate the Connection.",
+                      cause,
+                    }),
+                ),
+              );
+            if (Option.isSome(result)) return result.value;
+            const terminated = yield* connections.getRecord(terminateInput.connectionId).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProviderConnectionLifecycleError({
+                    detail: "Could not read the terminated Connection.",
+                    cause,
+                  }),
+              ),
+            );
+            if (Option.isNone(terminated))
+              return yield* fail("The terminated Connection is not readable.");
+            if (terminated.value.lifecycle !== "terminated")
+              return yield* fail("Connection termination did not commit.");
+            return toPublicConnection(terminated.value);
+          }),
         );
-        if (Option.isNone(terminated))
-          return yield* fail("The terminated Connection is not readable.");
-        return toPublicConnection(terminated.value);
       });
 
     return {
       createStatic,
       terminate,
-      recover: operations.listOpen().pipe(
-        Effect.mapError(
-          (cause) =>
-            new ProviderConnectionLifecycleError({
-              detail: "Could not read Connection recovery operations.",
-              cause,
-            }),
-        ),
-        Effect.flatMap((pending) => Effect.forEach(pending, recoverOne, { concurrency: 1 })),
-        Effect.asVoid,
-      ),
     };
   });
 }
