@@ -1,22 +1,20 @@
 import type {
   OrchestrationCommand,
   OrchestrationThread,
-  ThreadRuntimeBinding,
+  ProviderConnectionId,
 } from "@penkra/contracts";
 import { canContinueLatestTurn } from "@penkra/shared/turnContinuation";
 
 type PlayCommand = Extract<OrchestrationCommand, { type: "thread.turn.recover" }>;
-type Binding = Pick<ThreadRuntimeBinding, "connectionId" | "revision" | "modelId">;
 
 /** Describe a rejected Play using fresh server state; keep IDs, never credentials or prompts. */
 export function describeRejectedPlay(
   command: PlayCommand,
   thread: OrchestrationThread | null,
-  binding: Binding | null,
+  connectionId: ProviderConnectionId | null | undefined,
 ) {
   const expectedTurnId = thread?.latestTurn?.turnId ?? null;
-  const expectedConnectionId = binding?.connectionId ?? null;
-  const expectedBindingRevision = binding?.revision ?? null;
+  const expectedConnectionId = connectionId;
   const receivedTurnId = command.interruptedTurnId ?? command.turnId;
   const check =
     thread === null || thread.deletedAt != null
@@ -29,10 +27,8 @@ export function describeRejectedPlay(
           ? "turn_id_mismatch"
           : !canContinueLatestTurn(thread, receivedTurnId)
             ? "thread_not_continuable"
-            : binding?.modelId == null ||
-                binding.connectionId !== command.connectionId ||
-                binding.revision !== command.bindingRevision
-              ? "binding_mismatch"
+            : connectionId !== command.connectionId
+              ? "connection_mismatch"
               : "state_changed_during_rejection";
   return {
     playCheck: check,
@@ -41,8 +37,6 @@ export function describeRejectedPlay(
     receivedCommandTurnId: command.turnId,
     expectedConnectionId,
     receivedConnectionId: command.connectionId,
-    expectedBindingRevision,
-    receivedBindingRevision: command.bindingRevision,
     latestTurnState: thread?.latestTurn?.state ?? null,
     sessionStatus: thread?.session?.status ?? null,
     queuedMessageCount: thread?.queuedMessageIds?.length ?? 0,

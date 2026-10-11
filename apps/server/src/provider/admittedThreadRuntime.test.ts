@@ -84,7 +84,6 @@ async function fixture(provider: ProviderKind, providerSessionId: string | null)
     provider,
     modelSelection: { provider, model: "model" },
     connectionId,
-    bindingRevision: 3,
   };
   const dependencies = {
     stateDir,

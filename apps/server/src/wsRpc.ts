@@ -9,6 +9,7 @@ import { execFile } from "node:child_process";
 
 import {
   ApprovalRequestId,
+  type ProviderConnectionId,
   CommandId,
   DEFAULT_TERMINAL_ID,
   ORCHESTRATION_WS_METHODS,
@@ -81,7 +82,6 @@ import { ProviderConnectionLoginCoordinator } from "./provider/Services/Provider
 import { ProviderLaunchResolver } from "./provider/Services/ProviderLaunchResolver";
 import { ProviderConnectionRepository } from "./persistence/Services/ProviderConnections";
 import { ProviderInstallationRepository } from "./persistence/Services/ProviderInstallations";
-import { ThreadProviderBindingRepository } from "./persistence/Services/ThreadProviderBindings";
 import { listProviderUsage } from "./providerUsage";
 import { getProviderUsageSnapshot } from "./providerUsageSnapshot";
 import { redactSensitiveProcessArgs } from "./processArgumentRedaction";
@@ -308,7 +308,6 @@ const makeWsRpcHandlersLayer = () =>
       const providerLaunchResolver = yield* ProviderLaunchResolver;
       const providerConnections = yield* ProviderConnectionRepository;
       const providerInstallations = yield* ProviderInstallationRepository;
-      const threadProviderBindings = yield* ThreadProviderBindingRepository;
       const lifecycleEvents = yield* ServerLifecycleEvents;
       const runtimeStartup = yield* ServerRuntimeStartup;
       const serverEnvironment = yield* ServerEnvironment;
@@ -697,13 +696,13 @@ const makeWsRpcHandlersLayer = () =>
                             const thread = yield* projectionReadModelQuery
                               .getThreadDetailById(normalizedCommand.threadId)
                               .pipe(Effect.catch(() => Effect.succeed(Option.none())));
-                            const binding = yield* threadProviderBindings
-                              .getRuntimeBinding(normalizedCommand.threadId)
-                              .pipe(Effect.catch(() => Effect.succeed(Option.none())));
+                            const rows = yield* sql<{
+                              connectionId: ProviderConnectionId | null;
+                            }>`SELECT connection_id AS "connectionId" FROM threads WHERE id=${normalizedCommand.threadId}`;
                             return describeRejectedPlay(
                               normalizedCommand,
                               Option.getOrNull(thread),
-                              Option.getOrNull(binding),
+                              rows[0]?.connectionId,
                             );
                           })
                         : {};
@@ -1378,18 +1377,6 @@ const makeWsRpcHandlersLayer = () =>
           rpcEffect(
             providerCommandReactor.retryAuthConnection(input.connectionId),
             "Failed to retry the Connection",
-          ),
-        [WS_METHODS.providerGetThreadBinding]: (input) =>
-          rpcEffect(
-            Effect.all({
-              state: threadProviderBindings
-                .getHarnessState(input.threadId)
-                .pipe(Effect.map(Option.getOrNull)),
-              binding: threadProviderBindings
-                .getRuntimeBinding(input.threadId)
-                .pipe(Effect.map(Option.getOrNull)),
-            }),
-            "Failed to load the thread Connection",
           ),
         [WS_METHODS.providerCreateStaticConnection]: (input) =>
           rpcEffect(

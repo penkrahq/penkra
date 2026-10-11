@@ -34,8 +34,6 @@ import {
   ProviderConnectionsSnapshotInput,
   RetryProviderAuthConnectionInput,
   TerminateProviderConnectionInput,
-  ThreadProviderBindingSnapshot,
-  ThreadProviderBindingSnapshotInput,
 } from "./providerConnections";
 import {
   ProviderGetComposerCapabilitiesInput,
@@ -656,11 +654,6 @@ export const WsProviderRetryAuthConnectionRpc = Rpc.make(WS_METHODS.providerRetr
   success: Schema.Void,
   error: WsRpcError,
 });
-export const WsProviderGetThreadBindingRpc = Rpc.make(WS_METHODS.providerGetThreadBinding, {
-  payload: ThreadProviderBindingSnapshotInput,
-  success: ThreadProviderBindingSnapshot,
-  error: WsRpcError,
-});
 export const WsProviderCreateStaticConnectionRpc = Rpc.make(
   WS_METHODS.providerCreateStaticConnection,
   { payload: CreateStaticProviderConnectionInput, success: ProviderConnection, error: WsRpcError },
@@ -915,7 +908,6 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsProviderListAgentsRpc,
   WsProviderGetConnectionsRpc,
   WsProviderRetryAuthConnectionRpc,
-  WsProviderGetThreadBindingRpc,
   WsProviderCreateStaticConnectionRpc,
   WsProviderBeginConnectionLoginRpc,
   WsProviderGetConnectionLoginRpc,

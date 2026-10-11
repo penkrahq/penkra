@@ -1880,27 +1880,6 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
       ],
     };
   }
-  if (tag === WS_METHODS.providerGetThreadBinding) {
-    const thread = fixture.snapshot.threads.find((candidate) => candidate.id === body.threadId);
-    const hasStarted =
-      thread !== undefined &&
-      (thread.messages.length > 0 || thread.latestTurn !== null || thread.session !== null);
-    return {
-      state: null,
-      binding: hasStarted
-        ? {
-            threadId: thread.id,
-            connectionId: "connection-codex-browser",
-            installationId: "installation-codex-browser",
-            internalProviderId: null,
-            modelId: thread.modelSelection.model,
-            revision: 0,
-            createdAt: NOW_ISO,
-            updatedAt: NOW_ISO,
-          }
-        : null,
-    };
-  }
   if (tag === WS_METHODS.providerGetComposerCapabilities) {
     return {
       provider: body.provider,
@@ -3018,7 +2997,16 @@ describe("ChatView timeline estimator parity (full app)", () => {
         const command = wsRequests
           .map(readDispatchedCommand)
           .find((item) => item?.type === "thread.turn.recover");
-        expect(command).toMatchObject({ reason: "play", turnId, interruptedTurnId: turnId });
+        expect(command).toMatchObject({
+          reason: "play",
+          turnId,
+          interruptedTurnId: turnId,
+          connectionId: snapshot.threads[0]!.connectionId,
+        });
+        expect(command).not.toHaveProperty("bindingRevision");
+        expect(wsRequests.some((request) => request._tag === "provider.getThreadBinding")).toBe(
+          false,
+        );
         expect(document.body.textContent).toContain("Thinking");
         expect(
           getChatLifecycleDiagnosticSamples(THREAD_ID).some(
@@ -4205,7 +4193,16 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const command = wsRequests
         .map(readDispatchedCommand)
         .find((candidate) => candidate?.type === "thread.turn.recover");
-      expect(command).toMatchObject({ reason: "play", turnId, interruptedTurnId: turnId });
+      expect(command).toMatchObject({
+        reason: "play",
+        turnId,
+        interruptedTurnId: turnId,
+        connectionId: null,
+      });
+      expect(command).not.toHaveProperty("bindingRevision");
+      expect(wsRequests.some((request) => request._tag === "provider.getThreadBinding")).toBe(
+        false,
+      );
       expect(
         snapshot.threads[0]?.messages.some((message) => message.id === command?.recoveryMessageId),
       ).toBe(false);

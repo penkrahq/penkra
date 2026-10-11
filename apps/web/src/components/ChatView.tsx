@@ -65,10 +65,7 @@ import {
   supportsSkillDiscovery,
   supportsThreadCompaction,
 } from "~/lib/providerDiscoveryReactQuery";
-import {
-  providerConnectionsQueryOptions,
-  threadProviderBindingQueryOptions,
-} from "~/lib/providerConnectionsReactQuery";
+import { providerConnectionsQueryOptions } from "~/lib/providerConnectionsReactQuery";
 import {
   pruneUnavailableComposerConnectionSelections,
   resolveAnonymousModelDiscoveryRoute,
@@ -3175,15 +3172,11 @@ function ChatViewContent({
       setContinueInFlight(null);
     }
   }, [activeLatestTurn, activeThread?.session?.updatedAt, activeThreadId, continueInFlight]);
-  const threadProviderBindingQuery = useQuery(
-    threadProviderBindingQueryOptions(isServerThread ? activeThreadId : null),
-  );
-  const bindingForContinue = threadProviderBindingQuery.data?.binding;
   const canShowContinue = shouldShowComposerContinue({
     thread: activeThread,
     isServerThread,
     hydration: threadDetailHydration,
-    model: bindingForContinue == null ? undefined : serverThread?.modelSelection.model,
+    model: context.kind === "persisted" ? context.row.model : undefined,
     hiddenTurnId: hiddenContinueTurnId,
     continueInFlight: continueInFlight !== null,
     sendBusy: isSendBusy,
@@ -3245,7 +3238,8 @@ function ChatViewContent({
     unresolvedContinueInteractionCount,
   ]);
   const onContinue = useCallback(async () => {
-    if (!canShowContinue || !activeThread || !activeLatestTurn || !bindingForContinue) return;
+    if (!canShowContinue || !activeThread || !activeLatestTurn || context.kind !== "persisted")
+      return;
     if (continueInFlightRef.current) return;
     const api = readNativeApi();
     if (!api) return;
@@ -3269,8 +3263,7 @@ function ChatViewContent({
         turnId: target.turnId,
         interruptedTurnId: target.turnId,
         recoveryMessageId: newMessageId(),
-        connectionId: bindingForContinue.connectionId,
-        bindingRevision: bindingForContinue.revision,
+        connectionId: context.row.connectionId,
         createdAt: new Date().toISOString(),
       });
     } catch (error) {
@@ -3300,7 +3293,7 @@ function ChatViewContent({
     activeLatestTurn,
     activeSessionTurnId,
     activeThread,
-    bindingForContinue,
+    context,
     canShowContinue,
     isWorking,
     runtimeMode,

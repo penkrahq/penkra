@@ -934,7 +934,6 @@ const make = Effect.gen(function* () {
         provider: input.modelSelection.provider,
         modelSelection: input.modelSelection,
         connectionId: current.connectionId,
-        bindingRevision: current.bindingRevision,
       },
       admittedRuntimeDependencies,
     );
@@ -1270,7 +1269,6 @@ const make = Effect.gen(function* () {
         provider: input.modelSelection?.provider ?? thread.modelSelection.provider,
         modelSelection: input.modelSelection,
         connectionId: input.connectionId,
-        bindingRevision: input.bindingRevision,
       },
       admittedRuntimeDependencies,
     );
@@ -1591,7 +1589,6 @@ const make = Effect.gen(function* () {
         provider: input.modelSelection?.provider ?? thread.modelSelection.provider,
         modelSelection: input.modelSelection,
         connectionId: input.connectionId,
-        bindingRevision: input.bindingRevision,
       },
       admittedRuntimeDependencies,
     );

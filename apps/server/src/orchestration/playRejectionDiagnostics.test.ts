@@ -36,35 +36,31 @@ const command = {
   interruptedTurnId: providerTurnId,
   recoveryMessageId: MessageId.makeUnsafe("play-recovery"),
   connectionId,
-  bindingRevision: 0,
   createdAt: "2026-09-26T22:18:23.579Z",
 } as Extract<OrchestrationCommand, { type: "thread.turn.recover" }>;
-const binding = { connectionId, revision: 0, modelId: "claude-haiku-4-5-20251001" } as const;
 
 describe("rejected Play diagnostics", () => {
   it("identifies the logical versus provider turn mismatch with the recorded values", () => {
-    expect(describeRejectedPlay(command, thread, binding)).toMatchObject({
+    expect(describeRejectedPlay(command, thread, connectionId)).toMatchObject({
       playCheck: "turn_id_mismatch",
       expectedTurnId: logicalTurnId,
       receivedTurnId: providerTurnId,
       expectedConnectionId: connectionId,
       receivedConnectionId: connectionId,
-      expectedBindingRevision: 0,
-      receivedBindingRevision: 0,
     });
   });
 
-  it("identifies a binding revision mismatch after the correct turn is sent", () => {
+  it("identifies a connection mismatch after the correct turn is sent", () => {
     expect(
       describeRejectedPlay(
-        { ...command, turnId: logicalTurnId, interruptedTurnId: logicalTurnId, bindingRevision: 1 },
+        { ...command, turnId: logicalTurnId, interruptedTurnId: logicalTurnId, connectionId: null },
         thread,
-        binding,
+        connectionId,
       ),
     ).toMatchObject({
-      playCheck: "binding_mismatch",
-      expectedBindingRevision: 0,
-      receivedBindingRevision: 1,
+      playCheck: "connection_mismatch",
+      expectedConnectionId: connectionId,
+      receivedConnectionId: null,
     });
   });
 });

@@ -32,13 +32,12 @@ export const resolveAdmittedThreadRuntime = Effect.fnUntraced(function* (
     readonly provider: ProviderKind;
     readonly modelSelection: ModelSelection | undefined;
     readonly connectionId: ProviderConnectionId | null | undefined;
-    readonly bindingRevision: number | undefined;
   },
   dependencies: AdmittedThreadRuntimeDependencies,
 ) {
   const { threadProviderBindings, providerTurnSelectionResolver, providerLaunchResolver } =
     dependencies;
-  if (input.connectionId === undefined || input.bindingRevision === undefined) {
+  if (input.connectionId === undefined) {
     return yield* new ProviderAdapterValidationError({
       provider: input.provider,
       operation: "thread.turn.start",

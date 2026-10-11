@@ -904,7 +904,6 @@ const ThreadTurnRecoverCommand = Schema.Struct({
   recoveryMessageId: MessageId,
   interruptedTurnId: Schema.optional(TurnId),
   connectionId: Schema.NullOr(ProviderConnectionId),
-  bindingRevision: NonNegativeInt,
   runtimeMode: RuntimeMode,
   createdAt: IsoDateTime,
 });

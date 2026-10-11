@@ -5494,7 +5494,6 @@ describe("ProviderCommandReactor", () => {
         interruptedTurnId: turnId,
         recoveryMessageId: asMessageId("msg-play-queued-resume"),
         connectionId: TEST_CONNECTION_ID,
-        bindingRevision: 0,
         createdAt: new Date().toISOString(),
       }),
     );
