@@ -1,10 +1,9 @@
 import http from "node:http";
-import { EventEmitter } from "node:events";
 
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket, { WebSocketServer } from "ws";
 
-import { emitConnectionAfterUpgrade, installQaFrameObservation } from "./nodeHttpServer";
+import { emitConnectionAfterUpgrade } from "./nodeHttpServer";
 
 const servers: http.Server[] = [];
 const sockets: WebSocket[] = [];
@@ -54,21 +53,5 @@ describe("emitConnectionAfterUpgrade", () => {
     expect(observed).toBe(1);
     expect(upgraded).toBe(true);
     webSocketServer.close();
-  });
-});
-
-describe("QA frame observation", () => {
-  it("does not wrap sends or convert messages when QA is disabled", () => {
-    const socket = new EventEmitter() as EventEmitter & { send: (data: Buffer) => void };
-    let sends = 0;
-    socket.send = () => {
-      sends += 1;
-    };
-    const originalSend = socket.send;
-    installQaFrameObservation(socket as unknown as WebSocket, null);
-    expect(socket.send).toBe(originalSend);
-    expect(socket.listenerCount("message")).toBe(0);
-    socket.send(Buffer.from("hello"));
-    expect(sends).toBe(1);
   });
 });

@@ -102,18 +102,6 @@ import {
   recordDiagnosticIncident,
   resolveDiagnosticExpectationsForTrace,
 } from "./diagnostics/recorder";
-import {
-  qaAcceptedCommandAction,
-  qaCommandCheckpoint,
-  qaRuntimeActionForCommand,
-} from "./diagnostics/qaCommandCheckpoints";
-import {
-  admitQaRuntimeAction,
-  clearQaRuntimeAction,
-  prepareQaRuntimeAction,
-} from "./diagnostics/qaRuntimeActions";
-import { armQaProviderSwitch, clearQaProviderSwitch } from "./diagnostics/qaProviderSwitch";
-import { recordServerQaAction } from "./diagnostics/qaProofBuild";
 import { listThreadItemsPage } from "./cleanCore/threadItemsPage.ts";
 import { findThread, listThreads, searchThreads } from "./cleanCore/threadList.ts";
 import { getThreadDraft, setThreadDraft } from "./cleanCore/threadDraft.ts";
@@ -700,15 +688,6 @@ const makeWsRpcHandlersLayer = () =>
                 }),
               );
               const { command: normalizedCommand } = yield* normalizeDispatchCommand({ command });
-              const dispatchedQa = qaCommandCheckpoint(normalizedCommand, "dispatch");
-              if (dispatchedQa)
-                yield* Effect.sync(() =>
-                  recordDiagnosticCheckpoint({
-                    ...diagnosticContext,
-                    ...dispatchedQa,
-                    outcome: "ok",
-                  }),
-                );
               const lifecycleLogContext = {
                 commandId: normalizedCommand.commandId,
                 commandType: normalizedCommand.type,
@@ -726,51 +705,9 @@ const makeWsRpcHandlersLayer = () =>
                     }
                   : {}),
               };
-              const runtimeAction = qaRuntimeActionForCommand(normalizedCommand);
-              if (runtimeAction)
-                prepareQaRuntimeAction(
-                  runtimeAction.flow,
-                  runtimeAction.threadId,
-                  runtimeAction.turnId,
-                  trace.traceId,
-                  trace.spanId,
-                );
-              if (
-                normalizedCommand.type === "thread.turn.start" ||
-                normalizedCommand.type === "thread.turn.dispatch-queued"
-              )
-                armQaProviderSwitch(
-                  normalizedCommand.commandId,
-                  normalizedCommand.threadId,
-                  trace.traceId,
-                  trace.spanId,
-                );
               const result = yield* dispatchOrchestrationCommand(normalizedCommand).pipe(
                 Effect.tap((receipt) =>
                   Effect.sync(() => {
-                    clearQaProviderSwitch(normalizedCommand.commandId);
-                    if (runtimeAction)
-                      admitQaRuntimeAction(
-                        runtimeAction.flow,
-                        runtimeAction.threadId,
-                        runtimeAction.turnId,
-                        trace.traceId,
-                      );
-                    const acceptedQa = qaCommandCheckpoint(normalizedCommand, "accepted");
-                    if (acceptedQa)
-                      recordDiagnosticCheckpoint({
-                        ...diagnosticContext,
-                        ...acceptedQa,
-                        outcome: "ok",
-                      });
-                    const acceptedAction = qaAcceptedCommandAction(normalizedCommand);
-                    if (acceptedAction) {
-                      try {
-                        recordServerQaAction(acceptedAction, trace.traceId);
-                      } catch {
-                        process.stderr.write("[diagnostics] QA action proof failed\n");
-                      }
-                    }
                     recordDiagnosticCheckpoint({
                       ...diagnosticContext,
                       flow: diagnosticFlow,
@@ -799,14 +736,6 @@ const makeWsRpcHandlersLayer = () =>
                 Effect.tapError((cause) =>
                   Effect.gen(function* () {
                     yield* Effect.sync(() => {
-                      clearQaProviderSwitch(normalizedCommand.commandId);
-                      if (runtimeAction)
-                        clearQaRuntimeAction(
-                          runtimeAction.flow,
-                          runtimeAction.threadId,
-                          runtimeAction.turnId,
-                          trace.traceId,
-                        );
                       recordDiagnosticCheckpoint({
                         ...diagnosticContext,
                         flow: diagnosticFlow,
