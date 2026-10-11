@@ -39,7 +39,7 @@ function itemStatus(kind: ThreadItemKind, status: string | undefined): string {
   if (kind === "user") return "sent";
   const failed = status === "failed" || status === "declined";
   if (kind === "text" || kind === "reasoning") {
-    return status === "completed" ? "done" : failed ? "error" : "streaming";
+    return status === "completed" ? "done" : failed ? "interrupted" : "streaming";
   }
   if (kind === "tool") {
     return status === "completed" ? "done" : failed ? "error" : "running";

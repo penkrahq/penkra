@@ -512,27 +512,22 @@ export const answerQuestion = (
 /**
  * A turn's outcome is the only thing that settles its still-running items (TODO
  * 2.3): when the turn ends, or the provider exits / startup cuts off a running
- * thread, every `running` item of that turn becomes terminal in the same write.
+ * thread, every running/streaming item of that turn becomes interrupted in the same write.
  * No reconciler, no UI inference from turn state.
  */
-export const settleRunningItems = (
-  threadId: string,
-  status: string,
-  at: string,
-  turnId?: string | null,
-) =>
+export const settleRunningItems = (threadId: string, at: string, turnId?: string | null) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     if (turnId === undefined || turnId === null) {
       yield* sql`
         UPDATE thread_items
-        SET status = ${status}, updated_at = ${at}
+        SET status = 'interrupted', updated_at = ${at}
         WHERE thread_id = ${threadId} AND status IN ('running', 'streaming')
       `;
     } else {
       yield* sql`
         UPDATE thread_items
-        SET status = ${status}, updated_at = ${at}
+        SET status = 'interrupted', updated_at = ${at}
         WHERE thread_id = ${threadId} AND status IN ('running', 'streaming')
           AND (turn_id = ${turnId} OR turn_id IS NULL)
       `;
