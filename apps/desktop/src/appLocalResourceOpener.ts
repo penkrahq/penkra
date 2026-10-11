@@ -10,14 +10,6 @@ import { resolvePathIntent } from "./appFileIntentResolver";
 import type { AppOpenWithPreferenceStore } from "./appOpenWithPreferences";
 import type { AppScopedFileHandleStore } from "./appScopedFileHandleStore";
 
-interface ResourceTab {
-  id: string;
-  appId: string;
-  spaceId: string;
-  folderId: string;
-  threadId: string;
-}
-
 export interface ResolvedLocalResource {
   path: string;
   kind: "directory" | "file";
@@ -39,18 +31,6 @@ export async function resolveLocalResource(pathInput: string): Promise<ResolvedL
 }
 
 export async function openLocalAppResource(input: {
-  appTabs: {
-    currentFor(spaceId: string, folderId: string): ResourceTab | null;
-    list(): ReadonlyArray<ResourceTab>;
-    present(
-      tabId: string,
-      windowId?: number,
-      bounds?: never,
-      animate?: boolean,
-      animationStartedAtEpochMs?: number,
-      initiator?: "agent" | "user",
-    ): void;
-  };
   broker: {
     invoke(input: {
       app: string;
@@ -64,6 +44,7 @@ export async function openLocalAppResource(input: {
     }): Promise<unknown>;
   };
   callerKind?: "agent" | "user";
+  tabId?: string;
   fileHandles: AppScopedFileHandleStore;
   intents: AppIntentRouter;
   openSystem(path: string): Promise<void>;
@@ -97,27 +78,6 @@ export async function openLocalAppResource(input: {
           path,
           kind,
         });
-  const current = input.appTabs.currentFor(input.spaceId, input.folderId);
-  const reusableTab =
-    current?.appId === resolved.appId
-      ? current
-      : input.appTabs
-          .list()
-          .find(
-            (tab) =>
-              tab.appId === resolved.appId &&
-              tab.spaceId === input.spaceId &&
-              tab.folderId === input.folderId,
-          );
-  if (reusableTab)
-    input.appTabs.present(
-      reusableTab.id,
-      undefined,
-      undefined,
-      false,
-      undefined,
-      input.callerKind ?? "agent",
-    );
   const result = await input.broker.invoke({
     app: resolved.slug,
     operation: resolved.operation,
@@ -128,7 +88,7 @@ export async function openLocalAppResource(input: {
     spaceId: input.spaceId,
     folderId: input.folderId,
     threadId: input.threadId,
-    ...(reusableTab ? { tabId: reusableTab.id } : {}),
+    ...(input.tabId === undefined ? {} : { tabId: input.tabId }),
     callerKind: input.callerKind ?? "agent",
   });
   return {

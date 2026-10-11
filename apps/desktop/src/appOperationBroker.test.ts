@@ -338,10 +338,9 @@ describe("AppOperationBroker", () => {
     expect(ensureController).toHaveBeenCalledWith("com.acme.github", "personal");
   });
 
-  it("presents an existing target App instead of opening a duplicate", async () => {
+  it("opens a new cross-App tab without reusing another tab", async () => {
     const existing = tab("github-tab", { appId: "com.acme.github" });
-    const open = vi.fn();
-    const presentExisting = vi.fn(() => existing);
+    const open = vi.fn(async () => tab("new-github-tab", { appId: "com.acme.github" }));
     const runtime = new AppOperationBroker({
       installationState: crossAppState,
       mintInvocationId: () => "invocation-1",
@@ -350,9 +349,9 @@ describe("AppOperationBroker", () => {
       tabs: {
         open,
         openForResult: vi.fn(async () => ({ completed: true })) as never,
-        presentExisting,
       },
     });
+    runtime.registerTab(existing);
     runtime.registerController({
       appId: "com.acme.linear",
       spaceId: "personal",
@@ -372,14 +371,18 @@ describe("AppOperationBroker", () => {
         threadId: "thread-1",
         input: {},
       }),
-    ).resolves.toEqual({ tabId: "github-tab" });
-    expect(presentExisting).toHaveBeenCalledWith({
-      appId: "com.acme.github",
+    ).resolves.toEqual({ tabId: "new-github-tab" });
+    expect(open).toHaveBeenCalledWith({
+      app: expect.objectContaining({ appId: "com.acme.github" }),
       spaceId: "personal",
       folderId: "folder-1",
+      threadId: "thread-1",
+      route: "/",
       initiator: "user",
     });
-    expect(open).not.toHaveBeenCalled();
+    expect(open).toHaveBeenCalledOnce();
+    expect(existing.navigate).not.toHaveBeenCalled();
+    expect(existing.navigateForResult).not.toHaveBeenCalled();
   });
 
   it("checks installation and Space enablement at invocation time", async () => {

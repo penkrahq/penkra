@@ -101,12 +101,6 @@ export interface OpenAppTabRequest {
 export interface AppTabHost {
   open(input: OpenAppTabRequest): Promise<AppTabHandle>;
   openForResult<Result = unknown>(input: OpenAppTabRequest): Promise<Result>;
-  presentExisting?(input: {
-    appId: string;
-    spaceId: string;
-    folderId: string;
-    initiator?: "agent" | "user";
-  }): AppTabHandle | null;
 }
 
 export interface AppOperationBrokerOptions {
@@ -263,13 +257,6 @@ export class AppOperationBroker {
         open: async (input) => {
           const target = this.#resolveEnabledApp(input.slug, request.spaceId);
           await this.#ensureController(target.appId, request.spaceId);
-          const existing = this.#tabHost.presentExisting?.({
-            appId: target.appId,
-            spaceId: request.spaceId,
-            folderId: request.folderId,
-            initiator: request.callerKind === "agent" ? "agent" : "user",
-          });
-          if (existing) return existing;
           return this.#tabHost.open({
             app: target,
             spaceId: request.spaceId,

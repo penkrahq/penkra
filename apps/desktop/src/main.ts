@@ -1671,7 +1671,6 @@ async function openPenkraResource(input: {
   }
 
   return openLocalAppResource({
-    appTabs: runtime.appTabs,
     broker: runtime.broker,
     fileHandles: runtimeV2FileHandles,
     intents: runtime.intents,
