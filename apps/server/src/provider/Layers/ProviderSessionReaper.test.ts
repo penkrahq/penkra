@@ -1,8 +1,12 @@
-import { ThreadId, TurnId, type OrchestrationThreadShell } from "@penkra/contracts";
-import { Effect, Exit, Layer, Option, Scope, Stream } from "effect";
+import { ThreadId, TurnId } from "@penkra/contracts";
+import { Effect, Exit, Layer, Scope, ServiceMap, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
-import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { createThread } from "../../cleanCore/threadStore.ts";
+import { seedThreadFolderFixture } from "../../cleanCore/threadFixtures.ts";
+import { runMigrations } from "../../persistence/Migrations.ts";
+import * as NodeSqliteClient from "../../persistence/NodeSqliteClient.ts";
 import {
   ProviderSessionDirectory,
   type ProviderSessionDirectoryShape,
@@ -21,59 +25,40 @@ async function waitFor(predicate: () => boolean): Promise<void> {
   }
 }
 
-function makeThreadShell(input: {
+function makeLayer(input: {
   readonly threadId: ThreadId;
   readonly activeTurnId: TurnId | null;
-}): OrchestrationThreadShell {
-  return {
-    id: input.threadId,
-    session: input.activeTurnId
-      ? {
-          activeTurnId: input.activeTurnId,
-        }
-      : null,
-  } as unknown as OrchestrationThreadShell;
-}
-
-function makeLayer(input: {
-  readonly threadShell: OrchestrationThreadShell;
   readonly directory: ProviderSessionDirectoryShape;
   readonly providerService: ProviderServiceShape;
 }) {
+  const database = Layer.effectDiscard(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations();
+      yield* seedThreadFolderFixture("reaper-folder", "reaper-space");
+      yield* createThread({
+        id: input.threadId,
+        spaceId: "reaper-space",
+        folderId: "reaper-folder",
+        title: "Reaper fixture",
+        provider: "codex",
+        model: "gpt-5.5",
+        runtimeMode: "full-access",
+        createdBy: "user",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      });
+      yield* sql`UPDATE threads SET active_turn_id=${input.activeTurnId},
+        state=${input.activeTurnId === null ? "idle" : "running"}
+        WHERE id=${input.threadId}`;
+    }),
+  ).pipe(Layer.provideMerge(NodeSqliteClient.layerMemory()));
   return makeProviderSessionReaperLive({
     inactivityThresholdMs: 1,
     sweepIntervalMs: 60_000,
   }).pipe(
     Layer.provide(Layer.succeed(ProviderSessionDirectory, input.directory)),
     Layer.provide(Layer.succeed(ProviderService, input.providerService)),
-    Layer.provide(
-      Layer.succeed(ProjectionSnapshotQuery, {
-        getSnapshot: () => unsupported(),
-        getCommandReadModel: () => unsupported(),
-        getCounts: () => unsupported(),
-        getSnapshotSequence: () => unsupported(),
-        listStaleInFlightThreadIds: () => unsupported(),
-        listOpenTurnCounts: () => unsupported(),
-        listStreamingAssistantMessages: () => unsupported(),
-        searchThreadMessages: () => unsupported(),
-        getThreadMessageContext: () => unsupported(),
-        listFolderShellPage: () => unsupported(),
-        listThreadShellPage: () => unsupported(),
-        hasActiveProviderThread: () => unsupported(),
-        getStartupSnapshot: () => unsupported(),
-        getActiveFolderByWorkspaceRoot: () => unsupported(),
-        getFolderShellsByIds: () => Effect.die("unused"),
-        getFolderShellById: () => unsupported(),
-        getSpaceShellById: () => unsupported(),
-        getFirstActiveThreadIdByFolderId: () => unsupported(),
-        getThreadShellById: () => Effect.succeed(Option.some(input.threadShell)),
-        getThreadDetailById: () => unsupported(),
-        getThreadDetailForExportById: () => unsupported(),
-        getThreadDetailSnapshotById: () => unsupported(),
-        getThreadTurnsPage: () => unsupported(),
-        getPendingStartOutcome: () => unsupported(),
-      }),
-    ),
+    Layer.provide(database),
   );
 }
 
@@ -118,18 +103,20 @@ describe("ProviderSessionReaperLive", () => {
 
     const scope = await Effect.runPromise(Scope.make());
     try {
-      await Effect.gen(function* () {
-        const reaper = yield* ProviderSessionReaper;
-        yield* Scope.provide(reaper.start(), scope);
-      }).pipe(
-        Effect.provide(
-          makeLayer({
-            threadShell: makeThreadShell({ threadId, activeTurnId: null }),
-            directory,
-            providerService,
-          }),
-        ),
-        Effect.runPromise,
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const services = yield* Layer.buildWithScope(
+            makeLayer({
+              threadId,
+              activeTurnId: null,
+              directory,
+              providerService,
+            }),
+            scope,
+          );
+          const reaper = ServiceMap.get(services, ProviderSessionReaper);
+          yield* Scope.provide(reaper.start(), scope);
+        }),
       );
       await waitFor(() => stopSession.mock.calls.length === 1);
     } finally {
@@ -180,18 +167,20 @@ describe("ProviderSessionReaperLive", () => {
 
     const scope = await Effect.runPromise(Scope.make());
     try {
-      await Effect.gen(function* () {
-        const reaper = yield* ProviderSessionReaper;
-        yield* Scope.provide(reaper.start(), scope);
-      }).pipe(
-        Effect.provide(
-          makeLayer({
-            threadShell: makeThreadShell({ threadId, activeTurnId: turnId }),
-            directory,
-            providerService,
-          }),
-        ),
-        Effect.runPromise,
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const services = yield* Layer.buildWithScope(
+            makeLayer({
+              threadId,
+              activeTurnId: turnId,
+              directory,
+              providerService,
+            }),
+            scope,
+          );
+          const reaper = ServiceMap.get(services, ProviderSessionReaper);
+          yield* Scope.provide(reaper.start(), scope);
+        }),
       );
       await new Promise((resolve) => setTimeout(resolve, 50));
     } finally {
