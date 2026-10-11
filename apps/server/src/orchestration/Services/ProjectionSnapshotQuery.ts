@@ -86,17 +86,6 @@ export interface ProjectionSnapshotSequence {
   readonly snapshotSequence: number;
 }
 
-export interface ProjectionOpenTurnCount {
-  readonly threadId: ThreadId;
-  readonly count: number;
-}
-
-export interface ProjectionStreamingAssistantMessage {
-  readonly threadId: ThreadId;
-  readonly messageId: MessageId;
-  readonly turnId: TurnId | null;
-}
-
 export interface ProjectionFolderPageCursor {
   readonly createdAt: string;
   readonly folderId: FolderId;
@@ -169,28 +158,6 @@ export interface ProjectionSnapshotQueryShape {
    */
   readonly getSnapshotSequence: () => Effect.Effect<
     ProjectionSnapshotSequence,
-    ProjectionRepositoryError
-  >;
-
-  /**
-   * Find only stale threads whose projected session/turn still appears in
-   * flight. Used by the runtime reconciler to avoid hydrating the full shell
-   * snapshot on every polling interval.
-   */
-  readonly listStaleInFlightThreadIds: (input: {
-    readonly updatedBefore: string;
-    readonly limit: number;
-  }) => Effect.Effect<ReadonlyArray<ThreadId>, ProjectionRepositoryError>;
-
-  /** Count every non-terminal turn per thread for restart-time settlement. */
-  readonly listOpenTurnCounts: () => Effect.Effect<
-    ReadonlyArray<ProjectionOpenTurnCount>,
-    ProjectionRepositoryError
-  >;
-
-  /** Exact assistant messages whose producer cannot survive a server restart. */
-  readonly listStreamingAssistantMessages: () => Effect.Effect<
-    ReadonlyArray<ProjectionStreamingAssistantMessage>,
     ProjectionRepositoryError
   >;
 
