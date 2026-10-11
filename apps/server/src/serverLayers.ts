@@ -5,7 +5,6 @@ import { Layer } from "effect";
 import { ThreadSenderLive } from "./cleanCore/ThreadSender.ts";
 import { AgentGatewayLive } from "./agentGateway/Layers/AgentGateway";
 import { AgentGatewayCredentialsWithSecretsLive } from "./agentGateway/Layers/AgentGatewayCredentials";
-import { OrchestrationReactorLive } from "./orchestration/Layers/OrchestrationReactor";
 import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderCommandReactor";
 import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRuntimeIngestion";
 import { OrchestrationLayerLive } from "./orchestration/runtimeLayer";
@@ -112,10 +111,6 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(providerTurnSelectionResolverLayer),
     Layer.provideMerge(providerThreadSwitchCoordinatorLayer),
   );
-  const orchestrationReactorLayer = OrchestrationReactorLive.pipe(
-    Layer.provideMerge(runtimeIngestionLayer),
-    Layer.provideMerge(providerCommandReactorLayer),
-  );
   // Shares the single memoized TerminalManager with the top-level TerminalLayerLive.
   const devServerManagerLayer = DevServerManagerLive.pipe(Layer.provide(TerminalLayerLive));
   const sessionCredentialLayer = SessionCredentialServiceLive.pipe(
@@ -178,7 +173,7 @@ export function makeServerRuntimeServicesLayer(
     providerNativeStateMaterializerLayer,
     providerThreadSwitchCoordinatorLayer,
     providerHealthLayer,
-    orchestrationReactorLayer,
+    runtimeIngestionLayer,
     providerCommandReactorLayer,
     devServerManagerLayer,
     TextGenerationLayerLive,

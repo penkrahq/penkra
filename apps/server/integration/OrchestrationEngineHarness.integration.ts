@@ -8,6 +8,8 @@ import {
   ProviderConnectionId,
   ProviderInstallationId,
   ProviderKind,
+  ModelSelection,
+  type ProviderConnectionId as ProviderConnectionIdValue,
   ThreadId,
   type OrchestrationEvent,
   type OrchestrationThread,
@@ -49,7 +51,6 @@ import { TextGeneration } from "../src/textGeneration/Services/TextGeneration.ts
 import { OrchestrationEngineLive } from "../src/orchestration/Layers/OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "../src/orchestration/Layers/ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "../src/orchestration/Layers/ProjectionSnapshotQuery.ts";
-import { OrchestrationReactorLive } from "../src/orchestration/Layers/OrchestrationReactor.ts";
 import { makeProviderCommandReactorLive } from "../src/orchestration/Layers/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionLive } from "../src/orchestration/Layers/ProviderRuntimeIngestion.ts";
 import { ThreadPublisherLive } from "../src/cleanCore/ThreadPublisher.ts";
@@ -57,7 +58,8 @@ import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
 } from "../src/orchestration/Services/OrchestrationEngine.ts";
-import { OrchestrationReactor } from "../src/orchestration/Services/OrchestrationReactor.ts";
+import { ProviderCommandReactor } from "../src/orchestration/Services/ProviderCommandReactor.ts";
+import { ProviderRuntimeIngestionService } from "../src/orchestration/Services/ProviderRuntimeIngestion.ts";
 import {
   ProviderThreadSwitchCoordinator,
   ProviderThreadSwitchCoordinatorError,
@@ -234,12 +236,62 @@ export const makeOrchestrationIntegrationHarness = (
     yield* initializeGitWorkspace(workspaceDir);
 
     const persistenceLayer = makeSqlitePersistenceLive(dbPath);
-    const orchestrationLayer = OrchestrationEngineLive.pipe(
+    const baseOrchestrationLayer = OrchestrationEngineLive.pipe(
       Layer.provide(OrchestrationProjectionSnapshotQueryLive),
       Layer.provide(OrchestrationProjectionPipelineLive),
       Layer.provide(OrchestrationEventStoreLive),
       Layer.provide(OrchestrationCommandReceiptRepositoryLive),
     );
+    // Test adapter admission mirrors the canonical selection write made by the
+    // real switch coordinator. Fixture turns must not bypass that write.
+    const orchestrationLayer = Layer.effect(
+      OrchestrationEngineService,
+      Effect.gen(function* () {
+        const engine = yield* OrchestrationEngineService;
+        const sql = yield* SqlClient.SqlClient;
+        return {
+          ...engine,
+          dispatch: (command, context) => {
+            if (
+              command.type !== "thread.turn.start" &&
+              command.type !== "thread.turn.dispatch-queued"
+            ) {
+              return engine.dispatch(command, context);
+            }
+            return Effect.gen(function* () {
+              const [row] = yield* sql<{
+                provider: ProviderKind;
+                model: string;
+                modelOptions: string | null;
+                connectionId: ProviderConnectionIdValue | null;
+              }>`
+                SELECT provider, model, model_options AS "modelOptions", connection_id AS "connectionId"
+                FROM threads WHERE id=${command.threadId}
+              `.pipe(Effect.orDie);
+              if (row === undefined) return yield* engine.dispatch(command, context);
+              const modelSelection =
+                command.modelSelection ??
+                Schema.decodeUnknownSync(ModelSelection)({
+                  provider: row.provider,
+                  model: row.model,
+                  ...(row.modelOptions === null ? {} : { options: JSON.parse(row.modelOptions) }),
+                });
+              return yield* engine.dispatch(command, {
+                ...context,
+                acceptedTurnSelection: {
+                  threadId: command.threadId,
+                  modelSelection,
+                  connectionId:
+                    command.connectionId === undefined ? row.connectionId : command.connectionId,
+                  nativeState: undefined,
+                  updatedAt: command.createdAt,
+                },
+              });
+            });
+          },
+        } satisfies typeof OrchestrationEngineService.Service;
+      }),
+    ).pipe(Layer.provideMerge(baseOrchestrationLayer));
     const providerSessionDirectoryLayer = ProviderSessionDirectoryLive.pipe(
       Layer.provide(ProviderSessionRuntimeRepositoryLive),
     );
@@ -380,11 +432,7 @@ export const makeOrchestrationIntegrationHarness = (
       Layer.provideMerge(providerTurnSelectionResolverLayer),
       Layer.provideMerge(providerThreadSwitchCoordinatorLayer),
     );
-    const orchestrationReactorLayer = OrchestrationReactorLive.pipe(
-      Layer.provideMerge(runtimeIngestionLayer),
-      Layer.provideMerge(providerCommandReactorLayer),
-    );
-    const layer = orchestrationReactorLayer.pipe(
+    const layer = Layer.merge(runtimeIngestionLayer, providerCommandReactorLayer).pipe(
       Layer.provideMerge(persistenceLayer),
       Layer.provideMerge(ServerConfig.layerTest(workspaceDir, rootDir)),
       Layer.provideMerge(NodeServices.layer),
@@ -397,8 +445,11 @@ export const makeOrchestrationIntegrationHarness = (
     const sql = yield* Effect.promise(() =>
       runtime.runPromise(Effect.service(SqlClient.SqlClient)),
     );
-    const reactor = yield* tryRuntimePromise("load OrchestrationReactor service", () =>
-      runtime.runPromise(Effect.service(OrchestrationReactor)),
+    const ingestion = yield* tryRuntimePromise("load provider runtime ingestion", () =>
+      runtime.runPromise(Effect.service(ProviderRuntimeIngestionService)),
+    ).pipe(Effect.orDie);
+    const dispatcher = yield* tryRuntimePromise("load provider command dispatch", () =>
+      runtime.runPromise(Effect.service(ProviderCommandReactor)),
     ).pipe(Effect.orDie);
     const snapshotQuery = yield* tryRuntimePromise("load ProjectionSnapshotQuery service", () =>
       runtime.runPromise(Effect.service(ProjectionSnapshotQuery)),
@@ -412,8 +463,10 @@ export const makeOrchestrationIntegrationHarness = (
     ).pipe(Effect.orDie);
 
     const scope = yield* Scope.make("sequential");
-    yield* tryRuntimePromise("start OrchestrationReactor", () =>
-      runtime.runPromise(reactor.start.pipe(Scope.provide(scope))),
+    yield* tryRuntimePromise("start provider runtime subscriptions", () =>
+      runtime.runPromise(
+        ingestion.start.pipe(Effect.andThen(dispatcher.start), Scope.provide(scope)),
+      ),
     ).pipe(Effect.orDie);
     yield* Effect.sleep(10);
 

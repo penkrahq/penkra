@@ -25,7 +25,10 @@ import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
 } from "./orchestration/Services/OrchestrationEngine";
-import { OrchestrationReactor } from "./orchestration/Services/OrchestrationReactor";
+import {
+  ProviderRuntimeIngestionService,
+  type ProviderRuntimeIngestionShape,
+} from "./orchestration/Services/ProviderRuntimeIngestion.ts";
 import {
   ProviderCommandReactor,
   type ProviderCommandReactorShape,
@@ -33,7 +36,10 @@ import {
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { settleRunningThreadsOnStartup } from "./cleanCore/providerStreamConsumer.ts";
 import { ThreadPublisher } from "./cleanCore/ThreadPublisher.ts";
-import { ProviderSessionReaper } from "./provider/Services/ProviderSessionReaper";
+import {
+  ProviderSessionReaper,
+  type ProviderSessionReaperShape,
+} from "./provider/Services/ProviderSessionReaper";
 import { ProviderService, type ProviderServiceShape } from "./provider/Services/ProviderService";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
@@ -61,7 +67,7 @@ export interface ServerShape {
     | ManagedAttachmentCleanup
     | ServerLifecycleEvents
     | OrchestrationEngineService
-    | OrchestrationReactor
+    | ProviderRuntimeIngestionService
     | ProviderCommandReactor
     | ProjectionSnapshotQuery
     | ProviderSessionReaper
@@ -86,6 +92,37 @@ export class ServerLifecycleError extends Schema.TaggedErrorClass<ServerLifecycl
     cause: Schema.optional(Schema.Defect),
   },
 ) {}
+
+/** Cut off interrupted work and attach runtime observers before accepting commands. */
+export function startServerRuntimeSubscriptions(input: {
+  readonly threadPublisher: typeof ThreadPublisher.Service;
+  readonly providerRuntimeIngestion: Pick<ProviderRuntimeIngestionShape, "start">;
+  readonly providerCommandReactor: Pick<ProviderCommandReactorShape, "start">;
+  readonly providerSessionReaper: Pick<ProviderSessionReaperShape, "start">;
+  readonly subscriptionsScope: Scope.Closeable;
+  readonly startedAt: string;
+}) {
+  return Effect.gen(function* () {
+    yield* runStartupStage(
+      "clean-core.startup-cutoff",
+      settleRunningThreadsOnStartup(input.threadPublisher, input.startedAt),
+    );
+    yield* runStartupStage(
+      "provider-runtime-ingestion.start",
+      Scope.provide(input.providerRuntimeIngestion.start, input.subscriptionsScope),
+    );
+    // Observe provider events before commands can begin. Sequential scope
+    // finalization drains commands before releasing their runtime observer.
+    yield* runStartupStage(
+      "provider-command-dispatch.start",
+      Scope.provide(input.providerCommandReactor.start, input.subscriptionsScope),
+    );
+    yield* runStartupStage(
+      "provider-session-reaper.start",
+      Scope.provide(input.providerSessionReaper.start(), input.subscriptionsScope),
+    );
+  });
+}
 
 export function closeServerRuntimePipeline(input: {
   readonly orchestrationEngine: Pick<OrchestrationEngineShape, "quiesce" | "drain" | "stop">;
@@ -147,7 +184,7 @@ export const createEffectServer = Effect.fn(function* (
   const workspaceWatcher = yield* WorkspaceWatcher;
   const lifecycleEvents = yield* ServerLifecycleEvents;
   const orchestrationEngine = yield* OrchestrationEngineService;
-  const orchestrationReactor = yield* OrchestrationReactor;
+  const providerRuntimeIngestion = yield* ProviderRuntimeIngestionService;
   const providerCommandReactor = yield* ProviderCommandReactor;
   const providerService = yield* ProviderService;
   const providerSessionReaper = yield* ProviderSessionReaper;
@@ -227,20 +264,14 @@ export const createEffectServer = Effect.fn(function* (
   // releasing SQLite and provider services. Keep the finalizer as an idempotent
   // fallback for startup failures and abrupt parent disconnects.
   yield* Effect.addFinalizer(() => shutdown);
-  // Clean core (0.14.4): no runtime survives a restart, so cut off every thread
-  // still marked running and record the notice, before provider replay begins.
-  yield* runStartupStage(
-    "clean-core.startup-cutoff",
-    settleRunningThreadsOnStartup(threadPublisher, new Date().toISOString()),
-  );
-  yield* runStartupStage(
-    "orchestration-reactor.start",
-    Scope.provide(orchestrationReactor.start, subscriptionsScope),
-  );
-  yield* runStartupStage(
-    "provider-session-reaper.start",
-    Scope.provide(providerSessionReaper.start(), subscriptionsScope),
-  );
+  yield* startServerRuntimeSubscriptions({
+    threadPublisher,
+    providerRuntimeIngestion,
+    providerCommandReactor,
+    providerSessionReaper,
+    subscriptionsScope,
+    startedAt: new Date().toISOString(),
+  });
   yield* readiness.markOrchestrationSubscriptionsReady;
   yield* readiness.markTerminalSubscriptionsReady;
   yield* runtimeStartup.markCommandReady;
@@ -264,7 +295,7 @@ export const createEffectServer = Effect.fn(function* (
   // provider resumptions complete, so keep them supervised but off the startup
   // readiness path.
   yield* Effect.gen(function* () {
-    yield* orchestrationReactor.reconcileSettledOpenTurns;
+    yield* providerRuntimeIngestion.reconcileSettledOpenTurns;
   }).pipe(
     Effect.catchCause((cause) =>
       Effect.logWarning("post-ready restart recovery failed", { cause }),
