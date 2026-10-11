@@ -1,6 +1,7 @@
-import { Cause, Duration, Effect, Layer, Option, Schedule } from "effect";
+import { Cause, Duration, Effect, Layer, Schedule } from "effect";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery";
+import { findThread } from "../../cleanCore/threadList.ts";
 import { ProviderSessionDirectory } from "../Services/ProviderSessionDirectory";
 import {
   ProviderSessionReaper,
@@ -20,7 +21,7 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
   Effect.gen(function* () {
     const providerService = yield* ProviderService;
     const directory = yield* ProviderSessionDirectory;
-    const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+    const sql = yield* SqlClient.SqlClient;
 
     const inactivityThresholdMs = Math.max(
       1,
@@ -49,10 +50,10 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
         const idleDurationMs = now - lastSeenMs;
         if (idleDurationMs < inactivityThresholdMs) continue;
 
-        const thread = yield* projectionSnapshotQuery
-          .getThreadShellById(binding.threadId)
-          .pipe(Effect.map(Option.getOrUndefined));
-        if (thread?.session?.activeTurnId != null) continue;
+        const thread = yield* findThread(binding.threadId).pipe(
+          Effect.provideService(SqlClient.SqlClient, sql),
+        );
+        if (thread?.activeTurnId != null) continue;
 
         yield* providerService.stopSession({ threadId: binding.threadId }).pipe(
           Effect.catchCause((cause) =>
