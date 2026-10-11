@@ -14,6 +14,7 @@ import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { MigrationLineageError, MigrationSchemaTooNewError } from "./Errors.ts";
+import { verifyCleanCoreBackfill } from "./verifyCleanCoreBackfill.ts";
 
 // Import all migrations statically
 import Migration0001 from "./Migrations/001_OrchestrationEvents.ts";
@@ -393,7 +394,10 @@ export const makeMigrationLoader = (throughId?: number) =>
     Object.fromEntries(
       migrationEntries
         .filter(([id]) => throughId === undefined || id <= throughId)
-        .map(([id, name, migration]) => [`${id}_${name}`, migration]),
+        .map(([id, name, migration]) => [
+          `${id}_${name}`,
+          id === 176 ? migration.pipe(Effect.andThen(verifyCleanCoreBackfill)) : migration,
+        ]),
     ),
   );
 
@@ -645,17 +649,26 @@ export interface RunMigrationsOptions {
  */
 export const runMigrations = ({ toMigrationInclusive }: RunMigrationsOptions = {}) =>
   Effect.gen(function* () {
-    yield* reconcileMigrationLineage;
-    yield* Effect.log(
-      toMigrationInclusive === undefined
-        ? "Running all migrations..."
-        : `Running migrations 1 through ${toMigrationInclusive}...`,
+    const sql = yield* SqlClient.SqlClient;
+    return yield* sql.withTransaction(
+      Effect.gen(function* () {
+        yield* reconcileMigrationLineage;
+        yield* Effect.log(
+          toMigrationInclusive === undefined
+            ? "Running all migrations..."
+            : `Running migrations 1 through ${toMigrationInclusive}...`,
+        );
+        const executedMigrations = yield* run({
+          loader: makeMigrationLoader(toMigrationInclusive),
+        });
+        yield* Effect.log("Migrations ran successfully").pipe(
+          Effect.annotateLogs({
+            migrations: executedMigrations.map(([id, name]) => `${id}_${name}`),
+          }),
+        );
+        return executedMigrations;
+      }),
     );
-    const executedMigrations = yield* run({ loader: makeMigrationLoader(toMigrationInclusive) });
-    yield* Effect.log("Migrations ran successfully").pipe(
-      Effect.annotateLogs({ migrations: executedMigrations.map(([id, name]) => `${id}_${name}`) }),
-    );
-    return executedMigrations;
   });
 
 /**
