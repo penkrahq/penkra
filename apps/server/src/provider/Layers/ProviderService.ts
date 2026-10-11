@@ -47,8 +47,6 @@ import {
 } from "effect";
 import * as Semaphore from "effect/Semaphore";
 import { nonEmptyTrimmed } from "@penkra/shared/text";
-import { startDiagnosticTrace } from "@penkra/shared/traceContext";
-import { recordDiagnosticIncident } from "../../diagnostics/recorder.ts";
 
 import { ProviderValidationError } from "../Errors.ts";
 import { PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE } from "@penkra/shared/threadSummary";
@@ -79,20 +77,6 @@ import {
   runProviderRuntimeEventPump,
 } from "../providerRuntimeEventPump.ts";
 
-function reportProviderServiceFailure(threadId?: string): Effect.Effect<void> {
-  return Effect.sync(() =>
-    recordDiagnosticIncident({
-      ...startDiagnosticTrace(),
-      ...(threadId ? { threadId } : {}),
-      kind: "external.failed",
-      code: "EXTERNAL_CALL_FAILED",
-      where: "server.provider",
-      severity: "error",
-      expected: { accepted: true },
-      actual: { accepted: false },
-    }),
-  );
-}
 /**
  * Preserve the adapter's per-occurrence identity. A content-derived id cannot distinguish two
  * legitimate notifications with identical payloads (assistant streams commonly repeat spaces,
@@ -730,17 +714,12 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         return activeSession.resumeCursor;
       }).pipe(
         Effect.catchCause((cause) =>
-          reportProviderServiceFailure(event.threadId).pipe(
-            Effect.andThen(
-              Effect.logWarning("provider.session.resume_cursor_refresh_failed", {
-                threadId: event.threadId,
-                provider: binding.provider,
-                eventType: event.type,
-                cause: Cause.pretty(cause),
-              }),
-            ),
-            Effect.as(binding.resumeCursor),
-          ),
+          Effect.logWarning("provider.session.resume_cursor_refresh_failed", {
+            threadId: event.threadId,
+            provider: binding.provider,
+            eventType: event.type,
+            cause: Cause.pretty(cause),
+          }).pipe(Effect.as(binding.resumeCursor)),
         ),
       );
     };
@@ -1148,15 +1127,11 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         }),
       ).pipe(
         Effect.catchCause((cause) =>
-          reportProviderServiceFailure(event.threadId).pipe(
-            Effect.andThen(
-              Effect.logWarning("provider.session.runtime_binding_update_failed", {
-                threadId: event.threadId,
-                eventType: event.type,
-                cause: Cause.pretty(cause),
-              }),
-            ),
-          ),
+          Effect.logWarning("provider.session.runtime_binding_update_failed", {
+            threadId: event.threadId,
+            eventType: event.type,
+            cause: Cause.pretty(cause),
+          }),
         ),
       );
     };
@@ -1503,7 +1478,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                 })
                 .pipe(Effect.timeoutOption(PROVIDER_START_SESSION_TIMEOUT));
               if (Option.isNone(started)) {
-                yield* reportProviderServiceFailure(threadId);
                 yield* Effect.logError("provider session start exceeded its deadline", {
                   threadId,
                   provider: input.provider,
@@ -1512,15 +1486,11 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                 yield* adapter.stopSession(threadId).pipe(
                   Effect.timeoutOption(PROVIDER_STOP_SESSION_TIMEOUT),
                   Effect.catchCause((cause) =>
-                    reportProviderServiceFailure(threadId).pipe(
-                      Effect.andThen(
-                        Effect.logWarning("failed to retire a timed-out provider session start", {
-                          threadId,
-                          provider: input.provider,
-                          cause: Cause.pretty(cause),
-                        }),
-                      ),
-                    ),
+                    Effect.logWarning("failed to retire a timed-out provider session start", {
+                      threadId,
+                      provider: input.provider,
+                      cause: Cause.pretty(cause),
+                    }),
                   ),
                 );
                 return yield* toValidationError(
@@ -2207,14 +2177,10 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         yield* stopRuntimeSessionInternal({ threadId }, generation);
       }).pipe(
         Effect.catchCause((cause) =>
-          reportProviderServiceFailure(threadId).pipe(
-            Effect.andThen(
-              Effect.logWarning("provider.session.idle_stop_failed", {
-                threadId,
-                cause,
-              }),
-            ),
-          ),
+          Effect.logWarning("provider.session.idle_stop_failed", {
+            threadId,
+            cause,
+          }),
         ),
       );
       const stopPromise = Effect.runPromise(stopEffect).finally(() => {
@@ -2493,13 +2459,9 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           Effect.andThen(
             runStopAll().pipe(
               Effect.catchCause((cause) =>
-                reportProviderServiceFailure().pipe(
-                  Effect.andThen(
-                    Effect.logWarning("failed to stop provider sessions", {
-                      cause: Cause.pretty(cause),
-                    }),
-                  ),
-                ),
+                Effect.logWarning("failed to stop provider sessions", {
+                  cause: Cause.pretty(cause),
+                }),
               ),
             ),
           ),
