@@ -2,7 +2,6 @@ import { Effect } from "effect";
 import { startDiagnosticTrace } from "@penkra/shared/traceContext";
 import { recordDiagnosticIncident } from "../diagnostics/recorder.ts";
 import { recordMcpScopeDenied } from "./mcpWriteDiagnostics.ts";
-import { recordGatewayConsumedFailure } from "./gatewayFailureDiagnostics.ts";
 import {
   assembleInstructions,
   generateOperationHelp,
@@ -172,7 +171,6 @@ export function invokeResolvedAgentGatewayCommand(input: {
       : invoke;
   return authorized.pipe(
     Effect.catch((error) => {
-      if (!(error instanceof GatewayToolError)) recordGatewayConsumedFailure(error);
       if (error.code === "caller_session_inactive" || error.code === "caller_thread_inactive") {
         recordDiagnosticIncident({
           ...(input.context.diagnosticTrace ?? startDiagnosticTrace()),

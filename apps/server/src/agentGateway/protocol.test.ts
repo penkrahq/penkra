@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest";
 
 import {
   buildMcpInitializeResult,
+  mcpToolErrorResult,
   extractPenkraExecRichResult,
   negotiateMcpProtocolVersion,
   parseMcpMessage,
@@ -10,6 +11,16 @@ import {
 } from "./protocol.ts";
 
 describe("agent gateway MCP protocol", () => {
+  it("returns errors and non-Error failures as MCP error content", () => {
+    assert.deepEqual(mcpToolErrorResult(new Error("invalid argument")), {
+      isError: true,
+      content: [{ type: "text", text: "invalid argument" }],
+    });
+    assert.deepEqual(mcpToolErrorResult("transport failed"), {
+      isError: true,
+      content: [{ type: "text", text: "transport failed" }],
+    });
+  });
   it("parses a JSON-RPC request with params", () => {
     const parsed = parseMcpMessage({
       jsonrpc: "2.0",

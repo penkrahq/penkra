@@ -50,6 +50,7 @@ import {
   mcpToolResultImage,
   mcpToolResultJson,
   mcpToolResultRich,
+  mcpToolErrorResult,
 } from "../protocol.ts";
 import { gatewayIsoNow as isoNow } from "../creationUtils.ts";
 import {
@@ -102,11 +103,6 @@ import { resolveAuthoritativeActiveTurn } from "../activeExecution.ts";
 import { presentFile, resolvePresentFileCwd } from "../presentFile.ts";
 import { ThreadSender } from "../../cleanCore/ThreadSender.ts";
 
-import {
-  gatewayMcpToolErrorResult,
-  recordGatewayConsumedFailure,
-} from "../gatewayFailureDiagnostics.ts";
-
 function isPenkraExecImage(
   value: unknown,
 ): value is { kind: "image"; data: string; mimeType: string } {
@@ -140,14 +136,12 @@ function sendMessageErrorResult(error: unknown) {
   if (error instanceof GatewayToolError) return gatewayToolErrorResult(error);
   const threadGuard = findThreadGuardInvariant(error);
   if (threadGuard?.code === "thread_archived") {
-    recordGatewayConsumedFailure(new GatewayToolError(threadGuard.code, threadGuard.detail));
     return gatewayToolErrorResult(new GatewayToolError(threadGuard.code, threadGuard.detail));
   }
   if (error instanceof ProviderThreadSwitchCoordinatorError) {
-    recordGatewayConsumedFailure(error);
     return gatewayToolErrorResult(new GatewayToolError(error.code, error.message));
   }
-  return gatewayMcpToolErrorResult(error);
+  return mcpToolErrorResult(error);
 }
 
 export const makeAgentGateway = Effect.gen(function* () {
@@ -331,7 +325,7 @@ export const makeAgentGateway = Effect.gen(function* () {
           assertAuthority: context.assertCallerTurnActive,
           attachmentPrincipal: attachmentPrincipalForSession(context.callerSessionKey),
         }),
-      ).pipe(Effect.catchDefect((error) => Effect.succeed(gatewayMcpToolErrorResult(error)))),
+      ).pipe(Effect.catchDefect((error) => Effect.succeed(mcpToolErrorResult(error)))),
   };
 
   const sendMessage: ToolEntry = {
@@ -455,7 +449,7 @@ export const makeAgentGateway = Effect.gen(function* () {
             ? yield* sender.interrupt(target.id)
             : yield* sender.cancelQueued({ threadId: target.id, messageId });
         return mcpToolResultJson(result);
-      }).pipe(Effect.catch((error) => Effect.succeed(gatewayMcpToolErrorResult(error)))),
+      }).pipe(Effect.catch((error) => Effect.succeed(mcpToolErrorResult(error)))),
   };
 
   const makeSetThreadArchived = (archived: boolean): ToolEntry => ({
@@ -507,11 +501,10 @@ export const makeAgentGateway = Effect.gen(function* () {
         return mcpToolResultJson({ threadId: target.id, archived });
       }).pipe(
         Effect.catch((error) => {
-          if (error instanceof GatewayToolError) recordGatewayConsumedFailure(error);
           return Effect.succeed(
             error instanceof GatewayToolError
               ? gatewayToolErrorResult(error)
-              : gatewayMcpToolErrorResult(error),
+              : mcpToolErrorResult(error),
           );
         }),
       ),
@@ -579,7 +572,7 @@ export const makeAgentGateway = Effect.gen(function* () {
             }),
           );
           return mcpToolResultJson(results.length === 1 ? results[0] : { items: results });
-        }).pipe(Effect.catch((error) => Effect.succeed(gatewayMcpToolErrorResult(error)))),
+        }).pipe(Effect.catch((error) => Effect.succeed(mcpToolErrorResult(error)))),
     } satisfies ToolEntry,
   ] as const;
   const requireInternalTool = (name: string): ToolEntry => {
@@ -721,7 +714,7 @@ export const makeAgentGateway = Effect.gen(function* () {
           });
         }
         return mcpToolResultJson(result);
-      }).pipe(Effect.catch((error) => Effect.succeed(gatewayMcpToolErrorResult(error)))),
+      }).pipe(Effect.catch((error) => Effect.succeed(mcpToolErrorResult(error)))),
   };
 
   const tools: ReadonlyArray<ToolEntry> = [penkraExecCommand];
