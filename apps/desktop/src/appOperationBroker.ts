@@ -26,7 +26,7 @@ export type AppOperationBrokerErrorCode =
   | "operation-not-found"
   | "recursion-limit"
   | "tab-already-registered"
-  | "tab-not-found"
+  | "TAB_NOT_FOUND"
   | "tab-target-mismatch";
 
 export class AppOperationBrokerError extends Error {
@@ -105,6 +105,7 @@ export interface AppTabHost {
 
 export interface AppOperationBrokerOptions {
   installationState: () => AppInstallationState;
+  resolveFolderTitle: (folderId: string) => Promise<string>;
   tabs: AppTabHost;
   resolveIdentity: (
     appId: string,
@@ -124,6 +125,7 @@ export interface AppOperationBrokerOptions {
  */
 export class AppOperationBroker {
   readonly #installationState: () => AppInstallationState;
+  readonly #resolveFolderTitle: AppOperationBrokerOptions["resolveFolderTitle"];
   readonly #tabHost: AppTabHost;
   readonly #mintInvocationId: () => string;
   readonly #onDiagnostic: (entry: AppRuntimeDiagnosticInput) => void;
@@ -135,6 +137,7 @@ export class AppOperationBroker {
 
   constructor(options: AppOperationBrokerOptions) {
     this.#installationState = options.installationState;
+    this.#resolveFolderTitle = options.resolveFolderTitle;
     this.#tabHost = options.tabs;
     this.#mintInvocationId = options.mintInvocationId ?? (() => crypto.randomUUID());
     this.#onDiagnostic = options.onDiagnostic ?? (() => undefined);
@@ -226,7 +229,7 @@ export class AppOperationBroker {
       ...(request.tabId === undefined ? {} : { tabId: request.tabId }),
     };
     const tab = request.tabId
-      ? this.#resolveTab(request.tabId, installedApp.appId, request.spaceId, request.folderId)
+      ? await this.#resolveTab(request.tabId, installedApp.appId, request.spaceId, request.folderId)
       : undefined;
     const tabs: AppTabs = {
       open: (input) =>
@@ -343,15 +346,32 @@ export class AppOperationBroker {
     return installedApp;
   }
 
-  #resolveTab(tabId: string, appId: string, spaceId: string, folderId: string): AppTabEndpoint {
+  async resolveTabInFolder(
+    tabId: string,
+    spaceId: string,
+    folderId: string,
+  ): Promise<AppTabEndpoint> {
     const tab = this.#tabs.get(tabId);
-    if (!tab) {
-      throw new AppOperationBrokerError("tab-not-found", `App tab ${tabId} is not open.`);
+    if (!tab || tab.spaceId !== spaceId || tab.folderId !== folderId) {
+      throw new AppOperationBrokerError(
+        "TAB_NOT_FOUND",
+        `Tab "${tabId}" is not open in folder "${await this.#resolveFolderTitle(folderId)}". Run tabs list.`,
+      );
     }
-    if (tab.appId !== appId || tab.spaceId !== spaceId || tab.folderId !== folderId) {
+    return tab;
+  }
+
+  async #resolveTab(
+    tabId: string,
+    appId: string,
+    spaceId: string,
+    folderId: string,
+  ): Promise<AppTabEndpoint> {
+    const tab = await this.resolveTabInFolder(tabId, spaceId, folderId);
+    if (tab.appId !== appId) {
       throw new AppOperationBrokerError(
         "tab-target-mismatch",
-        `App tab ${tabId} does not belong to the invoked App, Space, and folder.`,
+        `App tab ${tabId} does not belong to the invoked App.`,
       );
     }
     return tab;

@@ -42,6 +42,7 @@ void runHostPhase("electron-ready", () => app.whenReady())
     const window = new BrowserWindow({ show: false, width: 800, height: 600 });
     const runtime = await runHostPhase("runtime-start", () =>
       startDesktopAppRuntime({
+        resolveFolderTitle: async () => "App test",
         userDataPath: profilePath,
         appPreloadPath: Path.join(__dirname, "appPreload.js"),
         appControllerRunnerPath: Path.join(__dirname, "appNodeControllerRunner.js"),

@@ -853,4 +853,21 @@ describe("penkra_exec_command discovery", () => {
       executePenkraExecCommand({ command: `penkra open --path ${path}` }, context, {}, bridge),
     ).resolves.toEqual({ destination: "app", slug: "explorer", path });
   });
+  it.each(["--path /workspace/readme.md", "--url https://example.com"])(
+    "forwards an explicit tab for penkra open %s",
+    async (resource) => {
+      const bridge = vi.fn(async () => ({ tabId: "retained" }));
+      await executePenkraExecCommand(
+        { command: `penkra open ${resource} --tab-id retained` },
+        context,
+        {},
+        bridge,
+      );
+      expect(bridge).toHaveBeenCalledWith(
+        "core.open",
+        expect.objectContaining({ tabId: "retained", folderId: context.folderId }),
+        {},
+      );
+    },
+  );
 });

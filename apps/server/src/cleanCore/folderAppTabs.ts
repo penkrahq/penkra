@@ -15,17 +15,20 @@ export const getFolderAppTabs = (input: CleanCoreGetFolderAppTabsInput) =>
     const [row] = yield* sql<{
       tabs: string;
       updatedAt: string;
-    }>`SELECT app_tabs AS tabs, updated_at AS "updatedAt" FROM projection_folders WHERE folder_id=${input.folderId} AND deleted_at IS NULL`;
+      folderTitle: string;
+    }>`SELECT title AS "folderTitle", app_tabs AS tabs, updated_at AS "updatedAt" FROM projection_folders WHERE folder_id=${input.folderId} AND deleted_at IS NULL`;
     if (row === undefined) return null;
     const tabs = yield* Effect.try({
       try: () => Schema.decodeUnknownSync(CleanCoreFolderAppTabs)(JSON.parse(row.tabs)),
       catch: (cause) => new Error("The folder's App tabs could not be read.", { cause }),
     });
-    return {
+    const result = {
+      folderTitle: row.folderTitle,
       folderId: input.folderId,
       tabs,
       updatedAt: row.updatedAt,
-    } satisfies CleanCoreFolderAppTabsResult;
+    };
+    return result satisfies CleanCoreFolderAppTabsResult;
   });
 
 export const updateFolderAppTabs = (input: CleanCoreUpdateFolderAppTabsInput) =>
@@ -100,7 +103,12 @@ export const updateFolderAppTabs = (input: CleanCoreUpdateFolderAppTabsInput) =>
           return { result: previous, changed: false };
         yield* sql`UPDATE projection_folders SET app_tabs=${JSON.stringify(next)}, updated_at=${input.updatedAt} WHERE folder_id=${input.folderId}`;
         return {
-          result: { folderId: input.folderId, tabs: next, updatedAt: input.updatedAt },
+          result: {
+            folderTitle: previous.folderTitle,
+            folderId: input.folderId,
+            tabs: next,
+            updatedAt: input.updatedAt,
+          },
           changed: true,
         };
       }),

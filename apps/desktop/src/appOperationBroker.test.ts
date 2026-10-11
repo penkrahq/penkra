@@ -107,6 +107,7 @@ function tab(id: string, overrides: Partial<AppTabEndpoint> = {}): AppTabEndpoin
 
 function broker(state: () => AppInstallationState, tabs?: Partial<AppTabHost>) {
   return new AppOperationBroker({
+    resolveFolderTitle: async () => "Work",
     installationState: state,
     mintInvocationId: () => "invocation-1",
     resolveIdentity: async () => ({ subject: "sub_test", space: "space_test" }),
@@ -129,6 +130,7 @@ describe("AppOperationBroker", () => {
       });
     });
     runtime = new AppOperationBroker({
+      resolveFolderTitle: async () => "Work",
       installationState: enabledState,
       resolveIdentity: async () => ({ subject: "sub_test", space: "space_test" }),
       ensureController,
@@ -234,7 +236,8 @@ describe("AppOperationBroker", () => {
       input: {},
     });
     await expect(invocation).rejects.toMatchObject({
-      code: "tab-target-mismatch",
+      code: "TAB_NOT_FOUND",
+      message: 'Tab "other-folder" is not open in folder "Work". Run tabs list.',
     });
   });
 
@@ -298,6 +301,7 @@ describe("AppOperationBroker", () => {
     const open = vi.fn(async () => tab("canvas-tab", { appId: "com.acme.canvas" }));
     const ensureController = vi.fn(async () => undefined);
     const runtime = new AppOperationBroker({
+      resolveFolderTitle: async () => "Work",
       installationState: crossAppState,
       mintInvocationId: () => "invocation-1",
       resolveIdentity: async () => ({ subject: "sub_test", space: "space_test" }),
@@ -342,6 +346,7 @@ describe("AppOperationBroker", () => {
     const existing = tab("github-tab", { appId: "com.acme.github" });
     const open = vi.fn(async () => tab("new-github-tab", { appId: "com.acme.github" }));
     const runtime = new AppOperationBroker({
+      resolveFolderTitle: async () => "Work",
       installationState: crossAppState,
       mintInvocationId: () => "invocation-1",
       resolveIdentity: async () => ({ subject: "sub_test", space: "space_test" }),
@@ -549,6 +554,7 @@ describe("AppOperationBroker", () => {
   it("routes cross-App calls through the callee schema and preserves caller attribution", async () => {
     let invocation = 0;
     const runtime = new AppOperationBroker({
+      resolveFolderTitle: async () => "Work",
       installationState: crossAppState,
       mintInvocationId: () => `invocation-${++invocation}`,
       resolveIdentity: async (appId) => ({ subject: `subject:${appId}`, space: `space:${appId}` }),
@@ -592,5 +598,73 @@ describe("AppOperationBroker", () => {
       },
       caller: { kind: "app" },
     });
+  });
+  it("rejects a closed explicit tab without invoking the App or opening a replacement", async () => {
+    const open = vi.fn(async () => tab("replacement"));
+    const runtime = broker(enabledState, { open });
+    const endpoint = tab("closed");
+    const unregister = runtime.registerTab(endpoint);
+    unregister();
+    const handler = vi.fn(async () => ({ created: true }));
+    runtime.registerController({
+      appId: "com.acme.linear",
+      spaceId: "personal",
+      handlers: { "issues.create": handler },
+    });
+    await expect(
+      runtime.invoke({
+        app: "linear",
+        operation: "issues.create",
+        spaceId: "personal",
+        folderId: "folder-1",
+        threadId: "thread-1",
+        tabId: "closed",
+        input: {},
+      }),
+    ).rejects.toMatchObject({
+      code: "TAB_NOT_FOUND",
+      message: 'Tab "closed" is not open in folder "Work". Run tabs list.',
+    });
+    expect(handler).not.toHaveBeenCalled();
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it("opens two distinct tabs without an id and navigates only the explicit tab", async () => {
+    let runtime!: AppOperationBroker;
+    const opened: AppTabEndpoint[] = [];
+    const open = vi.fn(async () => {
+      const endpoint = tab(`opened-${opened.length + 1}`);
+      opened.push(endpoint);
+      runtime.registerTab(endpoint);
+      return endpoint;
+    });
+    runtime = broker(enabledState, { open });
+    runtime.registerController({
+      appId: "com.acme.linear",
+      spaceId: "personal",
+      handlers: {
+        "issues.create": async (input, context) => {
+          const target = context.tab ?? (await context.tabs.open({ route: "/" }));
+          await target.navigate({ route: (input as { title: string }).title });
+          return { created: true };
+        },
+      },
+    });
+    const invocation = {
+      app: "linear",
+      operation: "issues.create",
+      spaceId: "personal",
+      folderId: "folder-1",
+      threadId: "thread-1",
+    };
+    await runtime.invoke({ ...invocation, input: { title: "/first" } });
+    await runtime.invoke({ ...invocation, input: { title: "/second" } });
+    expect(open).toHaveBeenCalledTimes(2);
+    expect(opened[0]?.navigate).toHaveBeenCalledExactlyOnceWith({ route: "/first" });
+    expect(opened[1]?.navigate).toHaveBeenCalledExactlyOnceWith({ route: "/second" });
+    await runtime.invoke({ ...invocation, tabId: "opened-1", input: { title: "/third" } });
+    expect(open).toHaveBeenCalledTimes(2);
+    expect(opened[0]?.navigate).toHaveBeenLastCalledWith({ route: "/third" });
+    expect(opened[1]?.navigate).toHaveBeenCalledTimes(1);
   });
 });
