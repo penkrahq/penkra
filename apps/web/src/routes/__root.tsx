@@ -635,7 +635,6 @@ function GlobalFeedbackDialog() {
     latestTurnState: activeThread?.latestTurn?.state ?? null,
     messageCount: activeThread?.messages.length ?? 0,
     activityCount: activeThread?.activities.length ?? 0,
-    hasPendingApproval: activeThread?.hasPendingApprovals === true,
     hasPendingUserInput: activeThread?.hasPendingUserInput === true,
     hasThreadError: Boolean(activeThread?.error),
   };

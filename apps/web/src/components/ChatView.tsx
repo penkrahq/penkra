@@ -2385,7 +2385,6 @@ function ChatViewContent({
         latestTurn: activeLatestTurn,
         session: activeThread?.session ?? null,
         messages: activeThread?.messages ?? EMPTY_MESSAGES,
-        hasPendingApproval: false,
         hasPendingUserInput: activePendingUserInput !== null,
         threadError: activeThread?.error,
       }),
