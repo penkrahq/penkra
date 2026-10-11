@@ -27,7 +27,6 @@ export const ORCHESTRATION_WS_METHODS = {
   dispatchCommand: "orchestration.dispatchCommand",
   importThread: "orchestration.importThread",
   repairState: "orchestration.repairState",
-  replayEvents: "orchestration.replayEvents",
   listProviderDeliveryBlockers: "orchestration.listProviderDeliveryBlockers",
   reconcileProviderDelivery: "orchestration.reconcileProviderDelivery",
   subscribeSync: "orchestration.subscribeSync",
@@ -1670,14 +1669,6 @@ export type OrchestrationRepairStateInput = typeof OrchestrationRepairStateInput
 const OrchestrationRepairStateResult = OrchestrationReadModel;
 export type OrchestrationRepairStateResult = typeof OrchestrationRepairStateResult.Type;
 
-export const OrchestrationReplayEventsInput = Schema.Struct({
-  fromSequenceExclusive: NonNegativeInt,
-});
-export type OrchestrationReplayEventsInput = typeof OrchestrationReplayEventsInput.Type;
-
-const OrchestrationReplayEventsResult = Schema.Array(OrchestrationEvent);
-export type OrchestrationReplayEventsResult = typeof OrchestrationReplayEventsResult.Type;
-
 export const ProviderDeliveryReconciliationOutcome = Schema.Literals([
   "accepted",
   "safe_retry",
@@ -1874,10 +1865,6 @@ export const OrchestrationRpcSchemas = {
   importThread: {
     input: OrchestrationImportThreadInput,
     output: OrchestrationImportThreadResult,
-  },
-  replayEvents: {
-    input: OrchestrationReplayEventsInput,
-    output: OrchestrationReplayEventsResult,
   },
   listProviderDeliveryBlockers: {
     input: OrchestrationListProviderDeliveryBlockersInput,

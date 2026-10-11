@@ -1167,7 +1167,6 @@ export interface NativeApi {
       input: OrchestrationImportThreadInput,
     ) => Promise<OrchestrationImportThreadResult>;
     repairState: () => Promise<OrchestrationReadModel>;
-    replayEvents: (fromSequenceExclusive: number) => Promise<OrchestrationEvent[]>;
     listProviderDeliveryBlockers: (
       input?: OrchestrationListProviderDeliveryBlockersInput,
     ) => Promise<OrchestrationListProviderDeliveryBlockersResult>;
