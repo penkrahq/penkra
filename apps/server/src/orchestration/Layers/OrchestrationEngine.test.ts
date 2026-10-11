@@ -128,7 +128,7 @@ async function createOrchestrationSystem(options?: {
     : OrchestrationProjectionSnapshotQueryLive;
   const orchestrationLayer = OrchestrationEngineLive.pipe(
     Layer.provide(OrchestrationProjectionPipelineLive),
-    Layer.provide(snapshotQueryLayer),
+    Layer.provideMerge(snapshotQueryLayer),
     Layer.provide(OrchestrationEventStoreLive),
     Layer.provide(OrchestrationCommandReceiptRepositoryLive),
     Layer.provideMerge(SqlitePersistenceMemory),
@@ -163,6 +163,7 @@ async function createOrchestrationSystem(options?: {
       : orchestrationLayer,
   );
   const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
+  const snapshotQuery = await runtime.runPromise(Effect.service(ProjectionSnapshotQuery));
 
   await runtime.runPromise(createTestSpace(engine));
   const managedAttachmentRepository = await runtime.runPromise(
@@ -171,6 +172,7 @@ async function createOrchestrationSystem(options?: {
   const sql = await runtime.runPromise(Effect.service(SqlClient.SqlClient));
   return {
     engine,
+    snapshotQuery,
     sql,
     managedAttachmentRepository,
     run: <A, E>(effect: Effect.Effect<A, E>) => runtime.runPromise(effect),
@@ -455,7 +457,7 @@ describe("OrchestrationEngine", () => {
           }>`SELECT state FROM projection_turns WHERE thread_id = ${threadId} ORDER BY requested_at DESC`,
         );
         expect(turns[0]?.state).toBe("interrupted");
-        const readModel = await system.run(system.engine.getReadModel());
+        const readModel = await system.run(system.snapshotQuery.getSnapshot());
         expect(readModel.threads.find((thread) => thread.id === threadId)?.latestTurn?.state).toBe(
           "interrupted",
         );
@@ -524,7 +526,7 @@ describe("OrchestrationEngine", () => {
           archivedAt: new Date().toISOString(),
         }),
       );
-      const archived = (await system.run(system.engine.getReadModel())).threads.find(
+      const archived = (await system.run(system.snapshotQuery.getSnapshot())).threads.find(
         (thread) => thread.id === threadId,
       );
       expect(archived?.archivedAt).toBeDefined();
@@ -698,7 +700,7 @@ describe("OrchestrationEngine", () => {
           createdAt: stoppedAt,
         }),
       );
-      const thread = (await system.run(system.engine.getReadModel())).threads.find(
+      const thread = (await system.run(system.snapshotQuery.getSnapshot())).threads.find(
         (candidate) => candidate.id === threadId,
       )!;
       expect(thread.latestTurn).toMatchObject({ turnId, state: "interrupted" });
@@ -1186,7 +1188,9 @@ describe("OrchestrationEngine", () => {
       Stream.runCollect(engine.readEvents(0)).pipe(Effect.map((chunk) => Array.from(chunk))),
     );
     expect(events).toHaveLength(2);
-    expect((await system.run(engine.getReadModel())).folders[0]?.title).toBe("Original identity");
+    expect((await system.run(system.snapshotQuery.getSnapshot())).folders[0]?.title).toBe(
+      "Original identity",
+    );
     await system.dispose();
   });
 

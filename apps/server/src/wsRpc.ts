@@ -460,8 +460,9 @@ const makeWsRpcHandlersLayer = () =>
         terminalId: string;
         data: string;
       }) {
-        const readModel = yield* orchestrationEngine.getReadModel();
-        const thread = readModel.threads.find((entry) => entry.id === input.threadId);
+        const thread = yield* findThread(ThreadId.makeUnsafe(input.threadId)).pipe(
+          Effect.provideService(SqlClient.SqlClient, sql),
+        );
         if (!thread) {
           return;
         }

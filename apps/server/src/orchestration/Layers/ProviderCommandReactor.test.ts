@@ -89,6 +89,7 @@ import {
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { ProviderRuntimeIngestionLive } from "./ProviderRuntimeIngestion.ts";
 import { ThreadPublisherLive } from "../../cleanCore/ThreadPublisher.ts";
 import {
@@ -653,6 +654,7 @@ describe("ProviderCommandReactor", () => {
     const runtime = ManagedRuntime.make(layer);
 
     const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
+    const snapshotQuery = await runtime.runPromise(Effect.service(ProjectionSnapshotQuery));
     // Fault injection for command admission. The reactor resolves
     // `dispatch` off the shared engine service on every call, so swapping the
     // property here is observed by the reactor without rebuilding the layer.
@@ -811,6 +813,7 @@ describe("ProviderCommandReactor", () => {
         );
       },
       engine,
+      snapshotQuery,
       disposeRuntime: () => runtime.dispose(),
       resolvedBindingSelections,
       reactor,
@@ -1076,7 +1079,9 @@ describe("ProviderCommandReactor", () => {
     harness: Awaited<ReturnType<typeof createHarness>>,
     threadId: ThreadId = ThreadId.makeUnsafe("thread-1"),
   ) {
-    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const readModel = await Effect.runPromise(
+      harness.snapshotQuery.getSnapshot().pipe(Effect.orDie),
+    );
     return readModel.threads.find((thread) => thread.id === threadId);
   }
 
@@ -2605,7 +2610,9 @@ describe("ProviderCommandReactor", () => {
     );
 
     await waitFor(async () => {
-      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const readModel = await Effect.runPromise(
+        harness.snapshotQuery.getSnapshot().pipe(Effect.orDie),
+      );
       const thread = readModel.threads.find(
         (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
       );
@@ -2616,7 +2623,9 @@ describe("ProviderCommandReactor", () => {
     });
     expect(harness.stopTask).not.toHaveBeenCalled();
 
-    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const readModel = await Effect.runPromise(
+      harness.snapshotQuery.getSnapshot().pipe(Effect.orDie),
+    );
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
     const failureActivity = thread?.activities.find(
       (activity) => activity.kind === "provider.task.stop.failed",
@@ -2668,7 +2677,9 @@ describe("ProviderCommandReactor", () => {
     );
 
     await waitFor(async () => {
-      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const readModel = await Effect.runPromise(
+        harness.snapshotQuery.getSnapshot().pipe(Effect.orDie),
+      );
       const thread = readModel.threads.find(
         (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
       );
@@ -2678,7 +2689,9 @@ describe("ProviderCommandReactor", () => {
       );
     });
 
-    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const readModel = await Effect.runPromise(
+      harness.snapshotQuery.getSnapshot().pipe(Effect.orDie),
+    );
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
     const failureActivity = thread?.activities.find(
       (activity) => activity.kind === "provider.turn.interrupt.failed",
@@ -2723,7 +2736,9 @@ describe("ProviderCommandReactor", () => {
     );
 
     await waitFor(async () => {
-      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const readModel = await Effect.runPromise(
+        harness.snapshotQuery.getSnapshot().pipe(Effect.orDie),
+      );
       const thread = readModel.threads.find(
         (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
       );
@@ -2733,7 +2748,9 @@ describe("ProviderCommandReactor", () => {
       );
     });
 
-    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const readModel = await Effect.runPromise(
+      harness.snapshotQuery.getSnapshot().pipe(Effect.orDie),
+    );
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
     const failureActivity = thread?.activities.find(
       (activity) => activity.kind === "provider.task.stop.failed",
@@ -2780,7 +2797,9 @@ describe("ProviderCommandReactor", () => {
     );
 
     await waitFor(async () => {
-      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const readModel = await Effect.runPromise(
+        harness.snapshotQuery.getSnapshot().pipe(Effect.orDie),
+      );
       const thread = readModel.threads.find(
         (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
       );
@@ -2791,7 +2810,9 @@ describe("ProviderCommandReactor", () => {
       );
     });
 
-    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const readModel = await Effect.runPromise(
+      harness.snapshotQuery.getSnapshot().pipe(Effect.orDie),
+    );
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
     const failureActivity = thread?.activities.find(
       (activity) => activity.kind === "provider.task.background.failed",
@@ -4836,9 +4857,9 @@ describe("ProviderCommandReactor", () => {
       ),
     ).toBe(true);
     await harness.drain();
-    const thread = (await Effect.runPromise(harness.engine.getReadModel())).threads.find(
-      (entry) => entry.id === threadId,
-    );
+    const thread = (
+      await Effect.runPromise(harness.snapshotQuery.getSnapshot().pipe(Effect.orDie))
+    ).threads.find((entry) => entry.id === threadId);
     expect(thread?.messages.find((message) => message.id === messageId)?.delivery).toMatchObject({
       state: "queued",
       queued: true,
@@ -5668,9 +5689,9 @@ describe("ProviderCommandReactor", () => {
       );
       return Option.getOrUndefined(promotion)?.state === "cancelled";
     });
-    const thread = (await Effect.runPromise(harness.engine.getReadModel())).threads.find(
-      (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
-    );
+    const thread = (
+      await Effect.runPromise(harness.snapshotQuery.getSnapshot().pipe(Effect.orDie))
+    ).threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
     expect(thread?.messages.find((message) => message.id === messageId)?.delivery).toMatchObject({
       state: "failed",
       queued: false,
@@ -5717,9 +5738,9 @@ describe("ProviderCommandReactor", () => {
           ),
         )?.state === "cancelled",
     );
-    const thread = (await Effect.runPromise(harness.engine.getReadModel())).threads.find(
-      (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
-    );
+    const thread = (
+      await Effect.runPromise(harness.snapshotQuery.getSnapshot().pipe(Effect.orDie))
+    ).threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
     expect(thread?.messages.find((message) => message.id === messageId)?.delivery).toMatchObject({
       state: "failed",
       failurePhase: "before-provider-dispatch",
@@ -5812,9 +5833,9 @@ describe("ProviderCommandReactor", () => {
       );
       return Option.getOrUndefined(row)?.state === state;
     });
-    const thread = (await Effect.runPromise(harness.engine.getReadModel())).threads.find(
-      (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
-    );
+    const thread = (
+      await Effect.runPromise(harness.snapshotQuery.getSnapshot().pipe(Effect.orDie))
+    ).threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
     if (state === "cancelled") {
       expect(thread?.messages.find((message) => message.id === messageId)?.delivery?.state).toBe(
         "failed",
@@ -5864,9 +5885,9 @@ describe("ProviderCommandReactor", () => {
           ),
         )?.state === "cancelled",
     );
-    const thread = (await Effect.runPromise(harness.engine.getReadModel())).threads.find(
-      (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
-    );
+    const thread = (
+      await Effect.runPromise(harness.snapshotQuery.getSnapshot().pipe(Effect.orDie))
+    ).threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
     expect(thread?.messages.find((message) => message.id === messageId)?.delivery).toMatchObject({
       state: "failed",
       failureDetail: invariant.message,
@@ -8022,7 +8043,9 @@ describe("ProviderCommandReactor", () => {
     );
 
     await waitFor(async () => {
-      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const readModel = await Effect.runPromise(
+        harness.snapshotQuery.getSnapshot().pipe(Effect.orDie),
+      );
       const thread = readModel.threads.find(
         (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
       );
@@ -8268,13 +8291,17 @@ describe("ProviderCommandReactor", () => {
 
     await waitFor(async () => {
       if (harness.stopSession.mock.calls.length !== 1) return false;
-      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const readModel = await Effect.runPromise(
+        harness.snapshotQuery.getSnapshot().pipe(Effect.orDie),
+      );
       const thread = readModel.threads.find(
         (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
       );
       return thread?.session?.status === "stopped";
     });
-    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const readModel = await Effect.runPromise(
+      harness.snapshotQuery.getSnapshot().pipe(Effect.orDie),
+    );
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
     expect(thread?.session).not.toBeNull();
     expect(thread?.session?.status).toBe("stopped");

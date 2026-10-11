@@ -1386,10 +1386,6 @@ const makeOrchestrationEngine = Effect.gen(function* () {
     eventPubSub,
   ).pipe(Effect.map((subscription) => Stream.fromEffectRepeat(PubSub.take(subscription))));
 
-  // Preserve canonical read-side semantics for compatibility consumers while
-  // giving command/startup callers an explicit O(1) path to the model already
-  // loaded and maintained by this engine.
-  const getReadModel = () => projectionSnapshotQuery.getSnapshot().pipe(Effect.orDie);
   const getCommandReadModel = () => Effect.sync(() => commandReadModel);
   const refreshCommandReadModel: OrchestrationEngineShape["refreshCommandReadModel"] = () =>
     maintenanceLock.withPermits(1)(refreshCommandReadModelFromProjectionState);
@@ -1518,7 +1514,6 @@ const makeOrchestrationEngine = Effect.gen(function* () {
     drain,
     stop,
     getProjectionCatchUpStatus,
-    getReadModel,
     getCommandReadModel,
     refreshCommandReadModel,
     readEvents,

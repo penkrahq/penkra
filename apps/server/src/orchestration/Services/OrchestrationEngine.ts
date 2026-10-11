@@ -99,9 +99,6 @@ export interface OrchestrationEngineShape {
     Scope.Scope
   >;
 
-  /** Read the canonical projection snapshot, including operations and notices. */
-  readonly getReadModel: () => Effect.Effect<OrchestrationReadModel, never, never>;
-
   /** Read the already-loaded model used to decide commands and startup state. */
   readonly getCommandReadModel: () => Effect.Effect<OrchestrationReadModel, never, never>;
 
