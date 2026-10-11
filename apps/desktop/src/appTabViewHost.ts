@@ -55,7 +55,6 @@ import {
   normalizeBrowserUrlInput,
 } from "@penkra/shared/browserSession";
 import { ProtectedPublisher } from "./protectedPublisher";
-import { recordDesktopConsumedFailure } from "./desktopFailureCoverage";
 import { RollbackScope } from "./rollbackScope";
 import {
   appRuntimeFailureDto,
@@ -687,7 +686,6 @@ export class AppTabViewHost implements AppTabHost {
       try {
         this.#replicaFrameByTabId.set(input.tabId, await this.captureReplica(input.tabId));
       } catch (error) {
-        recordDesktopConsumedFailure("tab");
         console.warn(
           `[app-tab] Could not capture replica for ${input.tabId}: ${safeErrorMessage(error)}`,
         );
@@ -763,7 +761,6 @@ export class AppTabViewHost implements AppTabHost {
       this.#replicaFrameByTabId.set(tabId, await this.captureReplica(tabId));
       traceAppTabHost("hide-replica-capture-completed", { tabId, windowId, selectedAt });
     } catch (error) {
-      recordDesktopConsumedFailure("tab");
       traceAppTabHost("hide-replica-capture-failed", {
         tabId,
         windowId,
@@ -829,7 +826,6 @@ export class AppTabViewHost implements AppTabHost {
           this.#replicaFrameByTabId.set(tabId, await this.captureReplica(tabId));
           traceAppTabHost("window-hide-replica-capture-completed", { tabId, windowId });
         } catch (error) {
-          recordDesktopConsumedFailure("tab");
           traceAppTabHost("window-hide-replica-capture-failed", {
             tabId,
             windowId,
@@ -1372,7 +1368,6 @@ export class AppTabViewHost implements AppTabHost {
     try {
       return await contents.debugger.sendCommand(input.method, input.params ?? {});
     } catch (error) {
-      recordDesktopConsumedFailure("tab");
       throw new Error(
         `CDP ${input.method} failed: ${error instanceof Error ? error.message : String(error)}`,
       );
@@ -1625,7 +1620,6 @@ export class AppTabViewHost implements AppTabHost {
           tabId: tab.id,
         });
       } catch (error) {
-        recordDesktopConsumedFailure("tab");
         retirementFailure = error;
       }
       this.#closed.publish({
@@ -1937,7 +1931,6 @@ export class AppTabViewHost implements AppTabHost {
       });
       return endpoint;
     } catch (error) {
-      recordDesktopConsumedFailure("tab");
       traceAppTabHost("app-renderer-create-failed", {
         tabId: id,
         rendererId,
@@ -1961,7 +1954,6 @@ export class AppTabViewHost implements AppTabHost {
     try {
       operation();
     } catch (failure) {
-      recordDesktopConsumedFailure("tab");
       failures.push({ role, failure });
     }
   }
@@ -2357,7 +2349,6 @@ export class AppTabViewHost implements AppTabHost {
             });
             return;
           }
-          recordDesktopConsumedFailure("tab");
           traceAppTabHost("hosted-page-load-rejected", {
             tabId: record.descriptor.id,
             pageId: page.id,

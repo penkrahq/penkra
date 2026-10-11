@@ -6,7 +6,6 @@ import * as FS from "node:fs";
 import * as Path from "node:path";
 
 import { resolveDesktopPlatformAdapter } from "./desktopPlatform";
-import { recordDesktopConsumedFailure } from "./desktopFailureCoverage";
 
 import { parseAppInstallationState, type AppInstallationState } from "./appInstallationState";
 import type { AppInstallationStore } from "./appInstallationStore";
@@ -107,7 +106,6 @@ async function readJournal(filePath: string): Promise<ReadJournalResult> {
     return { status: "ready", record: parseJournal(value) };
   } catch (error) {
     if (isNodeError(error) && error.code === "ENOENT") return { status: "missing" };
-    recordDesktopConsumedFailure("storage");
     return { status: "corrupt", error: toError(error) };
   } finally {
     await handle?.close().catch(() => undefined);

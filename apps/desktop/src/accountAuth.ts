@@ -20,7 +20,6 @@ import {
 import { BETTER_AUTH_PROTOCOL_REGISTRATION_ENABLED } from "./desktopProtocolSchemes";
 import { DESKTOP_IPC_CHANNELS } from "./ipcChannels";
 import { resolvePenkraAccountSignInUrl } from "./accountAuthSignInUrl";
-import { recordDesktopConsumedFailure } from "./desktopFailureCoverage";
 
 export const PENKRA_DESKTOP_AUTH_CLIENT_ID = "penkra-desktop";
 const AUTH_CHANNEL_PREFIX = "penkra-account";
@@ -148,7 +147,6 @@ export function configurePenkraAccountAuth(input: {
       // authenticate() emits the channel-prefixed authenticated event after it
       // stores the returned session. Do not send a second copy here.
     } catch {
-      recordDesktopConsumedFailure("platform");
       if (attempt !== callbackAttempt) return;
       callbackAttempt += 1;
       clearTimeout(timeout);
@@ -222,7 +220,6 @@ export function configurePenkraAccountAuth(input: {
       await signInClient.requestAuth();
     } catch (error) {
       pendingIntent = null;
-      recordDesktopConsumedFailure("platform");
       throw error;
     }
   });
@@ -235,7 +232,6 @@ export function configurePenkraAccountAuth(input: {
       await signUpClient.requestAuth();
     } catch (error) {
       pendingIntent = null;
-      recordDesktopConsumedFailure("platform");
       throw error;
     }
   });
