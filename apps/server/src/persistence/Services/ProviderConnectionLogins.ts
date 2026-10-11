@@ -1,5 +1,5 @@
 // FILE: ProviderConnectionLogins.ts
-// Purpose: Durable journal contract for provider-owned Connection login.
+// Purpose: In-process progress contract for provider-owned Connection login.
 
 import {
   IsoDateTime,
@@ -42,15 +42,11 @@ export type ProviderConnectionLoginRecord = typeof ProviderConnectionLoginRecord
 type Error = PersistenceSqlError | PersistenceDecodeError;
 
 export interface ProviderConnectionLoginRepositoryShape {
-  readonly begin: (
-    record: Omit<ProviderConnectionLoginRecord, "committedConnectionId"> & {
-      readonly committedConnectionId?: ProviderConnectionId | null;
-    },
-  ) => Effect.Effect<void, Error>;
+  readonly begin: (record: ProviderConnectionLoginRecord) => Effect.Effect<void, Error>;
   readonly get: (
     operationId: string,
-  ) => Effect.Effect<Option.Option<ProviderConnectionLoginRecord>, Error>;
-  readonly listOpen: () => Effect.Effect<ReadonlyArray<ProviderConnectionLoginRecord>, Error>;
+  ) => Effect.Effect<Option.Option<ProviderConnectionLoginRecord>>;
+  readonly listOpen: () => Effect.Effect<ReadonlyArray<ProviderConnectionLoginRecord>>;
   readonly transition: (input: {
     readonly operationId: string;
     readonly state: ProviderConnectionLoginState;
@@ -59,7 +55,7 @@ export interface ProviderConnectionLoginRepositoryShape {
     readonly committedConnectionId?: ProviderConnectionId | null;
     readonly failureReason: string | null;
     readonly updatedAt: string;
-  }) => Effect.Effect<Option.Option<ProviderConnectionLoginRecord>, Error>;
+  }) => Effect.Effect<Option.Option<ProviderConnectionLoginRecord>>;
 }
 
 export class ProviderConnectionLoginRepository extends ServiceMap.Service<

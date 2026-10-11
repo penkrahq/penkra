@@ -123,9 +123,9 @@ const makeProviderConnectionRepository = Effect.gen(function* () {
   });
 
   const listProfilesPendingCleanup = SqlSchema.findAll({
-    Request: Schema.Void,
+    Request: Schema.Struct({ activeLoginOperationIds: Schema.Array(Schema.String) }),
     Result: ProviderCredentialProfileRecord,
-    execute: () => sql`
+    execute: ({ activeLoginOperationIds }) => sql`
       SELECT profile.profile_ref AS "profileRef", profile.harness_kind AS harness,
         profile.authentication_target_id AS "authenticationTargetId",
         profile.authentication_method_id AS "authenticationMethodId", profile.lifecycle,
@@ -134,14 +134,15 @@ const makeProviderConnectionRepository = Effect.gen(function* () {
         profile.created_at AS "createdAt", profile.updated_at AS "updatedAt",
         profile.retired_at AS "retiredAt"
       FROM provider_credential_profiles profile
-      LEFT JOIN provider_connection_logins login
-        ON login.operation_id = profile.login_operation_id
       LEFT JOIN provider_connections connection
         ON connection.connection_id = profile.connection_id
       WHERE profile.lifecycle = 'retired'
         OR (
           profile.lifecycle = 'staging'
-          AND login.operation_state IN ('completed', 'failed', 'cancelled')
+          AND NOT EXISTS (
+            SELECT 1 FROM json_each(${JSON.stringify(activeLoginOperationIds)}) active_login
+            WHERE active_login.value = profile.login_operation_id
+          )
         )
         OR (
           profile.lifecycle = 'active'
@@ -387,10 +388,10 @@ const makeProviderConnectionRepository = Effect.gen(function* () {
           WHERE profile_ref = ${input.profileRef} AND lifecycle IN ('staging', 'active')
         `.pipe(Effect.asVoid),
       ),
-    listManagedProfilesPendingCleanup: () =>
+    listManagedProfilesPendingCleanup: (input) =>
       mapped(
         "ProviderConnectionRepository.listManagedProfilesPendingCleanup",
-        listProfilesPendingCleanup(),
+        listProfilesPendingCleanup(input),
       ),
     markManagedProfileRemoved: (input) =>
       mapped(

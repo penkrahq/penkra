@@ -27,7 +27,7 @@ export interface ProviderConnectionLoginCoordinatorShape {
   readonly cancel: (
     input: GetProviderConnectionLoginInput,
   ) => Effect.Effect<ProviderConnectionLoginSnapshot, ProviderConnectionLoginError>;
-  readonly recover: Effect.Effect<void, ProviderConnectionLoginError>;
+  readonly initialize: Effect.Effect<void, ProviderConnectionLoginError>;
   readonly terminateProfile: (input: {
     readonly connectionId: ProviderConnectionId;
     readonly reason: ProviderConnectionTerminationReason;

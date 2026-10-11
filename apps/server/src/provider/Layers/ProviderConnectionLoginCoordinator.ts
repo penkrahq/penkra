@@ -1,5 +1,5 @@
 // FILE: ProviderConnectionLoginCoordinator.ts
-// Purpose: Journals provider-owned logins and reuses the durable Connection for a verified identity.
+// Purpose: Tracks provider-owned sign-in progress in memory and reuses the durable Connection for a verified identity.
 
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
@@ -523,13 +523,6 @@ export function makeProviderConnectionLoginCoordinator(
 
     const transition = (input: Parameters<typeof logins.transition>[0]) =>
       logins.transition(input).pipe(
-        Effect.mapError(
-          (cause) =>
-            new ProviderConnectionLoginError({
-              detail: "Could not update Connection sign in.",
-              cause,
-            }),
-        ),
         Effect.flatMap(
           Option.match({
             onNone: () => fail("Connection sign in no longer exists."),
@@ -541,13 +534,6 @@ export function makeProviderConnectionLoginCoordinator(
     const get: ProviderConnectionLoginCoordinatorShape["get"] = ({ operationId }) =>
       Effect.gen(function* () {
         const record = yield* logins.get(operationId).pipe(
-          Effect.mapError(
-            (cause) =>
-              new ProviderConnectionLoginError({
-                detail: "Could not read Connection sign in.",
-                cause,
-              }),
-          ),
           Effect.flatMap(
             Option.match({
               onNone: () => fail("Connection sign in does not exist."),
@@ -627,6 +613,7 @@ export function makeProviderConnectionLoginCoordinator(
           .begin({
             operationId,
             connectionId,
+            committedConnectionId: null,
             harness: input.harness,
             authenticationTargetId: input.authenticationTargetId,
             authenticationMethodId: input.authenticationMethodId,
@@ -928,13 +915,6 @@ export function makeProviderConnectionLoginCoordinator(
           }).pipe(Effect.ignore);
         handles.delete(operationId);
         const record = yield* logins.get(operationId).pipe(
-          Effect.mapError(
-            (cause) =>
-              new ProviderConnectionLoginError({
-                detail: "Could not cancel Connection sign in.",
-                cause,
-              }),
-          ),
           Effect.flatMap(
             Option.match({
               onNone: () => fail("Connection sign in does not exist."),
@@ -1273,7 +1253,12 @@ export function makeProviderConnectionLoginCoordinator(
       );
     });
 
-    const cleanupManagedProfiles = connections.listManagedProfilesPendingCleanup().pipe(
+    const cleanupManagedProfiles = logins.listOpen().pipe(
+      Effect.flatMap((records) =>
+        connections.listManagedProfilesPendingCleanup({
+          activeLoginOperationIds: records.map((record) => record.operationId),
+        }),
+      ),
       Effect.flatMap((profiles) =>
         Effect.forEach(
           profiles,
@@ -1363,97 +1348,12 @@ export function makeProviderConnectionLoginCoordinator(
       get,
       cancel,
       terminateProfile,
-      recover: logins.listOpen().pipe(
-        Effect.mapError(
-          (cause) =>
-            new ProviderConnectionLoginError({
-              detail: "Could not recover Connection sign in.",
-              cause,
-            }),
-        ),
-        Effect.flatMap((records) =>
-          Effect.forEach(
-            records,
-            (record) =>
-              record.state === "verified"
-                ? commitVerified(record)
-                : Effect.gen(function* () {
-                    const runtime = yield* loadManagedRuntime(record);
-                    const probeResult = yield* Effect.tryPromise({
-                      try: () =>
-                        probeManagedAccount({
-                          harness: record.harness,
-                          authenticationMethodId: record.authenticationMethodId,
-                          binaryPath: runtime.installed.executablePath,
-                          env: runtime.env,
-                        }),
-                      catch: (cause) =>
-                        new ProviderConnectionLoginError({
-                          detail: "The isolated provider profile could not be verified.",
-                          cause,
-                        }),
-                    }).pipe(
-                      Effect.map((account) => ({ account })),
-                      Effect.catch(() =>
-                        transition({
-                          operationId: record.operationId,
-                          state: "failed",
-                          providerLoginId: record.providerLoginId,
-                          providerIdentityId: null,
-                          failureReason: "The isolated provider profile could not be verified.",
-                          updatedAt: now(),
-                        }).pipe(Effect.as(null)),
-                      ),
-                    );
-                    if (probeResult === null) {
-                      yield* releaseManagedCredentialIdentity(record);
-                      return;
-                    }
-                    const { account } = probeResult;
-                    if (account === null) {
-                      yield* transition({
-                        operationId: record.operationId,
-                        state: "failed",
-                        providerLoginId: record.providerLoginId,
-                        providerIdentityId: null,
-                        failureReason: "The isolated provider profile is not signed in.",
-                        updatedAt: now(),
-                      });
-                      yield* releaseManagedCredentialIdentity(record);
-                      return;
-                    }
-                    const providerIdentityId = providerIdentityFromSnapshot(account);
-                    const awaiting =
-                      record.state === "starting"
-                        ? yield* transition({
-                            operationId: record.operationId,
-                            state: "awaiting-user",
-                            providerLoginId: record.providerLoginId,
-                            providerIdentityId,
-                            failureReason: null,
-                            updatedAt: now(),
-                          })
-                        : record;
-                    const verified = yield* transition({
-                      operationId: record.operationId,
-                      state: "verified",
-                      providerLoginId: awaiting.providerLoginId,
-                      providerIdentityId,
-                      failureReason: null,
-                      updatedAt: now(),
-                    });
-                    yield* commitVerified({
-                      ...verified,
-                      accountSnapshot: account,
-                    });
-                  }),
-            { concurrency: 1 },
-          ),
-        ),
-        Effect.andThen(reconcileActiveManagedConnections),
+      initialize: reconcileActiveManagedConnections.pipe(
         Effect.andThen(cleanupManagedProfiles),
         Effect.asVoid,
-        Effect.mapError((cause) => asLoginError("Could not recover managed Connections.", cause)),
+        Effect.mapError((cause) =>
+          asLoginError("Could not initialize managed Connections.", cause),
+        ),
       ),
     };
   });

@@ -110,7 +110,9 @@ export interface ProviderConnectionRepositoryShape {
     readonly profileRef: string;
     readonly retiredAt: string;
   }) => Effect.Effect<void, ProviderConnectionRepositoryError>;
-  readonly listManagedProfilesPendingCleanup: () => Effect.Effect<
+  readonly listManagedProfilesPendingCleanup: (input: {
+    readonly activeLoginOperationIds: ReadonlyArray<string>;
+  }) => Effect.Effect<
     ReadonlyArray<ProviderCredentialProfileRecord>,
     ProviderConnectionRepositoryError
   >;
