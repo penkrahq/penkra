@@ -16,8 +16,6 @@ import {
   type RuntimeMode,
 } from "@penkra/contracts";
 import { createHash } from "node:crypto";
-import { startDiagnosticTrace } from "@penkra/shared/traceContext";
-import { recordDiagnosticIncident } from "../../diagnostics/recorder.ts";
 import {
   Cache,
   Cause,
@@ -2820,22 +2818,6 @@ const make = Effect.gen(function* () {
     Effect.catchCause((cause) => {
       if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
       const detail = Cause.pretty(cause);
-      const errorCode = /SQLITE_IOERR/u.test(detail)
-        ? "SQLITE_IOERR"
-        : /SQLITE_BUSY/u.test(detail)
-          ? "SQLITE_BUSY"
-          : /SQLITE_FULL/u.test(detail)
-            ? "SQLITE_FULL"
-            : "OTHER";
-      recordDiagnosticIncident({
-        ...startDiagnosticTrace(),
-        kind: "external.failed",
-        code: "PROVIDER_RUNTIME_JOURNAL_DRAIN_FAILED",
-        where: "provider.runtime_journal",
-        severity: "error",
-        expected: { accepted: true },
-        actual: { accepted: false, errorCode },
-      });
       return Effect.logWarning("provider runtime journal drain failed", {
         cause: detail,
       });

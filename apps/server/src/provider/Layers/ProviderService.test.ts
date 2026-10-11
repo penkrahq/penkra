@@ -56,8 +56,6 @@ import {
   SqlitePersistenceMemory,
 } from "../../persistence/Layers/Sqlite.ts";
 import { AnalyticsService } from "../../telemetry/Services/AnalyticsService.ts";
-import { installDiagnosticsStore } from "../../diagnostics/recorder.ts";
-import { DiagnosticsStore, openDiagnosticsReader } from "../../diagnostics/store.ts";
 import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
 import { makeAgentGatewaySessionRegistry } from "../../agentGateway/Layers/AgentGatewaySessionRegistry.ts";
 
