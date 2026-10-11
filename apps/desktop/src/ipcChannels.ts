@@ -138,6 +138,7 @@ export const DESKTOP_IPC_CHANNELS = {
   appTabs: {
     activationRequested: "desktop:app-tabs-activation-requested",
     claimActivation: "desktop:app-tabs-claim-activation",
+    failActivation: "desktop:app-tabs-fail-activation",
     listingRequested: "desktop:app-tabs-listing-requested",
     consumeListingRequest: "desktop:app-tabs-consume-listing-request",
     opened: "desktop:app-tabs-opened",

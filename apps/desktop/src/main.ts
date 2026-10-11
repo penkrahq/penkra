@@ -60,6 +60,7 @@ import {
   type UpdateDownloadedEvent,
 } from "electron-updater";
 
+import { FolderId } from "@penkra/contracts";
 import type { ContextMenuItem } from "@penkra/contracts";
 import { isKeyboardShortcutsHelpChord } from "@penkra/shared/browserShortcuts";
 import { getMacTrafficLightPosition } from "@penkra/shared/desktopChrome";
@@ -182,9 +183,13 @@ import { registerDesktopVoiceTranscriptionHandler } from "./voiceTranscription";
 import { ShellWindowRegistry } from "./shellWindowRegistry";
 import { panelFocusState } from "./panelFocus";
 import { ThreadHomeWindow } from "./threadHomeWindow";
-import { readDesktopFolderAppTabs } from "./desktopFolderAppTabsClient";
+import { readDesktopFolderAppTabs, updateDesktopFolderAppTabs } from "./desktopFolderAppTabsClient";
 import { executeDesktopThreadCommand } from "./desktopThreadClient";
-import { announceAppTabOpened as routeAppTabOpened } from "./appTabOpenedRouting";
+import {
+  announceAppTabOpened as routeAppTabOpened,
+  AppTabWindowFocusOrder,
+  appTabFolderUnavailable,
+} from "./appTabOpenedRouting";
 import {
   preventBeforeInputShortcut,
   resolvePanelShortcut,
@@ -486,32 +491,47 @@ type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
 let mainWindow: BrowserWindow | null = null;
 const shellWindowRegistry = new ShellWindowRegistry();
 let pendingAppListingRequest: { appId: string } | null = null;
-const MAX_PENDING_APP_TAB_EVENTS = 128;
-const pendingAppTabOpened = new Map<string, DesktopAppTabOpened>();
+const appTabWindowFocusOrder = new AppTabWindowFocusOrder();
 const activeAgentPresentationThreads = new Map<string, number>();
 const threadHomeWindow = new ThreadHomeWindow();
 const appTabActivation = new AppTabActivation();
 const appTabPresentationEvents = new EventEmitter();
 
-function appTabAgentWindow(tab: DesktopAppTabDescriptor, threadId: string): BrowserWindow | null {
-  const ready = shellWindows().filter(
-    (window) => !window.isDestroyed() && !window.webContents.isLoadingMainFrame(),
-  );
-  const id = threadHomeWindow.presentingWindow(
-    threadId,
-    tab.folderId,
-    ready.map((window) => window.id),
-  );
-  return ready.find((window) => window.id === id) ?? null;
+function routeAppTab(
+  descriptor: Pick<DesktopAppTabOpened, "threadId" | "folderId" | "spaceId" | "initiator">,
+) {
+  return routeAppTabOpened({
+    descriptor,
+    windows: appTabWindowFocusOrder.order(
+      shellWindows()
+        .filter((window) => !window.isDestroyed() && !window.webContents.isLoadingMainFrame())
+        .map((window) => {
+          const snapshot = threadHomeWindow.snapshot(window.id);
+          return {
+            id: window.id,
+            focused: window.isFocused(),
+            visible: window.isVisible(),
+            minimized: window.isMinimized(),
+            spaceId:
+              spacesMenuStateByShellRendererId.get(window.webContents.id)?.activeSpaceId ?? null,
+            folderId:
+              snapshot?.views.find((view) => view.threadId === snapshot.activeThreadId)?.folderId ??
+              null,
+          };
+        }),
+    ),
+    home: threadHomeWindow,
+    panelFocus: panelFocusState,
+  });
 }
-
 function appTabAgentPresentation(
   tab: DesktopAppTabDescriptor,
-  threadId: string,
+  _threadId: string,
 ): { state: "active" | "background" | "window-hidden" } {
-  const window = appTabAgentWindow(tab, threadId);
-  if (!window || !window.isVisible() || window.isMinimized()) return { state: "window-hidden" };
   const tabs = desktopAppRuntime!.appTabs;
+  const ownerId = tabs.ownerWindowId(tab.id);
+  const window = shellWindows().find((candidate) => candidate.webContents.id === ownerId);
+  if (!window || !window.isVisible() || window.isMinimized()) return { state: "window-hidden" };
   return {
     state:
       tabs.ownerWindowId(tab.id) === window.webContents.id && tabs.isVisible(tab.id)
@@ -525,23 +545,38 @@ async function activateAppTabForAgent(
   threadId: string,
   signal: AbortSignal,
 ): Promise<unknown> {
-  const window = appTabAgentWindow(tab, threadId);
-  if (!window || !window.isVisible() || window.isMinimized()) {
-    throw Object.assign(
-      new Error("Restore the caller's Penkra window before activating this tab."),
-      { code: "TAB_WINDOW_HIDDEN", dispatched: false },
+  const route = routeAppTab({ ...tab, threadId, initiator: "agent" });
+  const window = shellWindows().find((candidate) => candidate.id === route.targetWindowId);
+  if (!backendHttpUrl) throw new Error("The backend is not ready.");
+  const folderTabs = await readDesktopFolderAppTabs(
+    { url: backendHttpUrl, token: DESKTOP_BACKEND_SHUTDOWN_TOKEN },
+    tab.folderId,
+  );
+  if (!folderTabs) throw new Error("The folder is not available.");
+  if (!window) throw appTabFolderUnavailable(folderTabs.folderTitle, route.folderShown);
+  if (
+    desktopAppRuntime!.appTabs.ownerWindowId(tab.id) !== window.webContents.id ||
+    !desktopAppRuntime!.appTabs.isVisible(tab.id)
+  ) {
+    await appTabActivation.request(
+      tab.id,
+      window.webContents.id,
+      signal,
+      () => routeAppTab({ ...tab, threadId, initiator: "agent" }).targetWindowId === window.id,
+      (request) => {
+        window.webContents.send(IPC.appTabs.activationRequested, {
+          requestId: request.requestId,
+          tab,
+          folderTabs,
+        });
+      },
     );
   }
-  if (appTabAgentPresentation(tab, threadId).state !== "active") {
-    await appTabActivation.request(tab.id, window.webContents.id, signal, (request) => {
-      window.webContents.send(IPC.appTabs.activationRequested, {
-        requestId: request.requestId,
-        tab,
-      });
-    });
-  }
   signal.throwIfAborted();
-  if (appTabAgentPresentation(tab, threadId).state !== "active") {
+  if (
+    desktopAppRuntime!.appTabs.ownerWindowId(tab.id) !== window.webContents.id ||
+    !desktopAppRuntime!.appTabs.isVisible(tab.id)
+  ) {
     throw Object.assign(new Error("The tab lost presentation during activation."), {
       code: "TAB_NOT_ACTIVE",
       dispatched: false,
@@ -656,61 +691,61 @@ function broadcastToShellWindows(channel: string, ...args: unknown[]): void {
   shellWindowRegistry.broadcast(channel, ...args);
 }
 
-function announceAppTabOpened(descriptor: DesktopAppTabOpened): void {
-  const readyWindows = shellWindows().filter(
-    (window) => !window.isDestroyed() && !window.webContents.isLoadingMainFrame(),
+async function commitAppTabOpened(descriptor: DesktopAppTabOpened) {
+  if (!backendHttpUrl) throw new Error("The backend is not ready.");
+  const folderTabs = await updateDesktopFolderAppTabs(
+    { url: backendHttpUrl, token: DESKTOP_BACKEND_SHUTDOWN_TOKEN },
+    {
+      folderId: FolderId.makeUnsafe(descriptor.folderId),
+      updatedAt: new Date().toISOString(),
+      update: {
+        action: "open",
+        pane: {
+          id: descriptor.id,
+          kind: "app",
+          appId: descriptor.appId,
+          appSpaceId: descriptor.spaceId,
+          appSlug: descriptor.slug,
+          appName: descriptor.name,
+          appRoute: descriptor.route,
+        },
+      },
+    },
   );
-  const routed = routeAppTabOpened({
-    descriptor,
-    windows: readyWindows.map((window) => ({
-      id: window.id,
-      focused: window.isFocused(),
-    })),
-    home: threadHomeWindow,
-    panelFocus: panelFocusState,
-  });
-  if (readyWindows.length === 0) {
-    pendingAppTabOpened.set(descriptor.id, descriptor);
-    if (pendingAppTabOpened.size > MAX_PENDING_APP_TAB_EVENTS) {
-      const oldestTabId = pendingAppTabOpened.keys().next().value;
-      if (oldestTabId !== undefined) pendingAppTabOpened.delete(oldestTabId);
-    }
-    return;
-  }
-  console.info(
-    `[thread-home] tab-open thread=${descriptor.threadId} folder=${descriptor.folderId} target=${routed.targetWindowId ?? "background"} initiator=${descriptor.initiator}`,
-  );
-  for (const delivery of routed.deliveries) {
-    const window = readyWindows.find((candidate) => candidate.id === delivery.windowId);
-    if (window && !window.isDestroyed()) {
-      window.webContents.send(IPC.appTabs.opened, { ...descriptor, selection: delivery.selection });
-    }
-  }
+  return folderTabs;
 }
-
-function flushPendingAppTabs(window: BrowserWindow): void {
-  if (window.isDestroyed() || pendingAppTabOpened.size === 0) return;
-  for (const descriptor of pendingAppTabOpened.values()) {
+async function announceAppTabOpened(
+  descriptor: DesktopAppTabOpened,
+  folderTabs: import("@penkra/contracts").CleanCoreFolderAppTabsResult,
+): Promise<void> {
+  const route = routeAppTab(descriptor);
+  const windowId = route.targetWindowId ?? route.backgroundWindowId;
+  const window = shellWindows().find((candidate) => candidate.id === windowId);
+  if (!window) return;
+  if (descriptor.selection === "activate" && route.targetWindowId !== null) {
+    await appTabActivation.request(
+      descriptor.id,
+      window.webContents.id,
+      new AbortController().signal,
+      () => routeAppTab(descriptor).targetWindowId === window.id,
+      (request) => {
+        window.webContents.send(IPC.appTabs.activationRequested, {
+          requestId: request.requestId,
+          tab: descriptor,
+          folderTabs,
+        });
+      },
+    );
+  } else {
     window.webContents.send(IPC.appTabs.opened, { ...descriptor, selection: "preserve" });
   }
-  pendingAppTabOpened.clear();
 }
-
 function announceAppTabState(descriptor: DesktopAppTabDescriptor): void {
-  const pending = pendingAppTabOpened.get(descriptor.id);
-  if (pending)
-    pendingAppTabOpened.set(descriptor.id, {
-      ...descriptor,
-      selection: pending.selection,
-      initiator: pending.initiator,
-    });
   broadcastToShellWindows(IPC.appTabs.state, descriptor);
 }
 
 function announceAppTabClosed(descriptor: DesktopAppTabClosed): void {
   appTabActivation.cancelTab(descriptor.id);
-  pendingAppTabOpened.delete(descriptor.id);
-  threadHomeWindow.forgetTab(descriptor.id);
   broadcastToShellWindows(IPC.appTabs.closed, descriptor);
 }
 
@@ -5703,7 +5738,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC.appRuntime.tabSetRoute, async (event, input: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
     if (!identity.tabId) throw new Error("This App renderer is not attached to a tab.");
-    runtime.appTabs.setRoute(identity.tabId, parseAppTabRouteRequest(input));
+    await runtime.appTabs.setRoute(identity.tabId, parseAppTabRouteRequest(input));
   });
   ipcMain.removeHandler(IPC.appRuntime.tabSetPresentation);
   ipcMain.handle(IPC.appRuntime.tabSetPresentation, async (event, input: unknown) => {
@@ -6513,6 +6548,15 @@ function registerIpcHandlers(): void {
     requireShellAppTabs(event.sender.id);
     return typeof requestId === "string" && appTabActivation.claim(requestId, event.sender.id);
   });
+  ipcMain.handle(
+    IPC.appTabs.failActivation,
+    async (event, requestId: unknown, message: unknown) => {
+      requireShellAppTabs(event.sender.id);
+      if (typeof requestId !== "string" || typeof message !== "string")
+        throw new Error("Invalid App tab activation failure.");
+      appTabActivation.fail(requestId, event.sender.id, message);
+    },
+  );
   ipcMain.handle(IPC.appTabs.consumeListingRequest, async (event) => {
     requireShellAppTabs(event.sender.id);
     const request = pendingAppListingRequest;
@@ -6543,20 +6587,11 @@ function registerIpcHandlers(): void {
         : "user",
     );
   });
-  ipcMain.handle(IPC.appTabs.list, async (event, scope: unknown) => {
+  ipcMain.handle(IPC.appTabs.list, async (event) => {
     const tabs = requireShellAppTabs(event.sender.id).list();
-    const folderId =
-      scope && typeof scope === "object" && "folderId" in scope ? scope.folderId : null;
-    const selected =
-      typeof folderId === "string"
-        ? threadHomeWindow.consume(
-            folderId,
-            tabs.filter((tab) => tab.folderId === folderId).map((tab) => tab.id),
-          )
-        : null;
     return tabs.map((tab) => ({
       ...tab,
-      selection: tab.id === selected ? ("activate" as const) : ("preserve" as const),
+      selection: "preserve" as const,
       initiator: "user" as const,
     }));
   });
@@ -6641,7 +6676,27 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle(IPC.appTabs.close, async (event, input: unknown) => {
     const { tabId } = parseAppTabIdRequest(input);
-    requireShellAppTabs(event.sender.id).close(tabId);
+    const tabs = requireShellAppTabs(event.sender.id);
+    if (
+      !input ||
+      typeof input !== "object" ||
+      !("folderId" in input) ||
+      typeof input.folderId !== "string" ||
+      input.folderId.length === 0
+    )
+      throw new Error("Closing an App tab requires its folder id.");
+    if (tabs.has(tabId) && tabs.list().find((tab) => tab.id === tabId)?.folderId !== input.folderId)
+      throw new Error("The App tab belongs to a different folder.");
+    if (!backendHttpUrl) throw new Error("The backend is not ready.");
+    await updateDesktopFolderAppTabs(
+      { url: backendHttpUrl, token: DESKTOP_BACKEND_SHUTDOWN_TOKEN },
+      {
+        folderId: FolderId.makeUnsafe(input.folderId),
+        updatedAt: new Date().toISOString(),
+        update: { action: "close", paneId: tabId },
+      },
+    );
+    tabs.retireRenderer(tabId, "tab-closed");
   });
 
   const parseOpenWithInput = (input: unknown) => {
@@ -7327,6 +7382,7 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
     },
   });
   window.on("focus", () => {
+    appTabWindowFocusOrder.focus(window.id);
     threadHomeWindow.focus(window.id);
     traceAppTabWindow(window, "shell-window-focus");
     const windowSpaces = spacesMenuStateByShellRendererId.get(window.webContents.id);
@@ -7396,7 +7452,6 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
   window.webContents.on("did-finish-load", () => {
     window.setTitle(APP_DISPLAY_NAME);
     emitUpdateState();
-    flushPendingAppTabs(window);
     showInitialWindow("did-finish-load");
     if (desktopSmokeUserDataPath) {
       void window.webContents
@@ -7510,6 +7565,7 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
   });
 
   window.on("closed", () => {
+    appTabWindowFocusOrder.close(window.id);
     panelFocusState.delete(window.id);
     threadHomeWindow.close(window.id);
     appTabActivation.cancelWindow(rendererOwnerId);
@@ -7970,8 +8026,29 @@ async function bootstrap(): Promise<void> {
           });
       }
     },
-    onTabOpened: (descriptor) => {
-      announceAppTabOpened(descriptor);
+    onBeforeTabOpened: commitAppTabOpened,
+    onTabOpened: announceAppTabOpened,
+    onTabRouteChanged: async (descriptor) => {
+      if (!backendHttpUrl) throw new Error("The backend is not ready.");
+      await updateDesktopFolderAppTabs(
+        { url: backendHttpUrl, token: DESKTOP_BACKEND_SHUTDOWN_TOKEN },
+        {
+          folderId: FolderId.makeUnsafe(descriptor.folderId),
+          updatedAt: new Date().toISOString(),
+          update: { action: "navigate", paneId: descriptor.id, appRoute: descriptor.route },
+        },
+      );
+    },
+    onCloseTab: async (descriptor) => {
+      if (!backendHttpUrl) throw new Error("The backend is not ready.");
+      await updateDesktopFolderAppTabs(
+        { url: backendHttpUrl, token: DESKTOP_BACKEND_SHUTDOWN_TOKEN },
+        {
+          folderId: FolderId.makeUnsafe(descriptor.folderId),
+          updatedAt: new Date().toISOString(),
+          update: { action: "close", paneId: descriptor.id },
+        },
+      );
     },
     onTabState: (descriptor) => {
       announceAppTabState(descriptor);

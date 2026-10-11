@@ -21,6 +21,7 @@ import type {
   OperationCancellationCode,
 } from "@penkra/sdk";
 import type {
+  CleanCoreFolderAppTabsResult,
   DesktopAppTabClosed,
   DesktopAppTabDescriptor,
   DesktopAppTabOpened,
@@ -343,7 +344,15 @@ export class AppTabViewHost implements AppTabHost {
   readonly #detachedHostPolicy: DetachedHostPlatformPolicy;
   readonly #detachedHostCanDeliverPointerInput: boolean;
   readonly #onBeforeInput: (event: Electron.Event, input: Electron.Input) => void;
-  readonly #opened: ProtectedPublisher<DesktopAppTabOpened>;
+  readonly #onBeforeOpened: (
+    descriptor: DesktopAppTabOpened,
+  ) => Promise<CleanCoreFolderAppTabsResult>;
+  readonly #onOpened: (
+    descriptor: DesktopAppTabOpened,
+    folderTabs: CleanCoreFolderAppTabsResult,
+  ) => void | Promise<void>;
+  readonly #onRouteChanged: (descriptor: DesktopAppTabDescriptor) => Promise<void>;
+  readonly #onCloseTab: (descriptor: DesktopAppTabDescriptor) => Promise<void>;
   readonly #state: ProtectedPublisher<DesktopAppTabDescriptor>;
   readonly #closed: ProtectedPublisher<DesktopAppTabClosed>;
   readonly #registerRendererIdentity: (input: {
@@ -385,7 +394,13 @@ export class AppTabViewHost implements AppTabHost {
     hasShellWindow?: () => boolean;
     platform?: NodeJS.Platform;
     onBeforeInput?: (event: Electron.Event, input: Electron.Input) => void;
-    onOpened: (descriptor: DesktopAppTabOpened) => void;
+    onBeforeOpened: (descriptor: DesktopAppTabOpened) => Promise<CleanCoreFolderAppTabsResult>;
+    onOpened: (
+      descriptor: DesktopAppTabOpened,
+      folderTabs: CleanCoreFolderAppTabsResult,
+    ) => void | Promise<void>;
+    onRouteChanged: (descriptor: DesktopAppTabDescriptor) => Promise<void>;
+    onCloseTab: (descriptor: DesktopAppTabDescriptor) => Promise<void>;
     onState: (descriptor: DesktopAppTabDescriptor) => void;
     onClosed?: (descriptor: DesktopAppTabClosed) => void;
     onPresentation?: (windowId: number, state: DesktopAppTabPresentation) => void;
@@ -429,8 +444,10 @@ export class AppTabViewHost implements AppTabHost {
     const onNotificationError =
       input.onNotificationError ??
       ((error: unknown) => console.error("[penkra-app] App tab notification failed.", error));
-    this.#opened = new ProtectedPublisher(onNotificationError);
-    this.#opened.subscribe(input.onOpened);
+    this.#onBeforeOpened = input.onBeforeOpened;
+    this.#onOpened = input.onOpened;
+    this.#onRouteChanged = input.onRouteChanged;
+    this.#onCloseTab = input.onCloseTab;
     this.#state = new ProtectedPublisher(onNotificationError);
     this.#state.subscribe(input.onState);
     this.#closed = new ProtectedPublisher(onNotificationError);
@@ -932,20 +949,15 @@ export class AppTabViewHost implements AppTabHost {
     }
   }
 
-  /** Re-announces a tab, or presents its native view when geometry is supplied. */
+  /** Present the native App view in the chosen window. */
   present(
     tabId: string,
-    windowId?: number,
-    bounds?: Rectangle,
+    windowId: number,
+    bounds: Rectangle,
     animate = false,
     animationStartedAtEpochMs?: number,
-    initiator: "agent" | "user" = "user",
   ): void {
     const record = this.#require(tabId);
-    if (windowId === undefined || bounds === undefined) {
-      this.#opened.publish({ ...record.descriptor, selection: "activate", initiator });
-      return;
-    }
     const targetWindow = this.#windowById(windowId);
     if (!targetWindow || targetWindow.isDestroyed()) {
       throw new Error("The Penkra window is unavailable.");
@@ -1496,17 +1508,19 @@ export class AppTabViewHost implements AppTabHost {
     await this.#navigate(tabId, input);
   }
 
-  setRoute(tabId: string, input: { route: string; state?: unknown }): void {
+  async setRoute(tabId: string, input: { route: string; state?: unknown }): Promise<void> {
     const record = this.#require(tabId);
-    record.navigation = {
-      route: input.route,
-      ...(input.state === undefined ? {} : { state: input.state }),
-    };
-    record.descriptor = {
+    const descriptor = {
       ...record.descriptor,
       route: input.route,
       ...(input.state === undefined ? { state: undefined } : { state: input.state }),
     };
+    await this.#onRouteChanged(descriptor);
+    record.navigation = {
+      route: input.route,
+      ...(input.state === undefined ? {} : { state: input.state }),
+    };
+    record.descriptor = descriptor;
     this.#state.publish(record.descriptor);
     this.#diagnostics.publish({
       kind: "tab-navigation-recorded",
@@ -1647,7 +1661,14 @@ export class AppTabViewHost implements AppTabHost {
     }
   }
 
-  close(tabId: string, reason: OperationCancellationCode = "tab-closed"): void {
+  async close(tabId: string): Promise<void> {
+    const record = this.#records.get(tabId);
+    if (!record) return;
+    await this.#onCloseTab(record.descriptor);
+    this.retireRenderer(tabId, "tab-closed");
+  }
+
+  retireRenderer(tabId: string, reason: OperationCancellationCode): void {
     const record = this.#records.get(tabId);
     if (!record) return;
     traceAppTabHost("tab-close-started", {
@@ -1702,7 +1723,7 @@ export class AppTabViewHost implements AppTabHost {
   }
 
   closeAll(reason: OperationCancellationCode = "host-stopped"): void {
-    for (const tabId of [...this.#records.keys()]) this.close(tabId, reason);
+    for (const tabId of [...this.#records.keys()]) this.retireRenderer(tabId, reason);
     this.#browserExtensions.closeAllPopups();
   }
 
@@ -1713,7 +1734,7 @@ export class AppTabViewHost implements AppTabHost {
   ): void {
     for (const [tabId, record] of this.#records) {
       if (record.app.appId === appId && record.descriptor.spaceId === spaceId)
-        this.close(tabId, reason);
+        this.retireRenderer(tabId, reason);
     }
   }
 
@@ -1785,6 +1806,7 @@ export class AppTabViewHost implements AppTabHost {
       rollback.defer("renderer-rpc", () => unregisterRpc("host-stopped"));
       const endpoint: AppTabEndpoint = {
         id,
+        isVisible: () => this.isVisible(id),
         appId: input.app.appId,
         spaceId: input.spaceId,
         folderId: input.folderId,
@@ -1889,16 +1911,17 @@ export class AppTabViewHost implements AppTabHost {
       });
       contents.once("destroyed", () => {
         traceAppTabHost("app-renderer-destroyed", { tabId: id, rendererId });
-        if (this.#records.has(id)) this.close(id, "host-stopped");
+        if (this.#records.has(id)) this.retireRenderer(id, "host-stopped");
       });
-      rollback.commit();
       // A supplied ID restores an existing logical tab; recreating its renderer
       // must not replace the user's selection, even in another Thread.
-      this.#opened.publish({
+      const openedDescriptor: DesktopAppTabOpened = {
         ...record.descriptor,
         selection: input.tabId === undefined ? "activate" : "preserve",
         initiator: input.initiator ?? "user",
-      });
+      };
+      const folderTabs = await this.#onBeforeOpened(openedDescriptor);
+      rollback.commit();
       this.#diagnostics.publish({
         kind: "tab-opened",
         appId: input.app.appId,
@@ -1929,6 +1952,7 @@ export class AppTabViewHost implements AppTabHost {
         tabId: id,
         durationMs: Math.round(performance.now() - openedAt),
       });
+      await this.#onOpened({ ...openedDescriptor, ...record.descriptor }, folderTabs);
       return endpoint;
     } catch (error) {
       traceAppTabHost("app-renderer-create-failed", {
@@ -1936,14 +1960,14 @@ export class AppTabViewHost implements AppTabHost {
         rendererId,
         error: safeErrorMessage(error),
       });
-      if (this.#records.has(id)) this.close(id, "host-stopped");
+      if (this.#records.has(id)) this.retireRenderer(id, "host-stopped");
       return rollback.fail(`App tab ${id} could not be created.`, error);
     }
   }
 
   #closeMatchingRenderer(tabId: string, rendererId: number): void {
     if (!this.#matchingRenderer(tabId, rendererId)) return;
-    this.close(tabId, "tab-closed");
+    this.retireRenderer(tabId, "host-stopped");
   }
 
   #attemptRetirement(
@@ -1988,7 +2012,7 @@ export class AppTabViewHost implements AppTabHost {
     await this.#rpc.request(record.rendererId, "tab.navigate", input, {
       targetLabel: record.app.name,
     });
-    this.setRoute(tabId, input);
+    await this.setRoute(tabId, input);
   }
 
   #require(tabId: string): AppTabRecord {

@@ -13,6 +13,7 @@ export class AppTabActivation {
     {
       request: AppTabActivationRequest;
       claimed: boolean;
+      canPresent: () => boolean;
       resolve: () => void;
       reject: (error: Error) => void;
       dispose: () => void;
@@ -23,6 +24,7 @@ export class AppTabActivation {
     tabId: string,
     windowId: number,
     signal: AbortSignal,
+    canPresent: () => boolean,
     publish: (request: AppTabActivationRequest) => void,
   ): Promise<void> {
     if (signal.aborted) return Promise.reject(signal.reason);
@@ -33,6 +35,7 @@ export class AppTabActivation {
       this.#pending.set(request.requestId, {
         request,
         claimed: false,
+        canPresent,
         resolve,
         reject,
         dispose: () => signal.removeEventListener("abort", abort),
@@ -49,8 +52,17 @@ export class AppTabActivation {
   claim(requestId: string, windowId: number): boolean {
     const pending = this.#pending.get(requestId);
     if (!pending || pending.claimed || pending.request.windowId !== windowId) return false;
+    if (!pending.canPresent()) {
+      this.#finish(requestId, new Error("The chosen window can no longer show the App tab."));
+      return false;
+    }
     pending.claimed = true;
     return true;
+  }
+
+  fail(requestId: string, windowId: number, message: string): void {
+    const pending = this.#pending.get(requestId);
+    if (pending?.request.windowId === windowId) this.#finish(requestId, new Error(message));
   }
 
   presented(tabId: string, windowId: number): void {

@@ -10,7 +10,12 @@ import {
   createThreadResourceOpener,
   showThreadResourceContextMenu,
 } from "../../lib/threadResourceOpener";
-import { loadFolderAppTabs, selectRightDockState, useRightDockStore } from "../../rightDockStore";
+import {
+  applyFolderAppTabs,
+  loadFolderAppTabs,
+  selectRightDockState,
+  useRightDockStore,
+} from "../../rightDockStore";
 import type { RightDockPane } from "../../rightDockStore.logic";
 import { useStore } from "../../store";
 import { createProjectSelector } from "../../storeSelectors";
@@ -23,12 +28,7 @@ import { isElectron } from "~/env";
 import { cn, isWindowsPlatform } from "~/lib/utils";
 import { useAppInstallationSnapshot } from "~/appInstallationStore";
 import { AppDockPane } from "./AppDockPane";
-import {
-  restoreAppTab,
-  isAppPaneInSpace,
-  isAppTabOutsideFolderSpace,
-  shouldMountAppDockPane,
-} from "./appTabRestore.logic";
+import { restoreAppTab, isAppPaneInSpace, shouldMountAppDockPane } from "./appTabRestore.logic";
 import {
   resolveAppsLauncherAction,
   resolveAppsLauncherFolderBarReservationPx,
@@ -76,7 +76,6 @@ function shouldAcceptAppPanelWidth(input: { nextWidth: number; wrapper: HTMLElem
 function appPaneFromTab(tab: DesktopAppTabDescriptor) {
   return {
     paneId: tab.id,
-    preserveSelection: false,
     kind: "app" as const,
     appId: tab.appId,
     appSpaceId: tab.spaceId,
@@ -112,7 +111,6 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
     isWindowsDesktop,
   });
   const receivePane = useRightDockStore((store) => store.receivePane);
-  const openPane = useRightDockStore((store) => store.openPane);
   const closePane = useRightDockStore((store) => store.closePane);
   const setActivePane = useRightDockStore((store) => store.setActivePane);
   const setDockOpen = useRightDockStore((store) => store.setDockOpen);
@@ -189,16 +187,23 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
     const bridge = window.desktopBridge?.appTabs;
     if (!bridge) return;
     let disposed = false;
-    const removeActivation = bridge.onActivationRequested(({ requestId, tab }) => {
-      if (tab.folderId !== folderId || tab.spaceId !== currentSpaceId) return;
+    const activationIds = new Map<string, string>();
+    const removeActivation = bridge.onActivationRequested(({ requestId, tab, folderTabs }) => {
+      activationIds.set(requestId, tab.id);
       void bridge
         .claimActivation(requestId)
         .then((valid) => {
-          if (!valid || disposed) return;
+          if (!valid || disposed) throw new Error("The window could not show the App tab.");
+          applyFolderAppTabs(folderTabs);
           setConfirmedAppPaneIds((current) => new Set(current).add(tab.id));
-          openPane(folderId, { ...appPaneFromTab(tab), preserveSelection: false });
+          receivePane(folderId, appPaneFromTab(tab));
+          setActivePane(folderId, tab.id);
         })
-        .catch((error: unknown) => {
+        .catch(async (error: unknown) => {
+          const message =
+            error instanceof Error ? error.message : "The App tab could not be activated.";
+          activationIds.delete(requestId);
+          await bridge.failActivation(requestId, message);
           if (disposed) return;
           toastManager.add({
             type: "error",
@@ -208,18 +213,15 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
           });
         });
     });
+    const removePresentation = bridge.onPresentation((presentation) => {
+      if (presentation.mode !== "live") return;
+      for (const [requestId, tabId] of activationIds)
+        if (tabId === presentation.tabId) activationIds.delete(requestId);
+    });
     const removeOpened = bridge.onOpened((tab) => {
-      if (tab.folderId !== folderId) return;
-      if (currentSpaceId && isAppTabOutsideFolderSpace(tab, folderId, currentSpaceId)) {
-        void bridge.close({ tabId: tab.id }).catch(() => undefined);
-        closePane(folderId, tab.id);
-        return;
-      }
       setConfirmedAppPaneIds((current) => new Set(current).add(tab.id));
-      openPane(folderId, {
-        ...appPaneFromTab(tab),
-        preserveSelection: tab.selection === "preserve",
-      });
+      receivePane(folderId, appPaneFromTab(tab));
+      if (tab.selection === "activate") setActivePane(folderId, tab.id);
     });
     const removeState = bridge.onState((tab) => {
       if (tab.folderId !== folderId) return;
@@ -228,7 +230,6 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
         appPresentationTitle: tab.presentationTitle ?? null,
         appPresentationIconUrl: tab.presentationIconUrl ?? null,
         appRendererId: tab.rendererId,
-        appRoute: tab.route,
         ...(tab.state === undefined ? { appState: undefined } : { appState: tab.state }),
         appStatus: tab.status,
       });
@@ -241,16 +242,18 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
         next.delete(tab.id);
         return next;
       });
-      closePane(folderId, tab.id);
     });
     return () => {
       disposed = true;
+      for (const requestId of activationIds.keys())
+        void bridge.failActivation(requestId, "The window stopped showing the folder.");
       removeActivation();
+      removePresentation();
       removeOpened();
       removeState();
       removeClosed();
     };
-  }, [closePane, currentSpaceId, folderId, openPane, props.threadId, updatePane]);
+  }, [folderId, receivePane, setActivePane, updatePane]);
 
   useEffect(() => {
     let cancelled = false;
@@ -330,7 +333,10 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
           route: "/detail",
           state: { appId, tab: "description" },
         })
-        .then((tab) => openPane(folderId, appPaneFromTab(tab)))
+        .then((tab) => {
+          receivePane(folderId, appPaneFromTab(tab));
+          setActivePane(folderId, tab.id);
+        })
         .catch((error: unknown) =>
           toastManager.add({
             type: "error",
@@ -339,7 +345,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
           }),
         );
     },
-    [currentSpaceId, folderId, dockState.panes, openPane, props.threadId, setActivePane],
+    [currentSpaceId, folderId, dockState.panes, receivePane, props.threadId, setActivePane],
   );
 
   useEffect(() => {
@@ -390,7 +396,10 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
         threadId: props.threadId,
         route: "/",
       })
-      .then((tab) => openPane(folderId, appPaneFromTab(tab)))
+      .then((tab) => {
+        receivePane(folderId, appPaneFromTab(tab));
+        setActivePane(folderId, tab.id);
+      })
       .catch((error: unknown) =>
         toastManager.add({
           type: "error",
@@ -438,7 +447,6 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
   };
 
   const closeAppPane = (paneId: string) => {
-    void window.desktopBridge?.appTabs?.close({ tabId: paneId }).catch(() => undefined);
     closePane(folderId, paneId);
   };
 

@@ -18,17 +18,14 @@ describe("selectedPanelTabForFolder", () => {
     expect(selectedPanelTabForFolder(second)).toBe("second-tab");
     expect(selectedPanelTabForFolder({ ...first, open: false })).toBeNull();
     expect(selectedPanelTabForFolder(undefined)).toBeNull();
-    const closeNativeTab = vi.fn();
     const closePane = vi.fn();
     expect(
       closeSelectedPanelTabForFolder({
         folderId: "second-folder",
         state: second,
-        closeNativeTab,
         closePane,
       }),
     ).toBe("second-tab");
-    expect(closeNativeTab).toHaveBeenCalledExactlyOnceWith("second-tab");
     expect(closePane).toHaveBeenCalledExactlyOnceWith("second-folder", "second-tab");
   });
 });

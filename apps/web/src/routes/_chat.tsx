@@ -506,9 +506,6 @@ function ChatRouteGlobalShortcuts() {
       closeSelectedPanelTabForFolder({
         folderId,
         state: store.dockStateByFolderId[folderId],
-        closeNativeTab: (tabId) => {
-          void window.desktopBridge?.appTabs?.close({ tabId }).catch(() => undefined);
-        },
         closePane: (targetFolderId, paneId) =>
           store.closePane(FolderId.makeUnsafe(targetFolderId), paneId),
       });

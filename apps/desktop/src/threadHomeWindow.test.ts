@@ -15,14 +15,10 @@ describe("ThreadHomeWindow", () => {
     expect(home.presentingWindow("thread-a", "folder-a", [1])).toBe(1);
   });
 
-  it("keeps an unshown Folder in the background and activates its tab once opened", () => {
+  it("does not present a tab in an unshown Folder", () => {
     const home = new ThreadHomeWindow();
     home.view(1, "thread-a", "folder-a", true);
     expect(home.presentingWindow("thread-a", "folder-b", [1])).toBeNull();
-    home.defer("folder-b", "tab-b");
-    expect(home.consume("folder-a", ["tab-b"])).toBeNull();
-    expect(home.consume("folder-b", ["tab-b"])).toBe("tab-b");
-    expect(home.consume("folder-b", ["tab-b"])).toBeNull();
   });
 
   it("inherits home for agent-created children and drops a closed home", () => {
@@ -76,18 +72,6 @@ describe("ThreadHomeWindow", () => {
     home.replaceViews(1, [{ threadId: "right", folderId: "folder-right" }], "right", true);
     expect(home.presentingWindow("left", "folder-left", [1])).toBeNull();
     expect(home.presentingWindow("right", "folder-right", [1])).toBe(1);
-  });
-
-  it("keeps a Folder's background tab after its former home window closes", () => {
-    const home = new ThreadHomeWindow();
-    home.view(1, "thread", "folder", true);
-    home.defer("folder", "tab");
-    home.close(1);
-    home.view(2, "thread", "folder", true);
-    expect(home.consume("folder", ["tab"])).toBe("tab");
-    home.defer("folder", "closed-tab");
-    home.forgetTab("closed-tab");
-    expect(home.consume("folder", ["closed-tab"])).toBeNull();
   });
 
   it("retains the home across a renderer reload in the same BrowserWindow", () => {

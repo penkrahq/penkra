@@ -4,7 +4,6 @@ export class ThreadHomeWindow {
   readonly #view = new Map<number, Map<string, string>>();
   readonly #activeThread = new Map<number, string>();
   readonly #syncRevision = new Map<number, number>();
-  readonly #pending = new Map<string, string>();
   readonly #pendingThreadSelection = new Map<string, string>();
   readonly #agentNavigation = new Map<number, Set<string>>();
 
@@ -113,10 +112,6 @@ export class ThreadHomeWindow {
     return home !== undefined && readyWindowIds.includes(home) ? home : null;
   }
 
-  defer(folderId: string, tabId: string): void {
-    this.#pending.set(folderId, tabId);
-  }
-
   select(
     presentingThreadId: string,
     selectedThreadId: string,
@@ -132,18 +127,5 @@ export class ThreadHomeWindow {
     const threadId = this.#pendingThreadSelection.get(folderId) ?? null;
     if (threadId !== null) this.#pendingThreadSelection.delete(folderId);
     return threadId;
-  }
-
-  consume(folderId: string, tabIds: readonly string[]): string | null {
-    const pending = this.#pending.get(folderId);
-    if (!pending || !tabIds.includes(pending)) return null;
-    this.#pending.delete(folderId);
-    return pending;
-  }
-
-  forgetTab(tabId: string): void {
-    for (const [folderId, pending] of this.#pending) {
-      if (pending === tabId) this.#pending.delete(folderId);
-    }
   }
 }

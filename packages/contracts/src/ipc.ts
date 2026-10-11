@@ -1,4 +1,5 @@
 import type {
+  CleanCoreFolderAppTabsResult,
   CleanCoreListArchivedNavigationResult,
   CleanCoreListArchivedThreadsInput,
   CleanCoreListArchivedThreadsResult,
@@ -107,7 +108,6 @@ import type {
   CleanCoreCreateThreadInput,
   CleanCoreGetFolderAppTabsInput,
   CleanCoreUpdateFolderAppTabsInput,
-  CleanCoreFolderAppTabsResult,
   CleanCoreCreateAndSendThreadInput,
   CleanCoreCreateAndSendThreadResponse,
   CleanCoreThreadSummary,
@@ -591,8 +591,13 @@ export interface DesktopAppTabPresentation {
 
 export interface DesktopAppTabsBridge {
   claimActivation: (requestId: string) => Promise<boolean>;
+  failActivation: (requestId: string, message: string) => Promise<void>;
   onActivationRequested: (
-    listener: (input: { requestId: string; tab: DesktopAppTabDescriptor }) => void,
+    listener: (input: {
+      requestId: string;
+      tab: DesktopAppTabDescriptor;
+      folderTabs: CleanCoreFolderAppTabsResult;
+    }) => void,
   ) => () => void;
   list: (scope?: { folderId: string }) => Promise<ReadonlyArray<DesktopAppTabOpened>>;
   consumeListingRequest: () => Promise<{ appId: string } | null>;
@@ -619,7 +624,7 @@ export interface DesktopAppTabsBridge {
   overlayActive: (active: boolean) => void;
   setContext: (input: { tabId: string; folderId: string; threadId: string }) => Promise<void>;
   navigate: (input: { tabId: string; route: string; state?: unknown }) => Promise<void>;
-  close: (input: { tabId: string }) => Promise<void>;
+  close: (input: { tabId: string; folderId: string }) => Promise<void>;
   onListingRequested: (listener: (input: { appId: string }) => void) => () => void;
   onOpened: (listener: (tab: DesktopAppTabOpened) => void) => () => void;
   onState: (listener: (tab: DesktopAppTabDescriptor) => void) => () => void;

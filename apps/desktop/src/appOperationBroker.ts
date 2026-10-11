@@ -80,6 +80,7 @@ export interface AppOperationController {
 
 /** A renderer-owned endpoint. The broker never broadcasts requests to tabs. */
 export interface AppTabEndpoint extends AppTabHandle {
+  isVisible(): boolean;
   appId: string;
   spaceId: string;
   folderId: string;
@@ -231,16 +232,20 @@ export class AppOperationBroker {
     const tab = request.tabId
       ? await this.#resolveTab(request.tabId, installedApp.appId, request.spaceId, request.folderId)
       : undefined;
+    const openedTabIds = new Set<string>();
     const tabs: AppTabs = {
-      open: (input) =>
-        this.#tabHost.open({
+      open: async (input) => {
+        const opened = await this.#tabHost.open({
           app: installedApp,
           spaceId: request.spaceId,
           folderId: request.folderId,
           threadId: request.threadId,
           initiator: request.callerKind === "agent" ? "agent" : "user",
           ...input,
-        }),
+        });
+        openedTabIds.add(opened.id);
+        return opened;
+      },
       openForResult: (input) =>
         this.#tabHost.openForResult({
           app: installedApp,
@@ -260,7 +265,7 @@ export class AppOperationBroker {
         open: async (input) => {
           const target = this.#resolveEnabledApp(input.slug, request.spaceId);
           await this.#ensureController(target.appId, request.spaceId);
-          return this.#tabHost.open({
+          const opened = await this.#tabHost.open({
             app: target,
             spaceId: request.spaceId,
             folderId: request.folderId,
@@ -268,6 +273,8 @@ export class AppOperationBroker {
             route: "/",
             initiator: request.callerKind === "agent" ? "agent" : "user",
           });
+          openedTabIds.add(opened.id);
+          return opened;
         },
       },
       operations: {
@@ -278,6 +285,7 @@ export class AppOperationBroker {
             folderId: request.folderId,
             threadId: request.threadId,
             ...(request.signal === undefined ? {} : { signal: request.signal }),
+            ...(request.callerKind === undefined ? {} : { callerKind: request.callerKind }),
             caller: {
               appId: installedApp.appId,
               slug: installedApp.slug,
@@ -324,6 +332,18 @@ export class AppOperationBroker {
       }
     } catch (error) {
       throw new AppOperationBrokerError("invalid-output", toError(error).message);
+    }
+    if (
+      request.callerKind === "agent" &&
+      result !== null &&
+      typeof result === "object" &&
+      "tabId" in result &&
+      typeof result.tabId === "string" &&
+      openedTabIds.has(result.tabId)
+    ) {
+      const opened = this.#tabs.get(result.tabId);
+      if (!opened) throw new Error("The newly opened App tab is unavailable.");
+      return { ...result, visible: opened.isVisible() } as Result;
     }
     return result as Result;
   }

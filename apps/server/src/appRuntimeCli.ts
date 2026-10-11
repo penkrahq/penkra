@@ -312,8 +312,9 @@ const TAB_OPERATIONS: Readonly<Record<string, HostOperationDeclaration>> = {
   },
   screenshot: {
     command: "penkra tabs screenshot",
-    summary: "Capture one exact App-tab document, including a background tab.",
-    instructions: "Choose d1 or d2. filename writes a PNG to the caller Thread workspace.",
+    summary: "Capture an App-tab document in an eligible window showing its folder.",
+    instructions:
+      "Choose d1 or d2. filename writes a PNG to the caller Thread workspace. If TAB_FOLDER_NOT_AVAILABLE says the folder is not open or every showing window is busy, report the message and do not retry.",
     input: {
       type: "object",
       properties: { tabId: TAB_ID, document: DOCUMENT, filename: { type: "string", minLength: 1 } },
@@ -513,7 +514,7 @@ const OPEN_OPERATION: HostOperationDeclaration = {
   command: "penkra open",
   summary: "Open one local path or URL through an eligible installed App or the operating system.",
   instructions:
-    "Supply exactly one of path or url. Relative paths resolve against the caller Thread's working directory. Supply with only when the user explicitly selected an eligible handler; opening is separate from importing or mutating content. Opens in a new tab. Pass --tab-id from `tabs list` to open in that tab instead.",
+    "Supply exactly one of path or url. Relative paths resolve against the caller Thread's working directory. Supply with only when the user explicitly selected an eligible handler; opening is separate from importing or mutating content. Opens in a new tab. Pass --tab-id from `tabs list` to open in that tab instead. When visible is false: The tab is open but not shown because you are working in the right panel (or the folder is not open); it shows when you select it.",
   input: {
     type: "object",
     properties: {
