@@ -6,7 +6,6 @@ import { createAndSendThread } from "./cleanCore/createAndSendThread.ts";
 import { createThreadFromClient, ThreadLifecycle } from "./cleanCore/threadLifecycle.ts";
 import { ThreadSender } from "./cleanCore/ThreadSender.ts";
 import { execFile } from "node:child_process";
-import { childDiagnosticSpan, startDiagnosticTrace } from "@penkra/shared/traceContext";
 
 import {
   ApprovalRequestId,
@@ -97,11 +96,6 @@ import { TerminalThreadTitleTracker } from "./terminal/terminalThreadTitleTracke
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
 import { makeWsStreamAdmission } from "./wsStreamAdmission";
-import {
-  recordDiagnosticCheckpoint,
-  recordDiagnosticIncident,
-  resolveDiagnosticExpectationsForTrace,
-} from "./diagnostics/recorder";
 import { listThreadItemsPage } from "./cleanCore/threadItemsPage.ts";
 import { findThread, listThreads, searchThreads } from "./cleanCore/threadList.ts";
 import { getThreadDraft, setThreadDraft } from "./cleanCore/threadDraft.ts";
@@ -657,26 +651,7 @@ const makeWsRpcHandlersLayer = () =>
         [ORCHESTRATION_WS_METHODS.dispatchCommand]: (input) =>
           rpcEffect(
             Effect.gen(function* () {
-              const command = "diagnostics" in input ? input.command : input;
-              const trace = childDiagnosticSpan(
-                "diagnostics" in input ? input.diagnostics : startDiagnosticTrace(),
-              );
-              const diagnosticFlow =
-                command.type === "thread.turn.start" ? "send" : "command_worker";
-              const diagnosticContext = {
-                ...trace,
-                commandId: command.commandId,
-                ...(command.type === "thread.turn.start" || "threadId" in command
-                  ? { threadId: command.threadId }
-                  : {}),
-              };
-              yield* Effect.sync(() =>
-                recordDiagnosticCheckpoint({
-                  ...diagnosticContext,
-                  flow: diagnosticFlow,
-                  step: "server.received",
-                }),
-              );
+              const command = input;
               yield* Effect.logInfo("orchestration command received").pipe(
                 Effect.annotateLogs({
                   commandId: command.commandId,
@@ -707,52 +682,15 @@ const makeWsRpcHandlersLayer = () =>
               };
               const result = yield* dispatchOrchestrationCommand(normalizedCommand).pipe(
                 Effect.tap((receipt) =>
-                  Effect.sync(() => {
-                    recordDiagnosticCheckpoint({
-                      ...diagnosticContext,
-                      flow: diagnosticFlow,
-                      step: "command.accepted",
-                      outcome: "ok",
-                      fields: { sequence: receipt.sequence },
-                    });
-                  }).pipe(
-                    Effect.tap(() =>
-                      Effect.sync(() => {
-                        if (normalizedCommand.type === "thread.turn.start") {
-                          resolveDiagnosticExpectationsForTrace(trace.traceId, "send.accepted");
-                        }
-                      }),
-                    ),
-                    Effect.andThen(
-                      Effect.logInfo("orchestration command accepted").pipe(
-                        Effect.annotateLogs({
-                          ...lifecycleLogContext,
-                          resultSequence: receipt.sequence,
-                        }),
-                      ),
-                    ),
+                  Effect.logInfo("orchestration command accepted").pipe(
+                    Effect.annotateLogs({
+                      ...lifecycleLogContext,
+                      resultSequence: receipt.sequence,
+                    }),
                   ),
                 ),
                 Effect.tapError((cause) =>
                   Effect.gen(function* () {
-                    yield* Effect.sync(() => {
-                      recordDiagnosticCheckpoint({
-                        ...diagnosticContext,
-                        flow: diagnosticFlow,
-                        step: "command.rejected",
-                        outcome: "rejected",
-                      });
-                      recordDiagnosticIncident({
-                        ...diagnosticContext,
-                        kind: "command.rejected",
-                        code: "COMMAND_REJECTED",
-                        where: "server.ws_rpc",
-                        severity: "error",
-                        expected: { accepted: true },
-                        actual: { accepted: false },
-                        lastCheckpoint: "command.rejected",
-                      });
-                    });
                     const playContext =
                       normalizedCommand.type === "thread.turn.recover" &&
                       normalizedCommand.reason === "play"

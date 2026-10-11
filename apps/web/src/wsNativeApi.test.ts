@@ -383,7 +383,7 @@ describe("wsNativeApi", () => {
     expect(channelListeners.has(ORCHESTRATION_WS_CHANNELS.domainEvent)).toBe(false);
   });
 
-  it("wraps orchestration dispatch commands in the command envelope", async () => {
+  it("sends orchestration dispatch commands directly", async () => {
     requestMock.mockResolvedValue(undefined);
     const { createWsNativeApi } = await import("./wsNativeApi");
 
@@ -404,17 +404,10 @@ describe("wsNativeApi", () => {
     } as const;
     await api.orchestration.dispatchCommand(command);
 
-    expect(requestMock).toHaveBeenCalledWith(
-      ORCHESTRATION_WS_METHODS.dispatchCommand,
-      {
-        command,
-        diagnostics: expect.objectContaining({
-          traceId: expect.stringMatching(/^[0-9a-f]{32}$/u),
-          spanId: expect.stringMatching(/^[0-9a-f]{16}$/u),
-        }),
-      },
-      { timeoutMs: null, retryOnReconnect: true },
-    );
+    expect(requestMock).toHaveBeenCalledWith(ORCHESTRATION_WS_METHODS.dispatchCommand, command, {
+      timeoutMs: null,
+      retryOnReconnect: true,
+    });
   });
 
   it("forwards terminal output ACKs to the websocket transport", async () => {
@@ -450,16 +443,8 @@ describe("wsNativeApi", () => {
     expect(requestMock).toHaveBeenCalledWith(
       ORCHESTRATION_WS_METHODS.dispatchCommand,
       {
-        command: {
-          ...command,
-          answers: {
-            Runtime: "Bun",
-          },
-        },
-        diagnostics: expect.objectContaining({
-          traceId: expect.any(String),
-          spanId: expect.any(String),
-        }),
+        ...command,
+        answers: { Runtime: "Bun" },
       },
       { timeoutMs: null, retryOnReconnect: true },
     );

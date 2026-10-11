@@ -2925,7 +2925,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
   it("continues the logical turn after a tool outlives two Stop requests", async () => {
     const previousBridge = window.desktopBridge;
-    const recordDiagnosticCheckpoint = vi.fn().mockResolvedValue(undefined);
     const turnId = TurnId.makeUnsafe("turn:5e4001b7-a59c-42de-b1dd-20e7d27640be");
     const providerTurnId = TurnId.makeUnsafe("a3f9d56b-1701-49a9-9787-d529072d9b5f");
     const messageId = MessageId.makeUnsafe("a810f055-436d-49ad-a1bf-96d4519798de");
@@ -2942,14 +2941,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
       getWsUrl: () => null,
       setTheme: async () => undefined,
       setAppTheme: async () => undefined,
-      recordDiagnosticCheckpoint,
     } as never;
     let releaseDispatch!: () => void;
     const dispatchGate = new Promise<void>((resolve) => {
       releaseDispatch = resolve;
     });
     const restoreNativeApi = installDeterministicSendNativeApi({ dispatchGate });
-    const dispatchCommand = vi.spyOn(window.nativeApi!.orchestration, "dispatchCommand");
     try {
       const session = (
         status: "running" | "interrupted",
@@ -3078,18 +3075,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         expect(
           document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
         ).not.toBeNull();
-        expect(recordDiagnosticCheckpoint).toHaveBeenCalledWith(
-          expect.objectContaining({ flow: "play", step: "turn.started", outcome: "ok" }),
-        );
       });
-      const playTrace = dispatchCommand.mock.calls.find(
-        ([command]) => command.type === "thread.turn.recover",
-      )?.[1];
-      expect(playTrace?.traceId).toBe(
-        recordDiagnosticCheckpoint.mock.calls.find(
-          ([checkpoint]) => checkpoint.flow === "play" && checkpoint.step === "turn.started",
-        )?.[0].traceId,
-      );
     } finally {
       if (previousBridge) window.desktopBridge = previousBridge;
       else Reflect.deleteProperty(window, "desktopBridge");
@@ -4331,7 +4317,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
   it("shows Play after Stop when the final assistant message arrives before the interrupted session", async () => {
     const previousBridge = window.desktopBridge;
-    const recordDiagnosticCheckpoint = vi.fn().mockResolvedValue(undefined);
     const turnId = TurnId.makeUnsafe("turn-stop-after-assistant-complete");
     const assistantMessageId = MessageId.makeUnsafe("assistant-stop-after-complete");
     const startedAt = isoAt(20);
@@ -4362,13 +4347,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
     };
     const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot: runningSnapshot });
     const restoreNativeApi = installDeterministicSendNativeApi();
-    const dispatchCommand = vi.spyOn(window.nativeApi!.orchestration, "dispatchCommand");
     window.desktopBridge = {
       ...previousBridge,
       getWsUrl: () => null,
       setTheme: async () => undefined,
       setAppTheme: async () => undefined,
-      recordDiagnosticCheckpoint,
     } as never;
     try {
       const stop = await waitForElement(

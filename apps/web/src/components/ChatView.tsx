@@ -34,9 +34,7 @@ import {
   OrchestrationThreadActivity,
   RuntimeMode,
 } from "@penkra/contracts";
-import { matchesRequestedTurnOutcome } from "./qaTurnOutcomes";
 import { getModelCapabilities, normalizeModelSlug } from "@penkra/shared/model";
-import { startDiagnosticTrace } from "@penkra/shared/traceContext";
 import { threadExportBlockedReason } from "@penkra/shared/threadExport";
 import { pendingRequestInstanceKey } from "@penkra/shared/threadSummary";
 import {
@@ -3229,36 +3227,6 @@ function ChatViewContent({
 
   const continueInFlightRef = useRef(false);
   const pendingContinueCommandIdRef = useRef<string | null>(null);
-  const pendingQaPlayRef = useRef<{
-    threadId: string;
-    turnId: string;
-    trace: ReturnType<typeof startDiagnosticTrace>;
-  } | null>(null);
-  useEffect(() => {
-    const play = pendingQaPlayRef.current;
-    if (
-      play &&
-      matchesRequestedTurnOutcome({
-        requestedThreadId: play.threadId,
-        requestedTurnId: play.turnId,
-        activeThreadId,
-        activeTurnId: activeLatestTurn?.turnId ?? null,
-        actualState: phase,
-        expectedState: "running",
-      })
-    ) {
-      pendingQaPlayRef.current = null;
-      void window.desktopBridge
-        ?.recordDiagnosticCheckpoint?.({
-          ...play.trace,
-          threadId: play.threadId,
-          flow: "play",
-          step: "turn.started",
-          outcome: "ok",
-        })
-        .catch(() => undefined);
-    }
-  }, [activeLatestTurn?.turnId, activeThreadId, phase]);
   const [hiddenContinueTurnId, setHiddenContinueTurnId] = useState<TurnId | null>(null);
   useEffect(() => {
     const commandId = pendingContinueCommandIdRef.current;
@@ -3373,31 +3341,21 @@ function ChatViewContent({
     setContinueInFlight(target);
     const commandId = newCommandId();
     pendingContinueCommandIdRef.current = commandId;
-    const playTrace = startDiagnosticTrace();
-    pendingQaPlayRef.current = {
-      threadId: target.threadId,
-      turnId: target.turnId,
-      trace: playTrace,
-    };
     try {
-      await api.orchestration.dispatchCommand(
-        {
-          type: "thread.turn.recover",
-          reason: "play",
-          runtimeMode,
-          commandId,
-          threadId: target.threadId,
-          turnId: target.turnId,
-          interruptedTurnId: target.turnId,
-          recoveryMessageId: newMessageId(),
-          connectionId: bindingForContinue.connectionId,
-          bindingRevision: bindingForContinue.revision,
-          createdAt: new Date().toISOString(),
-        },
-        playTrace,
-      );
+      await api.orchestration.dispatchCommand({
+        type: "thread.turn.recover",
+        reason: "play",
+        runtimeMode,
+        commandId,
+        threadId: target.threadId,
+        turnId: target.turnId,
+        interruptedTurnId: target.turnId,
+        recoveryMessageId: newMessageId(),
+        connectionId: bindingForContinue.connectionId,
+        bindingRevision: bindingForContinue.revision,
+        createdAt: new Date().toISOString(),
+      });
     } catch (error) {
-      pendingQaPlayRef.current = null;
       pendingContinueCommandIdRef.current = null;
       continueInFlightRef.current = false;
       setContinueInFlight(null);

@@ -41,7 +41,6 @@ import {
   type WsWelcomePayload,
 } from "@penkra/contracts";
 import { VOICE_TRANSCRIPTION_UPLOAD_ROUTE_PATH } from "@penkra/shared/binaryTransfer";
-import { startDiagnosticTrace } from "@penkra/shared/traceContext";
 
 import { showConfirmDialogFallback } from "./confirmDialogFallback";
 import { showContextMenuFallback } from "./contextMenuFallback";
@@ -591,13 +590,10 @@ export function createWsNativeApi(): NativeApi {
         transport.request(ORCHESTRATION_WS_METHODS.getPendingStartOutcome, input),
       acknowledgeSync: (input) =>
         transport.request<void>(ORCHESTRATION_WS_METHODS.acknowledgeSync, input),
-      dispatchCommand: (command, diagnostics) => {
+      dispatchCommand: (command) => {
         return transport.request(
           ORCHESTRATION_WS_METHODS.dispatchCommand,
-          {
-            command: omitNullUserInputAnswers(command),
-            diagnostics: diagnostics ?? startDiagnosticTrace(),
-          },
+          omitNullUserInputAnswers(command),
           {
             timeoutMs: null,
             retryOnReconnect: true,
@@ -671,11 +667,6 @@ export async function resetWsNativeApiForTest(): Promise<void> {
   instance = null;
   clearWsNativeApiListeners();
   await transport?.dispose();
-}
-
-export async function reconnectWsNativeApiForQa(): Promise<void> {
-  if (!instance) throw new Error("The shell transport is not ready");
-  await instance.transport.reconnectForQa();
 }
 
 if (import.meta.hot) {
