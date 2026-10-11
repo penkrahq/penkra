@@ -9,7 +9,6 @@ import * as Socket from "effect/unstable/socket/Socket";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ORCHESTRATION_WS_CHANNELS,
-  type DiagnosticTraceContext,
   ORCHESTRATION_WS_METHODS,
   WS_METHODS,
   WS_CHANNELS,
@@ -34,7 +33,6 @@ import {
   MAX_STREAM_DUPLICATE_RETRY_ATTEMPTS,
   MAX_THREAD_SNAPSHOT_BOOTSTRAP_RETRY_ATTEMPTS,
   resolveStreamAdmissionRetry,
-  recordWsTransportFailure,
   shouldReconnectAfterRequestFailure,
   shouldReconnectAfterStreamFailure,
   threadStreamInputsEqual,
@@ -177,32 +175,7 @@ afterEach(() => {
 });
 
 describe("WsTransport", () => {
-  it("records one incident per pushed listener failure episode", () => {
-    const recordDiagnosticIncident = vi.fn().mockResolvedValue(undefined);
-    window.desktopBridge = { recordDiagnosticIncident } as never;
-    const { internals } = makeBareTransport();
-    let shouldThrow = true;
-    internals.listeners.set(
-      WS_CHANNELS.serverWelcome,
-      new Set([
-        () => {
-          if (shouldThrow) throw new Error("listener failed");
-        },
-      ]),
-    );
-    internals.emit(WS_CHANNELS.serverWelcome, {});
-    internals.emit(WS_CHANNELS.serverWelcome, {});
-    expect(recordDiagnosticIncident).toHaveBeenCalledTimes(1);
-    shouldThrow = false;
-    internals.emit(WS_CHANNELS.serverWelcome, {});
-    shouldThrow = true;
-    internals.emit(WS_CHANNELS.serverWelcome, {});
-    expect(recordDiagnosticIncident).toHaveBeenCalledTimes(2);
-  });
-
-  it("records an unexpected final RPC failure without reconnecting", async () => {
-    const recordDiagnosticIncident = vi.fn().mockResolvedValue(undefined);
-    window.desktopBridge = { recordDiagnosticIncident } as never;
+  it("returns an unexpected final RPC failure without reconnecting", async () => {
     const transport = new WsTransport("ws://localhost:3020/ws");
     const method = ORCHESTRATION_WS_METHODS.dispatchCommand;
     const client = { [method]: vi.fn(() => ({})) };
@@ -216,79 +189,11 @@ describe("WsTransport", () => {
     internals.getClient = vi.fn().mockResolvedValue(client);
     internals.getClientRuntime = vi.fn(() => runtime);
     internals.reconnect = vi.fn();
-    await expect(transport.request(method, { command: {} }, { timeoutMs: null })).rejects.toBe(
-      failure,
-    );
-    expect(recordDiagnosticIncident).toHaveBeenCalledWith(
-      expect.objectContaining({ code: "EXTERNAL_CALL_FAILED", where: "browser.socket_rpc" }),
-    );
+    await expect(transport.request(method, {}, { timeoutMs: null })).rejects.toBe(failure);
     expect(internals.reconnect).not.toHaveBeenCalled();
     await transport.dispose();
   });
 
-  it("suppresses only the exact intentional reconnect cancellation", async () => {
-    const recordDiagnosticIncident = vi.fn().mockResolvedValue(undefined);
-    window.desktopBridge = { recordDiagnosticIncident } as never;
-    const transport = new WsTransport("ws://localhost:3020/ws");
-    const method = ORCHESTRATION_WS_METHODS.dispatchCommand;
-    const client = { [method]: vi.fn(() => ({})) };
-    const runtime = {
-      runPromise: vi
-        .fn()
-        .mockImplementationOnce(() => new Promise(() => {}))
-        .mockResolvedValue(undefined),
-      dispose: vi.fn().mockResolvedValue(undefined),
-    };
-    const internals = transport as unknown as {
-      getClient: () => Promise<typeof client>;
-      getClientRuntime: () => typeof runtime;
-      runtime: typeof runtime;
-      openReconnectSession: () => Promise<typeof client>;
-      reconnect: (intentional: boolean) => Promise<typeof client>;
-      activeRequests: Map<object, Set<AbortController>>;
-    };
-    const originalRuntime = internals.runtime;
-    internals.runtime = runtime;
-    internals.openReconnectSession = vi.fn().mockResolvedValue(client);
-    internals.getClient = vi.fn().mockResolvedValue(client);
-    internals.getClientRuntime = vi.fn(() => runtime);
-    const pending = transport.request(method, { command: {} }, { timeoutMs: null });
-    const cancelled = expect(pending).rejects.toThrow("intentional reconnect");
-    await vi.waitFor(() => expect(internals.activeRequests.get(runtime)?.size).toBe(1));
-    await internals.reconnect(true);
-    await cancelled;
-    expect(recordDiagnosticIncident).not.toHaveBeenCalled();
-    const unrelated = new Error("WebSocket RPC cancelled by intentional reconnect");
-    runtime.runPromise.mockRejectedValueOnce(unrelated as never);
-    await expect(transport.request(method, { command: {} }, { timeoutMs: null })).rejects.toBe(
-      unrelated,
-    );
-    expect(recordDiagnosticIncident).toHaveBeenCalledWith(
-      expect.objectContaining({ where: "browser.socket_rpc" }),
-    );
-    expect(internals.activeRequests.size).toBe(0);
-    internals.runtime = originalRuntime;
-    await transport.dispose();
-  });
-
-  it("records consumed transport failures with a fixed privacy-safe payload", () => {
-    const recordDiagnosticIncident = vi.fn().mockResolvedValue(undefined);
-    window.desktopBridge = { recordDiagnosticIncident } as never;
-    recordWsTransportFailure("browser.socket_stream", {
-      traceId: "ab".repeat(16),
-      spanId: "cd".repeat(8),
-    });
-    expect(recordDiagnosticIncident).toHaveBeenCalledWith({
-      traceId: "ab".repeat(16),
-      spanId: "cd".repeat(8),
-      kind: "external.failed",
-      code: "EXTERNAL_CALL_FAILED",
-      where: "browser.socket_stream",
-      severity: "error",
-      expected: { accepted: true },
-      actual: { accepted: false },
-    });
-  });
   it("does not reconnect the socket for typed stream-admission failures", () => {
     expect(
       shouldReconnectAfterStreamFailure(
@@ -863,12 +768,7 @@ describe("WsTransport", () => {
       transport.request(
         method,
         {
-          command: { commandId: "stable-command-id" },
-          diagnostics: {
-            traceId: "11111111111111111111111111111111",
-            spanId: "2222222222222222",
-            attemptId: "3333333333333333",
-          },
+          commandId: "stable-command-id",
         },
         { timeoutMs: null, retryOnReconnect: true },
       ),
@@ -876,24 +776,8 @@ describe("WsTransport", () => {
     expect(reconnect).toHaveBeenCalledTimes(1);
     expect(firstClient[method]).toHaveBeenCalledTimes(1);
     expect(secondClient[method]).toHaveBeenCalledTimes(1);
-    const firstTrace = (
-      firstClient[method].mock.calls[0]?.[0] as { diagnostics: DiagnosticTraceContext }
-    ).diagnostics;
-    const retryTrace = (
-      secondClient[method].mock.calls[0]?.[0] as {
-        diagnostics: DiagnosticTraceContext;
-      }
-    ).diagnostics;
-    expect(firstTrace).toMatchObject({
-      traceId: "11111111111111111111111111111111",
-      attemptId: "3333333333333333",
-    });
-    expect(retryTrace).toMatchObject({
-      traceId: firstTrace.traceId,
-      parentSpanId: firstTrace.spanId,
-    });
-    expect(retryTrace.spanId).not.toBe(firstTrace.spanId);
-    expect(retryTrace.attemptId).not.toBe(firstTrace.attemptId);
+    expect(firstClient[method].mock.calls[0]?.[0]).toEqual({ commandId: "stable-command-id" });
+    expect(secondClient[method].mock.calls[0]?.[0]).toEqual({ commandId: "stable-command-id" });
     await transport.dispose();
   });
 
@@ -1090,53 +974,6 @@ describe("WsTransport", () => {
     expect(transportInternals.reconnectPromise).toBeNull();
   });
 
-  it("records a clean reconnect on one trace after the replacement session opens", async () => {
-    const recordDiagnosticCheckpoint = vi.fn().mockResolvedValue(undefined);
-    window.desktopBridge = { recordDiagnosticCheckpoint } as never;
-    const { internals } = makeBareTransport();
-    const runtime = {
-      runPromise: vi.fn().mockResolvedValue(undefined),
-      dispose: vi.fn().mockResolvedValue(undefined),
-    };
-    const transportInternals = internals as unknown as {
-      runtime: typeof runtime;
-      clientScope: Scope.Scope;
-      state: string;
-      readonly stateListeners: Set<(state: string) => void>;
-      reconnectPromise: Promise<unknown> | null;
-      reconnect: () => Promise<unknown>;
-      setState: (state: string) => void;
-      openReconnectSession: () => Promise<unknown>;
-    };
-    Object.assign(transportInternals, {
-      runtime,
-      clientScope: Effect.runSync(Scope.make()),
-      state: "open",
-      stateListeners: new Set(),
-      reconnectPromise: null,
-      openReconnectSession: async () => {
-        transportInternals.setState("open");
-        return {};
-      },
-    });
-    await transportInternals.reconnect();
-    expect(recordDiagnosticCheckpoint).toHaveBeenCalledTimes(2);
-    const [disconnected, reconnected] = recordDiagnosticCheckpoint.mock.calls.map(
-      ([input]) => input,
-    );
-    expect(disconnected).toMatchObject({
-      flow: "socket_connect",
-      step: "socket.disconnected",
-      outcome: "ok",
-    });
-    expect(reconnected).toMatchObject({
-      flow: "socket_connect",
-      step: "socket.reconnected",
-      outcome: "ok",
-    });
-    expect(reconnected.traceId).toBe(disconnected.traceId);
-  });
-
   it("shares one reconnect when cancelling multiple streams synchronously re-enters", async () => {
     const { internals } = makeBareTransport();
     const replacementClient = { id: "replacement" };
@@ -1177,12 +1014,8 @@ describe("WsTransport", () => {
   it("moves a hung initial connection into the reconnect path", async () => {
     vi.useFakeTimers();
     try {
-      const recordDiagnosticCheckpoint = vi.fn().mockResolvedValue(undefined);
-      const recordDiagnosticIncident = vi.fn().mockResolvedValue(undefined);
       window.desktopBridge = {
         getWsUrl: () => null,
-        recordDiagnosticCheckpoint,
-        recordDiagnosticIncident,
       } as never;
       window.setTimeout = globalThis.setTimeout.bind(globalThis);
       window.clearTimeout = globalThis.clearTimeout.bind(globalThis);
@@ -1210,30 +1043,15 @@ describe("WsTransport", () => {
 
       await expect(client).resolves.toBe(recoveredClient);
       expect(reconnect).toHaveBeenCalledTimes(1);
-      expect(recordDiagnosticCheckpoint).toHaveBeenCalledWith(
-        expect.objectContaining({
-          flow: "socket_connect",
-          step: "socket.handshake_started",
-        }),
-      );
-      expect(recordDiagnosticIncident).toHaveBeenCalledWith(
-        expect.objectContaining({
-          code: "WS_HANDSHAKE_SLOW",
-          where: "browser.socket_connect",
-          expected: { deadlineMs: WS_RECONNECT_ATTEMPT_TIMEOUT_MS },
-        }),
-      );
       await transport.dispose();
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("records the constructor's first failed connection without calling it a reconnect loop", async () => {
-    const recordDiagnosticIncident = vi.fn().mockResolvedValue(undefined);
+  it("returns the constructor's first failed connection", async () => {
     window.desktopBridge = {
       getWsUrl: () => null,
-      recordDiagnosticIncident,
     } as never;
     const session = vi
       .spyOn(WsTransport.prototype as unknown as { createSession: () => unknown }, "createSession")
@@ -1251,65 +1069,27 @@ describe("WsTransport", () => {
       const transport = new WsTransport();
       const initial = (transport as unknown as { clientPromise: Promise<unknown> }).clientPromise;
       await expect(initial).rejects.toThrow("offline");
-      expect(recordDiagnosticIncident).toHaveBeenCalledWith(
-        expect.objectContaining({
-          code: "EXTERNAL_CALL_FAILED",
-          actual: expect.objectContaining({ attempt: 0, errorCode: "ECONNREFUSED" }),
-        }),
-      );
-      expect(recordDiagnosticIncident).not.toHaveBeenCalledWith(
-        expect.objectContaining({ code: "WS_RECONNECT_LOOP" }),
-      );
       await transport.dispose();
     } finally {
       session.mockRestore();
     }
   });
 
-  it("records every failed reconnect handshake attempt", async () => {
-    const recordDiagnosticIncident = vi.fn((_input: unknown) => Promise.resolve());
+  it("returns every failed reconnect handshake attempt", async () => {
     window.desktopBridge = {
       getWsUrl: () => null,
-      recordDiagnosticIncident,
     } as never;
     const transport = new WsTransport();
     const attempt = (
       transport as unknown as {
-        withConnectionAttemptTimeout: (
-          promise: Promise<unknown>,
-          attempt: number,
-        ) => Promise<unknown>;
+        withConnectionAttemptTimeout: (promise: Promise<unknown>) => Promise<unknown>;
       }
     ).withConnectionAttemptTimeout.bind(transport);
-    await expect(attempt(Promise.reject(new Error("offline")), 1)).rejects.toThrow("offline");
-    await expect(attempt(Promise.reject(new Error("offline")), 2)).rejects.toThrow("offline");
-    const failures = recordDiagnosticIncident.mock.calls
-      .map(
-        ([input]) =>
-          input as {
-            code: string;
-            actual: { attempt: number; errorCode: string; reason: string };
-          },
-      )
-      .filter((input) => input.code === "EXTERNAL_CALL_FAILED");
-    expect(failures).toHaveLength(2);
-    expect(failures.map((input) => input.actual.attempt)).toEqual([1, 2]);
-    expect(failures.map((input) => input.actual.errorCode)).toEqual(["OTHER", "OTHER"]);
-    expect(failures.map((input) => input.actual.reason)).toEqual(["disconnected", "disconnected"]);
-    expect(
-      recordDiagnosticIncident.mock.calls.some(
-        ([input]) => (input as { code: string }).code === "WS_RECONNECT_LOOP",
-      ),
-    ).toBe(false);
+    await expect(attempt(Promise.reject(new Error("offline")))).rejects.toThrow("offline");
+    await expect(attempt(Promise.reject(new Error("offline")))).rejects.toThrow("offline");
     await expect(
-      attempt(Promise.reject(Object.assign(new Error("offline"), { code: "ECONNRESET" })), 3),
+      attempt(Promise.reject(Object.assign(new Error("offline"), { code: "ECONNRESET" }))),
     ).rejects.toThrow("offline");
-    expect(recordDiagnosticIncident).toHaveBeenCalledWith(
-      expect.objectContaining({
-        code: "WS_RECONNECT_LOOP",
-        actual: expect.objectContaining({ errorCode: "ECONNRESET", attempt: 3 }),
-      }),
-    );
     await transport.dispose();
   });
 
@@ -1319,8 +1099,6 @@ describe("WsTransport", () => {
       window.setTimeout = globalThis.setTimeout.bind(globalThis);
       window.clearTimeout = globalThis.clearTimeout.bind(globalThis);
       const transport = new WsTransport();
-      const recordDiagnosticIncident = vi.fn().mockResolvedValue(undefined);
-      window.desktopBridge = { recordDiagnosticIncident } as never;
       const firstScope = Effect.runSync(Scope.make());
       const secondScope = Effect.runSync(Scope.make());
       const thirdScope = Effect.runSync(Scope.make());
@@ -1377,18 +1155,6 @@ describe("WsTransport", () => {
       expect(createSession).toHaveBeenCalledTimes(3);
       expect(firstRuntime.dispose).toHaveBeenCalledTimes(1);
       expect(secondRuntime.dispose).toHaveBeenCalledTimes(1);
-      expect(recordDiagnosticIncident).toHaveBeenCalledWith(
-        expect.objectContaining({
-          code: "WS_HANDSHAKE_SLOW",
-          actual: expect.objectContaining({ attempt: 1 }),
-        }),
-      );
-      expect(recordDiagnosticIncident).toHaveBeenCalledWith(
-        expect.objectContaining({
-          code: "EXTERNAL_CALL_FAILED",
-          actual: expect.objectContaining({ attempt: 2, errorCode: "ECONNRESET" }),
-        }),
-      );
       internals.disposed = true;
       await thirdRuntime.runPromise(Scope.close(thirdScope, Exit.void));
       await thirdRuntime.dispose();
@@ -1414,7 +1180,7 @@ describe("WsTransport", () => {
     internals.reconnect = reconnect;
 
     await expect(
-      transport.request(method, { command: {} }, { timeoutMs: null, retryOnReconnect: true }),
+      transport.request(method, {}, { timeoutMs: null, retryOnReconnect: true }),
     ).rejects.toBe(rejection);
     expect(reconnect).not.toHaveBeenCalled();
     await transport.dispose();

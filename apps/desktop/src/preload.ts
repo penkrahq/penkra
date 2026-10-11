@@ -87,13 +87,6 @@ function getDesktopWsUrl(): string | null {
 
 contextBridge.exposeInMainWorld("desktopBridge", {
   getWsUrl: getDesktopWsUrl,
-  recordDiagnosticCheckpoint: (input) => ipcRenderer.invoke(IPC.diagnosticsCheckpoint, input),
-  recordDiagnosticIncident: (input) => ipcRenderer.invoke(IPC.diagnosticsIncident, input),
-  armSendDiagnosticExpectation: (input) =>
-    ipcRenderer.invoke(IPC.diagnosticsSendExpectation, {
-      ...input,
-      armedAt: new Date().toISOString(),
-    }),
   // Absolute path for OS-dropped File objects (folders with spaces/parens, etc.).
   getPathForFile: (file: File) => {
     try {

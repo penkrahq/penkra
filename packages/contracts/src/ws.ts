@@ -50,7 +50,6 @@ import {
   OrchestrationGetSnapshotInput,
   OrchestrationReplayEventsInput,
 } from "./orchestration";
-import { DiagnosticTraceContext } from "./diagnostics";
 import {
   TerminalAckOutputInput,
   TerminalClearInput,
@@ -247,7 +246,6 @@ const WebSocketRequestBody = Schema.Union([
     ORCHESTRATION_WS_METHODS.dispatchCommand,
     Schema.Struct({
       command: ClientOrchestrationCommand,
-      diagnostics: Schema.optional(DiagnosticTraceContext),
     }),
   ),
   tagRequestBody(ORCHESTRATION_WS_METHODS.importThread, OrchestrationImportThreadInput),

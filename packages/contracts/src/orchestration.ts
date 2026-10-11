@@ -1,6 +1,5 @@
 import { CleanCoreThreadSummary } from "./threadSummary";
 import { Option, Schema, SchemaIssue } from "effect";
-import { DiagnosticTraceContext } from "./diagnostics";
 import { ClaudeModelOptions, CodexModelOptions, OpenCodeModelOptions } from "./model";
 import { ProviderMentionReference, ProviderSkillReference } from "./providerDiscovery";
 import {
@@ -1048,17 +1047,6 @@ export const ClientOrchestrationCommand = Schema.Union([
 ]);
 export type ClientOrchestrationCommand = typeof ClientOrchestrationCommand.Type;
 
-/** The bare command remains accepted while older renderers finish updating. */
-export const TracedClientOrchestrationCommand = Schema.Struct({
-  command: ClientOrchestrationCommand,
-  diagnostics: DiagnosticTraceContext,
-});
-export const DispatchCommandRpcInput = Schema.Union([
-  ClientOrchestrationCommand,
-  TracedClientOrchestrationCommand,
-]);
-export type DispatchCommandRpcInput = typeof DispatchCommandRpcInput.Type;
-
 const ThreadSessionSetCommand = Schema.Struct({
   type: Schema.Literal("thread.session.set"),
   commandId: CommandId,
@@ -1899,7 +1887,7 @@ export const OrchestrationRpcSchemas = {
     output: OrchestrationRepairStateResult,
   },
   dispatchCommand: {
-    input: DispatchCommandRpcInput,
+    input: ClientOrchestrationCommand,
     output: DispatchResult,
   },
   importThread: {

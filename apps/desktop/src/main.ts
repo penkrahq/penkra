@@ -5623,28 +5623,6 @@ function registerIpcHandlers(): void {
       throw new Error("Composer drafts are available only to the Penkra shell.");
     }
   };
-  ipcMain.handle(IPC.diagnosticsCheckpoint, (event, input: unknown) => {
-    requireMainRenderer(event);
-    if (!input || typeof input !== "object" || Array.isArray(input)) return;
-    enqueueDesktopDiagnosticWrite("checkpoint", input as CheckpointInput);
-  });
-  ipcMain.handle(IPC.diagnosticsIncident, (event, input: unknown) => {
-    requireMainRenderer(event);
-    if (!input || typeof input !== "object" || Array.isArray(input)) return;
-    enqueueDesktopDiagnosticWrite("incident", input as IncidentInput);
-  });
-  ipcMain.handle(IPC.diagnosticsSendExpectation, (event, input: unknown) => {
-    requireMainRenderer(event);
-    if (!input || typeof input !== "object" || Array.isArray(input)) return;
-    const { traceId, spanId, threadId, armedAt } = input as Record<string, unknown>;
-    if (typeof traceId !== "string" || typeof spanId !== "string") return;
-    enqueueDesktopDiagnosticWrite("sendExpectation", {
-      traceId,
-      spanId,
-      ...(typeof threadId === "string" ? { threadId } : {}),
-      ...(typeof armedAt === "string" ? { armedAt } : {}),
-    });
-  });
   ipcMain.removeListener(IPC.threadApiState, acceptThreadApiState);
   ipcMain.on(IPC.threadApiState, acceptThreadApiState);
   ipcMain.removeAllListeners(IPC.threadHomeView);

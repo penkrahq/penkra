@@ -1,9 +1,9 @@
-import type { CleanCoreSidebarChange } from "@penkra/contracts";
 // FILE: wsTransport.ts
 // Purpose: Browser-side Effect RPC transport over the Penkra WebSocket endpoint.
 // Layer: Web transport
 // Exports: WsTransport plus stream-selection helpers used by tests.
 
+import type { CleanCoreSidebarChange } from "@penkra/contracts";
 import {
   CLEAN_CORE_WS_CHANNELS,
   ORCHESTRATION_WS_CHANNELS,
@@ -22,7 +22,6 @@ import {
   WsCompatibilityError,
   WsFeatureRpcGroup,
   WsRpcError,
-  QueuedEditDraftNotEmptyError,
   type OrchestrationEvent,
   type OrchestrationShellStreamItem,
   type OrchestrationSyncStreamItem,
@@ -38,41 +37,15 @@ import {
   type WsPushChannel,
   type WsPushMessage,
   type WsBootstrapNegotiateResult,
-  type DiagnosticTraceContext,
 } from "@penkra/contracts";
 import { Cause, Data, Effect, Exit, Layer, ManagedRuntime, Schema, Scope, Stream } from "effect";
 import { RpcClient, RpcClientError, RpcSerialization } from "effect/unstable/rpc";
 import * as Socket from "effect/unstable/socket/Socket";
-import { retryDiagnosticAttempt, startDiagnosticTrace } from "@penkra/shared/traceContext";
 
 import { APP_VERSION } from "./branding";
 import type { WsTransportState } from "./wsTransportEvents";
 
 type PushListener<C extends WsPushChannel> = (message: WsPushMessage<C>) => void;
-
-export function recordWsTransportFailure(
-  where:
-    | "browser.socket_rpc"
-    | "browser.socket_stream"
-    | "browser.socket_listener"
-    | "browser.socket_cleanup",
-  trace: DiagnosticTraceContext = startDiagnosticTrace(),
-): void {
-  try {
-    const pending = window.desktopBridge?.recordDiagnosticIncident?.({
-      ...trace,
-      kind: "external.failed",
-      code: "EXTERNAL_CALL_FAILED",
-      where,
-      severity: "error",
-      expected: { accepted: true },
-      actual: { accepted: false },
-    });
-    void pending?.catch(() => undefined);
-  } catch {
-    // Diagnostics cannot change transport behavior.
-  }
-}
 
 type RpcClientEffect = typeof makeRpcClient;
 type RpcClientInstance =
@@ -477,7 +450,6 @@ export function shouldKeepServerLifecycleStream(activeChannels: ReadonlySet<stri
 export class WsTransport {
   private readonly explicitUrl: string | null;
   private readonly listeners = new Map<string, Set<(message: WsPush) => void>>();
-  private readonly failedPushListeners = new WeakSet<(message: WsPush) => void>();
   private readonly stateListeners = new Set<(state: WsTransportState) => void>();
   private readonly compatibilityListeners = new Set<(issue: WsCompatibilityError | null) => void>();
   private readonly threadStreamFailureListeners = new Set<
@@ -497,10 +469,7 @@ export class WsTransport {
   private clientPromise: Promise<RpcClientInstance>;
   private reconnectPromise: Promise<RpcClientInstance> | null = null;
   private readonly activeRequests = new Map<object, Set<AbortController>>();
-  private readonly intentionalReconnectErrors = new WeakSet<object>();
   private reconnectFailures = 0;
-  private reconnectQaTrace: ReturnType<typeof startDiagnosticTrace> | null = null;
-  private readonly qaSocketClientId = startDiagnosticTrace().traceId;
   private readonly streamCleanups = new Map<string, () => void>();
   private readonly streamSettled = new Map<string, Promise<void>>();
   private readonly streamCapacityRetries = new Map<string, number>();
@@ -587,13 +556,7 @@ export class WsTransport {
         return undefined as T;
       }
 
-      const rpcInput =
-        method === ORCHESTRATION_WS_METHODS.dispatchCommand
-          ? params && typeof params === "object" && "diagnostics" in params
-            ? params
-            : (params as { command: unknown }).command
-          : (params ?? {});
-      let normalizedRpcInput = omitNullUserInputAnswers(rpcInput);
+      const normalizedRpcInput = omitNullUserInputAnswers(params ?? {});
       while (true) {
         const call = (
           client as unknown as Record<
@@ -633,13 +596,6 @@ export class WsTransport {
           }
           return result as T;
         } catch (error) {
-          if (
-            typeof error === "object" &&
-            error !== null &&
-            this.intentionalReconnectErrors.has(error)
-          ) {
-            throw error;
-          }
           // Orchestration commands carry a durable command ID and fingerprint.
           // Reissuing the identical request after connection loss is therefore
           // safe whether the old server committed before its response or died
@@ -650,37 +606,13 @@ export class WsTransport {
             isTerminalCompatibilityFailure(error) ||
             !shouldReconnectAfterRequestFailure(error)
           ) {
-            if (
-              !abortScope.didTimeout() &&
-              !requestOptions.signal?.aborted &&
-              !isTerminalCompatibilityFailure(error) &&
-              !Schema.is(WsRpcError)(error) &&
-              !Schema.is(QueuedEditDraftNotEmptyError)(error)
-            ) {
-              recordWsTransportFailure("browser.socket_rpc");
-            }
             throw error;
           }
           console.warn("WebSocket RPC request failed before reconnect", {
             method,
             error,
           });
-          recordWsTransportFailure("browser.socket_rpc");
           client = await awaitWithAbort(this.reconnect(), abortScope.signal);
-          if (
-            method === ORCHESTRATION_WS_METHODS.dispatchCommand &&
-            normalizedRpcInput &&
-            typeof normalizedRpcInput === "object" &&
-            "diagnostics" in normalizedRpcInput &&
-            normalizedRpcInput.diagnostics
-          ) {
-            normalizedRpcInput = {
-              ...normalizedRpcInput,
-              diagnostics: retryDiagnosticAttempt(
-                normalizedRpcInput.diagnostics as DiagnosticTraceContext,
-              ),
-            };
-          }
         } finally {
           abortScope.signal?.removeEventListener("abort", forwardAbort);
           activeRequests.delete(controller);
@@ -689,7 +621,6 @@ export class WsTransport {
       }
     } catch (error) {
       if (abortScope.didTimeout()) {
-        recordWsTransportFailure("browser.socket_rpc");
         throw new WsTransportRequestInterruptedError({
           message: `WebSocket RPC ${method} timed out after ${requestOptions.timeoutMs}ms.`,
           code: "WS_REQUEST_TIMEOUT",
@@ -794,7 +725,6 @@ export class WsTransport {
       try {
         listener(failure);
       } catch {
-        recordWsTransportFailure("browser.socket_listener");
         // Listener errors must not break transport streams.
       }
     }
@@ -815,10 +745,8 @@ export class WsTransport {
     void this.reconnectPromise?.catch(() => undefined);
     const runtime = this.runtime;
     const clientScope = this.clientScope;
-    await runtime
-      .runPromise(Scope.close(clientScope, Exit.void))
-      .catch(() => recordWsTransportFailure("browser.socket_cleanup"));
-    await runtime.dispose().catch(() => recordWsTransportFailure("browser.socket_cleanup"));
+    await runtime.runPromise(Scope.close(clientScope, Exit.void)).catch(() => undefined);
+    await runtime.dispose().catch(() => undefined);
   }
 
   private createSession() {
@@ -843,17 +771,15 @@ export class WsTransport {
           }),
         );
       } finally {
-        await runtime
-          .runPromise(Scope.close(clientScope, Exit.void))
-          .catch(() => recordWsTransportFailure("browser.socket_cleanup"));
-        await runtime.dispose().catch(() => recordWsTransportFailure("browser.socket_cleanup"));
+        await runtime.runPromise(Scope.close(clientScope, Exit.void)).catch(() => undefined);
+        await runtime.dispose().catch(() => undefined);
       }
       if (this.disposed || this.sessionVersion !== sessionVersion) {
         throw new Error("WebSocket session superseded during compatibility negotiation.");
       }
 
       const featureRuntime = ManagedRuntime.make(
-        makeProtocolLayer(this.featureSocketUrl(compatibility)),
+        makeProtocolLayer(makeFeatureSocketUrl(this.explicitUrl, compatibility)),
       );
       const featureScope = featureRuntime.runSync(Scope.make());
       this.runtime = featureRuntime;
@@ -889,59 +815,10 @@ export class WsTransport {
     return { runtime, clientScope, clientPromise };
   }
 
-  private featureSocketUrl(compatibility: WsBootstrapNegotiateResult): string {
-    const url = new URL(makeFeatureSocketUrl(this.explicitUrl, compatibility));
-    if (!url.searchParams.has("qaClientSignature"))
-      url.searchParams.set("qaClientId", this.qaSocketClientId);
-    if (this.reconnectQaTrace)
-      url.searchParams.set("qaReconnectTraceId", this.reconnectQaTrace.traceId);
-    return url.toString();
-  }
-
   private async withConnectionAttemptTimeout(
     clientPromise: Promise<RpcClientInstance>,
-    attempt = 0,
   ): Promise<RpcClientInstance> {
-    const trace = startDiagnosticTrace();
-    const startedAt = performance.now();
-    const checkpoint = (step: string, outcome?: "ok" | "failed" | "timed_out") => {
-      const pending = window.desktopBridge?.recordDiagnosticCheckpoint?.({
-        ...trace,
-        flow: "socket_connect",
-        step,
-        ...(outcome ? { outcome, elapsedMs: Math.round(performance.now() - startedAt) } : {}),
-      });
-      void pending?.catch(() => undefined);
-    };
-    const incident = (
-      code: "WS_HANDSHAKE_SLOW" | "WS_RECONNECT_LOOP" | "EXTERNAL_CALL_FAILED",
-      expected: Record<string, number | boolean>,
-      actual: Record<string, number | boolean | string>,
-    ) => {
-      const pending = window.desktopBridge?.recordDiagnosticIncident?.({
-        ...trace,
-        kind:
-          code === "WS_HANDSHAKE_SLOW"
-            ? "timeout"
-            : code === "WS_RECONNECT_LOOP"
-              ? "limit.exceeded"
-              : "external.failed",
-        code,
-        where: "browser.socket_connect",
-        severity: "error",
-        expected,
-        actual: {
-          ...actual,
-          phase: "handshake",
-          reason: code === "WS_HANDSHAKE_SLOW" ? "deadline" : "disconnected",
-        },
-        lastCheckpoint: "socket.handshake_started",
-      });
-      void pending?.catch(() => undefined);
-    };
-    checkpoint("socket.handshake_started");
     let timeoutId: number | undefined;
-    let timedOut = false;
     // Closing a timed-out scope can settle the raw client promise later. The
     // bounded attempt owns that settlement so it never becomes unhandled.
     void clientPromise.catch(() => undefined);
@@ -950,60 +827,11 @@ export class WsTransport {
         clientPromise,
         new Promise<never>((_, reject) => {
           timeoutId = window.setTimeout(() => {
-            timedOut = true;
             reject(new Error("WebSocket connection attempt timed out."));
           }, WS_RECONNECT_ATTEMPT_TIMEOUT_MS);
         }),
       ]);
-      checkpoint("socket.handshake_open", "ok");
-      const elapsedMs = Math.round(performance.now() - startedAt);
-      if (elapsedMs > WS_RECONNECT_ATTEMPT_TIMEOUT_MS) {
-        incident(
-          "WS_HANDSHAKE_SLOW",
-          { deadlineMs: WS_RECONNECT_ATTEMPT_TIMEOUT_MS },
-          { elapsedMs },
-        );
-      }
       return client;
-    } catch (error) {
-      if (!this.disposed) {
-        checkpoint("socket.handshake_failed", timedOut ? "timed_out" : "failed");
-        if (timedOut) {
-          incident(
-            "WS_HANDSHAKE_SLOW",
-            { deadlineMs: WS_RECONNECT_ATTEMPT_TIMEOUT_MS },
-            { elapsedMs: Math.round(performance.now() - startedAt), attempt },
-          );
-        } else {
-          const rawCode =
-            error && typeof error === "object" && "code" in error ? error.code : undefined;
-          const errorCode =
-            typeof rawCode === "string" &&
-            [
-              "EACCES",
-              "ENOENT",
-              "ENOSPC",
-              "ETIMEDOUT",
-              "ECONNREFUSED",
-              "ECONNRESET",
-              "EPIPE",
-            ].includes(rawCode)
-              ? rawCode
-              : "OTHER";
-          incident(
-            "EXTERNAL_CALL_FAILED",
-            { connected: true },
-            { connected: false, attempt, errorCode },
-          );
-          if (attempt >= 3)
-            incident(
-              "WS_RECONNECT_LOOP",
-              { connected: true },
-              { connected: false, attempt, errorCode },
-            );
-        }
-      }
-      throw error;
     } finally {
       if (timeoutId !== undefined) window.clearTimeout(timeoutId);
     }
@@ -1030,13 +858,12 @@ export class WsTransport {
   ): ManagedRuntime.ManagedRuntime<RpcClient.Protocol, never> {
     const runtime = this.runtimeByClient.get(client);
     if (!runtime) {
-      recordWsTransportFailure("browser.socket_rpc");
       throw new Error("Missing runtime for WebSocket RPC client");
     }
     return runtime;
   }
 
-  private reconnect(intentional = false): Promise<RpcClientInstance> {
+  private reconnect(): Promise<RpcClientInstance> {
     if (this.reconnectPromise) return this.reconnectPromise;
 
     this.syncDeliveryId = undefined;
@@ -1048,23 +875,14 @@ export class WsTransport {
     // stream ownership before invoking cancellations so their exit callbacks
     // cannot independently replace this session.
     const reconnect = Promise.resolve().then(async () => {
-      if (intentional) {
-        const cancellation = new Error("WebSocket RPC cancelled by intentional reconnect");
-        this.intentionalReconnectErrors.add(cancellation);
-        for (const request of this.activeRequests.get(oldRuntime) ?? []) {
-          request.abort(cancellation);
-        }
-      }
       this.resetAllStreamCapacityRetries();
       const cleanups = [...this.streamCleanups.values()];
       this.streamCleanups.clear();
       this.activeThreadStreamInputs.clear();
       this.setState("connecting");
       for (const cleanup of cleanups) cleanup();
-      await oldRuntime
-        .runPromise(Scope.close(oldClientScope, Exit.void))
-        .catch(() => recordWsTransportFailure("browser.socket_cleanup"));
-      await oldRuntime.dispose().catch(() => recordWsTransportFailure("browser.socket_cleanup"));
+      await oldRuntime.runPromise(Scope.close(oldClientScope, Exit.void)).catch(() => undefined);
+      await oldRuntime.dispose().catch(() => undefined);
       return this.openReconnectSession();
     });
     const trackedReconnect = reconnect.finally(() => {
@@ -1081,47 +899,13 @@ export class WsTransport {
     return trackedReconnect;
   }
 
-  /** Exercise the production replacement path from a disposable Dev QA shell. */
-  async reconnectForQa(): Promise<void> {
-    if (!import.meta.env.DEV || !window.desktopBridge?.qaOpenWindow)
-      throw new Error("Diagnostics QA transport action is unavailable");
-    await this.reconnect(true);
-  }
-
   private setState(state: WsTransportState): void {
     if (this.state === state) return;
-    const previous = this.state;
     this.state = state;
-    if (previous === "open" && state === "connecting") {
-      const trace = startDiagnosticTrace();
-      this.reconnectQaTrace = trace;
-      void window.desktopBridge
-        ?.recordDiagnosticCheckpoint?.({
-          ...trace,
-          flow: "socket_connect",
-          step: "socket.disconnected",
-          outcome: "ok",
-        })
-        .catch(() => undefined);
-    } else if (state === "open" && this.reconnectQaTrace) {
-      const trace = this.reconnectQaTrace;
-      this.reconnectQaTrace = null;
-      void window.desktopBridge
-        ?.recordDiagnosticCheckpoint?.({
-          ...trace,
-          flow: "socket_connect",
-          step: "socket.reconnected",
-          outcome: "ok",
-        })
-        .catch(() => undefined);
-    } else if (state === "disposed") {
-      this.reconnectQaTrace = null;
-    }
     for (const listener of this.stateListeners) {
       try {
         listener(state);
       } catch {
-        recordWsTransportFailure("browser.socket_listener");
         // Listener errors must not break reconnect or RPC state transitions.
       }
     }
@@ -1158,7 +942,6 @@ export class WsTransport {
       try {
         listener(issue);
       } catch {
-        recordWsTransportFailure("browser.socket_listener");
         // Compatibility UI listeners must not break transport teardown.
       }
     }
@@ -1175,10 +958,7 @@ export class WsTransport {
       const session = this.createSession();
       this.runtime = session.runtime;
       this.clientScope = session.clientScope;
-      this.clientPromise = this.withConnectionAttemptTimeout(
-        session.clientPromise,
-        this.reconnectFailures,
-      );
+      this.clientPromise = this.withConnectionAttemptTimeout(session.clientPromise);
 
       try {
         // A WebSocket open can remain pending across an embedded-backend restart.
@@ -1206,12 +986,8 @@ export class WsTransport {
         // owns recovery.
         const failedRuntime = this.runtime;
         const failedScope = this.clientScope;
-        await failedRuntime
-          .runPromise(Scope.close(failedScope, Exit.void))
-          .catch(() => recordWsTransportFailure("browser.socket_cleanup"));
-        await failedRuntime
-          .dispose()
-          .catch(() => recordWsTransportFailure("browser.socket_cleanup"));
+        await failedRuntime.runPromise(Scope.close(failedScope, Exit.void)).catch(() => undefined);
+        await failedRuntime.dispose().catch(() => undefined);
       }
     }
     throw new Error("Transport disposed");
@@ -1230,12 +1006,7 @@ export class WsTransport {
     for (const listener of listeners) {
       try {
         listener(message);
-        this.failedPushListeners.delete(listener);
       } catch {
-        if (!this.failedPushListeners.has(listener)) {
-          this.failedPushListeners.add(listener);
-          recordWsTransportFailure("browser.socket_listener");
-        }
         // Listener errors must not break transport streams.
       }
     }
@@ -1359,7 +1130,6 @@ export class WsTransport {
           !isTerminalCompatibilityFailure(error)
         ) {
           console.warn("WebSocket RPC channel failed to start", error);
-          recordWsTransportFailure("browser.socket_stream");
           window.setTimeout(() => this.startChannelStream(channel), 500);
         }
       });
@@ -1391,7 +1161,6 @@ export class WsTransport {
       void this.getClient()
         .then((nextClient) => this.startLifecycleStream(nextClient))
         .catch((error) => {
-          recordWsTransportFailure("browser.socket_stream");
           console.warn("WebSocket RPC lifecycle stream failed to restart", error);
         });
     };
@@ -1416,7 +1185,6 @@ export class WsTransport {
       void this.getClient()
         .then((nextClient) => this.startShellStream(nextClient))
         .catch((error) => {
-          recordWsTransportFailure("browser.socket_stream");
           console.warn("WebSocket RPC shell stream failed to restart", error);
         });
     };
@@ -1462,7 +1230,6 @@ export class WsTransport {
       void this.getClient()
         .then((nextClient) => this.startThreadStream(nextClient, threadId, desiredInput))
         .catch((error) => {
-          recordWsTransportFailure("browser.socket_stream");
           console.warn("WebSocket RPC thread stream failed to restart", error);
         });
     };
@@ -1512,7 +1279,6 @@ export class WsTransport {
       void this.getClient()
         .then((nextClient) => this.startCleanCoreThreadStream(nextClient, threadId, desired))
         .catch((error) => {
-          recordWsTransportFailure("browser.socket_stream");
           console.warn("WebSocket RPC clean-core thread stream failed to restart", error);
         });
     };
@@ -1589,7 +1355,6 @@ export class WsTransport {
             void this.reconnect().catch((error) => {
               if (!this.disposed) {
                 console.warn("WebSocket RPC stream reconnect failed", error);
-                recordWsTransportFailure("browser.socket_stream");
               }
             });
             return;
@@ -1631,7 +1396,6 @@ export class WsTransport {
             void this.reconnect().catch((error) => {
               if (!this.disposed) {
                 console.warn("WebSocket RPC stream reconnect failed", error);
-                recordWsTransportFailure("browser.socket_stream");
               }
             });
             return;
@@ -1639,7 +1403,6 @@ export class WsTransport {
           if (Exit.isFailure(exit) && !this.disposed && !Cause.hasInterruptsOnly(exit.cause)) {
             const error = causeToError(exit.cause);
             console.warn("WebSocket RPC stream failed", error);
-            recordWsTransportFailure("browser.socket_stream");
             const threadId = threadIdFromStreamKey(key);
             if (threadId !== null && this.threadSubscriptions.has(threadId)) {
               this.emitThreadStreamFailure({

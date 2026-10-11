@@ -18,7 +18,6 @@ import type {
   AuthSessionState,
   AuthWebSocketTokenResult,
 } from "./auth";
-import type { DiagnosticTraceContext } from "./diagnostics";
 import type { ProviderConnectionId } from "./baseSchemas";
 import type {
   ProjectCreateLocalFilePreviewGrantInput,
@@ -777,32 +776,6 @@ export interface DesktopBridge {
   getWsUrl: () => string | null;
   /** Disposable Dev QA only: invoke the same main command as File > New Window. */
   qaOpenWindow?: () => void;
-  recordDiagnosticCheckpoint?: (input: {
-    traceId: string;
-    spanId: string;
-    threadId?: string;
-    commandId?: string;
-    flow: string;
-    step: string;
-    outcome?: "ok" | "failed" | "timed_out";
-    elapsedMs?: number;
-  }) => Promise<void>;
-  recordDiagnosticIncident?: (input: {
-    traceId: string;
-    spanId: string;
-    kind: string;
-    code: string;
-    where: string;
-    severity: "error" | "warn";
-    expected?: Readonly<Record<string, string | number | boolean | null>>;
-    actual?: Readonly<Record<string, string | number | boolean | null>>;
-    lastCheckpoint?: string;
-  }) => Promise<void>;
-  armSendDiagnosticExpectation?: (input: {
-    traceId: string;
-    spanId: string;
-    threadId?: string;
-  }) => Promise<void>;
   /**
    * Absolute filesystem path for a File from drag/drop or file inputs.
    * Electron only (`webUtils.getPathForFile`). Returns null when unavailable.
@@ -1186,10 +1159,7 @@ export interface NativeApi {
       input: OrchestrationGetPendingStartOutcomeInput,
     ) => Promise<OrchestrationGetPendingStartOutcomeResult>;
     acknowledgeSync: (input: OrchestrationAcknowledgeSyncInput) => Promise<void>;
-    dispatchCommand: (
-      command: ClientOrchestrationCommand,
-      diagnostics?: DiagnosticTraceContext,
-    ) => Promise<{ sequence: number }>;
+    dispatchCommand: (command: ClientOrchestrationCommand) => Promise<{ sequence: number }>;
     importThread: (
       input: OrchestrationImportThreadInput,
     ) => Promise<OrchestrationImportThreadResult>;
