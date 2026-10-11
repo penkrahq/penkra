@@ -15,16 +15,10 @@ export interface ServerLifecycleReadyPayload {
   readonly at: string;
 }
 
-export interface ServerLifecycleMaintenancePayload {
-  readonly task: "thread-retention";
-  readonly state: "started" | "progress" | "completed" | "failed";
-  readonly at: string;
-  readonly archivedCount?: number;
-  readonly deletedCount?: number;
-  readonly recoveredCount?: number;
-  readonly totalCount?: number;
-  readonly error?: string;
-}
+export type ServerLifecycleMaintenancePayload = Extract<
+  import("@penkra/contracts").ServerLifecycleStreamEvent,
+  { type: "maintenance" }
+>["payload"];
 
 export type ServerLifecycleEvent =
   | {

@@ -81,16 +81,35 @@ export const updateThreadLifecycle = (
       input.action === "rename"
         ? yield* renameThread(input.threadId, input.title, input.updatedAt)
         : input.action === "archive"
-          ? yield* setThreadArchived(input.threadId, input.archivedAt, input.updatedAt)
+          ? yield* setThreadArchived(input.threadId, input.archivedAt, input.updatedAt, null)
           : yield* setThreadDeleted(input.threadId, input.deletedAt, input.updatedAt);
     if (changed) publisher.publish({ threadId: input.threadId });
     return changed;
   });
 
+export interface RetentionArchiveInput {
+  readonly threadId: ThreadId;
+  readonly archivedAt: string;
+  readonly expectedUpdatedAt: string;
+  readonly expectedLastVisitedAt: string | null;
+}
+export interface RetentionDeleteInput {
+  readonly threadId: ThreadId;
+  readonly deletedAt: string;
+  readonly expectedArchivedAt: string;
+}
+type LifecycleUpdate = Extract<CleanCoreThreadUpdate, { action: "rename" | "archive" | "delete" }>;
+type RetentionCondition =
+  | { readonly kind: "inactive"; readonly updatedAt: string; readonly lastVisitedAt: string | null }
+  | { readonly kind: "expired"; readonly archivedAt: string }
+  | null;
+
 /** The shared lifecycle service captures its database and publisher, not rows. */
 export class ThreadLifecycle extends ServiceMap.Service<
   ThreadLifecycle,
   {
+    readonly archiveInactive: (input: RetentionArchiveInput) => Effect.Effect<boolean, Error>;
+    readonly deleteExpired: (input: RetentionDeleteInput) => Effect.Effect<boolean, Error>;
     readonly get: (threadId: ThreadId) => Effect.Effect<CleanCoreThreadSummary | null, Error>;
     readonly create: (
       input: CleanCoreCreateThreadInput,
@@ -109,6 +128,66 @@ export const makeThreadLifecycle = Effect.gen(function* () {
   const provider = yield* ProviderService;
   const terminals = yield* TerminalManager;
   const config = yield* ServerConfig;
+  const update = (input: LifecycleUpdate, condition: RetentionCondition) =>
+    sender.runExclusive(
+      input.threadId,
+      Effect.gen(function* () {
+        if (condition?.kind === "inactive" && input.action === "archive") {
+          const changed = yield* sql.withTransaction(
+            Effect.gen(function* () {
+              const applied = yield* setThreadArchived(
+                input.threadId,
+                input.archivedAt,
+                input.updatedAt,
+                condition,
+              );
+              if (!applied) return false;
+              yield* provider.stopSession({ threadId: input.threadId });
+              yield* terminals.close({ threadId: input.threadId, deleteHistory: false });
+              return true;
+            }),
+          );
+          if (changed) publisher.publish({ threadId: input.threadId });
+          return changed;
+        }
+        const row = yield* findThread(input.threadId);
+        if (row === null || row.deletedAt !== null) return false;
+        if (condition?.kind === "expired" && row.archivedAt !== condition.archivedAt) return false;
+        const archiving = input.action === "archive" && input.archivedAt !== null;
+        if (archiving && row.archivedAt !== null) return false;
+        if (archiving && row.state === "running")
+          return yield* Effect.fail(new ThreadRunningError());
+        if (archiving || input.action === "delete") {
+          yield* provider.stopSession({ threadId: input.threadId });
+          yield* terminals.close({
+            threadId: input.threadId,
+            deleteHistory: input.action === "delete",
+          });
+        }
+        if (input.action === "delete") {
+          const nativeRows = yield* sql<{
+            nativeStateId: string | null;
+          }>`SELECT native_state_id AS "nativeStateId" FROM threads WHERE id = ${input.threadId}`;
+          const nativeStateId = nativeRows[0]!.nativeStateId;
+          if (nativeStateId !== null) {
+            const path = providerNativeStateRoot(config.stateDir, nativeStateId);
+            yield* Effect.tryPromise({
+              try: () => rm(path, { recursive: true, force: true }),
+              catch: (cause) =>
+                new Error(`Could not delete native state at ${path}: ${String(cause)}`, {
+                  cause,
+                }),
+            });
+          }
+        }
+        return yield* updateThreadLifecycle(input).pipe(
+          Effect.provideService(ThreadPublisher, publisher),
+        );
+      }).pipe(
+        Effect.provideService(SqlClient.SqlClient, sql),
+        Effect.mapError((error) => (error instanceof Error ? error : new Error(String(error)))),
+      ),
+    );
   return {
     get: (threadId: ThreadId) =>
       findThread(threadId).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
@@ -118,46 +197,30 @@ export const makeThreadLifecycle = Effect.gen(function* () {
         Effect.provideService(ThreadPublisher, publisher),
         Effect.provideService(ProviderTurnSelectionResolver, resolver),
       ),
-    update: (input: Extract<CleanCoreThreadUpdate, { action: "rename" | "archive" | "delete" }>) =>
-      sender.runExclusive(
-        input.threadId,
-        Effect.gen(function* () {
-          const row = yield* findThread(input.threadId);
-          if (row === null || row.deletedAt !== null) return;
-          const archiving = input.action === "archive" && input.archivedAt !== null;
-          if (archiving && row.archivedAt !== null) return;
-          if (archiving && row.state === "running")
-            return yield* Effect.fail(new ThreadRunningError());
-          if (archiving || input.action === "delete") {
-            yield* provider.stopSession({ threadId: input.threadId });
-            yield* terminals.close({
-              threadId: input.threadId,
-              deleteHistory: input.action === "delete",
-            });
-          }
-          if (input.action === "delete") {
-            const nativeRows = yield* sql<{
-              nativeStateId: string | null;
-            }>`SELECT native_state_id AS "nativeStateId" FROM threads WHERE id = ${input.threadId}`;
-            const nativeStateId = nativeRows[0]!.nativeStateId;
-            if (nativeStateId !== null) {
-              const path = providerNativeStateRoot(config.stateDir, nativeStateId);
-              yield* Effect.tryPromise({
-                try: () => rm(path, { recursive: true, force: true }),
-                catch: (cause) =>
-                  new Error(`Could not delete native state at ${path}: ${String(cause)}`, {
-                    cause,
-                  }),
-              });
-            }
-          }
-          yield* updateThreadLifecycle(input).pipe(
-            Effect.provideService(ThreadPublisher, publisher),
-          );
-        }).pipe(
-          Effect.provideService(SqlClient.SqlClient, sql),
-          Effect.mapError((error) => (error instanceof Error ? error : new Error(String(error)))),
-        ),
+    update: (input: LifecycleUpdate) => update(input, null).pipe(Effect.asVoid),
+    archiveInactive: (input: RetentionArchiveInput) =>
+      update(
+        {
+          action: "archive",
+          threadId: input.threadId,
+          archivedAt: input.archivedAt,
+          updatedAt: input.archivedAt,
+        },
+        {
+          kind: "inactive",
+          updatedAt: input.expectedUpdatedAt,
+          lastVisitedAt: input.expectedLastVisitedAt,
+        },
+      ),
+    deleteExpired: (input: RetentionDeleteInput) =>
+      update(
+        {
+          action: "delete",
+          threadId: input.threadId,
+          deletedAt: input.deletedAt,
+          updatedAt: input.deletedAt,
+        },
+        { kind: "expired", archivedAt: input.expectedArchivedAt },
       ),
   };
 });

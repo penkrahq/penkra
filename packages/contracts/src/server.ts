@@ -323,16 +323,21 @@ export const ServerLifecycleStreamEvent = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literal("maintenance"),
-    payload: Schema.Struct({
-      task: Schema.Literal("thread-retention"),
-      state: Schema.Literals(["started", "progress", "completed", "failed"]),
-      at: IsoDateTime,
-      archivedCount: Schema.optional(Schema.Number),
-      deletedCount: Schema.optional(Schema.Number),
-      recoveredCount: Schema.optional(Schema.Number),
-      totalCount: Schema.optional(Schema.Number),
-      error: Schema.optional(Schema.String),
-    }),
+    payload: Schema.Union([
+      Schema.Struct({
+        task: Schema.Literal("thread-retention"),
+        state: Schema.Literals(["started", "progress", "completed"]),
+        at: IsoDateTime,
+        archivedCount: Schema.Number,
+        deletedCount: Schema.Number,
+      }),
+      Schema.Struct({
+        task: Schema.Literal("thread-retention"),
+        state: Schema.Literal("failed"),
+        at: IsoDateTime,
+        error: Schema.String,
+      }),
+    ]),
   }),
 ]);
 export type ServerLifecycleStreamEvent = typeof ServerLifecycleStreamEvent.Type;

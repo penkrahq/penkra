@@ -227,7 +227,7 @@ export function SettingsArchivePage() {
           <Row
             icon={<ProviderIcon className="size-4" provider={c.provider} />}
             key={c.id}
-            meta={`${c.space} · ${c.folder} · archived ${formatDate(c.archivedAt)}`}
+            meta={`${c.space} · ${c.folder} · archived ${formatDate(c.archivedAt)} · deletes in ${c.deletesInActiveDays} active days`}
             note={
               c.restoresSpace
                 ? `Also restores Space “${c.space}” and Folder “${c.folder}” with only this chat`

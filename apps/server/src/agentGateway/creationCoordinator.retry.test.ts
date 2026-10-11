@@ -149,6 +149,8 @@ function makeHarness() {
   const dependencies: Parameters<typeof makeCreateThreadHandler>[0] = {
     stateDir: creationStateDir,
     lifecycle: {
+      archiveInactive: () => Effect.die("unused retention archive"),
+      deleteExpired: () => Effect.die("unused retention delete"),
       get: (id) =>
         Effect.sync(() => {
           if (id === CALLER_THREAD_ID)

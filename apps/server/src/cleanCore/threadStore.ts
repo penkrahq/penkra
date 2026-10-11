@@ -247,11 +247,21 @@ export class ThreadRunningError extends Error {
   }
 }
 
-export const setThreadArchived = (id: string, archivedAt: string | null, updatedAt: string) =>
+export const setThreadArchived = (
+  id: string,
+  archivedAt: string | null,
+  updatedAt: string,
+  expected: { updatedAt: string; lastVisitedAt: string | null } | null,
+) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     return yield* sql.withTransaction(
       Effect.gen(function* () {
+        if (expected !== null) {
+          const changed =
+            yield* sql`UPDATE threads SET archived_at=${archivedAt}, updated_at=${updatedAt} WHERE id=${id} AND archived_at IS NULL AND deleted_at IS NULL AND updated_at=${expected.updatedAt} AND last_visited_at IS ${expected.lastVisitedAt} AND state NOT IN ('starting','running') AND active_turn_id IS NULL AND open_question_count=0 RETURNING id`;
+          return changed.length !== 0;
+        }
         const rows = yield* sql<{
           state: string;
           archivedAt: string | null;
@@ -352,6 +362,7 @@ export const markThreadVisited = (input: {
     `;
         if (rows[0] === undefined || rows[0].lastVisitedAt === input.visitedAt) return false;
         yield* sql`UPDATE threads SET last_visited_at = ${input.visitedAt}, updated_at = ${input.updatedAt} WHERE id = ${input.threadId}`;
+        yield* sql`INSERT OR IGNORE INTO retention_active_days (day_utc, first_seen_at) VALUES (${new Date(input.visitedAt).toISOString().slice(0, 10)}, ${input.visitedAt})`;
         return true;
       }),
     );
