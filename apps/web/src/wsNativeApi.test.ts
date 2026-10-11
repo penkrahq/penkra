@@ -617,36 +617,6 @@ describe("wsNativeApi", () => {
     expect(disposeMock).toHaveBeenCalledTimes(1);
   });
 
-  it("forwards provider delivery inspection and reconciliation", async () => {
-    requestMock.mockResolvedValue([]);
-    const { createWsNativeApi } = await import("./wsNativeApi");
-    const api = createWsNativeApi();
-
-    await api.orchestration.listProviderDeliveryBlockers({
-      threadId: ThreadId.makeUnsafe("thread-1"),
-      limit: 10,
-    });
-    await api.orchestration.reconcileProviderDelivery({
-      eventSequence: 42,
-      threadId: ThreadId.makeUnsafe("thread-1"),
-      expectedState: "uncertain",
-      outcome: "safe_retry",
-      note: "The provider confirms it did not accept the command.",
-    });
-
-    expect(requestMock).toHaveBeenCalledWith(
-      ORCHESTRATION_WS_METHODS.listProviderDeliveryBlockers,
-      { threadId: "thread-1", limit: 10 },
-    );
-    expect(requestMock).toHaveBeenCalledWith(ORCHESTRATION_WS_METHODS.reconcileProviderDelivery, {
-      eventSequence: 42,
-      threadId: "thread-1",
-      expectedState: "uncertain",
-      outcome: "safe_retry",
-      note: "The provider confirms it did not accept the command.",
-    });
-  });
-
   it("forwards context menu metadata to desktop bridge", async () => {
     const showContextMenu = vi.fn().mockResolvedValue("delete");
     Object.defineProperty(getWindowForTest(), "desktopBridge", {

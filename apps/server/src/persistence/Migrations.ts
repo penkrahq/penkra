@@ -200,6 +200,7 @@ import Migration0188 from "./Migrations/188_DropUnusedBookkeeping.ts";
 import Migration0189 from "./Migrations/189_DropUnusedDiagnosticsAndRateLimits.ts";
 import Migration0190 from "./Migrations/190_DropConnectionLoginJournals.ts";
 import Migration0191 from "./Migrations/191_DropNativeSwitchJournals.ts";
+import Migration0192 from "./Migrations/192_DropProviderDeliveryRepairs.ts";
 import Migration0177 from "./Migrations/177_ThreadHarnessCanonicalForeignKey.ts";
 
 /**
@@ -397,6 +398,7 @@ export const migrationEntries = [
   [189, "DropUnusedDiagnosticsAndRateLimits", Migration0189],
   [190, "DropConnectionLoginJournals", Migration0190],
   [191, "DropNativeSwitchJournals", Migration0191],
+  [192, "DropProviderDeliveryRepairs", Migration0192],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

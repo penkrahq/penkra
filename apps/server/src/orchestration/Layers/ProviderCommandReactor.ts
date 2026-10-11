@@ -495,7 +495,6 @@ const make = Effect.gen(function* () {
     lookup: () => Effect.succeed(true),
   });
   const deliverySourceLock = yield* Semaphore.make(1);
-  let reconcileDeliveryRuntime: ProviderCommandReactorShape["reconcileDelivery"] | undefined;
 
   const hasHandledTurnStartRecently = (key: string) =>
     Cache.getOption(handledTurnStartKeys, key).pipe(
@@ -3720,56 +3719,6 @@ const make = Effect.gen(function* () {
       }
     });
 
-    reconcileDeliveryRuntime = (input) =>
-      Effect.scoped(
-        deliverySourceLock.withPermits(1)(
-          Effect.gen(function* () {
-            const reconciledAt = new Date().toISOString();
-            const reconciled = yield* deliveryRepository.reconcile({
-              reconciliationId: crypto.randomUUID(),
-              consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
-              eventSequence: input.eventSequence,
-              threadId: input.threadId,
-              expectedState: input.expectedState,
-              outcome: input.outcome,
-              reconciledBy: input.reconciledBy,
-              ...(input.note === undefined ? {} : { note: input.note }),
-              reconciledAt,
-            });
-            if (Option.isNone(reconciled)) return null;
-
-            if (input.outcome === "safe_retry") {
-              yield* resumeRetryableDelivery(input);
-            } else {
-              quarantinedThreads.delete(input.threadId);
-              yield* replayQuarantinedThreadSideEffects({
-                threadId: input.threadId,
-                afterSequence: input.eventSequence,
-              });
-            }
-
-            const finalDelivery = yield* deliveryRepository.getDelivery({
-              consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
-              eventSequence: input.eventSequence,
-            });
-            if (Option.isNone(finalDelivery) || finalDelivery.value.state === "inflight") {
-              return yield* Effect.die(
-                new Error(
-                  `Provider delivery ${input.eventSequence} did not reach a reconciled state`,
-                ),
-              );
-            }
-            return {
-              eventSequence: input.eventSequence,
-              threadId: input.threadId,
-              outcome: input.outcome,
-              state: finalDelivery.value.state,
-              reconciledAt,
-            };
-          }),
-        ),
-      ) as ReturnType<ProviderCommandReactorShape["reconcileDelivery"]>;
-
     // Every durable blocker is recovered at startup by first fencing the
     // provider runtime. The acceptance-ambiguous command itself is abandoned;
     // only later intents that Penkra provably skipped are replayed.
@@ -4029,99 +3978,11 @@ const make = Effect.gen(function* () {
       yield* authCircuits.close(connectionId);
     });
 
-  const listBlockingDeliveries: ProviderCommandReactorShape["listBlockingDeliveries"] = (input) =>
-    Effect.gen(function* () {
-      const limit = Math.max(1, Math.min(100, input.limit));
-      const [legacy, outbox] = yield* Effect.all([
-        deliveryRepository.listBlockingDeliveries({
-          consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
-          ...(input.threadId === undefined ? {} : { threadId: input.threadId }),
-          limit,
-        }),
-        providerIntentOutbox.listTerminalBlockers(limit, input.threadId),
-      ]);
-      return [
-        ...legacy,
-        ...outbox.map((job) => ({
-          consumerName: "provider-intent-outbox.v1",
-          eventSequence: job.eventSequence,
-          eventId: job.event.eventId,
-          eventType: job.eventType,
-          occurredAt: job.event.occurredAt,
-          threadId: ThreadId.makeUnsafe(job.threadId),
-          state: job.state === "dead" ? ("dead" as const) : ("uncertain" as const),
-          attemptCount: job.attemptCount,
-          lastError: job.lastError,
-          updatedAt: job.updatedAt,
-          lastReconciliationOutcome: null,
-          lastReconciledAt: null,
-          lastReconciledBy: null,
-          lastReconciliationNote: null,
-        })),
-      ]
-        .sort((a, b) => a.eventSequence - b.eventSequence)
-        .slice(0, limit);
-    });
-
-  const reconcileDelivery: ProviderCommandReactorShape["reconcileDelivery"] = (input) =>
-    Effect.gen(function* () {
-      const outboxJob = yield* providerIntentOutbox.getJob(input.eventSequence);
-      if (Option.isNone(outboxJob)) {
-        if (reconcileDeliveryRuntime === undefined) {
-          return yield* Effect.fail(new Error("Provider delivery reconciliation is not ready"));
-        }
-        return yield* reconcileDeliveryRuntime(input);
-      }
-      const job = outboxJob.value;
-      if (job.threadId !== input.threadId || job.state !== input.expectedState) return null;
-      if (input.outcome === "abandon") {
-        if (!providerService.stopRuntimeSession) {
-          return yield* Effect.fail(new Error("Provider runtime stop is unavailable"));
-        }
-        const stopped = yield* runBoundedProviderCall({
-          label: "The reconciled provider outbox runtime stop",
-          timeout: PROVIDER_COMMAND_STOP_TIMEOUT,
-          call: providerService.stopRuntimeSession({
-            threadId: ThreadId.makeUnsafe(job.laneKey),
-          }),
-        });
-        if (stopped._tag !== "ok") {
-          return yield* Effect.fail(new Error("Provider runtime exit could not be proven"));
-        }
-      }
-      const reconciledAt = new Date().toISOString();
-      const changed = yield* providerIntentOutbox.reconcileTerminal({
-        reconciliationId: crypto.randomUUID(),
-        eventSequence: input.eventSequence,
-        threadId: input.threadId,
-        expectedState: input.expectedState,
-        outcome: input.outcome,
-        reconciledBy: input.reconciledBy,
-        ...(input.note === undefined ? {} : { note: input.note }),
-        reconciledAt,
-      });
-      if (!changed) return null;
-      return {
-        eventSequence: input.eventSequence,
-        threadId: input.threadId,
-        outcome: input.outcome,
-        state:
-          input.outcome === "safe_retry"
-            ? "retry"
-            : input.outcome === "abandon"
-              ? "abandoned"
-              : "succeeded",
-        reconciledAt,
-      };
-    });
-
   return {
     start,
     drain,
     quiesceQueuePromotions,
     retryAuthConnection,
-    listBlockingDeliveries,
-    reconcileDelivery,
   } satisfies ProviderCommandReactorShape;
 });
 

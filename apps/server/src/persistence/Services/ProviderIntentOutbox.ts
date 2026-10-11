@@ -3,7 +3,6 @@ import { ServiceMap, type Effect, type Option } from "effect";
 
 import type { PersistenceDecodeError, PersistenceSqlError } from "../Errors.ts";
 import type { ProviderIntentEvent } from "../../orchestration/providerIntentClassification.ts";
-import type { ProviderDeliveryReconciliationOutcome } from "./OrchestrationEventDeliveries.ts";
 
 export interface ProviderIntentOutboxShape {
   readonly getLegacyCutover: () => Effect.Effect<
@@ -64,12 +63,6 @@ export interface ProviderIntentOutboxShape {
     ReadonlyArray<ProviderIntentOutboxJob>,
     PersistenceSqlError | PersistenceDecodeError
   >;
-  readonly getJob: (
-    eventSequence: number,
-  ) => Effect.Effect<
-    Option.Option<ProviderIntentOutboxJob>,
-    PersistenceSqlError | PersistenceDecodeError
-  >;
   readonly hasLaterTurnStart: (input: {
     readonly laneKey: string;
     readonly afterSequence: number;
@@ -85,16 +78,6 @@ export interface ProviderIntentOutboxShape {
   readonly abandonAfterFence: (input: {
     readonly eventSequence: number;
     readonly at: string;
-  }) => Effect.Effect<boolean, PersistenceSqlError>;
-  readonly reconcileTerminal: (input: {
-    readonly reconciliationId: string;
-    readonly eventSequence: number;
-    readonly threadId: string;
-    readonly expectedState: "dead" | "uncertain";
-    readonly outcome: ProviderDeliveryReconciliationOutcome;
-    readonly reconciledBy: string;
-    readonly note?: string;
-    readonly reconciledAt: string;
   }) => Effect.Effect<boolean, PersistenceSqlError>;
 }
 

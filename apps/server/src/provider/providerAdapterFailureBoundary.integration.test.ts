@@ -64,7 +64,6 @@ import { ProviderLaunchResolver } from "./Services/ProviderLaunchResolver.ts";
 import { TextGeneration } from "../textGeneration/Services/TextGeneration.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import { OrchestrationEventDeliveryRepositoryLive } from "../persistence/Layers/OrchestrationEventDeliveries.ts";
-import { ProviderIntentOutbox } from "../persistence/Services/ProviderIntentOutbox.ts";
 import { OrchestrationEventStore } from "../persistence/Services/OrchestrationEventStore.ts";
 import { ProviderAdapterRegistry } from "./Services/ProviderAdapterRegistry.ts";
 import { CodexAdapter } from "./Services/CodexAdapter.ts";
@@ -490,7 +489,6 @@ async function makeProviderRuntime(
   const ingestion = await runtime.runPromise(Effect.service(ProviderRuntimeIngestionService));
   const reactor = await runtime.runPromise(Effect.service(ProviderCommandReactor));
   const orchestrationEvents = await runtime.runPromise(Effect.service(OrchestrationEventStore));
-  const outbox = await runtime.runPromise(Effect.service(ProviderIntentOutbox));
   if (!initialize) {
     return {
       runtime,
@@ -501,7 +499,7 @@ async function makeProviderRuntime(
       ingestion,
       reactor,
       orchestrationEvents,
-      outbox,
+      sql,
       freezeReactorClock: () => {
         frozen = true;
         return runtime.runPromise(Deferred.succeed(freezeClock, undefined));
@@ -643,7 +641,7 @@ async function makeProviderRuntime(
     ingestion,
     reactor,
     orchestrationEvents,
-    outbox,
+    sql,
     freezeReactorClock: () => {
       frozen = true;
       return runtime.runPromise(Deferred.succeed(freezeClock, undefined));
@@ -723,10 +721,13 @@ async function persistedBoundaryTrace(
         event.type === "thread.turn-start-requested" &&
         (event.payload as { readonly messageId?: string }).messageId === messageId,
     );
-  const commandDelivery =
+  const commandDeliveries =
     intentEvent === undefined
-      ? Option.none()
-      : await harness.runtime.runPromise(harness.outbox.getJob(intentEvent.sequence));
+      ? []
+      : await harness.runtime.runPromise(
+          harness.sql`SELECT event_sequence AS "eventSequence", state, attempt_count AS "attemptCount", last_error AS "lastError"
+      FROM provider_intent_outbox WHERE event_sequence=${intentEvent.sequence}`,
+        );
   const pendingStartOutcome = await harness.runtime.runPromise(
     harness.projection.getPendingStartOutcome({
       threadId: THREAD_ID,
@@ -745,7 +746,7 @@ async function persistedBoundaryTrace(
             type: intentEvent.type,
             payload: intentEvent.payload as Record<string, unknown>,
           },
-    commandDelivery: Option.isSome(commandDelivery) ? commandDelivery.value : null,
+    commandDelivery: commandDeliveries[0] ?? null,
     pendingStartOutcome,
     latestTurn: thread?.latestTurn ?? null,
     messageDelivery: message?.delivery ?? null,

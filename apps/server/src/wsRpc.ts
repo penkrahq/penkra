@@ -745,38 +745,6 @@ const makeWsRpcHandlersLayer = () =>
             projectionReadModelQuery.getPendingStartOutcome(input),
             "Failed to load pending start outcome",
           ),
-        [ORCHESTRATION_WS_METHODS.listProviderDeliveryBlockers]: (input) =>
-          rpcEffect(
-            providerCommandReactor.listBlockingDeliveries({
-              ...(input.threadId === undefined ? {} : { threadId: input.threadId }),
-              limit: input.limit ?? 50,
-            }),
-            "Failed to load provider delivery blockers",
-          ),
-        [ORCHESTRATION_WS_METHODS.reconcileProviderDelivery]: (input) =>
-          rpcEffect(
-            Effect.gen(function* () {
-              const principal = yield* CurrentManagedAttachmentPrincipal;
-              const result = yield* providerCommandReactor.reconcileDelivery({
-                eventSequence: input.eventSequence,
-                threadId: input.threadId,
-                expectedState: input.expectedState,
-                outcome: input.outcome,
-                reconciledBy: `${principal.ownerKind}:${principal.ownerId}`,
-                ...(input.note === undefined ? {} : { note: input.note }),
-              });
-              if (result === null) {
-                return yield* new WsRpcError({
-                  message:
-                    "Provider delivery no longer matches the requested thread and blocking state.",
-                  code: "PROVIDER_DELIVERY_RECONCILIATION_CONFLICT",
-                  retryable: false,
-                });
-              }
-              return result;
-            }),
-            "Failed to reconcile provider delivery",
-          ),
         [ORCHESTRATION_WS_METHODS.subscribeSync]: (input, { clientId }) =>
           streamAdmission.guard(
             clientId,

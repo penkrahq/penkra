@@ -275,23 +275,6 @@ export const ProviderIntentOutboxLive = Layer.effect(
         ),
       );
 
-    const getJob: ProviderIntentOutboxShape["getJob"] = (eventSequence) =>
-      Effect.gen(function* () {
-        const rows = yield* sql<RawJobRow>`
-          SELECT ${jobColumns} FROM provider_intent_outbox
-          WHERE event_sequence = ${eventSequence}
-        `;
-        const jobs = yield* decodeJobRows(rows);
-        return Option.fromNullishOr(jobs[0]);
-      }).pipe(
-        Effect.mapError(
-          toPersistenceSqlOrDecodeError(
-            "ProviderIntentOutbox.getJob",
-            "ProviderIntentOutbox.getJob:event",
-          ),
-        ),
-      );
-
     const hasLaterTurnStart: ProviderIntentOutboxShape["hasLaterTurnStart"] = (input) =>
       sql<{ readonly present: number }>`
         SELECT EXISTS (
@@ -335,36 +318,6 @@ export const ProviderIntentOutboxLive = Layer.effect(
         Effect.mapError(toPersistenceSqlError("ProviderIntentOutbox.abandonAfterFence")),
       );
 
-    const reconcileTerminal: ProviderIntentOutboxShape["reconcileTerminal"] = (input) =>
-      sql
-        .withTransaction(
-          Effect.gen(function* () {
-            const updated = yield* sql<{ readonly eventSequence: number }>`
-            UPDATE provider_intent_outbox
-            SET state = ${input.outcome === "safe_retry" ? "retry" : input.outcome === "accepted" ? "succeeded" : "abandoned"},
-              completed_at = ${input.outcome === "safe_retry" ? null : input.reconciledAt},
-              updated_at = ${input.reconciledAt}
-            WHERE event_sequence = ${input.eventSequence}
-              AND thread_id = ${input.threadId}
-              AND state = ${input.expectedState}
-            RETURNING event_sequence AS "eventSequence"
-          `;
-            if (updated.length !== 1) return false;
-            yield* sql`
-            INSERT INTO provider_intent_outbox_reconciliations (
-              reconciliation_id, event_sequence, thread_id, previous_state,
-              outcome, reconciled_by, note, reconciled_at
-            ) VALUES (
-              ${input.reconciliationId}, ${input.eventSequence}, ${input.threadId},
-              ${input.expectedState}, ${input.outcome}, ${input.reconciledBy},
-              ${input.note ?? null}, ${input.reconciledAt}
-            )
-          `;
-            return true;
-          }),
-        )
-        .pipe(Effect.mapError(toPersistenceSqlError("ProviderIntentOutbox.reconcileTerminal")));
-
     return {
       getLegacyCutover,
       markLegacyDrained,
@@ -376,11 +329,9 @@ export const ProviderIntentOutboxLive = Layer.effect(
       countDrainableThrough,
       listExpiredClaims,
       listTerminalBlockers,
-      getJob,
       hasLaterTurnStart,
       settleExpiredClaim,
       abandonAfterFence,
-      reconcileTerminal,
     };
   }),
 );

@@ -13,7 +13,6 @@ export const WS_REQUEST_CLASS_LIMITS: Readonly<Record<WsRequestClass, number>> =
 
 const CONTROL_METHODS = new Set<string>([
   ORCHESTRATION_WS_METHODS.dispatchCommand,
-  ORCHESTRATION_WS_METHODS.reconcileProviderDelivery,
   WS_METHODS.terminalWrite,
   WS_METHODS.terminalAckOutput,
   WS_METHODS.terminalResize,
@@ -24,7 +23,6 @@ const CONTROL_METHODS = new Set<string>([
 const EXPENSIVE_READ_METHODS = new Set<string>([
   ORCHESTRATION_WS_METHODS.getSnapshot,
   ORCHESTRATION_WS_METHODS.getThreadDetailSnapshot,
-  ORCHESTRATION_WS_METHODS.listProviderDeliveryBlockers,
   WS_METHODS.projectsSearchEntries,
   WS_METHODS.projectsSearchLocalEntries,
   WS_METHODS.projectsReadFile,
