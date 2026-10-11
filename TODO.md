@@ -427,6 +427,20 @@ Commit `e80275005` deleted automatic retention without an operator decision. The
 - Tests: restore the 0.14.3 cases on the new tables: archives after 7 active days, not 7 calendar days; not after two months away and one active day; skips running chats and chats with an open question; deletes an archived chat after 30 active days whether the user or retention archived it; a chat restored and archived again starts its count again; `listArchivedThreads` returns the matching N.
 - Done when: `git grep -n "thread-retention:\|retention-recover\|listRetentionArchives" -- apps packages` shows no matches; the sweep runs in `main.ts`; typecheck, lint (0 errors), and server and web suites pass.
 
+### 2.21 Explorer path-based redesign ships in 0.14.4 (operator, 2026-10-11)
+
+The uncommitted Explorer work in `penkra-apps/explorer` (19 modified files, 8 untracked: `csv-preview.test.mjs`, `scripts/build.mjs`, `scripts/build.test.mjs`, `vendor-src/{csv,pdf}-runtime.mjs`, `vendor/{csv,pdf}-runtime.mjs`, `vendor/pdf.worker.min.mjs`) is included, version 0.2.14. Review every file in full before committing. What it is:
+- `resources.open` takes one absolute `path` (manifest input `{ path }`, open-file / open-directory intents pass `"input": "path"`); host-minted handles (`handleId`, `kind`, `name`) are removed. A file opens its directory with the file selected. Every call follows 2.12: `context.tab` when present, else `context.tabs.open`.
+- Controller ops in `operations.js`: `explorer.location`, `parent`, `stat`, `resolvePath`, `listDirectory`, `readBinary` (ranged), `writeText`, `createDirectory`, `watch`. Every path is resolved with `realpath` and rejected if it escapes its root.
+- Previews added: CSV (papaparse 5.7.0), PDF (pdfjs-dist 5.4.296), video (`.mp4 .m4v .mov .ogv .webm`).
+
+Required changes before commit:
+- `explorer.watch`: delete the 25-second `setTimeout`. The call resolves only when the watched path changes, and rejects on `context.signal` abort or a watcher `error` event. The app re-arms after each change. No polling.
+- `explorer.listDirectory`: do not drop entries whose `stat` fails (`Promise.allSettled` filter). Use `lstat` for the entry; an entry that still cannot be read is returned with `kind: "unavailable"` and the error message, and the app shows it greyed with that message.
+- Limits (`readBinary` 1 MiB per read, 64 MiB preview, `writeText` 16 MiB) become named constants at the top of `operations.js`, each with its error message naming the limit.
+- Tests: open a file path → new tab, directory shown, file selected; `--tab-id` → that tab navigated; path outside root (`../`, symlink out) → rejected; watch resolves on a write and rejects on abort with no timer (fake clock not advanced); unreadable entry listed as unavailable; CSV, PDF and video previews render in the browser test.
+- Done when: `grep -n "25_000\|setTimeout\|handleId" explorer/operations.js explorer/app.js explorer/explorer-files.mjs` shows no matches; `npm test` in `explorer` passes; the Explorer App installs in the dev build and opens a file from `penkra open --path`.
+
 ## 3. Migration of Production (in place, keep every chat)
 
 0. **Rehearsal copies:** made only with `sqlite3 'file:<Production>?mode=ro' "VACUUM INTO '<dest>'"` (never by copying `state.sqlite`, `-wal`, `-shm` files; that produced a corrupt copy on 2026-10-09 whose counts must not be used). The copy can be made only while Penkra is quit: Penkra opens `state.sqlite` with `PRAGMA locking_mode = EXCLUSIVE` (`apps/server/src/persistence/Layers/Sqlite.ts:82`), so every other process gets "database is locked (5)" for as long as Penkra runs. Measured 2026-10-10: a read-only `SELECT` with `.timeout 10000` still failed. A busy timeout cannot fix this, so do not add one. Before making a copy, ask the operator to quit Penkra. Run the copy and the `integrity_check`, then tell the operator Penkra can be reopened. Every copy must return `ok` from `PRAGMA integrity_check` before use.
