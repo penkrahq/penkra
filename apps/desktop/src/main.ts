@@ -9,7 +9,6 @@ import { EventEmitter } from "node:events";
 import * as FS from "node:fs";
 import * as OS from "node:os";
 import * as Path from "node:path";
-import { Worker } from "node:worker_threads";
 // Electron-only builtin that sees app.asar as a real file instead of a virtual
 // directory — required to stat the archive itself for swap detection.
 import * as OriginalFS from "original-fs";
@@ -75,17 +74,6 @@ import { NetService } from "@penkra/shared/Net";
 import { POSSIBLE_MODEL_CATALOG } from "@penkra/shared/possibleModels";
 import { applyShellEnvironmentHydrationMarker } from "@penkra/shared/shell";
 import { ProcessLogFile } from "@penkra/shared/logging";
-import {
-  DiagnosticsSpoolWriter,
-  markDiagnosticWorkerExited,
-  type CheckpointInput,
-  type IncidentInput,
-  type DiagnosticsOptions,
-} from "@penkra/shared/diagnostics/store";
-import {
-  qaEvidenceConfigFromEnv,
-  recordQaActionAsync,
-} from "@penkra/shared/diagnostics/qaEvidence";
 import { ensureStaticSnapshot, findAsarArchivePath } from "@penkra/shared/staticSnapshot";
 import { isBackendReadinessAborted, waitForHttpReady } from "./backendReadiness";
 import { queryAppPermission } from "./appPermissionQuery";
@@ -112,15 +100,7 @@ import {
 } from "./appTabResourceStores";
 import { resolveBackendNodeArgs } from "./backendNodeOptions";
 import { ActiveWorkPowerBlocker } from "./activeWorkPowerBlocker";
-import { recordDesktopOsLookupFailure, resolveDesktopOsMajor } from "./desktopDiagnosticOs";
-import { startDesktopDiagnosticsMonitors } from "./desktopDiagnosticsMonitors";
-import { DesktopDiagnosticsQueue } from "./desktopDiagnosticsQueue";
-import { recordDesktopMainIncident } from "./desktopMainIncident";
-import { desktopDiagnosticStateDir } from "./desktopDiagnosticStateDir";
-import { DiagnosticsQaWindowTracker } from "./diagnosticsQaWindow";
 import { stripPackagedDiagnosticsQaEnvironment } from "./diagnosticsQaEnvironment";
-import { desktopQaSocketUrl } from "./desktopQaSocketUrl";
-import { diagnosticsQaAccountEnabled } from "./diagnosticsQaAccount";
 import {
   retainLiveBackendAfterShutdownFailure,
   requireWindowsBackendExit,
@@ -161,7 +141,6 @@ import {
   serializeLaunchVersionRecord,
   shouldRefreshIconCache,
 } from "./macIconCacheRefresh";
-import { collectMacUpdateDiagnostics } from "./macUpdateDiagnostics";
 import { openInitialBackendWindow } from "./initialBackendWindowOpen";
 import {
   isTrustedMediaPermissionRequest,
@@ -173,7 +152,6 @@ import {
 } from "./resumableUpdateDownload";
 import { hardenElectronUpdater } from "./electronUpdaterSecurity";
 import { ServerListeningDetector } from "./serverListeningDetector";
-import { createBackendStartupIncidentRecorder } from "./backendStartupIncident";
 import { BackendStartupBlockDetector, type BackendStartupBlock } from "./backendStartupBlock";
 import {
   BACKEND_MAX_CONSECUTIVE_START_FAILURES,
@@ -202,7 +180,6 @@ import {
 } from "./updateState";
 import { registerDesktopVoiceTranscriptionHandler } from "./voiceTranscription";
 import { ShellWindowRegistry } from "./shellWindowRegistry";
-import { prepareDesktopDiagnosticsWriter } from "./desktopDiagnosticsStartup";
 import { panelFocusState } from "./panelFocus";
 import { ThreadHomeWindow } from "./threadHomeWindow";
 import { readDesktopFolderAppTabs } from "./desktopFolderAppTabsClient";
@@ -433,127 +410,12 @@ const BASE_DIR =
   process.env.PENKRA_HOME?.trim() ||
   Path.join(OS.homedir(), desktopIdentity.defaultHomeDirectoryName);
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
-const DIAGNOSTIC_STATE_DIR = desktopDiagnosticStateDir(
-  BASE_DIR,
-  isDevelopment && process.env.VITE_DEV_SERVER_URL !== undefined,
-);
-let desktopDiagnostics: DiagnosticsSpoolWriter | null = null;
-let desktopDiagnosticsQueue: DesktopDiagnosticsQueue | null = null;
-let stopDesktopDiagnosticsMonitors: (() => void) | null = null;
-const desktopOsMajor = resolveDesktopOsMajor(() => process.getSystemVersion());
-
-function desktopDiagnosticsOptions(): DiagnosticsOptions {
-  if (app.isPackaged && !startupBundleIdentity?.signature)
-    throw new Error("Installed app bundle identity is unavailable");
-  return {
-    stateDir: DIAGNOSTIC_STATE_DIR,
-    appVersion: app.getVersion(),
-    osMajor: desktopOsMajor,
-    ...(resolveAboutCommitHash() ? { buildId: resolveAboutCommitHash()! } : {}),
-    ...(startupBundleIdentity?.signature
-      ? {
-          bundlePath: startupBundleIdentity.path,
-          bundleSignature: startupBundleIdentity.signature,
-        }
-      : {}),
-    process: "desktop-main",
-  };
-}
-
-function getDesktopDiagnosticsStore(): DiagnosticsSpoolWriter {
-  if (!desktopDiagnostics) {
-    const writer = prepareDesktopDiagnosticsWriter(
-      () => new DiagnosticsSpoolWriter(desktopDiagnosticsOptions()),
-    );
-    desktopDiagnostics = writer;
-    try {
-      recordDesktopOsLookupFailure(desktopOsMajor, desktopDiagnostics);
-    } catch {
-      process.stderr.write("[diagnostics] desktop OS lookup incident failed\n");
-    }
-    stopDesktopDiagnosticsMonitors = startDesktopDiagnosticsMonitors(desktopDiagnostics);
-  }
-  return desktopDiagnostics;
-}
-
-function enqueueDesktopDiagnosticWrite(
-  kind: "checkpoint" | "incident" | "sendExpectation",
-  input: unknown,
-): void {
-  try {
-    // No write may enter the in-memory queue before recovery has a durable marker.
-    getDesktopDiagnosticsStore();
-    desktopDiagnosticsQueue ??= new DesktopDiagnosticsQueue(
-      () =>
-        new Worker(Path.join(__dirname, "diagnosticsWorker.js"), {
-          workerData: desktopDiagnosticsOptions(),
-        }),
-      (reason, count) => {
-        try {
-          getDesktopDiagnosticsStore().recordDrop(reason, count);
-        } catch (cause) {
-          process.stderr.write("[diagnostics] desktop queue loss count failed\n");
-          throw cause;
-        }
-      },
-      undefined,
-      true,
-      (bootId) => {
-        try {
-          markDiagnosticWorkerExited(DIAGNOSTIC_STATE_DIR, bootId);
-        } catch {
-          process.stderr.write("[diagnostics] worker exit marker failed\n");
-        }
-      },
-    );
-    desktopDiagnosticsQueue.enqueue(kind, input);
-  } catch {
-    process.stderr.write("[diagnostics] desktop worker enqueue failed\n");
-  }
-}
-
-/** Main-process failures enter the same bounded, durable diagnostics queue as IPC incidents. */
-function recordDiagnosticIncident(input: Omit<IncidentInput, "traceId" | "spanId">): void {
-  recordDesktopMainIncident((kind, value) => enqueueDesktopDiagnosticWrite(kind, value), input);
-}
-
-function recordDesktopServiceUnavailable(error: Error): Error {
-  recordDiagnosticIncident({
-    kind: "invariant.violated",
-    code: "INVARIANT_VIOLATED",
-    where: "desktop.service_unavailable",
-    severity: "error",
-    actual: { outcome: "failed" },
-  });
-  return error;
-}
-
-async function drainDesktopDiagnosticsWorker(): Promise<void> {
-  await desktopDiagnosticsQueue?.drain();
-  desktopDiagnosticsQueue = null;
-}
 const DESKTOP_WINDOW_STATE_PATH = Path.join(STATE_DIR, "desktop-window-state.json");
 const DESKTOP_SCHEME = desktopIdentity.scheme;
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
 const APP_DISPLAY_NAME = desktopIdentity.displayName;
 const APP_USER_MODEL_ID = desktopIdentity.bundleId;
 const desktopSmokeUserDataPath = process.env.PENKRA_DESKTOP_SMOKE_USER_DATA?.trim();
-const qaSocketClientIds = new Map<number, string>();
-
-function diagnosticsQaShellEnabled(): boolean {
-  return (
-    __PENKRA_DIAGNOSTICS_QA_ACCOUNT_BUILD__ &&
-    diagnosticsQaAccountEnabled({
-      isPackaged: app.isPackaged,
-      isDevelopment,
-      root: PENKRA_ROOT,
-      smokeProfile: desktopSmokeUserDataPath,
-      proofDir: process.env.PENKRA_DIAGNOSTICS_QA_PROOF_DIR,
-      runId: process.env.PENKRA_DIAGNOSTICS_QA_RUN_ID,
-      secret: process.env.PENKRA_DIAGNOSTICS_QA_SECRET,
-    })
-  );
-}
 const COMMIT_HASH_PATTERN = /^[0-9a-f]{7,40}$/i;
 const COMMIT_HASH_DISPLAY_LENGTH = 12;
 const LOG_DIR = Path.join(STATE_DIR, "logs");
@@ -599,7 +461,6 @@ const AUTO_UPDATE_STALLED_DOWNLOAD_CANCELLATION_SUPPRESSION_MS = 2 * 60 * 1000;
 // conclude the OS installer never started (unsigned/quarantined build, read-only
 // install dir, blocked NSIS run) and surface the manual-download fallback.
 const AUTO_UPDATE_INSTALL_WATCHDOG_MS = 15 * 1000;
-const AUTO_UPDATE_DIAGNOSTICS_TIMEOUT_MS = 2_800;
 // User-driven like the menu and renderer reasons, so it must not be filtered
 // out by the automatic-activity suppression a previous install failure arms.
 const UPDATE_CHECK_REASON_MIGRATION_RECOVERY = "migration recovery";
@@ -921,8 +782,7 @@ async function invokeAppStorageCall(
   value: unknown,
 ): Promise<unknown> {
   const storage = appStorage;
-  if (!storage)
-    throw recordDesktopServiceUnavailable(new Error("The App storage service is not ready."));
+  if (!storage) throw new Error("The App storage service is not ready.");
   const owner = { appId: identity.appId, spaceId: identity.spaceId };
   const input = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   switch (method) {
@@ -1035,8 +895,7 @@ async function requestAppThreadOperation(
       throw new Error("Thread compose requires a target Thread ID.");
     }
     const storage = appStorage;
-    if (!storage)
-      throw recordDesktopServiceUnavailable(new Error("The App storage service is not ready."));
+    if (!storage) throw new Error("The App storage service is not ready.");
     const owner = { appId: identity.appId, spaceId: identity.spaceId };
     const resolveAttachment = async (item: { path: string; name?: string; mimeType?: string }) => ({
       path: await storage.resolveFile(owner, item.path),
@@ -1191,22 +1050,6 @@ function parseAppFolderPosition(
   throw new Error("folder position type must be start, end, before, or after.");
 }
 
-const qaWindowTracker = new DiagnosticsQaWindowTracker(
-  (trace, step, windowId) =>
-    enqueueDesktopDiagnosticWrite("checkpoint", {
-      ...trace,
-      flow: "window",
-      step,
-      outcome: "ok",
-      fields: { windowId: String(windowId) },
-    }),
-  (traceId) => {
-    void recordQaActionAsync("multi-window", traceId).catch(() =>
-      process.stderr.write("[diagnostics] QA window action proof failed\n"),
-    );
-  },
-);
-
 function acceptThreadApiState(event: Electron.IpcMainEvent, input: unknown): void {
   if (
     event.sender.isDestroyed() ||
@@ -1266,25 +1109,11 @@ function revokeRuntimeV2FileScope(appId: string, spaceId: string): void {
   void runtimeV2FileWrites
     .disposeDetached(runtimeV2FileWrites.detachScope(appId, spaceId))
     .catch((error) => {
-      recordDiagnosticIncident({
-        kind: "command.failed",
-        code: "APP_OPERATION_FAILED",
-        where: "desktop.app_cleanup",
-        severity: "error",
-        actual: { outcome: "failed" },
-      });
       console.warn("[penkra-app] File-write scope disposal failed.", error);
     });
   try {
     runtimeV2FileWatches.disposeDetached(runtimeV2FileWatches.detachScope(appId, spaceId));
   } catch (error) {
-    recordDiagnosticIncident({
-      kind: "command.failed",
-      code: "APP_OPERATION_FAILED",
-      where: "desktop.app_cleanup",
-      severity: "error",
-      actual: { outcome: "failed" },
-    });
     console.warn("[penkra-app] File-watch scope disposal failed.", error);
   }
 }
@@ -1304,35 +1133,14 @@ function retireAppGenerationAuthority(owner: {
   try {
     runtimeV2FileWatches.disposeDetached(watches);
   } catch (error) {
-    recordDiagnosticIncident({
-      kind: "command.failed",
-      code: "APP_OPERATION_FAILED",
-      where: "desktop.app_cleanup",
-      severity: "error",
-      actual: { outcome: "failed" },
-    });
     console.warn("[penkra-app] File-watch generation disposal failed.", error);
   }
   try {
     appAccountSubscriptions.disposeDetached(subscriptions);
   } catch (error) {
-    recordDiagnosticIncident({
-      kind: "command.failed",
-      code: "APP_OPERATION_FAILED",
-      where: "desktop.app_cleanup",
-      severity: "error",
-      actual: { outcome: "failed" },
-    });
     console.warn("[penkra-app] Account-subscription generation disposal failed.", error);
   }
   void runtimeV2FileWrites.disposeDetached(writes).catch((error) => {
-    recordDiagnosticIncident({
-      kind: "command.failed",
-      code: "APP_OPERATION_FAILED",
-      where: "desktop.app_cleanup",
-      severity: "error",
-      actual: { outcome: "failed" },
-    });
     console.warn("[penkra-app] File-write generation disposal failed.", error);
   });
 }
@@ -1353,57 +1161,22 @@ function retireAppTabAuthority(owner: {
   try {
     runtimeV2FileWatches.disposeDetached(watches);
   } catch (error) {
-    recordDiagnosticIncident({
-      kind: "command.failed",
-      code: "APP_OPERATION_FAILED",
-      where: "desktop.app_cleanup",
-      severity: "error",
-      actual: { outcome: "failed" },
-    });
     console.warn("[penkra-app] File-watch tab disposal failed.", error);
   }
   try {
     appAccountSubscriptions.disposeDetached(subscriptions);
   } catch (error) {
-    recordDiagnosticIncident({
-      kind: "command.failed",
-      code: "APP_OPERATION_FAILED",
-      where: "desktop.app_cleanup",
-      severity: "error",
-      actual: { outcome: "failed" },
-    });
     console.warn("[penkra-app] Account-subscription tab disposal failed.", error);
   }
   try {
     runtimeV2SimulatorSurfaces.disposeDetached(simulatorSurface);
   } catch (error) {
-    recordDiagnosticIncident({
-      kind: "command.failed",
-      code: "APP_OPERATION_FAILED",
-      where: "desktop.app_cleanup",
-      severity: "error",
-      actual: { outcome: "failed" },
-    });
     console.warn("[penkra-app] Simulator-surface tab disposal failed.", error);
   }
   void runtimeV2FileWrites.disposeDetached(writes).catch((error) => {
-    recordDiagnosticIncident({
-      kind: "command.failed",
-      code: "APP_OPERATION_FAILED",
-      where: "desktop.app_cleanup",
-      severity: "error",
-      actual: { outcome: "failed" },
-    });
     console.warn("[penkra-app] File-write tab disposal failed.", error);
   });
   void desktopSimulatorRuntime?.manager.closeTab(owner.tabId).catch((error) => {
-    recordDiagnosticIncident({
-      kind: "command.failed",
-      code: "APP_OPERATION_FAILED",
-      where: "desktop.app_cleanup",
-      severity: "error",
-      actual: { outcome: "failed" },
-    });
     console.warn(`[penkra-app] Simulator tab disposal failed: ${formatErrorMessage(error)}`);
   });
 }
@@ -1436,13 +1209,6 @@ function scheduleAutomaticAppUpdateCheck(delayMs: number): void {
   automaticAppUpdateTimer = setTimeout(() => {
     automaticAppUpdateTimer = null;
     void bootstrapConfiguredAppsForSpaces().catch((error) => {
-      recordDiagnosticIncident({
-        kind: "command.failed",
-        code: "APP_OPERATION_FAILED",
-        where: "desktop.app_bootstrap",
-        severity: "error",
-        actual: { outcome: "failed" },
-      });
       console.warn(`[penkra-app] Automatic App update check failed: ${formatErrorMessage(error)}`);
     });
   }, delayMs);
@@ -1530,13 +1296,6 @@ function bootstrapConfiguredAppsForSpaces(): Promise<void> {
             : AUTOMATIC_APP_UPDATE_INTERVAL_MS,
         );
       } catch (error) {
-        recordDiagnosticIncident({
-          kind: "command.failed",
-          code: "APP_OPERATION_FAILED",
-          where: "desktop.app_bootstrap",
-          severity: "error",
-          actual: { outcome: "failed" },
-        });
         scheduleAutomaticAppUpdateCheck(AUTOMATIC_APP_UPDATE_FAILURE_RETRY_MS);
         throw error;
       }
@@ -1554,13 +1313,6 @@ async function reconcileConfiguredRequiredApps(spaceIds: ReadonlyArray<string>):
     (requiredAppsPackageLoad === null ? null : await requiredAppsPackageLoad);
   if (!runtime || !embedded) {
     const error = new Error("The embedded required Apps package is unavailable.");
-    recordDiagnosticIncident({
-      kind: "command.failed",
-      code: "APP_OPERATION_FAILED",
-      where: "desktop.app_bootstrap",
-      severity: "error",
-      actual: { outcome: "failed" },
-    });
     handleFatalStartupError("required Apps", error);
     throw error;
   }
@@ -1574,9 +1326,7 @@ async function reconcileConfiguredRequiredApps(spaceIds: ReadonlyArray<string>):
       developmentSourcePackage: requiredAppsPackageIsDevelopmentSource,
       verifySideloadOwnership: async (installed) => {
         if (!appRegistryClient) {
-          throw recordDesktopServiceUnavailable(
-            new Error("The App registry is unavailable for sideload ownership recovery."),
-          );
+          throw new Error("The App registry is unavailable for sideload ownership recovery.");
         }
         const identity = await authorizeAppSideloadIdentity({
           manifest: installed.manifest,
@@ -1589,13 +1339,6 @@ async function reconcileConfiguredRequiredApps(spaceIds: ReadonlyArray<string>):
       `bootstrap required Apps controller ready spaces=${spaceIds.length} version=${embedded.manifest.version}`,
     );
   } catch (error) {
-    recordDiagnosticIncident({
-      kind: "command.failed",
-      code: "APP_OPERATION_FAILED",
-      where: "desktop.app_bootstrap",
-      severity: "error",
-      actual: { outcome: "failed" },
-    });
     handleFatalStartupError("required Apps", error);
     throw error;
   }
@@ -1612,7 +1355,7 @@ async function openPenkraResource(input: {
   callerKind?: "agent" | "user";
 }): Promise<unknown> {
   const runtime = desktopAppRuntime;
-  if (!runtime) throw recordDesktopServiceUnavailable(new Error("The App runtime is not ready."));
+  if (!runtime) throw new Error("The App runtime is not ready.");
   if (input.tabId !== undefined)
     await runtime.broker.resolveTabInFolder(input.tabId, input.spaceId, input.folderId);
   if (input.url) {
@@ -1681,7 +1424,7 @@ async function showPenkraResourceContextMenu(input: {
   ownerWindow?: BrowserWindow | null;
 }): Promise<unknown | null> {
   const runtime = desktopAppRuntime;
-  if (!runtime) throw recordDesktopServiceUnavailable(new Error("The App runtime is not ready."));
+  if (!runtime) throw new Error("The App runtime is not ready.");
   const model = await buildAppResourceContextMenu({
     intents: runtime.intents,
     platform: process.platform,
@@ -1839,13 +1582,6 @@ function traceAppTabWindow(window: BrowserWindow, event: string): void {
     )
     .then((rendererState: unknown) => traceAppTab(event, { ...details, rendererState }))
     .catch((error: unknown) => {
-      recordDiagnosticIncident({
-        kind: "external.failed",
-        code: "EXTERNAL_CALL_FAILED",
-        where: "desktop.app_tab",
-        severity: "warn",
-        actual: { outcome: "failed" },
-      });
       traceAppTab(event, { ...details, rendererStateError: formatErrorMessage(error) });
     });
 }
@@ -1907,13 +1643,6 @@ function configureAppBrowserDownloads(appTabId: string, appId: string, spaceId: 
       destination = prepareAppBrowserDownload(storage, owner, item.getFilename());
       item.setSavePath(destination.path);
     } catch {
-      recordDiagnosticIncident({
-        kind: "command.failed",
-        code: "APP_OPERATION_FAILED",
-        where: "desktop.app_transfer",
-        severity: "error",
-        actual: { outcome: "failed" },
-      });
       item.cancel();
       return;
     }
@@ -2081,8 +1810,7 @@ async function uploadAppBrowserFiles(input: {
   ) {
     throw new Error("Browser upload requires between 1 and 20 file paths.");
   }
-  if (!appStorage)
-    throw recordDesktopServiceUnavailable(new Error("The App storage service is not ready."));
+  if (!appStorage) throw new Error("The App storage service is not ready.");
   const paths = await Promise.all(
     record.paths.map((path) =>
       resolveBrowserUploadFile(
@@ -2092,7 +1820,7 @@ async function uploadAppBrowserFiles(input: {
     ),
   );
   const tabs = desktopAppRuntime?.appTabs;
-  if (!tabs) throw recordDesktopServiceUnavailable(new Error("The App tab host is not ready."));
+  if (!tabs) throw new Error("The App tab host is not ready.");
   const document = (await tabs.executeHostedPageCdp({
     tabId: input.tabId,
     pageId: record.pageId,
@@ -2100,8 +1828,7 @@ async function uploadAppBrowserFiles(input: {
     params: { depth: 0, pierce: true },
   })) as { root?: { nodeId?: number } };
   const nodeId = document.root?.nodeId;
-  if (!nodeId)
-    throw recordDesktopServiceUnavailable(new Error("Browser document is unavailable for upload."));
+  if (!nodeId) throw new Error("Browser document is unavailable for upload.");
   const target = (await tabs.executeHostedPageCdp({
     tabId: input.tabId,
     pageId: record.pageId,
@@ -2223,13 +1950,6 @@ function safeConsoleError(...args: Parameters<typeof console.error>): void {
     console.error(...args);
   } catch (error: unknown) {
     if (!isBrokenPipeError(error)) {
-      recordDiagnosticIncident({
-        kind: "external.failed",
-        code: "EXTERNAL_CALL_FAILED",
-        where: "desktop.log_setup",
-        severity: "error",
-        actual: { outcome: "failed" },
-      });
       throw error;
     }
   }
@@ -2260,13 +1980,6 @@ function getSafeExternalUrl(rawUrl: unknown): string | null {
   try {
     parsedUrl = new URL(rawUrl);
   } catch {
-    recordDiagnosticIncident({
-      kind: "command.rejected",
-      code: "COMMAND_REJECTED",
-      where: "desktop.external_url",
-      severity: "warn",
-      actual: { accepted: false },
-    });
     return null;
   }
 
@@ -2386,13 +2099,6 @@ async function waitForBackendWindowReady(baseUrl: string): Promise<"listening" |
             };
             return payload.startupReady === true;
           } catch {
-            recordDiagnosticIncident({
-              kind: "process.unresponsive",
-              code: "PROCESS_UNRESPONSIVE",
-              where: "desktop.backend_readiness",
-              severity: "error",
-              actual: { outcome: "failed" },
-            });
             return false;
           }
         },
@@ -2504,13 +2210,6 @@ function getDestructiveMenuIcon(): Electron.NativeImage | undefined {
     destructiveMenuIconCache = icon;
     return icon;
   } catch {
-    recordDiagnosticIncident({
-      kind: "command.failed",
-      code: "APP_OPERATION_FAILED",
-      where: "desktop.app_icon",
-      severity: "warn",
-      actual: { outcome: "failed" },
-    });
     destructiveMenuIconCache = null;
     return undefined;
   }
@@ -2609,38 +2308,6 @@ function recordInstallMarkerFailure(
   return result.marker.consecutiveFailures;
 }
 
-async function logMacUpdateDiagnostics(context: string): Promise<void> {
-  let timeout: ReturnType<typeof setTimeout> | null = null;
-  try {
-    const diagnostics = await Promise.race([
-      collectMacUpdateDiagnostics(APP_USER_MODEL_ID),
-      new Promise<string>((resolve) => {
-        timeout = setTimeout(() => {
-          recordDiagnosticIncident({
-            kind: "external.slow",
-            code: "EXTERNAL_CALL_SLOW",
-            where: "desktop.update_diagnostics",
-            severity: "warn",
-            actual: { outcome: "failed" },
-          });
-          resolve("Diagnostic collection timed out.");
-        }, AUTO_UPDATE_DIAGNOSTICS_TIMEOUT_MS);
-      }),
-    ]);
-    if (diagnostics) {
-      console.info(`[desktop-updater] diagnostics (${context})\n${diagnostics}`);
-    }
-  } catch (error) {
-    console.info(
-      `[desktop-updater] diagnostics (${context}) unavailable: ${formatErrorMessage(error)}`,
-    );
-  } finally {
-    if (timeout) {
-      clearTimeout(timeout);
-    }
-  }
-}
-
 // quitAndInstall() is a fire-and-forget void call with no success signal: when
 // the OS installer silently fails the app never quits and the user is left with
 // no feedback (the "update doesn't work for some people" report). If the process
@@ -2653,13 +2320,6 @@ function armInstallWatchdog(): void {
     if (!isUpdaterQuitAndInstallInFlight) {
       return;
     }
-    recordDiagnosticIncident({
-      kind: "timeout",
-      code: "UPDATE_INSTALL_FAILED",
-      where: "desktop.update_install",
-      severity: "error",
-      actual: { outcome: "failed" },
-    });
     const failedHandoff = activeUpdateInstallHandoff;
     clearUpdaterInstallInFlightAfterError();
     const consecutiveFailures = recordInstallMarkerFailure(new Date().toISOString(), failedHandoff);
@@ -2757,7 +2417,6 @@ function resolveEmbeddedCommitHash(): string | null {
 }
 
 declare const __PENKRA_REGISTRY_TRUSTED_KEYS__: string;
-declare const __PENKRA_DIAGNOSTICS_QA_ACCOUNT_BUILD__: boolean;
 
 function resolveAboutCommitHash(): string | null {
   if (aboutCommitHashCache !== undefined) {
@@ -2807,13 +2466,6 @@ function isDesktopMigrationRecoveryPending(): boolean {
     // prompt. Escalating early would bury the self-heal under a dialog.
     return requiresDesktopMigrationRecovery(desktopMigrationRecoveryPaths());
   } catch (error) {
-    recordDiagnosticIncident({
-      kind: "command.failed",
-      code: "APP_OPERATION_FAILED",
-      where: "desktop.migration_recovery",
-      severity: "error",
-      actual: { outcome: "failed" },
-    });
     // An unreadable marker path must not break crash supervision.
     writeDesktopLogHeader(
       `migration recovery marker check failed message=${formatErrorMessage(error)}`,
@@ -3023,13 +2675,6 @@ function computeServedStaticRoot(): ServedStaticRoot | null {
       signature: `${archiveSignature.size}-${archiveSignature.mtimeMs}-${archiveSignature.inode}`,
     });
   } catch (error) {
-    recordDiagnosticIncident({
-      kind: "command.failed",
-      code: "APP_OPERATION_FAILED",
-      where: "desktop.bundle_snapshot",
-      severity: "error",
-      actual: { outcome: "failed" },
-    });
     const currentArchiveSignature = readBundleSignature(archivePath);
     if (!isBundleStable(archiveSignature, currentArchiveSignature)) {
       throw new BundleChangedDuringStartupError({
@@ -3053,13 +2698,6 @@ function computeServedStaticRoot(): ServedStaticRoot | null {
       try {
         FS.rmSync(snapshot.dir, { recursive: true, force: true });
       } catch {
-        recordDiagnosticIncident({
-          kind: "command.failed",
-          code: "APP_OPERATION_FAILED",
-          where: "desktop.bundle_snapshot",
-          severity: "error",
-          actual: { outcome: "failed" },
-        });
         // The signature changes the snapshot key, so failed cleanup is disk waste
         // rather than a path the replacement generation can accidentally reuse.
       }
@@ -3673,13 +3311,6 @@ function persistLastLaunchVersion(version: string): void {
     FS.mkdirSync(Path.dirname(recordPath), { recursive: true });
     FS.writeFileSync(recordPath, serializeLaunchVersionRecord(version));
   } catch (error) {
-    recordDiagnosticIncident({
-      kind: "command.failed",
-      code: "APP_OPERATION_FAILED",
-      where: "desktop.launch_record",
-      severity: "error",
-      actual: { outcome: "failed" },
-    });
     console.warn("[desktop] Failed to persist last launch version", error);
   }
 }
@@ -3782,15 +3413,7 @@ function restartAfterStartupBundleSwap(error: BundleChangedDuringStartupError): 
       buttons: ["Restart Penkra"],
       defaultId: 0,
     })
-    .catch(() => {
-      recordDiagnosticIncident({
-        kind: "external.failed",
-        code: "EXTERNAL_CALL_FAILED",
-        where: "desktop.bundle_prompt",
-        severity: "warn",
-        actual: { outcome: "failed" },
-      });
-    })
+    .catch(() => undefined)
     .then(() => {
       app.relaunch();
       requestGracefulAppQuit("startup-bundle-swap");
@@ -3855,13 +3478,6 @@ function startBundleSwapWatcher(): void {
         }
       })
       .catch(() => {
-        recordDiagnosticIncident({
-          kind: "external.failed",
-          code: "EXTERNAL_CALL_FAILED",
-          where: "desktop.bundle_prompt",
-          severity: "warn",
-          actual: { outcome: "failed" },
-        });
         bundleSwapPromptOpen = false;
       });
   }, BUNDLE_SWAP_POLL_INTERVAL_MS);
@@ -3944,13 +3560,6 @@ function clearLegacyUpdaterZipAfterVerifiedInstall(): void {
     FS.rmSync(legacyZipPath, { force: true });
     console.info("[desktop-updater] Cleared legacy top-level update.zip after verified install.");
   } catch (error) {
-    recordDiagnosticIncident({
-      kind: "command.failed",
-      code: "UPDATE_INSTALL_FAILED",
-      where: "desktop.update_cleanup",
-      severity: "error",
-      actual: { outcome: "failed" },
-    });
     console.warn(
       `[desktop-updater] Failed to clear legacy top-level update.zip: ${formatErrorMessage(error)}`,
     );
@@ -3962,13 +3571,6 @@ function quarantineInstallMarker(reason: string): void {
   try {
     clearInstallMarker(getUpdateInstallMarkerPath());
   } catch (error) {
-    recordDiagnosticIncident({
-      kind: "command.failed",
-      code: "UPDATE_INSTALL_FAILED",
-      where: "desktop.update_cleanup",
-      severity: "error",
-      actual: { outcome: "failed" },
-    });
     console.warn(
       `[desktop-updater] Failed to delete quarantined update install marker: ${formatErrorMessage(error)}`,
     );
@@ -3996,13 +3598,6 @@ function processInstallMarkerOnStartup(): void {
     try {
       clearInstallMarker(filePath);
     } catch (error) {
-      recordDiagnosticIncident({
-        kind: "command.failed",
-        code: "UPDATE_INSTALL_FAILED",
-        where: "desktop.update_cleanup",
-        severity: "error",
-        actual: { outcome: "failed" },
-      });
       console.warn(
         `[desktop-updater] Failed to clear successful update install marker: ${formatErrorMessage(error)}`,
       );
@@ -4027,13 +3622,6 @@ function processInstallMarkerOnStartup(): void {
     try {
       writeInstallMarker(filePath, failedMarker);
     } catch (error) {
-      recordDiagnosticIncident({
-        kind: "command.failed",
-        code: "UPDATE_INSTALL_FAILED",
-        where: "desktop.update_cleanup",
-        severity: "error",
-        actual: { outcome: "failed" },
-      });
       console.error(
         `[desktop-updater] Failed to persist restart install failure: ${formatErrorMessage(error)}`,
       );
@@ -4053,7 +3641,6 @@ function processInstallMarkerOnStartup(): void {
   console.error(
     `[desktop-updater] UPDATE INSTALL FAILED: still running ${app.getVersion()} after attempting ${marker.toVersion}; consecutive failures=${consecutiveFailures}. Automatic update checks are suppressed until the user retries.`,
   );
-  void logMacUpdateDiagnostics("startup install verification failure");
 }
 
 // electron-updater can leave a same-version ZIP in `pending` after a restart or
@@ -4067,13 +3654,6 @@ async function clearPendingUpdateCache(reason: string): Promise<void> {
     await FS.promises.rm(pendingDir, { recursive: true, force: true });
     console.info(`[desktop-updater] Cleared pending update cache (${reason}).`);
   } catch (error) {
-    recordDiagnosticIncident({
-      kind: "command.failed",
-      code: "UPDATE_INSTALL_FAILED",
-      where: "desktop.update_cleanup",
-      severity: "error",
-      actual: { outcome: "failed" },
-    });
     console.warn(
       `[desktop-updater] Failed to clear pending update cache (${reason}): ${formatErrorMessage(error)}`,
     );
@@ -4110,13 +3690,6 @@ function armUpdateCheckTimeout(reason: string): void {
     if (updateState.status !== "checking") {
       return;
     }
-    recordDiagnosticIncident({
-      kind: "timeout",
-      code: "UPDATE_CHECK_FAILED",
-      where: "desktop.update_check",
-      severity: "error",
-      actual: { outcome: "failed" },
-    });
     updateCheckInFlight = false;
     // electron-updater may never settle its own promise, so this is also where
     // anyone awaiting the check has to be released.
@@ -4301,13 +3874,6 @@ async function checkForUpdates(reason: string): Promise<void> {
   try {
     await autoUpdater.checkForUpdates();
   } catch (error: unknown) {
-    recordDiagnosticIncident({
-      kind: "command.failed",
-      code: "UPDATE_CHECK_FAILED",
-      where: "desktop.update_check",
-      severity: "error",
-      actual: { outcome: "failed" },
-    });
     clearUpdateCheckTimeoutTimer();
     const message = error instanceof Error ? error.message : String(error);
     setUpdateState(
@@ -4387,13 +3953,6 @@ async function downloadAvailableUpdate(): Promise<{
       completed: downloadedUpdateArtifact !== null,
     };
   } catch (error: unknown) {
-    recordDiagnosticIncident({
-      kind: "command.failed",
-      code: "UPDATE_DOWNLOAD_FAILED",
-      where: "desktop.update_download",
-      severity: "error",
-      actual: { outcome: "failed" },
-    });
     const message = error instanceof Error ? error.message : String(error);
     setUpdateState(reduceDesktopUpdateStateOnDownloadFailure(updateState, message));
     console.error(`[desktop-updater] Failed to download update: ${message}`);
@@ -4410,15 +3969,6 @@ async function downloadAvailableUpdate(): Promise<{
           setTimeout(() => resolve(false), AUTO_UPDATE_DOWNLOAD_SETTLE_TIMEOUT_MS).unref();
         }),
       ]);
-      if (!settled) {
-        recordDiagnosticIncident({
-          kind: "external.slow",
-          code: "PROCESS_UNRESPONSIVE",
-          where: "desktop.update_download_settle",
-          severity: "error",
-          actual: { outcome: "failed" },
-        });
-      }
     }
     if (updateDownloadCancellationToken === cancellationToken) {
       updateDownloadCancellationToken = null;
@@ -4446,13 +3996,6 @@ function prepareAvailableUpdateInBackground(reason: string): void {
       }
     })
     .catch((error) => {
-      recordDiagnosticIncident({
-        kind: "command.failed",
-        code: "UPDATE_DOWNLOAD_FAILED",
-        where: "desktop.update_download",
-        severity: "error",
-        actual: { outcome: "failed" },
-      });
       console.error(
         `[desktop-updater] Background update download crashed (${reason}): ${formatErrorMessage(error)}`,
       );
@@ -4608,8 +4151,6 @@ async function runDownloadedUpdateInstall(
       timeoutMs: UPDATE_BACKEND_SHUTDOWN_TIMEOUT_MS,
     });
     updateInstallPreparation.requireActive(preparationAttempt);
-    await logMacUpdateDiagnostics("before install handoff");
-    updateInstallPreparation.requireActive(preparationAttempt);
     if (!(await verifyUpdateArtifactIdentity(artifact))) {
       artifactInvalidated = true;
       downloadedUpdateArtifact = null;
@@ -4631,13 +4172,6 @@ async function runDownloadedUpdateInstall(
     armInstallWatchdog();
     return { accepted: true, completed: false };
   } catch (error: unknown) {
-    recordDiagnosticIncident({
-      kind: "command.failed",
-      code: "UPDATE_INSTALL_FAILED",
-      where: "desktop.update_install",
-      severity: "error",
-      actual: { outcome: "failed" },
-    });
     const message = formatErrorMessage(error);
     clearUpdaterInstallInFlightAfterError();
     const consecutiveFailures = markerWritten
@@ -4710,13 +4244,6 @@ async function recordDownloadedUpdateIdentity(info: UpdateDownloadedEvent): Prom
       `[desktop-updater] Update downloaded and fingerprinted: ${info.version} (${identity.size} bytes, sha512=${identity.sha512.slice(0, 16)}…).`,
     );
   } catch (error) {
-    recordDiagnosticIncident({
-      kind: "command.failed",
-      code: "UPDATE_DOWNLOAD_FAILED",
-      where: "desktop.update_download",
-      severity: "error",
-      actual: { outcome: "failed" },
-    });
     downloadedUpdateArtifact = null;
     clearPendingUpdateCacheWhenSafe("downloaded artifact fingerprint failed");
     const message = `The downloaded update could not be verified: ${formatErrorMessage(error)}`;
@@ -4929,13 +4456,6 @@ function backendEnv(): NodeJS.ProcessEnv {
       ...(servedStaticRoot?.snapshotted ? { PENKRA_STATIC_DIR: servedStaticRoot.dir } : {}),
       PENKRA_MODE: "desktop",
       PENKRA_APP_VERSION: app.getVersion(),
-      PENKRA_DIAGNOSTICS_BUILD_ID: resolveAboutCommitHash() ?? "unknown",
-      ...(startupBundleIdentity?.signature
-        ? {
-            PENKRA_DIAGNOSTICS_BUNDLE_PATH: startupBundleIdentity.path,
-            PENKRA_DIAGNOSTICS_BUNDLE_SIGNATURE: JSON.stringify(startupBundleIdentity.signature),
-          }
-        : {}),
       PENKRA_NO_BROWSER: "1",
       PENKRA_PORT: String(backendPort),
       PENKRA_HOME: BASE_DIR,
@@ -5029,13 +4549,6 @@ async function openDesktopLogDirectory(): Promise<void> {
       throw new Error(errorMessage);
     }
   } catch (error) {
-    recordDiagnosticIncident({
-      kind: "command.failed",
-      code: "EXTERNAL_CALL_FAILED",
-      where: "desktop.log_setup",
-      severity: "error",
-      actual: { outcome: "failed" },
-    });
     safeConsoleError(`[desktop] failed to open log directory: ${formatErrorMessage(error)}`);
   }
 }
@@ -5192,13 +4705,6 @@ async function restartBackendAfterCrash(
   try {
     await reserveBackendEndpoint("backend restart");
   } catch (error) {
-    recordDiagnosticIncident({
-      kind: "command.failed",
-      code: "PROCESS_CRASHED",
-      where: "desktop.backend_restart",
-      severity: "error",
-      actual: { outcome: "failed" },
-    });
     scheduleBackendRestart(
       `failed to reserve restart port after ${reason}: ${formatErrorMessage(error)}`,
     );
@@ -5250,7 +4756,6 @@ function startBackend(trigger: BackendStartTrigger = "lifecycle"): void {
     stdio: ["ignore", "pipe", "pipe"],
   });
   const listeningDetector = new ServerListeningDetector();
-  const startupIncident = createBackendStartupIncidentRecorder(recordDiagnosticIncident);
   const startupBlockDetector = new BackendStartupBlockDetector();
   const outputTailDetector = new BackendOutputTailDetector();
   backendListeningDetector = listeningDetector;
@@ -5282,7 +4787,6 @@ function startBackend(trigger: BackendStartTrigger = "lifecycle"): void {
   void listeningDetector.promise.then(
     () => {
       if (backendListeningDetector === listeningDetector) {
-        startupIncident.markReady();
         backendSupervision.recordReadiness();
       }
     },
@@ -5303,7 +4807,6 @@ function startBackend(trigger: BackendStartTrigger = "lifecycle"): void {
   });
 
   child.on("exit", (code, signal) => {
-    if (!isQuitting && backendProcess === child) startupIncident.recordExit(code);
     if (backendListeningDetector === listeningDetector) {
       listeningDetector.fail(
         new Error(
@@ -5353,13 +4856,6 @@ function stopBackend(): void {
     child.kill("SIGTERM");
     setTimeout(() => {
       if (child.exitCode === null && child.signalCode === null) {
-        recordDiagnosticIncident({
-          kind: "process.unresponsive",
-          code: "PROCESS_UNRESPONSIVE",
-          where: "desktop.backend_shutdown",
-          severity: "error",
-          actual: { outcome: "failed" },
-        });
         child.kill("SIGKILL");
       }
     }, BACKEND_FORCE_KILL_DELAY_MS).unref();
@@ -5417,13 +4913,6 @@ async function disposeAppCommandPipeServerForShutdown(reason: string): Promise<v
   try {
     await pipeServer.dispose();
   } catch (error) {
-    recordDiagnosticIncident({
-      kind: "command.failed",
-      code: "UNCLEAN_SHUTDOWN",
-      where: "desktop.shutdown",
-      severity: "error",
-      actual: { outcome: "failed" },
-    });
     console.warn(
       `[desktop] Failed to dispose App command pipe during ${reason}: ${formatErrorMessage(error)}`,
     );
@@ -5438,13 +4927,6 @@ async function stopAppRuntimeAndBackend(backendShutdownOptions?: {
   try {
     await runtimeV2FileWrites.abortAll();
   } catch (error) {
-    recordDiagnosticIncident({
-      kind: "command.failed",
-      code: "UNCLEAN_SHUTDOWN",
-      where: "desktop.shutdown",
-      severity: "error",
-      actual: { outcome: "failed" },
-    });
     failures.push(error);
   }
   const sideloadRegistry = developmentSideloadRegistry;
@@ -5453,13 +4935,6 @@ async function stopAppRuntimeAndBackend(backendShutdownOptions?: {
     try {
       await sideloadRegistry.close();
     } catch (error) {
-      recordDiagnosticIncident({
-        kind: "command.failed",
-        code: "UNCLEAN_SHUTDOWN",
-        where: "desktop.shutdown",
-        severity: "error",
-        actual: { outcome: "failed" },
-      });
       failures.push(error);
     }
   }
@@ -5469,13 +4944,6 @@ async function stopAppRuntimeAndBackend(backendShutdownOptions?: {
     try {
       await runtime.stop();
     } catch (error) {
-      recordDiagnosticIncident({
-        kind: "command.failed",
-        code: "UNCLEAN_SHUTDOWN",
-        where: "desktop.shutdown",
-        severity: "error",
-        actual: { outcome: "failed" },
-      });
       failures.push(error);
     }
   }
@@ -5487,26 +4955,12 @@ async function stopAppRuntimeAndBackend(backendShutdownOptions?: {
     try {
       await simulatorRuntime.dispose();
     } catch (error) {
-      recordDiagnosticIncident({
-        kind: "command.failed",
-        code: "UNCLEAN_SHUTDOWN",
-        where: "desktop.shutdown",
-        severity: "error",
-        actual: { outcome: "failed" },
-      });
       failures.push(error);
     }
   }
   try {
     await stopBackendAndWaitForExit(backendShutdownOptions);
   } catch (error) {
-    recordDiagnosticIncident({
-      kind: "command.failed",
-      code: "UNCLEAN_SHUTDOWN",
-      where: "desktop.shutdown",
-      severity: "error",
-      actual: { outcome: "failed" },
-    });
     failures.push(error);
   }
   if (failures.length > 0) {
@@ -5537,15 +4991,6 @@ async function shutdownDesktopRuntime(
       cancelBackendReadinessWait();
       await disposeAppCommandPipeServerForShutdown(reason);
       restoreStdIoCapture?.();
-      await drainDesktopDiagnosticsWorker();
-      stopDesktopDiagnosticsMonitors?.();
-      stopDesktopDiagnosticsMonitors = null;
-      try {
-        desktopDiagnostics?.close();
-      } catch {
-        process.stderr.write("[diagnostics] desktop close failed\n");
-      }
-      desktopDiagnostics = null;
       desktopShutdownComplete = true;
       writeDesktopLogHeader(`${reason} shutdown complete`);
     },
@@ -5572,13 +5017,6 @@ function requestGracefulAppQuit(reason: string): void {
 
   void runAfterDesktopShutdown(shutdownDesktopRuntime(reason), () => app.quit()).catch(
     (error: unknown) => {
-      recordDiagnosticIncident({
-        kind: "command.failed",
-        code: "UNCLEAN_SHUTDOWN",
-        where: "desktop.shutdown",
-        severity: "error",
-        actual: { outcome: "failed" },
-      });
       const message = formatErrorMessage(error);
       writeDesktopLogHeader(`${reason} shutdown failed message=${message}`);
       console.warn(`[desktop] Shutdown failed during ${reason}: ${message}`);
@@ -5640,17 +5078,12 @@ function registerIpcHandlers(): void {
     }
     if (!validViews.some((view) => view.threadId === activeThreadId)) return;
     const window = shellWindowForSender(event.sender);
-    const appliedSync = threadHomeWindow.replaceViews(
+    threadHomeWindow.replaceViews(
       window!.id,
       validViews,
       activeThreadId,
       window?.isFocused() ?? false,
     );
-    qaWindowTracker.synced(window!.id, {
-      ...appliedSync,
-      activeThreadId,
-      cloneUrl: window!.webContents.getURL(),
-    });
     for (const view of validViews) {
       const selectedThreadId = threadHomeWindow.consumeThreadSelection(view.folderId);
       if (selectedThreadId && selectedThreadId !== activeThreadId) {
@@ -6202,8 +5635,7 @@ function registerIpcHandlers(): void {
           );
         }
         const storage = appStorage;
-        if (!storage)
-          throw recordDesktopServiceUnavailable(new Error("The App storage service is not ready."));
+        if (!storage) throw new Error("The App storage service is not ready.");
         if (method === "transfer.send") {
           if (!input.from || typeof input.from !== "object" || Array.isArray(input.from)) {
             throw new Error("Transfer source must be a file handle or App storage path.");
@@ -6504,8 +5936,7 @@ function registerIpcHandlers(): void {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
     if (!identity.tabId) throw new Error("Only an interactive App tab can host a simulator.");
     const simulatorRuntime = desktopSimulatorRuntime;
-    if (!simulatorRuntime)
-      throw recordDesktopServiceUnavailable(new Error("The Simulator host service is not ready."));
+    if (!simulatorRuntime) throw new Error("The Simulator host service is not ready.");
     const permission = queryAppPermission(
       runtime.installations.snapshot(),
       identity,
@@ -6534,13 +5965,6 @@ function registerIpcHandlers(): void {
         runtimeV2SimulatorSurfaces.get(owner.tabId)?.stopFrames?.();
         runtimeV2SimulatorSurfaces.delete(owner.tabId);
         void desktopSimulatorRuntime?.manager.closeTab(owner.tabId).catch((error) => {
-          recordDiagnosticIncident({
-            kind: "command.failed",
-            code: "APP_OPERATION_FAILED",
-            where: "desktop.app_cleanup",
-            severity: "error",
-            actual: { outcome: "failed" },
-          });
           console.warn(
             `[penkra-app] Simulator cleanup failed after renderer exit: ${formatErrorMessage(error)}`,
           );
@@ -6861,10 +6285,7 @@ function registerIpcHandlers(): void {
   });
   const requireAppInstallations = (senderId: number) => {
     const service = desktopAppRuntime?.installations;
-    if (!service)
-      throw recordDesktopServiceUnavailable(
-        new Error("The App installation service is not ready."),
-      );
+    if (!service) throw new Error("The App installation service is not ready.");
     const isShellRenderer = isShellRendererId(senderId);
     if (!isShellRenderer && !desktopAppRuntime?.canManageInstallations(senderId)) {
       throw new Error("This renderer cannot manage App installations.");
@@ -6963,15 +6384,14 @@ function registerIpcHandlers(): void {
     if (!desktopAppRuntime?.canManageInstallations(senderId)) {
       throw new Error("This renderer cannot access the App registry.");
     }
-    if (!appRegistryClient)
-      throw recordDesktopServiceUnavailable(new Error("The App registry is not ready."));
+    if (!appRegistryClient) throw new Error("The App registry is not ready.");
     return appRegistryClient;
   };
   ipcMain.handle(IPC.appInstallations.installRegistry, async (event, input: unknown) => {
     const request = parseInstallRegistryAppRequest(input);
     const registry = requireAppsRegistry(event.sender.id);
     const runtime = desktopAppRuntime;
-    if (!runtime) throw recordDesktopServiceUnavailable(new Error("The App runtime is not ready."));
+    if (!runtime) throw new Error("The App runtime is not ready.");
     const currentSpaceId = runtime.installationSpaceId(event.sender.id);
     if (!currentSpaceId || currentSpaceId !== request.spaceId) {
       throw new Error("Apps can only be installed into the current Space.");
@@ -6993,7 +6413,7 @@ function registerIpcHandlers(): void {
     const request = parseUpdateRegistryAppRequest(input);
     const registry = requireAppsRegistry(event.sender.id);
     const runtime = desktopAppRuntime;
-    if (!runtime) throw recordDesktopServiceUnavailable(new Error("The App runtime is not ready."));
+    if (!runtime) throw new Error("The App runtime is not ready.");
     const currentSpaceId = runtime.installationSpaceId(event.sender.id);
     if (!currentSpaceId || currentSpaceId !== request.spaceId) {
       throw new Error("Apps can only be updated in the current Space.");
@@ -7015,7 +6435,7 @@ function registerIpcHandlers(): void {
     const request = parseRollbackRegistryAppRequest(input);
     const registry = requireAppsRegistry(event.sender.id);
     const runtime = desktopAppRuntime;
-    if (!runtime) throw recordDesktopServiceUnavailable(new Error("The App runtime is not ready."));
+    if (!runtime) throw new Error("The App runtime is not ready.");
     const currentSpaceId = runtime.installationSpaceId(event.sender.id);
     if (!currentSpaceId || currentSpaceId !== request.spaceId) {
       throw new Error("Apps can only be rolled back in the current Space.");
@@ -7058,7 +6478,7 @@ function registerIpcHandlers(): void {
       throw new Error("Only the Penkra shell can manage host App tabs.");
     }
     const tabs = desktopAppRuntime?.appTabs;
-    if (!tabs) throw recordDesktopServiceUnavailable(new Error("The App tab host is not ready."));
+    if (!tabs) throw new Error("The App tab host is not ready.");
     return tabs;
   };
   for (const channel of Object.values(IPC.appTabs)) {
@@ -7234,8 +6654,7 @@ function registerIpcHandlers(): void {
     if (!isShellRendererId(senderId)) {
       throw new Error("Only the Penkra shell can manage Open With preferences.");
     }
-    if (!desktopAppRuntime)
-      throw recordDesktopServiceUnavailable(new Error("The App runtime is not ready."));
+    if (!desktopAppRuntime) throw new Error("The App runtime is not ready.");
     return desktopAppRuntime.openWith;
   };
   ipcMain.removeHandler(IPC.appOpenWith.get);
@@ -7272,8 +6691,7 @@ function registerIpcHandlers(): void {
     if (!isShellRendererId(event.sender.id)) {
       throw new Error("Only the Penkra shell can read App diagnostics.");
     }
-    if (!desktopAppRuntime)
-      throw recordDesktopServiceUnavailable(new Error("The App runtime is not ready."));
+    if (!desktopAppRuntime) throw new Error("The App runtime is not ready.");
     if (
       input !== undefined &&
       (typeof input !== "object" || input === null || Array.isArray(input))
@@ -7305,27 +6723,8 @@ function registerIpcHandlers(): void {
     // The backend port is reserved at runtime, so preload asks main for the
     // live URL instead of trusting build-time or inherited renderer env.
     const wsUrl = normalizeDesktopWsUrl(backendWsUrl) ?? resolveDesktopWsUrlFromEnv(process.env);
-    let replyUrl = wsUrl;
-    if (wsUrl && diagnosticsQaShellEnabled() && shellWindowRegistry.hasWebContents(event.sender)) {
-      try {
-        const config = qaEvidenceConfigFromEnv();
-        if (config) {
-          const clientId =
-            qaSocketClientIds.get(event.sender.id) ?? Crypto.randomBytes(16).toString("hex");
-          qaSocketClientIds.set(event.sender.id, clientId);
-          replyUrl = desktopQaSocketUrl({
-            baseUrl: wsUrl,
-            config,
-            clientId,
-            ticketId: Crypto.randomBytes(16).toString("hex"),
-          });
-        }
-      } catch {
-        // Diagnostics cannot prevent the shell from connecting.
-      }
-    }
     // sendSync receives the first returnValue assignment immediately.
-    event.returnValue = replyUrl;
+    event.returnValue = wsUrl;
   });
 
   ipcMain.removeAllListeners(IPC.zoomFactor);
@@ -7432,8 +6831,7 @@ function registerIpcHandlers(): void {
     if (!isShellRendererId(event.sender.id)) {
       throw new Error("Only the Penkra shell can set the App Theme contract.");
     }
-    if (!desktopAppRuntime)
-      throw recordDesktopServiceUnavailable(new Error("The App runtime is not ready."));
+    if (!desktopAppRuntime) throw new Error("The App runtime is not ready.");
     await desktopAppRuntime.appTabs.applyTheme(
       renderDesktopAppThemeCss(parseDesktopAppTheme(rawTheme)),
     );
@@ -7443,8 +6841,7 @@ function registerIpcHandlers(): void {
     if (!isShellRendererId(event.sender.id)) {
       throw new Error("Only the Penkra shell can set the App Typography contract.");
     }
-    if (!desktopAppRuntime)
-      throw recordDesktopServiceUnavailable(new Error("The App runtime is not ready."));
+    if (!desktopAppRuntime) throw new Error("The App runtime is not ready.");
     await desktopAppRuntime.appTabs.applyTypography(
       renderDesktopAppTypographyCss(parseDesktopAppTypography(rawTypography)),
     );
@@ -7491,13 +6888,6 @@ function registerIpcHandlers(): void {
       console.info(`[desktop] Opened external URL target=${logTarget}`);
       return true;
     } catch (error) {
-      recordDiagnosticIncident({
-        kind: "command.failed",
-        code: "EXTERNAL_CALL_FAILED",
-        where: "desktop.external_open",
-        severity: "error",
-        actual: { outcome: "failed" },
-      });
       console.warn(
         `[desktop] Failed to open external URL target=${logTarget}: ${describeExternalOpenFailure(error)}`,
       );
@@ -7628,13 +7018,6 @@ function registerIpcHandlers(): void {
     try {
       stats = await FS.promises.stat(resolvedPath);
     } catch {
-      recordDiagnosticIncident({
-        kind: "command.rejected",
-        code: "COMMAND_REJECTED",
-        where: "desktop.show_in_folder",
-        severity: "warn",
-        actual: { accepted: false },
-      });
       throw new Error(`Folder not found: ${resolvedPath}`);
     }
 
@@ -7931,16 +7314,6 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
   shellWindowRegistry.add(window);
   mainWindow ??= window;
   const rendererOwnerId = window.webContents.id;
-  if (cloneFrom)
-    qaWindowTracker.opened(
-      window.id,
-      {
-        traceId: Crypto.randomBytes(16).toString("hex"),
-        spanId: Crypto.randomBytes(8).toString("hex"),
-      },
-      cloneFrom.webContents.getURL(),
-    );
-  window.on("closed", () => qaWindowTracker.closed(window.id));
   // `ready-to-show` is not guaranteed by every development compositor path.
   // A completed main-frame load is an equally valid event-driven fallback.
   const showInitialWindow = createInitialWindowPresenter({
@@ -7962,13 +7335,6 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
       configureApplicationMenu();
     }
     void focusAppTabWindow(rendererOwnerId).catch((error: unknown) => {
-      recordDiagnosticIncident({
-        kind: "command.failed",
-        code: "APP_OPERATION_FAILED",
-        where: "desktop.app_tab",
-        severity: "error",
-        actual: { outcome: "failed" },
-      });
       console.warn(
         `[app-tab] Could not transfer the focused window's App view: ${formatErrorMessage(error)}`,
       );
@@ -8028,7 +7394,6 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
     window.setTitle(APP_DISPLAY_NAME);
   });
   window.webContents.on("did-finish-load", () => {
-    qaWindowTracker.loaded(window.id);
     window.setTitle(APP_DISPLAY_NAME);
     emitUpdateState();
     flushPendingAppTabs(window);
@@ -8112,13 +7477,6 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
         isMaximized: window.isMaximized(),
       });
     } catch (error) {
-      recordDiagnosticIncident({
-        kind: "command.failed",
-        code: "APP_OPERATION_FAILED",
-        where: "desktop.window_state",
-        severity: "error",
-        actual: { outcome: "failed" },
-      });
       console.warn(`[desktop] Failed to persist window state: ${formatErrorMessage(error)}`);
     }
 
@@ -8152,7 +7510,6 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
   });
 
   window.on("closed", () => {
-    qaSocketClientIds.delete(rendererOwnerId);
     panelFocusState.delete(window.id);
     threadHomeWindow.close(window.id);
     appTabActivation.cancelWindow(rendererOwnerId);
@@ -8391,22 +7748,6 @@ if (hasSingleInstanceLock) {
     inspectInitialProtocolUrlFromArgv: desktopPlatform.deepLinks.inspectInitialArgv,
     websiteOrigin: penkraAccountServices.websiteOrigin,
   });
-  if (diagnosticsQaShellEnabled()) {
-    ipcMain.removeHandler(IPC.accountAuth.getState);
-    ipcMain.handle(IPC.accountAuth.getState, (event) =>
-      shellWindowRegistry.hasWebContents(event.sender)
-        ? {
-            status: "authenticated",
-            user: {
-              id: "diagnostics-qa-local-account",
-              email: "qa-fixture@example.invalid",
-              name: "Diagnostics QA",
-              image: null,
-            },
-          }
-        : { status: "error", message: "Authentication failed." },
-    );
-  }
   getPenkraAccountId = accountAuthRuntime.getAccountId;
   getPenkraAccountCookie = accountAuthRuntime.getCookie;
   appRegistryClient = new AppRegistryClient({
@@ -8454,7 +7795,6 @@ if (desktopPlatform.deepLinks.inspectInitialArgv) {
 
 async function bootstrap(): Promise<void> {
   writeDesktopLogHeader("bootstrap start");
-  getDesktopDiagnosticsStore();
   // Ahead of the recovery gate on purpose. A startup that blocks below returns
   // early, and every path that could ship the fix for whatever blocked it lives
   // after that return: an install wedged on a bad migration would be unable to
@@ -8509,8 +7849,7 @@ async function bootstrap(): Promise<void> {
     },
     controllerServiceCall: async ({ appId, spaceId, method, input }) => {
       const runtime = desktopAppRuntime;
-      if (!runtime)
-        throw recordDesktopServiceUnavailable(new Error("The App runtime is unavailable."));
+      if (!runtime) throw new Error("The App runtime is unavailable.");
       const identity = { appId, spaceId };
       if (method === "account.request") {
         const permission = queryAppPermission(
@@ -8577,8 +7916,7 @@ async function bootstrap(): Promise<void> {
         case "installations.getState":
           return installationSnapshot();
         case "installations.installRegistry": {
-          if (!appRegistryClient)
-            throw recordDesktopServiceUnavailable(new Error("The App registry is not ready."));
+          if (!appRegistryClient) throw new Error("The App registry is not ready.");
           const request = parseInstallRegistryAppRequest(input);
           if (request.spaceId !== spaceId)
             throw new Error("Apps can only be installed into the current Space.");
@@ -8592,8 +7930,7 @@ async function bootstrap(): Promise<void> {
           return installationSnapshot();
         }
         case "installations.updateRegistry": {
-          if (!appRegistryClient)
-            throw recordDesktopServiceUnavailable(new Error("The App registry is not ready."));
+          if (!appRegistryClient) throw new Error("The App registry is not ready.");
           const request = parseUpdateRegistryAppRequest(input);
           if (request.spaceId !== spaceId)
             throw new Error("Apps can only be updated in the current Space.");
@@ -8660,10 +7997,7 @@ async function bootstrap(): Promise<void> {
     assertAppAllowed: async (installedApp) => {
       const release = installedApp.registryRelease;
       if (!release) return;
-      if (!appRegistryClient)
-        throw recordDesktopServiceUnavailable(
-          new Error("The App registry security policy is unavailable."),
-        );
+      if (!appRegistryClient) throw new Error("The App registry security policy is unavailable.");
       const policy = await appRegistryClient.getSecurityPolicy();
       assertRegistryReleaseAllowed(policy, {
         appId: release.appId,
@@ -8752,13 +8086,6 @@ async function bootstrap(): Promise<void> {
     );
   }
   void appRegistryClient?.reconcileInstallReceipts().catch((error) => {
-    recordDiagnosticIncident({
-      kind: "command.failed",
-      code: "APP_OPERATION_FAILED",
-      where: "desktop.app_bootstrap",
-      severity: "error",
-      actual: { outcome: "failed" },
-    });
     console.warn(
       `[penkra-app] Install receipt reconciliation failed: ${formatErrorMessage(error)}`,
     );
@@ -8767,9 +8094,7 @@ async function bootstrap(): Promise<void> {
     runtime: desktopAppRuntime,
     authorize: async ({ package: candidate }) => {
       if (!appRegistryClient) {
-        throw recordDesktopServiceUnavailable(
-          new Error("The App registry is unavailable for sideload ownership verification."),
-        );
+        throw new Error("The App registry is unavailable for sideload ownership verification.");
       }
       return authorizeAppSideloadIdentity({
         manifest: candidate.manifest,
@@ -8803,13 +8128,6 @@ async function bootstrap(): Promise<void> {
   try {
     await bootstrapConfiguredAppsForSpaces();
   } catch (error) {
-    recordDiagnosticIncident({
-      kind: "command.failed",
-      code: "APP_OPERATION_FAILED",
-      where: "desktop.app_bootstrap",
-      severity: "error",
-      actual: { outcome: "failed" },
-    });
     console.error("Unable to bootstrap configured Apps.", error);
   }
   desktopAppRuntime.installations.subscribe((state) => {
@@ -8852,13 +8170,6 @@ async function bootstrap(): Promise<void> {
           canDeliverPointerInput: () => desktopAppRuntime!.appTabs.canDeliverPointerInput(tabId),
         };
       } catch (error) {
-        recordDiagnosticIncident({
-          kind: "command.failed",
-          code: "APP_OPERATION_FAILED",
-          where: "desktop.app_tab",
-          severity: "error",
-          actual: { outcome: "failed" },
-        });
         throw Object.assign(
           new Error(
             `${document} failed to load: ${error instanceof Error ? error.message : String(error)}`,
@@ -8868,8 +8179,7 @@ async function bootstrap(): Promise<void> {
       }
     },
     validateUploadPaths: async (descriptor, paths) => {
-      if (!appStorage)
-        throw recordDesktopServiceUnavailable(new Error("App storage is unavailable."));
+      if (!appStorage) throw new Error("App storage is unavailable.");
       return Promise.all(
         paths.map((path) =>
           resolveBrowserUploadFile(
@@ -8922,8 +8232,7 @@ async function bootstrap(): Promise<void> {
     registry: appRegistryClient,
     open: openPenkraResource,
     sideload: async ({ sourcePath, spaceId }) => {
-      if (!developmentSideloadRegistry)
-        throw recordDesktopServiceUnavailable(new Error("App sideloading is unavailable."));
+      if (!developmentSideloadRegistry) throw new Error("App sideloading is unavailable.");
       const targetSpaceId =
         spaceId ?? spacesMenuState.activeSpaceId ?? spacesMenuState.spaces[0]?.id ?? null;
       if (!targetSpaceId || !spacesMenuState.spaces.some((space) => space.id === targetSpaceId)) {
@@ -8955,13 +8264,6 @@ async function bootstrap(): Promise<void> {
         if (isBackendReadinessAborted(error)) {
           return;
         }
-        recordDiagnosticIncident({
-          kind: "command.failed",
-          code: "PROCESS_UNRESPONSIVE",
-          where: "desktop.backend_readiness",
-          severity: "error",
-          actual: { outcome: "failed" },
-        });
         writeDesktopLogHeader(
           `bootstrap backend readiness warning message=${formatErrorMessage(error)}`,
         );
@@ -8996,13 +8298,6 @@ app.on("before-quit", (event) => {
         throw new Error("Durable update install handoff no longer matches the active attempt.");
       }
     } catch (error) {
-      recordDiagnosticIncident({
-        kind: "command.failed",
-        code: "UPDATE_INSTALL_FAILED",
-        where: "desktop.update_install",
-        severity: "error",
-        actual: { outcome: "failed" },
-      });
       event.preventDefault();
       const failedHandoff = activeUpdateInstallHandoff;
       clearUpdaterInstallInFlightAfterError();
@@ -9064,13 +8359,6 @@ if (hasSingleInstanceLock) {
       }
       startBundleSwapWatcher();
       void bootstrap().catch((error) => {
-        recordDiagnosticIncident({
-          kind: "command.failed",
-          code: "INVARIANT_VIOLATED",
-          where: "desktop.bootstrap",
-          severity: "error",
-          actual: { outcome: "failed" },
-        });
         handleFatalStartupError("bootstrap", error);
       });
 
@@ -9097,13 +8385,6 @@ if (hasSingleInstanceLock) {
               if (isBackendReadinessAborted(error)) {
                 return;
               }
-              recordDiagnosticIncident({
-                kind: "command.failed",
-                code: "PROCESS_UNRESPONSIVE",
-                where: "desktop.backend_readiness",
-                severity: "error",
-                actual: { outcome: "failed" },
-              });
               console.warn(
                 "[desktop] backend readiness check timed out during dev activate",
                 error,
@@ -9120,13 +8401,6 @@ if (hasSingleInstanceLock) {
       });
     })
     .catch((error) => {
-      recordDiagnosticIncident({
-        kind: "command.failed",
-        code: "INVARIANT_VIOLATED",
-        where: "desktop.bootstrap",
-        severity: "error",
-        actual: { outcome: "failed" },
-      });
       handleFatalStartupError("whenReady", error);
     });
 }
