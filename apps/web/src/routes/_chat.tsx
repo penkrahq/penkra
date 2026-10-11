@@ -25,7 +25,7 @@ import {
   resolveLatestProjectTargetIdWithFallback,
   resolveNewThreadTarget,
 } from "../lib/projectShortcutTargets";
-import { startFreshChatForActiveSurface } from "../lib/startContainerChat";
+import { startChatForActiveSurface } from "../lib/startContainerChat";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { isOrdinarySpaceProject } from "../lib/spaces";
 import { resolveShortcutCommand } from "../keybindings";
@@ -255,7 +255,7 @@ function ChatRouteGlobalShortcuts() {
     if (newChatInFlightRef.current) {
       return newChatInFlightRef.current;
     }
-    const operation = startFreshChatForActiveSurface({ handleNewChat });
+    const operation = startChatForActiveSurface({ handleNewChat });
     newChatInFlightRef.current = operation;
     const clearOperation = () => {
       if (newChatInFlightRef.current === operation) {

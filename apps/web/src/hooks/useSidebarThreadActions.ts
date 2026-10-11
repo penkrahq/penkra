@@ -46,7 +46,7 @@ interface DeleteProjectThreadsOptions {
 export function useSidebarThreadActions(input: {
   readonly appSettings: Pick<AppSettings, "confirmThreadDelete" | "sidebarThreadSortOrder">;
   readonly clearTerminalState: (threadId: ThreadId) => void;
-  readonly handleNewChat: (options?: { fresh?: boolean }) => Promise<unknown>;
+  readonly handleNewChat: () => Promise<unknown>;
   readonly projectById: ReadonlyMap<FolderId, Project>;
   readonly routeThreadId: ThreadId | null;
   readonly sidebarThreads: readonly SidebarThreadRow[];
@@ -113,7 +113,7 @@ export function useSidebarThreadActions(input: {
                 replace: true,
               });
             } else {
-              void handleNewChat({ fresh: true });
+              void handleNewChat();
             }
           }
         },
@@ -188,7 +188,7 @@ export function useSidebarThreadActions(input: {
               replace: true,
             });
           } else {
-            await handleNewChat({ fresh: true });
+            await handleNewChat();
           }
         }
         return true;

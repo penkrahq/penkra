@@ -16,7 +16,6 @@ export function useHandleNewChat(
   const handleNewThread = handleNewThreadOverride ?? defaultHandleNewThread;
 
   const handleNewChat = async (options?: {
-    fresh?: boolean;
     spaceId?: SpaceId | null;
   }): Promise<StartContainerChatResult> => {
     const spaceId = options?.spaceId !== undefined ? options.spaceId : activeSpaceId;
@@ -38,7 +37,6 @@ export function useHandleNewChat(
     return startContainerChat({
       ensureFolderId: async () => targetFolder?.id ?? null,
       handleNewThread,
-      fresh: options?.fresh,
       spaceId,
       errorLabel: "Add a folder to this Space before starting a thread.",
     });

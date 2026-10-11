@@ -18,7 +18,6 @@ export interface NewThreadOptions {
   spaceId?: SpaceId | null;
   entryPoint?: ThreadPrimarySurface;
   provider?: ProviderKind;
-  fresh?: boolean;
 }
 
 export function scopeNewThreadOptionsToParentSpace(

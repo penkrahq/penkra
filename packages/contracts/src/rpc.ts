@@ -127,6 +127,8 @@ import {
   CleanCoreListThreadItemsPageInput,
   CleanCoreListThreadItemsPageResult,
   CleanCoreCreateThreadInput,
+  CleanCoreCreateAndSendThreadInput,
+  CleanCoreCreateAndSendThreadResponse,
   CleanCoreThreadSummary,
   CleanCoreSendMessageInput,
   CleanCoreSendResult,
@@ -719,6 +721,11 @@ export const WsCleanCoreGetThreadShellRpc = Rpc.make(WS_METHODS.cleanCoreGetThre
   success: Schema.NullOr(OrchestrationThreadShell),
   error: WsRpcError,
 });
+export const WsCleanCoreCreateAndSendThreadRpc = Rpc.make(WS_METHODS.cleanCoreCreateAndSendThread, {
+  payload: CleanCoreCreateAndSendThreadInput,
+  success: CleanCoreCreateAndSendThreadResponse,
+  error: WsRpcError,
+});
 export const WsCleanCoreCreateThreadRpc = Rpc.make(WS_METHODS.cleanCoreCreateThread, {
   payload: CleanCoreCreateThreadInput,
   success: CleanCoreCreateThreadResponse,
@@ -813,6 +820,7 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsCleanCoreCancelQueuedMessageRpc,
   WsCleanCoreEditQueuedMessageRpc,
   WsCleanCoreCreateThreadRpc,
+  WsCleanCoreCreateAndSendThreadRpc,
   WsCleanCoreGetFoldersRpc,
   WsCleanCoreGetThreadShellRpc,
   WsCleanCoreListArchivedNavigationRpc,

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   startContainerChat,
-  startFreshChatForActiveSurface,
+  startChatForActiveSurface,
   type StartContainerChatResult,
 } from "./startContainerChat";
 
@@ -11,14 +11,14 @@ function successfulHandler() {
   return vi.fn(async (): Promise<StartContainerChatResult> => ({ ok: true, threadId: null }));
 }
 
-describe("startFreshChatForActiveSurface", () => {
-  it("starts a fresh managed chat", async () => {
+describe("startChatForActiveSurface", () => {
+  it("selects a managed chat draft", async () => {
     const handleNewChat = successfulHandler();
 
-    await startFreshChatForActiveSurface({ handleNewChat });
+    await startChatForActiveSurface({ handleNewChat });
 
     expect(handleNewChat).toHaveBeenCalledOnce();
-    expect(handleNewChat).toHaveBeenCalledWith({ fresh: true });
+    expect(handleNewChat).toHaveBeenCalledWith();
   });
 });
 
@@ -32,14 +32,11 @@ describe("startContainerChat", () => {
       startContainerChat({
         ensureFolderId: async () => folderId,
         handleNewThread,
-        fresh: true,
         errorLabel: "failed",
       }),
     ).resolves.toEqual({ ok: true, threadId });
 
-    expect(handleNewThread).toHaveBeenCalledWith(folderId, {
-      fresh: true,
-    });
+    expect(handleNewThread).toHaveBeenCalledWith(folderId, undefined);
   });
 
   it("starts a stored Folder draft without extra overrides", async () => {

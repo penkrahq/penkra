@@ -358,10 +358,10 @@ describe("useSidebarThreadActions", () => {
     expect(result).toMatchObject({ deletedCount: 1, failureCount: 1, totalCount: 2 });
   });
 
-  it("opens a fresh chat when deleting the last thread leaves no fallback", async () => {
+  it("selects a chat draft when deleting the last thread leaves no fallback", async () => {
     sidebarThreads = [makeThread(THREAD_ID)];
     await render({ routeThreadId: THREAD_ID }).deleteThread(THREAD_ID);
     expect(harness.navigate).not.toHaveBeenCalled();
-    expect(harness.handleNewChat).toHaveBeenCalledWith({ fresh: true });
+    expect(harness.handleNewChat).toHaveBeenCalledWith();
   });
 });

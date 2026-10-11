@@ -1,45 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
 const updateThread = vi.fn();
-const createThread = vi.fn();
-const shellFixture = {
-  snapshotSequence: 1,
-  spaces: [],
-  folders: [
-    {
-      id: "project-chat",
-      kind: "folder" as const,
-      title: "Project",
-      workspaceRoot: null,
-      defaultModelSelection: null,
-      scripts: [],
-      createdAt: "2026-04-18T00:00:00.000Z",
-      updatedAt: "2026-04-18T00:00:00.000Z",
-    },
-  ],
-  threads: [
-    {
-      id: "thread-draft",
-      folderId: "project-chat",
-      title: "Inbox cleanup",
-      modelSelection: { provider: "codex" as const, model: "gpt-5" },
-      runtimeMode: "full-access" as const,
-      subagentAgentId: null,
-      subagentNickname: null,
-      subagentRole: null,
-      latestTurn: null,
-      createdAt: "2026-04-18T00:00:00.000Z",
-      updatedAt: "2026-04-18T00:00:00.000Z",
-      archivedAt: null,
-      session: null,
-    },
-  ],
-  updatedAt: "2026-04-18T00:00:00.000Z",
-};
-
 vi.mock("../nativeApi", () => ({
   readNativeApi: () => ({
-    cleanCore: { updateThread, createThread },
+    cleanCore: { updateThread },
   }),
 }));
 
@@ -48,12 +12,6 @@ import { dispatchThreadRename } from "./threadRename";
 describe("dispatchThreadRename", () => {
   it("updates existing server threads", async () => {
     updateThread.mockReset().mockResolvedValue(undefined);
-    createThread.mockReset().mockResolvedValue({
-      thread: { id: "thread-draft" },
-      created: true,
-      shell: shellFixture.threads[0],
-    });
-
     const outcome = await dispatchThreadRename({
       threadId: "thread-server" as never,
       newTitle: "Renamed server thread",
@@ -68,39 +26,6 @@ describe("dispatchThreadRename", () => {
         threadId: "thread-server",
         title: "Renamed server thread",
       },
-    });
-  });
-
-  it("promotes local drafts by creating the thread with the chosen title", async () => {
-    updateThread.mockReset().mockResolvedValue(undefined);
-    createThread.mockReset().mockResolvedValue({
-      thread: { id: "thread-draft" },
-      created: true,
-      shell: shellFixture.threads[0],
-    });
-
-    const outcome = await dispatchThreadRename({
-      threadId: "thread-draft" as never,
-      newTitle: "Inbox cleanup",
-      unchangedTitles: ["New thread"],
-      createIfMissing: {
-        folderId: "project-chat" as never,
-        modelSelection: {
-          provider: "codex",
-          model: "gpt-5",
-        },
-        runtimeMode: "full-access",
-        createdAt: "2026-04-18T00:00:00.000Z",
-      },
-    });
-
-    expect(outcome).toBe("renamed");
-    expect(createThread).toHaveBeenCalledTimes(1);
-    expect(createThread.mock.calls[0]?.[0]).toMatchObject({
-      threadId: "thread-draft",
-      folderId: "project-chat",
-      title: "Inbox cleanup",
-      createdAt: "2026-04-18T00:00:00.000Z",
     });
   });
 });

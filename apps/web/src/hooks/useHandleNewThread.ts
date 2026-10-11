@@ -112,7 +112,7 @@ export function useHandleNewThread() {
     } = useComposerDraftStore.getState();
     // Terminal entry always creates a durable Thread. It never reopens or
     // promotes an old terminal draft slot.
-    const shouldForceFreshThread = options?.fresh === true || entryPoint === "terminal";
+    const shouldForceFreshThread = entryPoint === "terminal";
 
     const storedDraftThreadCandidate = getDraftThreadByFolderId(folderId, entryPoint);
     const latestActiveDraftThreadCandidate: DraftThreadState | null = focusedThreadId
