@@ -87,12 +87,7 @@ const writeProviderEvent = (event: CleanCoreProviderEvent) =>
           event.at,
         );
         // The turn's outcome settles its still-running items in the same write.
-        yield* settleRunningItems(
-          event.threadId,
-          event.state === "completed" ? "done" : event.state === "error" ? "error" : "interrupted",
-          event.at,
-          event.turnId,
-        );
+        yield* settleRunningItems(event.threadId, event.at, event.turnId);
         return [event.threadId];
       }
       case "item": {
@@ -122,7 +117,7 @@ const writeProviderEvent = (event: CleanCoreProviderEvent) =>
             if (rows.length === 0) return [];
             yield* setThreadState(threadId, "idle", null, null, event.at);
             // A cut-off turn leaves no running items behind.
-            yield* settleRunningItems(threadId, "interrupted", event.at);
+            yield* settleRunningItems(threadId, event.at);
             yield* upsertThreadItem({
               threadId,
               sourceId: `provider-cutoff:${event.at}`,

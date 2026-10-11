@@ -69,6 +69,23 @@ it("maps an assistant message completion to a done text item", () => {
   );
 });
 
+it("failed and declined text or reasoning items are interrupted, never error", () => {
+  for (const itemType of ["assistant_message", "reasoning", "plan"]) {
+    for (const status of ["failed", "declined"]) {
+      const [event] = bridge({
+        ...base,
+        type: "item.completed",
+        itemId: "failed-item",
+        payload: { itemType, status, detail: "Partial output" },
+      });
+      assert.equal(event?.type, "item");
+      if (event?.type !== "item") throw new Error("Expected item completion");
+      assert.equal(event.item.status, "interrupted");
+      assert.equal(event.item.text, "Partial output");
+    }
+  }
+});
+
 it("maps a tool item to running/done and carries one canonical activity copy", () => {
   const started = bridge({
     ...base,

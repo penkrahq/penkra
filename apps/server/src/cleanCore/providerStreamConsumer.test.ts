@@ -316,7 +316,7 @@ it.effect("turn end settles that turn's running items to a terminal status", () 
   ),
 );
 
-it.effect("turn end maps completed to done and error to error", () =>
+it.effect("turn end interrupts unfinished tools for completed and error outcomes", () =>
   withDb(
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
@@ -355,8 +355,8 @@ it.effect("turn end maps completed to done and error to error", () =>
         SELECT source_id AS "sourceId", status FROM thread_items WHERE thread_id = 'thread-1' ORDER BY seq
       `;
       assert.deepStrictEqual(rows, [
-        { sourceId: "tool-done", status: "done" },
-        { sourceId: "tool-error", status: "error" },
+        { sourceId: "tool-done", status: "interrupted" },
+        { sourceId: "tool-error", status: "interrupted" },
       ]);
     }),
   ),
@@ -495,7 +495,7 @@ it.effect("a failed turn settlement rolls back state and items and publishes not
       );
       assert.deepStrictEqual(
         yield* sql`SELECT status FROM thread_items WHERE source_id='running-tool'`,
-        [{ status: "done" }],
+        [{ status: "interrupted" }],
       );
       unsubscribe();
       unsubscribeProvider();
@@ -648,3 +648,53 @@ it.effect("provider exit settles streaming items with no turn id", () =>
     }),
   ),
 );
+
+for (const state of ["completed", "error"] as const) {
+  it.effect(`${state} turn end interrupts unfinished output and preserves terminal items`, () =>
+    withDb(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        const publisher = makeThreadPublisher();
+        yield* runMigrations();
+        yield* seedThreadFolderFixture("core-test-folder", "space-1");
+        yield* createThread(baseThread);
+        for (const [sourceId, kind, status] of [
+          ["text", "text", "streaming"],
+          ["reasoning", "reasoning", "streaming"],
+          ["tool", "tool", "running"],
+          ["finished-text", "text", "done"],
+          ["failed-tool", "tool", "error"],
+        ] as const) {
+          yield* upsertThreadItem({
+            threadId: "thread-1",
+            sourceId,
+            kind,
+            status,
+            turnId: "turn",
+            text: sourceId,
+            createdAt: baseThread.createdAt,
+            updatedAt: baseThread.createdAt,
+          });
+        }
+        yield* applyProviderEvent(publisher, {
+          type: "turn.ended",
+          threadId: "thread-1",
+          turnId: "turn",
+          state,
+          ...(state === "error" ? { error: "provider failure" } : {}),
+          at: "2026-10-09T00:00:02.000Z",
+        });
+        assert.deepStrictEqual(
+          yield* sql`SELECT source_id, status FROM thread_items ORDER BY seq`,
+          [
+            { source_id: "text", status: "interrupted" },
+            { source_id: "reasoning", status: "interrupted" },
+            { source_id: "tool", status: "interrupted" },
+            { source_id: "finished-text", status: "done" },
+            { source_id: "failed-tool", status: "error" },
+          ],
+        );
+      }),
+    ),
+  );
+}
