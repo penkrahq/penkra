@@ -6,6 +6,7 @@
 import { ConnectionRateLimitsLive } from "../../providerUsage/ConnectionRateLimits.ts";
 import { updateThreadFixture } from "../../cleanCore/threadFixtures.ts";
 import { createThreadFixture } from "../../cleanCore/threadFixtures.ts";
+import { upsertThreadItem } from "../../cleanCore/threadStore.ts";
 
 import fs from "node:fs";
 import os from "node:os";
@@ -1096,55 +1097,45 @@ describe("ProviderCommandReactor", () => {
       const currentAt = "2026-08-08T00:00:04.000Z";
 
       await Effect.runPromise(
-        harness.engine.dispatch({
-          type: "thread.messages.import",
-          commandId: CommandId.makeUnsafe("cmd-reconstruction-import-before"),
+        upsertThreadItem({
           threadId,
-          messages: [
-            {
-              messageId: asMessageId("message-before-compaction"),
-              role: "user",
-              text: "secret history before the retained boundary",
-              createdAt: beforeCompaction,
-              updatedAt: beforeCompaction,
-            },
-          ],
+          sourceId: "message-before-compaction",
+          kind: "user",
+          status: "sent",
+          text: "secret history before the retained boundary",
+          data: null,
           createdAt: beforeCompaction,
-        }),
+          updatedAt: beforeCompaction,
+        }).pipe(Effect.provideService(SqlClient.SqlClient, harness.sql)),
       );
       await Effect.runPromise(
-        harness.engine.dispatch({
-          type: "thread.activity.append",
-          commandId: CommandId.makeUnsafe("cmd-reconstruction-compaction"),
+        upsertThreadItem({
           threadId,
-          activity: {
-            id: EventId.makeUnsafe("activity-reconstruction-compaction"),
-            tone: "info",
+          sourceId: "activity-reconstruction-compaction",
+          kind: "notice",
+          status: "done",
+          text: "Context compacted",
+          data: JSON.stringify({
             kind: "context-compaction",
+            tone: "info",
             summary: "Context compacted",
             payload: {},
-            turnId: null,
-            createdAt: compactedAt,
-          },
+          }),
           createdAt: compactedAt,
-        }),
+          updatedAt: compactedAt,
+        }).pipe(Effect.provideService(SqlClient.SqlClient, harness.sql)),
       );
       await Effect.runPromise(
-        harness.engine.dispatch({
-          type: "thread.messages.import",
-          commandId: CommandId.makeUnsafe("cmd-reconstruction-import-after"),
+        upsertThreadItem({
           threadId,
-          messages: [
-            {
-              messageId: asMessageId("message-after-compaction"),
-              role: "assistant",
-              text: "retained answer after compaction",
-              createdAt: afterCompaction,
-              updatedAt: afterCompaction,
-            },
-          ],
+          sourceId: "message-after-compaction",
+          kind: "text",
+          status: "done",
+          text: "retained answer after compaction",
+          data: null,
           createdAt: afterCompaction,
-        }),
+          updatedAt: afterCompaction,
+        }).pipe(Effect.provideService(SqlClient.SqlClient, harness.sql)),
       );
 
       // A failed exact-continuation verification can leave the source runtime
@@ -1264,21 +1255,16 @@ describe("ProviderCommandReactor", () => {
     fs.mkdirSync(path.dirname(oldProfileTranscript), { recursive: true });
     fs.writeFileSync(oldProfileTranscript, '{"type":"user","message":{"role":"user"}}\n');
     await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.messages.import",
-        commandId: CommandId.makeUnsafe("cmd-missing-claude-import"),
+      upsertThreadItem({
         threadId,
-        messages: [
-          {
-            messageId: asMessageId("message-missing-claude-prior"),
-            role: "assistant",
-            text: "Prior visible answer",
-            createdAt: "2026-08-08T00:00:01.000Z",
-            updatedAt: "2026-08-08T00:00:01.000Z",
-          },
-        ],
+        sourceId: "message-missing-claude-prior",
+        kind: "text",
+        status: "done",
+        text: "Prior visible answer",
+        data: null,
         createdAt: "2026-08-08T00:00:01.000Z",
-      }),
+        updatedAt: "2026-08-08T00:00:01.000Z",
+      }).pipe(Effect.provideService(SqlClient.SqlClient, harness.sql)),
     );
     harness.startSession.mockClear();
     harness.sendTurn.mockClear();

@@ -92,7 +92,7 @@ import type { ProviderManagedLaunchContext } from "../../provider/Services/Provi
 import { readThreadNativeState } from "../../cleanCore/threadNativeState.ts";
 import { resolveProviderDispatchAttachments } from "../../provider/providerAttachmentPaths.ts";
 import { resolveAdmittedThreadRuntime } from "../../provider/admittedThreadRuntime.ts";
-import { buildReconstructedTurnInput } from "../../cleanCore/ThreadSender.ts";
+import { buildReconstructedTurnInput } from "../../cleanCore/reconstructedTurnInput.ts";
 import { OrchestrationEventDeliveryRepositoryLive } from "../../persistence/Layers/OrchestrationEventDeliveries.ts";
 import { ProviderIntentOutboxLive } from "../../persistence/Layers/ProviderIntentOutbox.ts";
 import { ProviderRuntimeEventRepositoryLive } from "../../persistence/Layers/ProviderRuntimeEvents.ts";
@@ -1261,15 +1261,12 @@ const make = Effect.gen(function* () {
     });
     const reconstructedInput =
       managedRuntime?.requiresReconstruction === true
-        ? yield* buildReconstructedTurnInput(
-            {
-              threadId: input.threadId,
-              provider: selectedProvider as ProviderKind,
-              currentMessageId: input.messageId,
-              currentInput: normalizedInput ?? "",
-            },
-            projectionSnapshotQuery,
-          )
+        ? yield* buildReconstructedTurnInput({
+            threadId: input.threadId,
+            provider: selectedProvider as ProviderKind,
+            currentMessageId: input.messageId,
+            currentInput: normalizedInput ?? "",
+          }).pipe(Effect.provideService(SqlClient.SqlClient, sql))
         : null;
     if (reconstructedInput !== null) {
       yield* Effect.logWarning("provider turn using deterministic reconstructed continuation", {
