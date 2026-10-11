@@ -35,8 +35,6 @@ import { ServerAuth } from "./auth/Services/ServerAuth";
 import * as SqlitePersistence from "./persistence/Layers/Sqlite";
 import { makeServerApplicationLayers } from "./serverLayers";
 import { startThreadRetentionJob } from "./threadRetention.ts";
-import { startServerMemoryDiagnostics } from "./memoryDiagnostics";
-import { startServerEventLoopDiagnostics } from "./eventLoopDiagnostics";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ProviderSessionReaperLive } from "./provider/Layers/ProviderSessionReaper";
 import { ThreadPublisherLive } from "./cleanCore/ThreadPublisher.ts";
@@ -51,14 +49,7 @@ import { ServerLoggerLive } from "./serverLogger";
 import { DiagnosticsStore, parseDiagnosticsBundleSignature } from "./diagnostics/store";
 import { installDiagnosticsStore, recordDiagnosticIncident } from "./diagnostics/recorder";
 import { noteDiagnosticsStoreReady, notePreStoreBootFailure } from "./diagnostics/preStoreStartup";
-import {
-  measuredBootStage,
-  recordBootStageFailure,
-  recordBootReady,
-  recordBootSlow,
-  type BootStage,
-} from "./diagnostics/boot";
-import { DIAGNOSTIC_LIMITS } from "./diagnostics/limits";
+import { runStartupStage } from "./startupTiming";
 import { version as serverPackageVersion } from "../package.json" with { type: "json" };
 import { ServerSettingsService } from "./serverSettings";
 import { formatHostForUrl, isLoopbackHost, isWildcardHost } from "./startupAccess";
@@ -415,10 +406,6 @@ const makeServerProgram = (input: CliInput) => {
     yield* cliConfig.fixPath;
 
     const config = yield* ServerConfig;
-    const bootStartedAt = performance.now();
-    const bootStages: Array<{ stage: BootStage; elapsedMs: number }> = [];
-    let activeBootStage: BootStage | undefined;
-    let bootTimedOut = false;
     const diagnostics = yield* Effect.acquireRelease(
       Effect.sync(() => {
         try {
@@ -448,51 +435,6 @@ const makeServerProgram = (input: CliInput) => {
       (uninstall) => Effect.sync(uninstall),
     );
     noteDiagnosticsStoreReady();
-    const bootTraceId = randomBytes(16).toString("hex");
-    yield* Effect.sync(() =>
-      diagnostics.checkpoint({
-        traceId: bootTraceId,
-        spanId: randomBytes(8).toString("hex"),
-        flow: "boot",
-        step: "server.starting",
-      }),
-    );
-    const bootTimer = yield* Effect.acquireRelease(
-      Effect.sync(() => {
-        const timer = setTimeout(
-          () => {
-            bootTimedOut = true;
-            try {
-              recordBootSlow(
-                diagnostics,
-                bootTraceId,
-                Math.round(performance.now() - bootStartedAt),
-                activeBootStage,
-              );
-            } catch {
-              process.stderr.write("[diagnostics] boot deadline write failed\n");
-            }
-          },
-          Math.max(0, DIAGNOSTIC_LIMITS.bootMs - (performance.now() - bootStartedAt)),
-        );
-        timer.unref();
-        return timer;
-      }),
-      (timer) => Effect.sync(() => clearTimeout(timer)),
-    );
-    const noteBootStage = (stage: BootStage) => {
-      activeBootStage = stage;
-    };
-    const noteBootStageFailure = (stage: BootStage, elapsedMs: number) => {
-      try {
-        recordBootStageFailure(diagnostics, bootTraceId, stage, elapsedMs);
-      } catch {
-        process.stderr.write("[diagnostics] boot stage failure write failed\n");
-      }
-    };
-    yield* Effect.sync(() => startServerMemoryDiagnostics({ mode: config.mode }));
-    yield* Effect.sync(() => startServerEventLoopDiagnostics({ mode: config.mode }));
-
     if (!config.devUrl && !config.staticDir) {
       yield* Effect.logWarning(
         "web bundle missing and no VITE_DEV_SERVER_URL; web UI unavailable",
@@ -503,52 +445,20 @@ const makeServerProgram = (input: CliInput) => {
     }
 
     const orchestrationEngine = yield* OrchestrationEngineService;
-    yield* measuredBootStage(
+    yield* runStartupStage(
       "provider-native-state-deletion.recover",
       providerNativeStateDeletionCoordinator.recover,
-      bootStages,
-      noteBootStage,
-      noteBootStageFailure,
     );
-    yield* measuredBootStage(
+    yield* runStartupStage(
       "provider-connection-lifecycle.recover",
       providerConnectionLifecycle.recover,
-      bootStages,
-      noteBootStage,
-      noteBootStageFailure,
     );
-    yield* measuredBootStage(
+    yield* runStartupStage(
       "provider-connection-login.recover",
       providerConnectionLoginCoordinator.recover,
-      bootStages,
-      noteBootStage,
-      noteBootStageFailure,
     );
-    yield* measuredBootStage(
-      "default-spaces.ensure",
-      ensureDefaultSpaces(orchestrationEngine),
-      bootStages,
-      noteBootStage,
-      noteBootStageFailure,
-    );
-    const startedServer = yield* measuredBootStage(
-      "http-runtime.start",
-      start,
-      bootStages,
-      noteBootStage,
-      noteBootStageFailure,
-    );
-    clearTimeout(bootTimer);
-    yield* Effect.sync(() =>
-      recordBootReady(
-        diagnostics,
-        bootTraceId,
-        Math.round(performance.now() - bootStartedAt),
-        bootStages,
-        bootTimedOut,
-      ),
-    );
-
+    yield* runStartupStage("default-spaces.ensure", ensureDefaultSpaces(orchestrationEngine));
+    const startedServer = yield* runStartupStage("http-runtime.start", start);
     yield* startThreadRetentionJob();
 
     const localUrl = `http://localhost:${config.port}`;
