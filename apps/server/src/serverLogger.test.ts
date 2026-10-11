@@ -6,7 +6,7 @@ import { Effect, Logger } from "effect";
 import { afterEach, expect, it, vi } from "vitest";
 import { RotatingFileSink } from "@penkra/shared/logging";
 
-import { makeRotatingServerFileLogger, shouldWriteServerFileLog } from "./serverLogger";
+import { makeServerFileLogger } from "./serverLogger";
 
 const directories: string[] = [];
 afterEach(() => {
@@ -14,51 +14,36 @@ afterEach(() => {
     fs.rmSync(directory, { recursive: true, force: true });
 });
 
-it("uses the desktop child capture instead of duplicating server.log", () => {
-  expect(shouldWriteServerFileLog({ PENKRA_SERVER_ENTRY: "/tmp/server.mjs" })).toBe(false);
-  expect(shouldWriteServerFileLog({})).toBe(true);
-});
-
-it("rotates server.log at the configured byte and file limits", async () => {
+it("appends formatted server lines to server.log", async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-server-log-"));
   directories.push(directory);
   const filePath = path.join(directory, "server.log");
-  const logger = makeRotatingServerFileLogger(filePath, 240, 2);
-  for (let i = 0; i < 20; i++) {
-    await Effect.runPromise(
-      Effect.logInfo(`rotation-entry-${i}`).pipe(
-        Effect.provide(Logger.layer([logger], { mergeWithExisting: false })),
-      ),
-    );
-  }
-  const names = fs.readdirSync(directory).sort();
-  expect(names).toContain("server.log.1");
-  expect(names).not.toContain("server.log.3");
-  expect(names).not.toContain("server.log.2");
-  expect(names.length).toBeLessThanOrEqual(2);
-  expect(names.every((name) => fs.statSync(path.join(directory, name)).size <= 240)).toBe(true);
-  expect(fs.statSync(filePath).mode & 0o777).toBe(0o600);
-  const retained = names
-    .map((name) => fs.readFileSync(path.join(directory, name), "utf8"))
-    .join("");
-  expect(retained).toContain("rotation-entry-19");
-});
-
-it("bounds an existing oversized server.log and a single oversized entry", async () => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-server-log-"));
-  directories.push(directory);
-  const filePath = path.join(directory, "server.log");
-  fs.writeFileSync(filePath, "a".repeat(400));
-  const logger = makeRotatingServerFileLogger(filePath, 240, 2);
+  fs.writeFileSync(filePath, "previous run\n", { mode: 0o600 });
+  const logger = makeServerFileLogger(filePath);
   await Effect.runPromise(
-    Effect.logInfo("x".repeat(400)).pipe(
+    Effect.logInfo("current run").pipe(
       Effect.provide(Logger.layer([logger], { mergeWithExisting: false })),
     ),
   );
-  const names = fs.readdirSync(directory);
-  expect(names).toContain("server.log");
-  expect(names.length).toBeLessThanOrEqual(2);
-  expect(names.every((name) => fs.statSync(path.join(directory, name)).size <= 240)).toBe(true);
+  const contents = fs.readFileSync(filePath, "utf8");
+  expect(contents.startsWith("previous run\n")).toBe(true);
+  expect(contents).toContain("current run");
+  expect(fs.statSync(filePath).mode & 0o777).toBe(0o600);
+});
+
+it("ignores log directory failures", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-server-log-"));
+  directories.push(directory);
+  const blocked = path.join(directory, "blocked");
+  fs.writeFileSync(blocked, "not a directory");
+  const logger = makeServerFileLogger(path.join(blocked, "server.log"));
+  await expect(
+    Effect.runPromise(
+      Effect.logInfo("unwritable").pipe(
+        Effect.provide(Logger.layer([logger], { mergeWithExisting: false })),
+      ),
+    ),
+  ).resolves.toBeUndefined();
 });
 
 it("keeps the active log intact if an atomic rotation is interrupted", () => {

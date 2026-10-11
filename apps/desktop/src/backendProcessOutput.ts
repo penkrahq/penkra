@@ -1,5 +1,5 @@
 // FILE: backendProcessOutput.ts
-// Purpose: Tee piped backend output into startup detectors and the configured log destination.
+// Purpose: Tee piped backend output into startup detectors and the desktop console.
 
 export interface BackendOutputDetector {
   push(chunk: Buffer): void;
@@ -8,7 +8,6 @@ export interface BackendOutputDetector {
 export interface CaptureBackendProcessOutputInput {
   readonly stdout: NodeJS.ReadableStream | null | undefined;
   readonly stderr: NodeJS.ReadableStream | null | undefined;
-  readonly writeLog?: ((chunk: Buffer) => void) | undefined;
   readonly writeStdout: (chunk: Buffer) => void;
   readonly writeStderr: (chunk: Buffer) => void;
   readonly detectors: ReadonlyArray<BackendOutputDetector>;
@@ -33,11 +32,7 @@ export function captureBackendProcessOutput(
 
     stream.on("data", (chunk: unknown) => {
       const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), "utf8");
-      if (input.writeLog) {
-        input.writeLog(buffer);
-      } else {
-        writeFallback(buffer);
-      }
+      writeFallback(buffer);
       for (const detector of input.detectors) {
         detector.push(buffer);
       }
