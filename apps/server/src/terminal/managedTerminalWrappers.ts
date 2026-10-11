@@ -61,7 +61,7 @@ if [ -z "$_penkra_event" ]; then
     task_complete|agent-turn-complete|stop|session_end|sessionEnd)
       _penkra_event="Stop"
       ;;
-    request_user_input)
+    exec_approval_request|apply_patch_approval_request|request_user_input)
       _penkra_event="PermissionRequest"
       ;;
   esac
