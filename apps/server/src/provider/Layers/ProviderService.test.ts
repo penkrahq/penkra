@@ -2864,6 +2864,29 @@ routing.layer("ProviderServiceLive routing", (it) => {
 });
 
 managedRouting.layer("ProviderService managed launch enforcement", (it) => {
+  it.effect("reads credentials at launch and not on sends through the live session", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const threadId = asThreadId("thread-managed-live-credentials");
+      resolveManagedLaunch.mockClear();
+      yield* provider.startSession(threadId, {
+        provider: "codex",
+        threadId,
+        runtimeMode: "full-access",
+      });
+      assert.equal(resolveManagedLaunch.mock.calls.length, 1);
+      yield* provider.sendTurn({ threadId, input: "first", attachments: [] });
+      yield* provider.sendTurn({ threadId, input: "second", attachments: [] });
+      assert.equal(resolveManagedLaunch.mock.calls.length, 1);
+      yield* provider.stopSession({ threadId });
+      yield* provider.startSession(threadId, {
+        provider: "codex",
+        threadId,
+        runtimeMode: "full-access",
+      });
+      assert.equal(resolveManagedLaunch.mock.calls.length, 2);
+    }),
+  );
   it.effect("resolves an exact launch for direct starts and rejects harness replacement", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;

@@ -1368,33 +1368,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         const adapter = yield* registry.getByProvider(binding.provider);
 
         if (yield* adapter.hasSession(input.threadId)) {
-          if (options?.resolveManagedLaunch) {
-            const currentLaunch = yield* options
-              .resolveManagedLaunch({
-                threadId: input.threadId,
-                provider: binding.provider,
-              })
-              .pipe(Effect.mapError(mapManagedLaunchError(input.operation)));
-            const persistedIsolationKey = readPersistedManagedIsolationKey(binding.runtimePayload);
-            const activeTurnId = runtimeActiveTurnId(binding.runtimePayload);
-            if (
-              shouldRestartForManagedIsolationChange({
-                persistedIsolationKey,
-                currentIsolationKey: currentLaunch.isolationKey,
-                activeTurnId,
-              })
-            ) {
-              yield* adapter.stopSession(input.threadId);
-              return {
-                adapter: yield* recoverSessionForThread({
-                  binding,
-                  operation: input.operation,
-                }),
-                isActive: true,
-                lifecycleGeneration: lifecycle.currentGeneration(input.threadId),
-              } as const;
-            }
-          }
           return {
             adapter,
             isActive: true,
