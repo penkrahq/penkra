@@ -3,6 +3,7 @@ import os from "node:os";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
+import type { ProjectWorkspaceChangeEvent } from "@penkra/contracts";
 
 import {
   deduplicateWorkspaceRoots,
@@ -83,6 +84,36 @@ describe("workspace watcher lifecycle", () => {
     await manager.close();
   });
 
+  it("publishes file, git and lost-sync events as they arrive and ignores them after close", async () => {
+    const root = path.resolve("/tmp/workspace-events");
+    const events: ProjectWorkspaceChangeEvent[] = [];
+    let callbacks!: { change: (path: string) => void; lostSync: () => void };
+    const manager = new WorkspaceWatcherManager(
+      async () => [root],
+      (event) => events.push(event),
+      (_watchRoot, change, lostSync) => {
+        callbacks = { change, lostSync };
+        return { close: () => undefined };
+      },
+    );
+    await manager.start();
+    callbacks.change(path.join(root, "src/index.ts"));
+    expect(events).toEqual([{ cwd: root, filesChanged: true, gitChanged: false, lostSync: false }]);
+    callbacks.change(path.join(root, ".git/HEAD"));
+    expect(events[1]).toEqual({
+      cwd: root,
+      filesChanged: false,
+      gitChanged: true,
+      lostSync: false,
+    });
+    callbacks.lostSync();
+    expect(events[2]).toEqual({ cwd: root, filesChanged: true, gitChanged: true, lostSync: true });
+    await manager.close();
+    callbacks.change(path.join(root, "src/later.ts"));
+    callbacks.lostSync();
+    expect(events).toHaveLength(3);
+  });
+
   it("publishes recursive file changes and closes the built-in watcher", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "penkra-workspace-watcher-"));
     let resolveEvent!: (event: { cwd: string; filesChanged: boolean }) => void;
@@ -98,13 +129,7 @@ describe("workspace watcher lifecycle", () => {
       await manager.start();
       await mkdir(path.join(root, "src"));
       await writeFile(path.join(root, "src", "index.ts"), "export {};\n");
-      let timeout: ReturnType<typeof setTimeout> | undefined;
-      const event = await Promise.race([
-        published,
-        new Promise<never>((_, reject) => {
-          timeout = setTimeout(() => reject(new Error("workspace watcher did not publish")), 5_000);
-        }),
-      ]).finally(() => clearTimeout(timeout));
+      const event = await published;
       expect(event).toMatchObject({ cwd: root, filesChanged: true });
       await manager.close();
     } finally {

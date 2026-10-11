@@ -1,5 +1,5 @@
 // FILE: workspaceWatcher.ts
-// Purpose: Watch active project roots once and publish coalesced cache invalidations.
+// Purpose: Watch active project roots once and publish cache invalidations on filesystem events.
 // Layer: Server infrastructure
 
 import path from "node:path";
@@ -10,8 +10,6 @@ import { Effect, Fiber, Layer, PubSub, ServiceMap, Stream } from "effect";
 
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 
-const CHANGE_DEBOUNCE_MS = 150;
-
 interface WorkspaceWatchSubscription {
   readonly close: () => void;
 }
@@ -21,8 +19,6 @@ type CreateWorkspaceWatch = (
   onPathChange: (changedPath: string) => void,
   onLostSync: () => void,
 ) => WorkspaceWatchSubscription;
-
-type PendingChange = ProjectWorkspaceChangeEvent & { timer: ReturnType<typeof setTimeout> };
 
 export interface WorkspaceWatcherShape {
   readonly stream: Stream.Stream<ProjectWorkspaceChangeEvent>;
@@ -90,7 +86,6 @@ function createNodeWorkspaceWatch(
 export class WorkspaceWatcherManager {
   private projectRoots: string[] = [];
   private subscriptions = new Map<string, WorkspaceWatchSubscription>();
-  private pending = new Map<string, PendingChange>();
   private reconcileRunning: Promise<void> | null = null;
   private closeRunning: Promise<void> | null = null;
   private reconcileAgain = false;
@@ -143,8 +138,8 @@ export class WorkspaceWatcherManager {
       try {
         const subscription = this.createWorkspaceWatch(
           watchRoot,
-          (changedPath) => this.queuePathChange(watchRoot, changedPath),
-          () => this.queueLostSync(watchRoot),
+          (changedPath) => this.publishPathChange(watchRoot, changedPath),
+          () => this.publishLostSync(watchRoot),
         );
         if (this.closed) {
           subscription.close();
@@ -152,7 +147,7 @@ export class WorkspaceWatcherManager {
         }
         this.subscriptions.set(watchRoot, subscription);
       } catch {
-        this.queueLostSync(watchRoot);
+        this.publishLostSync(watchRoot);
       }
     }
   }
@@ -161,14 +156,14 @@ export class WorkspaceWatcherManager {
     return this.projectRoots.filter((root) => isWithin(watchRoot, root));
   }
 
-  private queuePathChange(watchRoot: string, changedPath: string): void {
+  private publishPathChange(watchRoot: string, changedPath: string): void {
     const matchingRoots = this.rootsForWatch(watchRoot).filter((root) =>
       isWithin(root, changedPath),
     );
     const projectRoot = matchingRoots.toSorted((left, right) => right.length - left.length)[0];
     if (!projectRoot) return;
     const gitChanged = isGitMetadataPath(projectRoot, changedPath);
-    this.queue({
+    this.publishChange({
       cwd: projectRoot,
       filesChanged: !gitChanged,
       gitChanged,
@@ -176,35 +171,26 @@ export class WorkspaceWatcherManager {
     });
   }
 
-  private queueLostSync(watchRoot: string): void {
+  private publishLostSync(watchRoot: string): void {
     for (const projectRoot of this.rootsForWatch(watchRoot)) {
-      this.queue({ cwd: projectRoot, filesChanged: true, gitChanged: true, lostSync: true });
+      this.publishChange({
+        cwd: projectRoot,
+        filesChanged: true,
+        gitChanged: true,
+        lostSync: true,
+      });
     }
   }
 
-  private queue(event: ProjectWorkspaceChangeEvent): void {
+  private publishChange(event: ProjectWorkspaceChangeEvent): void {
     if (this.closed) return;
-    const existing = this.pending.get(event.cwd);
-    if (existing) clearTimeout(existing.timer);
-    const combined = {
-      cwd: event.cwd,
-      filesChanged: event.filesChanged || existing?.filesChanged === true,
-      gitChanged: event.gitChanged || existing?.gitChanged === true,
-      lostSync: event.lostSync || existing?.lostSync === true,
-    };
-    const timer = setTimeout(() => {
-      this.pending.delete(event.cwd);
-      this.publish(combined);
-    }, CHANGE_DEBOUNCE_MS);
-    this.pending.set(event.cwd, { ...combined, timer });
+    this.publish(event);
   }
 
   async close(): Promise<void> {
     if (this.closeRunning) return this.closeRunning;
     this.closed = true;
     this.closeRunning = (async () => {
-      for (const change of this.pending.values()) clearTimeout(change.timer);
-      this.pending.clear();
       // Reconciliation may already be reading the project roots. Wait for it to
       // observe `closed` and close any late watcher before declaring the file
       // watcher fully drained.
