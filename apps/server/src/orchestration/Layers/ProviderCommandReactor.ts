@@ -2369,53 +2369,6 @@ const make = Effect.gen(function* () {
     });
   });
 
-  const processQueuedTurnCancelRequested = (
-    event: Extract<ProviderIntentEvent, { type: "thread.turn-cancel-queued-requested" }>,
-  ) =>
-    withProviderSessionLease(
-      event.payload.threadId,
-      Effect.gen(function* () {
-        const pending = yield* claimQueuedTurnAction({
-          ...event.payload,
-          actionKind: "cancel",
-          actionEventId: event.eventId,
-        });
-        if (Option.isNone(pending)) {
-          if (event.payload.turnId !== undefined) {
-            const liveTurnId = yield* resolveLiveProviderTurnId(event.payload.threadId);
-            const targetTurn = yield* projectionTurnRepository.getByTurnId({
-              threadId: event.payload.threadId,
-              turnId: event.payload.turnId,
-            });
-            if (
-              liveTurnId === event.payload.turnId ||
-              (Option.isSome(targetTurn) && liveTurnId === targetTurn.value.providerTurnId)
-            ) {
-              yield* interruptProviderTurn({
-                threadId: event.payload.threadId,
-                turnId: event.payload.turnId,
-                createdAt: event.payload.createdAt,
-              });
-            }
-          }
-          return;
-        }
-        const sourceEvent = yield* readOrchestrationEventAtSequence(
-          pending.value.queuedEventSequence,
-        );
-        yield* orchestrationEngine.dispatch({
-          type: "thread.turn.start.cancel.complete",
-          commandId: replaySafeServerCommandId("queued-turn-cancel-complete", event.eventId),
-          threadId: event.payload.threadId,
-          messageId: event.payload.messageId,
-          ...(sourceEvent?.type === "thread.turn-queued" && sourceEvent.payload.turnId !== undefined
-            ? { turnId: sourceEvent.payload.turnId }
-            : {}),
-          createdAt: event.payload.createdAt,
-        });
-      }),
-    );
-
   const processQueuedTurnSteerRequested = (
     event: Extract<ProviderIntentEvent, { type: "thread.turn-steer-queued-requested" }>,
   ) =>
@@ -3829,9 +3782,6 @@ const make = Effect.gen(function* () {
           return;
         case "thread.turn-interrupt-requested":
           yield* processTurnInterruptRequested(event);
-          return;
-        case "thread.turn-cancel-queued-requested":
-          yield* processQueuedTurnCancelRequested(event);
           return;
         case "thread.turn-steer-queued-requested":
           yield* processQueuedTurnSteerRequested(event);

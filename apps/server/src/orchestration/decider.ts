@@ -832,11 +832,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       ];
     }
 
-    case "thread.turn.cancel-queued":
     case "thread.turn.steer-queued": {
-      yield* command.type === "thread.turn.steer-queued"
-        ? requireThreadCanTakeWork({ readModel, command, threadId: command.threadId })
-        : requireThread({ readModel, command, threadId: command.threadId });
+      yield* requireThreadCanTakeWork({ readModel, command, threadId: command.threadId });
       return {
         ...withEventBase({
           aggregateKind: "thread",
@@ -844,16 +841,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           occurredAt: command.createdAt,
           commandId: command.commandId,
         }),
-        type:
-          command.type === "thread.turn.cancel-queued"
-            ? "thread.turn-cancel-queued-requested"
-            : "thread.turn-steer-queued-requested",
+        type: "thread.turn-steer-queued-requested",
         payload: {
           threadId: command.threadId,
           messageId: command.messageId,
-          ...(command.type === "thread.turn.cancel-queued" && command.turnId !== undefined
-            ? { turnId: command.turnId }
-            : {}),
           createdAt: command.createdAt,
         },
       };
