@@ -370,6 +370,28 @@ Done when:
 - `git grep -n "workingDirectory\|working_directory\|setThreadWorkingDirectory\|ProjectPicker\|Don't work in a folder" -- apps packages ':!apps/server/src/persistence/Migrations' ':!apps/server/src/open.ts' ':!apps/server/src/codexWorkingDirectory.ts' ':!apps/server/src/textGeneration' ':!apps/desktop/src/accountAuth.ts'` shows no matches;
 - typecheck, lint (0 errors), clean-core, server and web tests pass, and the rehearsal (3) is repeated on a fresh copy of the 3.0 copy with migration 183 included.
 
+### 2.19 Startup loading, folder directory, "+" draft tab (operator, 2026-10-10)
+
+A. Startup loads spaces, folders and running threads only; everything else is read on demand.
+- Today `loadOrchestrationSyncSnapshot` (`apps/server/src/wsRpc.ts:645`) and the subscription snapshot (`wsRpc.ts:1152`) call `projectionReadModelQuery.getShellSnapshot()`, which returns every space, folder and thread shell (`OrchestrationShellSnapshot`, `packages/contracts/src/orchestration.ts:621`). The web applies it in `apps/web/src/routes/__root.tsx:949` (`syncServerShellSnapshot`, `reconcilePromotedDraftsFromShellThreads`, `removeOrphanedTerminalsForCurrentState`).
+- New snapshot (both call sites): `{ snapshotSequence, spaces, folders, runningThreads }`. `spaces` and `folders` are all unarchived rows, one indexed SELECT each (they are the navigation tree, created by hand; Production has 25 folders). `runningThreads` is the rows with `threads.state = 'running'`, one SELECT on an index on `state`. No other thread is in the snapshot.
+- Thread rows for the sidebar and the folder tabs come only from the existing paged list (`LIMIT 50`, cursor, 2.8) into `threadListStore`, when a folder is shown or scrolled. A thread's detail comes only from `getThread` when it is opened (2.17).
+- Delete `getShellSnapshot`, `OrchestrationShellSnapshot`'s thread shells and every web consumer that reads all threads from the snapshot. `reconcilePromotedDraftsFromShellThreads` is replaced by the `thread.created` broadcast for that thread id. `removeOrphanedTerminalsForCurrentState` is replaced by removing a thread's terminals when its archive or delete broadcast arrives.
+- Tests: the snapshot contains no idle thread; a running thread is in it; opening a folder issues one list page read; the snapshot SQL runs under 50 ms on a fresh rehearsal copy (logged duration).
+- Done when: `git grep -n "getShellSnapshot\|OrchestrationShellSnapshot\|reconcilePromotedDraftsFromShellThreads" -- apps packages` shows no matches; typecheck, lint (0 errors), server and web tests pass.
+
+B. A folder can have a directory; its threads start there (2.18 rule unchanged).
+- Measured: today only `folder.create` carries `workspaceRoot`, and `decider.ts:378` rejects any non-null value ("Folders are virtual containers…"); `folder.update` (`decider.ts:414`) has no `workspaceRoot`. So no folder can get a directory now; the 1 of 25 Production folders with one is old data.
+- Delete the `decider.ts:378` rejection and its message; `folder.create` writes the given `workspaceRoot`. Add `workspaceRoot: optional NullOr(TrimmedNonEmptyString)` to the `folder.update` command and pass it into `folder.updated` (the projector already applies it, `projector.ts:380`).
+- UI: the sidebar folder context menu (`Sidebar.tsx`, next to "Edit name" / icon items) gets "Choose directory…" (calls the existing `api.dialogs.pickFolder()`, then `folder.update` with the path; cancel does nothing) and, when the folder has one, "Remove directory" (`folder.update` with `null`).
+- A change applies to the next turn of each thread in the folder; a running turn keeps its cwd.
+- Tests: create with a directory stores it; update sets and clears it; the next turn after an update starts in the new directory.
+
+C. A "+" draft tab lives only in window memory until its first send.
+- "+" creates the draft in the web store only: no server thread row, no `threads.draft` write (2.6 drafts apply to threads that exist). The first send creates the thread with its folder and message in one operation; from then on it is a normal thread and its tab comes from `threadListStore`.
+- An unused draft has no close action: it disappears when the window closes or reloads. Pressing "+" while the folder already has an unused draft selects that draft instead of making another (`projectDraftThreadIdByFolderId`).
+- Tests: "+" makes no server call; closing the window leaves no thread row; the first send creates exactly one thread; "+" twice yields one draft tab.
+
 ## 3. Migration of Production (in place, keep every chat)
 
 0. **Rehearsal copies:** made only with `sqlite3 'file:<Production>?mode=ro' "VACUUM INTO '<dest>'"` (never by copying `state.sqlite`, `-wal`, `-shm` files; that produced a corrupt copy on 2026-10-09 whose counts must not be used). The copy can be made only while Penkra is quit: Penkra opens `state.sqlite` with `PRAGMA locking_mode = EXCLUSIVE` (`apps/server/src/persistence/Layers/Sqlite.ts:82`), so every other process gets "database is locked (5)" for as long as Penkra runs. Measured 2026-10-10: a read-only `SELECT` with `.timeout 10000` still failed. A busy timeout cannot fix this, so do not add one. Before making a copy, ask the operator to quit Penkra. Run the copy and the `integrity_check`, then tell the operator Penkra can be reopened. Every copy must return `ok` from `PRAGMA integrity_check` before use.
