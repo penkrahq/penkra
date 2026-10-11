@@ -809,8 +809,7 @@ export const makeCheckClaudeProviderStatus = (
 
     // Probe 2: `claude auth status` — is the user authenticated? The command can
     // redeem a single-use rotating OAuth refresh token, so it is serialized with
-    // every other `claude auth status` invocation in this process (credential
-    // keepalive, concurrent health probes) via the shared lock.
+    // concurrent `claude auth status` health probes via the shared lock.
     const runAuthStatusProbe = Effect.acquireUseRelease(
       Effect.promise(() => acquireClaudeAuthStatusLock()),
       () =>
