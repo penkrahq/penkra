@@ -42,7 +42,6 @@ import { ProviderDiscoveryService } from "../../provider/Services/ProviderDiscov
 import { ProviderHealth } from "../../provider/Services/ProviderHealth.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
-import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { type AgentGatewayProviderAvailability } from "../targetResolver.ts";
 import {
   extractPenkraExecRichResult,
@@ -157,7 +156,6 @@ export const makeAgentGateway = Effect.gen(function* () {
   const providerHealth = yield* ProviderHealth;
   const serverSettings = yield* ServerSettingsService;
   const connections = yield* ProviderConnectionRepository;
-  const threadBindings = yield* ThreadProviderBindingRepository;
   const projectionTurns = yield* ProjectionTurnRepository;
   const queuedTurnPromotions = yield* QueuedTurnPromotionRepository;
   const serverConfig = yield* ServerConfig;

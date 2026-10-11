@@ -1,6 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Path from "node:path";
 import {
+  type ProviderKind,
   ProviderConnectionId,
   ProviderInstallationId,
   ProviderNativeStateGenerationId,
@@ -13,7 +14,11 @@ import { access, mkdir, readFile, readlink, writeFile } from "node:fs/promises";
 import { ServerConfig } from "../../config.ts";
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
-import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
+import { runMigrations } from "../../persistence/Migrations.ts";
+import * as NodeSqliteClient from "../../persistence/NodeSqliteClient.ts";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { createThread } from "../../cleanCore/threadStore.ts";
+import { seedThreadFolderFixture } from "../../cleanCore/threadFixtures.ts";
 import { ProviderCredentialBroker } from "../providerCredentialBroker.ts";
 import {
   providerConnectionProfileRoot,
@@ -42,25 +47,34 @@ const codexProfileRef = "provider-profile:credential-generation-two";
 const configLayer = ServerConfig.layerTest(process.cwd(), {
   prefix: "penkra-launch-resolver-test-",
 }).pipe(Layer.provide(NodeServices.layer));
+const nativeThreadFixture = (
+  provider: ProviderKind,
+  nativeStateId: string,
+  providerSessionId: string,
+) =>
+  Layer.effectDiscard(
+    Effect.gen(function* () {
+      yield* runMigrations();
+      yield* seedThreadFolderFixture("launch-folder", "launch-space");
+      yield* createThread({
+        id: threadId,
+        provider,
+        folderId: "launch-folder",
+        spaceId: "launch-space",
+        title: "Launch",
+        model: "launch-model",
+        runtimeMode: "full-access",
+        createdBy: "user",
+        createdAt: timestamp,
+      });
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`UPDATE threads SET connection_id=${connectionId}, native_state_id=${nativeStateId}, provider_session_id=${providerSessionId} WHERE id=${threadId}`;
+    }),
+  ).pipe(Layer.provideMerge(NodeSqliteClient.layerMemory()));
+
 const dependencies = Layer.mergeAll(
   configLayer,
-  Layer.succeed(ThreadProviderBindingRepository, {
-    getRuntimeBinding: () => Effect.succeed(Option.none()),
-    getHarnessState: () =>
-      Effect.succeed(
-        Option.some({
-          threadId,
-          harness: "opencode",
-          nativeStateGenerationId: ProviderNativeStateGenerationId.makeUnsafe("native-launch"),
-          providerSessionId: "session-launch",
-          nativeStateLocatorJson: '{"session":"session-launch"}',
-          lastVerifiedResumeAt: timestamp,
-          revision: 0,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        }),
-      ),
-  } as never),
+  nativeThreadFixture("opencode", "native-launch", "session-launch"),
   Layer.succeed(ProviderInstallationRepository, {
     getActiveRecord: () => Effect.succeed(Option.some({ id: activeLaunchInstallationId })),
     getRecord: (id: typeof installationId) =>
@@ -195,23 +209,7 @@ layer("ProviderLaunchResolver", (it) => {
 
 const codexDependencies = Layer.mergeAll(
   configLayer,
-  Layer.succeed(ThreadProviderBindingRepository, {
-    getHarnessState: () =>
-      Effect.succeed(
-        Option.some({
-          threadId,
-          harness: "codex",
-          nativeStateGenerationId:
-            ProviderNativeStateGenerationId.makeUnsafe("native-codex-launch"),
-          providerSessionId: "session-launch",
-          nativeStateLocatorJson: '{"threadId":"session-launch"}',
-          lastVerifiedResumeAt: timestamp,
-          revision: 0,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        }),
-      ),
-  } as never),
+  nativeThreadFixture("codex", "native-codex-launch", "session-launch"),
   Layer.succeed(ProviderInstallationRepository, {
     getActiveRecord: () => Effect.succeed(Option.some({ id: installationId })),
     getRecord: (id: typeof installationId) =>
@@ -327,23 +325,7 @@ const claudeOtherConnectionId = ProviderConnectionId.makeUnsafe("launch-claude-o
 const claudeSessionId = "550e8400-e29b-41d4-a716-446655440088";
 const claudeDependencies = Layer.mergeAll(
   configLayer,
-  Layer.succeed(ThreadProviderBindingRepository, {
-    getHarnessState: () =>
-      Effect.succeed(
-        Option.some({
-          threadId,
-          harness: "claudeAgent",
-          nativeStateGenerationId:
-            ProviderNativeStateGenerationId.makeUnsafe("native-claude-launch"),
-          providerSessionId: claudeSessionId,
-          nativeStateLocatorJson: JSON.stringify({ resume: claudeSessionId }),
-          lastVerifiedResumeAt: timestamp,
-          revision: 0,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        }),
-      ),
-  } as never),
+  nativeThreadFixture("claudeAgent", "native-claude-launch", claudeSessionId),
   Layer.succeed(ProviderInstallationRepository, {
     getActiveRecord: () => Effect.succeed(Option.some({ id: installationId })),
     getRecord: () =>
