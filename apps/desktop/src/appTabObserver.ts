@@ -950,12 +950,7 @@ export class AppTabObserver {
       }
       if (target.isPresented?.() !== false) await this.#moveCursor(target, point, human);
       for (const type of ["mousePressed", "mouseReleased"]) {
-        await this.#cdp(
-          contents,
-          "Input.dispatchMouseEvent",
-          { type, button: "left", clickCount: 1, ...point },
-          target.cdpSessionId,
-        );
+        await this.#dispatchMouseEvent(target, { type, button: "left", clickCount: 1, ...point });
       }
       await waitForClick();
       if (!observedTrusted) {
@@ -1016,18 +1011,18 @@ export class AppTabObserver {
     const { target, node } = await this.#referencedTarget(tabId, reference);
     const point = await this.#nodeCenter(target, node.backendNodeId);
     await this.#moveCursor(target, point, human);
-    await this.#cdp(
-      target.webContents,
-      "Input.dispatchMouseEvent",
-      { type: "mousePressed", button: "left", clickCount: 1, ...point },
-      target.cdpSessionId,
-    );
-    await this.#cdp(
-      target.webContents,
-      "Input.dispatchMouseEvent",
-      { type: "mouseReleased", button: "left", clickCount: 1, ...point },
-      target.cdpSessionId,
-    );
+    await this.#dispatchMouseEvent(target, {
+      type: "mousePressed",
+      button: "left",
+      clickCount: 1,
+      ...point,
+    });
+    await this.#dispatchMouseEvent(target, {
+      type: "mouseReleased",
+      button: "left",
+      clickCount: 1,
+      ...point,
+    });
     const objectId = await this.#resolveObject(target, node.backendNodeId);
     await this.#cdp(
       target.webContents,
@@ -1498,6 +1493,27 @@ export class AppTabObserver {
     );
   }
 
+  async #dispatchMouseEvent(
+    target: AppTabObservationTarget,
+    input: { type: string; x: number; y: number; button?: string; clickCount?: number },
+  ): Promise<void> {
+    await this.#cdp(target.webContents, "Input.dispatchMouseEvent", input, target.cdpSessionId);
+    const key = observationTargetKey(target);
+    const installation = this.#cursorInstallations.get(key);
+    if (!installation) return;
+    try {
+      await this.#evaluateCursor(
+        installation,
+        `globalThis.__penkraAgentCursorUpdate?.(${JSON.stringify(input)})`,
+      );
+    } catch (error) {
+      // Input was delivered already; a visual overlay failure must not request a second input.
+      this.#cursorLog("update-failed", key, installation, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   async #moveCursor(
     target: AppTabObservationTarget,
     destination: { x: number; y: number },
@@ -1534,16 +1550,7 @@ export class AppTabObserver {
       const length = Math.hypot(dx, dy) || 1;
       const x = start.x + dx * eased + (-dy / length) * bend;
       const y = start.y + dy * eased + (dx / length) * bend;
-      await this.#cdp(
-        target.webContents,
-        "Input.dispatchMouseEvent",
-        {
-          type: "mouseMoved",
-          x,
-          y,
-        },
-        target.cdpSessionId,
-      );
+      await this.#dispatchMouseEvent(target, { type: "mouseMoved", x, y });
       if (index === 1) {
         this.#cursorLog("shown", key, installation, { at: { x, y } });
       }
