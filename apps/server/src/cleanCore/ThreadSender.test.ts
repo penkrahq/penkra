@@ -23,7 +23,6 @@ import { makeThreadSender, type ThreadSendInput } from "./ThreadSender.ts";
 import { ThreadPublisher } from "./ThreadPublisher.ts";
 import { createThread, makeThreadPublisher, setThreadState } from "./threadStore.ts";
 import { ProviderThreadSwitchCoordinator } from "../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
-import { ThreadProviderBindingRepository } from "../persistence/Services/ThreadProviderBindings.ts";
 import { ProviderService } from "../provider/Services/ProviderService.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import { applyProviderEvent } from "./providerStreamConsumer.ts";
@@ -93,9 +92,6 @@ it.effect("delivers a queued message on model B after the composer changes from 
           }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.orDie),
         dispatchQueuedTurn: () => Effect.die("No legacy queue"),
       }),
-      Effect.provideService(ThreadProviderBindingRepository, {
-        getRuntimeBinding: () => Effect.succeed(Option.none()),
-      } as unknown as typeof ThreadProviderBindingRepository.Service),
       Effect.provideService(ProviderService, {} as typeof ProviderService.Service),
     );
     const result = yield* sender.send({
@@ -222,9 +218,6 @@ for (const workspaceRoot of [null, "/repo"]) {
           Effect.provide(ManagedAttachmentRepositoryLive),
           Effect.provideService(ThreadPublisher, publisher),
           Effect.provideService(ProviderThreadSwitchCoordinator, coordinator),
-          Effect.provideService(ThreadProviderBindingRepository, {
-            getRuntimeBinding: () => Effect.succeed(Option.some({ revision: 12 })),
-          } as unknown as typeof ThreadProviderBindingRepository.Service),
           Effect.provideService(ProviderService, {
             interruptTurn: () => Effect.void,
           } as unknown as typeof ProviderService.Service),
@@ -321,10 +314,6 @@ it.effect(
         Effect.provideService(
           ProviderThreadSwitchCoordinator,
           {} as typeof ProviderThreadSwitchCoordinator.Service,
-        ),
-        Effect.provideService(
-          ThreadProviderBindingRepository,
-          {} as typeof ThreadProviderBindingRepository.Service,
         ),
         Effect.provideService(ProviderService, {
           interruptTurn: (input: unknown) =>
@@ -447,9 +436,6 @@ for (const release of ["next-send", "remove-head", "edit-head"] as const) {
         Effect.provide(ManagedAttachmentRepositoryLive),
         Effect.provideService(ThreadPublisher, publisher),
         Effect.provideService(ProviderThreadSwitchCoordinator, coordinator),
-        Effect.provideService(ThreadProviderBindingRepository, {
-          getRuntimeBinding: () => Effect.succeed(Option.none()),
-        } as unknown as typeof ThreadProviderBindingRepository.Service),
         Effect.provideService(ProviderService, {} as typeof ProviderService.Service),
       );
       yield* applyProviderEvent(
@@ -613,9 +599,6 @@ it.effect("claims queued attachments atomically and delivers them with their ori
       } as typeof ServerConfig.Service),
       Effect.provideService(ThreadPublisher, publisher),
       Effect.provideService(ProviderThreadSwitchCoordinator, coordinator),
-      Effect.provideService(ThreadProviderBindingRepository, {
-        getRuntimeBinding: () => Effect.succeed(Option.none()),
-      } as unknown as typeof ThreadProviderBindingRepository.Service),
       Effect.provideService(ProviderService, {
         interruptTurn: () => Effect.void,
       } as unknown as typeof ProviderService.Service),
@@ -742,10 +725,6 @@ it.effect(
           ProviderThreadSwitchCoordinator,
           {} as typeof ProviderThreadSwitchCoordinator.Service,
         ),
-        Effect.provideService(
-          ThreadProviderBindingRepository,
-          {} as typeof ThreadProviderBindingRepository.Service,
-        ),
         Effect.provideService(ProviderService, {} as typeof ProviderService.Service),
       );
       const input = {
@@ -859,10 +838,6 @@ for (const content of [
             ProviderThreadSwitchCoordinator,
             {} as typeof ProviderThreadSwitchCoordinator.Service,
           ),
-          Effect.provideService(
-            ThreadProviderBindingRepository,
-            {} as typeof ThreadProviderBindingRepository.Service,
-          ),
           Effect.provideService(ProviderService, {} as typeof ProviderService.Service),
         );
         const result = yield* Effect.exit(
@@ -937,9 +912,6 @@ for (const provider of ["codex", "claudeAgent"] as const) {
             } as typeof ServerConfig.Service),
             Effect.provide(ManagedAttachmentRepositoryLive),
             Effect.provideService(ThreadPublisher, publisher),
-            Effect.provideService(ThreadProviderBindingRepository, {
-              getRuntimeBinding: () => Effect.succeed(Option.none()),
-            } as unknown as typeof ThreadProviderBindingRepository.Service),
             Effect.provideService(ProviderService, {
               interruptTurn: () =>
                 Effect.gen(function* () {

@@ -27,7 +27,7 @@ import {
   MessageId,
   ProviderConnectionId,
   ProviderInstallationId,
-  ProviderNativeStateGenerationId,
+  type ProviderKind,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   FolderId,
   SpaceId,
@@ -113,8 +113,8 @@ import { clampMentionTitle } from "@penkra/shared/threadMentions";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
+import { providerNativeStateRoot } from "../../provider/providerNativeStatePaths.ts";
 import { ProviderLaunchResolver } from "../../provider/Services/ProviderLaunchResolver.ts";
-import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { ProviderSessionDirectory } from "../../provider/Services/ProviderSessionDirectory.ts";
 import { PLAY_TURN_RECOVERY_PROMPT } from "../../cleanCore/sendMessage.ts";
 import { isProviderIntentEvent } from "../providerIntentClassification.ts";
@@ -225,7 +225,6 @@ describe("ProviderCommandReactor", () => {
     readonly stopRuntimeSession?: NonNullable<ProviderServiceShape["stopRuntimeSession"]>;
     readonly commandEventTimeout?: Duration.Duration;
     readonly queuedTurnRecoveryInterval?: Duration.Duration;
-    readonly nativeStateLocatorJson?: string;
     readonly providerSessionId?: string;
     readonly queuedCoordinatorFailure?: () => ProviderThreadSwitchCoordinatorError | undefined;
   }) {
@@ -286,8 +285,35 @@ describe("ProviderCommandReactor", () => {
       runtimeSessions.push(session);
       return Effect.succeed(session);
     };
-    const startSession = vi.fn<ProviderServiceShape["startSession"]>(
-      input?.startSession ?? defaultStartSession,
+    const startSession = vi.fn<ProviderServiceShape["startSession"]>((threadId, startInput) =>
+      (input?.startSession ?? defaultStartSession)(threadId, startInput).pipe(
+        Effect.tap(() =>
+          Effect.gen(function* () {
+            const nativeStateId = `fixture-${threadId}`;
+            const sessionId = crypto.randomUUID();
+            const root = providerNativeStateRoot(stateDir, nativeStateId);
+            yield* Effect.sync(() => {
+              const provider = startInput.provider ?? modelSelection.provider;
+              const conversation =
+                provider === "claudeAgent"
+                  ? path.join(root, "claude", "project", `${sessionId}.jsonl`)
+                  : provider === "codex"
+                    ? path.join(root, "codex-rollouts", `rollout-${sessionId}.jsonl`)
+                    : path.join(root, "opencode.db");
+              fs.mkdirSync(path.dirname(conversation), { recursive: true });
+              fs.writeFileSync(
+                conversation,
+                provider === "claudeAgent"
+                  ? `${JSON.stringify({ type: "user", message: { role: "user", content: "fixture native conversation" } })}\n`
+                  : "fixture native conversation",
+              );
+            });
+            yield* sql`UPDATE threads SET native_state_id=${nativeStateId}, provider_session_id=${sessionId} WHERE id=${threadId}`.pipe(
+              Effect.orDie,
+            );
+          }),
+        ),
+      ),
     );
     const sendTurn = vi.fn<ProviderServiceShape["sendTurn"]>(
       input?.sendTurn ??
@@ -471,7 +497,6 @@ describe("ProviderCommandReactor", () => {
     const managedBindingLayer = Layer.mergeAll(
       Layer.succeed(ProviderTurnSelectionResolver, {
         resolveNewThreadConnection: () => Effect.succeed(TEST_CONNECTION_ID),
-        resolveInitial: () => Effect.die("not used by reactor tests"),
         resolveExisting: (selection: {
           readonly threadId: ThreadId;
           readonly modelSelection?: ModelSelection;
@@ -479,33 +504,53 @@ describe("ProviderCommandReactor", () => {
           readonly bindingRevision?: number;
         }) => {
           resolvedBindingSelections.push(selection);
-          return Effect.succeed({
-            threadId: selection.threadId,
-            harness: selection.modelSelection?.provider ?? modelSelection.provider,
-            connectionId:
-              input?.strictBindingSelection && selection.connectionId === undefined
+          return Effect.gen(function* () {
+            const [canonical] = yield* sql<{
+              nativeStateId: string | null;
+              providerSessionId: string | null;
+              provider: string;
+            }>`SELECT native_state_id AS "nativeStateId", provider_session_id AS "providerSessionId", provider FROM threads WHERE id=${selection.threadId}`;
+            if (canonical === undefined)
+              return yield* Effect.fail(new Error("The thread does not exist."));
+            if (
+              selection.modelSelection !== undefined &&
+              selection.modelSelection.provider !== canonical.provider
+            )
+              return yield* Effect.fail(
+                new Error(
+                  `Thread '${selection.threadId}' is bound to provider '${canonical.provider}' and cannot switch to '${selection.modelSelection.provider}'.`,
+                ),
+              );
+            return {
+              threadId: selection.threadId,
+              harness: selection.modelSelection?.provider ?? modelSelection.provider,
+              connectionId:
+                input?.strictBindingSelection && selection.connectionId === undefined
+                  ? bindingConnectionId
+                  : selection.connectionId === undefined
+                    ? TEST_CONNECTION_ID
+                    : selection.connectionId,
+              connectionLabel: "Test",
+              previousConnectionId: input?.strictBindingSelection
                 ? bindingConnectionId
-                : (selection.connectionId ?? TEST_CONNECTION_ID),
-            connectionLabel: "Test",
-            previousConnectionId: input?.strictBindingSelection
-              ? bindingConnectionId
-              : TEST_CONNECTION_ID,
-            previousModelId: input?.strictBindingSelection
-              ? bindingModelId
-              : (selection.modelSelection?.model ?? "gpt-5.5"),
-            installationId: TEST_INSTALLATION_ID,
-            internalProviderId: null,
-            modelId:
-              selection.modelSelection?.model ??
-              (input?.strictBindingSelection ? bindingModelId : "gpt-5.5"),
-            modelLabel: selection.modelSelection?.model ?? "GPT-5.5",
-            stateRevision: 0,
-            bindingRevision,
-            changed:
-              input?.strictBindingSelection === true &&
-              ((selection.connectionId !== undefined &&
-                selection.connectionId !== bindingConnectionId) ||
-                (selection.modelSelection?.model ?? bindingModelId) !== bindingModelId),
+                : TEST_CONNECTION_ID,
+              previousModelId: input?.strictBindingSelection
+                ? bindingModelId
+                : (selection.modelSelection?.model ?? "gpt-5.5"),
+              installationId: TEST_INSTALLATION_ID,
+              internalProviderId: null,
+              modelId:
+                selection.modelSelection?.model ??
+                (input?.strictBindingSelection ? bindingModelId : "gpt-5.5"),
+              modelLabel: selection.modelSelection?.model ?? "GPT-5.5",
+              nativeStateId: canonical.nativeStateId,
+              providerSessionId: canonical.providerSessionId,
+              changed:
+                input?.strictBindingSelection === true &&
+                ((selection.connectionId !== undefined &&
+                  selection.connectionId !== bindingConnectionId) ||
+                  (selection.modelSelection?.model ?? bindingModelId) !== bindingModelId),
+            };
           });
         },
       } as never),
@@ -522,38 +567,6 @@ describe("ProviderCommandReactor", () => {
             childEnvironment: (baseEnv: NodeJS.ProcessEnv) => ({ ...baseEnv }),
           }),
       }),
-      Layer.succeed(ThreadProviderBindingRepository, {
-        getRuntimeBinding: (threadId: ThreadId) =>
-          Effect.succeed(
-            Option.some({
-              threadId,
-              connectionId: input?.strictBindingSelection
-                ? bindingConnectionId
-                : TEST_CONNECTION_ID,
-              installationId: TEST_INSTALLATION_ID,
-              internalProviderId: null,
-              modelId: input?.strictBindingSelection ? bindingModelId : modelSelection.model,
-              revision: bindingRevision,
-              createdAt: "2026-08-08T00:00:00.000Z",
-              updatedAt: "2026-08-08T00:00:00.000Z",
-            }),
-          ),
-        getHarnessState: (threadId: ThreadId) =>
-          Effect.succeed(
-            Option.some({
-              threadId,
-              harness: modelSelection.provider,
-              nativeStateGenerationId:
-                ProviderNativeStateGenerationId.makeUnsafe("test-native-generation"),
-              providerSessionId: input?.providerSessionId ?? null,
-              nativeStateLocatorJson: input?.nativeStateLocatorJson ?? "null",
-              lastVerifiedResumeAt: null,
-              revision: 0,
-              createdAt: "2026-08-08T00:00:00.000Z",
-              updatedAt: "2026-08-08T00:00:00.000Z",
-            }),
-          ),
-      } as never),
     );
     const orchestrationLayer = OrchestrationEngineLive.pipe(
       Layer.provide(OrchestrationProjectionPipelineLive),
@@ -645,7 +658,35 @@ describe("ProviderCommandReactor", () => {
     const engineDispatchTarget = engine as {
       dispatch: OrchestrationEngineShape["dispatch"];
     };
-    const passthroughDispatch = engineDispatchTarget.dispatch;
+    const rawDispatch = engineDispatchTarget.dispatch;
+    const passthroughDispatch: OrchestrationEngineShape["dispatch"] = (command, context) =>
+      command.type === "thread.turn.start" || command.type === "thread.turn.dispatch-queued"
+        ? Effect.gen(function* () {
+            const [row] = yield* sql<{
+              provider: ProviderKind;
+              model: string;
+              connectionId: ProviderConnectionId | null;
+            }>`SELECT provider, model, connection_id AS "connectionId" FROM threads WHERE id=${command.threadId}`.pipe(
+              Effect.orDie,
+            );
+            if (row === undefined) return yield* rawDispatch(command, context);
+            return yield* rawDispatch(command, {
+              ...context,
+              acceptedTurnSelection: {
+                threadId: command.threadId,
+                modelSelection: command.modelSelection ?? {
+                  provider: row.provider,
+                  model: row.model,
+                },
+                connectionId:
+                  command.connectionId === undefined ? row.connectionId : command.connectionId,
+                nativeState: undefined,
+                updatedAt: command.createdAt,
+              },
+            });
+          })
+        : rawDispatch(command, context);
+    engineDispatchTarget.dispatch = passthroughDispatch;
     const interceptEngineDispatch = (
       interceptor: (
         command: OrchestrationCommand,
@@ -742,18 +783,34 @@ describe("ProviderCommandReactor", () => {
           modelSelection: modelSelection,
           runtimeMode: "approval-required",
           createdAt: now,
-          connection: { kind: "selected", connectionId: null },
+          connection: { kind: "selected", connectionId: TEST_CONNECTION_ID },
           creator: { kind: "user" },
         }),
       );
     }
 
+    if (!input?.skipSeed && input?.providerSessionId !== undefined) {
+      await Effect.runPromise(
+        sql`UPDATE threads SET provider_session_id=${input.providerSessionId} WHERE id='thread-1'`,
+      );
+    }
+
     return {
+      seedNativeConversation: async () => {
+        const nativeStateId = "fixture-thread-1";
+        const sessionId = crypto.randomUUID();
+        const root = providerNativeStateRoot(stateDir, nativeStateId);
+        fs.mkdirSync(path.join(root, "codex-rollouts"), { recursive: true });
+        fs.writeFileSync(
+          path.join(root, "codex-rollouts", `rollout-${sessionId}.jsonl`),
+          "prior native conversation",
+        );
+        await Effect.runPromise(
+          sql`UPDATE threads SET native_state_id=${nativeStateId}, provider_session_id=${sessionId} WHERE id='thread-1'`,
+        );
+      },
       engine,
       disposeRuntime: () => runtime.dispose(),
-      setBindingRevision: (revision: number) => {
-        bindingRevision = revision;
-      },
       resolvedBindingSelections,
       reactor,
       startSession,
@@ -1030,7 +1087,6 @@ describe("ProviderCommandReactor", () => {
     "reconstructs a fresh %s continuation from the latest compaction boundary",
     async (provider, model) => {
       const harness = await createHarness({
-        nativeStateLocatorJson: JSON.stringify({ penkraReconstruction: true }),
         threadModelSelection: { provider, model },
       });
       const threadId = ThreadId.makeUnsafe("thread-1");
@@ -1148,7 +1204,6 @@ describe("ProviderCommandReactor", () => {
 
   it("does not announce reconstruction when the rebuilt turn is rejected", async () => {
     const harness = await createHarness({
-      nativeStateLocatorJson: JSON.stringify({ penkraReconstruction: true }),
       threadModelSelection: { provider: "claudeAgent", model: "claude-sonnet-5" },
       sendTurn: () =>
         Effect.fail(
@@ -1194,7 +1249,6 @@ describe("ProviderCommandReactor", () => {
     const sessionId = "550e8400-e29b-41d4-a716-446655440000";
     const harness = await createHarness({
       providerSessionId: sessionId,
-      nativeStateLocatorJson: JSON.stringify({ resume: sessionId }),
       threadModelSelection: { provider: "claudeAgent", model: "claude-sonnet-5" },
     });
     const threadId = ThreadId.makeUnsafe("thread-1");
@@ -4603,6 +4657,7 @@ describe("ProviderCommandReactor", () => {
 
   it("advances a queued successor after definite pre-send session startup failure", async () => {
     const harness = await createHarness();
+    await harness.seedNativeConversation();
     const failedMessageId = asMessageId("user-message-startup-failure-before-successor");
     const successorMessageId = asMessageId("user-message-after-startup-failure");
     const startupGate = Effect.runSync(Deferred.make<void>());
@@ -5688,43 +5743,6 @@ describe("ProviderCommandReactor", () => {
     },
   );
 
-  it("refreshes a queued turn's binding revision before switching its connection", async () => {
-    const harness = await createHarness({ strictBindingSelection: true });
-    const messageId = asMessageId("msg-queued-revision-advanced");
-    const liveTurnId = asTurnId("turn-before-revision-advanced");
-    await seedQueuedTurnBehindLiveTurn(harness, {
-      liveTurnId,
-      messageId,
-      text: "use the latest binding",
-    });
-    harness.setBindingRevision(1);
-    const nextConnectionId = ProviderConnectionId.makeUnsafe("new-managed-connection");
-    await Effect.runPromise(
-      updateThreadFixture(harness.sql, {
-        action: "connection",
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        updatedAt: new Date().toISOString(),
-        connectionId: nextConnectionId,
-      }),
-    );
-    const promotions: OrchestrationCommand[] = [];
-    harness.interceptEngineDispatch((command) => {
-      if (command.type === "thread.turn.dispatch-queued") promotions.push(command);
-      return undefined;
-    });
-    await settleLiveTurn(harness, {
-      turnId: liveTurnId,
-      eventId: "evt-before-revision-advanced-completed",
-    });
-
-    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
-    expect(promotions).toHaveLength(1);
-    expect(promotions[0]).toMatchObject({
-      connectionId: nextConnectionId,
-      bindingRevision: 2,
-    });
-  });
-
   it("preserves agent sender context through queued promotion", async () => {
     const harness = await createHarness();
     const senderThreadId = ThreadId.makeUnsafe("queued-agent-sender");
@@ -6472,6 +6490,7 @@ describe("ProviderCommandReactor", () => {
 
   it("drains a session again after a promoted turn start failed before dispatch", async () => {
     const harness = await createHarness();
+    await harness.seedNativeConversation();
     // The queued message carries a managed attachment whose file disappears
     // between queueing and promotion (a real scenario: attachment GC, or the
     // state dir being cleaned while a turn waits in the queue). The promoted
@@ -6660,6 +6679,7 @@ describe("ProviderCommandReactor", () => {
 
   it("keeps the next queued turn blocked until the promoted turn settles", async () => {
     const harness = await createHarness();
+    await harness.seedNativeConversation();
     const now = new Date().toISOString();
     const firstSendGate: {
       release: ((value: { readonly threadId: ThreadId; readonly turnId: TurnId }) => void) | null;
@@ -8166,6 +8186,12 @@ describe("ProviderCommandReactor", () => {
     await waitFor(() => harness.startSession.mock.calls.length === 1);
     await waitFor(() => harness.sendTurn.mock.calls.length === 1);
 
+    const [sourceConversation] = await Effect.runPromise(
+      harness.sql<{
+        providerSessionId: string;
+      }>`SELECT provider_session_id AS "providerSessionId" FROM threads WHERE id='thread-1'`,
+    );
+
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.turn.start",
@@ -8194,7 +8220,7 @@ describe("ProviderCommandReactor", () => {
     await waitFor(() => harness.startSession.mock.calls.length === 2);
     await waitFor(() => harness.sendTurn.mock.calls.length === 2);
     expect(harness.startSession.mock.calls[1]?.[1]).toMatchObject({
-      resumeCursor: { opaque: "resume-1" },
+      resumeCursor: { resume: sourceConversation!.providerSessionId },
       modelSelection: {
         provider: "claudeAgent",
         model: "claude-sonnet-4-6",
@@ -8277,7 +8303,7 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
-  it("continues a managed-binding restart when provider lifecycle wins the session rebind CAS", async () => {
+  it("continues a runtime-mode restart when provider lifecycle wins the session rebind CAS", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
 
@@ -8321,8 +8347,6 @@ describe("ProviderCommandReactor", () => {
       return undefined;
     });
 
-    harness.setBindingRevision(1);
-
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.turn.start",
@@ -8336,7 +8360,7 @@ describe("ProviderCommandReactor", () => {
           text: "second",
           attachments: [],
         },
-        runtimeMode: "full-access",
+        runtimeMode: "approval-required",
         createdAt: now,
       }),
     );

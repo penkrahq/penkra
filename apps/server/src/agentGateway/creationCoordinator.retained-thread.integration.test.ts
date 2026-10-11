@@ -21,7 +21,6 @@ import type { ProviderDiscoveryServiceShape } from "../provider/Services/Provide
 import { ProviderService } from "../provider/Services/ProviderService.ts";
 import { ProviderThreadSwitchCoordinator } from "../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import { ThreadProviderBindingRepository } from "../persistence/Services/ThreadProviderBindings.ts";
 import { makeThreadSender } from "../cleanCore/ThreadSender.ts";
 import { ThreadPublisher } from "../cleanCore/ThreadPublisher.ts";
 import { makeThreadPublisher, setThreadState } from "../cleanCore/threadStore.ts";
@@ -118,9 +117,6 @@ it.effect(
           Effect.provide(ManagedAttachmentRepositoryLive),
           Effect.provideService(ThreadPublisher, publisher),
           Effect.provideService(ProviderThreadSwitchCoordinator, coordinator),
-          Effect.provideService(ThreadProviderBindingRepository, {
-            getRuntimeBinding: () => Effect.succeed(Option.none()),
-          } as unknown as typeof ThreadProviderBindingRepository.Service),
           Effect.provideService(ProviderService, {} as typeof ProviderService.Service),
         );
       const sender = yield* newSender();

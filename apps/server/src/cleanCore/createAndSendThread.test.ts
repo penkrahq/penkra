@@ -17,7 +17,6 @@ import { makeThreadSender, ThreadSender } from "./ThreadSender.ts";
 import { ThreadPublisher } from "./ThreadPublisher.ts";
 import { makeThreadPublisher } from "./threadStore.ts";
 import { ProviderThreadSwitchCoordinator } from "../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
-import { ThreadProviderBindingRepository } from "../persistence/Services/ThreadProviderBindings.ts";
 import { ProviderService } from "../provider/Services/ProviderService.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -73,9 +72,6 @@ it.effect("first send creates one thread and one message, including on retry", (
       Effect.provide(ManagedAttachmentRepositoryLive),
       Effect.provideService(ThreadPublisher, publisher),
       Effect.provideService(ProviderThreadSwitchCoordinator, coordinator),
-      Effect.provideService(ThreadProviderBindingRepository, {
-        getRuntimeBinding: () => Effect.succeed(Option.some({ revision: 12 })),
-      } as unknown as typeof ThreadProviderBindingRepository.Service),
       Effect.provideService(ProviderService, {
         interruptTurn: () => Effect.void,
       } as unknown as typeof ProviderService.Service),

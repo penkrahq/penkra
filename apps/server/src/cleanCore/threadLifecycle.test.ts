@@ -15,7 +15,6 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import { ProviderThreadSwitchCoordinator } from "../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
-import { ThreadProviderBindingRepository } from "../persistence/Services/ThreadProviderBindings.ts";
 import { ProviderService } from "../provider/Services/ProviderService.ts";
 import { makeThreadSender, ThreadSender } from "./ThreadSender.ts";
 import { ThreadPublisher } from "./ThreadPublisher.ts";
@@ -66,10 +65,6 @@ it.effect("web creation is idempotent and a send on its running thread is queued
       Effect.provideService(
         ProviderThreadSwitchCoordinator,
         {} as typeof ProviderThreadSwitchCoordinator.Service,
-      ),
-      Effect.provideService(
-        ThreadProviderBindingRepository,
-        {} as typeof ThreadProviderBindingRepository.Service,
       ),
       Effect.provideService(ProviderService, {} as unknown as typeof ProviderService.Service),
     );

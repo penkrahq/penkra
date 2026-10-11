@@ -8,7 +8,6 @@ import {
   ProviderConnectionId,
   ProviderInstallationId,
   ProviderKind,
-  ProviderNativeStateGenerationId,
   ThreadId,
   type OrchestrationEvent,
   type OrchestrationThread,
@@ -34,7 +33,6 @@ import { ProviderSessionRuntimeRepositoryLive } from "../src/persistence/Layers/
 import { ProviderRuntimeEventRepositoryLive } from "../src/persistence/Layers/ProviderRuntimeEvents.ts";
 import { makeSqlitePersistenceLive } from "../src/persistence/Layers/Sqlite.ts";
 import { ProjectionPendingInteractionRepository } from "../src/persistence/Services/ProjectionPendingInteractions.ts";
-import { ThreadProviderBindingRepository } from "../src/persistence/Services/ThreadProviderBindings.ts";
 import { ProviderUnsupportedError } from "../src/provider/Errors.ts";
 import { ProviderAdapterRegistry } from "../src/provider/Services/ProviderAdapterRegistry.ts";
 import { ProviderSessionDirectoryLive } from "../src/provider/Layers/ProviderSessionDirectory.ts";
@@ -326,25 +324,6 @@ export const makeOrchestrationIntegrationHarness = (
           requiresNativeStateMaterialization: false,
         }),
     } as typeof ProviderTurnSelectionResolver.Service);
-    const threadProviderBindingLayer = Layer.succeed(ThreadProviderBindingRepository, {
-      getRuntimeBinding: () => Effect.succeed(Option.none()),
-      getHarnessState: (threadId: ThreadId) =>
-        Effect.succeed(
-          Option.some({
-            threadId,
-            harness: provider,
-            nativeStateGenerationId: ProviderNativeStateGenerationId.makeUnsafe(
-              "integration-native-state",
-            ),
-            providerSessionId: null,
-            nativeStateLocatorJson: "null",
-            lastVerifiedResumeAt: null,
-            revision: 0,
-            createdAt: "2026-08-09T00:00:00.000Z",
-            updatedAt: "2026-08-09T00:00:00.000Z",
-          }),
-        ),
-    } as unknown as typeof ThreadProviderBindingRepository.Service);
     const providerThreadSwitchCoordinatorLayer = Layer.effect(
       ProviderThreadSwitchCoordinator,
       Effect.gen(function* () {
@@ -397,7 +376,6 @@ export const makeOrchestrationIntegrationHarness = (
           generateThreadTitle: () => Effect.succeed({ title: "Chat" }),
         }),
       ),
-      Layer.provideMerge(threadProviderBindingLayer),
       Layer.provideMerge(providerLaunchResolverLayer),
       Layer.provideMerge(providerTurnSelectionResolverLayer),
       Layer.provideMerge(providerThreadSwitchCoordinatorLayer),
