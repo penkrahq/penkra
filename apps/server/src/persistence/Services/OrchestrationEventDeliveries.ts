@@ -113,9 +113,6 @@ export interface OrchestrationEventDeliveryRepositoryShape {
     readonly eventSequence: number;
     readonly updatedAt: string;
   }) => Effect.Effect<boolean, PersistenceSqlError>;
-  readonly firstBlockingDelivery: (
-    consumerName: string,
-  ) => Effect.Effect<Option.Option<OrchestrationEventDelivery>, PersistenceSqlError>;
   readonly firstBlockingDeliveryForThread: (input: {
     readonly consumerName: string;
     readonly threadId: string;

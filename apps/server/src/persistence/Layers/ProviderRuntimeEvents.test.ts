@@ -40,6 +40,7 @@ layer("ProviderRuntimeEventRepository", (it) => {
   it.effect("journals exact events and advances its thread cursor contiguously", () =>
     Effect.gen(function* () {
       const repository = yield* ProviderRuntimeEventRepository;
+      const sql = yield* SqlClient.SqlClient;
       const first = yield* repository.append(runtimeEvent("runtime-event-1", "hello"));
       const duplicate = yield* repository.append(runtimeEvent("runtime-event-1", "hello"));
       const second = yield* repository.append(runtimeEvent("runtime-event-2", " world"));
@@ -66,11 +67,6 @@ layer("ProviderRuntimeEventRepository", (it) => {
           [second.sequence, "runtime-event-2"],
         ],
       );
-      assert.deepStrictEqual(yield* repository.getThreadCoverage("thread-runtime-journal"), {
-        retainedCount: 2,
-        oldestSequence: first.sequence,
-        highWaterSequence: second.sequence,
-      });
       assert.deepStrictEqual(
         (yield* repository.readThreadEvents({
           threadId: "thread-runtime-journal",
@@ -95,9 +91,9 @@ layer("ProviderRuntimeEventRepository", (it) => {
         updatedAt: "2026-07-14T00:00:01.000Z",
       });
       assert.isTrue(advanced);
-      assert.strictEqual(
-        yield* repository.getThreadCursor("thread-runtime-journal"),
-        first.sequence,
+      assert.deepStrictEqual(
+        yield* sql`SELECT last_acked_sequence AS "lastAckedSequence" FROM provider_runtime_thread_cursors WHERE thread_id = 'thread-runtime-journal'`,
+        [{ lastAckedSequence: first.sequence }],
       );
       assert.deepStrictEqual(
         (yield* repository.readAcceptedOpenTurnEvents({
@@ -108,12 +104,14 @@ layer("ProviderRuntimeEventRepository", (it) => {
         ["runtime-event-1"],
       );
       assert.deepStrictEqual(
-        (yield* repository.listOpenTurnsByThreadId("thread-runtime-journal")).map((turn) => [
-          turn.threadId,
-          turn.turnId,
-          turn.firstSequence,
-          turn.updatedAt,
-        ]),
+        (yield* sql<{
+          threadId: string;
+          turnId: string;
+          firstSequence: number;
+          updatedAt: string;
+        }>`SELECT thread_id AS "threadId", turn_id AS "turnId", first_sequence AS "firstSequence", updated_at AS "updatedAt" FROM provider_runtime_open_turns WHERE thread_id = 'thread-runtime-journal' ORDER BY first_sequence, turn_id`).map(
+          (turn) => [turn.threadId, turn.turnId, turn.firstSequence, turn.updatedAt],
+        ),
         [
           [
             "thread-runtime-journal",
@@ -155,7 +153,15 @@ layer("ProviderRuntimeEventRepository", (it) => {
         }),
         0,
       );
-      assert.lengthOf(yield* repository.listOpenTurnsByThreadId("thread-runtime-journal"), 0);
+      assert.lengthOf(
+        yield* sql<{
+          threadId: string;
+          turnId: string;
+          firstSequence: number;
+          updatedAt: string;
+        }>`SELECT thread_id AS "threadId", turn_id AS "turnId", first_sequence AS "firstSequence", updated_at AS "updatedAt" FROM provider_runtime_open_turns WHERE thread_id = 'thread-runtime-journal' ORDER BY first_sequence, turn_id`,
+        0,
+      );
 
       const conflict = yield* Effect.flip(
         repository.append(runtimeEvent("runtime-event-1", "different")),
@@ -260,14 +266,23 @@ layer("ProviderRuntimeEventRepository", (it) => {
           updatedAt: event.createdAt,
         }),
       );
-      assert.lengthOf(yield* repository.listOpenTurnsByThreadId(event.threadId), 0);
+      assert.lengthOf(
+        yield* sql<{
+          turnId: string;
+        }>`SELECT turn_id AS "turnId" FROM provider_runtime_open_turns WHERE thread_id = ${event.threadId} ORDER BY first_sequence, turn_id`,
+        0,
+      );
       yield* sql`
         INSERT INTO provider_runtime_open_turns (thread_id, turn_id, first_sequence, updated_at)
         VALUES (${event.threadId}, ${event.turnId}, ${persisted.sequence}, ${event.createdAt})
       `;
       yield* repository.pruneSettledOpenTurns;
       assert.deepEqual(
-        (yield* repository.listOpenTurnsByThreadId(event.threadId)).map((row) => row.turnId),
+        (yield* sql<{
+          turnId: string;
+        }>`SELECT turn_id AS "turnId" FROM provider_runtime_open_turns WHERE thread_id = ${event.threadId} ORDER BY first_sequence, turn_id`).map(
+          (row) => row.turnId,
+        ),
         [],
       );
     }),
@@ -276,6 +291,7 @@ layer("ProviderRuntimeEventRepository", (it) => {
   it.effect("isolates a quarantined thread while preserving its raw events for replay", () =>
     Effect.gen(function* () {
       const repository = yield* ProviderRuntimeEventRepository;
+      const sql = yield* SqlClient.SqlClient;
       const threadA = ThreadId.makeUnsafe("thread-runtime-isolation-a");
       const threadB = ThreadId.makeUnsafe("thread-runtime-isolation-b");
       const eventA1 = yield* repository.append({
@@ -291,7 +307,8 @@ layer("ProviderRuntimeEventRepository", (it) => {
         threadId: threadB,
       });
 
-      const initialHeads = yield* repository.readPendingThreadHeads({
+      const initialHeads = yield* repository.readPendingThreadEvents({
+        maxPerThread: 1,
         throughSequenceInclusive: eventB1.sequence,
         limit: 10,
       });
@@ -317,8 +334,10 @@ layer("ProviderRuntimeEventRepository", (it) => {
           updatedAt: "2026-07-14T00:10:00.000Z",
         }),
       );
-      assert.strictEqual(yield* repository.getThreadCursor(threadA), 0);
-      assert.strictEqual(yield* repository.getThreadCursor(threadB), eventB1.sequence);
+      assert.deepStrictEqual(
+        yield* sql`SELECT thread_id AS "threadId", last_acked_sequence AS "lastAckedSequence" FROM provider_runtime_thread_cursors WHERE thread_id IN (${threadA}, ${threadB}) ORDER BY thread_id`,
+        [{ threadId: threadB, lastAckedSequence: eventB1.sequence }],
+      );
 
       const firstFailure = yield* repository.recordProjectionFailure({
         sequence: eventA1.sequence,
@@ -341,7 +360,8 @@ layer("ProviderRuntimeEventRepository", (it) => {
       assert.strictEqual(quarantine.attemptCount, 2);
 
       assert.lengthOf(
-        yield* repository.readPendingThreadHeads({
+        yield* repository.readPendingThreadEvents({
+          maxPerThread: 1,
           throughSequenceInclusive: eventB1.sequence,
           limit: 10,
         }),
@@ -370,7 +390,8 @@ layer("ProviderRuntimeEventRepository", (it) => {
         }),
       );
       assert.deepStrictEqual(
-        (yield* repository.readPendingThreadHeads({
+        (yield* repository.readPendingThreadEvents({
+          maxPerThread: 1,
           throughSequenceInclusive: eventB1.sequence,
           limit: 10,
         })).map((entry) => entry.event.eventId),
@@ -384,7 +405,8 @@ layer("ProviderRuntimeEventRepository", (it) => {
         }),
       );
       assert.deepStrictEqual(
-        (yield* repository.readPendingThreadHeads({
+        (yield* repository.readPendingThreadEvents({
+          maxPerThread: 1,
           throughSequenceInclusive: eventB1.sequence,
           limit: 10,
         })).map((entry) => entry.event.eventId),

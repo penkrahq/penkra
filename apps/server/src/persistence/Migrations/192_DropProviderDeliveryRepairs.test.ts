@@ -51,7 +51,10 @@ it.effect(
       const threads = yield* sql`SELECT * FROM threads`;
       const items = yield* sql`SELECT * FROM thread_items`;
       const outbox = yield* sql`SELECT * FROM provider_intent_outbox`;
-      assert.deepStrictEqual(yield* runMigrations(), [[192, "DropProviderDeliveryRepairs"]]);
+      assert.deepStrictEqual(yield* runMigrations(), [
+        [192, "DropProviderDeliveryRepairs"],
+        [193, "DropRuntimeGlobalConsumerLedger"],
+      ]);
       assert.deepStrictEqual(yield* sql`SELECT * FROM threads`, threads);
       assert.deepStrictEqual(yield* sql`SELECT * FROM thread_items`, items);
       assert.deepStrictEqual(yield* sql`SELECT * FROM provider_intent_outbox`, outbox);

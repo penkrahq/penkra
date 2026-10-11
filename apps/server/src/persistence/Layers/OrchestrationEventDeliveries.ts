@@ -284,20 +284,6 @@ const makeRepository = Effect.gen(function* () {
       )
       .pipe(Effect.mapError(toPersistenceSqlError("OrchestrationEventDelivery.complete")));
 
-  const firstBlockingDelivery: OrchestrationEventDeliveryRepositoryShape["firstBlockingDelivery"] =
-    (consumerName) =>
-      sql<OrchestrationEventDelivery>`
-        SELECT ${deliveryColumns(sql)}
-        FROM orchestration_event_deliveries
-        WHERE consumer_name = ${consumerName}
-          AND state IN ('dead', 'uncertain')
-        ORDER BY event_sequence ASC
-        LIMIT 1
-      `.pipe(
-        Effect.map((rows) => Option.fromNullishOr(rows[0])),
-        Effect.mapError(toPersistenceSqlError("OrchestrationEventDelivery.firstBlockingDelivery")),
-      );
-
   const firstBlockingDeliveryForThread: OrchestrationEventDeliveryRepositoryShape["firstBlockingDeliveryForThread"] =
     (input) =>
       sql<OrchestrationEventDelivery>`
@@ -442,7 +428,6 @@ const makeRepository = Effect.gen(function* () {
     markTerminalFailure,
     complete,
     advanceCursor,
-    firstBlockingDelivery,
     firstBlockingDeliveryForThread,
     listBlockingDeliveries,
     listRetryableDeliveries,

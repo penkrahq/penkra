@@ -18,13 +18,6 @@ export interface PersistedProviderRuntimeEvent {
   readonly persistedAt?: string;
 }
 
-export interface ProviderRuntimeOpenTurn {
-  readonly threadId: string;
-  readonly turnId: string;
-  readonly firstSequence: number;
-  readonly updatedAt: string;
-}
-
 export type ProviderRuntimeProjectionFailureStatus = "active" | "quarantined" | "resolved";
 
 export interface ProviderRuntimeProjectionFailure {
@@ -63,17 +56,6 @@ export interface ProviderRuntimeEventRepositoryShape {
     ProviderRuntimeEventRepositoryError
   >;
   /**
-   * Returns at most the first unaccepted row for each non-quarantined thread.
-   * Rows remain globally ordered, but one thread can no longer block another.
-   */
-  readonly readPendingThreadHeads: (input: {
-    readonly throughSequenceInclusive: number;
-    readonly limit: number;
-  }) => Effect.Effect<
-    ReadonlyArray<PersistedProviderRuntimeEvent>,
-    ProviderRuntimeEventRepositoryError
-  >;
-  /**
    * Returns a bounded ordered prefix for each non-quarantined thread.
    * This is the replay/drain path: it amortizes the eligibility scan while
    * preserving per-thread order and poison-head isolation.
@@ -87,14 +69,6 @@ export interface ProviderRuntimeEventRepositoryShape {
   }) => Effect.Effect<
     ReadonlyArray<PersistedProviderRuntimeEvent>,
     ProviderRuntimeEventRepositoryError
-  >;
-  readonly getThreadCoverage: (threadId: string) => Effect.Effect<
-    {
-      readonly retainedCount: number;
-      readonly oldestSequence: number | null;
-      readonly highWaterSequence: number;
-    },
-    PersistenceSqlError
   >;
   readonly readThreadEvents: (input: {
     readonly threadId: string;
@@ -115,9 +89,6 @@ export interface ProviderRuntimeEventRepositoryShape {
     ReadonlyArray<PersistedProviderRuntimeEvent>,
     ProviderRuntimeEventRepositoryError
   >;
-  readonly listOpenTurnsByThreadId: (
-    threadId: string,
-  ) => Effect.Effect<ReadonlyArray<ProviderRuntimeOpenTurn>, PersistenceSqlError>;
   readonly pruneSettledOpenTurns: Effect.Effect<void, PersistenceSqlError>;
   readonly getThreadCursor: (
     threadId: string,
@@ -155,15 +126,6 @@ export interface ProviderRuntimeEventRepositoryShape {
   readonly releaseQuarantinedThread: (input: {
     readonly threadId: string;
     readonly releasedAt: string;
-  }) => Effect.Effect<boolean, PersistenceSqlError>;
-  /** Legacy global cursor retained for migration diagnostics and old databases. */
-  readonly getConsumerCursor: (
-    consumerName: string,
-  ) => Effect.Effect<number, ProviderRuntimeEventRepositoryError>;
-  readonly advanceConsumerCursor: (input: {
-    readonly consumerName: string;
-    readonly eventSequence: number;
-    readonly updatedAt: string;
   }) => Effect.Effect<boolean, PersistenceSqlError>;
 }
 

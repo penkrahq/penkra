@@ -273,13 +273,12 @@ layer("OrchestrationEventDeliveryRepository", (it) => {
         error: "bounded retry budget exhausted",
         updatedAt: now,
       });
-      const blocker = yield* repository.firstBlockingDelivery(PROVIDER_COMMAND_REACTOR_CONSUMER);
-      assert.strictEqual(blocker.pipe(Option.getOrThrow).state, "dead");
-      assert.strictEqual(blocker.pipe(Option.getOrThrow).threadId, "thread-expired");
       const threadBlocker = yield* repository.firstBlockingDeliveryForThread({
         consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
         threadId: "thread-expired",
       });
+      assert.strictEqual(threadBlocker.pipe(Option.getOrThrow).state, "dead");
+      assert.strictEqual(threadBlocker.pipe(Option.getOrThrow).threadId, "thread-expired");
       assert.strictEqual(threadBlocker.pipe(Option.getOrThrow).eventSequence, sequence);
       const unrelatedThread = yield* repository.firstBlockingDeliveryForThread({
         consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
