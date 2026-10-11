@@ -173,7 +173,7 @@ const makeWithDatabase = (
         lookup: (sql: string) =>
           Effect.try({
             try: () => prepareStatement(sql),
-            catch: (cause) => makeSqlError(cause, "Failed to prepare statement"),
+            catch: (cause) => makeSqlError(cause, `Failed to prepare statement: ${sql}`),
           }),
       });
 
@@ -194,7 +194,7 @@ const makeWithDatabase = (
             const result = statement.run(...(params as any));
             return Effect.succeed(raw ? (result as unknown as ReadonlyArray<any>) : []);
           } catch (cause) {
-            return Effect.fail(makeSqlError(cause, "Failed to execute statement"));
+            return Effect.fail(makeSqlError(cause, `Failed to execute statement: ${sql}`));
           } finally {
             reportSlowStatement(sql, params.length, startedAt);
           }
@@ -225,7 +225,7 @@ const makeWithDatabase = (
                   reportSlowStatement(sql, params.length, startedAt);
                 }
               },
-              catch: (cause) => makeSqlError(cause, "Failed to execute statement"),
+              catch: (cause) => makeSqlError(cause, `Failed to execute statement: ${sql}`),
             }),
           (statement) =>
             Effect.sync(() => {
@@ -246,10 +246,19 @@ const makeWithDatabase = (
           return runValues(sql, params);
         },
         executeUnprepared(sql, params, rowTransform) {
+          // SQLITE_FULL, IOERR and NOMEM can roll back the entire transaction,
+          // including its savepoints. There is then nothing for Effect's rollback
+          // finalizer to undo; running it would replace the original SQL error.
+          if (
+            (sql === "ROLLBACK" || sql.startsWith("ROLLBACK TO SAVEPOINT effect_sql_")) &&
+            !db.isTransaction
+          ) {
+            return Effect.succeed([]);
+          }
           const effect = Effect.flatMap(
             Effect.try({
               try: () => prepareStatement(sql),
-              catch: (cause) => makeSqlError(cause, "Failed to prepare statement"),
+              catch: (cause) => makeSqlError(cause, `Failed to prepare statement: ${sql}`),
             }),
             (statement) => runStatement(sql, statement, params ?? [], false),
           );
