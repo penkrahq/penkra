@@ -17,7 +17,6 @@ import {
 } from "../DatabaseLifecycleLock.ts";
 import { assertSafeSqliteVersion, isSqliteCorruptionError } from "../SqliteSafety.ts";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
-import { notePreStoreBootFailure } from "../../diagnostics/preStoreStartup.ts";
 
 type RuntimeSqliteLayerConfig = {
   readonly filename: string;
@@ -28,18 +27,8 @@ const makeRuntimeSqliteLayer = (
   config: RuntimeSqliteLayerConfig,
 ): Layer.Layer<SqlClient.SqlClient> =>
   Effect.sync(() => {
-    try {
-      assertSafeSqliteVersion(process.versions.sqlite ?? "unknown");
-    } catch (cause) {
-      notePreStoreBootFailure("sqlite_open");
-      throw cause;
-    }
-    return NodeSqliteClient.layer(config).pipe(
-      Layer.catchCause((cause) => {
-        notePreStoreBootFailure("sqlite_open");
-        return Layer.unwrap(Effect.failCause(cause)) as Layer.Layer<SqlClient.SqlClient>;
-      }),
-    );
+    assertSafeSqliteVersion(process.versions.sqlite ?? "unknown");
+    return NodeSqliteClient.layer(config);
   }).pipe(Layer.unwrap);
 
 function errnoCode(cause: unknown): string | undefined {
@@ -68,7 +57,6 @@ const repairSqliteFilePermissionsBeforeOpen = (dbPath: string) =>
   });
 
 const makeSetup = (dbPath?: string, pendingRecovery: MigrationRecoveryMarker | null = null) => {
-  let migrationStarted = false;
   return Layer.effectDiscard(
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
@@ -135,26 +123,14 @@ const makeSetup = (dbPath?: string, pendingRecovery: MigrationRecoveryMarker | n
           ? resumeMarkedMigration(dbPath, pendingRecovery, runMigrations())
           : runWithPreMigrationBackup(dbPath, runMigrations())
         : runMigrations();
-      migrationStarted = true;
       yield* migrations;
-    }).pipe(
-      Effect.catchCause((cause) => {
-        notePreStoreBootFailure(migrationStarted ? "database_migration" : "sqlite_open");
-        return Effect.failCause(cause);
-      }),
-    ),
+    }),
   );
 };
 
 export const makeSqlitePersistenceLive = (dbPath: string) =>
-  Effect.acquireRelease(
-    acquireDatabaseLifecycleLock(dbPath).pipe(
-      Effect.catchCause((cause) => {
-        notePreStoreBootFailure("database_lock");
-        return Effect.failCause(cause);
-      }),
-    ),
-    (lock) => releaseDatabaseLifecycleLock(lock).pipe(Effect.orDie),
+  Effect.acquireRelease(acquireDatabaseLifecycleLock(dbPath), (lock) =>
+    releaseDatabaseLifecycleLock(lock).pipe(Effect.orDie),
   ).pipe(
     Effect.flatMap(() =>
       Effect.gen(function* () {
@@ -185,12 +161,7 @@ export const makeSqlitePersistenceLive = (dbPath: string) =>
           makeSetup(dbPath, pendingRecovery),
           makeRuntimeSqliteLayer({ filename: dbPath, onFatalError }),
         );
-      }).pipe(
-        Effect.catchCause((cause) => {
-          notePreStoreBootFailure("sqlite_prepare");
-          return Effect.failCause(cause);
-        }),
-      ),
+      }),
     ),
     Layer.unwrap,
   );

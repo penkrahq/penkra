@@ -3,9 +3,6 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("./diagnostics/recorder", () => ({ recordDiagnosticIncident: vi.fn() }));
-
-import { recordDiagnosticIncident } from "./diagnostics/recorder";
 import {
   buildCodexProcessEnv,
   linkOrCopyCodexOverlayEntry,
@@ -16,11 +13,10 @@ import {
 const roots: string[] = [];
 afterEach(async () => {
   for (const root of roots.splice(0)) await fs.rm(root, { recursive: true, force: true });
-  vi.mocked(recordDiagnosticIncident).mockClear();
 });
 
-describe("Codex profile filesystem diagnostics", () => {
-  it("lets the caller report a failed optional link once", async () => {
+describe("Codex profile filesystem failures", () => {
+  it("lets the caller handle a failed optional link", async () => {
     await expect(
       linkOrCopyCodexOverlayEntry(
         {
@@ -37,10 +33,9 @@ describe("Codex profile filesystem diagnostics", () => {
         },
       ),
     ).rejects.toThrow("private link detail");
-    expect(recordDiagnosticIncident).not.toHaveBeenCalled();
   });
 
-  it("records and skips one failed optional overlay entry while preparing later entries", async () => {
+  it("skips a failed optional overlay entry while preparing later entries", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "penkra-codex-overlay-diagnostic-"));
     roots.push(root);
     const sourceHomePath = path.join(root, "source");
@@ -66,9 +61,6 @@ describe("Codex profile filesystem diagnostics", () => {
     expect(await fs.readlink(path.join(overlayHomePath, "z-state"))).toBe(
       path.join(sourceHomePath, "z-state"),
     );
-    expect(recordDiagnosticIncident).toHaveBeenCalledWith(
-      expect.objectContaining({ code: "EXTERNAL_CALL_FAILED", where: "server.codex_config" }),
-    );
     const env = await buildCodexProcessEnv({
       env: { PENKRA_HOME: overlayRoot },
       homePath: sourceHomePath,
@@ -77,7 +69,7 @@ describe("Codex profile filesystem diagnostics", () => {
     expect(env.CODEX_HOME).toBe(overlayHomePath);
   });
 
-  it("records a non-ENOENT stat failure and continues the optional profile setup", async () => {
+  it("continues optional profile setup after a non-ENOENT stat failure", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "penkra-codex-config-diagnostic-"));
     roots.push(root);
     const sourceHomePath = path.join(root, "source");
@@ -91,9 +83,5 @@ describe("Codex profile filesystem diagnostics", () => {
         sourceHomePath,
       }),
     ).resolves.toBeUndefined();
-    expect(recordDiagnosticIncident).toHaveBeenCalledTimes(1);
-    expect(recordDiagnosticIncident).toHaveBeenCalledWith(
-      expect.objectContaining({ code: "EXTERNAL_CALL_FAILED", where: "server.codex_config" }),
-    );
   });
 });

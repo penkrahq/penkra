@@ -27,8 +27,6 @@ import {
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
 import { Server, type ServerShape } from "./effectServer";
 import { makeServerShutdownController } from "./serverShutdown";
-import { openDiagnosticsReader, type DiagnosticsStore } from "./diagnostics/store";
-import { installDiagnosticsStore } from "./diagnostics/recorder";
 
 import {
   CliConfig,
@@ -600,7 +598,7 @@ it.layer(testLayer)("server CLI command", (it) => {
     }),
   );
 
-  it.effect("records a failed browser auto-open without failing server startup", () =>
+  it.effect("continues server startup when browser auto-open fails", () =>
     Effect.gen(function* () {
       openBrowser.mockImplementationOnce(
         () =>
@@ -609,21 +607,25 @@ it.layer(testLayer)("server CLI command", (it) => {
       yield* runCli([], { PENKRA_NO_BROWSER: "false" });
 
       assert.equal(start.mock.calls.length, 1);
-      const reader = openDiagnosticsReader(resolvedConfig!.stateDir)!;
-      try {
-        const incident = reader
-          .prepare("SELECT code, where_name, summary FROM incidents WHERE code = ?")
-          .get("EXTERNAL_CALL_FAILED") as {
-          code: string;
-          where_name: string;
-          summary: string;
-        };
-        assert.equal(incident.code, "EXTERNAL_CALL_FAILED");
-        assert.equal(incident.where_name, "server.boot");
-        assert.equal(incident.summary.includes("private browser detail"), false);
-      } finally {
-        reader.close();
+    }),
+  );
+
+  it.effect("removes retired diagnostics files at startup without recreating them", () =>
+    Effect.gen(function* () {
+      const diagnosticsDir = path.join(defaultPenkraHome, "userdata", "diagnostics");
+      fs.mkdirSync(diagnosticsDir, { recursive: true });
+      for (const name of [
+        "diagnostics.sqlite",
+        "diagnostics.sqlite-wal",
+        "diagnostics.sqlite-shm",
+        "old.spool",
+      ]) {
+        fs.writeFileSync(path.join(diagnosticsDir, name), "retired");
       }
+      yield* runCli([]);
+      assert.equal(resolvedConfig?.stateDir, path.dirname(diagnosticsDir));
+      assert.equal(fs.existsSync(diagnosticsDir), false);
+      assert.equal(start.mock.calls.length, 1);
     }),
   );
 
@@ -837,34 +839,19 @@ it.layer(testLayer)("server CLI command", (it) => {
     }),
   );
 
-  it.effect("records a failed heartbeat query and retains the existing zero-count fallback", () =>
+  it.effect("retains the zero-count heartbeat fallback when its query fails", () =>
     Effect.gen(function* () {
-      const incidentWrite = vi.fn();
-      const store = {
-        incident: incidentWrite,
-        startHealthSampling: () => () => undefined,
-        startProcessWatchdog: () => () => undefined,
-        importPeerSpools: vi.fn(),
-        sweepExpectations: vi.fn(),
-      } as unknown as DiagnosticsStore;
-      const uninstall = installDiagnosticsStore(store);
       const recordTelemetry = vi.fn(() => Effect.void);
-      try {
-        yield* recordStartupHeartbeat.pipe(
-          Effect.provideService(ProjectionSnapshotQuery, {
-            getCounts: () => Effect.fail(new Error("private projection detail")),
-          } as unknown as ProjectionSnapshotQueryShape),
-          Effect.provideService(AnalyticsService, { record: recordTelemetry, flush: Effect.void }),
-        );
-        assert.equal(incidentWrite.mock.calls[0]?.[0].code, "EXTERNAL_CALL_FAILED");
-        assert.equal(incidentWrite.mock.calls[0]?.[0].where, "server.boot");
-        assert.deepEqual(recordTelemetry.mock.calls[0], [
-          "server.boot.heartbeat",
-          { threadCount: 0, folderCount: 0 },
-        ]);
-      } finally {
-        uninstall();
-      }
+      yield* recordStartupHeartbeat.pipe(
+        Effect.provideService(ProjectionSnapshotQuery, {
+          getCounts: () => Effect.fail(new Error("private projection detail")),
+        } as unknown as ProjectionSnapshotQueryShape),
+        Effect.provideService(AnalyticsService, { record: recordTelemetry, flush: Effect.void }),
+      );
+      assert.deepEqual(recordTelemetry.mock.calls[0], [
+        "server.boot.heartbeat",
+        { threadCount: 0, folderCount: 0 },
+      ]);
     }),
   );
 

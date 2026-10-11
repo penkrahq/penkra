@@ -6,7 +6,6 @@ import { createInterface } from "node:readline";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { qaProviderCoverageLabel } from "../diagnostics-qa-gate";
 import { assertIsolatedQaStateDir, seedScriptedProvider } from "./seed-scripted-provider.mjs";
 
 const fixture = fileURLToPath(new URL("./scripted-codex-app-server.mjs", import.meta.url));
@@ -75,12 +74,16 @@ describe("scripted provider QA fixture", () => {
     lines.on("line", (line) => received.push(JSON.parse(line) as Record<string, unknown>));
     const request = (id: number, method: string, params: object = {}) =>
       child.stdin!.write(`${JSON.stringify({ id, method, params })}\n`);
-    const until = async (predicate: () => boolean) => {
-      for (let attempt = 0; attempt < 100; attempt += 1) {
-        if (predicate()) return;
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      }
-      throw new Error(`Timed out waiting for fixture: ${JSON.stringify(received)}`);
+    const until = (predicate: () => boolean): Promise<void> => {
+      if (predicate()) return Promise.resolve();
+      return new Promise((resolve) => {
+        const check = () => {
+          if (!predicate()) return;
+          lines.off("line", check);
+          resolve();
+        };
+        lines.on("line", check);
+      });
     };
     try {
       request(1, "initialize");
@@ -150,13 +153,6 @@ describe("scripted provider QA fixture", () => {
       lines.close();
       fs.rmSync(fixtureHome, { recursive: true, force: true });
     }
-  });
-
-  it("labels fixture coverage without claiming real-provider coverage", () => {
-    expect(qaProviderCoverageLabel("scripted-fixture")).toBe(
-      "scripted-fixture; real provider not covered",
-    );
-    expect(qaProviderCoverageLabel(undefined)).toBe("unverified; real provider not covered");
   });
 
   it("seeds only a fresh, disposable Dev provider catalog", () => {

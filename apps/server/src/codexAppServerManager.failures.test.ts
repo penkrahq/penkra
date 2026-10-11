@@ -1,17 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("./diagnostics/recorder", () => ({ recordDiagnosticIncident: vi.fn() }));
-
-import { recordDiagnosticIncident } from "./diagnostics/recorder";
 import { CodexAppServerManager } from "./codexAppServerManager";
 
 afterEach(() => {
   vi.useRealTimers();
-  vi.mocked(recordDiagnosticIncident).mockClear();
 });
 
-describe("Codex app-server manager diagnostics", () => {
-  it("records a malformed provider thread response before rejecting it", () => {
+describe("Codex app-server failures", () => {
+  it("rejects a malformed provider thread response", () => {
     const manager = new CodexAppServerManager();
     const readThreadIdFromResponse = (
       manager as unknown as {
@@ -21,12 +17,9 @@ describe("Codex app-server manager diagnostics", () => {
     expect(() => readThreadIdFromResponse("thread/start", { thread: {} })).toThrow(
       "thread/start response did not include a thread id.",
     );
-    expect(recordDiagnosticIncident).toHaveBeenCalledWith(
-      expect.objectContaining({ code: "EXTERNAL_CALL_FAILED", where: "server.codex_app" }),
-    );
   });
 
-  it("records a provider request timeout before rejecting the request", async () => {
+  it("rejects a provider request timeout and clears the pending request", async () => {
     vi.useFakeTimers();
     const manager = new CodexAppServerManager();
     const context = {
@@ -49,8 +42,5 @@ describe("Codex app-server manager diagnostics", () => {
     await vi.advanceTimersByTimeAsync(25);
     await rejection;
     expect(context.pending.size).toBe(0);
-    expect(recordDiagnosticIncident).toHaveBeenCalledWith(
-      expect.objectContaining({ code: "EXTERNAL_CALL_FAILED", where: "server.codex_app" }),
-    );
   });
 });
