@@ -1,7 +1,7 @@
 // FILE: ProviderInstallations.ts
 // Purpose: Atomically activates verified installations while retaining prior generations.
 
-import { ProviderInstallation } from "@penkra/contracts";
+import { ProviderInstallation, ProviderKind } from "@penkra/contracts";
 import { Effect, Layer, Option, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
@@ -56,6 +56,19 @@ const makeProviderInstallationRepository = Effect.gen(function* () {
       FROM provider_installations WHERE installation_id = ${id}
     `,
   });
+  const selectActiveRecord = SqlSchema.findOneOption({
+    Request: ProviderKind,
+    Result: ProviderInstallationRecord,
+    execute: (harness) => sql`
+      SELECT installation_id AS id, harness_kind AS harness, version, platform, architecture,
+        executable_path AS "executablePath", artifact_source AS "artifactSource",
+        artifact_url AS "artifactUrl", artifact_sha256 AS "artifactSha256",
+        adapter_version AS "adapterVersion", protocol_version AS "protocolVersion",
+        lifecycle, health_reason AS "healthReason", installed_at AS "installedAt",
+        activated_at AS "activatedAt", retired_at AS "retiredAt"
+      FROM provider_installations WHERE harness_kind = ${harness} AND lifecycle = 'active'
+    `,
+  });
   const mapped = <A>(operation: string, effect: Effect.Effect<A, unknown>) =>
     effect.pipe(
       Effect.mapError(toPersistenceSqlOrDecodeError(`${operation}:query`, `${operation}:decode`)),
@@ -95,6 +108,8 @@ const makeProviderInstallationRepository = Effect.gen(function* () {
         ),
       ),
     list: () => mapped("ProviderInstallationRepository.list", listRows()),
+    getActiveRecord: (harness) =>
+      mapped("ProviderInstallationRepository.getActiveRecord", selectActiveRecord(harness)),
     getRecord: (id) => mapped("ProviderInstallationRepository.getRecord", selectRecord({ id })),
     reactivate: (id, activatedAt) =>
       mapped(

@@ -87,7 +87,6 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
     readonly installationId: ProviderInstallationId;
     readonly internalProviderId: string | null;
     readonly modelId: string;
-    readonly allowRetiredInstallation?: boolean;
   }) {
     const adapter = yield* registry.getByProvider(input.harness).pipe(
       Effect.mapError(
@@ -109,7 +108,6 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
           provider: input.harness,
           connectionId: input.connectionId,
         }),
-        ...(input.allowRetiredInstallation === true ? { allowRetiredInstallation: true } : {}),
       })
       .pipe(
         Effect.mapError(
@@ -207,7 +205,7 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
   const requireActiveInstallation = (
     harness: Parameters<typeof getProviderConnectionManifest>[0],
   ) =>
-    installations.list().pipe(
+    installations.getActiveRecord(harness).pipe(
       Effect.mapError(
         (cause) =>
           new ProviderTurnSelectionResolutionError({
@@ -215,14 +213,11 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
             cause,
           }),
       ),
-      Effect.flatMap((entries) => {
-        const installation = entries.find(
-          (entry) => entry.harness === harness && entry.lifecycle === "active",
-        );
-        return installation
-          ? Effect.succeed(installation)
-          : fail("No active managed installation exists for this harness.");
-      }),
+      Effect.flatMap((installation) =>
+        Option.isSome(installation)
+          ? Effect.succeed(installation.value)
+          : fail("No active managed installation exists for this harness."),
+      ),
     );
 
   const resolveNewThreadConnection: ProviderTurnSelectionResolverShape["resolveNewThreadConnection"] =
@@ -473,34 +468,11 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
         });
       }
 
-      const installation = yield* installations.getRecord(binding.value.installationId).pipe(
-        Effect.mapError(
-          (cause) =>
-            new ProviderTurnSelectionResolutionError({
-              detail: "Could not read the thread's managed installation.",
-              cause,
-            }),
-        ),
-      );
-      if (
-        Option.isNone(installation) ||
-        (installation.value.lifecycle !== "active" && installation.value.lifecycle !== "retired") ||
-        installation.value.harness !== state.value.harness
-      ) {
-        return yield* fail("The thread's exact managed installation is unavailable.");
-      }
-      // Existing threads stay on the exact installation that already owns their
-      // native state. Provider updates are admitted for new threads; they do not
-      // silently turn the next message on an old thread into a migration.
-      const targetInstallation = selectionChanged
-        ? yield* requireActiveInstallation(state.value.harness)
-        : installation.value;
-      const installationChanged = targetInstallation.id !== binding.value.installationId;
-      const changed = selectionChanged || installationChanged;
+      const targetInstallation = yield* requireActiveInstallation(state.value.harness);
+      const changed = selectionChanged;
       const requiresNativeStateMaterialization =
         connectionId !== binding.value.connectionId ||
-        internalProviderId !== binding.value.internalProviderId ||
-        (installationChanged && state.value.providerSessionId !== null);
+        internalProviderId !== binding.value.internalProviderId;
 
       let connectionLabel: string | null = null;
       let claudeAccountTransition: ResolvedProviderTurnSelection["claudeAccountTransition"];

@@ -48,6 +48,12 @@ export interface ProviderInstallationRepositoryShape {
     ReadonlyArray<ProviderInstallation>,
     ProviderInstallationRepositoryError
   >;
+  readonly getActiveRecord: (
+    harness: typeof ProviderKind.Type,
+  ) => Effect.Effect<
+    Option.Option<ProviderInstallationRecord>,
+    ProviderInstallationRepositoryError
+  >;
   readonly getRecord: (
     id: ProviderInstallationId,
   ) => Effect.Effect<

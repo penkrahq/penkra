@@ -1004,7 +1004,6 @@ const make = Effect.gen(function* () {
       .resolve({
         threadId: input.threadId,
         connectionId: selection.connectionId,
-        installationId: selection.installationId,
         internalProviderId: selection.internalProviderId,
       })
       .pipe(

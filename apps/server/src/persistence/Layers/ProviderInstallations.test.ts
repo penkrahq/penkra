@@ -1,6 +1,6 @@
 import { ProviderInstallationId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option } from "effect";
 
 import { runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
@@ -43,6 +43,11 @@ layer("ProviderInstallationRepository", (it) => {
         activatedAt: "2026-08-08T01:00:00.000Z",
       });
 
+      const active = Option.getOrThrow(yield* repository.getActiveRecord("codex"));
+      assert.strictEqual(active.id, "install-2");
+      assert.strictEqual(active.executablePath, "/managed/codex/0.148.0");
+      assert.strictEqual(active.lifecycle, "active");
+      assert.isTrue(Option.isNone(yield* repository.getActiveRecord("claudeAgent")));
       const rows = yield* repository.list();
       assert.deepStrictEqual(
         rows.map((row) => [row.id, row.lifecycle]),
@@ -55,6 +60,10 @@ layer("ProviderInstallationRepository", (it) => {
       yield* repository.reactivate(
         ProviderInstallationId.makeUnsafe("install-1"),
         "2026-08-08T02:00:00.000Z",
+      );
+      assert.strictEqual(
+        Option.getOrThrow(yield* repository.getActiveRecord("codex")).id,
+        "install-1",
       );
       const rolledBack = yield* repository.list();
       assert.deepStrictEqual(

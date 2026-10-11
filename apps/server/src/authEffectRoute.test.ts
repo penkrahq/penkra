@@ -132,6 +132,7 @@ async function withAuthEffectServer(
             listProviders: () => Effect.succeed([]),
           }),
           Layer.succeed(ProviderInstallationRepository, {
+            getActiveRecord: () => Effect.die("provider installation not used in this test"),
             activate: () => Effect.die("provider installation not used in this test"),
             list: () => Effect.succeed([]),
             getRecord: () => Effect.die("provider installation not used in this test"),

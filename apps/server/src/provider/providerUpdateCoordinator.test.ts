@@ -19,6 +19,7 @@ import {
 } from "./providerUpdateCoordinator";
 
 const installationRepository = {
+  getActiveRecord: () => Effect.die("not expected"),
   activate: () => Effect.succeed({} as never),
   list: () => Effect.succeed([]),
   getRecord: () => Effect.succeed({ _tag: "None" } as never),

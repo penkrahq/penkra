@@ -2637,7 +2637,6 @@ export function makeManagedDurableProviderServiceLive(options?: ProviderServiceL
             const launch = yield* launchResolver.resolve({
               threadId,
               connectionId: binding.value.connectionId,
-              installationId: binding.value.installationId,
               internalProviderId: binding.value.internalProviderId,
             });
             return {
