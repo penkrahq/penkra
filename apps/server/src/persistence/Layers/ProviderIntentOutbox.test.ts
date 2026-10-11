@@ -27,10 +27,6 @@ layer("ProviderIntentOutbox", (it) => {
         const events = yield* OrchestrationEventStore;
         const outbox = yield* ProviderIntentOutbox;
         const now = "2026-09-28T00:00:00.000Z";
-        const commandTrace = {
-          traceId: "11111111111111111111111111111111",
-          spanId: "2222222222222222",
-        };
         yield* sql`DELETE FROM provider_intent_outbox`;
         const append = (eventId: string, threadId: string) =>
           sql.withTransaction(
@@ -50,7 +46,7 @@ layer("ProviderIntentOutbox", (it) => {
               if (!isProviderIntentEvent(event)) {
                 return yield* Effect.die(new Error("Expected provider intent"));
               }
-              yield* outbox.enqueueInCurrentTransaction(event, commandTrace);
+              yield* outbox.enqueueInCurrentTransaction(event);
             }),
           );
         yield* append("event-a-one", "thread-a");
@@ -99,11 +95,6 @@ layer("ProviderIntentOutbox", (it) => {
       const events = yield* OrchestrationEventStore;
       const outbox = yield* ProviderIntentOutbox;
       const now = "2026-09-28T00:00:00.000Z";
-      const diagnosticTrace = {
-        traceId: "11111111111111111111111111111111",
-        spanId: "2222222222222222",
-        attemptId: "3333333333333333",
-      };
       yield* sql`DELETE FROM provider_intent_outbox`;
       const cutover = yield* outbox.getLegacyCutover();
       assert.equal(cutover.drainedAt, null);
@@ -140,7 +131,7 @@ layer("ProviderIntentOutbox", (it) => {
           if (!isProviderIntentEvent(event)) {
             return yield* Effect.die(new Error("Expected a provider intent"));
           }
-          yield* outbox.enqueueInCurrentTransaction(event, diagnosticTrace);
+          yield* outbox.enqueueInCurrentTransaction(event);
           return event;
         });
 
@@ -148,7 +139,6 @@ layer("ProviderIntentOutbox", (it) => {
       const childNext = yield* sql.withTransaction(appendIntent("evt-child-next", "lane-child"));
       const fork = yield* sql.withTransaction(appendIntent("evt-fork", "lane-fork"));
       const jobs = yield* outbox.readPending(10);
-      assert.deepStrictEqual(jobs[0]?.diagnosticTrace, diagnosticTrace);
       assert.deepStrictEqual(
         jobs.map((job) => [job.eventSequence, job.laneKey, job.event.eventId]),
         [
