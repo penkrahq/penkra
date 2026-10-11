@@ -31,7 +31,6 @@ import { ProjectionPendingInteractionRepositoryLive } from "../src/persistence/L
 import { ProviderSessionRuntimeRepositoryLive } from "../src/persistence/Layers/ProviderSessionRuntime.ts";
 import { ProviderRuntimeEventRepositoryLive } from "../src/persistence/Layers/ProviderRuntimeEvents.ts";
 import { makeSqlitePersistenceLive } from "../src/persistence/Layers/Sqlite.ts";
-import { ProjectionPendingInteractionRepository } from "../src/persistence/Services/ProjectionPendingInteractions.ts";
 import { ProviderUnsupportedError } from "../src/provider/Errors.ts";
 import { ProviderAdapterRegistry } from "../src/provider/Services/ProviderAdapterRegistry.ts";
 import { ProviderSessionDirectoryLive } from "../src/provider/Layers/ProviderSessionDirectory.ts";
@@ -173,25 +172,6 @@ export interface OrchestrationIntegrationHarness {
     predicate: (event: OrchestrationEvent) => boolean,
     timeoutMs?: number,
   ) => Effect.Effect<ReadonlyArray<OrchestrationEvent>, never>;
-  readonly waitForPendingApproval: (
-    threadId: string,
-    requestId: string,
-    predicate: (row: {
-      readonly status: "pending" | "responding" | "confirmed" | "retryable" | "uncertain";
-      readonly decision: "accept" | "acceptForSession" | "decline" | "cancel" | null;
-      readonly lifecycleGeneration: string | null;
-      readonly resolvedAt: string | null;
-    }) => boolean,
-    timeoutMs?: number,
-  ) => Effect.Effect<
-    {
-      readonly status: "pending" | "responding" | "confirmed" | "retryable" | "uncertain";
-      readonly decision: "accept" | "acceptForSession" | "decline" | "cancel" | null;
-      readonly lifecycleGeneration: string | null;
-      readonly resolvedAt: string | null;
-    },
-    never
-  >;
   readonly dispose: Effect.Effect<void, never>;
 }
 
@@ -410,10 +390,6 @@ export const makeOrchestrationIntegrationHarness = (
     const providerService = yield* tryRuntimePromise("load ProviderService service", () =>
       runtime.runPromise(Effect.service(ProviderService)),
     ).pipe(Effect.orDie);
-    const pendingInteractionRepository = yield* tryRuntimePromise(
-      "load ProjectionPendingInteractionRepository service",
-      () => runtime.runPromise(Effect.service(ProjectionPendingInteractionRepository)),
-    ).pipe(Effect.orDie);
 
     const scope = yield* Scope.make("sequential");
     yield* tryRuntimePromise("start provider runtime subscriptions", () =>
@@ -454,52 +430,6 @@ export const makeOrchestrationIntegrationHarness = (
         timeoutMs,
       );
 
-    const waitForPendingApproval: OrchestrationIntegrationHarness["waitForPendingApproval"] = (
-      threadId,
-      requestId,
-      predicate,
-      timeoutMs,
-    ) =>
-      waitFor(
-        pendingInteractionRepository
-          .getByIdentity({
-            threadId: ThreadId.makeUnsafe(threadId),
-            interactionKind: "approval",
-            requestId: requestId,
-          })
-          .pipe(
-            Effect.map((row) =>
-              Option.match(row, {
-                onNone: () => null,
-                onSome: (value) => ({
-                  status: value.status,
-                  decision: value.decision,
-                  lifecycleGeneration: value.lifecycleGeneration,
-                  resolvedAt: value.resolvedAt,
-                }),
-              }),
-            ),
-          ),
-        (
-          row,
-        ): row is {
-          readonly status: "pending" | "responding" | "confirmed" | "retryable" | "uncertain";
-          readonly decision: "accept" | "acceptForSession" | "decline" | "cancel" | null;
-          readonly lifecycleGeneration: string | null;
-          readonly resolvedAt: string | null;
-        } => row !== null && predicate(row),
-        `pending approval '${requestId}'`,
-        timeoutMs,
-      ) as Effect.Effect<
-        {
-          readonly status: "pending" | "responding" | "confirmed" | "retryable" | "uncertain";
-          readonly decision: "accept" | "acceptForSession" | "decline" | "cancel" | null;
-          readonly lifecycleGeneration: string | null;
-          readonly resolvedAt: string | null;
-        },
-        never
-      >;
-
     let disposed = false;
     const dispose = Effect.gen(function* () {
       if (disposed) {
@@ -537,7 +467,6 @@ export const makeOrchestrationIntegrationHarness = (
       providerService,
       waitForThread,
       waitForDomainEvent,
-      waitForPendingApproval,
       dispose,
     } satisfies OrchestrationIntegrationHarness;
   });

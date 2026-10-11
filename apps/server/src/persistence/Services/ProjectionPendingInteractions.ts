@@ -2,7 +2,6 @@
 import {
   CommandId,
   IsoDateTime,
-  ProjectionPendingInteractionDecision,
   ProjectionPendingInteractionKind,
   ProjectionPendingInteractionStatus,
   ThreadId,
@@ -21,7 +20,6 @@ export const ProjectionPendingInteraction = Schema.Struct({
   turnId: Schema.NullOr(TurnId),
   lifecycleGeneration: Schema.NullOr(Schema.String),
   status: ProjectionPendingInteractionStatus,
-  decision: ProjectionPendingInteractionDecision,
   responseCommandId: Schema.NullOr(CommandId),
   responseRequestedAt: Schema.NullOr(IsoDateTime),
   createdAt: IsoDateTime,

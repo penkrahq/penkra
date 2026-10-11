@@ -20,10 +20,10 @@ const makeProjectionPendingInteractionRepository = Effect.gen(function* () {
     execute: (row) => sql`
       INSERT INTO projection_pending_interactions (
         interaction_kind, request_id, thread_id, turn_id, lifecycle_generation,
-        status, decision, response_command_id, response_requested_at, created_at, resolved_at
+        status, response_command_id, response_requested_at, created_at, resolved_at
       ) VALUES (
         ${row.interactionKind}, ${row.requestId}, ${row.threadId}, ${row.turnId},
-        ${row.lifecycleGeneration}, ${row.status}, ${row.decision}, ${row.responseCommandId},
+        ${row.lifecycleGeneration}, ${row.status}, ${row.responseCommandId},
         ${row.responseRequestedAt}, ${row.createdAt}, ${row.resolvedAt}
       )
       ON CONFLICT (thread_id, interaction_kind, request_id)
@@ -31,7 +31,6 @@ const makeProjectionPendingInteractionRepository = Effect.gen(function* () {
         turn_id = excluded.turn_id,
         lifecycle_generation = excluded.lifecycle_generation,
         status = excluded.status,
-        decision = excluded.decision,
         response_command_id = excluded.response_command_id,
         response_requested_at = excluded.response_requested_at,
         created_at = excluded.created_at,
@@ -50,7 +49,6 @@ const makeProjectionPendingInteractionRepository = Effect.gen(function* () {
         turn_id AS "turnId",
         lifecycle_generation AS "lifecycleGeneration",
         status,
-        decision,
         response_command_id AS "responseCommandId",
         response_requested_at AS "responseRequestedAt",
         created_at AS "createdAt",
@@ -72,7 +70,6 @@ const makeProjectionPendingInteractionRepository = Effect.gen(function* () {
         turn_id AS "turnId",
         lifecycle_generation AS "lifecycleGeneration",
         status,
-        decision,
         response_command_id AS "responseCommandId",
         response_requested_at AS "responseRequestedAt",
         created_at AS "createdAt",
@@ -95,7 +92,6 @@ const makeProjectionPendingInteractionRepository = Effect.gen(function* () {
         turn_id AS "turnId",
         lifecycle_generation AS "lifecycleGeneration",
         status,
-        decision,
         response_command_id AS "responseCommandId",
         response_requested_at AS "responseRequestedAt",
         created_at AS "createdAt",

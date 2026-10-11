@@ -175,13 +175,6 @@ export const ProviderReviewTarget = Schema.Union([
   }),
 ]);
 export type ProviderReviewTarget = typeof ProviderReviewTarget.Type;
-export const ProviderApprovalDecision = Schema.Literals([
-  "accept",
-  "acceptForSession",
-  "decline",
-  "cancel",
-]);
-export type ProviderApprovalDecision = typeof ProviderApprovalDecision.Type;
 export const ProviderUserInputAnswer = Schema.NullOr(
   Schema.Union([Schema.String, Schema.Array(Schema.String)]),
 );
@@ -491,9 +484,6 @@ export const ProjectionPendingInteractionStatus = Schema.Literals([
 ]);
 export type ProjectionPendingInteractionStatus = typeof ProjectionPendingInteractionStatus.Type;
 
-export const ProjectionPendingInteractionDecision = Schema.NullOr(ProviderApprovalDecision);
-export type ProjectionPendingInteractionDecision = typeof ProjectionPendingInteractionDecision.Type;
-
 /** Unresolved provider interaction settlement exposed to thread-detail consumers. */
 export const OrchestrationPendingInteraction = Schema.Struct({
   interactionKind: ProjectionPendingInteractionKind,
@@ -502,7 +492,6 @@ export const OrchestrationPendingInteraction = Schema.Struct({
   turnId: Schema.NullOr(TurnId),
   lifecycleGeneration: Schema.NullOr(TrimmedNonEmptyString),
   status: ProjectionPendingInteractionStatus,
-  decision: ProjectionPendingInteractionDecision,
   responseCommandId: Schema.NullOr(CommandId),
   responseRequestedAt: Schema.NullOr(IsoDateTime),
   createdAt: IsoDateTime,

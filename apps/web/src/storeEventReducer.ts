@@ -170,7 +170,6 @@ function reconcilePendingInteractionsFromActivity(
     turnId: activity.turnId,
     lifecycleGeneration,
     status: "pending",
-    decision: null,
     responseCommandId: null,
     responseRequestedAt: null,
     createdAt:

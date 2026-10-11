@@ -823,9 +823,9 @@ describe("OrchestrationEngine", () => {
       await system.run(system.sql`
             INSERT INTO projection_pending_interactions (
               interaction_kind, request_id, thread_id, turn_id, lifecycle_generation,
-              status, decision, response_command_id, response_requested_at, created_at, resolved_at
+              status, response_command_id, response_requested_at, created_at, resolved_at
             ) VALUES ('userInput', 'real-pending-play-question', ${threadId}, ${turnId}, NULL,
-              'pending', NULL, NULL, NULL, ${createdAt}, NULL)
+              'pending', NULL, NULL, ${createdAt}, NULL)
           `);
       await expect(
         system.run(
