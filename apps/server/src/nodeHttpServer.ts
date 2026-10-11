@@ -6,44 +6,8 @@ import { Effect, Scope } from "effect";
 import * as HttpServer from "effect/unstable/http/HttpServer";
 import { ServeError } from "effect/unstable/http/HttpServerError";
 import { WebSocketServer, type WebSocket } from "ws";
-import { recordServerQaActionAsync, serverQaProofConfig } from "./diagnostics/qaProofBuild";
-import { verifyQaSocketClient } from "@penkra/shared/diagnostics/qaSocketTicket";
-import { QaSocketReconnectTracker } from "./diagnostics/qaSocketReconnect";
 
 export const MAX_WEBSOCKET_MESSAGE_BYTES = 2 * 1024 * 1024;
-
-interface QaFrameObserver {
-  sentFrame(raw: string): void;
-  receivedFrame(raw: string): void;
-}
-
-/** Normal sockets retain their original send method and have no QA frame listener. */
-export function installQaFrameObservation(
-  socket: WebSocket,
-  observer: QaFrameObserver | null,
-): void {
-  if (!observer) return;
-  const originalSend = socket.send;
-  Object.defineProperty(socket, "send", {
-    value: (...args: unknown[]) => {
-      const data = args[0];
-      try {
-        if (typeof data === "string") observer.sentFrame(data);
-        else if (Buffer.isBuffer(data)) observer.sentFrame(data.toString("utf8"));
-      } catch {
-        // QA observation must not change the server's response delivery.
-      }
-      return Reflect.apply(originalSend, socket, args);
-    },
-  });
-  socket.on("message", (data) => {
-    try {
-      observer.receivedFrame(data.toString("utf8"));
-    } catch {
-      // QA observation must not change request handling.
-    }
-  });
-}
 
 /** Effect's upgrade handler calls handleUpgrade but does not emit ws's connection event. */
 export function emitConnectionAfterUpgrade(server: WebSocketServer): void {
@@ -119,24 +83,6 @@ export const makeBoundedNodeHttpServer = Effect.fnUntraced(function* (
       onSocketClose: () => void;
     }
   >();
-  const qaProofConfig = serverQaProofConfig();
-  const qaReconnects = qaProofConfig
-    ? new QaSocketReconnectTracker(
-        (traceId) => {
-          void recordServerQaActionAsync("reconnect", traceId).catch(() =>
-            process.stderr.write("[diagnostics] QA reconnect action proof failed\n"),
-          );
-        },
-        (clientId, ticketId, signature) => {
-          try {
-            return verifyQaSocketClient(qaProofConfig, clientId, ticketId, signature);
-          } catch {
-            return false;
-          }
-        },
-      )
-    : null;
-
   webSocketServer.on("connection", (socket, request) => {
     const bootstrapUpgrade = bootstrapUpgrades.get(request);
     if (bootstrapUpgrade) {
@@ -156,25 +102,9 @@ export const makeBoundedNodeHttpServer = Effect.fnUntraced(function* (
         return "unknown";
       }
     })();
-    let qaConnection: ReturnType<QaSocketReconnectTracker["opened"]> | null = null;
-    if (qaReconnects && requestPath === "/ws") {
-      try {
-        const url = new URL(request.url ?? "/", "http://127.0.0.1");
-        qaConnection = qaReconnects.opened({
-          clientId: url.searchParams.get("qaClientId"),
-          ticketId: url.searchParams.get("qaTicketId"),
-          signature: url.searchParams.get("qaClientSignature"),
-          traceId: url.searchParams.get("qaReconnectTraceId"),
-        });
-      } catch {
-        // Invalid optional QA parameters cannot affect the WebSocket.
-      }
-    }
-    installQaFrameObservation(socket, qaConnection);
     let terminalLogged = false;
     socket.once("close", (code, reason) => {
       try {
-        qaConnection?.closed();
         if (terminalLogged) return;
         terminalLogged = true;
         Effect.runFork(
