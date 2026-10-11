@@ -48,12 +48,10 @@ import {
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { ProviderRuntimeIngestionLive } from "./ProviderRuntimeIngestion.ts";
 import { ThreadPublisherLive } from "../../cleanCore/ThreadPublisher.ts";
-import {
-  OrchestrationEngineService,
-  type OrchestrationEngineShape,
-} from "../Services/OrchestrationEngine.ts";
+import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
 import { ServerConfig } from "../../config.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -178,14 +176,14 @@ function createProviderServiceHarness() {
 }
 
 async function waitForThread(
-  engine: OrchestrationEngineShape,
+  snapshotQuery: ProjectionSnapshotQuery["Service"],
   predicate: (thread: ProviderRuntimeTestThread) => boolean,
   timeoutMs = 2000,
   threadId: ThreadId = asThreadId("thread-1"),
 ) {
   const deadline = Date.now() + timeoutMs;
   const poll = async (): Promise<ProviderRuntimeTestThread> => {
-    const readModel = await Effect.runPromise(engine.getReadModel());
+    const readModel = await Effect.runPromise(snapshotQuery.getSnapshot().pipe(Effect.orDie));
     const thread = readModel.threads.find((entry) => entry.id === threadId);
     if (thread && predicate(thread)) {
       return thread;
@@ -219,6 +217,7 @@ const hasOperationId = (activity: ProviderRuntimeTestActivity, operationId: stri
 describe("ProviderRuntimeIngestion", () => {
   let runtime: ManagedRuntime.ManagedRuntime<
     | OrchestrationEngineService
+    | ProjectionSnapshotQuery
     | ProviderRuntimeIngestionService
     | ProviderRuntimeEventRepository
     | SqlClient.SqlClient,
@@ -292,6 +291,7 @@ describe("ProviderRuntimeIngestion", () => {
     );
     runtime = ManagedRuntime.make(layer);
     const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
+    const snapshotQuery = await runtime.runPromise(Effect.service(ProjectionSnapshotQuery));
     const ingestion = await runtime.runPromise(Effect.service(ProviderRuntimeIngestionService));
     const runtimeEventRepository = await runtime.runPromise(
       Effect.service(ProviderRuntimeEventRepository),
@@ -383,6 +383,7 @@ describe("ProviderRuntimeIngestion", () => {
 
     return {
       engine,
+      snapshotQuery,
       emit: provider.emit,
       setProviderSession: provider.setSession,
       drain,
@@ -452,7 +453,7 @@ describe("ProviderRuntimeIngestion", () => {
           persistedB.sequence,
       );
       const threadBeforeRelease = (
-        await Effect.runPromise(harness.engine.getReadModel())
+        await Effect.runPromise(harness.snapshotQuery.getSnapshot().pipe(Effect.orDie))
       ).threads.find((thread) => thread.id === threadB);
       expect(
         threadBeforeRelease?.activities.some((activity) => activity.id === eventB.eventId),
@@ -464,7 +465,9 @@ describe("ProviderRuntimeIngestion", () => {
       };
       harness.emit(laterB);
       await waitFor(async () => {
-        const readModel = await Effect.runPromise(harness.engine.getReadModel());
+        const readModel = await Effect.runPromise(
+          harness.snapshotQuery.getSnapshot().pipe(Effect.orDie),
+        );
         return (
           readModel.threads
             .find((thread) => thread.id === threadB)
@@ -509,7 +512,7 @@ describe("ProviderRuntimeIngestion", () => {
         payload: { streamKind: "assistant_text", delta: "B is moving" },
       });
       await waitForThread(
-        harness.engine,
+        harness.snapshotQuery,
         (thread) =>
           thread.messages.some(
             (message) =>
@@ -654,7 +657,9 @@ describe("ProviderRuntimeIngestion", () => {
       }
       await harness.startIngestion();
       await harness.drain();
-      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const readModel = await Effect.runPromise(
+        harness.snapshotQuery.getSnapshot().pipe(Effect.orDie),
+      );
       const thread = readModel.threads.find((entry) => entry.id === threadId);
       expect(thread?.session?.status).toBe(retired ? "interrupted" : "running");
       expect(
@@ -728,14 +733,16 @@ describe("ProviderRuntimeIngestion", () => {
     const persisted = await Effect.runPromise(harness.runtimeEventRepository.append(event));
 
     await harness.startIngestion();
-    await waitForThread(harness.engine, (thread) =>
+    await waitForThread(harness.snapshotQuery, (thread) =>
       thread.activities.some((activity) => activity.id === event.eventId),
     );
     expect(
       await Effect.runPromise(harness.runtimeEventRepository.getThreadCursor(event.threadId)),
     ).toBe(persisted.sequence);
 
-    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const readModel = await Effect.runPromise(
+      harness.snapshotQuery.getSnapshot().pipe(Effect.orDie),
+    );
     const recoveredActivities = readModel.threads
       .find((thread) => thread.id === asThreadId("thread-1"))
       ?.activities.filter((activity) => activity.id === event.eventId);
@@ -1039,7 +1046,7 @@ describe("ProviderRuntimeIngestion", () => {
     );
     await harness.drain();
 
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.messages.some(
         (message) =>
           message.id === "assistant:item-buffered-restart" &&
@@ -1104,7 +1111,7 @@ describe("ProviderRuntimeIngestion", () => {
     );
     await harness.drain();
 
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.messages.some((message) => message.id === messageId && message.streaming === false),
     );
     expect(thread.messages.find((message) => message.id === messageId)?.text).toBe("streamed once");
@@ -1166,7 +1173,7 @@ describe("ProviderRuntimeIngestion", () => {
     const persisted = await Effect.runPromise(harness.runtimeEventRepository.append(completion));
     await harness.startIngestion();
     await harness.drain();
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.messages.some((message) => message.id === messageId && message.streaming === false),
     );
     expect(thread.archivedAt).not.toBeNull();
@@ -1311,7 +1318,7 @@ describe("ProviderRuntimeIngestion", () => {
       ),
     ).toHaveLength(0);
     const thread = await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (entry) => entry.session?.status === "ready" && entry.session.activeTurnId === null,
     );
     const activity = thread.activities.find((entry) => entry.id === lateCompletion.eventId);
@@ -1337,7 +1344,7 @@ describe("ProviderRuntimeIngestion", () => {
         turnId,
       });
       await waitForThread(
-        harness.engine,
+        harness.snapshotQuery,
         (thread) => thread.session?.activeTurnId === turnId && thread.session.status === "running",
       );
       harness.emit({
@@ -1350,7 +1357,7 @@ describe("ProviderRuntimeIngestion", () => {
         payload: { state: "completed" },
       });
       await waitForThread(
-        harness.engine,
+        harness.snapshotQuery,
         (thread) => thread.session?.activeTurnId === null && thread.session.status === "ready",
       );
 
@@ -1365,7 +1372,9 @@ describe("ProviderRuntimeIngestion", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
       await harness.drain();
 
-      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const readModel = await Effect.runPromise(
+        harness.snapshotQuery.getSnapshot().pipe(Effect.orDie),
+      );
       const thread = readModel.threads.find((entry) => entry.id === threadId);
       expect(thread?.session?.status).toBe("ready");
       expect(thread?.session?.activeTurnId).toBeNull();
@@ -1406,7 +1415,9 @@ describe("ProviderRuntimeIngestion", () => {
     await harness.startIngestion();
     await harness.drain();
 
-    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const readModel = await Effect.runPromise(
+      harness.snapshotQuery.getSnapshot().pipe(Effect.orDie),
+    );
     const thread = readModel.threads.find((entry) => entry.id === event.threadId);
     expect(thread?.activities.some((activity) => activity.id === event.eventId)).toBe(false);
   });
@@ -1506,7 +1517,7 @@ describe("ProviderRuntimeIngestion", () => {
     await harness.drain();
 
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) => thread.activities.some((activity) => activity.id === postStartupEvent.eventId),
       2_000,
       thread2,
@@ -1636,7 +1647,7 @@ describe("ProviderRuntimeIngestion", () => {
 
     await harness.startIngestion();
     const thread = await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (entry) =>
         entry.session?.status === "ready" &&
         entry.messages.some(
@@ -1728,7 +1739,7 @@ describe("ProviderRuntimeIngestion", () => {
 
     await harness.startIngestion();
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) => thread.activities.some((activity) => activity.id === healthyEvent.eventId),
       2000,
       thread2,
@@ -1737,9 +1748,9 @@ describe("ProviderRuntimeIngestion", () => {
     expect(
       await Effect.runPromise(harness.runtimeEventRepository.getThreadCursor(failedEvent.threadId)),
     ).toBe(0);
-    const blockedThread = (await Effect.runPromise(harness.engine.getReadModel())).threads.find(
-      (thread) => thread.id === failedEvent.threadId,
-    );
+    const blockedThread = (
+      await Effect.runPromise(harness.snapshotQuery.getSnapshot().pipe(Effect.orDie))
+    ).threads.find((thread) => thread.id === failedEvent.threadId);
     expect(
       blockedThread?.activities.some((activity) => activity.id === blockedTailEvent.eventId),
     ).toBe(false);
@@ -1919,7 +1930,7 @@ describe("ProviderRuntimeIngestion", () => {
     );
 
     await harness.startIngestion();
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.activities.some((activity) => activity.id === event.eventId),
     );
     expect(thread.session?.activeTurnId).toBe(event.turnId);
@@ -1950,7 +1961,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) => thread.session?.status === "running" && thread.session?.activeTurnId === "turn-1",
     );
 
@@ -1968,7 +1979,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     const thread = await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (entry) =>
         entry.session?.status === "error" &&
         entry.session?.activeTurnId === null &&
@@ -1991,7 +2002,7 @@ describe("ProviderRuntimeIngestion", () => {
       turnId,
     });
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) => thread.session?.status === "running" && thread.session?.activeTurnId === turnId,
     );
 
@@ -2006,7 +2017,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     const thread = await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (entry) => entry.session?.status === "interrupted" && entry.session?.activeTurnId === null,
     );
     expect(thread.session?.status).toBe("interrupted");
@@ -2029,7 +2040,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     let thread = await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (entry) => entry.session?.status === "running" && entry.session?.activeTurnId === null,
     );
     expect(thread.session?.status).toBe("running");
@@ -2048,7 +2059,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     thread = await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (entry) =>
         entry.session?.status === "error" &&
         entry.session?.activeTurnId === null &&
@@ -2069,7 +2080,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     thread = await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (entry) =>
         entry.session?.status === "stopped" &&
         entry.session?.activeTurnId === null &&
@@ -2090,7 +2101,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     thread = await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (entry) =>
         entry.session?.status === "ready" &&
         entry.session?.activeTurnId === null &&
@@ -2123,7 +2134,7 @@ describe("ProviderRuntimeIngestion", () => {
       payload: { state: "starting" },
     });
     const current = await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) => thread.session?.status === "starting",
     );
     expect(current.pendingTurnStartMessageId).toBeNull();
@@ -2140,7 +2151,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
     await harness.drain();
 
-    const afterStale = await waitForThread(harness.engine, () => true);
+    const afterStale = await waitForThread(harness.snapshotQuery, () => true);
     expect(afterStale.session).toEqual(current.session);
 
     harness.emit({
@@ -2152,7 +2163,7 @@ describe("ProviderRuntimeIngestion", () => {
       lifecycleGeneration: "generation-cancelled-startup",
       payload: { message: "Late tool diagnostic remains observable" },
     });
-    const withLateDiagnostic = await waitForThread(harness.engine, (thread) =>
+    const withLateDiagnostic = await waitForThread(harness.snapshotQuery, (thread) =>
       thread.activities.some(
         (activity) => activity.id === "evt-old-generation-late-tool-diagnostic",
       ),
@@ -2189,7 +2200,7 @@ describe("ProviderRuntimeIngestion", () => {
       payload: {},
     });
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) => thread.session?.status === "running" && thread.session.activeTurnId === turnId,
     );
     harness.emit({
@@ -2203,7 +2214,7 @@ describe("ProviderRuntimeIngestion", () => {
       payload: { state: "completed" },
     });
     const completed = await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) => thread.session?.status === "ready" && thread.session.activeTurnId === null,
     );
     expect(completed.session?.updatedAt).toBe(completedAt);
@@ -2302,7 +2313,7 @@ describe("ProviderRuntimeIngestion", () => {
       }),
     );
     expect(retained.map((entry) => entry.event.eventId)).toContain(staleEvent.eventId);
-    const thread = await waitForThread(harness.engine, () => true);
+    const thread = await waitForThread(harness.snapshotQuery, () => true);
     expect(thread.session).toMatchObject({
       status: "running",
       activeTurnId: successorTurnId,
@@ -2336,7 +2347,9 @@ describe("ProviderRuntimeIngestion", () => {
     );
     await harness.startIngestion();
     await harness.drain();
-    expect((await waitForThread(harness.engine, () => true)).session?.status).toBe("starting");
+    expect((await waitForThread(harness.snapshotQuery, () => true)).session?.status).toBe(
+      "starting",
+    );
 
     await Effect.runPromise(harness.sql`
       UPDATE provider_session_runtime
@@ -2360,7 +2373,7 @@ describe("ProviderRuntimeIngestion", () => {
         createdAt: successorAt,
       }),
     );
-    expect((await waitForThread(harness.engine, () => true)).session).toMatchObject({
+    expect((await waitForThread(harness.snapshotQuery, () => true)).session).toMatchObject({
       status: "running",
       activeTurnId: successorTurnId,
       updatedAt: successorAt,
@@ -2385,7 +2398,7 @@ describe("ProviderRuntimeIngestion", () => {
     await Effect.runPromise(harness.runtimeEventRepository.append(event));
     await harness.startIngestion();
     await harness.drain();
-    expect((await waitForThread(harness.engine, () => true)).session).toBeNull();
+    expect((await waitForThread(harness.snapshotQuery, () => true)).session).toBeNull();
 
     const command = {
       type: "thread.session.set" as const,
@@ -2424,7 +2437,7 @@ describe("ProviderRuntimeIngestion", () => {
       }),
     );
     expect(secondReplay).toEqual(firstReplay);
-    expect((await waitForThread(harness.engine, () => true)).session).toBeNull();
+    expect((await waitForThread(harness.snapshotQuery, () => true)).session).toBeNull();
 
     const events = await Effect.runPromise(Stream.runCollect(harness.engine.readEvents(0)));
     const dispositionEvent = Array.from(events).find(
@@ -2501,7 +2514,7 @@ describe("ProviderRuntimeIngestion", () => {
 
     await harness.startIngestion();
     await harness.drain();
-    expect((await waitForThread(harness.engine, () => true)).session).toMatchObject({
+    expect((await waitForThread(harness.snapshotQuery, () => true)).session).toMatchObject({
       status: "running",
       activeTurnId: successorTurnId,
       updatedAt: successorAt,
@@ -2573,7 +2586,7 @@ describe("ProviderRuntimeIngestion", () => {
       }),
     );
     expect(retained.map((entry) => entry.event.eventId)).toContain(errorEvent.eventId);
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.activities.some((activity) => activity.id === errorEvent.eventId),
     );
     expect(thread.activities.some((activity) => activity.id === errorEvent.eventId)).toBe(true);
@@ -2638,7 +2651,7 @@ describe("ProviderRuntimeIngestion", () => {
       payload: { message: "current runtime failed" },
     });
     const thread = await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (entry) =>
         entry.session?.status === "error" &&
         entry.messages.some(
@@ -2707,7 +2720,7 @@ describe("ProviderRuntimeIngestion", () => {
       lifecycleGeneration: "generation-old-error",
       payload: { message: "old turn failed" },
     });
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.messages.some(
         (message) =>
           message.id === "assistant:item-explicit-old-error-buffer" &&
@@ -2761,7 +2774,7 @@ describe("ProviderRuntimeIngestion", () => {
       payload: {},
     });
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) => thread.session?.activeTurnId === "turn-exit-buffer-one",
     );
     await Effect.runPromise(
@@ -2791,7 +2804,7 @@ describe("ProviderRuntimeIngestion", () => {
       payload: {},
     });
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) => thread.session?.activeTurnId === "turn-exit-buffer-two",
     );
 
@@ -2865,7 +2878,7 @@ describe("ProviderRuntimeIngestion", () => {
         payload: { itemType: "assistant_message", status: "completed" },
       });
     }
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       ["one", "two"].every((suffix) =>
         entry.messages.some(
           (message) =>
@@ -2895,7 +2908,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) =>
         thread.session?.status === "running" &&
         thread.session?.activeTurnId === "turn-ready-clears",
@@ -2914,7 +2927,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     const thread = await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (entry) => entry.session?.status === "ready" && entry.session?.activeTurnId === null,
     );
     expect(thread.session?.status).toBe("ready");
@@ -2935,7 +2948,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) =>
         thread.session?.status === "running" &&
         thread.session?.activeTurnId === "turn-midturn-lifecycle",
@@ -2958,7 +2971,9 @@ describe("ProviderRuntimeIngestion", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
     await harness.drain();
-    const midReadModel = await Effect.runPromise(harness.engine.getReadModel());
+    const midReadModel = await Effect.runPromise(
+      harness.snapshotQuery.getSnapshot().pipe(Effect.orDie),
+    );
     const midThread = midReadModel.threads.find(
       (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
     );
@@ -2981,7 +2996,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) => thread.session?.status === "ready" && thread.session?.activeTurnId === null,
     );
   });
@@ -3019,7 +3034,7 @@ describe("ProviderRuntimeIngestion", () => {
     await harness.drain();
 
     const thread = await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (entry) => entry.session?.updatedAt === "2026-08-31T12:24:18.000Z",
     );
     expect(thread.session).toMatchObject({
@@ -3070,7 +3085,7 @@ describe("ProviderRuntimeIngestion", () => {
     );
 
     const startingThread = await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) => thread.session?.status === "starting",
     );
     expect(startingThread.latestTurn).toMatchObject({
@@ -3091,7 +3106,7 @@ describe("ProviderRuntimeIngestion", () => {
     await harness.drain();
 
     const afterReadiness = await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) => thread.session?.status === "starting",
     );
     expect(afterReadiness.latestTurn).toMatchObject({
@@ -3111,7 +3126,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     const runningThread = await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) =>
         thread.session?.status === "running" &&
         thread.session.activeTurnId === providerTurnId &&
@@ -3141,7 +3156,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) =>
         thread.session?.status === "running" &&
         thread.session?.activeTurnId === "turn-stop-aborted",
@@ -3173,7 +3188,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) =>
         thread.session?.status === "interrupted" &&
         thread.session?.activeTurnId === null &&
@@ -3244,7 +3259,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     const thread = await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (entry) =>
         entry.session?.status === "ready" &&
         entry.activities.some((activity) => activity.summary === "Generated image"),
@@ -3295,7 +3310,7 @@ describe("ProviderRuntimeIngestion", () => {
       payload: { state: "completed" },
     });
     const thread = await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (entry) => entry.session?.status === "ready",
     );
     expect(thread.messages.some((message) => message.id.startsWith("assistant:image:"))).toBe(
@@ -3334,7 +3349,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) =>
         thread.session?.status === "running" &&
         thread.session?.activeTurnId === "turn-claude-placeholder",
@@ -3351,7 +3366,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) => thread.session?.status === "ready" && thread.session?.activeTurnId === null,
     );
   });
@@ -3370,7 +3385,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) =>
         thread.session?.status === "running" && thread.session?.activeTurnId === "turn-primary",
     );
@@ -3386,7 +3401,9 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     await harness.drain();
-    const midReadModel = await Effect.runPromise(harness.engine.getReadModel());
+    const midReadModel = await Effect.runPromise(
+      harness.snapshotQuery.getSnapshot().pipe(Effect.orDie),
+    );
     const midThread = midReadModel.threads.find(
       (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
     );
@@ -3404,7 +3421,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) => thread.session?.status === "ready" && thread.session?.activeTurnId === null,
     );
   });
@@ -3423,7 +3440,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) =>
         thread.session?.status === "running" &&
         thread.session?.activeTurnId === "turn-guarded-main",
@@ -3440,7 +3457,9 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     await harness.drain();
-    const midReadModel = await Effect.runPromise(harness.engine.getReadModel());
+    const midReadModel = await Effect.runPromise(
+      harness.snapshotQuery.getSnapshot().pipe(Effect.orDie),
+    );
     const midThread = midReadModel.threads.find(
       (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
     );
@@ -3458,7 +3477,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) => thread.session?.status === "ready" && thread.session?.activeTurnId === null,
     );
   });
@@ -3507,7 +3526,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.messages.some(
         (message: ProviderRuntimeTestMessage) =>
           message.id === "assistant:item-1" && !message.streaming,
@@ -3550,7 +3569,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.activities.some(
         (activity: ProviderRuntimeTestActivity) => activity.id === "evt-reasoning-turn-completed",
       ),
@@ -3614,7 +3633,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     const stableActivityId = "provider-reasoning:thread-1:reasoning-1";
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.activities.some((activity: ProviderRuntimeTestActivity) => {
         if (activity.id !== stableActivityId || typeof activity.payload !== "object") {
           return false;
@@ -3692,7 +3711,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     const stableActivityId = "provider-reasoning:thread-1:reasoning-buffered-1";
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.activities.some(
         (activity: ProviderRuntimeTestActivity) => activity.id === stableActivityId,
       ),
@@ -3743,7 +3762,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     const stableActivityId = "provider-reasoning:thread-1:reasoning-aborted-1";
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.activities.some(
         (activity: ProviderRuntimeTestActivity) => activity.id === stableActivityId,
       ),
@@ -3791,7 +3810,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     const stableActivityId = "provider-reasoning:thread-1:reasoning-failed-turn-1";
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.activities.some(
         (activity: ProviderRuntimeTestActivity) => activity.id === stableActivityId,
       ),
@@ -3839,7 +3858,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     const stableActivityId = "provider-reasoning:thread-1:reasoning-errored-1";
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.activities.some(
         (activity: ProviderRuntimeTestActivity) => activity.id === stableActivityId,
       ),
@@ -3915,7 +3934,7 @@ describe("ProviderRuntimeIngestion", () => {
       payload: { state: "completed" },
     });
 
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.activities.some(
         (activity: ProviderRuntimeTestActivity) =>
           activity.id === "evt-empty-reasoning-turn-completed",
@@ -3984,7 +4003,7 @@ describe("ProviderRuntimeIngestion", () => {
       payload: { state: "completed" },
     });
 
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.activities.some(
         (activity: ProviderRuntimeTestActivity) =>
           activity.id === "evt-reasoning-filter-turn-completed",
@@ -4043,7 +4062,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     } as ProviderRuntimeEvent);
 
-    const thread = await waitForThread(harness.engine, (candidate) =>
+    const thread = await waitForThread(harness.snapshotQuery, (candidate) =>
       candidate.activities.some(
         (activity: ProviderRuntimeTestActivity) => activity.id === "evt-turn-completed-model-usage",
       ),
@@ -4101,9 +4120,9 @@ describe("ProviderRuntimeIngestion", () => {
     } as ProviderRuntimeEvent);
 
     await harness.drain();
-    const thread = (await Effect.runPromise(harness.engine.getReadModel())).threads.find(
-      (candidate) => candidate.id === asThreadId("thread-1"),
-    )!;
+    const thread = (
+      await Effect.runPromise(harness.snapshotQuery.getSnapshot().pipe(Effect.orDie))
+    ).threads.find((candidate) => candidate.id === asThreadId("thread-1"))!;
 
     const activity = thread.activities.find(
       (candidate: ProviderRuntimeTestActivity) =>
@@ -4290,7 +4309,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.messages.some(
         (message: ProviderRuntimeTestMessage) =>
           message.id === "assistant:item-no-delta" && !message.streaming,
@@ -4316,7 +4335,7 @@ describe("ProviderRuntimeIngestion", () => {
       turnId: asTurnId("turn-buffered"),
     });
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) =>
         thread.session?.status === "running" && thread.session?.activeTurnId === "turn-buffered",
     );
@@ -4336,7 +4355,9 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     await harness.drain();
-    const midReadModel = await Effect.runPromise(harness.engine.getReadModel());
+    const midReadModel = await Effect.runPromise(
+      harness.snapshotQuery.getSnapshot().pipe(Effect.orDie),
+    );
     const midThread = midReadModel.threads.find(
       (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
     );
@@ -4360,7 +4381,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.messages.some(
         (message: ProviderRuntimeTestMessage) =>
           message.id === "assistant:item-buffered" && !message.streaming,
@@ -4388,7 +4409,7 @@ describe("ProviderRuntimeIngestion", () => {
       turnId,
     });
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) => thread.session?.status === "running" && thread.session.activeTurnId === turnId,
     );
 
@@ -4420,7 +4441,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.messages.some(
         (message: ProviderRuntimeTestMessage) =>
           message.id === "assistant:item-repeated-assistant-chunks" && !message.streaming,
@@ -4447,7 +4468,7 @@ describe("ProviderRuntimeIngestion", () => {
       turnId: asTurnId("turn-buffered-whitespace"),
     });
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) =>
         thread.session?.status === "running" &&
         thread.session?.activeTurnId === "turn-buffered-whitespace",
@@ -4468,7 +4489,9 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     await harness.drain();
-    const midReadModel = await Effect.runPromise(harness.engine.getReadModel());
+    const midReadModel = await Effect.runPromise(
+      harness.snapshotQuery.getSnapshot().pipe(Effect.orDie),
+    );
     const midThread = midReadModel.threads.find(
       (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
     );
@@ -4493,7 +4516,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.messages.some(
         (message: ProviderRuntimeTestMessage) =>
           message.id === "assistant:item-buffered-whitespace" && !message.streaming,
@@ -4537,7 +4560,7 @@ describe("ProviderRuntimeIngestion", () => {
       turnId: asTurnId("turn-streaming-mode"),
     });
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) =>
         thread.session?.status === "running" &&
         thread.session?.activeTurnId === "turn-streaming-mode",
@@ -4562,7 +4585,7 @@ describe("ProviderRuntimeIngestion", () => {
       });
     }
 
-    const liveThread = await waitForThread(harness.engine, (entry) =>
+    const liveThread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.messages.some(
         (message: ProviderRuntimeTestMessage) =>
           message.id === "assistant:item-streaming-mode" &&
@@ -4591,7 +4614,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    const finalThread = await waitForThread(harness.engine, (entry) =>
+    const finalThread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.messages.some(
         (message: ProviderRuntimeTestMessage) =>
           message.id === "assistant:item-streaming-mode" && !message.streaming,
@@ -4678,7 +4701,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
     await harness.drain();
 
-    const liveThread = await waitForThread(harness.engine, (thread) =>
+    const liveThread = await waitForThread(harness.snapshotQuery, (thread) =>
       thread.messages.some(
         (message: ProviderRuntimeTestMessage) =>
           message.id === "assistant:item-same-thread-streaming" &&
@@ -4703,7 +4726,7 @@ describe("ProviderRuntimeIngestion", () => {
       itemId: asItemId("item-same-thread-buffered"),
       payload: { itemType: "assistant_message", status: "completed" },
     });
-    await waitForThread(harness.engine, (thread) =>
+    await waitForThread(harness.snapshotQuery, (thread) =>
       thread.messages.some(
         (message: ProviderRuntimeTestMessage) =>
           message.id === "assistant:item-same-thread-buffered" &&
@@ -4743,7 +4766,7 @@ describe("ProviderRuntimeIngestion", () => {
       turnId: asTurnId("turn-active-a"),
     });
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) => thread.session?.activeTurnId === "turn-active-a",
     );
 
@@ -4803,7 +4826,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
     await harness.drain();
 
-    const liveThread = await waitForThread(harness.engine, (thread) =>
+    const liveThread = await waitForThread(harness.snapshotQuery, (thread) =>
       thread.messages.some(
         (message: ProviderRuntimeTestMessage) =>
           message.id === "assistant:item-active-b" &&
@@ -4827,7 +4850,7 @@ describe("ProviderRuntimeIngestion", () => {
       itemId: asItemId("item-active-a"),
       payload: { itemType: "assistant_message", status: "completed" },
     });
-    await waitForThread(harness.engine, (thread) =>
+    await waitForThread(harness.snapshotQuery, (thread) =>
       thread.messages.some(
         (message: ProviderRuntimeTestMessage) =>
           message.id === "assistant:item-active-a" &&
@@ -4946,7 +4969,7 @@ describe("ProviderRuntimeIngestion", () => {
     await harness.drain();
 
     const streamingThread = await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) =>
         thread.messages.some(
           (message: ProviderRuntimeTestMessage) =>
@@ -4963,7 +4986,9 @@ describe("ProviderRuntimeIngestion", () => {
       )?.streaming,
     ).toBe(true);
 
-    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const readModel = await Effect.runPromise(
+      harness.snapshotQuery.getSnapshot().pipe(Effect.orDie),
+    );
     const bufferedThread = readModel.threads.find((thread) => thread.id === secondThreadId);
     expect(
       bufferedThread?.messages.some(
@@ -4983,7 +5008,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     const completedBufferedThread = await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) =>
         thread.messages.some(
           (message: ProviderRuntimeTestMessage) =>
@@ -5010,7 +5035,7 @@ describe("ProviderRuntimeIngestion", () => {
       payload: { state: "completed" },
     });
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) => thread.session?.status === "ready" && thread.session.activeTurnId === null,
       2_000,
       secondThreadId,
@@ -5043,7 +5068,9 @@ describe("ProviderRuntimeIngestion", () => {
     });
     await harness.drain();
 
-    const afterTerminalReadModel = await Effect.runPromise(harness.engine.getReadModel());
+    const afterTerminalReadModel = await Effect.runPromise(
+      harness.snapshotQuery.getSnapshot().pipe(Effect.orDie),
+    );
     const afterTerminalBufferedThread = afterTerminalReadModel.threads.find(
       (thread) => thread.id === secondThreadId,
     );
@@ -5054,7 +5081,7 @@ describe("ProviderRuntimeIngestion", () => {
       ),
     ).toBe(false);
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) =>
         thread.messages.some(
           (message: ProviderRuntimeTestMessage) =>
@@ -5077,7 +5104,7 @@ describe("ProviderRuntimeIngestion", () => {
       payload: { itemType: "assistant_message", status: "completed" },
     });
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) =>
         thread.messages.some(
           (message: ProviderRuntimeTestMessage) =>
@@ -5121,7 +5148,7 @@ describe("ProviderRuntimeIngestion", () => {
       turnId: asTurnId("turn-late-streaming-mode"),
     });
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) =>
         thread.session?.status === "running" &&
         thread.session?.activeTurnId === "turn-late-streaming-mode",
@@ -5142,7 +5169,9 @@ describe("ProviderRuntimeIngestion", () => {
     });
     await harness.drain();
 
-    const beforeFlush = await Effect.runPromise(harness.engine.getReadModel());
+    const beforeFlush = await Effect.runPromise(
+      harness.snapshotQuery.getSnapshot().pipe(Effect.orDie),
+    );
     const beforeFlushThread = beforeFlush.threads.find(
       (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
     );
@@ -5171,7 +5200,7 @@ describe("ProviderRuntimeIngestion", () => {
       }),
     );
 
-    const flushedThread = await waitForThread(harness.engine, (entry) =>
+    const flushedThread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.messages.some(
         (message: ProviderRuntimeTestMessage) =>
           message.id === "assistant:item-late-streaming-mode" &&
@@ -5219,7 +5248,7 @@ describe("ProviderRuntimeIngestion", () => {
       payload: { streamKind: "assistant_text", delta: "live without start" },
     });
 
-    await waitForThread(harness.engine, (thread) =>
+    await waitForThread(harness.snapshotQuery, (thread) =>
       thread.messages.some(
         (message: ProviderRuntimeTestMessage) =>
           message.id === "assistant:item-without-started" &&
@@ -5300,7 +5329,9 @@ describe("ProviderRuntimeIngestion", () => {
     });
     await harness.drain();
 
-    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const readModel = await Effect.runPromise(
+      harness.snapshotQuery.getSnapshot().pipe(Effect.orDie),
+    );
     const thread = readModel.threads.find((entry) => entry.id === asThreadId("thread-1"));
     expect(
       thread?.messages.some(
@@ -5383,7 +5414,7 @@ describe("ProviderRuntimeIngestion", () => {
       payload: { streamKind: "assistant_text", delta: "future mode is live" },
     });
 
-    await waitForThread(harness.engine, (thread) =>
+    await waitForThread(harness.snapshotQuery, (thread) =>
       thread.messages.some(
         (message: ProviderRuntimeTestMessage) =>
           message.id === "assistant:item-future-after-unmatched-terminal" &&
@@ -5406,7 +5437,7 @@ describe("ProviderRuntimeIngestion", () => {
       turnId: asTurnId("turn-buffered-session-exit"),
     });
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) =>
         thread.session?.status === "running" &&
         thread.session?.activeTurnId === "turn-buffered-session-exit",
@@ -5435,7 +5466,7 @@ describe("ProviderRuntimeIngestion", () => {
       threadId: asThreadId("thread-1"),
     });
 
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.messages.some(
         (message: ProviderRuntimeTestMessage) =>
           message.id === "assistant:item-buffered-session-exit" &&
@@ -5463,7 +5494,7 @@ describe("ProviderRuntimeIngestion", () => {
       turnId: asTurnId("turn-buffered-runtime-error"),
     });
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) =>
         thread.session?.status === "running" &&
         thread.session?.activeTurnId === "turn-buffered-runtime-error",
@@ -5497,7 +5528,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     const thread = await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (entry) =>
         entry.messages.some(
           (message: ProviderRuntimeTestMessage) =>
@@ -5528,7 +5559,7 @@ describe("ProviderRuntimeIngestion", () => {
       turnId: asTurnId("turn-buffer-spill"),
     });
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) =>
         thread.session?.status === "running" &&
         thread.session?.activeTurnId === "turn-buffer-spill",
@@ -5561,7 +5592,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.messages.some(
         (message: ProviderRuntimeTestMessage) =>
           message.id === "assistant:item-buffer-spill" && !message.streaming,
@@ -5589,7 +5620,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) =>
         thread.session?.status === "running" &&
         thread.session?.activeTurnId === "turn-complete-dedup",
@@ -5634,7 +5665,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) =>
         thread.session?.status === "ready" &&
         thread.session?.activeTurnId === null &&
@@ -5679,7 +5710,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) =>
         thread.session?.status === "running" &&
         thread.session?.activeTurnId === "turn-late-completion",
@@ -5711,7 +5742,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) =>
         thread.session?.status === "ready" &&
         thread.messages.some(
@@ -5736,7 +5767,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
     await harness.drain();
 
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.messages.some(
         (message: ProviderRuntimeTestMessage) =>
           message.id === "assistant:item-late-completion" &&
@@ -5784,7 +5815,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) => thread.session?.activeTurnId === "turn-late-reassign-source",
     );
 
@@ -5815,7 +5846,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) =>
         thread.session?.status === "ready" &&
         thread.messages.some(
@@ -5836,7 +5867,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) => thread.session?.activeTurnId === "turn-late-reassign-next",
     );
 
@@ -5856,7 +5887,7 @@ describe("ProviderRuntimeIngestion", () => {
     await harness.drain();
 
     const thread = await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (entry) =>
         entry.session?.activeTurnId === "turn-late-reassign-next" &&
         entry.messages.some(
@@ -5905,7 +5936,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) =>
         thread.session?.status === "running" &&
         thread.session?.activeTurnId === "turn-missing-completion-item-id",
@@ -5925,7 +5956,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    await waitForThread(harness.engine, (thread) =>
+    await waitForThread(harness.snapshotQuery, (thread) =>
       thread.messages.some(
         (message: ProviderRuntimeTestMessage) =>
           message.id === "assistant:item-missing-completion-item-id" &&
@@ -5950,7 +5981,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    const finalizedThread = await waitForThread(harness.engine, (thread) =>
+    const finalizedThread = await waitForThread(harness.snapshotQuery, (thread) =>
       thread.messages.some(
         (message: ProviderRuntimeTestMessage) =>
           message.id === "assistant:item-missing-completion-item-id" && !message.streaming,
@@ -5998,7 +6029,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) =>
         thread.session?.status === "running" &&
         thread.session?.activeTurnId === "turn-late-completion-item-id",
@@ -6017,7 +6048,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    await waitForThread(harness.engine, (thread) =>
+    await waitForThread(harness.snapshotQuery, (thread) =>
       thread.messages.some(
         (message: ProviderRuntimeTestMessage) =>
           message.id === "assistant:turn-late-completion-item-id" &&
@@ -6041,7 +6072,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    const finalizedThread = await waitForThread(harness.engine, (thread) =>
+    const finalizedThread = await waitForThread(harness.snapshotQuery, (thread) =>
       thread.messages.some(
         (message: ProviderRuntimeTestMessage) =>
           message.id === "assistant:turn-late-completion-item-id" && !message.streaming,
@@ -6089,7 +6120,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) =>
         thread.session?.status === "running" &&
         thread.session?.activeTurnId === "turn-multiple-assistant-items",
@@ -6122,7 +6153,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    await waitForThread(harness.engine, (thread) => {
+    await waitForThread(harness.snapshotQuery, (thread) => {
       const assistantMessages = thread.messages.filter(
         (message: ProviderRuntimeTestMessage) =>
           message.role === "assistant" && message.turnId === "turn-multiple-assistant-items",
@@ -6147,7 +6178,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    const finalizedThread = await waitForThread(harness.engine, (thread) =>
+    const finalizedThread = await waitForThread(harness.snapshotQuery, (thread) =>
       thread.messages.some(
         (message: ProviderRuntimeTestMessage) =>
           message.id === "assistant:item-multiple-assistant-items-a" && !message.streaming,
@@ -6201,7 +6232,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (entry) =>
         entry.activities.some(
           (activity: ProviderRuntimeTestActivity) => activity.kind === "approval.requested",
@@ -6211,7 +6242,9 @@ describe("ProviderRuntimeIngestion", () => {
         ),
     );
 
-    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const readModel = await Effect.runPromise(
+      harness.snapshotQuery.getSnapshot().pipe(Effect.orDie),
+    );
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
     expect(thread).toBeDefined();
 
@@ -6268,7 +6301,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.activities.some((activity) => activity.id === "evt-large-tool-data"),
     );
     const activity = thread.activities.find((entry) => entry.id === "evt-large-tool-data");
@@ -6344,7 +6377,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.activities.some((activity) => hasOperationId(activity, "item-command-output")),
     );
     const activity = thread.activities.find((entry) =>
@@ -6406,7 +6439,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.activities.some((activity) => hasOperationId(activity, "item-empty-stream-output")),
     );
     const activity = thread.activities.find((entry) =>
@@ -6454,7 +6487,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.activities.some((activity) => activity.id === "evt-pathological-tool-data"),
     );
     const activity = thread.activities.find((entry) => entry.id === "evt-pathological-tool-data");
@@ -6498,7 +6531,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     const thread = await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (entry) =>
         entry.session?.status === "error" &&
         entry.session?.activeTurnId === "turn-3" &&
@@ -6559,7 +6592,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     const thread = await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (entry) =>
         entry.session?.status === "running" &&
         entry.session?.activeTurnId === "turn-warning" &&
@@ -6603,7 +6636,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.activities.some(
         (activity: ProviderRuntimeTestActivity) => activity.id === "evt-opencode-retry-warning",
       ),
@@ -6657,7 +6690,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.activities.some(
         (activity: ProviderRuntimeTestActivity) => activity.id === "evt-background-move-notice",
       ),
@@ -6713,7 +6746,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     const thread = await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (entry) =>
         entry.session?.status === "ready" &&
         entry.session?.activeTurnId === null &&
@@ -6760,7 +6793,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.activities.some(
         (activity: ProviderRuntimeTestActivity) => activity.kind === "context-window.updated",
       ),
@@ -6922,7 +6955,7 @@ describe("ProviderRuntimeIngestion", () => {
     harness.emit(makeUsageEvent("evt-context-first", 4_000));
     harness.emit(makeUsageEvent("evt-context-duplicate", 4_000));
     harness.emit(makeUsageEvent("evt-context-changed", 4_001));
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.activities.some((activity) => activity.id === "evt-context-changed"),
     );
     const contextActivities = thread.activities.filter(
@@ -6953,7 +6986,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.activities.some(
         (activity: ProviderRuntimeTestActivity) => activity.kind === "context-window.updated",
       ),
@@ -6988,7 +7021,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.activities.some(
         (activity: ProviderRuntimeTestActivity) => activity.kind === "context-window.updated",
       ),
@@ -7022,7 +7055,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.activities.some(
         (activity: ProviderRuntimeTestActivity) => activity.kind === "context-window.configured",
       ),
@@ -7066,7 +7099,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.activities.some(
         (activity: ProviderRuntimeTestActivity) => activity.kind === "context-window.updated",
       ),
@@ -7116,7 +7149,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.activities.some(
         (activity: ProviderRuntimeTestActivity) => activity.kind === "context-window.updated",
       ),
@@ -7151,7 +7184,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.activities.some(
         (activity: ProviderRuntimeTestActivity) => activity.kind === "context-compaction",
       ),
@@ -7225,7 +7258,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.activities.some(
         (activity: ProviderRuntimeTestActivity) =>
           activity.kind === "context-compaction" &&
@@ -7263,7 +7296,7 @@ describe("ProviderRuntimeIngestion", () => {
         },
       });
 
-      const thread = await waitForThread(harness.engine, (entry) =>
+      const thread = await waitForThread(harness.snapshotQuery, (entry) =>
         entry.activities.some(
           (activity: ProviderRuntimeTestActivity) =>
             activity.kind === "context-compaction" &&
@@ -7308,7 +7341,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.activities.some(
         (activity: ProviderRuntimeTestActivity) =>
           activity.kind === "context-compaction" &&
@@ -7373,7 +7406,7 @@ describe("ProviderRuntimeIngestion", () => {
         summary: "<proposed_plan>\n# Plan title\n</proposed_plan>",
       },
     });
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.activities.some(
         (activity: ProviderRuntimeTestActivity) => activity.kind === "task.completed",
       ),
@@ -7425,7 +7458,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    const thread = await waitForThread(harness.engine, (entry) =>
+    const thread = await waitForThread(harness.snapshotQuery, (entry) =>
       entry.activities.some(
         (activity: ProviderRuntimeTestActivity) => activity.id === "evt-turn-completed-no-cost",
       ),
@@ -7492,7 +7525,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     const thread = await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (entry) =>
         entry.activities.some(
           (activity: ProviderRuntimeTestActivity) => activity.kind === "user-input.requested",
@@ -7558,7 +7591,7 @@ describe("ProviderRuntimeIngestion", () => {
         yield* harness.sql`UPDATE threads SET created_by = 'provider_native' WHERE id = ${childThreadId}`;
       }),
     );
-    const before = await Effect.runPromise(harness.engine.getReadModel());
+    const before = await Effect.runPromise(harness.snapshotQuery.getSnapshot().pipe(Effect.orDie));
     const parentBefore = before.threads.find((thread) => thread.id === asThreadId("thread-1"));
     expect(parentBefore).toBeDefined();
     const parentProjectionBefore = structuredClone({
@@ -7639,7 +7672,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     const pendingChildThread = await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) =>
         thread.activities.some(
           (activity) => activity.id === "evt-unmapped-child-approval-requested",
@@ -7725,7 +7758,7 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
     const childThread = await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (thread) =>
         thread.messages.some(
           (message) =>
@@ -7749,7 +7782,7 @@ describe("ProviderRuntimeIngestion", () => {
 
     expect(childThread.folderId).toBe(asFolderId("project-1"));
 
-    const after = await Effect.runPromise(harness.engine.getReadModel());
+    const after = await Effect.runPromise(harness.snapshotQuery.getSnapshot().pipe(Effect.orDie));
     const parentAfter = after.threads.find((thread) => thread.id === asThreadId("thread-1"));
     expect(parentAfter).toBeDefined();
     expect({
@@ -7793,7 +7826,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
 
     const thread = await waitForThread(
-      harness.engine,
+      harness.snapshotQuery,
       (entry) =>
         entry.session?.status === "error" &&
         entry.session?.activeTurnId === "turn-after-failure" &&
@@ -7890,7 +7923,7 @@ describe("ProviderRuntimeIngestion", () => {
       }
       await harness.drain();
 
-      const thread = await waitForThread(harness.engine, () => true);
+      const thread = await waitForThread(harness.snapshotQuery, () => true);
       expect(thread.session).toMatchObject({
         status: "running",
         activeTurnId: asTurnId("turn-generation-b"),
@@ -8019,7 +8052,7 @@ describe("ProviderRuntimeIngestion", () => {
     }
     await harness.drain();
 
-    const thread = await waitForThread(harness.engine, () => true);
+    const thread = await waitForThread(harness.snapshotQuery, () => true);
     expect(thread.session).toMatchObject({
       status: "running",
       activeTurnId: asTurnId("turn-completed-b"),
@@ -8148,7 +8181,7 @@ describe("ProviderRuntimeIngestion", () => {
     }
     await harness.drain();
 
-    const thread = await waitForThread(harness.engine, () => true);
+    const thread = await waitForThread(harness.snapshotQuery, () => true);
     expect(thread.session).toMatchObject({
       status: "running",
       activeTurnId: asTurnId("turn-aborted-b"),
@@ -8345,7 +8378,7 @@ describe("ProviderRuntimeIngestion", () => {
         status: "completed",
       },
     });
-    const completedThread = await waitForThread(harness.engine, (thread) =>
+    const completedThread = await waitForThread(harness.snapshotQuery, (thread) =>
       thread.messages.some(
         (message: ProviderRuntimeTestMessage) =>
           message.id === "assistant:item-terminal-policy-b" &&
@@ -8446,7 +8479,7 @@ describe("ProviderRuntimeIngestion", () => {
     }
     await harness.drain();
 
-    const thread = await waitForThread(harness.engine, () => true);
+    const thread = await waitForThread(harness.snapshotQuery, () => true);
     expect(thread.session).toMatchObject({
       status: "running",
       activeTurnId: asTurnId("turn-null-session-b"),

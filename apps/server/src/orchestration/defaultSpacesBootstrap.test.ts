@@ -15,15 +15,14 @@ function engineFor(
     dispatched.push(command);
     return Effect.succeed({ sequence: dispatched.length });
   });
-  const getReadModel = () =>
+  const getCommandReadModel = () =>
     Effect.succeed({
       ...createEmptyReadModel("2026-07-31T00:00:00.000Z"),
       ...overrides,
       spaces,
     });
   const engine = {
-    getReadModel,
-    getCommandReadModel: getReadModel,
+    getCommandReadModel,
     dispatch,
   } as unknown as OrchestrationEngineShape;
   return { dispatch, dispatched, engine };
