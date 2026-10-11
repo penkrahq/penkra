@@ -37,7 +37,6 @@ import {
 import { matchesRequestedTurnOutcome } from "./qaTurnOutcomes";
 import { getModelCapabilities, normalizeModelSlug } from "@penkra/shared/model";
 import { startDiagnosticTrace } from "@penkra/shared/traceContext";
-import { createSendDiagnosticLifecycle } from "./sendDiagnosticLifecycle";
 import { threadExportBlockedReason } from "@penkra/shared/threadExport";
 import { pendingRequestInstanceKey } from "@penkra/shared/threadSummary";
 import {
@@ -427,7 +426,6 @@ import {
   revokeUserMessagePreviewUrls,
 } from "./ChatView.logic";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
-import { recordChatSendFailure } from "./chatSendFailure";
 import { useComposerSlashCommands } from "../hooks/useComposerSlashCommands";
 import { useFeatureFlags } from "../featureFlags";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
@@ -552,15 +550,12 @@ async function stagePersistedComposerImageAttachments(input: {
           const existingPersisted = existingPersistedById.get(image.id);
           if (existingPersisted) {
             stagedAttachmentById.set(image.id, existingPersisted);
-          } else {
-            recordChatSendFailure("EXTERNAL_CALL_FAILED");
           }
         }
       }),
     );
     return Array.from(stagedAttachmentById.values());
   } catch {
-    recordChatSendFailure("EXTERNAL_CALL_FAILED");
     const currentImageIds = new Set(input.images.map((image) => image.id));
     return input
       .getPersistedAttachments()
@@ -3234,27 +3229,6 @@ function ChatViewContent({
 
   const continueInFlightRef = useRef(false);
   const pendingContinueCommandIdRef = useRef<string | null>(null);
-  const pendingQueuedDiagnosticRef = useRef<{
-    threadId: ThreadId;
-    messageId: MessageId;
-    trace: ReturnType<typeof startDiagnosticTrace>;
-  } | null>(null);
-  useEffect(() => {
-    const pending = pendingQueuedDiagnosticRef.current;
-    if (pending === null || pending.threadId !== activeThreadId) return;
-    if (!threadItems.some((item) => item.kind === "user" && item.sourceId === pending.messageId))
-      return;
-    pendingQueuedDiagnosticRef.current = null;
-    void window.desktopBridge
-      ?.recordDiagnosticCheckpoint?.({
-        ...pending.trace,
-        threadId: pending.threadId,
-        flow: "queue",
-        step: "queue.started",
-        outcome: "ok",
-      })
-      .catch(() => undefined);
-  }, [threadItems, activeThreadId]);
   const pendingQaPlayRef = useRef<{
     threadId: string;
     turnId: string;
@@ -5112,9 +5086,6 @@ function ChatViewContent({
     queuedTurn?: ComposerSubmission,
   ): Promise<boolean> => {
     e?.preventDefault();
-    const sendTrace = startDiagnosticTrace();
-    const sendDiagnostics = createSendDiagnosticLifecycle(sendTrace, window.desktopBridge);
-    sendDiagnostics.preflight(activeThread?.id);
     const api = readNativeApi();
     const lateSendHandlers = lateComposerSendHandlersRef.current;
     if (!api || !lateSendHandlers || !activeThread || isVoiceTranscribing) {
@@ -5125,7 +5096,6 @@ function ChatViewContent({
       try {
         await pendingConnectionUpdate.promise;
       } catch (error) {
-        recordChatSendFailure("SEND_PREFLIGHT_REJECTED", sendTrace);
         setThreadError(
           activeThread.id,
           error instanceof Error ? error.message : "Couldn't change this thread's Connection.",
@@ -5252,7 +5222,6 @@ function ChatViewContent({
           );
           if (handledSlashCommand) return true;
         } catch (error) {
-          recordChatSendFailure("SEND_PREFLIGHT_REJECTED", sendTrace);
           setThreadError(
             activeThread.id,
             error instanceof Error ? error.message : "Failed to run the command.",
@@ -5534,7 +5503,6 @@ function ChatViewContent({
           hydratedPendingImages =
             await hydratePendingBlobComposerAttachments(pendingBlobAttachments);
         } catch (error) {
-          recordChatSendFailure("SEND_PREFLIGHT_REJECTED", sendTrace);
           releaseSendPreflight({ restoreComposer: true });
           setThreadError(
             activeThread.id,
@@ -5599,7 +5567,6 @@ function ChatViewContent({
           hasThreadStarted,
         });
       } catch (error) {
-        recordChatSendFailure("SEND_PREFLIGHT_REJECTED", sendTrace);
         releaseSendPreflight({ restoreComposer: true });
         setThreadError(
           activeThread.id,
@@ -5655,7 +5622,6 @@ function ChatViewContent({
         handledSlashCommand =
           await lateSendHandlers.handleStandaloneSlashCommand(trimmedPromptForSend);
       } catch (error) {
-        recordChatSendFailure("SEND_PREFLIGHT_REJECTED", sendTrace);
         releaseSendPreflight({ restoreComposer: true });
         setThreadError(
           activeThread.id,
@@ -5918,58 +5884,56 @@ function ChatViewContent({
         provider: selectedModelSelectionForSend.provider,
         providerOptions: providerOptionsForDispatchForSend,
       });
-      const sendResult = await stagedTurnAttachments.runWithDispatch((attachments) => {
-        return sendDiagnostics.dispatch(threadIdForSend, async () => {
-          const send: Omit<CleanCoreSendMessageInput, "threadId"> = {
-            message: {
-              messageId: messageIdForSend,
-              text: outgoingMessageText,
-              attachments: [
-                ...attachments.filter((attachment) => attachment.type !== "assistant-selection"),
-                ...composerAssistantSelectionsSnapshot.map((selection) => ({
-                  ...selection,
-                  assistantMessageId: MessageId.makeUnsafe(selection.assistantMessageId),
-                })),
-              ],
-              senderThreadId: null,
-              dispatchOrigin: "user",
-              queuedAt: messageCreatedAt,
-            },
-            modelSelection: selectedModelSelectionForSend,
-            ...(providerOptionsForDispatchForSend === undefined
-              ? {}
-              : { providerOptions: providerOptionsForDispatchForSend }),
-            assistantDeliveryMode,
-            ...(mentionedSkillsForSend.length === 0 ? {} : { skills: mentionedSkillsForSend }),
-            ...(mentionedPluginMentionsForSend.length === 0
-              ? {}
-              : { mentions: mentionedPluginMentionsForSend }),
-            ...(selectedConnectionIdForSend === undefined
-              ? {}
-              : { connectionId: selectedConnectionIdForSend }),
-            dispatchMode,
-          };
-          if (!isLocalDraftThread)
-            return api.cleanCore.sendMessage({ ...send, threadId: threadIdForSend });
-          const result = await api.cleanCore.createAndSendThread({
-            ...send,
-            thread: {
-              creator: { kind: "user" },
-              connection:
-                selectedConnectionIdForSend === undefined
-                  ? { kind: "default" }
-                  : { kind: "selected", connectionId: selectedConnectionIdForSend },
-              threadId: threadIdForSend,
-              folderId: targetFolderIdForSend,
-              title,
-              modelSelection: threadCreateModelSelection,
-              runtimeMode: nextRuntimeModeForSend,
-              createdAt: activeThread.createdAt,
-            },
-          });
-          applyThreadCreationResponse(result);
-          return result.sendResult;
+      const sendResult = await stagedTurnAttachments.runWithDispatch(async (attachments) => {
+        const send: Omit<CleanCoreSendMessageInput, "threadId"> = {
+          message: {
+            messageId: messageIdForSend,
+            text: outgoingMessageText,
+            attachments: [
+              ...attachments.filter((attachment) => attachment.type !== "assistant-selection"),
+              ...composerAssistantSelectionsSnapshot.map((selection) => ({
+                ...selection,
+                assistantMessageId: MessageId.makeUnsafe(selection.assistantMessageId),
+              })),
+            ],
+            senderThreadId: null,
+            dispatchOrigin: "user",
+            queuedAt: messageCreatedAt,
+          },
+          modelSelection: selectedModelSelectionForSend,
+          ...(providerOptionsForDispatchForSend === undefined
+            ? {}
+            : { providerOptions: providerOptionsForDispatchForSend }),
+          assistantDeliveryMode,
+          ...(mentionedSkillsForSend.length === 0 ? {} : { skills: mentionedSkillsForSend }),
+          ...(mentionedPluginMentionsForSend.length === 0
+            ? {}
+            : { mentions: mentionedPluginMentionsForSend }),
+          ...(selectedConnectionIdForSend === undefined
+            ? {}
+            : { connectionId: selectedConnectionIdForSend }),
+          dispatchMode,
+        };
+        if (!isLocalDraftThread)
+          return api.cleanCore.sendMessage({ ...send, threadId: threadIdForSend });
+        const result = await api.cleanCore.createAndSendThread({
+          ...send,
+          thread: {
+            creator: { kind: "user" },
+            connection:
+              selectedConnectionIdForSend === undefined
+                ? { kind: "default" }
+                : { kind: "selected", connectionId: selectedConnectionIdForSend },
+            threadId: threadIdForSend,
+            folderId: targetFolderIdForSend,
+            title,
+            modelSelection: threadCreateModelSelection,
+            runtimeMode: nextRuntimeModeForSend,
+            createdAt: activeThread.createdAt,
+          },
         });
+        applyThreadCreationResponse(result);
+        return result.sendResult;
       });
       if (sendResult.delivery === "failed") throw new Error(sendResult.error);
       turnStartSucceeded = true;
@@ -5979,20 +5943,6 @@ function ChatViewContent({
           current.filter((message) => message.id !== messageIdForSend),
         );
         resetLocalDispatch();
-        pendingQueuedDiagnosticRef.current = {
-          threadId: threadIdForSend,
-          messageId: messageIdForSend,
-          trace: sendTrace,
-        };
-        void window.desktopBridge
-          ?.recordDiagnosticCheckpoint?.({
-            ...sendTrace,
-            threadId: threadIdForSend,
-            flow: "queue",
-            step: "queue.enqueued",
-            outcome: "ok",
-          })
-          .catch(() => undefined);
       }
       await queryClient.invalidateQueries({
         queryKey: providerConnectionQueryKeys.thread(threadIdForSend),
@@ -6003,7 +5953,6 @@ function ChatViewContent({
         return next;
       });
     })().catch(async (err: unknown) => {
-      recordChatSendFailure("COMMAND_REJECTED", sendTrace);
       // Uploads start in parallel with workspace/session preparation. If any
       // earlier step fails, settle that promise and release every staged blob.
       await turnAttachmentsPromise.then(
@@ -6063,7 +6012,6 @@ function ChatViewContent({
           createdAt: new Date().toISOString(),
         })
         .catch((err: unknown) => {
-          recordChatSendFailure("COMMAND_REJECTED");
           setStoreThreadError(
             activeThreadId,
             err instanceof Error ? err.message : "Failed to submit user input.",
@@ -6273,8 +6221,6 @@ function ChatViewContent({
             if (editorText === expectedText) return onSendRef.current(undefined, mode);
             await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
           }
-          recordChatSendFailure("SEND_PREFLIGHT_REJECTED");
-          // diagnostics-covered: SEND_PREFLIGHT_REJECTED browser.send
           throw Object.assign(
             new Error("The visible composer did not converge on the staged composition."),
             { code: "COMPOSER_NOT_READY" },
