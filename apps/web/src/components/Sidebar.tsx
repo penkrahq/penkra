@@ -641,20 +641,13 @@ export default function Sidebar() {
     voiceRecordingThreadId,
   ]);
 
+  if (optimisticActiveThreadId && routeActiveSidebarThreadId === optimisticActiveThreadId) {
+    setOptimisticActiveThreadId(null);
+  }
+
   useEffect(() => {
-    if (!optimisticActiveThreadId) {
+    if (!optimisticActiveThreadId || routeActiveSidebarThreadId === optimisticActiveThreadId) {
       return;
-    }
-    if (routeActiveSidebarThreadId === optimisticActiveThreadId) {
-      // The route caught up; drop the optimistic override on the next tick. Async
-      // setState keeps this out of render, and activeSidebarThreadId already resolves
-      // to the same thread via `optimistic ?? route`, so the deferral is invisible.
-      const settle = window.setTimeout(() => {
-        setOptimisticActiveThreadId((current) =>
-          current === optimisticActiveThreadId ? null : current,
-        );
-      }, 0);
-      return () => window.clearTimeout(settle);
     }
 
     const timeout = window.setTimeout(() => {
@@ -1939,35 +1932,27 @@ export default function Sidebar() {
       resolveThreadStatusForSidebar,
     ],
   );
-  // Reset per-project preview paging when a folder closes so reopening starts at five rows again.
-  useEffect(() => {
-    const settle = window.setTimeout(() => {
-      setThreadListExtraPagesByProjectCwd((current) =>
-        pruneProjectThreadListPagingForCollapsedFolders({
-          threadListExtraPagesByProjectCwd: current,
-          folders: standardFolders,
-          normalizeProjectCwd: normalizeSidebarProjectThreadListCwd,
-          getProjectPagingKey: projectThreadListPagingKey,
-        }),
-      );
-    }, 0);
-    return () => window.clearTimeout(settle);
-  }, [standardFolders]);
-  useEffect(() => {
+  // Closing a folder invalidates its expanded preview pages before the next commit.
+  const retainedThreadListPages = pruneProjectThreadListPagingForCollapsedFolders({
+    threadListExtraPagesByProjectCwd,
+    folders: standardFolders,
+    normalizeProjectCwd: normalizeSidebarProjectThreadListCwd,
+    getProjectPagingKey: projectThreadListPagingKey,
+  });
+  if (retainedThreadListPages !== threadListExtraPagesByProjectCwd) {
+    setThreadListExtraPagesByProjectCwd(retainedThreadListPages);
+  }
+
+  const dismissedThreadStatusEntries = Object.entries(dismissedThreadStatusKeyByThreadId);
+  if (dismissedThreadStatusEntries.length > 0) {
     const retainedThreadIds = new Set(sidebarThreads.map((thread) => thread.id));
-    const settle = window.setTimeout(() => {
-      setDismissedThreadStatusKeyByThreadId((current) => {
-        const nextEntries = Object.entries(current).filter(([threadId]) =>
-          retainedThreadIds.has(ThreadId.makeUnsafe(threadId)),
-        );
-        if (nextEntries.length === Object.keys(current).length) {
-          return current;
-        }
-        return Object.fromEntries(nextEntries);
-      });
-    }, 0);
-    return () => window.clearTimeout(settle);
-  }, [sidebarThreads]);
+    const retainedEntries = dismissedThreadStatusEntries.filter(([threadId]) =>
+      retainedThreadIds.has(ThreadId.makeUnsafe(threadId)),
+    );
+    if (retainedEntries.length !== dismissedThreadStatusEntries.length) {
+      setDismissedThreadStatusKeyByThreadId(Object.fromEntries(retainedEntries));
+    }
+  }
 
   useEffect(() => {
     persistSidebarUiState({
@@ -1990,18 +1975,9 @@ export default function Sidebar() {
       return;
     }
 
-    const nextLastThreadRoute = {
-      threadId: routeThreadId,
-    };
-    const settle = window.setTimeout(() => {
-      setLastThreadRoute((current) => {
-        if (current?.threadId === nextLastThreadRoute.threadId) {
-          return current;
-        }
-        return nextLastThreadRoute;
-      });
-    }, 0);
-    return () => window.clearTimeout(settle);
+    setLastThreadRoute((current) =>
+      current?.threadId === routeThreadId ? current : { threadId: routeThreadId },
+    );
   }, [isOnSettings, isOnWorkspace, routeThreadId]);
 
   const handleThreadClick = useCallback(
