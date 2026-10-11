@@ -141,6 +141,7 @@ layer("removed provider data migration", (it) => {
         [186, "FolderAppTabs"],
         [187, "DropProviderAuthCircuits"],
         [188, "DropUnusedBookkeeping"],
+        [189, "DropUnusedDiagnosticsAndRateLimits"],
       ]);
 
       const threads = yield* sql<{ readonly threadId: string }>`
@@ -829,7 +830,7 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         VALUES (70, 'Spaces')
       `;
 
-      const executed = yield* runMigrations();
+      const executed = yield* runMigrations({ toMigrationInclusive: 188 });
       assert.deepStrictEqual(executed.slice(0, 42), [
         [70, "AgentGatewayOperations"],
         [71, "ProjectionThreadsGatewayProvenance"],
@@ -955,6 +956,16 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         ["operational_diagnostics", "projection_spaces"],
       );
       assert.include(yield* projectionThreadsColumnNames(sql), "gateway_operation_id");
+      yield* runMigrations();
+      assert.deepStrictEqual(
+        yield* sql`SELECT name FROM sqlite_master WHERE name = 'operational_diagnostics'`,
+        [],
+      );
+      assert.deepStrictEqual(
+        yield* sql`SELECT space_id AS "spaceId", name FROM projection_spaces
+          WHERE space_id = 'space-private-70'`,
+        preservedSpaces,
+      );
     }),
   );
 });
@@ -1025,6 +1036,7 @@ previousSpacesMigrationLayer("previous Spaces lineage", (it) => {
         [186, "FolderAppTabs"],
         [187, "DropProviderAuthCircuits"],
         [188, "DropUnusedBookkeeping"],
+        [189, "DropUnusedDiagnosticsAndRateLimits"],
       ]);
 
       const tracker = yield* trackerRows(sql);
@@ -1334,6 +1346,7 @@ reservedProductionIdentitiesLayer("reserved Production migration identities", (i
           [186, "FolderAppTabs"],
           [187, "DropProviderAuthCircuits"],
           [188, "DropUnusedBookkeeping"],
+          [189, "DropUnusedDiagnosticsAndRateLimits"],
         ],
       );
       // A database already at the reserved identities is not "too new": the
