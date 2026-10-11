@@ -7,9 +7,9 @@ import { outboundHttp } from "@penkra/shared/outboundHttp";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ProviderConnectionRecord } from "../persistence/Services/ProviderConnections";
-import type { ConnectionRateLimitFactRecord } from "../persistence/Services/ConnectionUsageFacts";
+import type { ConnectionRateLimitObservation } from "./ConnectionRateLimits";
 import { providerConnectionProfileRoot } from "../provider/providerNativeStatePaths";
-import { __resetConnectionUsageCache, collectProviderConnectionUsageSnapshots } from "./index";
+import { collectProviderConnectionUsageSnapshots } from "./index";
 
 const timestamp = "2026-08-18T12:00:00.000Z";
 const createdRoots: string[] = [];
@@ -64,7 +64,6 @@ async function writeClaudeAccount(
 
 describe("Connection-scoped provider usage", () => {
   beforeEach(() => {
-    __resetConnectionUsageCache();
     vi.restoreAllMocks();
   });
 
@@ -72,7 +71,7 @@ describe("Connection-scoped provider usage", () => {
     await Promise.all(createdRoots.splice(0).map((root) => rm(root, { recursive: true })));
   });
 
-  it("keeps two account profiles and their cached values isolated", async () => {
+  it("fetches fresh values for both isolated account profiles on every read", async () => {
     const stateDir = await mkdtemp(path.join(tmpdir(), "penkra-connection-usage-"));
     createdRoots.push(stateDir);
     await writeClaudeAccount(stateDir, "account-a", "token-a");
@@ -125,7 +124,7 @@ describe("Connection-scoped provider usage", () => {
       [ProviderConnectionId.makeUnsafe("connection-b"), 67],
     ]);
     expect(second).toEqual(first);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it("never fetches usage for API-key Connections", async () => {
@@ -215,7 +214,7 @@ describe("Connection-scoped provider usage", () => {
       method: "claude-account",
       profileRef: "provider-profile:claude-account",
     });
-    const runtimeFact: ConnectionRateLimitFactRecord = {
+    const runtimeFact: ConnectionRateLimitObservation = {
       connectionId: claudeConnection.id,
       provider: "claudeAgent",
       limitsJson: JSON.stringify({

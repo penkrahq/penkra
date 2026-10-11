@@ -1,12 +1,12 @@
 import { ProviderConnectionId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
-import type { ConnectionRateLimitFactRecord } from "../persistence/Services/ConnectionUsageFacts";
+import type { ConnectionRateLimitObservation } from "./ConnectionRateLimits";
 import { mergeConnectionUsageSnapshots, snapshotFromConnectionRateLimitFact } from "./runtimeFacts";
 
 const updatedAt = "2026-08-21T12:00:00.000Z";
 
-function fact(limits: unknown): ConnectionRateLimitFactRecord {
+function fact(limits: unknown): ConnectionRateLimitObservation {
   return {
     connectionId: ProviderConnectionId.makeUnsafe("codex-account"),
     provider: "codex",

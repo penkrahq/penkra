@@ -16,14 +16,14 @@ import path from "node:path";
 import { ServerConfig } from "../../config.ts";
 import { makeProviderConnectionLogins } from "../../persistence/Layers/ProviderConnectionLogins.ts";
 import { ProviderConnectionRepositoryLive } from "../../persistence/Layers/ProviderConnections.ts";
-import { ConnectionUsageFactRepositoryLive } from "../../persistence/Layers/ConnectionUsageFacts.ts";
+import { ConnectionRateLimitsLive } from "../../providerUsage/ConnectionRateLimits.ts";
 import { ProviderInstallationRepositoryLive } from "../../persistence/Layers/ProviderInstallations.ts";
 import { ThreadProviderBindingRepositoryLive } from "../../persistence/Layers/ThreadProviderBindings.ts";
 import { runMigrations } from "../../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../../persistence/NodeSqliteClient.ts";
 import { ProviderConnectionLoginRepository } from "../../persistence/Services/ProviderConnectionLogins.ts";
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
-import { ConnectionUsageFactRepository } from "../../persistence/Services/ConnectionUsageFacts.ts";
+import { ConnectionRateLimits } from "../../providerUsage/ConnectionRateLimits.ts";
 import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import type {
@@ -161,7 +161,7 @@ const repositories = Layer.mergeAll(
   loginLayer,
   ProviderConnectionRepositoryLive.pipe(Layer.provide(sqlLayer)),
   ProviderInstallationRepositoryLive.pipe(Layer.provide(sqlLayer)),
-  ConnectionUsageFactRepositoryLive.pipe(Layer.provide(sqlLayer)),
+  ConnectionRateLimitsLive,
   ThreadProviderBindingRepositoryLive.pipe(Layer.provide(sqlLayer)),
 );
 const dependencies = Layer.mergeAll(
@@ -327,7 +327,7 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
       yield* activateCodex;
       const coordinator = yield* ProviderConnectionLoginCoordinator;
       const connections = yield* ProviderConnectionRepository;
-      const usageFacts = yield* ConnectionUsageFactRepository;
+      const usageFacts = yield* ConnectionRateLimits;
       const started = yield* coordinator.begin({
         harness: "codex",
         authenticationTargetId: "openai-first-party",
@@ -344,7 +344,7 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
       const completed = yield* waitForCompleted(started.operationId);
       assert.strictEqual(completed.connection?.label, "person@example.com");
       assert.strictEqual(completed.connection?.providerIdentityId, "person@example.com");
-      const usageFact = Option.getOrThrow(yield* usageFacts.getRateLimits(started.connectionId));
+      const usageFact = Option.getOrThrow(yield* usageFacts.get(started.connectionId));
       assert.strictEqual(usageFact.sourceEventId, `provider-login:${started.operationId}`);
       assert.deepStrictEqual(JSON.parse(usageFact.limitsJson), {
         rateLimits: { primary: { usedPercent: 12 } },

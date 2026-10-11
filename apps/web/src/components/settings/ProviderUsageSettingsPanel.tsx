@@ -167,7 +167,7 @@ export function ProviderUsageSettingsPanel() {
   const threadRateLimits = deriveAccountRateLimits(threads);
   const usageQuery = useQuery(serverAllProviderUsageQueryOptions());
   const refreshMutation = useMutation({
-    mutationFn: () => fetchAllProviderUsage({ forceRefresh: true }),
+    mutationFn: () => fetchAllProviderUsage(),
     onSuccess: (data) => {
       queryClient.setQueryData<readonly ServerProviderUsageSnapshot[]>(
         serverQueryKeys.allProviderUsage(),

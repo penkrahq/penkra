@@ -1,3 +1,4 @@
+import { ConnectionRateLimitsLive } from "../src/providerUsage/ConnectionRateLimits.ts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { execFileSync } from "node:child_process";
 
@@ -286,6 +287,7 @@ export const makeOrchestrationIntegrationHarness = (
       providerLayer,
     );
     const runtimeIngestionLayer = ProviderRuntimeIngestionLive.pipe(
+      Layer.provideMerge(ConnectionRateLimitsLive),
       Layer.provideMerge(ThreadPublisherLive),
       Layer.provideMerge(runtimeServicesLayer),
     );

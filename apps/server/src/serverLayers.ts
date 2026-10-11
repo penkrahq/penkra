@@ -32,7 +32,7 @@ import { OrchestrationEventDeliveryRepositoryLive } from "./persistence/Layers/O
 import { ProviderRuntimeEventRepositoryLive } from "./persistence/Layers/ProviderRuntimeEvents";
 import { ProviderInstallationRepositoryLive } from "./persistence/Layers/ProviderInstallations";
 import { ProviderConnectionRepositoryLive } from "./persistence/Layers/ProviderConnections";
-import { ConnectionUsageFactRepositoryLive } from "./persistence/Layers/ConnectionUsageFacts";
+import { ConnectionRateLimitsLive } from "./providerUsage/ConnectionRateLimits";
 import { ProviderConnectionLoginRepositoryLive } from "./persistence/Layers/ProviderConnectionLogins";
 import { ThreadProviderBindingRepositoryLive } from "./persistence/Layers/ThreadProviderBindings";
 import { ProviderThreadSwitchOperationRepositoryLive } from "./persistence/Layers/ProviderThreadSwitchOperations";
@@ -63,7 +63,7 @@ export function makeServerRuntimeServicesLayer(
   const providerHealthLayer = ProviderHealthLive.pipe(Layer.provideMerge(ServerSettingsLive));
   const providerConnectionPersistenceLayer = Layer.mergeAll(
     ProviderConnectionRepositoryLive,
-    ConnectionUsageFactRepositoryLive,
+    ConnectionRateLimitsLive,
     ProviderConnectionLoginRepositoryLive,
     ThreadProviderBindingRepositoryLive,
     ProviderThreadSwitchOperationRepositoryLive,
@@ -99,6 +99,7 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(runtimeServicesLayer),
   );
   const runtimeIngestionLayer = ProviderRuntimeIngestionLive.pipe(
+    Layer.provideMerge(providerConnectionPersistenceLayer),
     Layer.provideMerge(runtimeServicesLayer),
   );
   const providerNativeContinuationVerifierLayer = ProviderNativeContinuationVerifierLive.pipe(

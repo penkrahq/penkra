@@ -1,3 +1,4 @@
+import { ConnectionRateLimitsLive } from "../providerUsage/ConnectionRateLimits.ts";
 import { createThreadFixture } from "../cleanCore/threadFixtures.ts";
 import {} from "@penkra/contracts";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -435,6 +436,7 @@ async function makeProviderRuntime(
     Layer.provideMerge(NodeServices.layer),
   );
   const ingestionLayer = ProviderRuntimeIngestionLive.pipe(
+    Layer.provideMerge(ConnectionRateLimitsLive),
     Layer.provideMerge(ThreadPublisherLive),
     Layer.provideMerge(orchestrationLayer),
     Layer.provideMerge(OrchestrationProjectionSnapshotQueryLive),
