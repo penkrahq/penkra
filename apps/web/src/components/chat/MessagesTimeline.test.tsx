@@ -20,6 +20,7 @@ import {
   threadsOf,
 } from "../../storeTestFixtures";
 import type { WorkLogEntry } from "../../workLog";
+import { MessagesTimeline } from "./MessagesTimeline";
 import { COLLAPSED_USER_MESSAGE_MAX_CHARS } from "./userMessageCollapse";
 
 const TOOLTIP_TRIGGER_MARKER = 'data-base-ui-tooltip-trigger=""';
@@ -109,7 +110,6 @@ beforeAll(() => {
 
 describe("MessagesTimeline", () => {
   it("shows a failed queued message as a transcript row", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const message = makeThread({
       messages: [
         {
@@ -145,7 +145,6 @@ describe("MessagesTimeline", () => {
   it.each(["live event", "snapshot hydration"] as const)(
     "renders sender attribution after %s passes through the store",
     async (source) => {
-      const { MessagesTimeline } = await import("./MessagesTimeline");
       const threadId = ThreadId.makeUnsafe(`receiving-${source.replaceAll(" ", "-")}`);
       const senderThreadId = ThreadId.makeUnsafe(`sender-${source.replaceAll(" ", "-")}`);
       const messageId = MessageId.makeUnsafe(`message-${source.replaceAll(" ", "-")}`);
@@ -302,7 +301,6 @@ describe("MessagesTimeline", () => {
   }, 10_000);
 
   it("keeps small transcripts on the simple non-virtualized path", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -341,7 +339,6 @@ describe("MessagesTimeline", () => {
   }, 10_000);
 
   it("renders assistant math through the shared markdown renderer", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -378,7 +375,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("renders user message metadata outside the bubble shell", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -422,7 +418,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("labels only the first message when another task created the conversation", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -480,7 +475,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("shows only the cross-task label (not the agent chip) when both apply", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -523,7 +517,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("keeps user-bubble file and folder mention icons from being overridden by plugin names", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const baseProps = { ...makeTimelineBaseProps(), resolvedTheme: "light" as const };
 
     const folderMarkup = renderToStaticMarkup(
@@ -597,7 +590,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("renders a steering chip above steered user messages", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -635,7 +627,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("links a known active sender title and preserves steer mode for now=true sends", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const senderThreadId = ThreadId.makeUnsafe("sender-thread");
     const senderTitle = "Coordinator with a deliberately long title ".repeat(8).trim();
     const clampedSenderTitle = clampMentionTitle(senderTitle);
@@ -704,7 +695,6 @@ describe("MessagesTimeline", () => {
     useStore.setState(initialStoreState);
   });
   it("keeps an archived sender title as plain text and uses the generic fallback only when unknown", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const senderThreadId = ThreadId.makeUnsafe("sender-thread-archived");
     const initialStoreState = useStore.getInitialState();
     const initialThreadShellById = initialStoreState.threadShellById;
@@ -780,7 +770,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("does not render a sender label for a user-origin resend with stale sender metadata", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -820,7 +809,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("pushes the steering chip higher when the user message has chips or photos", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -873,7 +861,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("renders user text as markdown with hard line breaks", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -912,7 +899,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("clamps long user messages visually and renders a separate Show more button", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const hiddenTail = "TAIL_SHOULD_STAY_HIDDEN";
     const longText = `${"a".repeat(COLLAPSED_USER_MESSAGE_MAX_CHARS)}${hiddenTail}`;
     const markup = renderToStaticMarkup(
@@ -958,7 +944,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("renders inline terminal labels with the composer chip UI", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -1005,7 +990,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("renders assistant selection chips from hidden prompt markup when attachments are missing", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -1050,7 +1034,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("renders trailing user skill tokens with the composer skill pill UI", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -1088,7 +1071,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("leaves an undiscovered agent-like mention as user text", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -1124,7 +1106,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("renders context compaction entries in the normal work log", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -1160,7 +1141,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("keeps the generic working copy alongside the active compaction entry", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -1197,7 +1177,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("folds work log summaries above the next assistant message footer", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -1251,7 +1230,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("attaches trailing work log summaries to the last assistant reply after completion", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -1301,7 +1279,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("collapses every completed-turn tool call behind a single Worked-for toggle", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -1410,7 +1387,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("renders the completed-turn disclosure before an interleaved presented image", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -1504,7 +1480,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("renders Cursor-style inline tool rows with a uniform label", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -1558,7 +1533,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("renders Claude agent task output through the shared markdown renderer", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -1604,7 +1578,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("collapses a leading tool run behind its summary once the assistant text follows, even mid-turn", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -1712,7 +1685,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("keeps Thinking visible alongside the live elapsed-time status", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const activeTurnId = TurnId.makeUnsafe("turn-reasoning-live");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -1802,7 +1774,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("keeps Thinking when a new local send has no server turn id yet", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const previousTurnId = TurnId.makeUnsafe("turn-previous");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -1878,7 +1849,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("attaches trailing tool rows to the last assistant reply after completion", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -1943,7 +1913,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("expands live inline tool calls past the cap when the group is toggled open", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -2037,7 +2006,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("marks visible file-change rows with captured details as clickable", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -2084,7 +2052,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("renders command rows with a readable summary and styled hover tooltip trigger", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -2130,7 +2097,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("uses the GitHub logo for git and GitHub CLI command rows", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     // Rendered as a live turn: once settled, consecutive command rows fold into
     // a closed "Ran N commands" summary and individual rows are not in markup.
     const markup = renderToStaticMarkup(
@@ -2185,7 +2151,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("marks command rows with captured details as clickable", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -2239,7 +2204,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("renders command text even when commandActions provide a short preview", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -2283,7 +2247,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("renders plain location details as file basenames", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -2323,7 +2286,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("renders read target files without edit-row treatment", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -2363,7 +2325,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("shows a globe icon next to compact web-search rows", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -2404,7 +2365,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("shows a GitHub icon next to compact GitHub MCP rows", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -2443,7 +2403,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("shows an MCP icon next to compact non-GitHub MCP rows", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -2482,7 +2441,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("shows the Penkra mark for every provider-specific tool row shape", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const baseProps = makeTimelineBaseProps();
 
     // Provider-style server/tool identifier while the call is active.
@@ -2569,7 +2527,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("shows the actual command for the Penkra command gateway", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         {...makeTimelineBaseProps()}
@@ -2598,7 +2555,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("overlays an error badge when the Penkra command gateway fails", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         {...makeTimelineBaseProps()}
@@ -2629,7 +2585,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("hides raw `ToolName: {json}` argument details behind the humanized heading", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const baseProps = makeTimelineBaseProps();
 
     const renderSingleToolRow = (entry: WorkLogEntry) =>
@@ -2707,7 +2662,6 @@ describe("MessagesTimeline", () => {
   });
 
   it("keeps Penkra tool calls and adds a thread creation recap at the end of the turn", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
     const assistantMessageId = MessageId.makeUnsafe("message-penkra-recap");
     const workEntries = [
       {

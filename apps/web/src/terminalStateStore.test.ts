@@ -1,5 +1,5 @@
 import { ThreadId } from "@penkra/contracts";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { collectTerminalIdsFromLayout } from "./terminalPaneLayout";
 import {
@@ -7,6 +7,20 @@ import {
   selectThreadTerminalState,
   useTerminalStateStore,
 } from "./terminalStateStore";
+
+beforeEach(() => {
+  vi.stubGlobal("localStorage", {
+    getItem: vi.fn(() => null),
+    setItem: vi.fn(),
+    removeItem: vi.fn(),
+  });
+});
+
+afterEach(() => {
+  // clearStorage also cancels the deferred write owned by this test's store.
+  useTerminalStateStore.persist.clearStorage();
+  vi.unstubAllGlobals();
+});
 
 const THREAD_ID = ThreadId.makeUnsafe("thread-1");
 
