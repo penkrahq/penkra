@@ -79,7 +79,7 @@ export type AccountSubscriptionOwner =
       kind: "app-generation";
       appId: string;
       spaceId: string;
-      deckId: string;
+      folderId: string;
       threadId: string;
       tabId: string;
       rendererId: number;
@@ -228,20 +228,20 @@ export class AppBrowserSurfaceInsetStore {
 }
 
 function sameGeneration(
-  left: Pick<AppTabGenerationOwner, "appId" | "spaceId" | "deckId" | "tabId" | "rendererId">,
+  left: Pick<AppTabGenerationOwner, "appId" | "spaceId" | "folderId" | "tabId" | "rendererId">,
   right: AppTabGenerationOwner,
 ): boolean {
   return sameTab(left, right) && left.rendererId === right.rendererId;
 }
 
 function sameTab(
-  left: Pick<AppTabLogicalOwner, "appId" | "spaceId" | "deckId" | "tabId">,
+  left: Pick<AppTabLogicalOwner, "appId" | "spaceId" | "folderId" | "tabId">,
   right: AppTabLogicalOwner,
 ): boolean {
   return (
     left.appId === right.appId &&
     left.spaceId === right.spaceId &&
-    left.deckId === right.deckId &&
+    left.folderId === right.folderId &&
     left.tabId === right.tabId
   );
 }

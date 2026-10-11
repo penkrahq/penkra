@@ -4,7 +4,6 @@ import {
   FolderId,
   ThreadId,
   TurnId,
-  singletonThreadDeckId,
   type OrchestrationSession,
   type OrchestrationThreadShell,
   type ProviderSession,
@@ -26,8 +25,6 @@ const LIVE_TURN_ID = TurnId.makeUnsafe("turn-live");
 function threadShell(overrides: Partial<OrchestrationThreadShell> = {}): OrchestrationThreadShell {
   return {
     id: THREAD_ID,
-    deckId: singletonThreadDeckId(THREAD_ID),
-    deckSortOrder: 0,
     folderId: FolderId.makeUnsafe("project-reconcile"),
     title: "Runtime reconciliation",
     modelSelection: { provider: "codex", model: "gpt-5.6" },

@@ -1,4 +1,4 @@
-import { FolderId, ThreadDeckId, ThreadId, TurnId } from "@penkra/contracts";
+import { FolderId, ThreadId, TurnId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { SidebarThreadSummary } from "../types";

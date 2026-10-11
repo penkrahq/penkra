@@ -13,7 +13,7 @@ describe("browser context menu fallback", () => {
     let settled = false;
     const result = showContextMenuFallback([
       { id: "rename", label: "Rename" },
-      { id: "leave-deck", label: "Leave Deck", enabled: false },
+      { id: "unavailable-action", label: "Unavailable action", enabled: false },
       { id: "archive", label: "Archive" },
     ]).then((selection) => {
       settled = true;
@@ -23,7 +23,7 @@ describe("browser context menu fallback", () => {
 
     expect(buttons.map((button) => button.textContent)).toEqual([
       "Rename",
-      "Leave Deck",
+      "Unavailable action",
       "Archive",
     ]);
     expect(buttons[1]?.disabled).toBe(true);

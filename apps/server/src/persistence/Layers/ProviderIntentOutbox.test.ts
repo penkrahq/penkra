@@ -1,11 +1,5 @@
 import { createThreadFixture } from "../../cleanCore/threadFixtures.ts";
-import {
-  EventId,
-  ThreadId,
-  FolderId,
-  singletonThreadDeckId,
-  type DiagnosticTraceContext,
-} from "@penkra/contracts";
+import { EventId, ThreadId, FolderId, type DiagnosticTraceContext } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { DiagnosticsStore, openDiagnosticsReader } from "@penkra/shared/diagnostics/store";
 import * as fs from "node:fs";
@@ -219,11 +213,9 @@ layer("ProviderIntentOutbox", (it) => {
         yield* createThreadFixture(sql, {
           threadId,
           folderId: FolderId.makeUnsafe("test-folder"),
-          deckId: singletonThreadDeckId(threadId),
           title: id,
           modelSelection: { provider: "codex", model: "gpt-5.5" },
           runtimeMode: "full-access",
-          workingDirectory: null,
           connection: { kind: "selected", connectionId: null },
           creator: { kind: "user" },
           createdAt: now,

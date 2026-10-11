@@ -6,14 +6,14 @@ import { describe, expect, it } from "vitest";
 import { render } from "vitest-browser-react";
 
 import {
-  resolveAppsLauncherDeckBarReservationPx,
+  resolveAppsLauncherFolderBarReservationPx,
   resolveAppsLauncherRightInsetPx,
 } from "../../chat/appsLauncher.logic";
-import { DeckTabStripViewport } from "./DeckTabStripViewport";
+import { FolderTabStripViewport } from "./FolderTabStripViewport";
 
-function deckFixture(input: { isElectron: boolean; isWindowsDesktop: boolean }) {
+function folderFixture(input: { isElectron: boolean; isWindowsDesktop: boolean }) {
   const appsLauncherRightInsetPx = resolveAppsLauncherRightInsetPx(input);
-  const reservationPx = resolveAppsLauncherDeckBarReservationPx({
+  const reservationPx = resolveAppsLauncherFolderBarReservationPx({
     appsLauncherRightInsetPx,
     dockOpen: false,
     ...input,
@@ -26,11 +26,11 @@ function deckFixture(input: { isElectron: boolean; isWindowsDesktop: boolean }) 
       style={
         {
           "--apps-launcher-right-inset": `${appsLauncherRightInsetPx}px`,
-          "--apps-launcher-deck-bar-right-reservation": `${reservationPx}px`,
+          "--apps-launcher-folder-bar-right-reservation": `${reservationPx}px`,
         } as CSSProperties
       }
     >
-      <DeckTabStripViewport>
+      <FolderTabStripViewport>
         {Array.from({ length: 10 }, (_, index) => (
           <div
             key={index}
@@ -40,7 +40,7 @@ function deckFixture(input: { isElectron: boolean; isWindowsDesktop: boolean }) 
             Thread {index + 1}
           </div>
         ))}
-      </DeckTabStripViewport>
+      </FolderTabStripViewport>
       <button
         aria-label="Apps"
         className="absolute top-0 h-8 w-8"
@@ -51,7 +51,7 @@ function deckFixture(input: { isElectron: boolean; isWindowsDesktop: boolean }) 
   );
 }
 
-describe("Deck tab strip launcher clearance", () => {
+describe("Folder tab strip launcher clearance", () => {
   it.each([
     { isElectron: false, isWindowsDesktop: false },
     { isElectron: true, isWindowsDesktop: true },
@@ -59,9 +59,9 @@ describe("Deck tab strip launcher clearance", () => {
     "keeps the last scrolled tab left of the launcher when closed ($isWindowsDesktop)",
     async (input) => {
       await page.viewport(1000, 800);
-      await render(deckFixture(input));
+      await render(folderFixture(input));
 
-      const strip = document.querySelector<HTMLElement>("[data-thread-deck-tab-strip]");
+      const strip = document.querySelector<HTMLElement>("[data-thread-folder-tab-strip]");
       const lastTab = document.querySelector<HTMLElement>('[data-testid="last-tab"]');
       const launcher = document.querySelector<HTMLElement>('[data-testid="apps-launcher"]');
       expect(strip).not.toBeNull();

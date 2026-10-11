@@ -83,14 +83,14 @@ export interface DesktopAppRuntime {
   rendererIdentity(rendererId: number): {
     appId: string;
     spaceId: string;
-    deckId?: string;
+    folderId?: string;
     threadId?: string;
     tabId?: string;
   } | null;
   invokeController(input: {
     appId: string;
     spaceId: string;
-    deckId: string;
+    folderId: string;
     threadId: string;
     tabId: string;
     handler: string;
@@ -243,14 +243,14 @@ export async function startDesktopAppRuntime(input: {
   const registerRendererIdentity = ({
     appId,
     spaceId,
-    deckId,
+    folderId,
     threadId,
     tabId,
     rendererId,
   }: {
     appId: string;
     spaceId: string;
-    deckId?: string;
+    folderId?: string;
     threadId?: string;
     tabId?: string;
     rendererId: number;
@@ -258,7 +258,7 @@ export async function startDesktopAppRuntime(input: {
     const identity = {
       appId,
       spaceId,
-      ...(deckId === undefined ? {} : { deckId }),
+      ...(folderId === undefined ? {} : { folderId }),
       ...(threadId === undefined ? {} : { threadId }),
       ...(tabId === undefined ? {} : { tabId }),
     };
@@ -587,11 +587,6 @@ function parseShellOpenExternalOptions(value: unknown): OpenExternalOptions | un
   if (record.activate !== undefined) {
     if (typeof record.activate !== "boolean") throw new Error("activate must be a boolean.");
     options.activate = record.activate;
-  }
-  if (record.workingDirectory !== undefined) {
-    if (typeof record.workingDirectory !== "string")
-      throw new Error("workingDirectory must be a string.");
-    options.workingDirectory = record.workingDirectory;
   }
   if (record.logUsage !== undefined) {
     if (typeof record.logUsage !== "boolean") throw new Error("logUsage must be a boolean.");

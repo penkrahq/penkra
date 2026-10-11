@@ -100,7 +100,7 @@ void runHostPhase("electron-ready", () => app.whenReady())
         runtime.appTabs.openInstalled({
           appId: packageRecord.appId,
           spaceId: TEST_SPACE_ID,
-          deckId: `deck:${TEST_THREAD_ID}`,
+          folderId: `folder:${TEST_THREAD_ID}`,
           threadId: TEST_THREAD_ID,
           route: "/",
         }),

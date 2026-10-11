@@ -86,7 +86,7 @@ export {
   type AppThreadComposition,
   type AppThreadCreateInput,
   type AppThreadCreateResult,
-  type AppThreadDeckPosition,
+  type AppFolderThreadPosition,
   type AppPossibleModelDescriptor,
   type AppThreadSendReceipt,
   type AgentThreadSendResult,

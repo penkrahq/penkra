@@ -8,7 +8,6 @@ import {
   SpaceId,
   ThreadId,
   TurnId,
-  singletonThreadDeckId,
   type OrchestrationGetThreadTurnsPageResult,
   type OrchestrationReadModel,
   type OrchestrationShellStreamEvent,
@@ -973,7 +972,6 @@ describe("store projection", () => {
   it("keeps distinct folder identities even when they use the same physical path", () => {
     const initialState: AppState = {
       spaces: [],
-      decks: [],
       archivedSpaces: [],
       folders: [
         makeProject({
@@ -1055,7 +1053,6 @@ describe("store projection", () => {
         },
       ],
       archivedSpaces: [],
-      decks: [],
       folders: [
         makeProject({
           id: FolderId.makeUnsafe("project-shell-space"),
@@ -1095,7 +1092,6 @@ describe("store projection", () => {
     const initialState: AppState = {
       spaces: [space],
       archivedSpaces: [],
-      decks: [],
       folders: [makeProject({ spaceId })],
       archivedFolders: [],
       sidebarThreadSummaryById: {},
@@ -1129,7 +1125,6 @@ describe("store projection", () => {
     const spaceId = SpaceId.makeUnsafe("space-shell-archived-delete");
     const initialState: AppState = {
       spaces: [],
-      decks: [],
       archivedSpaces: [
         {
           id: spaceId,
@@ -1163,7 +1158,6 @@ describe("store projection", () => {
     const initialState = syncServerReadModel(
       {
         spaces: [],
-        decks: [],
         archivedSpaces: [],
         folders: [
           makeProject({
@@ -1183,7 +1177,6 @@ describe("store projection", () => {
         snapshotSequence: 1,
         updatedAt: "2026-02-27T00:00:00.000Z",
         spaces: [],
-        decks: [],
         folders: [
           makeReadModelProject({
             id: FolderId.makeUnsafe("project-shell"),
@@ -2579,7 +2572,6 @@ describe("store projection", () => {
       snapshotSequence: 1,
       updatedAt: "2026-02-28T00:00:00.000Z",
       spaces: [],
-      decks: [],
       folders: [
         makeReadModelProject({
           defaultModelSelection: {
@@ -2695,7 +2687,6 @@ describe("deletion tombstone retirement", () => {
       snapshotSequence,
       updatedAt: "2026-02-27T00:10:00.000Z",
       spaces: [],
-      decks: [],
       folders: [],
       threads: [],
     };
@@ -3004,8 +2995,6 @@ describe("deletion tombstone retirement", () => {
       sequence: 2,
       thread: {
         id: threadId,
-        deckId: singletonThreadDeckId(threadId),
-        deckSortOrder: 0,
         folderId: FolderId.makeUnsafe("project-1"),
         title: "Thread",
         modelSelection: {

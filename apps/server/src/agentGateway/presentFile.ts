@@ -21,21 +21,14 @@ import {
 } from "../managedAttachmentStore.ts";
 import { ToolInputError, errorText } from "./toolInput.ts";
 import { resolveAllowedLocalPreviewFile } from "../localImageFiles.ts";
-import { resolveThreadWorkspaceCwd } from "@penkra/shared/threadEnvironment";
 import { ensureDurableThreadWorkspace } from "../scratchWorkspaces.ts";
 
-export function resolvePresentFileWorkingDirectory(input: {
+export function resolvePresentFileCwd(input: {
   readonly threadId: ThreadId;
-  readonly workingDirectory: string | null;
   readonly projectCwd: string | null;
   readonly stateDir: string;
 }): string {
-  return (
-    resolveThreadWorkspaceCwd({
-      workingDirectory: input.workingDirectory,
-      projectCwd: input.projectCwd,
-    }) ?? ensureDurableThreadWorkspace(input.threadId, input.stateDir)
-  );
+  return input.projectCwd ?? ensureDurableThreadWorkspace(input.threadId, input.stateDir);
 }
 
 const IMAGE_TYPES = new Map([
@@ -65,7 +58,7 @@ function isMatchingImage(bytes: Uint8Array, mimeType: string): boolean {
 
 export function presentFile(input: {
   readonly requestedPath: string;
-  readonly workingDirectory: string | null;
+  readonly cwd: string | null;
   readonly threadId: string;
   readonly turnId: string | null;
   readonly attachmentsDir: string;
@@ -80,7 +73,7 @@ export function presentFile(input: {
     const allowed = yield* Effect.promise(() =>
       resolveAllowedLocalPreviewFile({
         requestedPath: input.requestedPath,
-        cwd: input.workingDirectory,
+        cwd: input.cwd,
         stateDir: input.stateDir,
         allowAnyWorkspaceFile: true,
       }),

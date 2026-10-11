@@ -254,7 +254,9 @@ layer("032_ReconcileImportedSchemaLineage", (it) => {
       assert.strictEqual(pendingApproval?.status, "pending");
     }),
   );
+});
 
+it.layer(NodeSqliteClient.layerMemory())("032 fresh install", (it) => {
   it.effect("is a no-op on a fresh Penkra install", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;

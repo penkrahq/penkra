@@ -7,7 +7,6 @@ import {
   SpaceId,
   ThreadId,
   TurnId,
-  singletonThreadDeckId,
   type OrchestrationEvent,
   type OrchestrationReadModel,
 } from "@penkra/contracts";
@@ -105,19 +104,16 @@ async function projectThreadWithRunningTurn(input: { createdAt: string; startedA
     seedThreadReadModelFixture(createEmptyReadModel(input.createdAt), {
       threadId: ThreadId.makeUnsafe("thread-1"),
       folderId: FolderId.makeUnsafe("project-1"),
-      deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-1")),
       title: "demo",
       modelSelection: {
         provider: "codex",
         model: "gpt-5.3-codex",
       },
       runtimeMode: "full-access",
-      workingDirectory: null,
       createdAt: input.createdAt,
       connection: { kind: "selected", connectionId: null },
       creator: { kind: "user" },
       sidebarSortOrder: 0,
-      deckSortOrder: 0,
     }),
   );
 
@@ -392,19 +388,16 @@ describe("orchestration projector", () => {
       seedThreadReadModelFixture(model, {
         threadId: ThreadId.makeUnsafe("thread-1"),
         folderId: FolderId.makeUnsafe("project-1"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-1")),
         title: "demo",
         modelSelection: {
           provider: "codex",
           model: "gpt-5.3-codex",
         },
         runtimeMode: "full-access",
-        workingDirectory: null,
         createdAt: createdAt,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
         sidebarSortOrder: 0,
-        deckSortOrder: 0,
       }),
     );
 
@@ -532,19 +525,16 @@ describe("orchestration projector", () => {
       seedThreadReadModelFixture(model, {
         threadId: ThreadId.makeUnsafe("thread-1"),
         folderId: FolderId.makeUnsafe("project-1"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-1")),
         title: "demo",
         modelSelection: {
           provider: "codex",
           model: "gpt-5.3-codex",
         },
         runtimeMode: "full-access",
-        workingDirectory: null,
         createdAt: createdAt,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
         sidebarSortOrder: 0,
-        deckSortOrder: 0,
       }),
     );
 
@@ -611,16 +601,13 @@ describe("orchestration projector", () => {
       seedThreadReadModelFixture(createEmptyReadModel(originalAt), {
         threadId: ThreadId.makeUnsafe("thread-edit-replay-time"),
         folderId: FolderId.makeUnsafe("project-1"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-edit-replay-time")),
         title: "edit replay time",
         modelSelection: { provider: "opencode", model: "opencode/big-pickle" },
         runtimeMode: "full-access",
-        workingDirectory: null,
         createdAt: originalAt,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
         sidebarSortOrder: 0,
-        deckSortOrder: 0,
       }),
     );
     const originalMessage = await Effect.runPromise(
@@ -713,16 +700,13 @@ describe("orchestration projector", () => {
       seedThreadReadModelFixture(createEmptyReadModel(createdAt), {
         threadId: ThreadId.makeUnsafe("thread-activity-order"),
         folderId: FolderId.makeUnsafe("project-1"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-activity-order")),
         title: "Activity order",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "full-access",
-        workingDirectory: null,
         createdAt: createdAt,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
         sidebarSortOrder: 0,
-        deckSortOrder: 0,
       }),
     );
     const activityEvent = (input: { id: string; sequence: number; summary: string }) =>
@@ -782,19 +766,16 @@ describe("orchestration projector", () => {
       seedThreadReadModelFixture(model, {
         threadId: ThreadId.makeUnsafe("thread-capped"),
         folderId: FolderId.makeUnsafe("project-1"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-capped")),
         title: "capped",
         modelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
         },
         runtimeMode: "full-access",
-        workingDirectory: null,
         createdAt: createdAt,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
         sidebarSortOrder: 0,
-        deckSortOrder: 0,
       }),
     );
 
@@ -841,16 +822,13 @@ describe("orchestration projector", () => {
       seedThreadReadModelFixture(createEmptyReadModel(createdAt), {
         threadId: ThreadId.makeUnsafe("thread-stream"),
         folderId: FolderId.makeUnsafe("project-1"),
-        deckId: singletonThreadDeckId(ThreadId.makeUnsafe("thread-stream")),
         title: "Streaming",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
         runtimeMode: "full-access",
-        workingDirectory: null,
         createdAt: createdAt,
         connection: { kind: "selected", connectionId: null },
         creator: { kind: "user" },
         sidebarSortOrder: 0,
-        deckSortOrder: 0,
       }),
     );
 

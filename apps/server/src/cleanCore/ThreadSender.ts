@@ -1,3 +1,5 @@
+import { ServerConfig } from "../config.ts";
+import { ensureDurableThreadWorkspace } from "../scratchWorkspaces.ts";
 import { ManagedAttachmentRepository } from "../persistence/Services/ManagedAttachments.ts";
 import { randomUUID } from "node:crypto";
 import {
@@ -56,6 +58,7 @@ export class ThreadSender extends ServiceMap.Service<
 
 export const makeThreadSender = Effect.gen(function* () {
   const scope = yield* Effect.scope;
+  const serverConfig = yield* ServerConfig;
   const sql = yield* SqlClient.SqlClient;
   const publisher = yield* ThreadPublisher;
   const coordinator = yield* ProviderThreadSwitchCoordinator;
@@ -141,8 +144,8 @@ export const makeThreadSender = Effect.gen(function* () {
             modelOptions: string | null;
             runtimeMode: string;
             connectionId: ProviderConnectionId | null;
-            workingDirectory: string | null;
-          }>`SELECT provider, model, model_options AS "modelOptions", runtime_mode AS "runtimeMode", connection_id AS "connectionId", working_directory AS "workingDirectory" FROM threads WHERE id = ${threadId}`;
+            workspaceRoot: string | null;
+          }>`SELECT t.provider, t.model, t.model_options AS "modelOptions", t.runtime_mode AS "runtimeMode", t.connection_id AS "connectionId", f.workspace_root AS "workspaceRoot" FROM threads t JOIN projection_folders f ON f.folder_id = t.folder_id WHERE t.id = ${threadId}`;
           const row = rows[0];
           if (row === undefined) return yield* Effect.fail(new Error("The thread does not exist."));
           const modelSelection = Schema.decodeUnknownSync(ModelSelection)({
@@ -196,7 +199,7 @@ export const makeThreadSender = Effect.gen(function* () {
               createdAt: new Date().toISOString(),
             },
             attachmentPrincipal: principal,
-            ...(row.workingDirectory === null ? {} : { cwd: row.workingDirectory }),
+            cwd: row.workspaceRoot ?? ensureDurableThreadWorkspace(threadId, serverConfig.stateDir),
           });
           return yield* Deferred.await(reply);
         }),

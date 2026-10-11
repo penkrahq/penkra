@@ -14,7 +14,6 @@ import {
   SpaceId,
   ProviderItemId,
   ProviderConnectionId,
-  ThreadDeckId,
   ThreadId,
   TrimmedNonEmptyString,
   TurnId,
@@ -520,8 +519,6 @@ export type OrchestrationPendingInteraction = typeof OrchestrationPendingInterac
 
 export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
-  deckId: ThreadDeckId,
-  deckSortOrder: NonNegativeInt,
   folderId: FolderId,
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   title: TrimmedNonEmptyString,
@@ -529,9 +526,6 @@ export const OrchestrationThread = Schema.Struct({
   /** Thread's current preferred Connection; null means anonymous route. */
   connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
   runtimeMode: RuntimeMode,
-  workingDirectory: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
   creationSource: Schema.optional(Schema.NullOr(ThreadCreationSource)).pipe(
     Schema.withDecodingDefault(() => null),
   ),
@@ -583,17 +577,12 @@ export type OrchestrationThread = typeof OrchestrationThread.Type;
 
 export const OrchestrationThreadShell = Schema.Struct({
   id: ThreadId,
-  deckId: ThreadDeckId,
-  deckSortOrder: NonNegativeInt,
   folderId: FolderId,
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
   runtimeMode: RuntimeMode,
-  workingDirectory: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
   creationSource: Schema.optional(Schema.NullOr(ThreadCreationSource)).pipe(
     Schema.withDecodingDefault(() => null),
   ),
@@ -633,20 +622,10 @@ export const OrchestrationThreadShell = Schema.Struct({
 });
 export type OrchestrationThreadShell = typeof OrchestrationThreadShell.Type;
 
-export const ThreadDeck = Schema.Struct({
-  id: ThreadDeckId,
-  spaceId: SpaceId,
-  threadIds: Schema.Array(ThreadId).check(Schema.isMinLength(1)),
-  createdAt: IsoDateTime,
-  updatedAt: IsoDateTime,
-});
-export type ThreadDeck = typeof ThreadDeck.Type;
-
 export const OrchestrationReadModel = Schema.Struct({
   snapshotSequence: NonNegativeInt,
   spaces: Schema.Array(OrchestrationSpace),
   folders: Schema.Array(OrchestrationFolder),
-  decks: Schema.Array(ThreadDeck),
   threads: Schema.Array(OrchestrationThread),
   updatedAt: IsoDateTime,
 });
@@ -662,7 +641,6 @@ export const OrchestrationShellSnapshot = Schema.Struct({
   archivedFolders: Schema.optional(Schema.Array(OrchestrationFolderShell)).pipe(
     Schema.withDecodingDefault(() => []),
   ),
-  decks: Schema.Array(ThreadDeck),
   threads: Schema.Array(OrchestrationThreadShell),
   updatedAt: IsoDateTime,
 });
@@ -824,14 +802,6 @@ export const ThreadImportedMessage = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 export type ThreadImportedMessage = typeof ThreadImportedMessage.Type;
-
-export const ThreadDeckPosition = Schema.Union([
-  Schema.Struct({ type: Schema.Literal("start") }),
-  Schema.Struct({ type: Schema.Literal("end") }),
-  Schema.Struct({ type: Schema.Literal("before"), threadId: ThreadId }),
-  Schema.Struct({ type: Schema.Literal("after"), threadId: ThreadId }),
-]);
-export type ThreadDeckPosition = typeof ThreadDeckPosition.Type;
 
 export const ThreadTurnStartCommand = Schema.Struct({
   type: Schema.Literal("thread.turn.start"),
@@ -1248,7 +1218,7 @@ export const OrchestrationEventType = Schema.Literals([
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
-export const OrchestrationAggregateKind = Schema.Literals(["space", "folder", "thread", "deck"]);
+export const OrchestrationAggregateKind = Schema.Literals(["space", "folder", "thread"]);
 export type OrchestrationAggregateKind = typeof OrchestrationAggregateKind.Type;
 export const OrchestrationActorKind = Schema.Literals(["client", "server", "provider"]);
 
@@ -1518,7 +1488,7 @@ const EventBaseFields = {
   sequence: NonNegativeInt,
   eventId: EventId,
   aggregateKind: OrchestrationAggregateKind,
-  aggregateId: Schema.Union([SpaceId, FolderId, ThreadId, ThreadDeckId]),
+  aggregateId: Schema.Union([SpaceId, FolderId, ThreadId]),
   occurredAt: IsoDateTime,
   commandId: Schema.NullOr(CommandId),
   causationEventId: Schema.NullOr(EventId),

@@ -1,4 +1,5 @@
-import { FolderId, SpaceId, ThreadId, TurnId, singletonThreadDeckId } from "@penkra/contracts";
+import { seedThreadFolderFixture } from "../../cleanCore/threadFixtures.ts";
+import { FolderId, SpaceId, ThreadId, TurnId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -75,6 +76,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
 
   it.effect("stores canonical thread model options without adding defaults", () =>
     Effect.gen(function* () {
+      yield* seedThreadFolderFixture("folder", "space");
       yield* createThread({
         id: "thread-null-options",
         spaceId: "space",
@@ -123,6 +125,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
     Effect.gen(function* () {
       const turns = yield* ProjectionTurnRepository;
       const now = "2026-07-19T00:00:00.000Z";
+      yield* seedThreadFolderFixture("project-wait-snapshot", "space");
       for (const id of ["thread-wait-active", "thread-wait-deleted"]) {
         yield* createThread({
           id,

@@ -43,7 +43,6 @@ import {
   buildPromptThreadTitleFallback,
   GENERIC_CHAT_THREAD_TITLE,
 } from "@penkra/shared/chatThreads";
-import { resolveThreadWorkspaceCwd as resolveSharedThreadWorkspaceCwd } from "@penkra/shared/threadEnvironment";
 import {
   useCallback,
   useEffect,
@@ -347,7 +346,7 @@ import { ComposerDefault } from "./middle-panel/composer-default/ComposerDefault
 import { ThreadScreen3Rails } from "./middle-panel/thread-screen-3-rails/ThreadScreen3Rails";
 import { ThreadScreenEmpty } from "./middle-panel/thread-screen-empty/ThreadScreenEmpty";
 import { ThreadShell } from "./middle-panel/thread-shell/ThreadShell";
-import { ThreadDeckBar } from "./middle-panel/thread-deck-bar/ThreadDeckBar";
+import { FolderTabs } from "./middle-panel/folder-tabs/FolderTabs";
 import type { TranscriptVirtualListRef } from "./chat/TranscriptVirtualList";
 import { deriveAgentActivityTimelineState } from "./chat/agentActivity.logic";
 import { ExpandedImagePreview } from "./chat/ExpandedImagePreview";
@@ -370,7 +369,6 @@ import { ComposerPendingUserInputPanel } from "./middle-panel/composer-user-ques
 import { ButtonSend } from "./middle-panel/button-send/ButtonSend";
 import { ComposerActions } from "./middle-panel/composer-actions/ComposerActions";
 import { ComposerActionsEmptyThread } from "./middle-panel/composer-actions-empty-thread/ComposerActionsEmptyThread";
-import { DraftFolderBar } from "./middle-panel/composer-default/DraftFolderBar";
 import { EffortSelectorEmptyThread } from "./middle-panel/effort-selector-empty-thread/EffortSelectorEmptyThread";
 import { FolderPromptShared } from "./middle-panel/folder-prompt-shared/FolderPromptShared";
 import { ModelSelectorEmptyThread } from "./middle-panel/model-selector-empty-thread/ModelSelectorEmptyThread";
@@ -403,8 +401,6 @@ import {
 } from "./chat/composerPickerStyles";
 import { getComposerTraitSelection } from "./chat/composerTraits";
 import { resolveRuntimeModelDescriptor } from "./chat/runtimeModelCapabilities";
-import { ProjectPicker } from "./chat/ProjectPicker";
-import { FolderClosed } from "./FolderClosed";
 import { ProviderHealthBanner } from "./chat/ProviderHealthBanner";
 import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
 import {
@@ -1672,7 +1668,6 @@ function ChatViewContent({
     confirmTerminalClose: settings.confirmTerminalTabClose,
     onDeletePlaceholderThread: deletePlaceholderTerminalThread,
   });
-  const homeDir = useWorkspacePathsStore((state) => state.homeDir);
   const chatWorkspaceRoot = useWorkspacePathsStore((state) => state.chatWorkspaceRoot);
   const selectedSpaceId = useSpacesUiStore((state) => state.activeSpaceId);
   const emptyLandingSpaceId =
@@ -1680,15 +1675,11 @@ function ChatViewContent({
   const emptyLandingSpaceName = useStore(
     (state) => state.spaces.find((space) => space.id === emptyLandingSpaceId)?.name?.trim() || null,
   );
-  const isHomeChatContainer = false;
   const isContainerLandingProject = false;
   const activeProjectDisplayName = activeProject?.name;
   const activeFolderName = activeProject?.name.trim() || null;
   const emptyLandingParentName = activeFolderName || emptyLandingSpaceName || "this space";
   const isChatProject = isContainerLandingProject;
-  const resolvedThreadWorkingDirectory = isServerThread
-    ? (canonicalThread?.workingDirectory ?? null)
-    : (draftThread?.workingDirectory ?? null);
 
   useEffect(() => {
     const viewedThreadId = activeThread?.id;
@@ -1960,7 +1951,6 @@ function ChatViewContent({
     threadProviderBindingQuery.data,
   ]);
   const providerModelDiscoveryCwd = resolveProviderDiscoveryCwd({
-    activeThreadWorkingDirectory: resolvedThreadWorkingDirectory,
     activeProjectCwd: activeProject?.cwd ?? null,
     serverCwd: serverConfigQuery.data?.cwd ?? null,
   });
@@ -2825,18 +2815,10 @@ function ChatViewContent({
     workLogVisibleSequenceFloor,
   ]);
   // Empty top-level threads render the centered landing composer instead of the transcript pane.
-  // Every empty draft uses the Pencil prompt and folder picker.
+  // Every empty draft uses the Pencil prompt.
   const isCenteredEmptyLanding = threadDetailHydration === "ready" && timelineEntries.length === 0;
-  const isEmptyChatLanding =
-    isCenteredEmptyLanding && Boolean(homeDir) && isContainerLandingProject;
 
-  const threadWorkspaceCwd = activeProject
-    ? resolveSharedThreadWorkspaceCwd({
-        projectCwd: activeProject.cwd,
-        workingDirectory: resolvedThreadWorkingDirectory,
-      })
-    : null;
-  const workspaceCwd = threadWorkspaceCwd;
+  const workspaceCwd = activeProject?.cwd ?? null;
   const composerTriggerKind = composerTrigger?.kind ?? null;
   const mentionTriggerQuery = composerTrigger?.kind === "mention" ? composerTrigger.query : "";
   const isMentionTrigger = composerTriggerKind === "mention";
@@ -5889,12 +5871,10 @@ function ChatViewContent({
                 ? { kind: "default" }
                 : { kind: "selected", connectionId: selectedConnectionIdForSend },
             threadId: threadIdForSend,
-            deckId: localDraftThread!.deckId,
             folderId: targetFolderIdForSend,
             title,
             modelSelection: threadCreateModelSelection,
             runtimeMode: nextRuntimeModeForSend,
-            workingDirectory: resolvedThreadWorkingDirectory,
             createdAt: activeThread.createdAt,
           },
           api,
@@ -6576,20 +6556,6 @@ function ChatViewContent({
   const ComposerFooterActions = useSplitComposerPickerControls
     ? ComposerActionsEmptyThread
     : ComposerActions;
-  const handleResetWorkspaceToHome = useCallback(() => {
-    if (!isLocalDraftThread) return;
-    setDraftThreadContext(threadId, { workingDirectory: null });
-    scheduleComposerFocus();
-  }, [isLocalDraftThread, scheduleComposerFocus, setDraftThreadContext, threadId]);
-
-  const handleSelectWorkspaceRoot = useCallback(
-    (workspaceRoot: string) => {
-      if (!isLocalDraftThread) return;
-      setDraftThreadContext(threadId, { workingDirectory: workspaceRoot });
-      scheduleComposerFocus();
-    },
-    [isLocalDraftThread, scheduleComposerFocus, setDraftThreadContext, threadId],
-  );
 
   const applyPromptReplacement = useCallback(
     (
@@ -7349,50 +7315,6 @@ function ChatViewContent({
         />
       </span>
     ) : null;
-  const showEmptyLandingProjectPicker =
-    isCenteredEmptyLanding && isLocalDraftThread && activeProject !== undefined;
-  const emptyLandingProjectChip =
-    !isEmptyChatLanding && !showEmptyLandingProjectPicker && activeProjectDisplayName ? (
-      <span className="inline-flex h-[26px] min-w-0 shrink items-center gap-[7px] overflow-hidden rounded-full px-1.5 text-[length:var(--app-font-size-ui,12px)] font-medium text-[var(--color-text-foreground)]">
-        <FolderClosed className="size-[15px] shrink-0" />
-        <span className="min-w-0 truncate">{activeProjectDisplayName}</span>
-      </span>
-    ) : null;
-  const showEmptyLandingControls =
-    isCenteredEmptyLanding &&
-    isLocalDraftThread &&
-    (isEmptyChatLanding || showEmptyLandingProjectPicker || emptyLandingProjectChip !== null);
-  const emptyLandingControls = showEmptyLandingControls ? (
-    <DraftFolderBar
-      folderPicker={
-        isEmptyChatLanding ? (
-          <ProjectPicker
-            align="start"
-            side="top"
-            recentFolderId={activeProject!.id}
-            recentSpaceId={isHomeChatContainer ? selectedSpaceId : null}
-            selectedWorkspaceRoot={resolvedThreadWorkingDirectory}
-            onSelectWorkspaceRoot={handleSelectWorkspaceRoot}
-            onResetToHome={handleResetWorkspaceToHome}
-            variant="draft-bar"
-          />
-        ) : showEmptyLandingProjectPicker ? (
-          <ProjectPicker
-            align="start"
-            side="top"
-            recentFolderId={activeProject.id}
-            recentSpaceId={null}
-            selectedWorkspaceRoot={resolvedThreadWorkingDirectory}
-            onSelectWorkspaceRoot={handleSelectWorkspaceRoot}
-            onResetToHome={handleResetWorkspaceToHome}
-            variant="draft-bar"
-          />
-        ) : (
-          emptyLandingProjectChip
-        )
-      }
-    />
-  ) : null;
 
   const showComposerWorkflowRunCard = workflowRunState !== null;
 
@@ -7433,7 +7355,7 @@ function ChatViewContent({
                 onSteer={steerQueuedMessage}
                 onRemove={removeQueuedMessage}
                 onEdit={editQueuedMessage}
-                cwd={threadWorkspaceCwd ?? undefined}
+                cwd={workspaceCwd ?? undefined}
                 attachedToPrevious={showComposerWorkflowRunCard}
               />
               {/* Pending approvals and AskUserQuestion prompts both render as a detached
@@ -7457,7 +7379,6 @@ function ChatViewContent({
             </div>
             <ComposerDefault
               layoutMode="application"
-              draftBar={emptyLandingControls}
               className={cn(
                 COMPOSER_INPUT_SHELL_CLASS_NAME,
                 composerProviderState.composerFrameClassName,
@@ -7723,7 +7644,7 @@ function ChatViewContent({
         )}
       />
       {/* Top bar */}
-      <ThreadDeckBar
+      <FolderTabs
         activeThread={activeThread}
         activeComposerProvider={selectedProvider}
         defaultComposerProvider={settings.defaultProvider}
@@ -7802,11 +7723,11 @@ function ChatViewContent({
                         onOpenThread={onNavigateToThread}
                         onExpandTimelineImage={onExpandTimelineImage}
                         onIsAtEndChange={onIsAtEndChange}
-                        markdownCwd={threadWorkspaceCwd ?? undefined}
+                        markdownCwd={workspaceCwd ?? undefined}
                         resolvedTheme={resolvedTheme}
                         chatFontSizePx={settings.chatFontSizePx}
                         timestampFormat={timestampFormat}
-                        workspaceRoot={threadWorkspaceCwd ?? undefined}
+                        workspaceRoot={workspaceCwd ?? undefined}
                         emptyStateProjectName={activeProjectDisplayName}
                         onMessagesScroll={onMessagesScroll}
                         onMessagesClickCapture={onMessagesClickCapture}

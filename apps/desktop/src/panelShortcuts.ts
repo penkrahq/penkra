@@ -22,7 +22,7 @@ export function resolvePanelShortcut(
 export type PanelShortcutEffect =
   | { readonly kind: "new-window" }
   | { readonly kind: "open-find" }
-  | { readonly kind: "close-panel-tab"; readonly deckId: string }
+  | { readonly kind: "close-panel-tab"; readonly folderId: string }
   | { readonly kind: "none" };
 
 /**
@@ -34,14 +34,14 @@ export type PanelShortcutEffect =
 export function resolvePanelShortcutEffect(
   command: PanelShortcutCommand,
   panelFocused: boolean,
-  deckId: string | null,
+  folderId: string | null,
 ): PanelShortcutEffect {
   if (command === "new-window") return { kind: "new-window" };
   if (command === "find") return { kind: "open-find" };
   if (!panelFocused) return { kind: "none" };
-  return deckId === null || deckId.length === 0
+  return folderId === null || folderId.length === 0
     ? { kind: "none" }
-    : { kind: "close-panel-tab", deckId };
+    : { kind: "close-panel-tab", folderId };
 }
 
 /** The shell handles W at DOM capture time, after identifying the actual key target. */

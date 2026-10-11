@@ -49,7 +49,7 @@ function installBridge() {
 }
 
 describe("AppDockPane native view controller", () => {
-  it("presents from rendered geometry when deck re-entry precedes pixel width publication", async () => {
+  it("presents from rendered geometry when folder re-entry precedes pixel width publication", async () => {
     const bridge = installBridge();
     const screen = await render(
       <div
@@ -62,7 +62,7 @@ describe("AppDockPane native view controller", () => {
         }
       >
         <AppDockPane
-          deckId="returning-deck"
+          folderId="returning-folder"
           threadId="returning-thread"
           appName="Apps"
           rendererId={101}
@@ -87,7 +87,7 @@ describe("AppDockPane native view controller", () => {
     const screen = await render(
       <div data-slot="sidebar-wrapper" style={{ "--sidebar-width": "500px" } as CSSProperties}>
         <AppDockPane
-          deckId="deck-1"
+          folderId="folder-1"
           threadId="thread-1"
           appName="Canvas"
           rendererId={101}
@@ -114,7 +114,7 @@ describe("AppDockPane native view controller", () => {
     const bridge = installBridge();
     await render(
       <AppDockPane
-        deckId="deck-1"
+        folderId="folder-1"
         threadId="thread-1"
         appName="Canvas"
         rendererId={101}
@@ -137,7 +137,7 @@ describe("AppDockPane native view controller", () => {
     const bridge = installBridge();
     await render(
       <AppDockPane
-        deckId="deck-1"
+        folderId="folder-1"
         threadId="thread-1"
         appName="Canvas"
         rendererId={101}
@@ -162,7 +162,7 @@ describe("AppDockPane native view controller", () => {
     await render(
       <div data-slot="sidebar-wrapper" style={{ "--sidebar-width": "500px" } as CSSProperties}>
         <AppDockPane
-          deckId="deck-1"
+          folderId="folder-1"
           threadId="thread-1"
           appName="Apps"
           rendererId={101}
@@ -194,7 +194,7 @@ describe("AppDockPane native view controller", () => {
     await render(
       <div data-slot="sidebar-wrapper" style={{ "--sidebar-width": "500px" } as CSSProperties}>
         <AppDockPane
-          deckId="deck-1"
+          folderId="folder-1"
           threadId="thread-1"
           appName="Browser"
           rendererId={101}
@@ -216,7 +216,7 @@ describe("AppDockPane native view controller", () => {
     const screen = await render(
       <div data-slot="sidebar-wrapper" style={{ "--sidebar-width": "500px" } as CSSProperties}>
         <AppDockPane
-          deckId="deck-1"
+          folderId="folder-1"
           threadId="thread-1"
           appName="Browser"
           rendererId={101}

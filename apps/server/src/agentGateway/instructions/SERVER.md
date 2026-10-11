@@ -130,7 +130,7 @@ systems that happen to share vocabulary.
 
 ## Seeing what the user sees
 
-`penkra tabs list` shows the App tabs in this Thread Deck and Space. Every observation command takes
+`penkra tabs list` shows the App tabs in this folder and Space. Every observation command takes
 an exact `--tab-id` plus `--document d1|d2`, and can address a retained tab even when its Thread is
 not on screen for text observation. `d1` is the App document; `d2` is its hosted page. Before
 pointer, keyboard, upload, or other UI interaction, run `penkra tabs activate --tab-id <id>` and
@@ -162,15 +162,14 @@ exact path the command returned rather than shortening or reconstructing it.
 
 ## Threads
 
-The current surface's persistent Thread Deck has bounded operations under `penkra deck`. Use
-`penkra deck list/get/current` for lifecycle and composer state;
-`create/add/select/reorder/leave/archive` for membership; and receipt-bound `compose` then `send` to
+The current surface's persistent folder has bounded operations under `penkra folder`. Use
+`penkra folder list/get/current` for lifecycle and composer state;
+`create/select/reorder/archive` for membership; and receipt-bound `compose` then `send` to
 write to any exact member, including a background Thread. The receipt owns the target, so
-`penkra deck send` needs only `composeId`. These commands never change sidebar folder membership or
-sidebar ordering. Run `penkra deck --help` for their exact schemas.
+`penkra folder send` needs only `composeId`. Moving between folders happens in the sidebar; reorder changes both the sidebar and tabs. Run `penkra folder --help` for their exact schemas.
 
 The broader `penkra threads` commands below remain cross-Thread discovery and agent-coordination
-operations. They are not aliases for the current deck.
+operations. They are not aliases for the current folder.
 
 Use `penkra context` when you need the current Thread ID, active turn ID, folder ID,
 provider, or your thread-read, thread-create, and diagnostics permissions. This is the

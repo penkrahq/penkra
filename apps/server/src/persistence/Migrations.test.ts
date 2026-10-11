@@ -134,6 +134,8 @@ layer("removed provider data migration", (it) => {
         [179, "RemoveFolderPinning"],
         [180, "ThreadProviderLookupIndex"],
         [181, "AgentThreadReadIndexes"],
+        [182, "RemoveParentThreads"],
+        [183, "FolderOwnedThreads"],
       ]);
 
       const threads = yield* sql<{ readonly threadId: string }>`
@@ -950,11 +952,14 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
       assert.include(yield* projectionThreadsColumnNames(sql), "gateway_operation_id");
     }),
   );
+});
 
+const previousSpacesMigrationLayer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
+previousSpacesMigrationLayer("previous Spaces lineage", (it) => {
   it.effect("upgrades the previous Spaces-at-74 lineage without losing data", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations({ toMigrationInclusive: 74 });
+      yield* runMigrations({ toMigrationInclusive: 175 });
       yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id >= 74`;
 
       // PR #365 previously published Spaces as migration 74. Penkra keeps that
@@ -1008,6 +1013,8 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [179, "RemoveFolderPinning"],
         [180, "ThreadProviderLookupIndex"],
         [181, "AgentThreadReadIndexes"],
+        [182, "RemoveParentThreads"],
+        [183, "FolderOwnedThreads"],
       ]);
 
       const tracker = yield* trackerRows(sql);
@@ -1305,6 +1312,8 @@ reservedProductionIdentitiesLayer("reserved Production migration identities", (i
           [179, "RemoveFolderPinning"],
           [180, "ThreadProviderLookupIndex"],
           [181, "AgentThreadReadIndexes"],
+          [182, "RemoveParentThreads"],
+          [183, "FolderOwnedThreads"],
         ],
       );
       // A database already at the reserved identities is not "too new": the

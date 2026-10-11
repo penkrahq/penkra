@@ -3,131 +3,131 @@ import { describe, expect, it } from "vitest";
 import { ThreadHomeWindow } from "./threadHomeWindow";
 
 describe("ThreadHomeWindow", () => {
-  it("routes to a Deck window, preferring the last used home", () => {
+  it("routes to a Folder window, preferring the last used home", () => {
     const home = new ThreadHomeWindow();
-    home.view(1, "thread-a", "deck-a", true);
-    home.view(2, "thread-b", "deck-b", true);
-    expect(home.presentingWindow("thread-a", "deck-a", [1, 2])).toBe(1);
-    home.view(2, "thread-a", "deck-a", false);
+    home.view(1, "thread-a", "folder-a", true);
+    home.view(2, "thread-b", "folder-b", true);
+    expect(home.presentingWindow("thread-a", "folder-a", [1, 2])).toBe(1);
+    home.view(2, "thread-a", "folder-a", false);
     home.focus(2);
-    expect(home.presentingWindow("thread-a", "deck-a", [1, 2])).toBe(2);
+    expect(home.presentingWindow("thread-a", "folder-a", [1, 2])).toBe(2);
     home.close(2);
-    expect(home.presentingWindow("thread-a", "deck-a", [1])).toBe(1);
+    expect(home.presentingWindow("thread-a", "folder-a", [1])).toBe(1);
   });
 
-  it("keeps an unshown Deck in the background and activates its tab once opened", () => {
+  it("keeps an unshown Folder in the background and activates its tab once opened", () => {
     const home = new ThreadHomeWindow();
-    home.view(1, "thread-a", "deck-a", true);
-    expect(home.presentingWindow("thread-a", "deck-b", [1])).toBeNull();
-    home.defer("deck-b", "tab-b");
-    expect(home.consume("deck-a", ["tab-b"])).toBeNull();
-    expect(home.consume("deck-b", ["tab-b"])).toBe("tab-b");
-    expect(home.consume("deck-b", ["tab-b"])).toBeNull();
+    home.view(1, "thread-a", "folder-a", true);
+    expect(home.presentingWindow("thread-a", "folder-b", [1])).toBeNull();
+    home.defer("folder-b", "tab-b");
+    expect(home.consume("folder-a", ["tab-b"])).toBeNull();
+    expect(home.consume("folder-b", ["tab-b"])).toBe("tab-b");
+    expect(home.consume("folder-b", ["tab-b"])).toBeNull();
   });
 
   it("inherits home for agent-created children and drops a closed home", () => {
     const home = new ThreadHomeWindow();
-    home.view(1, "parent", "deck", true);
+    home.view(1, "parent", "folder", true);
     home.inherit("parent", "child");
-    expect(home.presentingWindow("child", "deck", [1])).toBe(1);
+    expect(home.presentingWindow("child", "folder", [1])).toBe(1);
     home.close(1);
     expect(home.homeWindow("child", [])).toBeNull();
   });
 
   it("takes the home from an explicit user send even without a turn origin", () => {
     const home = new ThreadHomeWindow();
-    home.view(1, "thread", "deck", true);
-    home.view(2, "thread", "deck", false);
+    home.view(1, "thread", "folder", true);
+    home.view(2, "thread", "folder", false);
     home.send(2, "thread");
-    expect(home.presentingWindow("thread", "deck", [1, 2])).toBe(2);
+    expect(home.presentingWindow("thread", "folder", [1, 2])).toBe(2);
   });
 
-  it("recognizes every Deck visible in a split window", () => {
+  it("recognizes every Folder visible in a split window", () => {
     const home = new ThreadHomeWindow();
-    home.view(1, "thread-left", "deck-left", false, false);
-    home.view(1, "thread-right", "deck-right", true);
-    expect(home.presentingWindow("thread-left", "deck-left", [1])).toBe(1);
-    expect(home.presentingWindow("thread-right", "deck-right", [1])).toBe(1);
+    home.view(1, "thread-left", "folder-left", false, false);
+    home.view(1, "thread-right", "folder-right", true);
+    expect(home.presentingWindow("thread-left", "folder-left", [1])).toBe(1);
+    expect(home.presentingWindow("thread-right", "folder-right", [1])).toBe(1);
   });
 
   it("keeps agent navigation attribution until the later view and retains the inherited home", () => {
     const home = new ThreadHomeWindow();
-    home.view(1, "parent", "deck", true);
+    home.view(1, "parent", "folder", true);
     home.inherit("parent", "child");
     home.agentNavigation(2, "child");
     home.leave(2); // The prior route unmounts before the child route reports its view.
-    home.replaceViews(2, [{ threadId: "child", deckId: "deck" }], "child", true);
+    home.replaceViews(2, [{ threadId: "child", folderId: "folder" }], "child", true);
     expect(home.homeWindow("child", [1, 2])).toBe(1);
-    home.replaceViews(2, [{ threadId: "child", deckId: "deck" }], "child", true);
+    home.replaceViews(2, [{ threadId: "child", folderId: "folder" }], "child", true);
     expect(home.homeWindow("child", [1, 2])).toBe(2);
   });
 
-  it("atomically replaces visible Decks when split layout changes", () => {
+  it("atomically replaces visible Folders when split layout changes", () => {
     const home = new ThreadHomeWindow();
     home.replaceViews(
       1,
       [
-        { threadId: "left", deckId: "deck-left" },
-        { threadId: "right", deckId: "deck-right" },
+        { threadId: "left", folderId: "folder-left" },
+        { threadId: "right", folderId: "folder-right" },
       ],
       "left",
       true,
     );
-    home.replaceViews(1, [{ threadId: "right", deckId: "deck-right" }], "right", true);
-    expect(home.presentingWindow("left", "deck-left", [1])).toBeNull();
-    expect(home.presentingWindow("right", "deck-right", [1])).toBe(1);
+    home.replaceViews(1, [{ threadId: "right", folderId: "folder-right" }], "right", true);
+    expect(home.presentingWindow("left", "folder-left", [1])).toBeNull();
+    expect(home.presentingWindow("right", "folder-right", [1])).toBe(1);
   });
 
-  it("keeps a Deck's background tab after its former home window closes", () => {
+  it("keeps a Folder's background tab after its former home window closes", () => {
     const home = new ThreadHomeWindow();
-    home.view(1, "thread", "deck", true);
-    home.defer("deck", "tab");
+    home.view(1, "thread", "folder", true);
+    home.defer("folder", "tab");
     home.close(1);
-    home.view(2, "thread", "deck", true);
-    expect(home.consume("deck", ["tab"])).toBe("tab");
-    home.defer("deck", "closed-tab");
+    home.view(2, "thread", "folder", true);
+    expect(home.consume("folder", ["tab"])).toBe("tab");
+    home.defer("folder", "closed-tab");
     home.forgetTab("closed-tab");
-    expect(home.consume("deck", ["closed-tab"])).toBeNull();
+    expect(home.consume("folder", ["closed-tab"])).toBeNull();
   });
 
   it("retains the home across a renderer reload in the same BrowserWindow", () => {
     const home = new ThreadHomeWindow();
-    home.view(77, "thread", "deck", true);
+    home.view(77, "thread", "folder", true);
     home.leave(77);
     expect(home.homeWindow("thread", [77])).toBe(77);
-    home.replaceViews(77, [{ threadId: "thread", deckId: "deck" }], "thread", false);
-    expect(home.presentingWindow("thread", "deck", [77])).toBe(77);
+    home.replaceViews(77, [{ threadId: "thread", folderId: "folder" }], "thread", false);
+    expect(home.presentingWindow("thread", "folder", [77])).toBe(77);
   });
 
   it("issues a main-owned sync revision only after replacing window views", () => {
     const home = new ThreadHomeWindow();
     expect(
-      home.replaceViews(77, [{ threadId: "thread", deckId: "deck" }], "thread", false),
+      home.replaceViews(77, [{ threadId: "thread", folderId: "folder" }], "thread", false),
     ).toEqual({
       windowId: 77,
       revision: 1,
     });
-    expect(home.presentingWindow("thread", "deck", [77])).toBe(77);
+    expect(home.presentingWindow("thread", "folder", [77])).toBe(77);
     expect(
-      home.replaceViews(77, [{ threadId: "thread", deckId: "deck" }], "thread", false),
+      home.replaceViews(77, [{ threadId: "thread", folderId: "folder" }], "thread", false),
     ).toEqual({
       windowId: 77,
       revision: 2,
     });
     home.close(77);
     expect(
-      home.replaceViews(77, [{ threadId: "thread", deckId: "deck" }], "thread", false),
+      home.replaceViews(77, [{ threadId: "thread", folderId: "folder" }], "thread", false),
     ).toEqual({
       windowId: 77,
       revision: 1,
     });
   });
 
-  it("defers a headless Thread selection until its Deck is viewed", () => {
+  it("defers a headless Thread selection until its Folder is viewed", () => {
     const home = new ThreadHomeWindow();
-    expect(home.select("parent", "child", "deck", [])).toBeNull();
-    expect(home.consumeThreadSelection("other-deck")).toBeNull();
-    expect(home.consumeThreadSelection("deck")).toBe("child");
-    expect(home.consumeThreadSelection("deck")).toBeNull();
+    expect(home.select("parent", "child", "folder", [])).toBeNull();
+    expect(home.consumeThreadSelection("other-folder")).toBeNull();
+    expect(home.consumeThreadSelection("folder")).toBe("child");
+    expect(home.consumeThreadSelection("folder")).toBeNull();
   });
 });

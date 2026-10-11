@@ -10,7 +10,6 @@ import {
   type RuntimeMode,
   type SpaceId,
   type ThreadId,
-  singletonThreadDeckId,
 } from "@penkra/contracts";
 import { readNativeApi } from "../nativeApi";
 import { promoteThreadCreate } from "./threadCreatePromotion";
@@ -27,7 +26,6 @@ export async function dispatchThreadRename(input: {
         spaceId?: SpaceId | null;
         modelSelection: ModelSelection;
         runtimeMode: RuntimeMode;
-        workingDirectory: string | null;
         createdAt: string;
       }
     | undefined;
@@ -51,12 +49,10 @@ export async function dispatchThreadRename(input: {
         creator: { kind: "user" },
         connection: { kind: "default" },
         threadId: input.threadId,
-        deckId: singletonThreadDeckId(input.threadId),
         folderId: input.createIfMissing.folderId,
         title: trimmed,
         modelSelection: input.createIfMissing.modelSelection,
         runtimeMode: input.createIfMissing.runtimeMode,
-        workingDirectory: input.createIfMissing.workingDirectory,
         createdAt: input.createIfMissing.createdAt,
       },
       api,

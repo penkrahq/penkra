@@ -5,7 +5,7 @@ import {
   APP_TAB_HOST_READY_RETRY_LIMIT,
   createAppTabRestoreRequest,
   isAppPaneInSpace,
-  isAppTabOutsideDeckSpace,
+  isAppTabOutsideFolderSpace,
   shouldMountAppDockPane,
   shouldRetryAppTabHostReady,
   restoreAppTab,
@@ -40,14 +40,14 @@ describe("App tab restoration readiness", () => {
           appState: { page: 3 },
           appStatus: "ready",
         },
-        "deck-1",
+        "folder-1",
         "thread-1",
       ),
     ).toEqual({
       tabId: "stable-tab",
       appId: "com.example.canvas",
       spaceId: "space-1",
-      deckId: "deck-1",
+      folderId: "folder-1",
       threadId: "thread-1",
       route: "/document/7",
       state: { page: 3 },
@@ -69,7 +69,7 @@ describe("App tab restoration readiness", () => {
       id: pane.id,
       appId: pane.appId,
       spaceId: pane.appSpaceId,
-      deckId: "deck-1",
+      folderId: "folder-1",
       threadId: "thread-1",
       slug: "canvas",
       name: "Canvas",
@@ -80,7 +80,7 @@ describe("App tab restoration readiness", () => {
     };
     const open = vi.fn(async () => tab);
     await expect(
-      restoreAppTab(pane, "deck-1", "thread-1", { list: async () => [tab], open }),
+      restoreAppTab(pane, "folder-1", "thread-1", { list: async () => [tab], open }),
     ).resolves.toBe(tab);
     expect(open).not.toHaveBeenCalled();
 
@@ -89,7 +89,7 @@ describe("App tab restoration readiness", () => {
     });
     const list = vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([tab]);
     await expect(
-      restoreAppTab(pane, "deck-1", "thread-1", { list, open: racingOpen }),
+      restoreAppTab(pane, "folder-1", "thread-1", { list, open: racingOpen }),
     ).resolves.toBe(tab);
     expect(racingOpen).toHaveBeenCalledOnce();
   });
@@ -109,25 +109,25 @@ describe("App tab restoration readiness", () => {
     expect(isAppPaneInSpace(pane, "space-2")).toBe(false);
   });
 
-  it("discards only tabs attached to the moved deck's previous Space", () => {
+  it("discards only tabs attached to the moved folder's previous Space", () => {
     expect(
-      isAppTabOutsideDeckSpace(
-        { deckId: "deck-1", threadId: "thread-1", spaceId: "space-1" },
-        "deck-1",
+      isAppTabOutsideFolderSpace(
+        { folderId: "folder-1", threadId: "thread-1", spaceId: "space-1" },
+        "folder-1",
         "space-2",
       ),
     ).toBe(true);
     expect(
-      isAppTabOutsideDeckSpace(
-        { deckId: "deck-1", threadId: "thread-1", spaceId: "space-2" },
-        "deck-1",
+      isAppTabOutsideFolderSpace(
+        { folderId: "folder-1", threadId: "thread-1", spaceId: "space-2" },
+        "folder-1",
         "space-2",
       ),
     ).toBe(false);
     expect(
-      isAppTabOutsideDeckSpace(
-        { deckId: "deck-2", threadId: "thread-2", spaceId: "space-1" },
-        "deck-1",
+      isAppTabOutsideFolderSpace(
+        { folderId: "folder-2", threadId: "thread-2", spaceId: "space-1" },
+        "folder-1",
         "space-2",
       ),
     ).toBe(false);

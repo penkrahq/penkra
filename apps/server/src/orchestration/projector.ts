@@ -230,7 +230,6 @@ export function createEmptyReadModel(nowIso: string): OrchestrationReadModel {
     snapshotSequence: 0,
     spaces: [],
     folders: [],
-    decks: [],
     threads: [],
     updatedAt: nowIso,
   };
@@ -411,28 +410,7 @@ export function projectEvent(
                 }
               : folder,
           );
-          const singletonDeckIds = new Set(
-            nextBase.threads
-              .filter((thread) => thread.deletedAt === null && thread.folderId === payload.folderId)
-              .map((thread) => thread.deckId)
-              .filter(
-                (deckId) =>
-                  nextBase.decks.find((deck) => deck.id === deckId)?.threadIds.length === 1,
-              ),
-          );
-          return {
-            ...nextBase,
-            folders,
-            decks: nextBase.decks.map((deck) =>
-              singletonDeckIds.has(deck.id)
-                ? {
-                    ...deck,
-                    spaceId: payload.spaceId,
-                    updatedAt: payload.updatedAt,
-                  }
-                : deck,
-            ),
-          };
+          return { ...nextBase, folders };
         }),
       );
 

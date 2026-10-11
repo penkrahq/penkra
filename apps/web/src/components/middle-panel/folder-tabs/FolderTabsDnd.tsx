@@ -7,11 +7,11 @@ import {
   type WorkStatus,
 } from "~/components/left-rail/work-status-shared/WorkStatusShared";
 
-export const DECK_THREAD_DRAG_TYPE = "penkra/thread-deck-tab";
+export const FOLDER_THREAD_DRAG_TYPE = "penkra/folder-tabs-tab";
 
-export interface DeckThreadDndData {
-  readonly type: "thread-deck-tab";
-  readonly deckId: string;
+export interface FolderThreadDndData {
+  readonly type: "folder-tabs-tab";
+  readonly folderId: string;
   readonly threadId: ThreadId;
   readonly preview: {
     readonly title: string;
@@ -20,18 +20,18 @@ export interface DeckThreadDndData {
   };
 }
 
-export function readDeckThreadDndData(value: unknown): DeckThreadDndData | null {
+export function readFolderThreadDndData(value: unknown): FolderThreadDndData | null {
   if (!value || typeof value !== "object") return null;
-  const data = value as Partial<DeckThreadDndData>;
-  return data.type === "thread-deck-tab" &&
-    typeof data.deckId === "string" &&
+  const data = value as Partial<FolderThreadDndData>;
+  return data.type === "folder-tabs-tab" &&
+    typeof data.folderId === "string" &&
     typeof data.threadId === "string" &&
     data.preview !== undefined
-    ? (data as DeckThreadDndData)
+    ? (data as FolderThreadDndData)
     : null;
 }
 
-export function ThreadDeckDragPreview(props: { preview: DeckThreadDndData["preview"] }) {
+export function FolderTabsDragPreview(props: { preview: FolderThreadDndData["preview"] }) {
   return (
     <SurfaceTabChip
       active

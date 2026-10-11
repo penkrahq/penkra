@@ -5,10 +5,11 @@ const request = {
   id: "command",
   appId: "app",
   spaceId: "space",
-  deckId: "deck",
+  folderId: "folder",
   tabId: "tab",
   threadId: "thread",
   method: "list",
+  input: {},
 } as const;
 
 describe("desktop Thread command client", () => {
@@ -53,7 +54,7 @@ describe("desktop Thread command client", () => {
 
   it("preserves backend command errors", async () => {
     const fetcher = vi.fn(async () => ({
-      json: async () => ({ ok: false, code: "THREAD_NOT_IN_DECK", message: "Wrong Deck" }),
+      json: async () => ({ ok: false, code: "THREAD_NOT_IN_FOLDER", message: "Wrong Folder" }),
     })) as unknown as typeof fetch;
     await expect(
       executeDesktopThreadCommand({
@@ -62,6 +63,6 @@ describe("desktop Thread command client", () => {
         request,
         fetcher,
       }),
-    ).rejects.toMatchObject({ code: "THREAD_NOT_IN_DECK", message: "Wrong Deck" });
+    ).rejects.toMatchObject({ code: "THREAD_NOT_IN_FOLDER", message: "Wrong Folder" });
   });
 });

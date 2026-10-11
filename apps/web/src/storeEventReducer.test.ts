@@ -10,10 +10,8 @@ import {
   ProviderConnectionId,
   FolderId,
   SpaceId,
-  ThreadDeckId,
   ThreadId,
   TurnId,
-  singletonThreadDeckId,
 } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
@@ -1398,14 +1396,11 @@ describe("store event reducer", () => {
         next,
         secondThreadId,
         makeReadModelThread({
-          deckId: singletonThreadDeckId(secondThreadId),
-          deckSortOrder: 0,
           folderId: FolderId.makeUnsafe("project-1"),
           title: "Second thread",
           modelSelection: { provider: "codex", model: "gpt-5.6-sol" },
           runtimeMode: DEFAULT_RUNTIME_MODE,
           sidebarSortOrder: 1,
-          workingDirectory: null,
           creationSource: null,
           sourceThreadId: null,
           subagentAgentId: null,
@@ -1900,7 +1895,6 @@ describe("store event reducer", () => {
     const next = applyOrchestrationEvents(
       {
         spaces: [],
-        decks: [],
         archivedSpaces: [],
         folders: [],
         archivedFolders: [],
@@ -1944,7 +1938,6 @@ describe("store event reducer", () => {
     const next = applyOrchestrationEvents(
       {
         spaces: [],
-        decks: [],
         archivedSpaces: [],
         folders: [],
         archivedFolders: [],
@@ -1979,7 +1972,6 @@ describe("store event reducer", () => {
   it("adopts authoritative folder titles from live folder.updated events", () => {
     const initialState: AppState = {
       spaces: [],
-      decks: [],
       archivedSpaces: [],
       folders: [
         makeProject({
@@ -2044,7 +2036,6 @@ describe("store event reducer", () => {
     const next = applyOrchestrationEvents(
       {
         spaces: [],
-        decks: [],
         archivedSpaces: [],
         folders: [makeProject({ id: FolderId.makeUnsafe("project-live") })],
         archivedFolders: [],

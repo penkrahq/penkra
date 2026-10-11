@@ -66,7 +66,7 @@ import {
 export interface AppTabGenerationOwner {
   appId: string;
   spaceId: string;
-  deckId: string;
+  folderId: string;
   threadId: string;
   tabId: string;
   rendererId: number;
@@ -75,7 +75,7 @@ export interface AppTabGenerationOwner {
 export interface AppTabLogicalOwner {
   appId: string;
   spaceId: string;
-  deckId: string;
+  folderId: string;
   threadId: string;
   tabId: string;
 }
@@ -137,7 +137,7 @@ interface HostedPage {
 
 interface AppTabWindowPresentation {
   bounds: Rectangle;
-  deckId: string;
+  folderId: string;
   threadId: string;
   selectedAt: number;
   visible: boolean;
@@ -163,7 +163,7 @@ function shouldRetireLogicalAppTab(reason: OperationCancellationCode): boolean {
 
 export interface AppUpdateTabSnapshot {
   id: string;
-  deckId: string;
+  folderId: string;
   threadId: string;
   route: string;
   state?: unknown;
@@ -350,7 +350,7 @@ export class AppTabViewHost implements AppTabHost {
   readonly #registerRendererIdentity: (input: {
     appId: string;
     spaceId: string;
-    deckId: string;
+    folderId: string;
     threadId: string;
     tabId: string;
     rendererId: number;
@@ -393,7 +393,7 @@ export class AppTabViewHost implements AppTabHost {
     registerRendererIdentity?: (input: {
       appId: string;
       spaceId: string;
-      deckId: string;
+      folderId: string;
       threadId: string;
       tabId: string;
       rendererId: number;
@@ -471,7 +471,7 @@ export class AppTabViewHost implements AppTabHost {
     tabId?: string;
     appId: string;
     spaceId: string;
-    deckId: string;
+    folderId: string;
     threadId: string;
     route: string;
     state?: unknown;
@@ -485,7 +485,7 @@ export class AppTabViewHost implements AppTabHost {
       tabId?: string;
       appId: string;
       spaceId: string;
-      deckId: string;
+      folderId: string;
       threadId: string;
       route: string;
       state?: unknown;
@@ -562,14 +562,14 @@ export class AppTabViewHost implements AppTabHost {
     const existing = this.presentExisting({
       appId: input.appId,
       spaceId: origin.descriptor.spaceId,
-      deckId: origin.descriptor.deckId,
+      folderId: origin.descriptor.folderId,
       initiator,
     });
     if (existing) return this.#require(existing.id).descriptor;
     return this.openInstalled({
       appId: input.appId,
       spaceId: origin.descriptor.spaceId,
-      deckId: origin.descriptor.deckId,
+      folderId: origin.descriptor.folderId,
       threadId: origin.descriptor.threadId,
       route: "/",
       initiator,
@@ -595,7 +595,7 @@ export class AppTabViewHost implements AppTabHost {
     const descriptor = await this.openInstalled({
       appId: origin.app.appId,
       spaceId: origin.descriptor.spaceId,
-      deckId: origin.descriptor.deckId,
+      folderId: origin.descriptor.folderId,
       threadId: origin.descriptor.threadId,
       route: input.route,
       initiator,
@@ -607,14 +607,14 @@ export class AppTabViewHost implements AppTabHost {
   presentExisting(input: {
     appId: string;
     spaceId: string;
-    deckId: string;
+    folderId: string;
     initiator?: "agent" | "user";
   }): AppTabEndpoint | null {
     const record = [...this.#records.values()].find(
       (candidate) =>
         candidate.app.appId === input.appId &&
         candidate.descriptor.spaceId === input.spaceId &&
-        candidate.descriptor.deckId === input.deckId,
+        candidate.descriptor.folderId === input.folderId,
     );
     if (!record) return null;
     this.present(record.descriptor.id, undefined, undefined, false, undefined, input.initiator);
@@ -634,9 +634,9 @@ export class AppTabViewHost implements AppTabHost {
     return this.#records.has(tabId);
   }
 
-  listFor(spaceId: string, deckId: string): ReadonlyArray<DesktopAppTabDescriptor> {
+  listFor(spaceId: string, folderId: string): ReadonlyArray<DesktopAppTabDescriptor> {
     return this.list().filter(
-      (descriptor) => descriptor.spaceId === spaceId && descriptor.deckId === deckId,
+      (descriptor) => descriptor.spaceId === spaceId && descriptor.folderId === folderId,
     );
   }
 
@@ -646,11 +646,11 @@ export class AppTabViewHost implements AppTabHost {
       : (this.#records.get(this.#lastVisibleTabId)?.descriptor ?? null);
   }
 
-  currentFor(spaceId: string, deckId: string, windowId?: number): DesktopAppTabDescriptor | null {
+  currentFor(spaceId: string, folderId: string, windowId?: number): DesktopAppTabDescriptor | null {
     for (const record of [...this.#records.values()].reverse()) {
       if (
         record.descriptor.spaceId === spaceId &&
-        record.descriptor.deckId === deckId &&
+        record.descriptor.folderId === folderId &&
         (windowId === undefined || record.ownerWindowId === windowId)
       ) {
         return record.descriptor;
@@ -661,7 +661,7 @@ export class AppTabViewHost implements AppTabHost {
 
   async presentInWindow(input: {
     tabId: string;
-    deckId: string;
+    folderId: string;
     threadId: string;
     windowId: number;
     bounds: Rectangle;
@@ -673,7 +673,7 @@ export class AppTabViewHost implements AppTabHost {
     traceAppTabHost("present-started", {
       tabId: input.tabId,
       windowId: input.windowId,
-      deckId: input.deckId,
+      folderId: input.folderId,
       threadId: input.threadId,
       ownerWindowId: record.ownerWindowId,
       freezeDepth: record.freezeDepth,
@@ -724,14 +724,14 @@ export class AppTabViewHost implements AppTabHost {
     }
     presentations.set(input.windowId, {
       bounds,
-      deckId: input.deckId,
+      folderId: input.folderId,
       threadId: input.threadId,
       selectedAt: ++this.#selectionSequence,
       visible: true,
       windowVisible: window.isVisible() && !window.isMinimized(),
     });
     this.setContext(input.tabId, {
-      deckId: input.deckId,
+      folderId: input.folderId,
       threadId: input.threadId,
     });
     this.present(
@@ -743,7 +743,7 @@ export class AppTabViewHost implements AppTabHost {
     );
     traceAppTabHost("present-applied", {
       tabId: input.tabId,
-      deckId: input.deckId,
+      folderId: input.folderId,
       threadId: input.threadId,
       windowId: input.windowId,
       ownerWindowId: record.ownerWindowId,
@@ -822,7 +822,7 @@ export class AppTabViewHost implements AppTabHost {
       await this.presentInWindow({
         tabId,
         windowId: fallbackWindowId,
-        deckId: value.deckId,
+        folderId: value.folderId,
         threadId: value.threadId,
         bounds: value.bounds,
       });
@@ -867,7 +867,7 @@ export class AppTabViewHost implements AppTabHost {
           await this.presentInWindow({
             tabId,
             windowId: nextWindowId,
-            deckId: value.deckId,
+            folderId: value.folderId,
             threadId: value.threadId,
             bounds: value.bounds,
           });
@@ -878,7 +878,7 @@ export class AppTabViewHost implements AppTabHost {
           await this.presentInWindow({
             tabId,
             windowId,
-            deckId: presentation.deckId,
+            folderId: presentation.folderId,
             threadId: presentation.threadId,
             bounds: presentation.bounds,
           });
@@ -904,7 +904,7 @@ export class AppTabViewHost implements AppTabHost {
     await this.presentInWindow({
       tabId: visible.tabId,
       windowId,
-      deckId: visible.presentation.deckId,
+      folderId: visible.presentation.folderId,
       threadId: visible.presentation.threadId,
       bounds: visible.presentation.bounds,
     });
@@ -925,7 +925,7 @@ export class AppTabViewHost implements AppTabHost {
         await this.presentInWindow({
           tabId,
           windowId: nextWindowId,
-          deckId: value.deckId,
+          folderId: value.folderId,
           threadId: value.threadId,
           bounds: value.bounds,
         });
@@ -1567,10 +1567,10 @@ export class AppTabViewHost implements AppTabHost {
     this.setPresentation(tabId, {});
   }
 
-  setContext(tabId: string, input: { deckId: string; threadId: string }): void {
+  setContext(tabId: string, input: { folderId: string; threadId: string }): void {
     const record = this.#require(tabId);
-    if (record.descriptor.deckId !== input.deckId) {
-      throw new Error("An App tab cannot move between Thread Decks.");
+    if (record.descriptor.folderId !== input.folderId) {
+      throw new Error("An App tab cannot move between folders.");
     }
     if (record.descriptor.threadId === input.threadId) return;
 
@@ -1578,7 +1578,7 @@ export class AppTabViewHost implements AppTabHost {
     const releaseRendererIdentity = this.#registerRendererIdentity({
       appId: record.app.appId,
       spaceId: record.descriptor.spaceId,
-      deckId: record.descriptor.deckId,
+      folderId: record.descriptor.folderId,
       threadId: input.threadId,
       tabId,
       rendererId: record.rendererId,
@@ -1593,7 +1593,7 @@ export class AppTabViewHost implements AppTabHost {
     record.descriptor = { ...record.descriptor, threadId: input.threadId };
     this.#state.publish(record.descriptor);
     this.#sendEvent(record, "thread.context-changed", {
-      deckId: record.descriptor.deckId,
+      folderId: record.descriptor.folderId,
       threadId: input.threadId,
     });
   }
@@ -1607,7 +1607,7 @@ export class AppTabViewHost implements AppTabHost {
       .filter((record) => record.app.appId === appId && record.descriptor.spaceId === spaceId)
       .map((record) => ({
         id: record.descriptor.id,
-        deckId: record.descriptor.deckId,
+        folderId: record.descriptor.folderId,
         threadId: record.descriptor.threadId,
         ...record.navigation,
       }));
@@ -1625,7 +1625,7 @@ export class AppTabViewHost implements AppTabHost {
             tabId: tab.id,
             appId,
             spaceId,
-            deckId: tab.deckId,
+            folderId: tab.folderId,
             threadId: tab.threadId,
             route: tab.route,
             ...(tab.state === undefined ? {} : { state: tab.state }),
@@ -1644,7 +1644,7 @@ export class AppTabViewHost implements AppTabHost {
         this.#authority.retireTab({
           appId,
           spaceId,
-          deckId: tab.deckId,
+          folderId: tab.folderId,
           threadId: tab.threadId,
           tabId: tab.id,
         });
@@ -1654,7 +1654,7 @@ export class AppTabViewHost implements AppTabHost {
       }
       this.#closed.publish({
         id: tab.id,
-        deckId: tab.deckId,
+        folderId: tab.folderId,
         threadId: tab.threadId,
       });
       const failure = appRuntimeOperationFailure({
@@ -1713,7 +1713,7 @@ export class AppTabViewHost implements AppTabHost {
     if (shouldNotifyAppTabClosed(reason)) {
       this.#closed.publish({
         id: tabId,
-        deckId: record.descriptor.deckId,
+        folderId: record.descriptor.folderId,
         threadId: record.descriptor.threadId,
       });
     }
@@ -1776,7 +1776,7 @@ export class AppTabViewHost implements AppTabHost {
       const releaseRendererIdentity = this.#registerRendererIdentity({
         appId: input.app.appId,
         spaceId: input.spaceId,
-        deckId: input.deckId,
+        folderId: input.folderId,
         threadId: input.threadId,
         tabId: id,
         rendererId,
@@ -1800,7 +1800,7 @@ export class AppTabViewHost implements AppTabHost {
         agentAddressable: input.app.manifest.agentAddressable !== false,
         iconDataUrl: await this.#resolveIconDataUrl(input.app),
         spaceId: input.spaceId,
-        deckId: input.deckId,
+        folderId: input.folderId,
         threadId: input.threadId,
         route: input.route,
         ...(input.state === undefined ? {} : { state: input.state }),
@@ -1817,7 +1817,7 @@ export class AppTabViewHost implements AppTabHost {
         id,
         appId: input.app.appId,
         spaceId: input.spaceId,
-        deckId: input.deckId,
+        folderId: input.folderId,
         threadId: input.threadId,
         close: async () => this.close(id),
         navigate: (navigation) => this.#navigate(id, navigation),
@@ -1869,7 +1869,7 @@ export class AppTabViewHost implements AppTabHost {
         rendererId,
         appId: input.app.appId,
         spaceId: input.spaceId,
-        deckId: input.deckId,
+        folderId: input.folderId,
         threadId: input.threadId,
       });
       contents.setWindowOpenHandler(() => ({ action: "deny" }));
@@ -2001,7 +2001,7 @@ export class AppTabViewHost implements AppTabHost {
     return {
       appId: record.app.appId,
       spaceId: record.descriptor.spaceId,
-      deckId: record.descriptor.deckId,
+      folderId: record.descriptor.folderId,
       threadId: record.descriptor.threadId,
       tabId: record.descriptor.id,
     };

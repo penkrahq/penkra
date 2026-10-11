@@ -1,7 +1,6 @@
-import { ThreadId, type ThreadDeckId, type ProviderKind } from "@penkra/contracts";
+import { ThreadId, type FolderId, type ProviderKind } from "@penkra/contracts";
 import { OptimisticSortingPlugin } from "@dnd-kit/dom/sortable";
-import { useDragDropMonitor, useDragOperation, useDroppable } from "@dnd-kit/react";
-import type { DragOverEvent } from "@dnd-kit/react";
+import { useDragDropMonitor } from "@dnd-kit/react";
 import { useSortable } from "@dnd-kit/react/sortable";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -33,16 +32,18 @@ import {
 import { readSidebarUiState } from "~/components/Sidebar.uiState";
 import { useHandleNewThread } from "~/hooks/useHandleNewThread";
 import { ArchiveIcon, PlusIcon } from "~/lib/icons";
-import {
-  canCreateAnotherDeckThread,
-  removeDeckThreadPreservingNavigation,
-} from "~/lib/threadDeckNavigation";
-import { newCommandId } from "~/lib/utils";
+import { removeFolderThreadPreservingNavigation } from "~/lib/folderTabNavigation";
 import { readNativeApi } from "~/nativeApi";
 import { useStore } from "~/store";
-import { loadThread, loadDeckThreads, useThreadSummary } from "~/threadListStore";
 import {
-  selectDeckThreadRows,
+  loadThread,
+  loadThreadPage,
+  getThreadListPages,
+  threadListScopeKey,
+  useThreadSummary,
+} from "~/threadListStore";
+import {
+  selectFolderThreadRows,
   useSidebarThreadRows,
   useSidebarThreadRowsById,
 } from "~/sidebarThreadRows";
@@ -52,32 +53,22 @@ import { CentralIcon } from "~/lib/central-icons";
 import { cn } from "~/lib/utils";
 import { useThreadDetailPrewarm } from "~/threadDetailPrewarm";
 import { isPrimaryThreadActivationIntent } from "~/threadActivation.logic";
-import { readSidebarDndData, SIDEBAR_THREAD_DRAG_TYPE } from "~/components/sidebar/SidebarDnd";
 import {
-  DECK_THREAD_DRAG_TYPE,
-  type DeckThreadDndData,
-  readDeckThreadDndData,
-} from "./ThreadDeckDnd";
-import { DeckTabStripViewport } from "./DeckTabStripViewport";
+  FOLDER_THREAD_DRAG_TYPE,
+  type FolderThreadDndData,
+  readFolderThreadDndData,
+} from "./FolderTabsDnd";
+import { FolderTabStripViewport } from "./FolderTabStripViewport";
 
-type DeckDropPlacement = "before" | "after";
-
-interface DeckDropPreview {
-  readonly targetThreadId: ThreadId;
-  readonly placement: DeckDropPlacement;
-  readonly gapWidth: number;
-}
-
-function SortableDeckThread(props: {
+function SortableFolderThread(props: {
   readonly children: ReactNode;
-  readonly deckId: string;
+  readonly folderId: string;
   readonly index: number;
-  readonly tab: DeckTab;
-  readonly dropPreview: DeckDropPreview | null;
+  readonly tab: FolderTab;
 }) {
-  const data: DeckThreadDndData = {
-    type: "thread-deck-tab",
-    deckId: props.deckId,
+  const data: FolderThreadDndData = {
+    type: "folder-tabs-tab",
+    folderId: props.folderId,
     threadId: props.tab.id,
     preview: {
       title: props.tab.title,
@@ -86,19 +77,16 @@ function SortableDeckThread(props: {
     },
   };
   const sortable = useSortable({
-    id: `thread-deck-tab:${props.deckId}:${props.tab.id}`,
+    id: `folder-tabs-tab:${props.folderId}:${props.tab.id}`,
     index: props.index,
-    group: `thread-deck:${props.deckId}`,
-    type: DECK_THREAD_DRAG_TYPE,
-    accept: [DECK_THREAD_DRAG_TYPE],
+    group: `folder-tabs:${props.folderId}`,
+    type: FOLDER_THREAD_DRAG_TYPE,
+    accept: [FOLDER_THREAD_DRAG_TYPE],
     data,
     // The normalized store owns visible order. Disable dnd-kit's transient DOM
     // transform so committed canonical rows own the visible order.
     plugins: (defaults) => defaults.filter((plugin) => plugin !== OptimisticSortingPlugin),
   });
-  const dropPlacement =
-    props.dropPreview?.targetThreadId === props.tab.id ? props.dropPreview.placement : null;
-  const gapWidth = dropPlacement ? (props.dropPreview?.gapWidth ?? 0) : 0;
   const sortableRef = sortable.ref;
   const sortableHandleRef = sortable.handleRef;
   const setNodeRef = useCallback(
@@ -117,42 +105,24 @@ function SortableDeckThread(props: {
         sortable.isDragging && "z-20 opacity-35",
         sortable.isDropTarget && "z-10",
       )}
-      data-thread-deck-drag-source={sortable.isDragSource ? "true" : undefined}
-      data-thread-deck-drag-target={sortable.isDropTarget ? "true" : undefined}
-      data-thread-deck-drop-preview={dropPlacement ?? undefined}
+      data-folder-tabs-drag-source={sortable.isDragSource ? "true" : undefined}
+      data-folder-tabs-drag-target={sortable.isDropTarget ? "true" : undefined}
       data-shell-dnd-activation-target="true"
-      style={
-        dropPlacement === "before"
-          ? { paddingLeft: gapWidth }
-          : dropPlacement === "after"
-            ? { paddingRight: gapWidth }
-            : undefined
-      }
     >
-      {dropPlacement ? (
-        <span
-          aria-hidden="true"
-          className="pointer-events-none absolute top-1/2 z-30 h-6 w-0.5 -translate-y-1/2 rounded-full bg-[var(--color-border-focus)]"
-          data-thread-deck-drop-indicator={dropPlacement}
-          style={dropPlacement === "before" ? { left: gapWidth / 2 } : { right: gapWidth / 2 }}
-        />
-      ) : null}
       {props.children}
     </div>
   );
 }
 
-interface DeckTab {
+interface FolderTab {
   readonly id: ThreadId;
-  readonly folderId: Thread["folderId"];
   readonly title: string;
   readonly harness: ProviderKind;
   readonly workStatus: WorkStatus;
   readonly createdAt: string;
-  readonly hasTurn: boolean;
 }
 
-interface ThreadDeckBarProps {
+interface FolderTabsProps {
   activeThread: Thread;
   activeComposerProvider: ProviderKind;
   defaultComposerProvider: ProviderKind;
@@ -160,7 +130,7 @@ interface ThreadDeckBarProps {
   onRestoreLeftRail: () => void;
   className?: string;
 }
-export function ThreadDeckBar(props: ThreadDeckBarProps) {
+export function FolderTabs(props: FolderTabsProps) {
   const row = useThreadSummary(props.activeThread.id);
   const draft = useComposerDraftStore(
     (state) => state.draftThreadsByThreadId[props.activeThread.id],
@@ -175,18 +145,17 @@ export function ThreadDeckBar(props: ThreadDeckBarProps) {
       }),
     );
   }, [props.activeThread.id, row, draft]);
-  const deckId = row !== null ? row.deckId : draft?.deckId;
-  if (deckId === null || deckId === undefined) return null;
-  return <CanonicalThreadDeckBar {...props} deckId={deckId} />;
+  const folderId = row !== null ? row.folderId : draft?.folderId;
+  if (folderId === null || folderId === undefined) return null;
+  return <CanonicalFolderTabs {...props} folderId={folderId} />;
 }
 
-function CanonicalThreadDeckBar(props: ThreadDeckBarProps & { deckId: ThreadDeckId }) {
+function CanonicalFolderTabs(props: FolderTabsProps & { folderId: FolderId }) {
   const navigate = useNavigate();
   const { handleNewThread } = useHandleNewThread();
   const folders = useStore((state) => state.folders);
   const rows = useSidebarThreadRows();
   const rowsById = useSidebarThreadRowsById();
-  const threadTurnStateById = useStore((state) => state.threadTurnStateById ?? {});
   const draftThreadsByThreadId = useComposerDraftStore((state) => state.draftThreadsByThreadId);
   const composerDraftsByThreadId = useComposerDraftStore((state) => state.draftsByThreadId);
   const localSendOwnerThreadIds = useComposerSendActivityThreadIds();
@@ -194,44 +163,19 @@ function CanonicalThreadDeckBar(props: ThreadDeckBarProps & { deckId: ThreadDeck
   const recordingThreadId = useVoiceSessionCoordinatorStore(
     (state) => state.capture?.origin.threadId ?? null,
   );
-  const deckId = props.deckId;
+  const folderId = props.folderId;
+  const folder = folders.find((value) => value.id === folderId);
   useEffect(() => {
-    void loadDeckThreads(deckId).catch((error: unknown) =>
+    if (!folder?.spaceId || getThreadListPages().has(threadListScopeKey(folder.spaceId, folderId)))
+      return;
+    void loadThreadPage({ spaceId: folder.spaceId, folderId: folderId }).catch((error: unknown) =>
       toastManager.add({
         type: "error",
-        title: "Could not load deck",
+        title: "Could not load threads",
         description: error instanceof Error ? error.message : String(error),
       }),
     );
-  }, [deckId]);
-  const dropTargetId = `thread-deck:${deckId}`;
-  const droppable = useDroppable({
-    id: dropTargetId,
-    type: "penkra/thread-deck",
-    accept: SIDEBAR_THREAD_DRAG_TYPE,
-    data: { type: "thread-deck", deckId },
-  });
-  const dragOperation = useDragOperation();
-  const draggedSidebarData = readSidebarDndData(dragOperation.source?.data);
-  const draggedThread =
-    draggedSidebarData?.type === "item" && draggedSidebarData.item.kind === "thread"
-      ? rowsById.get(draggedSidebarData.item.id)
-      : null;
-  const activeSpaceId =
-    rowsById.get(props.activeThread.id)?.spaceId ??
-    folders.find((folder) => folder.id === props.activeThread.folderId)?.spaceId ??
-    null;
-  const draggedSpaceId =
-    draggedThread?.spaceId ??
-    folders.find((folder) => folder.id === draggedThread?.folderId)?.spaceId ??
-    null;
-  const canAddDraggedThread = Boolean(
-    draggedThread &&
-    draggedThread.deckId !== deckId &&
-    activeSpaceId !== null &&
-    activeSpaceId === draggedSpaceId,
-  );
-  const [deckDropPreview, setDeckDropPreview] = useState<DeckDropPreview | null>(null);
+  }, [folderId, folder?.spaceId]);
   const [optimisticActiveThreadId, setOptimisticActiveThreadId] = useState<ThreadId | null>(null);
   const { prewarmThreadDetail } = useThreadDetailPrewarm();
 
@@ -243,74 +187,31 @@ function CanonicalThreadDeckBar(props: ThreadDeckBarProps & { deckId: ThreadDeck
     setOptimisticActiveThreadId(threadId);
   };
 
-  const updateDeckDropPreview = ({ operation }: Pick<DragOverEvent, "operation">) => {
-    const source = readDeckThreadDndData(operation.source?.data);
-    const target = readDeckThreadDndData(operation.target?.data);
-    if (!source || !target || source.deckId !== deckId || target.deckId !== deckId) {
-      setDeckDropPreview(null);
-      return;
-    }
-    if (source.threadId === target.threadId) {
-      setDeckDropPreview(null);
-      return;
-    }
-    const sourceIndex = tabs.findIndex((tab) => tab.id === source.threadId);
-    const targetIndex = tabs.findIndex((tab) => tab.id === target.threadId);
-    if (sourceIndex < 0 || targetIndex < 0) {
-      setDeckDropPreview(null);
-      return;
-    }
-    const measuredWidth = operation.source?.element?.getBoundingClientRect().width ?? 0;
-    const next: DeckDropPreview = {
-      targetThreadId: target.threadId,
-      placement: sourceIndex < targetIndex ? "after" : "before",
-      gapWidth: measuredWidth,
-    };
-    setDeckDropPreview((current) =>
-      current?.targetThreadId === next.targetThreadId &&
-      current.placement === next.placement &&
-      current.gapWidth === next.gapWidth
-        ? current
-        : next,
-    );
-  };
-
   useDragDropMonitor({
-    onDragMove(event) {
-      updateDeckDropPreview(event);
-    },
-    onDragOver(event) {
-      updateDeckDropPreview(event);
-    },
     onDragEnd(event) {
-      setDeckDropPreview(null);
       setOptimisticActiveThreadId(null);
-      const deckSource = readDeckThreadDndData(event.operation.source?.data);
-      const deckTarget = readDeckThreadDndData(event.operation.target?.data);
+      const folderSource = readFolderThreadDndData(event.operation.source?.data);
+      const folderTarget = readFolderThreadDndData(event.operation.target?.data);
       if (
         !event.canceled &&
-        deckSource?.deckId === deckId &&
-        deckTarget?.deckId === deckId &&
-        deckSource.threadId !== deckTarget.threadId
+        folderSource?.folderId === folderId &&
+        folderTarget?.folderId === folderId &&
+        folderSource.threadId !== folderTarget.threadId
       ) {
-        const sourceIndex = tabs.findIndex((tab) => tab.id === deckSource.threadId);
-        const targetIndex = tabs.findIndex((tab) => tab.id === deckTarget.threadId);
+        const sourceIndex = tabs.findIndex((tab) => tab.id === folderSource.threadId);
+        const targetIndex = tabs.findIndex((tab) => tab.id === folderTarget.threadId);
         if (sourceIndex >= 0 && targetIndex >= 0) {
           const api = readNativeApi();
-          if (!api) return;
-          const orderedThreadIds = tabs.map((tab) => tab.id);
-          const [movedThreadId] = orderedThreadIds.splice(sourceIndex, 1);
-          if (!movedThreadId) return;
-          orderedThreadIds.splice(targetIndex, 0, movedThreadId);
+          if (!api || !folder?.spaceId) return;
           void api.cleanCore
             .updateThread({
               update: {
-                action: "moveDeckThread",
-                threadId: deckSource.threadId,
-                deckId,
+                action: "moveSidebarItem",
+                threadId: folderSource.threadId,
+                folderId,
                 position: {
                   type: sourceIndex < targetIndex ? "after" : "before",
-                  itemId: deckTarget.threadId,
+                  itemId: folderTarget.threadId,
                 },
                 updatedAt: new Date().toISOString(),
               },
@@ -325,42 +226,11 @@ function CanonicalThreadDeckBar(props: ThreadDeckBarProps & { deckId: ThreadDeck
         }
         return;
       }
-      const source = readSidebarDndData(event.operation.source?.data);
-      if (
-        event.canceled ||
-        event.operation.target?.id !== dropTargetId ||
-        source?.type !== "item" ||
-        source.item.kind !== "thread"
-      ) {
-        return;
-      }
-      const thread = rowsById.get(source.item.id);
-      const sourceSpaceId =
-        thread?.spaceId ??
-        folders.find((folder) => folder.id === thread?.folderId)?.spaceId ??
-        null;
-      if (
-        !thread ||
-        thread.deckId === deckId ||
-        sourceSpaceId === null ||
-        sourceSpaceId !== activeSpaceId
-      ) {
-        return;
-      }
-      void readNativeApi()?.cleanCore.updateThread({
-        update: {
-          action: "moveDeckThread",
-          threadId: thread.id,
-          deckId,
-          position: { type: "end" },
-          updatedAt: new Date().toISOString(),
-        },
-      });
     },
   });
 
   const tabs = useMemo(() => {
-    const persisted = selectDeckThreadRows(rows, deckId).map((thread): DeckTab => {
+    const persisted = selectFolderThreadRows(rows, folderId).map((thread): FolderTab => {
       const threadId = thread.id;
       const status = resolveSidebarThreadSummaryStatus({
         thread,
@@ -371,7 +241,6 @@ function CanonicalThreadDeckBar(props: ThreadDeckBarProps & { deckId: ThreadDeck
       });
       return {
         id: thread.id,
-        folderId: thread.folderId,
         title: thread.title,
         harness: thread.modelSelection.provider,
         workStatus: resolveVisibleThreadWorkStatus({
@@ -380,22 +249,19 @@ function CanonicalThreadDeckBar(props: ThreadDeckBarProps & { deckId: ThreadDeck
           projectedWorkStatus: thread.workStatus,
         }),
         createdAt: thread.createdAt,
-        hasTurn: threadTurnStateById[thread.id]?.latestTurn != null,
       };
     });
     const persistedIds = new Set(persisted.map((tab) => tab.id));
     const drafts = Object.entries(draftThreadsByThreadId)
       .filter(
         ([threadId, draft]) =>
-          draft.deckId === deckId &&
-          draft.entryPoint === "chat" &&
+          draft.folderId === folderId &&
           draft.promotedTo === undefined &&
           !persistedIds.has(ThreadId.makeUnsafe(threadId)),
       )
       .map(
-        ([threadId, draft]): DeckTab => ({
+        ([threadId, draft]): FolderTab => ({
           id: ThreadId.makeUnsafe(threadId),
-          folderId: draft.folderId,
           title: "New thread",
           // An unsent thread has no durable provider identity yet. Its tab
           // follows the provider that its composer will use for the first turn.
@@ -406,20 +272,17 @@ function CanonicalThreadDeckBar(props: ThreadDeckBarProps & { deckId: ThreadDeck
               : props.defaultComposerProvider),
           workStatus: threadId === recordingThreadId ? "recording" : "idle",
           createdAt: draft.createdAt,
-          hasTurn: false,
         }),
       )
       .toSorted((left, right) => left.createdAt.localeCompare(right.createdAt));
     return [...persisted, ...drafts];
   }, [
-    deckId,
+    folderId,
     rows,
     composerDraftsByThreadId,
     draftThreadsByThreadId,
     localSendOwnerThreadIds,
     recordingThreadId,
-    rowsById,
-    threadTurnStateById,
     props.activeComposerProvider,
     props.activeThread.id,
     props.defaultComposerProvider,
@@ -456,7 +319,7 @@ function CanonicalThreadDeckBar(props: ThreadDeckBarProps & { deckId: ThreadDeck
       if (!confirmed) return;
     }
 
-    await removeDeckThreadPreservingNavigation({
+    await removeFolderThreadPreservingNavigation({
       threadIds: tabs.map((tab) => tab.id),
       removedThreadId: threadId,
       activeThreadId: props.activeThread.id,
@@ -489,26 +352,13 @@ function CanonicalThreadDeckBar(props: ThreadDeckBarProps & { deckId: ThreadDeck
 
   return (
     <header
-      ref={droppable.ref}
       className={cn(
         "chat-surface-divider drag-region relative flex h-[46px] w-full shrink-0 items-center bg-transparent px-1.5",
-        canAddDraggedThread && "ring-1 ring-inset ring-[var(--color-border-focus)]/40",
-        droppable.isDropTarget &&
-          canAddDraggedThread &&
-          "bg-[var(--color-background-accent)] ring-[var(--color-border-focus)]",
         props.className,
       )}
-      data-thread-deck-id={deckId}
+      data-folder-tabs-id={folderId}
       data-shell-dnd-activation-target="true"
     >
-      {canAddDraggedThread ? (
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-[var(--color-background-primary)]/90 text-xs font-medium text-[var(--color-text-foreground)]"
-        >
-          {droppable.isDropTarget ? "Add to this deck" : "Drag here to add to deck"}
-        </div>
-      ) : null}
       {props.leftRailCollapsed ? (
         <button
           aria-label="Restore left rail"
@@ -519,7 +369,7 @@ function CanonicalThreadDeckBar(props: ThreadDeckBarProps & { deckId: ThreadDeck
           <CentralIcon className="size-4" name="sidebar-simple-left-wide" />
         </button>
       ) : null}
-      <DeckTabStripViewport>
+      <FolderTabStripViewport>
         {tabs.map((tab, index) => {
           const visualActiveThreadId = optimisticActiveThreadId ?? props.activeThread.id;
           const active = tab.id === visualActiveThreadId;
@@ -533,15 +383,10 @@ function CanonicalThreadDeckBar(props: ThreadDeckBarProps & { deckId: ThreadDeck
                     SURFACE_TAB_DIVIDER_CLASS_NAME,
                     (active || previousActive) && "invisible",
                   )}
-                  data-slot="thread-deck-divider"
+                  data-slot="folder-tabs-divider"
                 />
               ) : null}
-              <SortableDeckThread
-                deckId={deckId}
-                dropPreview={deckDropPreview}
-                index={index}
-                tab={tab}
-              >
+              <SortableFolderThread folderId={folderId} index={index} tab={tab}>
                 <SurfaceTabChip
                   active={active}
                   title={tab.title}
@@ -561,11 +406,11 @@ function CanonicalThreadDeckBar(props: ThreadDeckBarProps & { deckId: ThreadDeck
                   onSelectPointerCancel={() => setOptimisticActiveThreadId(null)}
                   onSelectPointerDown={(event) => primeThreadActivation(event, tab.id)}
                 />
-              </SortableDeckThread>
+              </SortableFolderThread>
             </div>
           );
         })}
-        {canCreateAnotherDeckThread(tabs) ? (
+        {
           <IconButton
             variant="chrome"
             size="icon-xs"
@@ -573,17 +418,12 @@ function CanonicalThreadDeckBar(props: ThreadDeckBarProps & { deckId: ThreadDeck
             tooltip="New thread"
             tooltipSide="bottom"
             className="ml-1 !size-7 shrink-0 rounded-lg"
-            onClick={() =>
-              void handleNewThread(props.activeThread.folderId, {
-                entryPoint: "chat",
-                deckId,
-              })
-            }
+            onClick={() => void handleNewThread(folderId, { entryPoint: "chat", fresh: true })}
           >
             <PlusIcon className="size-3.5" />
           </IconButton>
-        ) : null}
-      </DeckTabStripViewport>
+        }
+      </FolderTabStripViewport>
     </header>
   );
 }

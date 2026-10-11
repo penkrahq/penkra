@@ -1,8 +1,8 @@
 import { expect, it, vi } from "vitest";
-import { FolderId, ThreadDeckId, ThreadId, type CleanCoreThreadSummary } from "@penkra/contracts";
+import { FolderId, ThreadId, type CleanCoreThreadSummary } from "@penkra/contracts";
 import {
   buildSidebarThreadRows,
-  selectDeckThreadRows,
+  selectFolderThreadRows,
   createSidebarThreadRowsSelector,
 } from "./sidebarThreadRows";
 import {
@@ -14,22 +14,19 @@ function row(queue: string, updatedAt: string): CleanCoreThreadSummary {
   return {
     id: ThreadId.makeUnsafe("thread-51"),
     spaceId: "space" as CleanCoreThreadSummary["spaceId"],
-    folderId: null,
+    folderId: FolderId.makeUnsafe("folder"),
     title: "Outside the first page",
     provider: "codex",
     connectionId: null,
     model: "gpt-5.5",
     modelOptions: null,
     runtimeMode: "full-access",
-    workingDirectory: null,
     state: "running",
     activeTurnId: null,
     lastError: null,
     queue,
     createdBy: "user",
     createdByThreadId: null,
-    deckId: null,
-    deckSortOrder: 0,
     sidebarSortOrder: null,
     lastActivityAt: null,
     lastMessagePreview: null,
@@ -48,7 +45,6 @@ it("takes sidebar ordering, workspace and rollups exclusively from canonical row
     ...row("[]", "2026-10-10T00:00:01.000Z"),
     folderId: FolderId.makeUnsafe("folder"),
     sidebarSortOrder: 3,
-    workingDirectory: "/canonical",
     lastMessagePreview: "canonical preview",
     lastActivityAt: "2026-10-10T00:00:01.000Z",
     lastUserMessageAt: "2026-10-10T00:00:01.000Z",
@@ -68,7 +64,6 @@ it("takes sidebar ordering, workspace and rollups exclusively from canonical row
   expect(rows[0]).toMatchObject({
     title: core.title,
     sidebarSortOrder: 3,
-    workingDirectory: "/canonical",
     lastMessagePreview: "canonical preview",
     lastActivityAt: core.lastActivityAt,
     latestUserMessageAt: core.lastUserMessageAt,
@@ -119,28 +114,26 @@ it("uses the canonical visit for unread completion even when the projection deta
   ).toBeNull();
 });
 
-it("derives deck membership and ordering only from canonical rows, including published moves", () => {
-  const deckId = ThreadDeckId.makeUnsafe("deck");
-  const first = {
-    ...row("[]", "2026-10-10T00:00:01.000Z"),
-    folderId: FolderId.makeUnsafe("folder"),
-    deckId,
-    deckSortOrder: 2,
-  };
-  const second = { ...first, id: ThreadId.makeUnsafe("second"), deckSortOrder: 1 };
+it("derives folder tabs in sidebar order and hides archived threads, including published moves", () => {
+  const folderId = FolderId.makeUnsafe("folder");
+  const first = { ...row("[]", "2026-10-10T00:00:01.000Z"), folderId, sidebarSortOrder: 2 };
+  const second = { ...first, id: ThreadId.makeUnsafe("second"), sidebarSortOrder: 1 };
   const archived = { ...first, id: ThreadId.makeUnsafe("archived"), archivedAt: first.updatedAt };
   const other = {
     ...first,
     id: ThreadId.makeUnsafe("other"),
-    deckId: ThreadDeckId.makeUnsafe("other-deck"),
+    folderId: FolderId.makeUnsafe("other-folder"),
   };
   const rows = buildSidebarThreadRows([first, second, archived, other], {});
-  expect(selectDeckThreadRows(rows, deckId).map((row) => row.id)).toEqual([second.id, first.id]);
+  expect(selectFolderThreadRows(rows, folderId).map((row) => row.id)).toEqual([
+    second.id,
+    first.id,
+  ]);
   const moved = buildSidebarThreadRows(
-    [{ ...first, deckId: other.deckId }, second, archived, other],
+    [{ ...first, folderId: other.folderId }, second, archived, other],
     {},
   );
-  expect(selectDeckThreadRows(moved, deckId).map((row) => row.id)).toEqual([second.id]);
+  expect(selectFolderThreadRows(moved, folderId).map((row) => row.id)).toEqual([second.id]);
 });
 
 it("shares one row derivation and by-id lookup across consumers for each source snapshot", () => {

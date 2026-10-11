@@ -5,7 +5,7 @@ import { WINDOWS_CAPTION_CONTROLS_GUTTER_PX } from "@penkra/shared/desktopChrome
 
 import {
   resolveAppsLauncherAction,
-  resolveAppsLauncherDeckBarReservationPx,
+  resolveAppsLauncherFolderBarReservationPx,
   resolveAppsLauncherRightInsetPx,
   resolveAppsLauncherSpaceId,
 } from "./appsLauncher.logic";
@@ -18,7 +18,7 @@ describe("fixed Apps launcher", () => {
 
   it("reserves the launcher footprint on web and Windows using one maximum", () => {
     expect(
-      resolveAppsLauncherDeckBarReservationPx({
+      resolveAppsLauncherFolderBarReservationPx({
         appsLauncherRightInsetPx: 6,
         dockOpen: false,
         isElectron: false,
@@ -26,7 +26,7 @@ describe("fixed Apps launcher", () => {
       }),
     ).toBe(42);
     expect(
-      resolveAppsLauncherDeckBarReservationPx({
+      resolveAppsLauncherFolderBarReservationPx({
         appsLauncherRightInsetPx: 144,
         dockOpen: false,
         isElectron: true,
@@ -38,7 +38,7 @@ describe("fixed Apps launcher", () => {
 
   it("keeps only the existing Windows controls gutter while the dock is open", () => {
     expect(
-      resolveAppsLauncherDeckBarReservationPx({
+      resolveAppsLauncherFolderBarReservationPx({
         appsLauncherRightInsetPx: 144,
         dockOpen: true,
         isElectron: true,
@@ -46,7 +46,7 @@ describe("fixed Apps launcher", () => {
       }),
     ).toBe(WINDOWS_CAPTION_CONTROLS_GUTTER_PX);
     expect(
-      resolveAppsLauncherDeckBarReservationPx({
+      resolveAppsLauncherFolderBarReservationPx({
         appsLauncherRightInsetPx: 6,
         dockOpen: true,
         isElectron: false,

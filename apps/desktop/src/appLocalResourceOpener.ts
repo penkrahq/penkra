@@ -14,7 +14,7 @@ interface ResourceTab {
   id: string;
   appId: string;
   spaceId: string;
-  deckId: string;
+  folderId: string;
   threadId: string;
 }
 
@@ -40,7 +40,7 @@ export async function resolveLocalResource(pathInput: string): Promise<ResolvedL
 
 export async function openLocalAppResource(input: {
   appTabs: {
-    currentFor(spaceId: string, deckId: string): ResourceTab | null;
+    currentFor(spaceId: string, folderId: string): ResourceTab | null;
     list(): ReadonlyArray<ResourceTab>;
     present(
       tabId: string,
@@ -57,7 +57,7 @@ export async function openLocalAppResource(input: {
       operation: string;
       input: unknown;
       spaceId: string;
-      deckId: string;
+      folderId: string;
       threadId: string;
       tabId?: string;
       callerKind: "agent" | "user";
@@ -71,7 +71,7 @@ export async function openLocalAppResource(input: {
   path: string;
   requestedApp?: string;
   spaceId: string;
-  deckId: string;
+  folderId: string;
   threadId: string;
 }): Promise<unknown> {
   const { path, kind, intent } = await resolveLocalResource(input.path);
@@ -97,7 +97,7 @@ export async function openLocalAppResource(input: {
           path,
           kind,
         });
-  const current = input.appTabs.currentFor(input.spaceId, input.deckId);
+  const current = input.appTabs.currentFor(input.spaceId, input.folderId);
   const reusableTab =
     current?.appId === resolved.appId
       ? current
@@ -107,7 +107,7 @@ export async function openLocalAppResource(input: {
             (tab) =>
               tab.appId === resolved.appId &&
               tab.spaceId === input.spaceId &&
-              tab.deckId === input.deckId,
+              tab.folderId === input.folderId,
           );
   if (reusableTab)
     input.appTabs.present(
@@ -126,7 +126,7 @@ export async function openLocalAppResource(input: {
         ? { path }
         : { handleId: handle!.id, kind: handle!.kind, name: handle!.name },
     spaceId: input.spaceId,
-    deckId: input.deckId,
+    folderId: input.folderId,
     threadId: input.threadId,
     ...(reusableTab ? { tabId: reusableTab.id } : {}),
     callerKind: input.callerKind ?? "agent",

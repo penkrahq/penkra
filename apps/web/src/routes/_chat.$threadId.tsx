@@ -2,7 +2,7 @@
 // Purpose: Resolve the active thread route into a single chat surface.
 // Layer: Route container
 
-import { ThreadId, singletonThreadDeckId } from "@penkra/contracts";
+import { ThreadId } from "@penkra/contracts";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 
@@ -24,14 +24,12 @@ function ChatThreadRouteView() {
   const threadFolderId = thread?.folderId ?? null;
   const threadArchived = thread !== null && thread.archivedAt !== null;
   const threadDeleted = thread !== null && thread.deletedAt !== null;
-  const persistedDeckId = thread?.deckId ?? null;
   const readsByThreadId = useRef(new Map<ThreadId, Promise<void>>());
   const draftThreadState = useComposerDraftStore(
     (store) => store.draftThreadsByThreadId[threadId] ?? null,
   );
   const draftThreadExists = draftThreadState !== null;
   const routeThreadExists = thread !== null || draftThreadExists;
-  const homeDeckId = persistedDeckId ?? draftThreadState?.deckId ?? singletonThreadDeckId(threadId);
   const activeFolderId = resolveSingleFolderId({
     threadFolderId,
     draftFolderId: draftThreadState?.folderId ?? null,
@@ -39,17 +37,17 @@ function ChatThreadRouteView() {
   const navigate = useNavigate();
   useEffect(() => {
     const home = window.desktopBridge?.threadHome;
-    if (!routeThreadExists || threadArchived || threadDeleted) {
+    if (!routeThreadExists || threadArchived || threadDeleted || activeFolderId === null) {
       home?.leave();
       return;
     }
     const recordView = () => {
-      home?.view({ views: [{ threadId, deckId: homeDeckId }], activeThreadId: threadId });
+      home?.view({ views: [{ threadId, folderId: activeFolderId }], activeThreadId: threadId });
     };
     recordView();
     window.addEventListener("focus", recordView);
     return () => window.removeEventListener("focus", recordView);
-  }, [homeDeckId, routeThreadExists, threadArchived, threadDeleted, threadId]);
+  }, [activeFolderId, routeThreadExists, threadArchived, threadDeleted, threadId]);
 
   useEffect(() => {
     const home = window.desktopBridge?.threadHome;
@@ -123,7 +121,7 @@ function ChatThreadRouteView() {
     return null;
   }
 
-  if (!routeThreadExists) {
+  if (!routeThreadExists || activeFolderId === null) {
     return null;
   }
 

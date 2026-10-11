@@ -9,7 +9,6 @@ import {
   OrchestrationEventType,
   FolderId,
   SpaceId,
-  ThreadDeckId,
   ThreadId,
 } from "@penkra/contracts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -37,7 +36,7 @@ const UnknownFromJsonString = Schema.fromJsonString(Schema.Unknown);
 const AppendEventRequestSchema = Schema.Struct({
   eventId: EventId,
   aggregateKind: OrchestrationAggregateKind,
-  streamId: Schema.Union([SpaceId, FolderId, ThreadId, ThreadDeckId]),
+  streamId: Schema.Union([SpaceId, FolderId, ThreadId]),
   type: OrchestrationEventType,
   causationEventId: Schema.NullOr(EventId),
   correlationId: Schema.NullOr(CommandId),

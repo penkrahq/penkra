@@ -167,7 +167,6 @@ export function threadShellsEqual(left: ThreadShell | undefined, right: ThreadSh
     left.createdAt === right.createdAt &&
     (left.archivedAt ?? null) === (right.archivedAt ?? null) &&
     left.updatedAt === right.updatedAt &&
-    (left.workingDirectory ?? null) === (right.workingDirectory ?? null) &&
     (left.creationSource ?? null) === (right.creationSource ?? null) &&
     (left.sourceThreadId ?? null) === (right.sourceThreadId ?? null) &&
     (left.subagentAgentId ?? null) === (right.subagentAgentId ?? null) &&
@@ -1574,14 +1573,11 @@ export function normalizeThreadFromReadModel(
   const resolvedHasPendingUserInput =
     typeof incoming.hasPendingUserInput === "boolean" ? incoming.hasPendingUserInput : undefined;
   const sidebarRollups = resolveThreadSidebarRollups(incoming, previous);
-  const nextWorkingDirectory = incoming.workingDirectory ?? null;
   const pendingTurnStartMessageId = incoming.pendingTurnStartMessageId ?? null;
 
   if (
     previous &&
     previous.folderId === incoming.folderId &&
-    previous.deckId === incoming.deckId &&
-    previous.deckSortOrder === incoming.deckSortOrder &&
     (previous.sidebarSortOrder ?? 0) === (incoming.sidebarSortOrder ?? 0) &&
     previous.title === incoming.title &&
     previous.modelSelection === modelSelection &&
@@ -1603,7 +1599,6 @@ export function normalizeThreadFromReadModel(
     (previous.subagentAgentId ?? null) === (incoming.subagentAgentId ?? null) &&
     (previous.subagentNickname ?? null) === (incoming.subagentNickname ?? null) &&
     (previous.subagentRole ?? null) === (incoming.subagentRole ?? null) &&
-    (previous.workingDirectory ?? null) === nextWorkingDirectory &&
     previous.latestUserMessageAt === resolvedLatestUserMessageAt &&
     previous.hasPendingApprovals === resolvedHasPendingApprovals &&
     previous.hasPendingUserInput === resolvedHasPendingUserInput &&
@@ -1618,8 +1613,6 @@ export function normalizeThreadFromReadModel(
 
   return {
     id: incoming.id,
-    deckId: incoming.deckId,
-    deckSortOrder: incoming.deckSortOrder,
     codexThreadId: null,
     folderId: incoming.folderId,
     spaceId: previous?.spaceId ?? null,
@@ -1644,7 +1637,6 @@ export function normalizeThreadFromReadModel(
     subagentAgentId: incoming.subagentAgentId ?? null,
     subagentNickname: incoming.subagentNickname ?? null,
     subagentRole: incoming.subagentRole ?? null,
-    workingDirectory: nextWorkingDirectory,
     ...(resolvedLatestUserMessageAt !== undefined
       ? { latestUserMessageAt: resolvedLatestUserMessageAt }
       : {}),
@@ -1676,11 +1668,8 @@ export function normalizeThreadShellSnapshot(
   const errorSource = sessionError === null && deliveryError !== null ? "delivery" : undefined;
   const lastVisitedAt = incoming.lastVisitedAt ?? previous?.lastVisitedAt ?? incoming.updatedAt;
   const sidebarRollups = resolveThreadSidebarRollups(incoming, previous);
-  const nextWorkingDirectory = incoming.workingDirectory ?? null;
   const shell: ThreadShell = {
     id: incoming.id,
-    deckId: incoming.deckId,
-    deckSortOrder: incoming.deckSortOrder,
     codexThreadId: previous?.codexThreadId ?? null,
     folderId: incoming.folderId,
     spaceId: previous?.spaceId ?? null,
@@ -1694,7 +1683,6 @@ export function normalizeThreadShellSnapshot(
     createdAt: incoming.createdAt,
     archivedAt: incoming.archivedAt ?? null,
     updatedAt: incoming.updatedAt,
-    workingDirectory: nextWorkingDirectory,
     creationSource: incoming.creationSource ?? null,
     sourceThreadId: incoming.sourceThreadId ?? null,
     subagentAgentId: incoming.subagentAgentId ?? null,

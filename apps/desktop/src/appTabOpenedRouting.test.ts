@@ -13,7 +13,7 @@ const descriptor = (initiator: "agent" | "user"): DesktopAppTabOpened => ({
   name: "Browser",
   iconDataUrl: null,
   spaceId: "space-a",
-  deckId: "deck-a",
+  folderId: "folder-a",
   threadId: "thread-a",
   route: "/",
   status: "ready",
@@ -32,8 +32,8 @@ describe("announceAppTabOpened", () => {
     ({ initiator, focused, panelFocused, expected }) => {
       const home = new ThreadHomeWindow();
       const panelFocus = new PanelFocusState();
-      home.view(1, "thread-a", "deck-a", true);
-      home.view(2, "thread-b", "deck-b", true);
+      home.view(1, "thread-a", "folder-a", true);
+      home.view(2, "thread-b", "folder-b", true);
       panelFocus.recordInteraction(1, panelFocused);
       const result = announceAppTabOpened({
         descriptor: descriptor(initiator),
@@ -52,7 +52,7 @@ describe("announceAppTabOpened", () => {
     },
   );
 
-  it("defers activation when no window shows the Deck", () => {
+  it("defers activation when no window shows the Folder", () => {
     const home = new ThreadHomeWindow();
     const result = announceAppTabOpened({
       descriptor: descriptor("agent"),
@@ -61,6 +61,6 @@ describe("announceAppTabOpened", () => {
       panelFocus: new PanelFocusState(),
     });
     expect(result.deliveries).toEqual([{ windowId: 2, selection: "preserve" }]);
-    expect(home.consume("deck-a", ["tab-a"])).toBe("tab-a");
+    expect(home.consume("folder-a", ["tab-a"])).toBe("tab-a");
   });
 });

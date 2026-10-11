@@ -15,7 +15,6 @@ import {
   createFreshDraftThreadSeed,
   resolveTerminalThreadCreationState,
   resolveThreadBootstrapPlan,
-  resolveRecentParentWorkingDirectory,
   scopeNewThreadOptionsToContainer,
   type NewThreadOptions,
 } from "../lib/threadBootstrap";
@@ -57,17 +56,7 @@ export function useHandleNewThread() {
             options: requestedOptions,
             containerSpaceId: targetProject.spaceId,
           });
-    const shouldInferWorkingDirectory =
-      parentScopedOptions?.workingDirectory === undefined && targetProject !== undefined;
-    const inferredWorkingDirectory = shouldInferWorkingDirectory
-      ? resolveRecentParentWorkingDirectory({
-          folderId,
-          threads: Object.values(currentState.sidebarThreadSummaryById),
-        })
-      : null;
-    const options = inferredWorkingDirectory
-      ? { ...parentScopedOptions, workingDirectory: inferredWorkingDirectory }
-      : parentScopedOptions;
+    const options = parentScopedOptions;
     const entryPoint = options?.entryPoint ?? "chat";
     const applyProviderOverride = (threadId: ThreadId) => {
       if (!options?.provider) {
@@ -110,7 +99,6 @@ export function useHandleNewThread() {
     };
     const {
       getDraftThread,
-      getDraftThreadByDeckId,
       getDraftThreadByFolderId,
       applyStickyState,
       clearDraftThread,
@@ -123,9 +111,7 @@ export function useHandleNewThread() {
     // promotes an old terminal draft slot.
     const shouldForceFreshThread = options?.fresh === true || entryPoint === "terminal";
 
-    const storedDraftThreadCandidate = options?.deckId
-      ? getDraftThreadByDeckId(options.deckId, entryPoint)
-      : getDraftThreadByFolderId(folderId, entryPoint);
+    const storedDraftThreadCandidate = getDraftThreadByFolderId(folderId, entryPoint);
     const latestActiveDraftThreadCandidate: DraftThreadState | null = focusedThreadId
       ? getDraftThread(focusedThreadId)
       : null;
@@ -134,7 +120,6 @@ export function useHandleNewThread() {
       ? latestActiveDraftThreadCandidate
       : null;
     const bootstrapPlan = resolveThreadBootstrapPlan({
-      ...(options?.deckId ? { deckId: options.deckId } : {}),
       storedDraftThread,
       latestActiveDraftThread,
       entryPoint,
@@ -153,7 +138,6 @@ export function useHandleNewThread() {
       creationOptions: NewThreadOptions | undefined,
     ) =>
       resolveTerminalThreadCreationState({
-        threadId: targetThreadId,
         activeDraftThread: activeDraftThreadSnapshot,
         activeThread: activeThreadSnapshot,
         defaultProvider: options?.provider ?? settings.defaultProvider,
@@ -179,12 +163,11 @@ export function useHandleNewThread() {
           creator: { kind: "user" },
           connection: { kind: "default" },
           threadId,
-          deckId: creationState.deckId,
+
           folderId,
           title: "New terminal",
           modelSelection: creationState.modelSelection,
           runtimeMode: creationState.runtimeMode,
-          workingDirectory: creationState.workingDirectory,
           createdAt: new Date().toISOString(),
         },
         api,
@@ -206,9 +189,8 @@ export function useHandleNewThread() {
           resolvedStoredDraftThread = getDraftThread(bootstrapPlan.threadId);
         }
         applyProviderOverride(bootstrapPlan.threadId);
-        if (options?.deckId === undefined) {
-          setProjectDraftThreadId(folderId, bootstrapPlan.threadId, { entryPoint });
-        }
+        setProjectDraftThreadId(folderId, bootstrapPlan.threadId, { entryPoint });
+
         restoreComposerDraft(bootstrapPlan.threadId, preservedComposerDraft);
         activateThreadEntryPoint(bootstrapPlan.threadId);
         if (focusedThreadId === bootstrapPlan.threadId) {
@@ -255,9 +237,8 @@ export function useHandleNewThread() {
           resolvedActiveDraftThread = getDraftThread(bootstrapPlan.threadId);
         }
         applyProviderOverride(bootstrapPlan.threadId);
-        if (options?.deckId === undefined) {
-          setProjectDraftThreadId(folderId, bootstrapPlan.threadId, { entryPoint });
-        }
+        setProjectDraftThreadId(folderId, bootstrapPlan.threadId, { entryPoint });
+
         restoreComposerDraft(bootstrapPlan.threadId, preservedComposerDraft);
         activateThreadEntryPoint(bootstrapPlan.threadId);
         if (entryPoint === "terminal") {
@@ -270,16 +251,13 @@ export function useHandleNewThread() {
       })();
     }
 
-    const navigationContainer = options?.deckId
-      ? { kind: "deck" as const, id: options.deckId }
-      : { kind: "folder" as const, id: folderId };
+    const navigationContainer = { kind: "folder" as const, id: folderId };
     return runDraftNavigationOnce(
       draftNavigationSlotKey(navigationContainer, entryPoint),
       async () => {
         const threadId = newThreadId();
         const createdAt = new Date().toISOString();
         const draftSeed = createFreshDraftThreadSeed({
-          threadId,
           createdAt,
           entryPoint,
           options,
@@ -307,12 +285,10 @@ export function useHandleNewThread() {
               });
             }),
           // TanStack resolves an older navigate() promise when a newer navigation supersedes it.
-          // Verify the committed route before deleting the previous project draft.
+          // Register the new folder draft only after its route is active.
           isDestinationActive: () => router.state.location.pathname === `/${threadId}`,
           finalize: () => {
-            if (options?.deckId === undefined) {
-              setProjectDraftThreadId(folderId, threadId, draftSeed);
-            }
+            setProjectDraftThreadId(folderId, threadId, draftSeed);
           },
           rollback: () => {
             clearDraftThread(threadId);

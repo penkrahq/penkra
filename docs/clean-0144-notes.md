@@ -204,3 +204,77 @@ Detailed evidence stays outside the repository under
 - `result-failure.json` and `run-2.log`: rollback counts, error cause and hashes.
 - `MigrationRehearsal.local.test.ts`: an external audit copy of the removed
   harness, including its injection and logger capture.
+
+### Rehearsal addendum (d): folder-owned threads, migrations 176–183
+
+Run on 2026-10-10 against two fresh disposable copies of the validated,
+immutable `~/penkra-rehearsal/state-copy.sqlite`. This is the latest rehearsal;
+addendum (c) remains valid for 176–182, and the corrupt-copy numbers in addendum
+(b) remain superseded. Neither Production nor the source copy was modified.
+Each disposable copy was made with the exact read-only command (using `run-4.sqlite`
+for success and `run-5.sqlite` for failure):
+
+```sh
+sqlite3 'file:/Users/emmanuelgyekyeatta-penkra/penkra-rehearsal/state-copy.sqlite?mode=ro' "VACUUM INTO '/Users/emmanuelgyekyeatta-penkra/penkra-rehearsal/run-4.sqlite'"
+```
+
+Both copies returned `ok` from `PRAGMA integrity_check` before use. Their initial
+size was 8,289,067,008 bytes, with 2,023,698 pages and zero freelist pages. Their
+logical counts and migration tracker matched the source. The smaller size than
+the 8,331,603,968-byte source reflects the fresh `VACUUM INTO` layout.
+
+The success run used `runMigrations()` through 183 via the real server runner,
+with foreign keys enabled. Migration duration was **174,104.415417 ms**; the whole
+Vitest harness, including validation, took 280.90 seconds.
+
+| Check                            | Before |   After |
+| -------------------------------- | -----: | ------: |
+| Source `projection_threads`      |    581 |     581 |
+| Canonical `threads`              | absent |     581 |
+| Source user + assistant messages | 86,052 |  86,052 |
+| User + text items                | absent |  86,052 |
+| All `thread_items`               | absent | 634,498 |
+| Open pending interactions        |      0 |       0 |
+| Open question items              | absent |       0 |
+
+Every thread's user + assistant message count matched its user + text item
+count: **no mismatches**, including threads with no such messages. The source's
+576 approval interactions and 183 user-input interactions were all confirmed.
+Migration 177 logged zero dropped harness, binding and notice rows. Migration
+182 logged `affectedThreads: 75`. Migration 183's before/after checks preserved
+581 threads, 634,498 items, 440 harness rows, 440 runtime bindings and 7,525 notices.
+It logged removal of 219 directory overrides and 581 former tab-set memberships.
+
+Final success size: **11,343,409,152 bytes**. `PRAGMA page_count`: **2,769,387**;
+`PRAGMA freelist_count`: **592**. Final `PRAGMA integrity_check`: **ok**. This step
+retains the legacy tables scheduled for step 12; no extra drop or `VACUUM` was added.
+
+The failure run injected `Rehearsal injected error after first threads insert`
+immediately after the first canonical INSERT in migration 176, solely in the
+rehearsal harness. The runner returned that cause under
+`MigrationError: Migration "176_CleanCoreSchemaAndBackfill" failed`.
+Migration duration was **114.266500 ms**; the whole validation harness took
+128.81 seconds. Rollback retained exactly 581 source threads, 86,052 source
+user/assistant messages, zero open pending interactions and 75 source parent
+relationships; canonical tables remained absent and the tracker was unchanged.
+Final size remained **8,289,067,008 bytes**, pages **2,023,698**, freelist **0**,
+and integrity **ok**. The SHA-256 was identical before and after:
+
+```text
+a5f7dd4592df022f80454f7affc18c357302adc5cd42471a82911356c355f353
+```
+
+The required 2.9 banner remains absent, as reported in addendum (c). Its startup,
+read-only fallback and banner work is assigned to step 11; the reviewer accepted
+this as a reported gap rather than a step-4 blocker. No banner, backup/resume,
+disk-space or startup workaround was implemented here.
+
+Both disposable databases and the repository's temporary
+`MigrationRehearsal.local.test.ts` were deleted after their results were recorded.
+The harness is not committed. External audit evidence remains in
+`/Users/emmanuelgyekyeatta-penkra/penkra-rehearsal/`:
+
+- `result-183-success.json`, `run-4.log`: exact counts, per-thread comparisons,
+  executed migrations, duration, integrity and captured migration logs.
+- `result-183-failure.json`, `run-5.log`: rollback counts, injected cause and hashes.
+- `MigrationRehearsal.183.local.test.ts`: audit copy of the deleted harness.

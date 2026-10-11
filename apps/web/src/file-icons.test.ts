@@ -52,7 +52,7 @@ describe("getFileIconName", () => {
     assert.equal(getFileIconName("contacts.csv"), "file-chart");
     assert.equal(getFileIconName("report.docx"), "page-text");
     assert.equal(getFileIconName("budget.xlsx"), "file-chart");
-    assert.equal(getFileIconName("deck.pptx"), "page-text");
+    assert.equal(getFileIconName("presentation.pptx"), "page-text");
   });
 
   it("falls back to the bracket glyph for unknown or icon-less types", () => {

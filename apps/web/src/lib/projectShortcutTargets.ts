@@ -43,12 +43,6 @@ export function resolveLatestProjectTargetIdWithFallback(
 
 export interface NewThreadTarget {
   readonly folderId: FolderId;
-  /**
-   * Whether the new thread should inherit the active surface's branch/worktree/env.
-   * True only when we target the focused project; on the latest-project fallback that
-   * context belongs to a project no longer in view, so we defer to its own defaults.
-   */
-  readonly inheritContext: boolean;
 }
 
 // Single rule for which project a global "new thread" action targets: the focused project
@@ -59,10 +53,10 @@ export function resolveNewThreadTarget(input: {
   latestUsableFolderId: FolderId | null;
 }): NewThreadTarget | null {
   if (input.currentFolderId) {
-    return { folderId: input.currentFolderId, inheritContext: true };
+    return { folderId: input.currentFolderId };
   }
   if (input.latestUsableFolderId) {
-    return { folderId: input.latestUsableFolderId, inheritContext: false };
+    return { folderId: input.latestUsableFolderId };
   }
   return null;
 }

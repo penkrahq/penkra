@@ -1,3 +1,4 @@
+import { seedThreadFolderFixture } from "./threadFixtures.ts";
 import { assert, it } from "@effect/vitest";
 import { MessageId } from "@penkra/contracts";
 import { Deferred, Effect, Fiber } from "effect";
@@ -26,9 +27,11 @@ const withDb = <A, E>(effect: Effect.Effect<A, E, SqlClient.SqlClient>) =>
   effect.pipe(Effect.provide(NodeSqliteClient.layerMemory()));
 const setup = Effect.gen(function* () {
   yield* runMigrations();
+  yield* seedThreadFolderFixture("core-test-folder", "space-1");
   yield* createThread({
     id: "thread-1",
     spaceId: "space-1",
+    folderId: "core-test-folder",
     title: "Hello",
     provider: "codex",
     model: "gpt-5.5",

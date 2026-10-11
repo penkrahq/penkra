@@ -5,7 +5,6 @@ import {
   FolderId,
   SpaceId,
   ThreadId,
-  singletonThreadDeckId,
   type OrchestrationReadModel,
   type OrchestrationShellSnapshot,
 } from "@penkra/contracts";
@@ -39,8 +38,6 @@ function makeThread(
   const id = overrides.id ?? ThreadId.makeUnsafe("thread-1");
   const thread = {
     id,
-    deckId: singletonThreadDeckId(id),
-    deckSortOrder: 0,
     folderId: FolderId.makeUnsafe("project-1"),
     title: "Thread",
     modelSelection: {
@@ -66,8 +63,6 @@ function makeThread(
   };
   return Object.assign({}, thread, {
     id,
-    deckId: overrides.deckId ?? singletonThreadDeckId(id),
-    deckSortOrder: overrides.deckSortOrder ?? 0,
   }) as OrchestrationReadModel["threads"][number];
 }
 
@@ -76,15 +71,6 @@ function makeSnapshot(overrides: Partial<OrchestrationReadModel> = {}): Orchestr
   return {
     snapshotSequence: 1,
     spaces: [],
-    decks: [
-      {
-        id: thread.deckId,
-        spaceId: SpaceId.makeUnsafe("space-test"),
-        threadIds: [thread.id],
-        createdAt: thread.createdAt,
-        updatedAt: thread.updatedAt,
-      },
-    ],
     updatedAt: "2026-04-20T08:00:00.000Z",
     folders: [makeProject()],
     threads: [thread],
@@ -100,15 +86,6 @@ function makeShellSnapshot(
   return {
     snapshotSequence: 1,
     spaces: [],
-    decks: [
-      {
-        id: thread.deckId,
-        spaceId: SpaceId.makeUnsafe("space-test"),
-        threadIds: [thread.id],
-        createdAt: thread.createdAt,
-        updatedAt: thread.updatedAt,
-      },
-    ],
     updatedAt: "2026-04-20T08:00:00.000Z",
     folders: [
       {
@@ -125,8 +102,6 @@ function makeShellSnapshot(
     threads: [
       {
         id: thread.id,
-        deckId: thread.deckId,
-        deckSortOrder: thread.deckSortOrder,
         folderId: thread.folderId,
         title: thread.title,
         modelSelection: thread.modelSelection,

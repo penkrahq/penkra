@@ -38,7 +38,7 @@ import {
   sortThreadsForSidebar,
 } from "./Sidebar.logic";
 import { hasUnseenThreadCompletion } from "../threadCompletion";
-import { FolderId, MessageId, SpaceId, ThreadId, singletonThreadDeckId } from "@penkra/contracts";
+import { FolderId, MessageId, SpaceId, ThreadId } from "@penkra/contracts";
 import { DEFAULT_RUNTIME_MODE, type Project, type Thread } from "../types";
 
 describe("canArchiveSidebarFolder", () => {
@@ -1301,8 +1301,6 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
   const id = overrides.id ?? ThreadId.makeUnsafe("thread-1");
   const thread = {
     id,
-    deckId: singletonThreadDeckId(id),
-    deckSortOrder: 0,
     codexThreadId: null,
     folderId: FolderId.makeUnsafe("project-1"),
     title: "Thread",
@@ -1323,8 +1321,6 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
   };
   return Object.assign({}, thread, {
     id,
-    deckId: overrides.deckId ?? singletonThreadDeckId(id),
-    deckSortOrder: overrides.deckSortOrder ?? 0,
   }) as Thread;
 }
 
@@ -1332,8 +1328,6 @@ function makeSidebarThreadRow(overrides: Partial<SidebarThreadRow> = {}): Sideba
   const id = overrides.id ?? ThreadId.makeUnsafe("thread-1");
   const summary = {
     id,
-    deckId: singletonThreadDeckId(id),
-    deckSortOrder: 0,
     folderId: FolderId.makeUnsafe("project-1"),
     title: "Thread",
     modelSelection: {
@@ -1351,8 +1345,6 @@ function makeSidebarThreadRow(overrides: Partial<SidebarThreadRow> = {}): Sideba
   };
   return Object.assign({}, summary, {
     id,
-    deckId: overrides.deckId ?? singletonThreadDeckId(id),
-    deckSortOrder: overrides.deckSortOrder ?? 0,
   }) as SidebarThreadRow;
 }
 

@@ -6,7 +6,7 @@ import type { DesktopAppTabDescriptor } from "@penkra/contracts";
 import type { RightDockPane } from "../../rightDockStore.logic";
 
 interface AppTabSpaceIdentity {
-  deckId: string;
+  folderId: string;
   threadId: string;
   spaceId: string;
 }
@@ -32,20 +32,24 @@ export function isAppPaneInSpace(pane: RightDockPane, spaceId: string): boolean 
   return pane.appSpaceId === spaceId;
 }
 
-export function isAppTabOutsideDeckSpace(
+export function isAppTabOutsideFolderSpace(
   tab: AppTabSpaceIdentity,
-  deckId: string,
+  folderId: string,
   spaceId: string,
 ): boolean {
-  return tab.deckId === deckId && tab.spaceId !== spaceId;
+  return tab.folderId === folderId && tab.spaceId !== spaceId;
 }
 
-export function createAppTabRestoreRequest(pane: RightDockPane, deckId: string, threadId: string) {
+export function createAppTabRestoreRequest(
+  pane: RightDockPane,
+  folderId: string,
+  threadId: string,
+) {
   return {
     tabId: pane.id,
     appId: pane.appId,
     spaceId: pane.appSpaceId,
-    deckId,
+    folderId,
     threadId,
     route: pane.appRoute,
     ...(pane.appState === undefined ? {} : { state: pane.appState }),
@@ -55,7 +59,7 @@ export function createAppTabRestoreRequest(pane: RightDockPane, deckId: string, 
 /** Renderer reload does not close native App tabs. Adopt the retained tab before creating one. */
 export async function restoreAppTab(
   pane: RightDockPane,
-  deckId: string,
+  folderId: string,
   threadId: string,
   bridge: {
     list: () => Promise<readonly DesktopAppTabDescriptor[]>;
@@ -64,14 +68,14 @@ export async function restoreAppTab(
     ) => Promise<DesktopAppTabDescriptor>;
   },
 ): Promise<DesktopAppTabDescriptor> {
-  const request = createAppTabRestoreRequest(pane, deckId, threadId);
+  const request = createAppTabRestoreRequest(pane, folderId, threadId);
   const retained = (tabs: readonly DesktopAppTabDescriptor[]) => {
     const tab = tabs.find((candidate) => candidate.id === pane.id);
     if (
       tab &&
       (tab.appId !== pane.appId ||
         tab.spaceId !== pane.appSpaceId ||
-        tab.deckId !== deckId ||
+        tab.folderId !== folderId ||
         tab.threadId !== threadId)
     ) {
       throw new Error(`App tab ${pane.id} belongs to a different Thread or Space.`);

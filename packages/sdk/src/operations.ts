@@ -10,11 +10,11 @@ export interface OperationInvocation<Input = unknown> extends OperationAddress {
   id: string;
   /** Host-validated Space that owns this invocation. */
   spaceId: string;
-  /** Persistent Thread Deck that owns the invoking App surface. */
-  deckId: string;
-  /** Thread active in that deck when the invocation began. */
+  /** Persistent folder that owns the invoking App surface. */
+  folderId: string;
+  /** Thread active in that folder when the invocation began. */
   threadId: string;
-  /** Explicitly targeted existing App tab in the invoking Thread Deck, when needed. */
+  /** Explicitly targeted existing App tab in the invoking folder, when needed. */
   tabId?: string;
   input: Input;
 }
@@ -81,7 +81,7 @@ export interface AppTabs {
 }
 
 export interface InstalledApps {
-  /** Open an enabled App in the invoking Thread Deck by its installed slug. */
+  /** Open an enabled App in the invoking folder by its installed slug. */
   open(input: { slug: string }): Promise<AppTabHandle>;
 }
 
@@ -93,7 +93,7 @@ export interface OperationContext {
   tab?: AppTabHandle;
   /** Manager for opening new tabs owned by the invoked App. */
   tabs: AppTabs;
-  /** Manager for opening another enabled App in the invoking Thread Deck. */
+  /** Manager for opening another enabled App in the invoking folder. */
   apps: InstalledApps;
   operations: {
     invoke<Result = unknown>(request: OperationRequest): Promise<Result>;

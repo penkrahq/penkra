@@ -116,7 +116,6 @@ import {
   buildStalePendingRequestFailureDetail,
   PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE,
 } from "@penkra/shared/threadSummary";
-import { resolveThreadWorkspaceCwd } from "@penkra/shared/threadEnvironment";
 
 import {
   ProviderAdapterRequestError,
@@ -620,15 +619,10 @@ const make = Effect.gen(function* () {
   });
 
   const resolveProjectedThreadWorkspaceCwd = Effect.fnUntraced(function* (
-    thread: Pick<OrchestrationThread, "id" | "folderId" | "workingDirectory">,
+    thread: Pick<OrchestrationThread, "id" | "folderId">,
   ): Effect.fn.Return<string> {
     const project = yield* resolveThreadWorkspaceProject(thread);
-    return (
-      resolveThreadWorkspaceCwd({
-        workingDirectory: thread.workingDirectory,
-        projectCwd: project?.workspaceRoot,
-      }) ?? ensureDurableThreadWorkspace(thread.id, serverConfig.stateDir)
-    );
+    return project?.workspaceRoot ?? ensureDurableThreadWorkspace(thread.id, serverConfig.stateDir);
   });
   const editResendTurnStartKeys = new Set<string>();
   const quarantinedThreads = new Set<string>();
@@ -2560,12 +2554,8 @@ const make = Effect.gen(function* () {
         }
         const readModel = yield* orchestrationEngine.getCommandReadModel();
         const cwd =
-          resolveThreadWorkspaceCwd({
-            workingDirectory: thread.workingDirectory,
-            projectCwd:
-              readModel.folders.find((project) => project.id === thread.folderId)?.workspaceRoot ??
-              null,
-          }) ?? ensureDurableThreadWorkspace(thread.id, serverConfig.stateDir);
+          readModel.folders.find((project) => project.id === thread.folderId)?.workspaceRoot ??
+          ensureDurableThreadWorkspace(thread.id, serverConfig.stateDir);
         const providerName = thread.session?.providerName ?? thread.modelSelection.provider;
         const providerThread = yield* resolveProviderSessionThread(event.payload.threadId);
         const sessionThreadId = providerThread?.id ?? event.payload.threadId;
@@ -2801,12 +2791,8 @@ const make = Effect.gen(function* () {
         const runtimeBinding = yield* threadProviderBindings.getRuntimeBinding(threadId);
         const readModel = yield* orchestrationEngine.getCommandReadModel();
         const cwd =
-          resolveThreadWorkspaceCwd({
-            workingDirectory: currentThread.workingDirectory,
-            projectCwd:
-              readModel.folders.find((project) => project.id === currentThread.folderId)
-                ?.workspaceRoot ?? null,
-          }) ?? ensureDurableThreadWorkspace(threadId, serverConfig.stateDir);
+          readModel.folders.find((project) => project.id === currentThread.folderId)
+            ?.workspaceRoot ?? ensureDurableThreadWorkspace(threadId, serverConfig.stateDir);
         pendingQueuedDispatchBySessionThread.set(sessionThreadId, {
           queuedThreadId: threadId,
           messageId: nextQueuedTurn.messageId,
@@ -3651,12 +3637,8 @@ const make = Effect.gen(function* () {
 
     const readModel = yield* orchestrationEngine.getCommandReadModel();
     const cwd =
-      resolveThreadWorkspaceCwd({
-        workingDirectory: originalThread.workingDirectory,
-        projectCwd:
-          readModel.folders.find((project) => project.id === originalThread.folderId)
-            ?.workspaceRoot ?? null,
-      }) ?? ensureDurableThreadWorkspace(originalThread.id, serverConfig.stateDir);
+      readModel.folders.find((project) => project.id === originalThread.folderId)?.workspaceRoot ??
+      ensureDurableThreadWorkspace(originalThread.id, serverConfig.stateDir);
     editResendTurnStartKeys.add(editResendTurnStartKey(payload.threadId, payload.messageId));
     yield* providerThreadSwitchCoordinator.dispatchTurnStart({
       command: {

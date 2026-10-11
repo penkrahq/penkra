@@ -12,9 +12,7 @@ import {
   ProviderSkillReference,
   RuntimeMode,
   SpaceId,
-  ThreadDeckId,
   ThreadId,
-  singletonThreadDeckId,
 } from "@penkra/contracts";
 import * as Schema from "effect/Schema";
 import type { DeepMutable } from "effect/Types";
@@ -187,12 +185,10 @@ type LegacyPersistedComposerDraftStoreState = PersistedComposerDraftStoreState &
 
 const PersistedDraftThreadState = Schema.Struct({
   folderId: FolderId,
-  deckId: ThreadDeckId,
   spaceId: Schema.optionalKey(Schema.NullOr(SpaceId)),
   createdAt: Schema.String,
   runtimeMode: RuntimeMode,
   entryPoint: DraftThreadEntryPointSchema.pipe(Schema.withDecodingDefault(() => "chat")),
-  workingDirectory: Schema.optionalKey(Schema.NullOr(Schema.String)),
   promotedTo: Schema.optionalKey(ThreadId),
 });
 
@@ -429,7 +425,6 @@ function normalizePersistedDraftThreads(
       const candidateDraftThread = rawDraftThread as Record<string, unknown>;
       const folderId = candidateDraftThread.folderId;
       const createdAt = candidateDraftThread.createdAt;
-      const workingDirectory = candidateDraftThread.workingDirectory;
       const promotedTo =
         typeof candidateDraftThread.promotedTo === "string" &&
         candidateDraftThread.promotedTo.length > 0
@@ -440,10 +435,6 @@ function normalizePersistedDraftThreads(
       }
       draftThreadsByThreadId[threadId as ThreadId] = {
         folderId: folderId as FolderId,
-        deckId:
-          typeof candidateDraftThread.deckId === "string"
-            ? ThreadDeckId.makeUnsafe(candidateDraftThread.deckId)
-            : singletonThreadDeckId(ThreadId.makeUnsafe(threadId)),
         spaceId:
           typeof candidateDraftThread.spaceId === "string"
             ? SpaceId.makeUnsafe(candidateDraftThread.spaceId)
@@ -458,7 +449,6 @@ function normalizePersistedDraftThreads(
             ? candidateDraftThread.runtimeMode
             : DEFAULT_RUNTIME_MODE,
         entryPoint: normalizeDraftThreadEntryPoint(candidateDraftThread.entryPoint),
-        workingDirectory: typeof workingDirectory === "string" ? workingDirectory : null,
         ...(promotedTo ? { promotedTo } : {}),
       };
     }
@@ -481,12 +471,10 @@ function normalizePersistedDraftThreads(
         if (!draftThreadsByThreadId[threadId as ThreadId]) {
           draftThreadsByThreadId[threadId as ThreadId] = {
             folderId: folderId as FolderId,
-            deckId: singletonThreadDeckId(ThreadId.makeUnsafe(threadId)),
             spaceId: null,
             createdAt: new Date().toISOString(),
             runtimeMode: DEFAULT_RUNTIME_MODE,
             entryPoint,
-            workingDirectory: null,
           };
         } else if (draftThreadsByThreadId[threadId as ThreadId]?.folderId !== folderId) {
           draftThreadsByThreadId[threadId as ThreadId] = {

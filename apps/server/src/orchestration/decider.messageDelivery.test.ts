@@ -5,7 +5,6 @@ import {
   SpaceId,
   ThreadId,
   TurnId,
-  singletonThreadDeckId,
   type OrchestrationReadModel,
 } from "@penkra/contracts";
 import { Effect } from "effect";
@@ -45,20 +44,9 @@ const shellOnlyReadModel: OrchestrationReadModel = {
       deletedAt: null,
     },
   ],
-  decks: [
-    {
-      id: singletonThreadDeckId(threadId),
-      spaceId: SpaceId.makeUnsafe("space-shell-only-delivery"),
-      threadIds: [threadId],
-      createdAt: NOW,
-      updatedAt: NOW,
-    },
-  ],
   threads: [
     {
       id: threadId,
-      deckId: singletonThreadDeckId(threadId),
-      deckSortOrder: 0,
       folderId: FolderId.makeUnsafe("folder-shell-only-delivery"),
       title: "Queue QA",
       modelSelection: { provider: "codex", model: "gpt-5.4-mini" },

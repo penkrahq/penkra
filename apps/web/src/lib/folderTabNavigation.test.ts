@@ -2,17 +2,16 @@ import { ThreadId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
-  canCreateAnotherDeckThread,
-  findNearestVisibleDeckThread,
-  removeDeckThreadPreservingNavigation,
-} from "./threadDeckNavigation";
+  findNearestVisibleFolderThread,
+  removeFolderThreadPreservingNavigation,
+} from "./folderTabNavigation";
 
 const ids = ["first", "archived", "active", "next", "last"].map((id) => ThreadId.makeUnsafe(id));
 
-describe("findNearestVisibleDeckThread", () => {
+describe("findNearestVisibleFolderThread", () => {
   it("prefers the nearest visible thread on the right, then the left", () => {
     expect(
-      findNearestVisibleDeckThread({
+      findNearestVisibleFolderThread({
         threadIds: ids,
         removedThreadId: ids[2]!,
         isVisible: (threadId) => threadId !== ids[1],
@@ -20,7 +19,7 @@ describe("findNearestVisibleDeckThread", () => {
     ).toBe(ids[3]);
 
     expect(
-      findNearestVisibleDeckThread({
+      findNearestVisibleFolderThread({
         threadIds: ids,
         removedThreadId: ids[4]!,
         isVisible: (threadId) => threadId !== ids[1],
@@ -28,16 +27,16 @@ describe("findNearestVisibleDeckThread", () => {
     ).toBe(ids[3]);
   });
 
-  it("skips archived members and returns null for a missing or empty deck", () => {
+  it("skips archived members and returns null for a missing or empty folder", () => {
     expect(
-      findNearestVisibleDeckThread({
+      findNearestVisibleFolderThread({
         threadIds: ids,
         removedThreadId: ids[2]!,
         isVisible: () => false,
       }),
     ).toBeNull();
     expect(
-      findNearestVisibleDeckThread({
+      findNearestVisibleFolderThread({
         threadIds: ids,
         removedThreadId: ThreadId.makeUnsafe("missing"),
         isVisible: () => true,
@@ -46,18 +45,11 @@ describe("findNearestVisibleDeckThread", () => {
   });
 });
 
-describe("canCreateAnotherDeckThread", () => {
-  it("allows creation only when every existing member has a turn", () => {
-    expect(canCreateAnotherDeckThread([{ hasTurn: true }, { hasTurn: true }])).toBe(true);
-    expect(canCreateAnotherDeckThread([{ hasTurn: true }, { hasTurn: false }])).toBe(false);
-  });
-});
-
-describe("removeDeckThreadPreservingNavigation", () => {
+describe("removeFolderThreadPreservingNavigation", () => {
   it("activates the nearest sibling before removing the active member", async () => {
     const operations: string[] = [];
 
-    await removeDeckThreadPreservingNavigation({
+    await removeFolderThreadPreservingNavigation({
       threadIds: ids,
       removedThreadId: ids[2]!,
       activeThreadId: ids[2]!,
@@ -76,7 +68,7 @@ describe("removeDeckThreadPreservingNavigation", () => {
   it("removes an inactive member without changing the active route", async () => {
     const operations: string[] = [];
 
-    await removeDeckThreadPreservingNavigation({
+    await removeFolderThreadPreservingNavigation({
       threadIds: ids,
       removedThreadId: ids[4]!,
       activeThreadId: ids[2]!,
@@ -97,7 +89,7 @@ describe("removeDeckThreadPreservingNavigation", () => {
     const rejection = new Error("This thread is still running. Stop it before archiving.");
 
     await expect(
-      removeDeckThreadPreservingNavigation({
+      removeFolderThreadPreservingNavigation({
         threadIds: ids,
         removedThreadId: ids[2]!,
         activeThreadId: ids[2]!,

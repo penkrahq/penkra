@@ -7,7 +7,6 @@ import { render } from "vitest-browser-react";
 import { COMPOSER_FOOTER_ROW_CLASS_NAME } from "../chat/composerPickerStyles";
 
 import { ComposerDefault } from "./composer-default/ComposerDefault";
-import { DraftFolderBar } from "./composer-default/DraftFolderBar";
 import { ButtonSend } from "./button-send/ButtonSend";
 import { AccessPillTrigger } from "./access-pill-trigger/AccessPillTrigger";
 import { ComposerActions } from "./composer-actions/ComposerActions";
@@ -160,10 +159,7 @@ describe("Pencil middle panel", () => {
 
   it("owns the production composer shell instead of passing legacy markup through", async () => {
     await render(
-      <ComposerDefault
-        layoutMode="application"
-        draftBar={<div data-testid="draft-bar">Choose Folder</div>}
-      >
+      <ComposerDefault layoutMode="application">
         <div data-testid="live-editor">Live editor</div>
       </ComposerDefault>,
     );
@@ -173,20 +169,14 @@ describe("Pencil middle panel", () => {
     const draftBar = root?.querySelector<HTMLElement>("[data-pencil-node='fiR2o']");
     expect(root).not.toBeNull();
     expect(surface).not.toBeNull();
-    expect(draftBar).not.toBeNull();
+    expect(draftBar).toBeNull();
     expect(getComputedStyle(surface!).minHeight).toBe("100px");
     expect(getComputedStyle(surface!).borderRadius).toBe("18px");
     expect(getComputedStyle(surface!).textAlign).toBe("left");
     const rootRect = root!.getBoundingClientRect();
     const surfaceRect = surface!.getBoundingClientRect();
-    const draftBarRect = draftBar!.getBoundingClientRect();
     expect(rootRect.height).toBeCloseTo(100, 0);
     expect(surfaceRect.height).toBeCloseTo(100, 0);
-    expect(draftBarRect.height).toBe(40);
-    expect(draftBarRect.left - rootRect.left).toBe(16);
-    expect(draftBarRect.top - rootRect.top).toBe(-40);
-    expect(rootRect.width - draftBarRect.width).toBe(32);
-    await expect.element(page.getByTestId("draft-bar")).toBeVisible();
     await expect.element(page.getByTestId("live-editor")).toBeVisible();
   });
 
@@ -330,13 +320,6 @@ describe("Pencil middle panel", () => {
     expect(prompt.getBoundingClientRect().height).toBeCloseTo(43, 0);
     expect(getComputedStyle(folderName).whiteSpace).toBe("nowrap");
     expect(folderName.scrollWidth).toBeGreaterThanOrEqual(folderName.clientWidth);
-  });
-
-  it("shows only the folder picker in the draft bar", async () => {
-    await render(<DraftFolderBar folderPicker={<button type="button">Choose Folder</button>} />);
-
-    await expect.element(page.getByRole("button", { name: "Choose Folder" })).toBeInTheDocument();
-    expect(page.getByRole("button").elements()).toHaveLength(1);
   });
 
   it("keeps the transcript in a real scroll region outside the fixed composer", async () => {

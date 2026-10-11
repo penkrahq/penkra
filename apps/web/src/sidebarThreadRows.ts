@@ -3,17 +3,15 @@ import {
   ModelSelection,
   RuntimeMode,
   type CleanCoreThreadSummary,
-  type ThreadDeckId,
+  type FolderId,
 } from "@penkra/contracts";
 import { Schema } from "effect";
+import { sortThreadsForSidebar } from "./components/Sidebar.logic";
 import { useStore } from "./store";
 import { useThreadList } from "./threadListStore";
 import type { SidebarThreadSummary } from "./types";
 
 export interface SidebarThreadRow extends SidebarThreadSummary {
-  deckId: ThreadDeckId | null;
-  deckSortOrder: number;
-  workingDirectory: string | null;
   sidebarSortOrder: number | undefined;
   lastVisitedAt: string | undefined;
   lastMessagePreview: string | null;
@@ -45,9 +43,6 @@ export function buildSidebarThreadRows(
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
         archivedAt: row.archivedAt,
-        deckId: row.deckId,
-        deckSortOrder: row.deckSortOrder,
-        workingDirectory: row.workingDirectory,
         sidebarSortOrder: row.sidebarSortOrder === null ? undefined : row.sidebarSortOrder,
         lastVisitedAt: row.lastVisitedAt === null ? undefined : row.lastVisitedAt,
         lastMessagePreview: row.lastMessagePreview,
@@ -119,13 +114,12 @@ export function useSidebarThreadRowsById(): ReadonlyMap<string, SidebarThreadRow
   return useSidebarRowsSnapshot().byId;
 }
 
-export function selectDeckThreadRows(
+export function selectFolderThreadRows(
   rows: readonly SidebarThreadRow[],
-  deckId: ThreadDeckId,
+  folderId: FolderId,
 ): readonly SidebarThreadRow[] {
-  return rows
-    .filter((row) => row.deckId === deckId && row.archivedAt === null)
-    .toSorted(
-      (left, right) => left.deckSortOrder - right.deckSortOrder || left.id.localeCompare(right.id),
-    );
+  return sortThreadsForSidebar(
+    rows.filter((row) => row.folderId === folderId && row.archivedAt === null),
+    "created_at",
+  );
 }

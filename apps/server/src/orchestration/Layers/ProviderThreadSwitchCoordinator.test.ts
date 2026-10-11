@@ -206,11 +206,9 @@ const canonicalThreadLayer = Layer.effectDiscard(
     yield* createThreadFixture(sql, {
       threadId: command.threadId,
       folderId: "switch-folder" as never,
-      deckId: "switch-deck" as never,
       title: "Switch thread",
       modelSelection: command.modelSelection!,
       runtimeMode: "full-access",
-      workingDirectory: "/workspace",
       connection: { kind: "selected", connectionId: sourceConnectionId },
       creator: { kind: "user" },
       createdAt: timestamp,
@@ -241,7 +239,6 @@ const dependencies = Layer.mergeAll(
           id: row.id,
           modelSelection: { provider: row.provider, model: row.model },
           runtimeMode: row.runtimeMode,
-          workingDirectory: row.workingDirectory,
         };
         if (projectedHistoricalThread) {
           return Option.some({

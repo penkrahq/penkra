@@ -1,3 +1,8 @@
+import { afterAll } from "vitest";
+import { ServerConfig } from "../config.ts";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { ManagedAttachmentRepositoryLive } from "../persistence/Layers/ManagedAttachments.ts";
 import { assert, it } from "@effect/vitest";
 import {
@@ -5,7 +10,6 @@ import {
   ThreadId,
   TurnId,
   ProviderConnectionId,
-  singletonThreadDeckId,
   type OrchestrationThreadShell,
 } from "@penkra/contracts";
 import { Effect, Option } from "effect";
@@ -98,6 +102,9 @@ it.effect(
       } satisfies typeof ProviderThreadSwitchCoordinator.Service;
       const newSender = () =>
         makeThreadSender.pipe(
+          Effect.provideService(ServerConfig, {
+            stateDir: senderStateDir,
+          } as typeof ServerConfig.Service),
           Effect.provide(ManagedAttachmentRepositoryLive),
           Effect.provideService(ThreadPublisher, publisher),
           Effect.provideService(ProviderThreadSwitchCoordinator, coordinator),
@@ -110,12 +117,9 @@ it.effect(
       const caller: OrchestrationThreadShell = {
         id: callerId,
         folderId,
-        deckId: singletonThreadDeckId(callerId),
-        deckSortOrder: 0,
         title: "Caller",
         modelSelection: { provider: "codex", model: "gpt-5.5" },
         runtimeMode: "full-access",
-        workingDirectory: null,
         subagentAgentId: null,
         subagentNickname: null,
         subagentRole: null,
@@ -127,6 +131,7 @@ it.effect(
         updatedAt: at,
       };
       const dependencies: Parameters<typeof makeCreateThreadHandler>[0] = {
+        stateDir: senderStateDir,
         lifecycle,
         sender,
         providerTurnSelectionResolver: resolver,
@@ -188,3 +193,5 @@ it.effect(
       assert.equal((yield* findThread(retained[0]!.id))!.connectionId, accountA);
     }).pipe(Effect.scoped, Effect.provide(NodeSqliteClient.layerMemory())),
 );
+const senderStateDir = mkdtempSync(join(tmpdir(), "penkra-test-thread-cwd-"));
+afterAll(() => rmSync(senderStateDir, { recursive: true, force: true }));

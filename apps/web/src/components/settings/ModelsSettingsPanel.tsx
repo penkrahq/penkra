@@ -104,7 +104,6 @@ export function ModelsSettingsPanel({
     [currentThreadTitleModel, currentThreadTitleProvider],
   );
   const providerModelDiscoveryCwd = resolveProviderDiscoveryCwd({
-    activeThreadWorkingDirectory: null,
     activeProjectCwd: null,
     serverCwd: serverConfigQuery.data?.cwd ?? null,
   });

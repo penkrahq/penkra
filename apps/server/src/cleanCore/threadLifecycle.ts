@@ -19,7 +19,7 @@ import { createThread, renameThread, setThreadArchived, setThreadDeleted } from 
 import { findThread, getThread } from "./threadList.ts";
 import { ThreadPublisher } from "./ThreadPublisher.ts";
 
-/** Folder/deck validation, insertion and publication share one creation path. */
+/** Folder validation, insertion and publication share one creation path. */
 export const createThreadFromClient = (input: CleanCoreCreateThreadInput) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -34,15 +34,6 @@ export const createThreadFromClient = (input: CleanCoreCreateThreadInput) =>
         const folder = folders[0];
         if (folder === undefined)
           return yield* Effect.fail(new Error("The folder does not exist."));
-        const decks = yield* sql<{
-          spaceId: string;
-        }>`SELECT space_id AS "spaceId" FROM projection_thread_decks WHERE deck_id = ${input.deckId}`;
-        if (decks[0] !== undefined && decks[0].spaceId !== folder.spaceId)
-          return yield* Effect.fail(new Error("The deck belongs to a different space."));
-        yield* sql`INSERT INTO projection_thread_decks (deck_id, space_id, created_at, updated_at) VALUES (${input.deckId}, ${folder.spaceId}, ${input.createdAt}, ${input.createdAt}) ON CONFLICT(deck_id) DO NOTHING`;
-        const order = yield* sql<{
-          nextOrder: number;
-        }>`SELECT COALESCE(MAX(deck_sort_order) + 1, 0) AS "nextOrder" FROM threads WHERE deck_id = ${input.deckId} AND deleted_at IS NULL`;
         const connectionId =
           input.connection.kind === "selected"
             ? input.connection.connectionId
@@ -53,8 +44,6 @@ export const createThreadFromClient = (input: CleanCoreCreateThreadInput) =>
           id: input.threadId,
           spaceId: folder.spaceId,
           folderId: input.folderId,
-          deckId: input.deckId,
-          deckSortOrder: order[0]!.nextOrder,
           sidebarSortOrder: null,
           title: input.title,
           provider: input.modelSelection.provider,
@@ -65,7 +54,6 @@ export const createThreadFromClient = (input: CleanCoreCreateThreadInput) =>
               : JSON.stringify(input.modelSelection.options),
           connectionId,
           runtimeMode: input.runtimeMode,
-          workingDirectory: input.workingDirectory,
           createdAt: input.createdAt,
         };
         yield* createThread(

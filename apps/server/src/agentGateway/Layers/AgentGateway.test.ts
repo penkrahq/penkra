@@ -23,7 +23,6 @@ import {
   SpaceId,
   ThreadId,
   TurnId,
-  singletonThreadDeckId,
 } from "@penkra/contracts";
 import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
@@ -111,13 +110,10 @@ function makeThreadShell(
 ): OrchestrationThreadShell {
   return {
     id: ThreadId.makeUnsafe(id),
-    deckId: singletonThreadDeckId(ThreadId.makeUnsafe(id)),
-    deckSortOrder: 0,
     folderId: PROJECT_ID,
     title: `Thread ${id}`,
     modelSelection: { provider: "codex", model: "gpt-5.5" },
     runtimeMode: "approval-required",
-    workingDirectory: null,
     subagentAgentId: null,
     subagentNickname: null,
     subagentRole: null,
@@ -399,7 +395,6 @@ function makeHarnessLayer(
         ? null
         : JSON.stringify(thread.modelSelection.options),
     runtimeMode: thread.runtimeMode,
-    workingDirectory: thread.workingDirectory === undefined ? null : thread.workingDirectory,
     state: thread.session?.status === "running" ? "running" : "idle",
     activeTurnId:
       thread.session === null || thread.session.activeTurnId === undefined
@@ -409,8 +404,6 @@ function makeHarnessLayer(
     queue: "[]",
     createdBy: thread.creationSource === "penkra_mcp" ? "agent" : "user",
     createdByThreadId: thread.sourceThreadId === undefined ? null : thread.sourceThreadId,
-    deckId: thread.deckId,
-    deckSortOrder: thread.deckSortOrder,
     sidebarSortOrder: null,
     lastActivityAt: null,
     lastMessagePreview: null,
@@ -434,11 +427,9 @@ function makeHarnessLayer(
         if (existing !== undefined) return { thread: summary(existing), created: false };
         const thread = makeThreadShell(input.threadId, {
           folderId: input.folderId,
-          deckId: input.deckId,
           title: input.title,
           modelSelection: input.modelSelection,
           runtimeMode: input.runtimeMode,
-          workingDirectory: input.workingDirectory,
           connectionId:
             input.connection.kind === "selected" ? input.connection.connectionId : CONNECTION_ID,
           creationSource: input.creator.kind === "agent" ? "penkra_mcp" : null,

@@ -39,7 +39,7 @@ function fixture() {
   const initialThreadState = [
     {
       id: "thread-1",
-      deckId: "deck-1",
+      folderId: "folder-1",
       title: "First",
       order: 0,
       archived: false,
@@ -53,7 +53,7 @@ function fixture() {
     },
   ];
   const threadsCall = vi.fn(async (method: string) =>
-    method === "list" ? initialThreadState : undefined,
+    method === "list" ? { threads: initialThreadState, pageInfo: { nextCursor: null } } : undefined,
   );
   const call: NonNullable<AppPreloadTransport["call"]> = async <Result = unknown>(
     method: string,
@@ -323,13 +323,13 @@ describe("AppPreloadRuntime", () => {
     expect(listener).toHaveBeenCalledOnce();
   });
 
-  it("publishes one initial Thread Deck snapshot and later semantic host updates", async () => {
+  it("publishes one initial folder snapshot and later semantic host updates", async () => {
     const test = fixture();
     const listener = vi.fn();
-    const unsubscribe = test.runtime.api.threads.onState(listener);
+    const unsubscribe = test.runtime.api.folder.onState(listener);
 
     await vi.waitFor(() => expect(listener).toHaveBeenCalledWith(test.initialThreadState));
-    expect(test.threadsCall).toHaveBeenCalledWith("list");
+    expect(test.threadsCall).toHaveBeenCalledWith("list", {});
 
     const running = [
       {
@@ -508,4 +508,12 @@ describe("AppPreloadRuntime", () => {
       });
     });
   });
+});
+
+it("forwards optional folder list cursors and uses an empty input for the first page", async () => {
+  const test = fixture();
+  await test.runtime.api.folder.list();
+  expect(test.threadsCall).toHaveBeenLastCalledWith("list", {});
+  await test.runtime.api.folder.list({ cursor: "next-page" });
+  expect(test.threadsCall).toHaveBeenLastCalledWith("list", { cursor: "next-page" });
 });

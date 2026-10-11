@@ -9,7 +9,6 @@ import {
   PositiveInt,
   ProviderConnectionId,
   SpaceId,
-  ThreadDeckId,
   ThreadId,
   TurnId,
   TrimmedNonEmptyString,
@@ -128,22 +127,19 @@ export type CleanCoreEditQueuedMessageInput = typeof CleanCoreEditQueuedMessageI
 export const CleanCoreThreadSummary = Schema.Struct({
   id: ThreadId,
   spaceId: SpaceId,
-  folderId: Schema.NullOr(FolderId),
+  folderId: FolderId,
   title: Schema.String,
   provider: Schema.String,
   connectionId: Schema.NullOr(ProviderConnectionId),
   model: Schema.String,
   modelOptions: Schema.NullOr(Schema.String),
   runtimeMode: Schema.String,
-  workingDirectory: Schema.NullOr(Schema.String),
   state: Schema.String,
   activeTurnId: Schema.NullOr(TurnId),
   lastError: Schema.NullOr(Schema.String),
   queue: Schema.String,
   createdBy: Schema.String,
   createdByThreadId: Schema.NullOr(ThreadId),
-  deckId: Schema.NullOr(ThreadDeckId),
-  deckSortOrder: Schema.Number,
   sidebarSortOrder: Schema.NullOr(Schema.Number),
   lastActivityAt: Schema.NullOr(IsoDateTime),
   lastMessagePreview: Schema.NullOr(Schema.String),
@@ -203,29 +199,12 @@ export const CleanCoreSearchThreadsResult = Schema.Struct({
 });
 export type CleanCoreSearchThreadsResult = typeof CleanCoreSearchThreadsResult.Type;
 
-export const CleanCoreDeckThreadCursor = Schema.Struct({
-  deckSortOrder: Schema.Number,
-  id: ThreadId,
-});
-export type CleanCoreDeckThreadCursor = typeof CleanCoreDeckThreadCursor.Type;
-export const CleanCoreListDeckThreadsInput = Schema.Struct({
-  deckId: ThreadDeckId,
-  after: Schema.NullOr(CleanCoreDeckThreadCursor),
-});
-export type CleanCoreListDeckThreadsInput = typeof CleanCoreListDeckThreadsInput.Type;
-export const CleanCoreListDeckThreadsResult = Schema.Struct({
-  threads: Schema.Array(CleanCoreThreadSummary),
-  nextCursor: Schema.NullOr(CleanCoreDeckThreadCursor),
-});
-export type CleanCoreListDeckThreadsResult = typeof CleanCoreListDeckThreadsResult.Type;
-
 export const CleanCoreGetThreadShellInput = Schema.Struct({ threadId: ThreadId });
 export type CleanCoreGetThreadShellInput = typeof CleanCoreGetThreadShellInput.Type;
 
 export const CleanCoreCreateThreadInput = Schema.Struct({
   threadId: ThreadId,
   folderId: FolderId,
-  deckId: ThreadDeckId,
   title: Schema.String,
   modelSelection: ModelSelection,
   connection: Schema.Union([
@@ -236,7 +215,6 @@ export const CleanCoreCreateThreadInput = Schema.Struct({
     }),
   ]),
   runtimeMode: RuntimeMode,
-  workingDirectory: Schema.NullOr(Schema.String),
   createdAt: IsoDateTime,
   creator: Schema.Union([
     Schema.Struct({ kind: Schema.Literals(["user", "provider_native"]) }),
@@ -257,7 +235,7 @@ export type CleanCoreCreateThreadResponse = typeof CleanCoreCreateThreadResponse
 
 export const CleanCoreThreadMovePosition = Schema.Union([
   Schema.Struct({ type: Schema.Literals(["before", "after"]), itemId: Schema.String }),
-  Schema.Struct({ type: Schema.Literal("start") }),
+  Schema.Struct({ type: Schema.Literals(["start", "end"]) }),
 ]);
 export type CleanCoreThreadMovePosition = typeof CleanCoreThreadMovePosition.Type;
 
@@ -278,12 +256,6 @@ export const CleanCoreSidebarChange = Schema.Union([
   }),
 ]);
 export type CleanCoreSidebarChange = typeof CleanCoreSidebarChange.Type;
-
-export const CleanCoreDeckMovePosition = Schema.Union([
-  Schema.Struct({ type: Schema.Literals(["start", "end"]) }),
-  Schema.Struct({ type: Schema.Literals(["before", "after"]), itemId: ThreadId }),
-]);
-export type CleanCoreDeckMovePosition = typeof CleanCoreDeckMovePosition.Type;
 
 export const CleanCoreThreadUpdate = Schema.Union([
   Schema.Struct({
@@ -349,23 +321,10 @@ export const CleanCoreThreadUpdate = Schema.Union([
     updatedAt: IsoDateTime,
   }),
   Schema.Struct({
-    action: Schema.Literal("workingDirectory"),
-    threadId: ThreadId,
-    workingDirectory: Schema.NullOr(Schema.String),
-    updatedAt: IsoDateTime,
-  }),
-  Schema.Struct({
     action: Schema.Literal("moveSidebarItem"),
     threadId: ThreadId,
     folderId: FolderId,
     position: CleanCoreThreadMovePosition,
-    updatedAt: IsoDateTime,
-  }),
-  Schema.Struct({
-    action: Schema.Literal("moveDeckThread"),
-    threadId: ThreadId,
-    deckId: ThreadDeckId,
-    position: CleanCoreDeckMovePosition,
     updatedAt: IsoDateTime,
   }),
 ]);

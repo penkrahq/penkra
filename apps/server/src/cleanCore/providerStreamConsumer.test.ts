@@ -1,3 +1,4 @@
+import { seedThreadFolderFixture } from "./threadFixtures.ts";
 import { assert, it } from "@effect/vitest";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -17,6 +18,7 @@ const withDb = <A, E>(effect: Effect.Effect<A, E, SqlClient.SqlClient>) =>
 const baseThread = {
   id: "thread-1",
   spaceId: "space-1",
+  folderId: "core-test-folder",
   title: "Hello",
   provider: "codex",
   model: "gpt-5.5",
@@ -31,6 +33,7 @@ it.effect("turn start/end drive threads.state; items go through the upsert", () 
       const sql = yield* SqlClient.SqlClient;
       const publisher = makeThreadPublisher();
       yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
       yield* createThread(baseThread);
 
       yield* applyProviderEvent(publisher, {
@@ -86,6 +89,7 @@ it.effect("turn error sets threads.state = error with last_error", () =>
       const sql = yield* SqlClient.SqlClient;
       const publisher = makeThreadPublisher();
       yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
       yield* createThread(baseThread);
       yield* applyProviderEvent(publisher, {
         type: "turn.ended",
@@ -109,6 +113,7 @@ it.effect("provider exit idles the thread and records one cutoff notice", () =>
       const sql = yield* SqlClient.SqlClient;
       const publisher = makeThreadPublisher();
       yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
       yield* createThread(baseThread);
       yield* applyProviderEvent(publisher, {
         type: "turn.started",
@@ -146,6 +151,7 @@ it.effect("startup cuts off every running thread, idempotently", () =>
       const sql = yield* SqlClient.SqlClient;
       const publisher = makeThreadPublisher();
       yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
       yield* createThread(baseThread);
       yield* createThread({ ...baseThread, id: "thread-2" });
       yield* applyProviderEvent(publisher, {
@@ -181,6 +187,7 @@ it.effect("streaming deltas append to one item; answers update the question in p
       const sql = yield* SqlClient.SqlClient;
       const publisher = makeThreadPublisher();
       yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
       yield* createThread(baseThread);
 
       yield* applyProviderEvent(publisher, {
@@ -248,6 +255,7 @@ it.effect("a replay of the same item event does not create a second row", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
       yield* createThread(baseThread);
       const item = {
         threadId: "thread-1",
@@ -274,6 +282,7 @@ it.effect("turn end settles that turn's running items to a terminal status", () 
       const sql = yield* SqlClient.SqlClient;
       const publisher = makeThreadPublisher();
       yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
       yield* createThread(baseThread);
       const running = (sourceId: string, turnId: string) => ({
         threadId: "thread-1",
@@ -313,6 +322,7 @@ it.effect("turn end maps completed to done and error to error", () =>
       const sql = yield* SqlClient.SqlClient;
       const publisher = makeThreadPublisher();
       yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
       yield* createThread(baseThread);
       const running = (sourceId: string) => ({
         threadId: "thread-1",
@@ -358,6 +368,7 @@ it.effect("provider exit settles every running item to interrupted", () =>
       const sql = yield* SqlClient.SqlClient;
       const publisher = makeThreadPublisher();
       yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
       yield* createThread(baseThread);
       yield* applyProviderEvent(publisher, {
         type: "turn.started",
@@ -394,6 +405,7 @@ it.effect("an exit before turn start preserves an error state and inserts no cut
       const sql = yield* SqlClient.SqlClient;
       const publisher = makeThreadPublisher();
       yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
       yield* createThread(baseThread);
       yield* sql`UPDATE threads SET state = 'error', last_error = 'Previous provider error' WHERE id = 'thread-1'`;
       yield* applyProviderEvent(publisher, {

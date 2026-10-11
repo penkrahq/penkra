@@ -95,7 +95,7 @@ function tab(id: string, overrides: Partial<AppTabEndpoint> = {}): AppTabEndpoin
     id,
     appId: "com.acme.linear",
     spaceId: "personal",
-    deckId: "deck-1",
+    folderId: "folder-1",
     threadId: "thread-1",
     close: vi.fn(async () => undefined),
     navigate: vi.fn(async () => undefined),
@@ -140,7 +140,7 @@ describe("AppOperationBroker", () => {
         app: "linear",
         operation: "issues.create",
         spaceId: "personal",
-        deckId: "deck-1",
+        folderId: "folder-1",
         threadId: "thread-1",
         input: {},
       }),
@@ -167,7 +167,7 @@ describe("AppOperationBroker", () => {
         app: "linear",
         operation: "issues.create",
         spaceId: "personal",
-        deckId: "deck-1",
+        folderId: "folder-1",
         threadId: "thread-1",
         input: { title: "Fix redirect" },
       }),
@@ -178,7 +178,7 @@ describe("AppOperationBroker", () => {
         app: "linear",
         operation: "issues.create",
         spaceId: "personal",
-        deckId: "deck-1",
+        folderId: "folder-1",
         threadId: "thread-1",
       },
       caller: { kind: "host" },
@@ -205,7 +205,7 @@ describe("AppOperationBroker", () => {
         app: "linear",
         operation: "issues.create",
         spaceId: "personal",
-        deckId: "deck-1",
+        folderId: "folder-1",
         threadId: "thread-1",
         tabId: "tab-b",
         input: {},
@@ -215,9 +215,9 @@ describe("AppOperationBroker", () => {
     expect(tabB.invoke).toHaveBeenCalledOnce();
   });
 
-  it("rejects a tab outside the invocation's Thread Deck", async () => {
+  it("rejects a tab outside the invocation's folder", async () => {
     const runtime = broker(enabledState);
-    runtime.registerTab(tab("other-deck", { deckId: "deck-2" }));
+    runtime.registerTab(tab("other-folder", { folderId: "folder-2" }));
     runtime.registerController({
       appId: "com.acme.linear",
       spaceId: "personal",
@@ -228,9 +228,9 @@ describe("AppOperationBroker", () => {
       app: "linear",
       operation: "issues.create",
       spaceId: "personal",
-      deckId: "deck-1",
+      folderId: "folder-1",
       threadId: "thread-1",
-      tabId: "other-deck",
+      tabId: "other-folder",
       input: {},
     });
     await expect(invocation).rejects.toMatchObject({
@@ -238,9 +238,9 @@ describe("AppOperationBroker", () => {
     });
   });
 
-  it("accepts a deck-owned tab while another thread in that deck is currently selected", async () => {
+  it("accepts a folder-owned tab while another thread in that folder is currently selected", async () => {
     const runtime = broker(enabledState);
-    runtime.registerTab(tab("deck-tab", { threadId: "thread-2" }));
+    runtime.registerTab(tab("folder-tab", { threadId: "thread-2" }));
     runtime.registerController({
       appId: "com.acme.linear",
       spaceId: "personal",
@@ -252,15 +252,15 @@ describe("AppOperationBroker", () => {
         app: "linear",
         operation: "issues.create",
         spaceId: "personal",
-        deckId: "deck-1",
+        folderId: "folder-1",
         threadId: "thread-1",
-        tabId: "deck-tab",
+        tabId: "folder-tab",
         input: {},
       }),
     ).resolves.toEqual({ updated: true });
   });
 
-  it("opens tabs through the host with App, Space, and deck ownership", async () => {
+  it("opens tabs through the host with App, Space, and folder ownership", async () => {
     const open = vi.fn(async () => tab("new-tab"));
     const runtime = broker(enabledState, { open });
     runtime.registerController({
@@ -278,7 +278,7 @@ describe("AppOperationBroker", () => {
       app: "linear",
       operation: "issues.create",
       spaceId: "personal",
-      deckId: "deck-1",
+      folderId: "folder-1",
       threadId: "thread-1",
       input: {},
     });
@@ -286,7 +286,7 @@ describe("AppOperationBroker", () => {
       expect.objectContaining({
         app: expect.objectContaining({ appId: "com.acme.linear", slug: "linear" }),
         spaceId: "personal",
-        deckId: "deck-1",
+        folderId: "folder-1",
         threadId: "thread-1",
         route: "/issues/new",
         state: { title: "Fix redirect" },
@@ -322,7 +322,7 @@ describe("AppOperationBroker", () => {
       app: "linear",
       operation: "issues.create",
       spaceId: "personal",
-      deckId: "deck-1",
+      folderId: "folder-1",
       threadId: "thread-1",
       input: {},
     });
@@ -330,7 +330,7 @@ describe("AppOperationBroker", () => {
       expect.objectContaining({
         app: expect.objectContaining({ slug: "github" }),
         spaceId: "personal",
-        deckId: "deck-1",
+        folderId: "folder-1",
         threadId: "thread-1",
         route: "/",
       }),
@@ -368,7 +368,7 @@ describe("AppOperationBroker", () => {
         app: "linear",
         operation: "issues.create",
         spaceId: "personal",
-        deckId: "deck-1",
+        folderId: "folder-1",
         threadId: "thread-1",
         input: {},
       }),
@@ -376,7 +376,7 @@ describe("AppOperationBroker", () => {
     expect(presentExisting).toHaveBeenCalledWith({
       appId: "com.acme.github",
       spaceId: "personal",
-      deckId: "deck-1",
+      folderId: "folder-1",
       initiator: "user",
     });
     expect(open).not.toHaveBeenCalled();
@@ -401,7 +401,7 @@ describe("AppOperationBroker", () => {
         app: "linear",
         operation: "issues.create",
         spaceId: "personal",
-        deckId: "deck-1",
+        folderId: "folder-1",
         threadId: "thread-1",
         input: {},
       }),
@@ -421,7 +421,7 @@ describe("AppOperationBroker", () => {
         app: "linear",
         operation: "issues.create",
         spaceId: "personal",
-        deckId: "deck-1",
+        folderId: "folder-1",
         threadId: "thread-1",
         input: "not-an-object",
       }),
@@ -432,7 +432,7 @@ describe("AppOperationBroker", () => {
         app: "linear",
         operation: "issues.create",
         spaceId: "personal",
-        deckId: "deck-1",
+        folderId: "folder-1",
         threadId: "thread-1",
         input: {},
       }),
@@ -457,7 +457,7 @@ describe("AppOperationBroker", () => {
         app: "linear",
         operation: "issues.create",
         spaceId: "personal",
-        deckId: "deck-1",
+        folderId: "folder-1",
         threadId: "thread-1",
         input: {},
       }),
@@ -495,7 +495,7 @@ describe("AppOperationBroker", () => {
         app: "linear",
         operation: "issues.create",
         spaceId: "personal",
-        deckId: "deck-1",
+        folderId: "folder-1",
         threadId: "thread-1",
         input: {},
       }),
@@ -522,7 +522,7 @@ describe("AppOperationBroker", () => {
         app: "linear",
         operation: "issues.create",
         spaceId: "personal",
-        deckId: "deck-1",
+        folderId: "folder-1",
         threadId: "thread-1",
         input: {},
       }),
@@ -575,7 +575,7 @@ describe("AppOperationBroker", () => {
         app: "linear",
         operation: "issues.create",
         spaceId: "personal",
-        deckId: "deck-1",
+        folderId: "folder-1",
         threadId: "thread-1",
         input: {},
       }),
@@ -585,7 +585,7 @@ describe("AppOperationBroker", () => {
         app: "github",
         operation: "issues.search",
         spaceId: "personal",
-        deckId: "deck-1",
+        folderId: "folder-1",
       },
       caller: { kind: "app" },
     });

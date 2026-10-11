@@ -87,12 +87,9 @@ describe("stagedDraftNavigation", () => {
     expect(secondRun).toHaveBeenCalledOnce();
   });
 
-  it("keeps navigation ownership independent across folders and decks", () => {
-    expect(draftNavigationSlotKey({ kind: "folder", id: "shared-id" }, "chat")).not.toBe(
-      draftNavigationSlotKey({ kind: "deck", id: "shared-id" }, "chat"),
-    );
-    expect(draftNavigationSlotKey({ kind: "deck", id: "deck-a" }, "chat")).not.toBe(
-      draftNavigationSlotKey({ kind: "deck", id: "deck-b" }, "chat"),
+  it("keeps navigation ownership independent across folders", () => {
+    expect(draftNavigationSlotKey({ kind: "folder", id: "folder-a" }, "chat")).not.toBe(
+      draftNavigationSlotKey({ kind: "folder", id: "folder-b" }, "chat"),
     );
   });
 });

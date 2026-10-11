@@ -119,7 +119,7 @@ describe("AppCommandPipeServer", () => {
       name: "Linear",
       iconDataUrl: null,
       spaceId: "personal",
-      deckId: "deck-1",
+      folderId: "folder-1",
       threadId: "thread-1",
       route: "/issues",
       status: "ready" as const,
@@ -184,8 +184,8 @@ describe("AppCommandPipeServer", () => {
         list: () => [current, secondTab, otherThreadTab, soleSalesTab, soleCanvasTab],
         current: () => current,
         close: vi.fn(),
-        currentFor: (_spaceId, deckId, surfaceId) =>
-          deckId === "deck-1" ? (surfaceId === 202 ? secondTab : current) : null,
+        currentFor: (_spaceId, folderId, surfaceId) =>
+          folderId === "folder-1" ? (surfaceId === 202 ? secondTab : current) : null,
       },
       activate,
       presentation: (tab) => ({ state: tab.id === current.id ? "active" : "background" }),
@@ -267,14 +267,14 @@ describe("AppCommandPipeServer", () => {
       operation: "issues.create",
       input: { title: "Fix auth" },
       spaceId: "personal",
-      deckId: "deck-1",
+      folderId: "folder-1",
       threadId: "thread-1",
       signal: expect.any(AbortSignal),
     });
 
     await expect(
       send(path, {
-        id: "request-explicit-deck-tab",
+        id: "request-explicit-folder-tab",
         token: "secret",
         method: "operations.invoke",
         params: {
@@ -282,14 +282,14 @@ describe("AppCommandPipeServer", () => {
           operation: "issues.create",
           input: {},
           spaceId: "personal",
-          deckId: "deck-1",
+          folderId: "folder-1",
           threadId: "thread-1",
           tabId: "tab-other-thread",
         },
       }),
     ).resolves.toEqual({
       ok: true,
-      id: "request-explicit-deck-tab",
+      id: "request-explicit-folder-tab",
       result: { created: true },
     });
 
@@ -303,7 +303,7 @@ describe("AppCommandPipeServer", () => {
           operation: "whatsapp.send",
           input: { phone: "+13073461585", text: "Hello" },
           spaceId: "personal",
-          deckId: "deck-1",
+          folderId: "folder-1",
           threadId: "thread-1",
         },
       }),
@@ -314,7 +314,7 @@ describe("AppCommandPipeServer", () => {
       operation: "whatsapp.send",
       input: { phone: "+13073461585", text: "Hello" },
       spaceId: "personal",
-      deckId: "deck-1",
+      folderId: "folder-1",
       threadId: "thread-1",
       tabId: "tab-sales",
       signal: expect.any(AbortSignal),
@@ -322,7 +322,7 @@ describe("AppCommandPipeServer", () => {
 
     await expect(
       send(path, {
-        id: "request-deck-canvas-tab",
+        id: "request-folder-canvas-tab",
         token: "secret",
         method: "operations.invoke",
         params: {
@@ -330,13 +330,13 @@ describe("AppCommandPipeServer", () => {
           operation: "documents.execute",
           input: { id: "document-1" },
           spaceId: "personal",
-          deckId: "deck-1",
+          folderId: "folder-1",
           threadId: "thread-1",
         },
       }),
     ).resolves.toEqual({
       ok: true,
-      id: "request-deck-canvas-tab",
+      id: "request-folder-canvas-tab",
       result: { created: true },
     });
     expect(invoke).toHaveBeenLastCalledWith({
@@ -345,7 +345,7 @@ describe("AppCommandPipeServer", () => {
       operation: "documents.execute",
       input: { id: "document-1" },
       spaceId: "personal",
-      deckId: "deck-1",
+      folderId: "folder-1",
       threadId: "thread-1",
       tabId: "tab-canvas",
       signal: expect.any(AbortSignal),
@@ -360,7 +360,7 @@ describe("AppCommandPipeServer", () => {
           path: "/tmp/example.pdf",
           requestedApp: "explorer",
           spaceId: "personal",
-          deckId: "deck-1",
+          folderId: "folder-1",
           threadId: "thread-1",
         },
       }),
@@ -373,7 +373,7 @@ describe("AppCommandPipeServer", () => {
       path: "/tmp/example.pdf",
       requestedApp: "explorer",
       spaceId: "personal",
-      deckId: "deck-1",
+      folderId: "folder-1",
       threadId: "thread-1",
     });
     expect(presentationThreads).toContain("thread-1");
@@ -402,7 +402,7 @@ describe("AppCommandPipeServer", () => {
         method: "threads.compose",
         params: {
           spaceId: "personal",
-          deckId: "deck-1",
+          folderId: "folder-1",
           threadId: "thread-1",
           input: { text: "Attend to new messages" },
         },
@@ -414,7 +414,7 @@ describe("AppCommandPipeServer", () => {
     });
     expect(thread).toHaveBeenCalledWith({
       spaceId: "personal",
-      deckId: "deck-1",
+      folderId: "folder-1",
       threadId: "thread-1",
       method: "compose",
       value: { text: "Attend to new messages" },
@@ -425,7 +425,7 @@ describe("AppCommandPipeServer", () => {
         id: "request-tabs",
         token: "secret",
         method: "tabs.list",
-        params: { spaceId: "personal", deckId: "deck-1", threadId: "thread-1" },
+        params: { spaceId: "personal", folderId: "folder-1", threadId: "thread-1" },
       }),
     ).resolves.toEqual({
       ok: true,
@@ -441,7 +441,7 @@ describe("AppCommandPipeServer", () => {
         id: "request-tabs-other-thread",
         token: "secret",
         method: "tabs.list",
-        params: { spaceId: "personal", deckId: "deck-1", threadId: "thread-2" },
+        params: { spaceId: "personal", folderId: "folder-1", threadId: "thread-2" },
       }),
     ).resolves.toEqual({
       ok: true,
@@ -459,7 +459,7 @@ describe("AppCommandPipeServer", () => {
         method: "tabs.snapshot",
         params: {
           spaceId: "personal",
-          deckId: "deck-1",
+          folderId: "folder-1",
           threadId: "thread-1",
           tabId: "tab-2",
         },
@@ -480,7 +480,7 @@ describe("AppCommandPipeServer", () => {
         method: "tabs.snapshot",
         params: {
           spaceId: "personal",
-          deckId: "deck-1",
+          folderId: "folder-1",
           threadId: "thread-1",
           tabId: "tab-other-thread",
         },
@@ -499,7 +499,7 @@ describe("AppCommandPipeServer", () => {
         method: "tabs.act",
         params: {
           spaceId: "personal",
-          deckId: "deck-1",
+          folderId: "folder-1",
           threadId: "thread-1",
           tabId: "tab-other-thread",
           steps: [{ action: "press", document: "d1", key: "Escape" }],
@@ -525,7 +525,7 @@ describe("AppCommandPipeServer", () => {
         method: "tabs.activate",
         params: {
           spaceId: current.spaceId,
-          deckId: "deck-1",
+          folderId: "folder-1",
           threadId: "thread-1",
           tabId: current.id,
         },
@@ -542,7 +542,7 @@ describe("AppCommandPipeServer", () => {
         method: "tabs.activate",
         params: {
           spaceId: "space-other",
-          deckId: "deck-1",
+          folderId: "folder-1",
           threadId: "thread-1",
           tabId: current.id,
         },
@@ -557,7 +557,7 @@ describe("AppCommandPipeServer", () => {
         method: "tabs.screenshot",
         params: {
           spaceId: "personal",
-          deckId: "deck-1",
+          folderId: "folder-1",
           threadId: "thread-1",
           tabId: "tab-1",
           document: "d1",
@@ -577,7 +577,7 @@ describe("AppCommandPipeServer", () => {
         method: "tabs.snapshot",
         params: {
           spaceId: "personal",
-          deckId: "deck-1",
+          folderId: "folder-1",
           threadId: "thread-1",
           tabId: "tab-2",
           callerTurnId: "turn-origin",
@@ -600,7 +600,7 @@ describe("AppCommandPipeServer", () => {
           operation: "issues.create",
           input: {},
           spaceId: "personal",
-          deckId: "deck-1",
+          folderId: "folder-1",
           threadId: "thread-2",
           callerTurnId: "turn-unbound",
         },
@@ -619,7 +619,7 @@ describe("AppCommandPipeServer", () => {
         method: "tabs.snapshot",
         params: {
           spaceId: "personal",
-          deckId: "deck-1",
+          folderId: "folder-1",
           threadId: "thread-2",
           tabId: "tab-1",
           callerTurnId: "turn-unbound",
@@ -641,7 +641,7 @@ describe("AppCommandPipeServer", () => {
           operation: "documents.execute",
           input: { id: "document-1" },
           spaceId: "personal",
-          deckId: "deck-1",
+          folderId: "folder-1",
           threadId: "thread-2",
           tabId: "tab-canvas",
           callerTurnId: "turn-closed",
@@ -660,7 +660,7 @@ describe("AppCommandPipeServer", () => {
         method: "tabs.snapshot",
         params: {
           spaceId: "personal",
-          deckId: "deck-1",
+          folderId: "folder-1",
           threadId: "thread-2",
           tabId: "tab-canvas",
           callerTurnId: "turn-closed",
@@ -679,7 +679,7 @@ describe("AppCommandPipeServer", () => {
         method: "threads.select",
         params: {
           spaceId: "personal",
-          deckId: "deck-1",
+          folderId: "folder-1",
           threadId: "thread-1",
           callerTurnId: "turn-origin",
           input: { threadId: "thread-2" },
@@ -692,7 +692,7 @@ describe("AppCommandPipeServer", () => {
     });
     expect(thread).toHaveBeenLastCalledWith({
       spaceId: "personal",
-      deckId: "deck-1",
+      folderId: "folder-1",
       threadId: "thread-1",
       method: "select",
       value: { threadId: "thread-2" },
@@ -705,7 +705,7 @@ describe("AppCommandPipeServer", () => {
         method: "threads.select",
         params: {
           spaceId: "personal",
-          deckId: "deck-1",
+          folderId: "folder-1",
           threadId: "thread-1",
           input: { threadId: "thread-2" },
         },
@@ -719,7 +719,7 @@ describe("AppCommandPipeServer", () => {
         method: "threads.select",
         params: {
           spaceId: "personal",
-          deckId: "deck-1",
+          folderId: "folder-1",
           threadId: "thread-1",
           callerTurnId: "turn-closed",
           input: { threadId: "thread-2" },
@@ -769,7 +769,7 @@ describe("AppCommandPipeServer", () => {
       name: "Linear",
       iconDataUrl: null,
       spaceId: "personal",
-      deckId: "deck-1",
+      folderId: "folder-1",
       threadId: "thread-1",
       route: "/",
       status: "ready" as const,

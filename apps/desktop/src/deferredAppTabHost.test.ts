@@ -25,7 +25,7 @@ const request = {
     },
   },
   spaceId: "personal",
-  deckId: "deck-1",
+  folderId: "folder-1",
   threadId: "thread-1",
   route: "/issues/new",
 };

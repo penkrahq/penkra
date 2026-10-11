@@ -42,7 +42,7 @@ export class AppOperationBrokerError extends Error {
 export interface InvokeAppOperationRequest<Input = unknown> extends OperationRequest<Input> {
   /** Host context; these are not part of the App operation's input schema. */
   spaceId: string;
-  deckId: string;
+  folderId: string;
   threadId: string;
   signal?: AbortSignal;
   callerKind?: "user" | "agent" | "host";
@@ -82,7 +82,7 @@ export interface AppOperationController {
 export interface AppTabEndpoint extends AppTabHandle {
   appId: string;
   spaceId: string;
-  deckId: string;
+  folderId: string;
   threadId: string;
 }
 
@@ -91,7 +91,7 @@ export interface OpenAppTabRequest {
   tabId?: string;
   app: InstalledAppPackage;
   spaceId: string;
-  deckId: string;
+  folderId: string;
   threadId: string;
   route: string;
   state?: unknown;
@@ -104,7 +104,7 @@ export interface AppTabHost {
   presentExisting?(input: {
     appId: string;
     spaceId: string;
-    deckId: string;
+    folderId: string;
     initiator?: "agent" | "user";
   }): AppTabHandle | null;
 }
@@ -227,19 +227,19 @@ export class AppOperationBroker {
       app: request.app,
       operation: request.operation,
       spaceId: request.spaceId,
-      deckId: request.deckId,
+      folderId: request.folderId,
       threadId: request.threadId,
       ...(request.tabId === undefined ? {} : { tabId: request.tabId }),
     };
     const tab = request.tabId
-      ? this.#resolveTab(request.tabId, installedApp.appId, request.spaceId, request.deckId)
+      ? this.#resolveTab(request.tabId, installedApp.appId, request.spaceId, request.folderId)
       : undefined;
     const tabs: AppTabs = {
       open: (input) =>
         this.#tabHost.open({
           app: installedApp,
           spaceId: request.spaceId,
-          deckId: request.deckId,
+          folderId: request.folderId,
           threadId: request.threadId,
           initiator: request.callerKind === "agent" ? "agent" : "user",
           ...input,
@@ -248,7 +248,7 @@ export class AppOperationBroker {
         this.#tabHost.openForResult({
           app: installedApp,
           spaceId: request.spaceId,
-          deckId: request.deckId,
+          folderId: request.folderId,
           threadId: request.threadId,
           initiator: request.callerKind === "agent" ? "agent" : "user",
           ...input,
@@ -266,14 +266,14 @@ export class AppOperationBroker {
           const existing = this.#tabHost.presentExisting?.({
             appId: target.appId,
             spaceId: request.spaceId,
-            deckId: request.deckId,
+            folderId: request.folderId,
             initiator: request.callerKind === "agent" ? "agent" : "user",
           });
           if (existing) return existing;
           return this.#tabHost.open({
             app: target,
             spaceId: request.spaceId,
-            deckId: request.deckId,
+            folderId: request.folderId,
             threadId: request.threadId,
             route: "/",
             initiator: request.callerKind === "agent" ? "agent" : "user",
@@ -285,7 +285,7 @@ export class AppOperationBroker {
           this.invoke({
             ...crossAppRequest,
             spaceId: request.spaceId,
-            deckId: request.deckId,
+            folderId: request.folderId,
             threadId: request.threadId,
             ...(request.signal === undefined ? {} : { signal: request.signal }),
             caller: {
@@ -356,15 +356,15 @@ export class AppOperationBroker {
     return installedApp;
   }
 
-  #resolveTab(tabId: string, appId: string, spaceId: string, deckId: string): AppTabEndpoint {
+  #resolveTab(tabId: string, appId: string, spaceId: string, folderId: string): AppTabEndpoint {
     const tab = this.#tabs.get(tabId);
     if (!tab) {
       throw new AppOperationBrokerError("tab-not-found", `App tab ${tabId} is not open.`);
     }
-    if (tab.appId !== appId || tab.spaceId !== spaceId || tab.deckId !== deckId) {
+    if (tab.appId !== appId || tab.spaceId !== spaceId || tab.folderId !== folderId) {
       throw new AppOperationBrokerError(
         "tab-target-mismatch",
-        `App tab ${tabId} does not belong to the invoked App, Space, and Thread Deck.`,
+        `App tab ${tabId} does not belong to the invoked App, Space, and folder.`,
       );
     }
     return tab;

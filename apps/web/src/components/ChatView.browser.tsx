@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 import { promoteThreadCreate } from "../lib/threadCreatePromotion";
 import { toastManager } from "./ui/toast";
-import { resetThreadListForTests } from "../threadListStore";
+import { getThreadList, resetThreadListForTests } from "../threadListStore";
 // Production CSS is part of the behavior under test because row height depends on it.
 import "../index.css";
 
@@ -23,7 +23,6 @@ import {
   SpaceId,
   ThreadId,
   TurnId,
-  singletonThreadDeckId,
   type WsWelcomePayload,
   WS_METHODS,
   OrchestrationSessionStatus,
@@ -99,7 +98,6 @@ vi.mock("../lib/composerImageBlobStore", async (importOriginal) => {
 });
 
 const THREAD_ID = "thread-browser-test" as ThreadId;
-const DECK_ID = singletonThreadDeckId(THREAD_ID);
 const OTHER_THREAD_ID = "thread-browser-test-other" as ThreadId;
 const DESTINATION_THREAD_ID = "thread-browser-test-destination" as ThreadId;
 const THREAD_TITLE = "Browser test thread";
@@ -361,20 +359,9 @@ function createSnapshotForTargetUser(options: {
         deletedAt: null,
       },
     ],
-    decks: [
-      {
-        id: DECK_ID,
-        spaceId: TEST_SPACE_ID,
-        threadIds: [THREAD_ID],
-        createdAt: NOW_ISO,
-        updatedAt: NOW_ISO,
-      },
-    ],
     threads: [
       {
         id: THREAD_ID,
-        deckId: DECK_ID,
-        deckSortOrder: 0,
         folderId: PROJECT_ID,
         title: THREAD_TITLE,
         modelSelection: {
@@ -685,11 +672,10 @@ async function promoteDraftThreadForTest(threadId: ThreadId, title: string): Pro
   await promoteThreadCreate({
     threadId,
     folderId: draft.folderId,
-    deckId: draft.deckId,
+
     title,
     modelSelection: { provider: "codex", model: "gpt-5" },
     runtimeMode: draft.runtimeMode,
-    workingDirectory: draft.workingDirectory ?? null,
     connection: { kind: "default" },
     creator: { kind: "user" },
     createdAt: draft.createdAt,
@@ -701,26 +687,13 @@ function addThreadToSnapshot(
   threadId: ThreadId,
   options?: { title?: string },
 ): OrchestrationReadModel {
-  const deckId = singletonThreadDeckId(threadId);
   return {
     ...snapshot,
     snapshotSequence: snapshot.snapshotSequence + 1,
-    decks: [
-      ...snapshot.decks,
-      {
-        id: deckId,
-        spaceId: TEST_SPACE_ID,
-        threadIds: [threadId],
-        createdAt: NOW_ISO,
-        updatedAt: NOW_ISO,
-      },
-    ],
     threads: [
       ...snapshot.threads,
       {
         id: threadId,
-        deckId,
-        deckSortOrder: 0,
         folderId: PROJECT_ID,
         title: options?.title ?? "New thread",
         modelSelection: {
@@ -748,7 +721,7 @@ function addThreadToSnapshot(
   };
 }
 
-function addThreadToExistingDeck(
+function addThreadToExistingFolder(
   snapshot: OrchestrationReadModel,
   threadId: ThreadId,
   options: {
@@ -757,26 +730,16 @@ function addThreadToExistingDeck(
   },
 ): OrchestrationReadModel {
   const sourceThread = snapshot.threads[0];
-  if (!sourceThread) throw new Error("A source Thread is required to extend the fixture deck.");
-  const deckId = sourceThread.deckId;
-  const sourceDeck = snapshot.decks.find((deck) => deck.id === deckId);
-  if (!sourceDeck) throw new Error("The source Thread's deck is missing from the fixture.");
+  if (!sourceThread) throw new Error("A source Thread is required to extend the fixture folder.");
 
   return {
     ...snapshot,
     snapshotSequence: snapshot.snapshotSequence + 1,
-    decks: snapshot.decks.map((deck) =>
-      deck.id === deckId
-        ? { ...deck, threadIds: [...deck.threadIds, threadId], updatedAt: NOW_ISO }
-        : deck,
-    ),
     threads: [
       ...snapshot.threads,
       {
         ...sourceThread,
         id: threadId,
-        deckId,
-        deckSortOrder: sourceDeck.threadIds.length,
         title: options.title,
         workStatus: options.workStatus ?? "idle",
         messages: [],
@@ -886,46 +849,6 @@ function createDraftOnlySnapshot(): OrchestrationReadModel {
   return {
     ...snapshot,
     threads: [],
-  };
-}
-
-function withOpenProjectPickerFixtures(snapshot: OrchestrationReadModel): OrchestrationReadModel {
-  const sourceThread = snapshot.threads[0];
-  return {
-    ...snapshot,
-    folders: [
-      ...snapshot.folders,
-      {
-        id: OTHER_PROJECT_ID,
-        spaceId: snapshot.folders[0]!.spaceId,
-        title: "Other Project",
-        workspaceRoot: "/repo/other",
-        defaultModelSelection: {
-          provider: "codex",
-          model: "gpt-5",
-        },
-        scripts: [],
-        createdAt: NOW_ISO,
-        updatedAt: NOW_ISO,
-        deletedAt: null,
-      },
-    ],
-    threads: sourceThread
-      ? [
-          { ...sourceThread, workingDirectory: "/repo/project" },
-          {
-            ...sourceThread,
-            id: OTHER_THREAD_ID,
-            title: "Other folder thread",
-            workingDirectory: "/repo/other",
-            messages: [],
-            activities: [],
-            session: sourceThread.session
-              ? { ...sourceThread.session, threadId: OTHER_THREAD_ID }
-              : null,
-          },
-        ]
-      : [],
   };
 }
 
@@ -1511,7 +1434,6 @@ function summarizeFixtureThread(thread: OrchestrationThread) {
       ? JSON.stringify(thread.modelSelection.options)
       : null,
     runtimeMode: thread.runtimeMode,
-    workingDirectory: thread.workingDirectory ?? null,
     state: thread.session?.status === "running" ? "running" : "idle",
     activeTurnId: thread.session?.activeTurnId ?? null,
     lastError: thread.session?.lastError ?? null,
@@ -1529,8 +1451,6 @@ function summarizeFixtureThread(thread: OrchestrationThread) {
     ),
     createdBy: "user",
     createdByThreadId: null,
-    deckId: thread.deckId,
-    deckSortOrder: thread.deckSortOrder,
     sidebarSortOrder: thread.sidebarSortOrder ?? null,
     lastActivityAt: thread.lastActivityAt ?? null,
     lastMessagePreview: thread.lastMessagePreview ?? null,
@@ -1576,10 +1496,8 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
               ? {
                   ...thread,
                   folderId: input.folderId,
-                  deckId: input.deckId,
                   modelSelection: input.modelSelection,
                   runtimeMode: input.runtimeMode,
-                  workingDirectory: input.workingDirectory,
                   connectionId:
                     input.connection.kind === "selected"
                       ? input.connection.connectionId
@@ -1740,36 +1658,27 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
       ) ?? null
     );
   }
-  if (tag === WS_METHODS.cleanCoreListDeckThreads) {
-    return {
-      threads: fixture.snapshot.threads
-        .filter((thread) => thread.deckId === body.deckId)
-        .map(summarizeFixtureThread)
-        .toSorted(
-          (left, right) =>
-            left.deckSortOrder - right.deckSortOrder || left.id.localeCompare(right.id),
-        ),
-      nextCursor: null,
-    };
-  }
   if (tag === WS_METHODS.cleanCoreListThreads) {
     return { threads: fixture.snapshot.threads.map(summarizeFixtureThread), nextCursor: null };
   }
   if (tag === WS_METHODS.cleanCoreUpdateThread) {
     const input = body.update as CleanCoreThreadUpdate;
     if (!("threadId" in input)) return [];
-    if (input.action === "moveDeckThread") {
+    if (input.action === "moveSidebarItem") {
       const members = fixture.snapshot.threads
-        .filter((thread) => thread.deckId === input.deckId && thread.id !== input.threadId)
-        .toSorted((a, b) => a.deckSortOrder - b.deckSortOrder)
+        .filter((thread) => thread.folderId === input.folderId && thread.id !== input.threadId)
+        .toSorted((a, b) => (a.sidebarSortOrder ?? 0) - (b.sidebarSortOrder ?? 0))
         .map((thread) => thread.id);
       const position =
         input.position.type === "start"
           ? 0
           : input.position.type === "end"
             ? members.length
-            : members.indexOf("itemId" in input.position ? input.position.itemId : input.threadId) +
-              (input.position.type === "after" ? 1 : 0);
+            : members.indexOf(
+                ThreadId.makeUnsafe(
+                  "itemId" in input.position ? input.position.itemId : input.threadId,
+                ),
+              ) + (input.position.type === "after" ? 1 : 0);
       members.splice(position, 0, input.threadId);
       fixture = {
         ...fixture,
@@ -1779,8 +1688,7 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
             members.includes(thread.id)
               ? {
                   ...thread,
-                  deckId: input.deckId,
-                  deckSortOrder: members.indexOf(thread.id),
+                  sidebarSortOrder: members.indexOf(thread.id),
                   updatedAt: input.updatedAt,
                 }
               : thread,
@@ -1817,12 +1725,6 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
               return {
                 ...thread,
                 runtimeMode: input.runtimeMode as OrchestrationThread["runtimeMode"],
-                updatedAt: input.updatedAt,
-              };
-            case "workingDirectory":
-              return {
-                ...thread,
-                workingDirectory: input.workingDirectory,
                 updatedAt: input.updatedAt,
               };
             default:
@@ -3623,12 +3525,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
     document.body.innerHTML = "";
   });
 
-  it("renders a deck as one full-height thread-tab row with lifecycle status and safe dividers", async () => {
-    const extendedSnapshot = addThreadToExistingDeck(
-      addThreadToExistingDeck(
+  it("renders a folder as one full-height thread-tab row with lifecycle status and safe dividers", async () => {
+    const extendedSnapshot = addThreadToExistingFolder(
+      addThreadToExistingFolder(
         createSnapshotForTargetUser({
-          targetMessageId: "msg-user-thread-deck" as MessageId,
-          targetText: "thread deck",
+          targetMessageId: "msg-user-thread-folder" as MessageId,
+          targetText: "thread folder",
         }),
         OTHER_THREAD_ID,
         { title: "Background investigation", workStatus: "running" },
@@ -3642,55 +3544,72 @@ describe("ChatView timeline estimator parity (full app)", () => {
           ...extendedSnapshot,
           threads: extendedSnapshot.threads.map((thread) => ({
             ...thread,
-            deckSortOrder: [OTHER_THREAD_ID, THREAD_ID, DESTINATION_THREAD_ID].indexOf(thread.id),
           })),
-          decks: extendedSnapshot.decks.map((deck) =>
-            deck.id === DECK_ID
-              ? { ...deck, threadIds: [OTHER_THREAD_ID, THREAD_ID, DESTINATION_THREAD_ID] }
-              : deck,
-          ),
         },
         [OTHER_THREAD_ID, THREAD_ID, DESTINATION_THREAD_ID],
       ),
       {
         threadId: OTHER_THREAD_ID,
-        messageId: MessageId.makeUnsafe("msg-user-thread-deck-background"),
+        messageId: MessageId.makeUnsafe("msg-user-thread-folder-background"),
         prompt: "Investigate in the background",
-        turnId: TurnId.makeUnsafe("turn-thread-deck-background"),
-        assistantMessageId: MessageId.makeUnsafe("msg-assistant-thread-deck-background"),
+        turnId: TurnId.makeUnsafe("turn-thread-folder-background"),
+        assistantMessageId: MessageId.makeUnsafe("msg-assistant-thread-folder-background"),
         assistantText: "Still investigating",
         offsetSeconds: 10,
       },
     );
-    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const withArchived = addThreadToExistingFolder(
+      snapshot,
+      ThreadId.makeUnsafe("archived-folder-tab"),
+      { title: "Archived folder member" },
+    );
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: {
+        ...withArchived,
+        threads: withArchived.threads.map((thread, index) =>
+          thread.id === "archived-folder-tab"
+            ? { ...thread, archivedAt: isoAt(20), sidebarSortOrder: -1 }
+            : { ...thread, sidebarSortOrder: index },
+        ),
+      },
+    });
 
     try {
-      const deckBar = document.querySelector<HTMLElement>(`[data-thread-deck-id='${DECK_ID}']`);
-      expect(deckBar).not.toBeNull();
-      expect(deckBar?.getBoundingClientRect().height).toBe(46);
+      const folderBar = document.querySelector<HTMLElement>(
+        `[data-folder-tabs-id='${PROJECT_ID}']`,
+      );
+      expect(folderBar).not.toBeNull();
+      expect(folderBar?.getBoundingClientRect().height).toBe(46);
 
-      const deckButton = (name: string) =>
-        Array.from(deckBar!.querySelectorAll<HTMLButtonElement>("button")).find(
+      const folderButton = (name: string) =>
+        Array.from(folderBar!.querySelectorAll<HTMLButtonElement>("button")).find(
           (button) => button.getAttribute("aria-label") === name || button.title === name,
         ) ?? null;
-      expect(deckButton(THREAD_TITLE)?.getAttribute("aria-pressed")).toBe("true");
-      expect(deckButton("Background investigation")?.getAttribute("aria-pressed")).toBe("false");
-      expect(deckButton("New thread")?.getBoundingClientRect().width).toBeGreaterThan(0);
+      expect(folderButton("Archived folder member")).toBeNull();
+      expect(
+        Array.from(folderBar!.querySelectorAll<HTMLButtonElement>("button[aria-pressed]")).map(
+          (button) => button.title,
+        ),
+      ).toEqual([THREAD_TITLE, "Background investigation", "Needs a decision"]);
+      expect(folderButton(THREAD_TITLE)?.getAttribute("aria-pressed")).toBe("true");
+      expect(folderButton("Background investigation")?.getAttribute("aria-pressed")).toBe("false");
+      expect(folderButton("New thread")?.getBoundingClientRect().width).toBeGreaterThan(0);
 
-      const backgroundChip = deckButton("Background investigation")?.parentElement;
+      const backgroundChip = folderButton("Background investigation")?.parentElement;
       expect(backgroundChip?.querySelector("[data-work-status='running']")).not.toBeNull();
       expect(backgroundChip?.querySelector("[data-slot='thread-identity']")).toBeNull();
-      const deckDividers = [
-        ...(deckBar?.querySelectorAll<HTMLElement>("[data-slot='thread-deck-divider']") ?? []),
+      const folderDividers = [
+        ...(folderBar?.querySelectorAll<HTMLElement>("[data-slot='folder-tabs-divider']") ?? []),
       ];
-      expect(deckDividers).toHaveLength(2);
+      expect(folderDividers).toHaveLength(2);
       expect(
-        deckDividers.filter((divider) => divider.classList.contains("invisible")),
-      ).toHaveLength(2);
-      expect(deckDividers.every((divider) => divider.getBoundingClientRect().width === 1)).toBe(
+        folderDividers.filter((divider) => divider.classList.contains("invisible")),
+      ).toHaveLength(1);
+      expect(folderDividers.every((divider) => divider.getBoundingClientRect().width === 1)).toBe(
         true,
       );
-      const archiveButton = deckButton("Archive Background investigation");
+      const archiveButton = folderButton("Archive Background investigation");
       expect(archiveButton).not.toBeNull();
       const archiveGlyph = archiveButton!.querySelector<SVGElement>(
         '[data-slot="surface-tab-close-glyph"] svg',
@@ -3707,11 +3626,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
         1,
       );
 
-      let deckBarDisappeared = false;
+      let folderBarDisappeared = false;
       let draftLandingBecameTransparent = false;
-      const deckContinuityObserver = new MutationObserver(() => {
-        if (!document.querySelector(`[data-thread-deck-id='${DECK_ID}']`)) {
-          deckBarDisappeared = true;
+      const folderContinuityObserver = new MutationObserver(() => {
+        if (!document.querySelector(`[data-folder-tabs-id='${PROJECT_ID}']`)) {
+          folderBarDisappeared = true;
         }
         const draftLanding = document.querySelector<HTMLElement>(
           "[data-pencil-component='T0KEEB']",
@@ -3720,23 +3639,23 @@ describe("ChatView timeline estimator parity (full app)", () => {
           draftLandingBecameTransparent = true;
         }
       });
-      deckContinuityObserver.observe(document.body, { childList: true, subtree: true });
+      folderContinuityObserver.observe(document.body, { childList: true, subtree: true });
 
-      deckButton("New thread")?.click();
+      folderButton("New thread")?.click();
       let draftThreadId = "";
       await vi.waitFor(() => {
-        const deckDrafts = Object.entries(
+        const folderDrafts = Object.entries(
           useComposerDraftStore.getState().draftThreadsByThreadId,
-        ).filter(([, draft]) => draft.deckId === DECK_ID);
-        expect(deckDrafts).toHaveLength(1);
-        draftThreadId = deckDrafts[0]![0];
+        ).filter(([, draft]) => draft.folderId === PROJECT_ID);
+        expect(folderDrafts).toHaveLength(1);
+        draftThreadId = folderDrafts[0]![0];
         expect(mounted.router.state.location.pathname).toBe(`/${draftThreadId}`);
       });
       await waitForLayout();
-      deckContinuityObserver.disconnect();
+      folderContinuityObserver.disconnect();
       expect(
-        deckBarDisappeared,
-        "Creating a local deck draft must not replace the deck and chat shell with a loader.",
+        folderBarDisappeared,
+        "Creating a local folder draft must not replace the folder and chat shell with a loader.",
       ).toBe(false);
       expect(
         draftLandingBecameTransparent,
@@ -3752,25 +3671,25 @@ describe("ChatView timeline estimator parity (full app)", () => {
       ).toHaveAttribute("data-state", "default");
 
       await vi.waitFor(() => {
-        const draftDeckBar = document.querySelector<HTMLElement>(
-          `[data-thread-deck-id='${DECK_ID}']`,
+        const draftFolderBar = document.querySelector<HTMLElement>(
+          `[data-folder-tabs-id='${PROJECT_ID}']`,
         );
         const draftPlus = Array.from(
-          draftDeckBar?.querySelectorAll<HTMLButtonElement>("button") ?? [],
+          draftFolderBar?.querySelectorAll<HTMLButtonElement>("button") ?? [],
         ).find((button) => button.getAttribute("aria-label") === "New thread");
-        expect(draftPlus).toBeUndefined();
-        const deckDrafts = Object.entries(
+        expect(draftPlus).toBeDefined();
+        const folderDrafts = Object.entries(
           useComposerDraftStore.getState().draftThreadsByThreadId,
-        ).filter(([, draft]) => draft.deckId === DECK_ID);
-        expect(deckDrafts).toHaveLength(1);
-        expect(deckDrafts[0]![0]).toBe(draftThreadId);
+        ).filter(([, draft]) => draft.folderId === PROJECT_ID);
+        expect(folderDrafts).toHaveLength(1);
+        expect(folderDrafts[0]![0]).toBe(draftThreadId);
         expect(mounted.router.state.location.pathname).toBe(`/${draftThreadId}`);
       });
 
       const draftTab = () =>
         Array.from(
           document.querySelectorAll<HTMLButtonElement>(
-            `[data-thread-deck-id='${DECK_ID}'] button[aria-pressed]`,
+            `[data-folder-tabs-id='${PROJECT_ID}'] button[aria-pressed]`,
           ),
         ).find((button) => button.title === "New thread");
       const draftTabChip = () => draftTab()?.parentElement ?? null;
@@ -3784,17 +3703,36 @@ describe("ChatView timeline estimator parity (full app)", () => {
         expect(draftTabChip()?.querySelector("[data-provider='claudeAgent']")).not.toBeNull();
         expect(draftTabChip()?.querySelector("[data-provider='codex']")).toBeNull();
       });
+      useComposerDraftStore.getState().setPrompt(draftThreadId as ThreadId, "First tab draft");
+      document
+        .querySelector<HTMLButtonElement>(
+          `[data-folder-tabs-id='${PROJECT_ID}'] button[aria-label='New thread']`,
+        )!
+        .click();
+      await vi.waitFor(() => {
+        const drafts = Object.entries(
+          useComposerDraftStore.getState().draftThreadsByThreadId,
+        ).filter(([, draft]) => draft.folderId === PROJECT_ID);
+        expect(drafts).toHaveLength(2);
+        expect(mounted.router.state.location.pathname).not.toBe(`/${draftThreadId}`);
+        expect(
+          useComposerDraftStore.getState().draftsByThreadId[draftThreadId as ThreadId]?.prompt,
+        ).toBe("First tab draft");
+        expect(
+          document.querySelectorAll(`[data-folder-tabs-id='${PROJECT_ID}'] button[aria-pressed]`),
+        ).toHaveLength(5);
+      });
     } finally {
       await mounted.cleanup();
     }
   });
 
-  it("switches deck tabs repeatedly through pointer clicks without native drag arbitration", async () => {
-    const otherTitle = "Pointer deck target";
-    const extendedSnapshot = addThreadToExistingDeck(
+  it("switches folder tabs repeatedly through pointer clicks without native drag arbitration", async () => {
+    const otherTitle = "Pointer folder target";
+    const extendedSnapshot = addThreadToExistingFolder(
       createSnapshotForTargetUser({
-        targetMessageId: "msg-user-thread-deck-pointer" as MessageId,
-        targetText: "thread deck pointer switching",
+        targetMessageId: "msg-user-thread-folder-pointer" as MessageId,
+        targetText: "thread folder pointer switching",
       }),
       OTHER_THREAD_ID,
       { title: otherTitle },
@@ -3802,9 +3740,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     const snapshot = markThreadsAsHavingCompletedTurns(
       {
         ...extendedSnapshot,
-        decks: extendedSnapshot.decks.map((deck) =>
-          deck.id === DECK_ID ? { ...deck, threadIds: [THREAD_ID, OTHER_THREAD_ID] } : deck,
-        ),
       },
       [THREAD_ID, OTHER_THREAD_ID],
     );
@@ -3818,14 +3753,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
         pointerTargetAt(pointerProbeText, 0.75, 0.5),
         0.5,
         () => {
-          expect(document.querySelector("[data-thread-deck-drag-source='true']")).toBeNull();
-          expect(document.querySelector("[data-thread-deck-drag-overlay='true']")).toBeNull();
+          expect(document.querySelector("[data-folder-tabs-drag-source='true']")).toBeNull();
+          expect(document.querySelector("[data-folder-tabs-drag-overlay='true']")).toBeNull();
           expect(pointerProbe.getAttribute("aria-pressed")).toBe("true");
         },
         "drop",
         () => {
           expect(pointerProbe.getAttribute("aria-pressed")).toBe("true");
-          expect(document.querySelector("[data-thread-deck-drag-overlay='true']")).toBeNull();
+          expect(document.querySelector("[data-folder-tabs-drag-overlay='true']")).toBeNull();
         },
       );
       const pointerProbeRect = pointerProbe.getBoundingClientRect();
@@ -3834,8 +3769,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
         pointerTargetAt(pointerProbe, 1 + 1 / pointerProbeRect.width, 0.5),
         0.5,
         () => {
-          expect(document.querySelector("[data-thread-deck-drag-source='true']")).toBeNull();
-          expect(document.querySelector("[data-thread-deck-drag-overlay='true']")).toBeNull();
+          expect(document.querySelector("[data-folder-tabs-drag-source='true']")).toBeNull();
+          expect(document.querySelector("[data-folder-tabs-drag-overlay='true']")).toBeNull();
         },
       );
 
@@ -3855,7 +3790,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         await vi.waitFor(
           () => {
             expect(mounted.router.state.location.pathname).toBe(`/${target.id}`);
-            expect(document.querySelector("[data-thread-deck-drag-source='true']")).toBeNull();
+            expect(document.querySelector("[data-folder-tabs-drag-source='true']")).toBeNull();
           },
           { timeout: 8_000, interval: 16 },
         );
@@ -3865,36 +3800,34 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const target = page.getByTitle(THREAD_TITLE, { exact: true }).elements()[0]!;
       await dragWithPointerFrames(source, target, 0.5, async () => {
         await vi.waitFor(() => {
-          expect(document.querySelector("[data-thread-deck-drag-source='true']")).not.toBeNull();
-          expect(document.querySelector("[data-thread-deck-drag-overlay='true']")).not.toBeNull();
-          const dropPreview = document.querySelector<HTMLElement>(
-            "[data-thread-deck-drop-preview='before']",
-          );
-          expect(dropPreview).not.toBeNull();
-          expect(Number.parseFloat(getComputedStyle(dropPreview!).paddingLeft)).toBeGreaterThan(0);
-          expect(
-            dropPreview?.querySelector("[data-thread-deck-drop-indicator='before']"),
-          ).not.toBeNull();
+          expect(document.querySelector("[data-folder-tabs-drag-source='true']")).not.toBeNull();
+          expect(document.querySelector("[data-folder-tabs-drag-overlay='true']")).not.toBeNull();
         });
       });
       await vi.waitFor(
         () => {
-          expect(document.querySelector("[data-thread-deck-drag-overlay='true']")).toBeNull();
-          expect(document.querySelector("[data-thread-deck-drop-preview]")).toBeNull();
+          expect(document.querySelector("[data-folder-tabs-drag-overlay='true']")).toBeNull();
           expect(
             Array.from(
               document.querySelectorAll<HTMLButtonElement>(
-                `[data-thread-deck-id='${DECK_ID}'] button[aria-pressed]`,
+                `[data-folder-tabs-id='${PROJECT_ID}'] button[aria-pressed]`,
               ),
             ).map((button) => button.title),
           ).toEqual([otherTitle, THREAD_TITLE]);
           const moveCommands = wsRequests
             .map(readCleanCoreUpdate)
-            .filter((command) => command?.action === "moveDeckThread");
+            .filter((command) => command?.action === "moveSidebarItem");
+          expect(
+            getThreadList()
+              .filter((row) => row.folderId === PROJECT_ID && row.archivedAt === null)
+              .toSorted(
+                (left, right) => (left.sidebarSortOrder ?? 0) - (right.sidebarSortOrder ?? 0),
+              )
+              .map((row) => row.id),
+          ).toEqual([OTHER_THREAD_ID, THREAD_ID]);
           expect(moveCommands).toHaveLength(1);
           expect(moveCommands[0]).toMatchObject({
             threadId: OTHER_THREAD_ID,
-            deckId: DECK_ID,
             position: { type: "before", itemId: THREAD_ID },
           });
         },
@@ -3905,7 +3838,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("truncates the active thread deck tab before its controls can overlap", async () => {
+  it("truncates the active thread folder tab before its controls can overlap", async () => {
     const longTitle =
       'remove "ago" from the sidebar while the Apps panel stays open on smaller viewports';
     const headerOverflowSnapshot = (() => {
@@ -3948,7 +3881,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     try {
       await vi.waitFor(
         () => {
-          const header = document.querySelector<HTMLElement>("header[data-thread-deck-id]");
+          const header = document.querySelector<HTMLElement>("header[data-folder-tabs-id]");
           const titleButton = [
             ...(header?.querySelectorAll<HTMLButtonElement>("button") ?? []),
           ].find((candidate) => candidate.title === longTitle);
@@ -3957,8 +3890,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
             'button[aria-label="New thread"]',
           );
 
-          expect(title, "Unable to find the active deck tab title.").toBeTruthy();
-          expect(newThreadButton, "Unable to find the deck new-thread control.").toBeTruthy();
+          expect(title, "Unable to find the active folder tab title.").toBeTruthy();
+          expect(newThreadButton, "Unable to find the folder new-thread control.").toBeTruthy();
 
           const titleRight = title!.getBoundingClientRect().right;
           expect(titleRight).toBeLessThanOrEqual(newThreadButton!.getBoundingClientRect().left + 1);
@@ -4891,7 +4824,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       draftThreadsByThreadId: {
         [THREAD_ID]: {
           folderId: PROJECT_ID,
-          deckId: DECK_ID,
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           entryPoint: "chat",
@@ -4925,7 +4857,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       draftThreadsByThreadId: {
         [THREAD_ID]: {
           folderId: PROJECT_ID,
-          deckId: DECK_ID,
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           entryPoint: "chat",
@@ -4967,7 +4898,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       draftThreadsByThreadId: {
         [THREAD_ID]: {
           folderId: PROJECT_ID,
-          deckId: DECK_ID,
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           entryPoint: "chat",
@@ -5130,7 +5060,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       draftThreadsByThreadId: {
         [THREAD_ID]: {
           folderId: PROJECT_ID,
-          deckId: DECK_ID,
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           entryPoint: "chat",
@@ -5609,7 +5538,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       draftThreadsByThreadId: {
         [THREAD_ID]: {
           folderId: PROJECT_ID,
-          deckId: DECK_ID,
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           entryPoint: "chat",
@@ -6596,7 +6524,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
     try {
       const pointerProbe = page
-        .getByRole("button", { name: otherThreadTitle, exact: true })
+        .getByLabelText(otherThreadTitle, { exact: true })
         .elements()
         .find((element) => element.hasAttribute("data-thread-item"))!;
       await dragWithPointerFrames(
@@ -6616,7 +6544,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       for (let index = 0; index < 8; index += 1) {
         const target = targets[index % targets.length]!;
-        await page.getByRole("button", { name: target.title, exact: true }).click();
+        await page.getByLabelText(target.title, { exact: true }).click();
         await vi.waitFor(
           () => {
             expect(mounted.router.state.location.pathname).toBe(`/${target.id}`);
@@ -6755,10 +6683,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       snapshot: crossFolderSnapshot,
     });
     try {
-      const source = page.getByRole("button", {
-        name: sourceThreadTitle,
-        exact: true,
-      });
+      const source = page.getByLabelText(sourceThreadTitle, { exact: true });
       const target = page.getByRole("button", {
         name: destinationFolderTitle,
         exact: true,
@@ -6768,7 +6693,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await vi.waitFor(() => {
         expect(target.element().getAttribute("aria-expanded")).toBe("false");
         expect(
-          page.getByRole("button", { name: destinationThreadTitle, exact: true }).elements(),
+          page.getByLabelText(destinationThreadTitle, { exact: true }).elements(),
         ).toHaveLength(0);
       });
 
@@ -6783,21 +6708,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
             .getAttribute("aria-expanded"),
         ).toBe("false");
         expect(
-          page
-            .getByRole("button", {
-              name: destinationThreadTitle,
-              exact: true,
-            })
-            .elements(),
+          page.getByLabelText(destinationThreadTitle, { exact: true }).elements(),
         ).toHaveLength(0);
         const containerPreview = document.querySelector<HTMLElement>(
           '[data-sidebar-container-drop-preview="true"]',
         );
         expect(containerPreview).not.toBeNull();
         expect(containerPreview!.getBoundingClientRect().height).toBeGreaterThan(0);
-        expect(
-          page.getByRole("button", { name: sourceThreadTitle, exact: true }).elements(),
-        ).toHaveLength(1);
+        expect(page.getByLabelText(sourceThreadTitle, { exact: true }).elements()).toHaveLength(1);
       });
 
       await vi.waitFor(
@@ -6844,19 +6762,16 @@ describe("ChatView timeline estimator parity (full app)", () => {
       (settledTarget as HTMLElement).click();
       await vi.waitFor(
         () => {
-          expect(
-            page.getByRole("button", { name: sourceThreadTitle, exact: true }).elements(),
-          ).toHaveLength(1);
+          expect(page.getByLabelText(sourceThreadTitle, { exact: true }).elements()).toHaveLength(
+            1,
+          );
         },
         { timeout: 8_000, interval: 16 },
       );
 
-      const movedSource = page.getByRole("button", {
-        name: sourceThreadTitle,
-        exact: true,
-      });
+      const movedSource = page.getByLabelText(sourceThreadTitle, { exact: true });
       const originalThread = page
-        .getByRole("button", { name: THREAD_TITLE, exact: true })
+        .getByLabelText(THREAD_TITLE, { exact: true })
         .elements()
         .find((element) => element.hasAttribute("data-thread-item"))!;
       await dragWithPointerFrames(movedSource.element(), originalThread, 0.25, () => {
@@ -6894,9 +6809,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await vi.waitFor(
         () => {
-          expect(
-            page.getByRole("button", { name: sourceThreadTitle, exact: true }).elements(),
-          ).toHaveLength(1);
+          expect(page.getByLabelText(sourceThreadTitle, { exact: true }).elements()).toHaveLength(
+            1,
+          );
           expect(document.body.textContent).not.toContain("Unable to move sidebar item");
         },
         { timeout: 8_000, interval: 16 },
@@ -7400,287 +7315,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
         .not.toBeInTheDocument();
       expect(mounted.router.state.location.pathname).toBe(initialPath);
     } finally {
-      await mounted.cleanup();
-    }
-  });
-
-  it("renders the selected working directory and folder picker actions", async () => {
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: withOpenProjectPickerFixtures(
-        createSnapshotForTargetUser({
-          targetMessageId: "msg-user-project-picker-switch-test" as MessageId,
-          targetText: "project picker switch test",
-        }),
-      ),
-    });
-
-    try {
-      const { path: newThreadPath, threadId: newThreadId } =
-        await createProjectThreadWithShortcut(mounted);
-
-      useComposerDraftStore.getState().setDraftThreadContext(newThreadId, {});
-      useComposerDraftStore.getState().setProjectDraftThreadId(OTHER_PROJECT_ID, OTHER_THREAD_ID);
-      useComposerDraftStore.getState().setPrompt(OTHER_THREAD_ID, "replace this other draft");
-
-      const projectPickerTrigger = page.getByTestId("workspace-picker-trigger");
-      await expect.element(projectPickerTrigger).toHaveTextContent("project");
-      await projectPickerTrigger.click();
-
-      await expect.element(page.getByText("Choose from computer…")).toBeInTheDocument();
-      await expect.element(page.getByText("Don't work in a folder")).toBeInTheDocument();
-      await expect.element(page.getByText(/Folders on this/)).not.toBeInTheDocument();
-
-      expect(mounted.router.state.location.pathname).toBe(newThreadPath);
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
-  it("can clear an empty draft's working directory before first send", async () => {
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: withInboxFolder(
-        createSnapshotForTargetUser({
-          targetMessageId: "msg-user-project-picker-home-test" as MessageId,
-          targetText: "project picker home test",
-        }),
-      ),
-      configureFixture: (nextFixture) => {
-        nextFixture.welcome = {
-          ...nextFixture.welcome,
-          homeDir: "/Users/tester",
-          chatWorkspaceRoot: "/Users/tester/Documents/Penkra",
-        };
-      },
-    });
-
-    try {
-      const { threadId: newThreadId } = await createProjectThreadWithShortcut(mounted);
-
-      useComposerDraftStore.getState().setDraftThreadContext(newThreadId, {
-        workingDirectory: "/repo/project",
-      });
-
-      const projectPickerTrigger = page.getByTestId("workspace-picker-trigger");
-      await expect.element(projectPickerTrigger).toBeInTheDocument();
-      await projectPickerTrigger.click();
-      await page.getByText("Don't work in a folder").click();
-
-      await vi.waitFor(
-        () => {
-          const pickerText =
-            document.querySelector<HTMLElement>('[data-slot="combobox-popup"]')?.textContent ?? "";
-          expect(
-            useComposerDraftStore.getState().getDraftThread(newThreadId),
-            `Project reset did not complete. Picker content: ${pickerText}`,
-          ).toMatchObject({
-            folderId: PROJECT_ID,
-            workingDirectory: null,
-          });
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-      await expect.element(page.getByTestId("workspace-picker-trigger")).toBeInTheDocument();
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
-  it("moves an Inbox draft into a recent working folder without carrying branch", async () => {
-    useComposerDraftStore.setState({
-      draftThreadsByThreadId: {
-        [THREAD_ID]: {
-          folderId: INBOX_FOLDER_ID,
-          deckId: DECK_ID,
-          createdAt: NOW_ISO,
-          runtimeMode: "full-access",
-          entryPoint: "chat",
-        },
-      },
-      projectDraftThreadIdByFolderId: {
-        [INBOX_FOLDER_ID]: THREAD_ID,
-      },
-    });
-
-    const recentInboxSnapshot = withInboxFolder(
-      createSnapshotForTargetUser({
-        targetMessageId: "msg-user-home-recent-folder" as MessageId,
-        targetText: "recent home folder",
-      }),
-    );
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: {
-        ...recentInboxSnapshot,
-        threads: recentInboxSnapshot.threads.map((thread) => ({
-          ...thread,
-          id: OTHER_THREAD_ID,
-          folderId: INBOX_FOLDER_ID,
-          spaceId: TEST_SPACE_ID,
-          workingDirectory: "/repo/project",
-          session: thread.session ? { ...thread.session, threadId: OTHER_THREAD_ID } : null,
-        })),
-      },
-      configureFixture: (nextFixture) => {
-        nextFixture.welcome = {
-          ...nextFixture.welcome,
-          homeDir: "/Users/tester",
-          chatWorkspaceRoot: "/Users/tester/Documents/Penkra",
-        };
-        nextFixture.gitBranchByCwd = {
-          "/Users/tester": "home-main",
-          "/repo/project": "main",
-        };
-      },
-    });
-
-    try {
-      const workspacePickerTrigger = page.getByTestId("workspace-picker-trigger");
-      await expect.element(workspacePickerTrigger).toBeInTheDocument();
-      const composerBlockBefore = document.querySelector<HTMLElement>(
-        '[data-empty-landing-composer-block="true"]',
-      );
-      const controlsBefore =
-        composerBlockBefore?.querySelector<HTMLElement>(".chat-composer-shell") ?? null;
-      expect(controlsBefore).not.toBeNull();
-      expect(composerBlockBefore).not.toBeNull();
-      const beforeRect = controlsBefore!.getBoundingClientRect();
-      const composerBlockBeforeRect = composerBlockBefore!.getBoundingClientRect();
-      await workspacePickerTrigger.click();
-
-      const projectOption = await waitForElement(
-        () =>
-          Array.from(document.querySelectorAll<HTMLElement>('[data-slot="combobox-item"]')).find(
-            (item) => item.textContent?.trim() === "project",
-          ) ?? null,
-        "Unable to find the recent working folder option.",
-      );
-      projectOption.click();
-
-      await vi.waitFor(
-        () => {
-          expect(useComposerDraftStore.getState().getDraftThread(THREAD_ID)).toMatchObject({
-            folderId: INBOX_FOLDER_ID,
-            workingDirectory: "/repo/project",
-          });
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-      await expect.element(page.getByTestId("workspace-picker-trigger")).toBeInTheDocument();
-      await expect
-        .element(page.getByRole("button", { name: "This computer" }))
-        .not.toBeInTheDocument();
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-      });
-      const composerBlockAfter = document.querySelector<HTMLElement>(
-        '[data-empty-landing-composer-block="true"]',
-      );
-      const controlsAfter =
-        composerBlockAfter?.querySelector<HTMLElement>(".chat-composer-shell") ?? null;
-      expect(controlsAfter).not.toBeNull();
-      expect(composerBlockAfter).not.toBeNull();
-      const afterRect = controlsAfter!.getBoundingClientRect();
-      const composerBlockAfterRect = composerBlockAfter!.getBoundingClientRect();
-      // Guard against the empty-pane entry animation restarting with a vertical translate
-      // when the recent working-folder selection updates the draft.
-      expect(
-        Math.round(Math.abs(afterRect.height - beforeRect.height)),
-        `Composer controls changed height ${beforeRect.height}px -> ${afterRect.height}px`,
-      ).toBeLessThanOrEqual(1);
-      expect(Math.round(Math.abs(afterRect.top - beforeRect.top))).toBeLessThanOrEqual(1);
-      expect(
-        Math.round(Math.abs(composerBlockAfterRect.top - composerBlockBeforeRect.top)),
-      ).toBeLessThanOrEqual(1);
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
-  it("selects a folder from the system picker without creating another folder", async () => {
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-project-picker-new-test" as MessageId,
-        targetText: "project picker new test",
-      }),
-    });
-    const previousNativeApi = window.nativeApi;
-    const wsNativeApi = readNativeApi();
-    expect(wsNativeApi).toBeDefined();
-    const pickFolder = vi.fn(async () => "/repo/new-project");
-    const dispatchCommand = vi.fn(async (command: unknown) => {
-      wsRequests.push({
-        _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
-        command,
-      });
-      if (recordFolderCreateCommand(command)) {
-        return { sequence: fixture.snapshot.snapshotSequence };
-      }
-      return { sequence: fixture.snapshot.snapshotSequence + 1 };
-    });
-    Object.defineProperty(window, "nativeApi", {
-      configurable: true,
-      value: {
-        ...wsNativeApi,
-        dialogs: {
-          ...wsNativeApi?.dialogs,
-          pickFolder,
-        },
-        orchestration: {
-          ...wsNativeApi?.orchestration,
-          dispatchCommand,
-        },
-      },
-    });
-
-    try {
-      const { threadId: newThreadId } = await createProjectThreadWithShortcut(mounted);
-
-      const projectPickerTrigger = page.getByTestId("workspace-picker-trigger");
-      await expect.element(projectPickerTrigger).toBeInTheDocument();
-      await projectPickerTrigger.click();
-      await page.getByText("Choose from computer…").click();
-      await vi.waitFor(() => {
-        expect(pickFolder).toHaveBeenCalledTimes(1);
-      });
-
-      await vi.waitFor(
-        () => {
-          const projectCreateRequest = wsRequests.find(
-            (request) =>
-              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
-              "command" in request &&
-              request.command &&
-              typeof request.command === "object" &&
-              "type" in request.command &&
-              request.command.type === "folder.create",
-          );
-          expect(projectCreateRequest).toBeUndefined();
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      await vi.waitFor(
-        () => {
-          expect(useComposerDraftStore.getState().getDraftThread(newThreadId)).toMatchObject({
-            folderId: PROJECT_ID,
-            workingDirectory: "/repo/new-project",
-          });
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-      expect(mounted.router.state.location.pathname).toBe(`/${newThreadId}`);
-    } finally {
-      if (previousNativeApi) {
-        Object.defineProperty(window, "nativeApi", {
-          configurable: true,
-          value: previousNativeApi,
-        });
-      } else {
-        Reflect.deleteProperty(window, "nativeApi");
-      }
       await mounted.cleanup();
     }
   });

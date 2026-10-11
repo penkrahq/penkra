@@ -2,7 +2,7 @@ import { createThreadFixture } from "../src/cleanCore/threadFixtures.ts";
 import fs from "node:fs";
 import path from "node:path";
 
-import { singletonThreadDeckId } from "@penkra/contracts";
+import {} from "@penkra/contracts";
 import {
   ApprovalRequestId,
   CommandId,
@@ -130,17 +130,16 @@ const seedProjectAndThread = (harness: OrchestrationIntegrationHarness) =>
       createdAt,
     });
 
+    yield* harness.sql`UPDATE projection_folders SET workspace_root = ${harness.workspaceDir} WHERE folder_id = ${PROJECT_ID}`;
     yield* createThreadFixture(harness.sql, {
       threadId: THREAD_ID,
       folderId: PROJECT_ID,
-      deckId: singletonThreadDeckId(THREAD_ID),
       title: "Integration Thread",
       modelSelection: {
         provider,
         model: defaultModel,
       },
       runtimeMode: "approval-required",
-      workingDirectory: harness.workspaceDir,
       createdAt: createdAt,
       connection: { kind: "selected", connectionId: null },
       creator: { kind: "user" },
@@ -263,17 +262,16 @@ it.live.skipIf(!process.env.CODEX_BINARY_PATH)(
           createdAt,
         });
 
+        yield* harness.sql`UPDATE projection_folders SET workspace_root = ${harness.workspaceDir} WHERE folder_id = ${PROJECT_ID}`;
         yield* createThreadFixture(harness.sql, {
           threadId: THREAD_ID,
           folderId: PROJECT_ID,
-          deckId: singletonThreadDeckId(THREAD_ID),
           title: "Integration Thread",
           modelSelection: {
             provider: "codex",
             model: "gpt-5.3-codex",
           },
           runtimeMode: "full-access",
-          workingDirectory: harness.workspaceDir,
           createdAt: createdAt,
           connection: { kind: "selected", connectionId: null },
           creator: { kind: "user" },

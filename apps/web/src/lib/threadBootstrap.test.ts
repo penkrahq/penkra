@@ -1,10 +1,4 @@
-import {
-  FolderId,
-  type ModelSelection,
-  SpaceId,
-  ThreadId,
-  singletonThreadDeckId,
-} from "@penkra/contracts";
+import { FolderId, type ModelSelection, SpaceId, ThreadId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 import { type ComposerThreadDraftState, type DraftThreadState } from "../composerDraftStore";
 import {
@@ -13,8 +7,6 @@ import {
   createActiveThreadSnapshot,
   createFreshDraftThreadSeed,
   hasDraftContextOverrides,
-  resolveInheritedThreadContext,
-  resolveRecentParentWorkingDirectory,
   requireNewThreadSpaceId,
   scopeNewThreadOptionsToContainer,
   scopeNewThreadOptionsToParentSpace,
@@ -41,7 +33,6 @@ function modelSelection(
 function makeDraftThread(partial?: Partial<DraftThreadState>): DraftThreadState {
   return {
     folderId: PROJECT_ID,
-    deckId: singletonThreadDeckId(THREAD_ID),
     spaceId: null,
     createdAt: "2026-04-05T10:00:00.000Z",
     runtimeMode: "approval-required",
@@ -105,58 +96,19 @@ describe("threadBootstrap", () => {
     ).toEqual({ spaceId: personalId });
   });
 
-  it("inherits the newest working directory used in the same Folder", () => {
-    expect(
-      resolveRecentParentWorkingDirectory({
-        folderId: PROJECT_ID,
-        threads: [
-          {
-            folderId: PROJECT_ID,
-            workingDirectory: "/repo/older",
-            createdAt: "2026-04-05T10:00:00.000Z",
-          },
-          {
-            folderId: FolderId.makeUnsafe("other-folder"),
-            workingDirectory: "/repo/other-space",
-            createdAt: "2026-04-05T12:00:00.000Z",
-          },
-          {
-            folderId: PROJECT_ID,
-            workingDirectory: "/repo/newer",
-            createdAt: "2026-04-05T11:00:00.000Z",
-          },
-        ],
-      }),
-    ).toBe("/repo/newer");
-  });
-
-  it("inherits across every thread in the Folder", () => {
-    expect(
-      resolveRecentParentWorkingDirectory({
-        folderId: PROJECT_ID,
-        threads: [
-          {
-            folderId: PROJECT_ID,
-            workingDirectory: "/repo/folder-parent",
-            createdAt: "2026-04-05T10:00:00.000Z",
-          },
-        ],
-      }),
-    ).toBe("/repo/folder-parent");
-  });
   it("detects when a draft context override is present", () => {
     expect(hasDraftContextOverrides()).toBe(false);
-    expect(hasDraftContextOverrides({ workingDirectory: "/repo/feature" })).toBe(true);
+    expect(hasDraftContextOverrides({ spaceId: SpaceId.makeUnsafe("bootstrap-space") })).toBe(true);
   });
 
   it("builds a draft patch only when overrides are provided", () => {
     expect(buildDraftThreadContextPatch("terminal")).toBeNull();
-    expect(buildDraftThreadContextPatch("terminal", { workingDirectory: "/repo/feature" })).toEqual(
-      {
-        entryPoint: "terminal",
-        workingDirectory: "/repo/feature",
-      },
-    );
+    expect(
+      buildDraftThreadContextPatch("terminal", { spaceId: SpaceId.makeUnsafe("bootstrap-space") }),
+    ).toEqual({
+      entryPoint: "terminal",
+      spaceId: SpaceId.makeUnsafe("bootstrap-space"),
+    });
   });
 
   it("recognizes when the active route draft can be reused", () => {
@@ -225,56 +177,19 @@ describe("threadBootstrap", () => {
     });
     expect(createActiveDraftThreadSnapshot(makeDraftThread(), PROJECT_ID)).toEqual({
       ...makeDraftThread(),
-      workingDirectory: null,
-    });
-  });
-
-  it("lets an active draft override inherited branch and worktree context", () => {
-    expect(
-      resolveInheritedThreadContext({
-        activeThread: {},
-        activeDraftThread: makeDraftThread({}),
-      }),
-    ).toEqual({
-      workingDirectory: null,
-    });
-  });
-
-  it("lets a local active draft clear active thread branch and worktree context", () => {
-    expect(
-      resolveInheritedThreadContext({
-        activeThread: {},
-        activeDraftThread: makeDraftThread({}),
-      }),
-    ).toEqual({
-      workingDirectory: null,
-    });
-  });
-
-  it("derives inherited environment mode from the active thread when no draft exists", () => {
-    expect(
-      resolveInheritedThreadContext({
-        activeThread: {},
-        activeDraftThread: null,
-      }),
-    ).toEqual({
-      workingDirectory: null,
     });
   });
 
   it("builds the fresh draft seed from creation inputs", () => {
     expect(
       createFreshDraftThreadSeed({
-        threadId: THREAD_ID,
         createdAt: "2026-04-05T10:00:00.000Z",
         entryPoint: "terminal",
         options: {},
       }),
     ).toEqual({
-      deckId: singletonThreadDeckId(THREAD_ID),
       createdAt: "2026-04-05T10:00:00.000Z",
       spaceId: null,
-      workingDirectory: null,
       runtimeMode: "full-access",
       entryPoint: "terminal",
     });
@@ -283,7 +198,6 @@ describe("threadBootstrap", () => {
   it("prefers draft state when resolving terminal creation payloads", () => {
     expect(
       resolveTerminalThreadCreationState({
-        threadId: THREAD_ID,
         activeDraftThread: null,
         activeThread: {
           folderId: PROJECT_ID,
@@ -297,20 +211,17 @@ describe("threadBootstrap", () => {
         folderId: PROJECT_ID,
       }),
     ).toEqual({
-      deckId: singletonThreadDeckId(THREAD_ID),
       spaceId: null,
       modelSelection: modelSelection("claudeAgent", "claude-opus-4-6", {
         effort: "max",
       }),
       runtimeMode: "approval-required",
-      workingDirectory: null,
     });
   });
 
   it("clears inherited worktree state when an explicit local env override is requested", () => {
     expect(
       resolveTerminalThreadCreationState({
-        threadId: THREAD_ID,
         activeDraftThread: null,
         activeThread: {
           folderId: PROJECT_ID,

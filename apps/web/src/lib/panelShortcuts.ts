@@ -1,22 +1,22 @@
-import type { RightDockDeckState } from "../rightDockStore.logic";
+import type { RightDockFolderState } from "../rightDockStore.logic";
 
-/** A shortcut closes one selected tab in one deck, even when several surfaces are mounted. */
-export function selectedPanelTabForDeck(state: RightDockDeckState | undefined): string | null {
+/** A shortcut closes one selected tab in one folder, even when several surfaces are mounted. */
+export function selectedPanelTabForFolder(state: RightDockFolderState | undefined): string | null {
   if (!state?.open || !state.activePaneId) return null;
   return state.panes.some((pane) => pane.id === state.activePaneId && pane.kind === "app")
     ? state.activePaneId
     : null;
 }
 
-export function closeSelectedPanelTabForDeck(input: {
-  deckId: string;
-  state: RightDockDeckState | undefined;
+export function closeSelectedPanelTabForFolder(input: {
+  folderId: string;
+  state: RightDockFolderState | undefined;
   closeNativeTab: (tabId: string) => void;
-  closePane: (deckId: string, paneId: string) => void;
+  closePane: (folderId: string, paneId: string) => void;
 }): string | null {
-  const paneId = selectedPanelTabForDeck(input.state);
+  const paneId = selectedPanelTabForFolder(input.state);
   if (!paneId) return null;
   input.closeNativeTab(paneId);
-  input.closePane(input.deckId, paneId);
+  input.closePane(input.folderId, paneId);
   return paneId;
 }

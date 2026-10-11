@@ -16,7 +16,6 @@ import { ComposerActions } from "../composer-actions/ComposerActions";
 
 export interface ComposerDefaultProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
   children?: ReactNode;
-  draftBar?: ReactNode;
   layoutMode?: "application" | "preview";
   onSend?: () => void;
   showHarness?: boolean;
@@ -29,7 +28,6 @@ export const ComposerDefault = forwardRef<HTMLTextAreaElement, ComposerDefaultPr
       children,
       className,
       disabled = false,
-      draftBar,
       layoutMode = "preview",
       onBlur,
       onFocus,
@@ -48,14 +46,6 @@ export const ComposerDefault = forwardRef<HTMLTextAreaElement, ComposerDefaultPr
           className={cn("relative w-full min-w-0 overflow-visible", className)}
           data-pencil-component="TKKOp"
         >
-          {draftBar ? (
-            <div
-              className="absolute -top-10 left-4 z-0 h-10 w-[calc(100%-2rem)] rounded-t-[18px] rounded-b-none border border-[var(--color-border)] bg-[var(--color-background-control-opaque)]"
-              data-pencil-node="fiR2o"
-            >
-              {draftBar}
-            </div>
-          ) : null}
           <div
             className={cn(
               "relative z-10 flex min-h-[100px] w-full min-w-0 flex-col rounded-[18px] border border-[var(--color-border)] bg-[var(--color-background-control-opaque)] text-left",

@@ -1,3 +1,4 @@
+import { seedThreadFolderFixture } from "../../cleanCore/threadFixtures.ts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Exit } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -88,7 +89,7 @@ it.effect("backfills threads and thread_items from the replaced projection table
         readonly runtimeMode: string;
         readonly createdBy: string;
         readonly createdByThreadId: string | null;
-        readonly deckId: string | null;
+        readonly folderId: string;
         readonly sidebarSortOrder: number;
         readonly lastUserMessageAt: string | null;
         readonly openQuestionCount: number;
@@ -96,7 +97,7 @@ it.effect("backfills threads and thread_items from the replaced projection table
         SELECT id, space_id AS "spaceId", provider, model, state,
                runtime_mode AS "runtimeMode", created_by AS "createdBy",
                created_by_thread_id AS "createdByThreadId",
-               deck_id AS "deckId", sidebar_sort_order AS "sidebarSortOrder",
+               folder_id AS "folderId", sidebar_sort_order AS "sidebarSortOrder",
                last_user_message_at AS "lastUserMessageAt",
                open_question_count AS "openQuestionCount"
         FROM threads
@@ -111,7 +112,7 @@ it.effect("backfills threads and thread_items from the replaced projection table
           runtimeMode: "full-access",
           createdBy: "user",
           createdByThreadId: null,
-          deckId: "deck:thread-1",
+          folderId: "folder-1",
           sidebarSortOrder: 0,
           lastUserMessageAt: null,
           openQuestionCount: 0,
@@ -202,6 +203,7 @@ it.effect("unwraps an OpenCode <task_result> into plain result text", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations({ toMigrationInclusive: 175 });
+      yield* seedThreadFolderFixture("folder-x", "penkra-personal");
       const now = "2026-10-09T00:00:00.000Z";
       yield* sql`
         INSERT INTO projection_threads (
@@ -234,6 +236,7 @@ it.effect("groups tool activities by the web's tool-call identity, beside operat
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations({ toMigrationInclusive: 175 });
+      yield* seedThreadFolderFixture("folder-x", "penkra-personal");
       const now = "2026-10-09T00:00:00.000Z";
       yield* sql`
         INSERT INTO projection_threads (
@@ -291,6 +294,7 @@ it.effect("collapses a call present in both sources to one item", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations({ toMigrationInclusive: 175 });
+      yield* seedThreadFolderFixture("folder-x", "penkra-personal");
       const now = "2026-10-09T00:00:00.000Z";
       yield* sql`
         INSERT INTO projection_threads (

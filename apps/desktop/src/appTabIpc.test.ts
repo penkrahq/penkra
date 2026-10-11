@@ -17,14 +17,14 @@ describe("App tab IPC boundary", () => {
       parseOpenAppTabRequest({
         appId: "app",
         spaceId: "space",
-        deckId: "deck",
+        folderId: "folder",
         threadId: "thread",
         route: "/",
       }),
     ).toEqual({
       appId: "app",
       spaceId: "space",
-      deckId: "deck",
+      folderId: "folder",
       threadId: "thread",
       route: "/",
     });
@@ -33,7 +33,7 @@ describe("App tab IPC boundary", () => {
         tabId: "stable-tab",
         appId: "app",
         spaceId: "space",
-        deckId: "deck",
+        folderId: "folder",
         threadId: "thread",
         route: "/",
       }),
@@ -41,7 +41,7 @@ describe("App tab IPC boundary", () => {
       tabId: "stable-tab",
       appId: "app",
       spaceId: "space",
-      deckId: "deck",
+      folderId: "folder",
       threadId: "thread",
       route: "/",
     });
@@ -76,14 +76,14 @@ describe("App tab IPC boundary", () => {
         tabId: "tab",
         rendererId: 17,
         active: true,
-        deckId: "deck-1",
+        folderId: "folder-1",
         threadId: "thread-1",
       }),
     ).toEqual({
       tabId: "tab",
       rendererId: 17,
       active: true,
-      deckId: "deck-1",
+      folderId: "folder-1",
       threadId: "thread-1",
     });
   });
@@ -104,7 +104,7 @@ describe("App tab IPC boundary", () => {
         tabId: "tab",
         rendererId: 17,
         active: "yes",
-        deckId: "deck-1",
+        folderId: "folder-1",
         threadId: "thread-1",
       }),
     ).toThrow();

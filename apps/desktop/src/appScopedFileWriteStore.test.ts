@@ -11,7 +11,7 @@ const temporaryDirectories: string[] = [];
 const owner = {
   appId: "com.example.canvas",
   spaceId: "space-1",
-  deckId: "deck-1",
+  folderId: "folder-1",
   tabId: "tab-1",
   rendererId: 7,
 };

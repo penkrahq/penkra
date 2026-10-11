@@ -327,6 +327,7 @@ export const makeOrchestrationIntegrationHarness = (
         }),
     } as typeof ProviderTurnSelectionResolver.Service);
     const threadProviderBindingLayer = Layer.succeed(ThreadProviderBindingRepository, {
+      getRuntimeBinding: () => Effect.succeed(Option.none()),
       getHarnessState: (threadId: ThreadId) =>
         Effect.succeed(
           Option.some({

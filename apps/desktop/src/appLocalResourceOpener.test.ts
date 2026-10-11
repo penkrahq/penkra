@@ -34,7 +34,7 @@ describe("openLocalAppResource", () => {
             id: "explorer-tab",
             appId: "com.penkra.explorer",
             spaceId: "personal",
-            deckId: "deck-1",
+            folderId: "folder-1",
             threadId: "thread-1",
           },
         ],
@@ -55,7 +55,7 @@ describe("openLocalAppResource", () => {
       openWith: { get: () => undefined } as never,
       path,
       spaceId: "personal",
-      deckId: "deck-1",
+      folderId: "folder-1",
       threadId: "thread-1",
       callerKind: "user",
     });
@@ -97,7 +97,7 @@ describe("openLocalAppResource", () => {
       openWith: { get: () => undefined } as never,
       path,
       spaceId: "personal",
-      deckId: "deck-1",
+      folderId: "folder-1",
       threadId: "thread-1",
     });
 
