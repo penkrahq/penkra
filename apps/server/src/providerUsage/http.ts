@@ -10,8 +10,6 @@ export interface FetchJsonResult {
   readonly headers: Headers;
 }
 
-const DEFAULT_TIMEOUT_MS = 10_000;
-
 export async function fetchJson(input: {
   service: string;
   url: string;
@@ -19,14 +17,12 @@ export async function fetchJson(input: {
   method?: "GET" | "POST";
   headers?: Record<string, string>;
   body?: unknown;
-  timeoutMs?: number;
 }): Promise<FetchJsonResult> {
   const encodedBody = input.body === undefined ? undefined : JSON.stringify(input.body);
   const response = await outboundHttp.request({
     policy: {
       service: input.service,
       allowedOrigins: input.allowedOrigins,
-      timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       maxRequestBytes: 64 * 1024,
       maxResponseBytes: 1024 * 1024,
       maxRedirects: 0,

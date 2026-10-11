@@ -7,8 +7,6 @@ import fs from "node:fs/promises";
 
 import { fetchJson } from "./http";
 
-const DEFAULT_OAUTH_REFRESH_TIMEOUT_MS = 15_000;
-
 export interface OAuthRefreshAccessTokenResult {
   readonly accessToken: string;
   readonly refreshToken?: string;
@@ -31,7 +29,6 @@ export async function refreshOAuthAccessToken(input: {
   refreshToken: string;
   clientId: string;
   scope?: string;
-  timeoutMs?: number;
 }): Promise<OAuthRefreshAccessTokenResult | null> {
   const body: Record<string, string> = {
     grant_type: "refresh_token",
@@ -54,7 +51,6 @@ export async function refreshOAuthAccessToken(input: {
         "Content-Type": "application/json",
       },
       body,
-      timeoutMs: input.timeoutMs ?? DEFAULT_OAUTH_REFRESH_TIMEOUT_MS,
     });
   } catch {
     return null;

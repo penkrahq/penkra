@@ -34,7 +34,6 @@ export function requestChatGptVoiceTranscription(input: {
     policy: {
       service: "chatgpt-voice-transcription",
       allowedOrigins: [new URL(CHATGPT_VOICE_TRANSCRIPTION_URL).origin],
-      timeoutMs: 30_000,
       maxRequestBytes: MAX_MULTIPART_BYTES,
       maxResponseBytes: MAX_RESPONSE_BYTES,
       maxRedirects: 0,
