@@ -11,6 +11,7 @@ import {
   type ProviderCredentialBrokerShape,
 } from "../providerCredentialBroker.ts";
 import { ProviderConnectionLifecycle } from "../Services/ProviderConnectionLifecycle.ts";
+import { ProviderAuthCircuits, ProviderAuthCircuitsLive } from "../providerAuthCircuit.ts";
 import { makeProviderConnectionLifecycle } from "./ProviderConnectionLifecycle.ts";
 
 const secrets = new Map<string, string>();
@@ -45,6 +46,7 @@ let validationFailure: Error | null = null;
 const sqlLayer = NodeSqliteClient.layerMemory();
 const connectionRepositoryLayer = ProviderConnectionRepositoryLive.pipe(Layer.provide(sqlLayer));
 const dependencies = Layer.mergeAll(
+  ProviderAuthCircuitsLive.pipe(Layer.provide(sqlLayer)),
   connectionRepositoryLayer,
   Layer.succeed(ProviderCredentialBroker, broker),
 );
@@ -126,6 +128,22 @@ layer("ProviderConnectionLifecycle", (it) => {
       assert.strictEqual(credentialRef, `provider-secret:${created.id}`);
       assert.strictEqual(secrets.get(credentialRef), "test-secret");
       assert.strictEqual(created.label, "OpenCode Go / ••••cret");
+
+      const circuits = yield* ProviderAuthCircuits;
+      yield* circuits.open({
+        connectionId: created.id,
+        failure: { kind: "provider-rejected", summary: "Authentication failed", detail: "401" },
+        now: "2026-08-08T00:00:00.000Z",
+      });
+      assert.lengthOf(yield* circuits.get(created.id), 1);
+      const verifiedAgain = yield* lifecycle.createStatic({
+        harness: "opencode",
+        authenticationTargetId: "opencode-go",
+        authenticationMethodId: "api-key",
+        secret: "test-secret",
+      });
+      assert.strictEqual(verifiedAgain.id, created.id);
+      assert.lengthOf(yield* circuits.get(created.id), 0);
 
       const terminated = yield* lifecycle.terminate({
         connectionId: created.id,

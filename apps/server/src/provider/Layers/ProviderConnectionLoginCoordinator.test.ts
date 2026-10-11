@@ -44,6 +44,7 @@ import {
   prepareClaudeThreadProject,
   readClaudeThreadAccount,
 } from "../claudeThreadNativeState.ts";
+import { ProviderAuthCircuits, ProviderAuthCircuitsLive } from "../providerAuthCircuit.ts";
 import { providerCredentialProfileRoot } from "../providerNativeStatePaths.ts";
 import {
   ProviderCredentialBroker,
@@ -164,7 +165,19 @@ const repositories = Layer.mergeAll(
   ConnectionRateLimitsLive,
   ThreadProviderBindingRepositoryLive.pipe(Layer.provide(sqlLayer)),
 );
+const releasedAuthBlocks: ProviderConnectionId[] = [];
+const authCircuitsLayer = Layer.effect(
+  ProviderAuthCircuits,
+  Effect.map(Effect.service(ProviderAuthCircuits), (circuits) => ({
+    ...circuits,
+    close: (connectionId: ProviderConnectionId) =>
+      Effect.sync(() => {
+        releasedAuthBlocks.push(connectionId);
+      }).pipe(Effect.andThen(circuits.close(connectionId))),
+  })),
+).pipe(Layer.provide(ProviderAuthCircuitsLive), Layer.provide(sqlLayer));
 const dependencies = Layer.mergeAll(
+  authCircuitsLayer,
   repositories,
   configLayer,
   Layer.succeed(ProviderCredentialBroker, {
@@ -419,6 +432,14 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
       });
       yield* waitForCompleted(first.operationId);
 
+      const circuits = yield* ProviderAuthCircuits;
+      yield* circuits.open({
+        connectionId: first.connectionId,
+        failure: { kind: "provider-rejected", summary: "Authentication failed", detail: "401" },
+        now: timestamp,
+      });
+      assert.lengthOf(yield* circuits.get(first.connectionId), 1);
+      const releasedBeforeSignIn = releasedAuthBlocks.length;
       const duplicate = yield* coordinator.begin({
         harness: "codex",
         authenticationTargetId: "openai-first-party",
@@ -437,6 +458,8 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
         rateLimitsSnapshot: null,
       });
       const completed = yield* waitForCompleted(duplicate.operationId);
+      assert.deepStrictEqual(releasedAuthBlocks.slice(releasedBeforeSignIn), [first.connectionId]);
+      assert.lengthOf(yield* circuits.get(first.connectionId), 0);
 
       assert.strictEqual(completed.connectionId, first.connectionId);
       assert.strictEqual(completed.connection?.providerIdentityId, "same@example.com");

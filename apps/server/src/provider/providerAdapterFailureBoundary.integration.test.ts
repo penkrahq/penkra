@@ -62,7 +62,7 @@ import { ProviderSessionDirectoryLive } from "./Layers/ProviderSessionDirectory.
 import { makeDurableProviderServiceLive } from "./Layers/ProviderService.ts";
 import { makeCodexAdapterLive } from "./Layers/CodexAdapter.ts";
 import { ProviderSessionRuntimeRepositoryLive } from "../persistence/Layers/ProviderSessionRuntime.ts";
-import { makeProviderAuthCircuitStore } from "./providerAuthCircuit.ts";
+import { ProviderAuthCircuits } from "./providerAuthCircuit.ts";
 import { ProviderDiscoveryService } from "./Services/ProviderDiscoveryService.ts";
 
 const THREAD_ID = ThreadId.makeUnsafe("thread-adapter-boundary");
@@ -531,7 +531,7 @@ async function makeProviderRuntime(
       modelSelection: MODEL_SELECTION,
       runtimeMode: "full-access",
       createdAt: now,
-      connection: { kind: "selected", connectionId: null },
+      connection: { kind: "selected", connectionId: probe ? CONNECTION_ID : null },
       creator: { kind: "user" },
     }),
   );
@@ -838,8 +838,8 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
           (
             await harness!.runtime.runPromise(
               Effect.gen(function* () {
-                const sql = yield* SqlClient.SqlClient;
-                return yield* makeProviderAuthCircuitStore(sql).get(CONNECTION_ID);
+                const circuits = yield* ProviderAuthCircuits;
+                return yield* circuits.get(CONNECTION_ID);
               }),
             )
           ).length === 1,
@@ -883,19 +883,14 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
       expect(probeCalls).toBe(1);
       const stillOpen = await harness.runtime.runPromise(
         Effect.gen(function* () {
-          const sql = yield* SqlClient.SqlClient;
-          return yield* makeProviderAuthCircuitStore(sql).get(CONNECTION_ID);
+          const circuits = yield* ProviderAuthCircuits;
+          return yield* circuits.get(CONNECTION_ID);
         }),
       );
       expect(stillOpen[0]?.failureCount).toBeGreaterThanOrEqual(2);
       expect(manager.sendInputs).toHaveLength(1);
       recovered = true;
-      await harness.runtime.runPromise(
-        Effect.gen(function* () {
-          const sql = yield* SqlClient.SqlClient;
-          yield* sql`UPDATE provider_auth_circuits SET next_probe_at = '2000-01-01T00:00:00.000Z' WHERE connection_id = ${CONNECTION_ID}`;
-        }),
-      );
+      await harness.runtime.runPromise(harness.reactor.retryAuthConnection(CONNECTION_ID));
       await waitFor(async () => manager.sendInputs.length === 2);
       expect(manager.sendInputs[1]?.input).toBe("Keep this queued");
     } finally {

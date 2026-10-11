@@ -11,6 +11,7 @@ import { Effect, Layer, Option } from "effect";
 
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 import type { ProviderConnectionRecord } from "../../persistence/Services/ProviderConnections.ts";
+import { ProviderAuthCircuits, ProviderAuthCircuitsLive } from "../providerAuthCircuit.ts";
 import { ProviderCredentialBroker } from "../providerCredentialBroker.ts";
 import { findStaticCredentialMethod } from "../providerConnectionManifests.ts";
 import { secretSuffixConnectionLabel } from "../providerConnectionDisplayIdentity.ts";
@@ -78,11 +79,12 @@ export function makeProviderConnectionLifecycle(
 ): Effect.Effect<
   ProviderConnectionLifecycleShape,
   never,
-  ProviderConnectionRepository | ProviderCredentialBroker
+  ProviderConnectionRepository | ProviderCredentialBroker | ProviderAuthCircuits
 > {
   return Effect.gen(function* () {
     const connections = yield* ProviderConnectionRepository;
     const credentials = yield* ProviderCredentialBroker;
+    const authCircuits = yield* ProviderAuthCircuits;
     const newId = input.newId ?? randomUUID;
     const now = input.now ?? (() => new Date().toISOString());
     const validateSecret = input.validateSecret ?? ((request) => request.validate(request.secret));
@@ -211,6 +213,7 @@ export function makeProviderConnectionLifecycle(
               ),
             );
         }
+        yield* authCircuits.close(connection.id);
         return connection;
       });
 
@@ -425,4 +428,4 @@ export function makeProviderConnectionLifecycle(
 export const ProviderConnectionLifecycleLive = Layer.effect(
   ProviderConnectionLifecycle,
   makeProviderConnectionLifecycle(),
-);
+).pipe(Layer.provideMerge(ProviderAuthCircuitsLive));
