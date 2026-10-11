@@ -1,3 +1,4 @@
+import { makeThreadSummary } from "./storeTestFixtures";
 import { syncServerThreadShell } from "./storeProjection";
 import { describe, expect, it } from "vitest";
 
@@ -103,42 +104,23 @@ describe("createThreadShellsSelector", () => {
 });
 
 describe("createComposerThreadMentionSourcesSelector", () => {
-  it("does not rescan shells when only streaming detail changes", () => {
+  it("reads visits and message recency only from canonical rows and keeps the same source array", () => {
     const selectSources = createComposerThreadMentionSourcesSelector();
-    const threadIds = [threadIdA];
-    let summaryReads = 0;
-    const summaryById = new Proxy(
-      {
-        [threadIdA]: {
-          ...summaryA,
-          runtimeMode: "full-access" as const,
-          codexThreadId: null,
-          error: null,
-          latestUserMessageAt: null,
-        },
-      },
-      {
-        get(target, property, receiver) {
-          summaryReads += 1;
-          return Reflect.get(target, property, receiver);
-        },
-      },
-    );
-
-    const before = selectSources(makeState({ threadIds, threadShellById: summaryById }));
-    const readsAfterFirstSelection = summaryReads;
-    const after = selectSources(
-      makeState({
-        threadIds,
-        threadShellById: summaryById,
-        messageIdsByThreadId: { [threadIdA]: [messageId] },
-      }),
-    );
-
-    expect(before).toHaveLength(1);
-    expect(readsAfterFirstSelection).toBeGreaterThan(0);
-    expect(after).toBe(before);
-    expect(summaryReads).toBe(readsAfterFirstSelection);
+    const row = makeThreadSummary({
+      id: threadIdA,
+      lastVisitedAt: "2026-02-14T00:00:00.000Z",
+      lastUserMessageAt: "2026-02-15T00:00:00.000Z",
+    });
+    const rows = [row];
+    const before = selectSources(rows);
+    expect(before[0]).toMatchObject({
+      id: threadIdA,
+      lastVisitedAt: row.lastVisitedAt,
+      latestUserMessageAt: row.lastUserMessageAt,
+    });
+    expect(selectSources(rows)).toBe(before);
+    const renamed = selectSources([{ ...row, title: "Renamed" }]);
+    expect(renamed[0]?.title).toBe("Renamed");
   });
 });
 

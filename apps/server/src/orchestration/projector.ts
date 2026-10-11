@@ -453,7 +453,6 @@ export function projectEvent(
             threadId: thread.id,
             currentSession: thread.session,
             providerName: thread.modelSelection.provider,
-            requestedRuntimeMode: payload.runtimeMode,
             requestedAt: payload.createdAt,
           });
           const messages = thread.messages.map((message) =>
@@ -485,7 +484,6 @@ export function projectEvent(
                 // A native steer rides an existing provider turn. Providers
                 // without live steering start replacement work after interrupt.
                 nativeSteer ? thread.pendingTurnStartMessageId : payload.messageId,
-              runtimeMode: payload.runtimeMode,
               updatedAt: payload.createdAt,
             }),
           };

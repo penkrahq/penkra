@@ -59,12 +59,10 @@ const CALLER: OrchestrationThreadShell = {
   folderId: FOLDER_ID,
   title: "Synthetic caller",
   modelSelection: TARGET,
-  runtimeMode: "full-access",
   subagentAgentId: null,
   subagentNickname: null,
   subagentRole: null,
   latestTurn: null,
-  latestUserMessageAt: null,
   createdAt: NOW,
   updatedAt: NOW,
   archivedAt: null,
@@ -94,6 +92,7 @@ function makeHarness() {
   let selectionCalls = 0;
   let deliveries = 0;
   let caller = CALLER;
+  let callerRuntimeMode: CleanCoreThreadSummary["runtimeMode"] = "full-access";
   const snapshotQuery: ProjectionSnapshotQueryShape = {
     getCommandReadModel: () => Effect.die("unused snapshot method"),
     getSnapshot: () => Effect.die("unused snapshot method"),
@@ -152,6 +151,34 @@ function makeHarness() {
     lifecycle: {
       get: (id) =>
         Effect.sync(() => {
+          if (id === CALLER_THREAD_ID)
+            return {
+              id: caller.id,
+              folderId: caller.folderId,
+              spaceId: SPACE_ID,
+              title: caller.title,
+              provider: caller.modelSelection.provider,
+              model: caller.modelSelection.model,
+              modelOptions: null,
+              connectionId: null,
+              runtimeMode: callerRuntimeMode,
+              state: "idle",
+              activeTurnId: null,
+              lastError: null,
+              queue: "[]",
+              createdBy: "user",
+              createdByThreadId: null,
+              sidebarSortOrder: null,
+              lastActivityAt: null,
+              lastMessagePreview: null,
+              lastUserMessageAt: null,
+              lastVisitedAt: null,
+              openQuestionCount: 0,
+              archivedAt: null,
+              deletedAt: null,
+              createdAt: NOW,
+              updatedAt: NOW,
+            };
           const row = rows.get(id);
           return row === undefined ? null : row;
         }),
@@ -240,7 +267,6 @@ function makeHarness() {
     loadProviderAvailabilities: Effect.succeed(
       new Map([["codex", { enabled: true, available: true, authStatus: "authenticated" }]]),
     ),
-    requireThreadShell: () => Effect.sync(() => caller),
   };
   return {
     dependencies,
@@ -266,7 +292,7 @@ function makeHarness() {
       caller = { ...caller, folderId };
     },
     downgrade: () => {
-      caller = { ...caller, runtimeMode: "approval-required" };
+      callerRuntimeMode = "approval-required";
     },
   };
 }

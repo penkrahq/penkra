@@ -1,3 +1,4 @@
+import { useThreadList } from "~/threadListStore";
 import { LexicalComposer, type InitialConfigType } from "@lexical/react/LexicalComposer";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
@@ -865,9 +866,8 @@ function ComposerLinkPastePlugin() {
 // summaries change so the icon never stays stale.
 function ComposerThreadMentionProviderPlugin() {
   const [editor] = useLexicalComposerContext();
-  const threadMentionSources = useStore(
-    useMemo(() => createComposerThreadMentionSourcesSelector(), []),
-  );
+  const selectMentionSources = useMemo(() => createComposerThreadMentionSourcesSelector(), []);
+  const threadMentionSources = selectMentionSources(useThreadList());
   const providerByThreadId = useMemo(
     () => new Map(threadMentionSources.map((source) => [source.id as string, source.provider])),
     [threadMentionSources],

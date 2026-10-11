@@ -13,6 +13,8 @@
 // The export-eligibility guard lives in @penkra/shared/threadExport so the
 // web composer and the HTTP route share one predicate.
 
+import type { RuntimeMode } from "@penkra/contracts";
+
 import zlib from "node:zlib";
 
 import type { OrchestrationMessage, OrchestrationThread } from "@penkra/contracts";
@@ -160,13 +162,16 @@ function exportMessageProjection(message: OrchestrationMessage): Record<string, 
 // Emits the thread metadata object once, then appends the messages array one
 // serialized message at a time so the full JSON document never exists as a
 // single string.
-function* threadJsonChunks(thread: OrchestrationThread): Generator<string> {
+function* threadJsonChunks(
+  thread: OrchestrationThread,
+  runtimeMode: RuntimeMode,
+): Generator<string> {
   const metadata = JSON.stringify(
     {
       threadId: thread.id,
       title: thread.title,
       modelSelection: thread.modelSelection,
-      runtimeMode: thread.runtimeMode,
+      runtimeMode,
       createdAt: thread.createdAt,
       updatedAt: thread.updatedAt,
     },
@@ -189,21 +194,27 @@ function* threadJsonChunks(thread: OrchestrationThread): Generator<string> {
   yield "\n  ]\n}";
 }
 
-function threadArchiveEntries(thread: OrchestrationThread): ThreadArchiveEntry[] {
+function threadArchiveEntries(
+  thread: OrchestrationThread,
+  runtimeMode: RuntimeMode,
+): ThreadArchiveEntry[] {
   return [
-    { name: "thread.json", chunks: threadJsonChunks(thread) },
+    { name: "thread.json", chunks: threadJsonChunks(thread, runtimeMode) },
     { name: "transcript.md", chunks: transcriptMarkdownChunks(thread) },
   ];
 }
 
 // Streams the ZIP as it is produced: one local header+payload chunk per entry,
 // then the central directory and end record.
-export async function* threadArchiveChunks(thread: OrchestrationThread): AsyncGenerator<Buffer> {
+export async function* threadArchiveChunks(
+  thread: OrchestrationThread,
+  runtimeMode: RuntimeMode,
+): AsyncGenerator<Buffer> {
   const centralRecords: Buffer[] = [];
   let offset = 0;
   let entryCount = 0;
 
-  for (const entry of threadArchiveEntries(thread)) {
+  for (const entry of threadArchiveEntries(thread, runtimeMode)) {
     const { localChunk, centralRecord } = await buildZipEntry(entry);
     centralRecords.push(centralRecord(offset));
     offset += localChunk.length;
@@ -227,9 +238,12 @@ export async function* threadArchiveChunks(thread: OrchestrationThread): AsyncGe
 }
 
 // Convenience for tests and small callers that want the whole archive at once.
-export async function buildThreadArchiveBytes(thread: OrchestrationThread): Promise<Buffer> {
+export async function buildThreadArchiveBytes(
+  thread: OrchestrationThread,
+  runtimeMode: RuntimeMode,
+): Promise<Buffer> {
   const chunks: Buffer[] = [];
-  for await (const chunk of threadArchiveChunks(thread)) {
+  for await (const chunk of threadArchiveChunks(thread, runtimeMode)) {
     chunks.push(chunk);
   }
   return Buffer.concat(chunks);

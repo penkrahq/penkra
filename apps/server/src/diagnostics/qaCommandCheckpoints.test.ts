@@ -52,6 +52,7 @@ describe("QA command checkpoints", () => {
     expect(
       qaRuntimeActionForCommand({
         type: "thread.turn.recover",
+        runtimeMode: "full-access",
         reason: "play",
         threadId: "thread-a",
         turnId: "turn-a",

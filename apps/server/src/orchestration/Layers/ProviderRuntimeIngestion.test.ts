@@ -1,3 +1,4 @@
+import { findThread } from "../../cleanCore/threadList.ts";
 import { updateThreadFixture } from "../../cleanCore/threadFixtures.ts";
 import { createThreadFixture } from "../../cleanCore/threadFixtures.ts";
 import fs from "node:fs";
@@ -361,7 +362,6 @@ describe("ProviderRuntimeIngestion", () => {
             threadId: ThreadId.makeUnsafe("thread-1"),
             status: "ready",
             providerName: providerKind,
-            runtimeMode: "approval-required",
             activeTurnId: null,
             updatedAt: createdAt,
             lastError: null,
@@ -597,7 +597,6 @@ describe("ProviderRuntimeIngestion", () => {
             threadId,
             status: retired ? "interrupted" : "running",
             providerName: provider,
-            runtimeMode: "approval-required",
             activeTurnId: null,
             updatedAt: restartedAt,
             lastError: null,
@@ -1127,7 +1126,6 @@ describe("ProviderRuntimeIngestion", () => {
           threadId,
           status: "stopped",
           providerName: "codex",
-          runtimeMode: "approval-required",
           activeTurnId: null,
           lastError: null,
           updatedAt: stoppedAt,
@@ -1189,7 +1187,6 @@ describe("ProviderRuntimeIngestion", () => {
           threadId,
           status: "running",
           providerName: "codex",
-          runtimeMode: "approval-required",
           activeTurnId: turnId,
           lastError: null,
           updatedAt: startedAt,
@@ -1206,7 +1203,6 @@ describe("ProviderRuntimeIngestion", () => {
           threadId,
           status: "ready",
           providerName: "codex",
-          runtimeMode: "approval-required",
           activeTurnId: null,
           lastError: null,
           updatedAt: completedAt,
@@ -1440,7 +1436,6 @@ describe("ProviderRuntimeIngestion", () => {
           threadId: failedEvent.threadId,
           status: "stopped",
           providerName: "codex",
-          runtimeMode: "approval-required",
           activeTurnId: null,
           lastError: null,
           updatedAt: createdAt,
@@ -1539,7 +1534,6 @@ describe("ProviderRuntimeIngestion", () => {
           threadId,
           status: "ready",
           providerName: "claudeAgent",
-          runtimeMode: "approval-required",
           activeTurnId: null,
           lastError: null,
           updatedAt: startedAt,
@@ -1556,7 +1550,6 @@ describe("ProviderRuntimeIngestion", () => {
           threadId,
           status: "starting",
           providerName: "claudeAgent",
-          runtimeMode: "approval-required",
           activeTurnId: null,
           lastError: null,
           updatedAt: "2026-07-14T00:05:11.000Z",
@@ -1692,7 +1685,6 @@ describe("ProviderRuntimeIngestion", () => {
             threadId: asThreadId("missing-thread"),
             status: "stopped",
             providerName: "codex",
-            runtimeMode: "approval-required",
             activeTurnId: null,
             lastError: null,
             updatedAt: createdAt,
@@ -1779,7 +1771,6 @@ describe("ProviderRuntimeIngestion", () => {
             threadId: asThreadId("missing-thread"),
             status: "stopped",
             providerName: "codex",
-            runtimeMode: "approval-required",
             activeTurnId: null,
             lastError: null,
             updatedAt: createdAt,
@@ -1887,7 +1878,6 @@ describe("ProviderRuntimeIngestion", () => {
           threadId: asThreadId("thread-1"),
           status: "running",
           providerName: "codex",
-          runtimeMode: "approval-required",
           activeTurnId: quarantinedTurnId,
           lastError: null,
           updatedAt: "2026-07-14T00:19:59.000Z",
@@ -2278,7 +2268,6 @@ describe("ProviderRuntimeIngestion", () => {
             threadId: asThreadId("thread-1"),
             status: "running",
             providerName: "codex",
-            runtimeMode: "approval-required",
             activeTurnId: successorTurnId,
             lastError: null,
             updatedAt: successorAt,
@@ -2352,7 +2341,6 @@ describe("ProviderRuntimeIngestion", () => {
           threadId: asThreadId("thread-1"),
           status: "running",
           providerName: "codex",
-          runtimeMode: "approval-required",
           activeTurnId: successorTurnId,
           lastError: null,
           updatedAt: successorAt,
@@ -2397,7 +2385,6 @@ describe("ProviderRuntimeIngestion", () => {
         threadId: event.threadId,
         status: "starting" as const,
         providerName: "codex",
-        runtimeMode: "full-access" as const,
         activeTurnId: null,
         lastError: null,
         updatedAt: createdAt,
@@ -2492,7 +2479,6 @@ describe("ProviderRuntimeIngestion", () => {
           threadId: asThreadId("thread-1"),
           status: "running",
           providerName: "codex",
-          runtimeMode: "full-access",
           activeTurnId: successorTurnId,
           lastError: null,
           updatedAt: successorAt,
@@ -2506,7 +2492,6 @@ describe("ProviderRuntimeIngestion", () => {
     expect((await waitForThread(harness.engine, () => true)).session).toMatchObject({
       status: "running",
       activeTurnId: successorTurnId,
-      runtimeMode: "full-access",
       updatedAt: successorAt,
     });
     const events = Array.from(
@@ -2557,7 +2542,6 @@ describe("ProviderRuntimeIngestion", () => {
           threadId: asThreadId("thread-1"),
           status: "running",
           providerName: "codex",
-          runtimeMode: "approval-required",
           activeTurnId: successorTurnId,
           lastError: null,
           updatedAt: successorAt,
@@ -2611,7 +2595,6 @@ describe("ProviderRuntimeIngestion", () => {
           threadId: asThreadId("thread-1"),
           status: "running",
           providerName: "codex",
-          runtimeMode: "approval-required",
           activeTurnId: turnId,
           lastError: null,
           updatedAt: now,
@@ -2695,7 +2678,6 @@ describe("ProviderRuntimeIngestion", () => {
           threadId: asThreadId("thread-1"),
           status: "running",
           providerName: "codex",
-          runtimeMode: "approval-required",
           activeTurnId: successorTurnId,
           lastError: null,
           updatedAt: successorAt,
@@ -2779,7 +2761,6 @@ describe("ProviderRuntimeIngestion", () => {
           threadId: asThreadId("thread-1"),
           status: "ready",
           providerName: "codex",
-          runtimeMode: "approval-required",
           activeTurnId: null,
           lastError: null,
           updatedAt: oldAt,
@@ -2846,7 +2827,6 @@ describe("ProviderRuntimeIngestion", () => {
             threadId: asThreadId("thread-1"),
             status: "running",
             providerName: "codex",
-            runtimeMode: "approval-required",
             activeTurnId: asTurnId("turn-successor-after-exit"),
             lastError: null,
             updatedAt: successorAt,
@@ -3008,7 +2988,6 @@ describe("ProviderRuntimeIngestion", () => {
           threadId,
           status: "stopped",
           providerName: "codex",
-          runtimeMode: "approval-required",
           activeTurnId: null,
           lastError: null,
           updatedAt: stoppedAt,
@@ -3070,7 +3049,6 @@ describe("ProviderRuntimeIngestion", () => {
           threadId: asThreadId("thread-1"),
           status: "starting",
           providerName: "codex",
-          runtimeMode: "approval-required",
           activeTurnId: null,
           lastError: null,
           updatedAt: requestedAt,
@@ -3326,7 +3304,6 @@ describe("ProviderRuntimeIngestion", () => {
           threadId: ThreadId.makeUnsafe("thread-1"),
           status: "ready",
           providerName: "claudeAgent",
-          runtimeMode: "approval-required",
           activeTurnId: null,
           updatedAt: seededAt,
           lastError: null,
@@ -4874,7 +4851,6 @@ describe("ProviderRuntimeIngestion", () => {
           threadId: secondThreadId,
           status: "ready",
           providerName: "codex",
-          runtimeMode: "approval-required",
           activeTurnId: null,
           updatedAt: now,
           lastError: null,
@@ -7506,7 +7482,6 @@ describe("ProviderRuntimeIngestion", () => {
     const thread = await waitForThread(
       harness.engine,
       (entry) =>
-        entry.runtimeMode === "approval-required" &&
         entry.activities.some(
           (activity: ProviderRuntimeTestActivity) => activity.kind === "user-input.requested",
         ) &&
@@ -7537,7 +7512,13 @@ describe("ProviderRuntimeIngestion", () => {
       sandbox_mode: "workspace-write",
     });
     expect(resolvedPayload?.lifecycleGeneration).toBe("user-input-generation");
-    expect(thread.runtimeMode).toBe("approval-required");
+    expect(
+      (
+        await Effect.runPromise(
+          findThread(thread.id).pipe(Effect.provideService(SqlClient.SqlClient, harness.sql)),
+        )
+      )?.runtimeMode,
+    ).toBe("approval-required");
   });
 
   it("routes migrated thread events without polluting another thread projection", async () => {
@@ -7885,7 +7866,6 @@ describe("ProviderRuntimeIngestion", () => {
               threadId: asThreadId("thread-1"),
               status: "running",
               providerName: "codex",
-              runtimeMode: "approval-required",
               activeTurnId: asTurnId("turn-generation-b"),
               lastError: null,
               updatedAt: successorAt,
@@ -7966,7 +7946,6 @@ describe("ProviderRuntimeIngestion", () => {
           threadId: asThreadId("thread-1"),
           status: "running",
           providerName: "codex",
-          runtimeMode: "approval-required",
           activeTurnId: turnA,
           lastError: null,
           updatedAt: startedAt,
@@ -8016,7 +7995,6 @@ describe("ProviderRuntimeIngestion", () => {
             threadId: asThreadId("thread-1"),
             status: "running",
             providerName: "codex",
-            runtimeMode: "full-access",
             activeTurnId: asTurnId("turn-completed-b"),
             lastError: null,
             updatedAt: successorAt,
@@ -8035,7 +8013,6 @@ describe("ProviderRuntimeIngestion", () => {
     expect(thread.session).toMatchObject({
       status: "running",
       activeTurnId: asTurnId("turn-completed-b"),
-      runtimeMode: "full-access",
       updatedAt: successorAt,
     });
     const events = Array.from(
@@ -8099,7 +8076,6 @@ describe("ProviderRuntimeIngestion", () => {
           threadId: asThreadId("thread-1"),
           status: "running",
           providerName: "codex",
-          runtimeMode: "approval-required",
           activeTurnId: turnA,
           lastError: null,
           updatedAt: startedAt,
@@ -8148,7 +8124,6 @@ describe("ProviderRuntimeIngestion", () => {
             threadId: asThreadId("thread-1"),
             status: "running",
             providerName: "codex",
-            runtimeMode: "full-access",
             activeTurnId: asTurnId("turn-aborted-b"),
             lastError: null,
             updatedAt: successorAt,
@@ -8167,7 +8142,6 @@ describe("ProviderRuntimeIngestion", () => {
     expect(thread.session).toMatchObject({
       status: "running",
       activeTurnId: asTurnId("turn-aborted-b"),
-      runtimeMode: "full-access",
       updatedAt: successorAt,
     });
     const events = Array.from(
@@ -8232,7 +8206,6 @@ describe("ProviderRuntimeIngestion", () => {
           threadId: asThreadId("thread-1"),
           status: "running",
           providerName: "codex",
-          runtimeMode: "approval-required",
           activeTurnId: turnA,
           lastError: null,
           updatedAt: startedAt,
@@ -8294,7 +8267,6 @@ describe("ProviderRuntimeIngestion", () => {
             threadId: asThreadId("thread-1"),
             status: "running",
             providerName: "codex",
-            runtimeMode: "approval-required",
             activeTurnId: turnB,
             lastError: null,
             updatedAt: successorAt,
@@ -8450,7 +8422,6 @@ describe("ProviderRuntimeIngestion", () => {
             threadId: asThreadId("thread-1"),
             status: "running",
             providerName: "codex",
-            runtimeMode: "full-access",
             activeTurnId: asTurnId("turn-null-session-b"),
             lastError: null,
             updatedAt: successorAt,
@@ -8469,7 +8440,6 @@ describe("ProviderRuntimeIngestion", () => {
     expect(thread.session).toMatchObject({
       status: "running",
       activeTurnId: asTurnId("turn-null-session-b"),
-      runtimeMode: "full-access",
       updatedAt: successorAt,
     });
     const events = Array.from(

@@ -1,7 +1,9 @@
-import { renameThread } from "../../cleanCore/threadStore.ts";
 // FILE: ProviderCommandReactor.ts
 // Purpose: Routes orchestration intents into provider sessions and maintains replay-safe context.
 // Layer: Orchestration provider reactor
+
+import { findThread } from "../../cleanCore/threadList.ts";
+import { renameThread } from "../../cleanCore/threadStore.ts";
 
 import {
   childDiagnosticSpan,
@@ -79,7 +81,7 @@ import {
   type OrchestrationThread,
   ThreadId,
   type ProviderSession,
-  type RuntimeMode,
+  RuntimeMode,
   TurnId,
 } from "@penkra/contracts";
 import {
@@ -485,7 +487,6 @@ const PROVIDER_COMMAND_EVENT_TIMEOUT = Duration.seconds(120);
 const QUEUED_TURN_RECOVERY_INTERVAL = Duration.seconds(5);
 const PROVIDER_INPUT_SAFETY_MARGIN_CHARS = 1_000;
 const THREAD_MENTION_CONTEXT_SUFFIX_PREFIX_CHARS = 2;
-const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 
 function availableThreadMentionContextChars(messageText: string): number {
   return Math.max(
@@ -808,7 +809,6 @@ const make = Effect.gen(function* () {
 
   const setThreadSessionError = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
-    readonly runtimeMode?: RuntimeMode;
     readonly detail: string;
     readonly expectedSession?: Pick<OrchestrationSession, "status" | "updatedAt">;
     readonly createdAt: string;
@@ -823,7 +823,6 @@ const make = Effect.gen(function* () {
         threadId: input.threadId,
         status: "error",
         providerName: thread.session?.providerName ?? thread.modelSelection.provider,
-        runtimeMode: input.runtimeMode ?? thread.session?.runtimeMode ?? DEFAULT_RUNTIME_MODE,
         activeTurnId: null,
         lastError: input.detail,
         updatedAt: input.createdAt,
@@ -1153,7 +1152,13 @@ const make = Effect.gen(function* () {
         new Error(`Thread '${threadId}' was not found in projection state.`),
       );
     }
-    const desiredRuntimeMode = options?.runtimeMode ?? thread.runtimeMode;
+    const canonical = yield* findThread(threadId).pipe(
+      Effect.provideService(SqlClient.SqlClient, sql),
+    );
+    if (canonical === null)
+      return yield* Effect.die(new Error(`Thread '${threadId}' was not found.`));
+    const desiredRuntimeMode =
+      options?.runtimeMode ?? Schema.decodeUnknownSync(RuntimeMode)(canonical.runtimeMode);
     const currentProvider: ProviderKind | undefined = Schema.is(ProviderKind)(
       thread.session?.providerName,
     )
@@ -1227,7 +1232,6 @@ const make = Effect.gen(function* () {
                 ? "stopped"
                 : session.status,
           providerName: session.provider,
-          runtimeMode: desiredRuntimeMode,
           // Provider turn ids are not orchestration turn ids.
           activeTurnId: null,
           lastError: session.lastError ?? null,
@@ -1265,7 +1269,7 @@ const make = Effect.gen(function* () {
     const existingSessionThreadId =
       thread.session && thread.session.status !== "stopped" && activeSession ? thread.id : null;
     if (existingSessionThreadId) {
-      const runtimeModeChanged = desiredRuntimeMode !== thread.session?.runtimeMode;
+      const runtimeModeChanged = desiredRuntimeMode !== activeSession?.runtimeMode;
       const providerChanged =
         requestedModelSelection !== undefined &&
         requestedModelSelection.provider !== currentProvider;
@@ -1319,7 +1323,7 @@ const make = Effect.gen(function* () {
         existingSessionThreadId,
         currentProvider,
         desiredProvider: desiredModelSelection.provider,
-        currentRuntimeMode: thread.session?.runtimeMode,
+        currentRuntimeMode: activeSession?.runtimeMode,
         desiredRuntimeMode,
         runtimeModeChanged,
         providerChanged,
@@ -2121,7 +2125,6 @@ const make = Effect.gen(function* () {
         threadId: event.payload.threadId,
         currentSession: thread.session,
         providerName,
-        requestedRuntimeMode: event.payload.runtimeMode ?? DEFAULT_RUNTIME_MODE,
         requestedAt: event.payload.createdAt,
       });
       if (turnStartSession !== null) {
@@ -2266,7 +2269,6 @@ const make = Effect.gen(function* () {
                 if (!failedBeforeProviderDispatch || event.payload.recoveryReason === "play") {
                   yield* setThreadSessionError({
                     threadId: event.payload.threadId,
-                    runtimeMode: event.payload.runtimeMode,
                     detail,
                     createdAt: event.payload.createdAt,
                   });
@@ -2325,7 +2327,6 @@ const make = Effect.gen(function* () {
               threadId: event.payload.threadId,
               status: "running",
               providerName,
-              runtimeMode: event.payload.runtimeMode,
               activeTurnId: startedTurn.turnId,
               lastError: null,
               updatedAt: acceptedAt,
@@ -3626,7 +3627,6 @@ const make = Effect.gen(function* () {
           threadId: payload.threadId,
           status: "starting",
           providerName: thread.session?.providerName ?? thread.modelSelection.provider,
-          runtimeMode: payload.runtimeMode,
           activeTurnId: null,
           lastError: null,
           updatedAt: payload.createdAt,
@@ -3722,7 +3722,6 @@ const make = Effect.gen(function* () {
           threadId: event.payload.threadId,
           status: "starting",
           providerName: thread.session?.providerName ?? thread.modelSelection.provider,
-          runtimeMode: event.payload.runtimeMode,
           activeTurnId: null,
           lastError: null,
           updatedAt: event.payload.createdAt,
@@ -3838,7 +3837,6 @@ const make = Effect.gen(function* () {
         threadId: thread.id,
         status: "stopped",
         providerName: thread.session?.providerName ?? null,
-        runtimeMode: thread.session?.runtimeMode ?? DEFAULT_RUNTIME_MODE,
         activeTurnId: null,
         lastError: thread.session?.lastError ?? null,
         updatedAt: input.createdAt,
@@ -3867,7 +3865,6 @@ const make = Effect.gen(function* () {
     const createdAt = new Date().toISOString();
     yield* setThreadSessionError({
       threadId: event.payload.threadId,
-      runtimeMode: event.payload.runtimeMode,
       detail,
       expectedSession: {
         status: session.status,
@@ -3955,7 +3952,6 @@ const make = Effect.gen(function* () {
             Effect.catchCause((cause) =>
               setThreadSessionError({
                 threadId: event.payload.threadId,
-                runtimeMode: event.payload.runtimeMode,
                 detail: Cause.pretty(cause),
                 createdAt: event.payload.createdAt,
               }).pipe(Effect.andThen(Effect.failCause(cause))),
@@ -4169,7 +4165,6 @@ const make = Effect.gen(function* () {
             threadId,
             status: "interrupted",
             providerName: session.providerName ?? thread.modelSelection.provider,
-            runtimeMode: session.runtimeMode,
             activeTurnId: null,
             lastError: null,
             updatedAt: settledAt,

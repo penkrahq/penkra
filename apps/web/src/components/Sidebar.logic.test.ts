@@ -1730,13 +1730,15 @@ describe("sortThreadsForSidebar", () => {
   it("keeps an unseen finished thread above idle threads", () => {
     const sorted = sortThreadsForSidebar(
       [
-        makeThread({
-          id: ThreadId.makeUnsafe("thread-finished"),
-          createdAt: "2026-03-09T10:00:00.000Z",
-          updatedAt: "2026-03-09T10:00:00.000Z",
-          latestTurn: makeLatestTurn({ completedAt: "2026-03-09T10:05:00.000Z" }),
+        {
+          ...makeThread({
+            id: ThreadId.makeUnsafe("thread-finished"),
+            createdAt: "2026-03-09T10:00:00.000Z",
+            updatedAt: "2026-03-09T10:00:00.000Z",
+            latestTurn: makeLatestTurn({ completedAt: "2026-03-09T10:05:00.000Z" }),
+          }),
           lastVisitedAt: "2026-03-09T10:01:00.000Z",
-        }),
+        },
         makeThread({
           id: ThreadId.makeUnsafe("thread-newer"),
           createdAt: "2026-03-09T11:00:00.000Z",
@@ -1755,13 +1757,15 @@ describe("sortThreadsForSidebar", () => {
   it("does not reorder a finished thread when it is opened", () => {
     const sorted = sortThreadsForSidebar(
       [
-        makeThread({
-          id: ThreadId.makeUnsafe("thread-finished"),
-          createdAt: "2026-03-09T10:00:00.000Z",
-          updatedAt: "2026-03-09T10:00:00.000Z",
-          latestTurn: makeLatestTurn({ completedAt: "2026-03-09T10:05:00.000Z" }),
+        {
+          ...makeThread({
+            id: ThreadId.makeUnsafe("thread-finished"),
+            createdAt: "2026-03-09T10:00:00.000Z",
+            updatedAt: "2026-03-09T10:00:00.000Z",
+            latestTurn: makeLatestTurn({ completedAt: "2026-03-09T10:05:00.000Z" }),
+          }),
           lastVisitedAt: "2026-03-09T10:06:00.000Z",
-        }),
+        },
         makeThread({
           id: ThreadId.makeUnsafe("thread-newer"),
           createdAt: "2026-03-09T11:00:00.000Z",

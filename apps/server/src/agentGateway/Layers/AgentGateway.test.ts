@@ -8,7 +8,7 @@ import type {
   OrchestrationEvent,
   OrchestrationFolderShell,
   OrchestrationThread,
-  OrchestrationThreadShell,
+  OrchestrationThreadShell as ContractThreadShell,
   ProviderKind,
   ThreadRuntimeBinding,
   ServerProviderStatus,
@@ -104,6 +104,10 @@ function makeProjectShell(
   };
 }
 
+type OrchestrationThreadShell = ContractThreadShell & {
+  runtimeMode: import("@penkra/contracts").RuntimeMode;
+};
+
 function makeThreadShell(
   id: string,
   overrides?: Partial<OrchestrationThreadShell>,
@@ -128,7 +132,6 @@ function makeThreadShell(
             assistantMessageId: null,
           }
         : null,
-    latestUserMessageAt: null,
     createdAt: NOW,
     updatedAt: NOW,
     archivedAt: null,
@@ -138,7 +141,6 @@ function makeThreadShell(
             threadId: ThreadId.makeUnsafe(id),
             status: "running",
             providerName: "codex",
-            runtimeMode: "approval-required",
             activeTurnId: TurnId.makeUnsafe("turn-parent-active"),
             lastError: null,
             updatedAt: NOW,
@@ -148,7 +150,9 @@ function makeThreadShell(
   };
 }
 
-function makeThreadDetail(shell: OrchestrationThreadShell): OrchestrationThread {
+function makeThreadDetail(
+  shell: OrchestrationThreadShell,
+): OrchestrationThread & { runtimeMode: import("@penkra/contracts").RuntimeMode } {
   return {
     ...shell,
     deletedAt: null,
@@ -943,7 +947,6 @@ function makeHarnessLayer(
                     threadId: ThreadId.makeUnsafe("thread-parent"),
                     status: advancedTurnState === "running" ? "running" : "ready",
                     providerName: "codex",
-                    runtimeMode: "approval-required",
                     activeTurnId:
                       advancedTurnState === "running"
                         ? TurnId.makeUnsafe(options.advanceParentTurnAfterDispatch.turnId)
@@ -1257,7 +1260,10 @@ function makeHarnessLayer(
       sent,
       getThread: (id) => threadsById.get(id),
       setThreadDetail: (thread) => {
-        threadsById.set(thread.id, thread);
+        threadsById.set(thread.id, {
+          ...thread,
+          runtimeMode: threadsById.get(thread.id)!.runtimeMode,
+        });
         threadDetailsById.set(thread.id, thread);
       },
       deleteThread: (threadId) => {
@@ -1345,7 +1351,6 @@ describe("AgentGateway", () => {
           threadId: ThreadId.makeUnsafe("thread-parent"),
           status: "running",
           providerName: "claudeAgent",
-          runtimeMode: "full-access",
           activeTurnId: TurnId.makeUnsafe(nativeTurnId),
           lastError: null,
           updatedAt: NOW,
@@ -1429,7 +1434,6 @@ describe("AgentGateway", () => {
               threadId: thread.id,
               status: "ready",
               providerName: "claudeAgent",
-              runtimeMode: "full-access",
               activeTurnId: null,
               lastError: null,
               updatedAt: NOW,
@@ -1726,7 +1730,6 @@ describe("AgentGateway", () => {
                 threadId: thread.id,
                 status: "running" as const,
                 providerName: "claudeAgent",
-                runtimeMode: thread.runtimeMode,
                 activeTurnId: thread.latestTurn?.turnId ?? null,
                 lastError: null,
                 updatedAt: NOW,
@@ -3234,7 +3237,6 @@ describe("AgentGateway", () => {
         threadId,
         status: "starting",
         providerName: "codex",
-        runtimeMode: "approval-required",
         activeTurnId: null,
         lastError: null,
         updatedAt: NOW,
@@ -3615,7 +3617,6 @@ describe("AgentGateway", () => {
               threadId: ThreadId.makeUnsafe("thread-parent"),
               status: "running",
               providerName: "codex",
-              runtimeMode: "approval-required",
               activeTurnId: TurnId.makeUnsafe("native-turn-ahead-of-projection"),
               lastError: null,
               updatedAt: NOW,
@@ -3678,7 +3679,6 @@ describe("AgentGateway", () => {
               threadId: ThreadId.makeUnsafe("thread-parent"),
               status: "running",
               providerName: "codex",
-              runtimeMode: "approval-required",
               activeTurnId: TurnId.makeUnsafe("live-turn-b"),
               lastError: null,
               updatedAt: NOW,
@@ -3763,7 +3763,6 @@ describe("AgentGateway", () => {
           threadId: ThreadId.makeUnsafe("thread-child"),
           status: "running",
           providerName: "codex",
-          runtimeMode: "approval-required",
           activeTurnId: TurnId.makeUnsafe("turn-live"),
           lastError: null,
           updatedAt: NOW,

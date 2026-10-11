@@ -1,7 +1,8 @@
-import { ensureNativeApi } from "./nativeApi";
 // FILE: store.ts
 // Purpose: Public Zustand facade for normalized orchestration state and local UI actions.
 // Exports: Stable store API plus pure transitions re-exported from focused modules.
+
+import { ensureNativeApi } from "./nativeApi";
 
 import { Fragment, type ReactNode, createElement, useEffect } from "react";
 import {
@@ -76,17 +77,6 @@ export function persistAppStateNow(state: AppState = useStore.getState()): void 
 export async function markThreadVisited(threadId: ThreadId, visitedAt: string): Promise<void> {
   await ensureNativeApi().cleanCore.updateThread({
     update: { action: "visit", threadId, visitedAt, updatedAt: visitedAt },
-  });
-}
-
-export function markThreadUnread(state: AppState, threadId: ThreadId): AppState {
-  return applyThreadUpdate(state, threadId, (thread) => {
-    if (!thread.latestTurn?.completedAt) return thread;
-    const latestTurnCompletedAtMs = Date.parse(thread.latestTurn.completedAt);
-    if (Number.isNaN(latestTurnCompletedAtMs)) return thread;
-    const unreadVisitedAt = new Date(latestTurnCompletedAtMs - 1).toISOString();
-    if (thread.lastVisitedAt === unreadVisitedAt) return thread;
-    return { ...thread, lastVisitedAt: unreadVisitedAt };
   });
 }
 
@@ -205,7 +195,6 @@ interface AppStore extends AppState {
   removeDeletedProjectFromClientState: (folderId: Project["id"]) => void;
   removeDeletedThreadFromClientState: (threadId: ThreadId) => void;
   markThreadVisited: (threadId: ThreadId, visitedAt: string) => Promise<void>;
-  markThreadUnread: (threadId: ThreadId) => void;
   toggleProject: (folderId: Project["id"]) => void;
   setProjectExpanded: (folderId: Project["id"], expanded: boolean) => void;
   setAllFoldersExpanded: (expanded: boolean) => void;
@@ -265,7 +254,6 @@ export const useStore = create<AppStore>((set) => ({
   removeDeletedThreadFromClientState: (threadId) =>
     set((state) => removeDeletedThreadFromClientState(state, threadId)),
   markThreadVisited,
-  markThreadUnread: (threadId) => set((state) => markThreadUnread(state, threadId)),
   toggleProject: (folderId) => set((state) => toggleProject(state, folderId)),
   setProjectExpanded: (folderId, expanded) =>
     set((state) => setProjectExpanded(state, folderId, expanded)),

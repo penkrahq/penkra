@@ -55,7 +55,6 @@ function makeSession(
     threadId: THREAD_ID,
     status,
     providerName: "codex",
-    runtimeMode: "full-access",
     activeTurnId: activeTurnId === null ? null : TurnId.makeUnsafe(activeTurnId),
     lastError: null,
     updatedAt: REQUESTED_AT,

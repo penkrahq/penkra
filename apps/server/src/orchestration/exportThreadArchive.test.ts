@@ -66,7 +66,6 @@ function sampleThread(): OrchestrationThread {
     id: "thread-abc",
     title: "Export Demo",
     modelSelection: { provider: "claudeAgent" } as OrchestrationThread["modelSelection"],
-    runtimeMode: "default" as OrchestrationThread["runtimeMode"],
     messages: [
       {
         id: "m1",
@@ -96,7 +95,7 @@ function sampleThread(): OrchestrationThread {
 
 describe("exportThreadArchive", () => {
   it("builds a zip containing thread.json and transcript.md", async () => {
-    const entries = readZip(await buildThreadArchiveBytes(sampleThread())).reduce<
+    const entries = readZip(await buildThreadArchiveBytes(sampleThread(), "full-access")).reduce<
       Record<string, Buffer>
     >((acc, entry) => {
       acc[entry.name] = entry.data;
@@ -133,7 +132,7 @@ describe("exportThreadArchive", () => {
       ],
     } as unknown as OrchestrationThread;
 
-    const entries = readZip(await buildThreadArchiveBytes(thread));
+    const entries = readZip(await buildThreadArchiveBytes(thread, "full-access"));
     const transcript = entries
       .find((entry) => entry.name === "transcript.md")
       ?.data.toString("utf8");
@@ -163,7 +162,7 @@ describe("exportThreadArchive", () => {
       ],
     } as unknown as OrchestrationThread;
 
-    const entries = readZip(await buildThreadArchiveBytes(thread));
+    const entries = readZip(await buildThreadArchiveBytes(thread, "full-access"));
     const threadJson = JSON.parse(
       entries.find((entry) => entry.name === "thread.json")!.data.toString("utf8"),
     );
@@ -177,7 +176,7 @@ describe("exportThreadArchive", () => {
 
   it("streams the archive as multiple chunks that reassemble into a valid zip", async () => {
     const chunks: Buffer[] = [];
-    for await (const chunk of threadArchiveChunks(sampleThread())) {
+    for await (const chunk of threadArchiveChunks(sampleThread(), "full-access")) {
       chunks.push(chunk);
     }
 

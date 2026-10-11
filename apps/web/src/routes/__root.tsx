@@ -1,3 +1,4 @@
+import { useThreadSummary } from "../threadListStore";
 import {
   PROVIDER_DISPLAY_NAMES,
   ThreadId,
@@ -628,7 +629,8 @@ function GlobalShortcutsDialog() {
 }
 
 function GlobalFeedbackDialog() {
-  const { activeProject, activeThread } = useFocusedChatContext();
+  const { activeProject, activeThread, focusedThreadId } = useFocusedChatContext();
+  const activeRow = useThreadSummary(focusedThreadId);
   const isOpen = useFeedbackDialogStore((state) => state.isOpen);
   const requestedContext = useFeedbackDialogStore((state) => state.context);
   const setOpen = useFeedbackDialogStore((state) => state.setOpen);
@@ -636,7 +638,7 @@ function GlobalFeedbackDialog() {
     provider: activeThread?.modelSelection.provider ?? null,
     model: activeThread?.modelSelection.model ?? null,
     projectKind: activeProject ? "folder" : null,
-    runtimeMode: activeThread?.runtimeMode ?? null,
+    runtimeMode: activeRow?.runtimeMode ?? null,
     sessionStatus: activeThread?.session?.status ?? null,
     latestTurnState: activeThread?.latestTurn?.state ?? null,
     messageCount: activeThread?.messages.length ?? 0,

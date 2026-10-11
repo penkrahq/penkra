@@ -16,7 +16,7 @@ import {
 
 import { getThreadsFromState } from "./threadDerivation";
 import type { AppState } from "./storeState";
-import { DEFAULT_RUNTIME_MODE, type Thread } from "./types";
+import type { Thread } from "./types";
 
 const TEST_SPACE_ID = SpaceId.makeUnsafe("space-test");
 
@@ -31,14 +31,12 @@ export function makeThread(overrides: Partial<Thread> = {}): Thread {
       provider: "codex",
       model: "gpt-5-codex",
     },
-    runtimeMode: DEFAULT_RUNTIME_MODE,
     session: null,
     messages: [],
     activities: [],
     error: null,
     createdAt: "2026-02-13T00:00:00.000Z",
     latestTurn: null,
-    latestUserMessageAt: null,
     hasPendingApprovals: false,
     hasPendingUserInput: false,
     ...overrides,
@@ -156,7 +154,6 @@ export function makeReadModelThread(overrides: Partial<OrchestrationReadModel["t
       provider: "codex",
       model: "gpt-5.3-codex",
     },
-    runtimeMode: DEFAULT_RUNTIME_MODE,
     latestTurn: null,
     createdAt: "2026-02-27T00:00:00.000Z",
     updatedAt: "2026-02-27T00:00:00.000Z",
@@ -246,3 +243,36 @@ export function makeReadModelProject(
 }
 
 export const threadsOf = getThreadsFromState;
+
+export function makeThreadSummary(
+  overrides: Partial<import("@penkra/contracts").CleanCoreThreadSummary> = {},
+): import("@penkra/contracts").CleanCoreThreadSummary {
+  return {
+    id: ThreadId.makeUnsafe("thread-1"),
+    spaceId: TEST_SPACE_ID,
+    folderId: FolderId.makeUnsafe("project-1"),
+    title: "Thread",
+    provider: "codex",
+    model: "gpt-5-codex",
+    modelOptions: null,
+    connectionId: null,
+    runtimeMode: "full-access",
+    state: "idle",
+    activeTurnId: null,
+    lastError: null,
+    queue: "[]",
+    createdBy: "user",
+    createdByThreadId: null,
+    sidebarSortOrder: null,
+    lastActivityAt: null,
+    lastMessagePreview: null,
+    lastUserMessageAt: null,
+    lastVisitedAt: null,
+    openQuestionCount: 0,
+    archivedAt: null,
+    deletedAt: null,
+    createdAt: "2026-02-13T00:00:00.000Z",
+    updatedAt: "2026-02-13T00:00:00.000Z",
+    ...overrides,
+  };
+}

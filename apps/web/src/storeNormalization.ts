@@ -158,10 +158,8 @@ export function threadShellsEqual(left: ThreadShell | undefined, right: ThreadSh
     left.id === right.id &&
     left.codexThreadId === right.codexThreadId &&
     left.folderId === right.folderId &&
-    (left.sidebarSortOrder ?? 0) === (right.sidebarSortOrder ?? 0) &&
     left.title === right.title &&
     left.modelSelection === right.modelSelection &&
-    left.runtimeMode === right.runtimeMode &&
     left.error === right.error &&
     left.errorSource === right.errorSource &&
     left.createdAt === right.createdAt &&
@@ -172,36 +170,22 @@ export function threadShellsEqual(left: ThreadShell | undefined, right: ThreadSh
     (left.subagentAgentId ?? null) === (right.subagentAgentId ?? null) &&
     (left.subagentNickname ?? null) === (right.subagentNickname ?? null) &&
     (left.subagentRole ?? null) === (right.subagentRole ?? null) &&
-    left.latestUserMessageAt === right.latestUserMessageAt &&
     left.hasPendingApprovals === right.hasPendingApprovals &&
     left.hasPendingUserInput === right.hasPendingUserInput &&
     left.workStatus === right.workStatus &&
-    left.lastMessagePreview === right.lastMessagePreview &&
-    left.lastActivityAt === right.lastActivityAt &&
-    left.pendingInteractions === right.pendingInteractions &&
-    left.lastVisitedAt === right.lastVisitedAt
+    left.pendingInteractions === right.pendingInteractions
   );
 }
 
 function resolveThreadSidebarRollups(
-  incoming: Pick<ReadModelThread, "workStatus" | "lastMessagePreview" | "lastActivityAt">,
+  incoming: Pick<ReadModelThread, "workStatus">,
   previous: Thread | undefined,
-): Pick<Thread, "workStatus" | "lastMessagePreview" | "lastActivityAt"> {
+): Pick<Thread, "workStatus"> {
   return {
     ...(Object.hasOwn(incoming, "workStatus") && incoming.workStatus !== undefined
       ? { workStatus: incoming.workStatus }
       : previous?.workStatus !== undefined
         ? { workStatus: previous.workStatus }
-        : {}),
-    ...(Object.hasOwn(incoming, "lastMessagePreview")
-      ? { lastMessagePreview: incoming.lastMessagePreview ?? null }
-      : previous?.lastMessagePreview !== undefined
-        ? { lastMessagePreview: previous.lastMessagePreview }
-        : {}),
-    ...(Object.hasOwn(incoming, "lastActivityAt")
-      ? { lastActivityAt: incoming.lastActivityAt ?? null }
-      : previous?.lastActivityAt !== undefined
-        ? { lastActivityAt: previous.lastActivityAt }
         : {}),
   };
 }
@@ -858,7 +842,6 @@ function readModelSessionFromThreadSession(
     threadId: previousThread?.id ?? incomingSession?.threadId ?? ThreadId.makeUnsafe("unknown"),
     status: previousSession.orchestrationStatus,
     providerName: previousSession.provider,
-    runtimeMode: previousThread?.runtimeMode ?? incomingSession?.runtimeMode ?? "full-access",
     activeTurnId: previousSession.activeTurnId ?? null,
     lastError: previousSession.lastError ?? null,
     updatedAt: previousSession.updatedAt,
@@ -891,7 +874,6 @@ function mergeReadModelSessionWithLiveHotPath(
     return {
       ...nextSession,
       providerName: incomingSession.providerName,
-      runtimeMode: incomingSession.runtimeMode,
       activeTurnId: previousSession.activeTurnId ?? incomingSession.activeTurnId,
       lastError: previousSession.lastError ?? incomingSession.lastError,
     };
@@ -1563,11 +1545,6 @@ export function normalizeThreadFromReadModel(
   const deliveryError = latestDeliveryFailureReason(messages);
   const error = sessionError ?? deliveryError;
   const errorSource = sessionError === null && deliveryError !== null ? "delivery" : undefined;
-  const lastVisitedAt = incoming.lastVisitedAt ?? previous?.lastVisitedAt ?? incoming.updatedAt;
-  const resolvedLatestUserMessageAt =
-    Object.hasOwn(incoming, "latestUserMessageAt") && incoming.latestUserMessageAt !== undefined
-      ? (incoming.latestUserMessageAt ?? null)
-      : undefined;
   const resolvedHasPendingApprovals =
     typeof incoming.hasPendingApprovals === "boolean" ? incoming.hasPendingApprovals : undefined;
   const resolvedHasPendingUserInput =
@@ -1578,11 +1555,9 @@ export function normalizeThreadFromReadModel(
   if (
     previous &&
     previous.folderId === incoming.folderId &&
-    (previous.sidebarSortOrder ?? 0) === (incoming.sidebarSortOrder ?? 0) &&
     previous.title === incoming.title &&
     previous.modelSelection === modelSelection &&
     previous.connectionId === incoming.connectionId &&
-    previous.runtimeMode === incoming.runtimeMode &&
     previous.session === session &&
     previous.messages === messages &&
     previous.queuedMessageIds === queuedMessageIds &&
@@ -1593,18 +1568,14 @@ export function normalizeThreadFromReadModel(
     previous.updatedAt === incoming.updatedAt &&
     previous.latestTurn === latestTurn &&
     (previous.pendingTurnStartMessageId ?? null) === pendingTurnStartMessageId &&
-    previous.lastVisitedAt === lastVisitedAt &&
     (previous.creationSource ?? null) === (incoming.creationSource ?? null) &&
     (previous.sourceThreadId ?? null) === (incoming.sourceThreadId ?? null) &&
     (previous.subagentAgentId ?? null) === (incoming.subagentAgentId ?? null) &&
     (previous.subagentNickname ?? null) === (incoming.subagentNickname ?? null) &&
     (previous.subagentRole ?? null) === (incoming.subagentRole ?? null) &&
-    previous.latestUserMessageAt === resolvedLatestUserMessageAt &&
     previous.hasPendingApprovals === resolvedHasPendingApprovals &&
     previous.hasPendingUserInput === resolvedHasPendingUserInput &&
     previous.workStatus === sidebarRollups.workStatus &&
-    previous.lastMessagePreview === sidebarRollups.lastMessagePreview &&
-    previous.lastActivityAt === sidebarRollups.lastActivityAt &&
     previous.activities === activities &&
     previous.pendingInteractions === pendingInteractions
   ) {
@@ -1616,11 +1587,9 @@ export function normalizeThreadFromReadModel(
     codexThreadId: null,
     folderId: incoming.folderId,
     spaceId: previous?.spaceId ?? null,
-    sidebarSortOrder: incoming.sidebarSortOrder ?? 0,
     title: incoming.title,
     modelSelection,
     ...(incoming.connectionId !== undefined ? { connectionId: incoming.connectionId } : {}),
-    runtimeMode: incoming.runtimeMode,
     session,
     messages,
     queuedMessageIds,
@@ -1631,15 +1600,11 @@ export function normalizeThreadFromReadModel(
     updatedAt: incoming.updatedAt,
     latestTurn,
     pendingTurnStartMessageId,
-    lastVisitedAt,
     creationSource: incoming.creationSource ?? null,
     sourceThreadId: incoming.sourceThreadId ?? null,
     subagentAgentId: incoming.subagentAgentId ?? null,
     subagentNickname: incoming.subagentNickname ?? null,
     subagentRole: incoming.subagentRole ?? null,
-    ...(resolvedLatestUserMessageAt !== undefined
-      ? { latestUserMessageAt: resolvedLatestUserMessageAt }
-      : {}),
     ...(resolvedHasPendingApprovals !== undefined
       ? { hasPendingApprovals: resolvedHasPendingApprovals }
       : {}),
@@ -1666,18 +1631,15 @@ export function normalizeThreadShellSnapshot(
   const deliveryError = latestDeliveryFailureReason(previous?.messages ?? []);
   const error = sessionError ?? deliveryError;
   const errorSource = sessionError === null && deliveryError !== null ? "delivery" : undefined;
-  const lastVisitedAt = incoming.lastVisitedAt ?? previous?.lastVisitedAt ?? incoming.updatedAt;
   const sidebarRollups = resolveThreadSidebarRollups(incoming, previous);
   const shell: ThreadShell = {
     id: incoming.id,
     codexThreadId: previous?.codexThreadId ?? null,
     folderId: incoming.folderId,
     spaceId: previous?.spaceId ?? null,
-    sidebarSortOrder: incoming.sidebarSortOrder ?? 0,
     title: incoming.title,
     modelSelection,
     ...(incoming.connectionId !== undefined ? { connectionId: incoming.connectionId } : {}),
-    runtimeMode: incoming.runtimeMode,
     error,
     ...(errorSource !== undefined ? { errorSource } : {}),
     createdAt: incoming.createdAt,
@@ -1690,9 +1652,6 @@ export function normalizeThreadShellSnapshot(
     subagentRole: incoming.subagentRole ?? null,
     // The sidebar shell snapshot/event does not carry thread annotations, so keep the values
     // resolved from the thread-detail path instead of clobbering them with `undefined`.
-    ...(incoming.latestUserMessageAt !== undefined
-      ? { latestUserMessageAt: incoming.latestUserMessageAt ?? null }
-      : {}),
     ...(incoming.hasPendingApprovals !== undefined
       ? { hasPendingApprovals: incoming.hasPendingApprovals }
       : {}),
@@ -1703,7 +1662,6 @@ export function normalizeThreadShellSnapshot(
     ...(previous?.pendingInteractions !== undefined
       ? { pendingInteractions: previous.pendingInteractions }
       : {}),
-    ...(lastVisitedAt !== undefined ? { lastVisitedAt } : {}),
   };
   return {
     shell,
@@ -1782,14 +1740,11 @@ function attachmentPreviewRoutePath(attachmentId: string): string {
 }
 
 export function resolveThreadSidebarMetadata(thread: Thread): {
-  latestUserMessageAt: string | null;
   hasPendingApprovals: boolean;
   hasPendingUserInput: boolean;
 } {
   const needsDerivedMetadata =
-    thread.latestUserMessageAt === undefined ||
-    thread.hasPendingApprovals === undefined ||
-    thread.hasPendingUserInput === undefined;
+    thread.hasPendingApprovals === undefined || thread.hasPendingUserInput === undefined;
   const derivedMetadata = needsDerivedMetadata
     ? deriveThreadSummaryMetadata({
         messages: thread.messages,
@@ -1798,7 +1753,6 @@ export function resolveThreadSidebarMetadata(thread: Thread): {
     : null;
 
   return {
-    latestUserMessageAt: thread.latestUserMessageAt ?? derivedMetadata?.latestUserMessageAt ?? null,
     hasPendingApprovals:
       thread.hasPendingApprovals ?? derivedMetadata?.hasPendingApprovals ?? false,
     hasPendingUserInput:

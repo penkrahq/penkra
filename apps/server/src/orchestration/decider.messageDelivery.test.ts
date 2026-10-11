@@ -50,7 +50,6 @@ const shellOnlyReadModel: OrchestrationReadModel = {
       folderId: FolderId.makeUnsafe("folder-shell-only-delivery"),
       title: "Queue QA",
       modelSelection: { provider: "codex", model: "gpt-5.4-mini" },
-      runtimeMode: "full-access",
       createdAt: NOW,
       updatedAt: NOW,
       latestTurn: null,

@@ -1000,7 +1000,6 @@ function applyOrchestrationEvent(
             event.payload.modelSelection !== undefined
               ? normalizeModelSelection(event.payload.modelSelection, thread.modelSelection)
               : thread.modelSelection;
-          const runtimeMode = event.payload.runtimeMode;
           const deliveryState: NonNullable<ChatMessage["delivery"]>["state"] =
             event.payload.dispatchMode === "steer" ? "steering" : "starting";
           const nativeSteer =
@@ -1012,7 +1011,6 @@ function applyOrchestrationEvent(
           );
           if (
             modelSelection === thread.modelSelection &&
-            thread.runtimeMode === runtimeMode &&
             thread.pendingTurnStartMessageId === event.payload.messageId &&
             queuedMessageIds.length === existingQueuedMessageIds.length &&
             thread.messages.some(
@@ -1028,7 +1026,6 @@ function applyOrchestrationEvent(
           return {
             ...thread,
             modelSelection,
-            runtimeMode,
             messages: thread.messages
               .map((message) =>
                 message.id === event.payload.messageId &&

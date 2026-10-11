@@ -914,9 +914,8 @@ function ChatViewContent({
   const markWorkflowRunDismissed = useWorkflowRunUiStore((store) => store.markDismissed);
   const serverThread = useStore(useMemo(() => createThreadSelector(threadId), [threadId]));
   const threadDetailSyncState = useStore((store) => store.threadDetailSyncById?.[threadId] ?? null);
-  const composerThreadSummaries = useStore(
-    useMemo(() => createComposerThreadMentionSourcesSelector(), []),
-  );
+  const selectMentionSources = useMemo(() => createComposerThreadMentionSourcesSelector(), []);
+  const composerThreadSummaries = selectMentionSources(useThreadList());
   const composerThreadFolders = useStore((state) => state.folders);
   const crossTaskSourceThreadId =
     serverThread?.creationSource && serverThread.sourceThreadId
@@ -1489,7 +1488,7 @@ function ChatViewContent({
     composerDraft.runtimeMode ??
     (context.kind === "persisted"
       ? Schema.decodeUnknownSync(RuntimeMode)(context.row.runtimeMode)
-      : (localDraftThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE));
+      : (parentScopedDraftThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE));
   const isServerThread = serverThread !== undefined;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const threadDetailHydration = resolveThreadDetailHydration({
@@ -3376,6 +3375,7 @@ function ChatViewContent({
         {
           type: "thread.turn.recover",
           reason: "play",
+          runtimeMode,
           commandId,
           threadId: target.threadId,
           turnId: target.turnId,
@@ -3418,6 +3418,7 @@ function ChatViewContent({
     bindingForContinue,
     canShowContinue,
     isWorking,
+    runtimeMode,
     setThreadError,
   ]);
   const focusComposer = useCallback(() => {

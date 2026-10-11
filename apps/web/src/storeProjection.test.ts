@@ -1,6 +1,9 @@
 // FILE: storeProjection.test.ts
 // Purpose: Exercises snapshot normalization and normalized projection ownership.
 
+import { applyThreadRow, getThreadListById } from "./threadListStore";
+import { makeThreadSummary } from "./storeTestFixtures";
+
 import {
   EventId,
   MessageId,
@@ -43,7 +46,7 @@ import {
   makeReadModelProject,
   threadsOf,
 } from "./storeTestFixtures";
-import { DEFAULT_RUNTIME_MODE, type Thread } from "./types";
+import type { Thread } from "./types";
 import { resolveSidebarWorkStatus, resolveThreadStatusPill } from "./components/Sidebar.logic";
 import { deriveTimelineEntries, deriveWorkLogEntries } from "./workLog";
 
@@ -707,7 +710,6 @@ describe("store projection", () => {
           threadId,
           status: "running",
           providerName: "codex",
-          runtimeMode: "full-access",
           activeTurnId: turnId,
           lastError: null,
           updatedAt: "2026-09-15T00:00:05.000Z",
@@ -885,7 +887,6 @@ describe("store projection", () => {
       makeState(makeThread()),
       makeReadModel(
         makeReadModelThread({
-          latestUserMessageAt: "2026-02-27T00:03:00.000Z",
           hasPendingApprovals: true,
           hasPendingUserInput: true,
           updatedAt: "2026-02-27T00:05:00.000Z",
@@ -894,7 +895,6 @@ describe("store projection", () => {
     );
 
     expect(threadsOf(next)[0]).toMatchObject({
-      latestUserMessageAt: "2026-02-27T00:03:00.000Z",
       hasPendingApprovals: true,
       hasPendingUserInput: true,
     });
@@ -925,7 +925,7 @@ describe("store projection", () => {
       ),
     );
 
-    expect(threadsOf(next)[0]?.latestUserMessageAt).toBeUndefined();
+    expect(threadsOf(next)[0]).not.toHaveProperty("latestUserMessageAt");
     expect(next.sidebarThreadSummaryById["thread-1"]).not.toHaveProperty("latestUserMessageAt");
   });
 
@@ -948,7 +948,6 @@ describe("store projection", () => {
           provider: "codex",
           model: "gpt-5.3-codex",
         },
-        runtimeMode: DEFAULT_RUNTIME_MODE,
         latestTurn: null,
         createdAt: "2026-02-27T00:00:00.000Z",
         updatedAt: "2026-02-27T00:00:30.000Z",
@@ -1333,7 +1332,6 @@ describe("store projection", () => {
           threadId: ThreadId.makeUnsafe("thread-1"),
           status: "error",
           providerName: "codex",
-          runtimeMode: "full-access",
           activeTurnId: null,
           lastError:
             "2026-04-12T23:27:41.094760Z ERROR codex_core::tools::router: error=write_stdin failed: stdin is closed for this session; rerun exec_command with tty=true to keep stdin open",
@@ -1376,7 +1374,6 @@ describe("store projection", () => {
           threadId: ThreadId.makeUnsafe("thread-1"),
           status: "ready",
           providerName: "claudeAgent",
-          runtimeMode: "approval-required",
           activeTurnId: null,
           lastError: null,
           updatedAt: "2026-02-27T00:00:00.000Z",
@@ -1401,7 +1398,6 @@ describe("store projection", () => {
           threadId: ThreadId.makeUnsafe("thread-1"),
           status: "ready",
           providerName: "opencode",
-          runtimeMode: "approval-required",
           activeTurnId: null,
           lastError: null,
           updatedAt: "2026-02-27T00:00:00.000Z",
@@ -1547,7 +1543,6 @@ describe("store projection", () => {
           threadId,
           status: "running",
           providerName: "claudeAgent",
-          runtimeMode: "full-access",
           activeTurnId: turnId,
           lastError: null,
           updatedAt: "2026-02-27T00:00:02.000Z",
@@ -1630,7 +1625,6 @@ describe("store projection", () => {
           threadId,
           status: "running",
           providerName: "codex",
-          runtimeMode: "full-access",
           activeTurnId: turnId,
           lastError: null,
           updatedAt: "2026-02-27T00:00:02.000Z",
@@ -1697,7 +1691,6 @@ describe("store projection", () => {
           threadId,
           status: "ready",
           providerName: "codex",
-          runtimeMode: "full-access",
           activeTurnId: null,
           lastError: null,
           updatedAt: completedAt,
@@ -1853,7 +1846,6 @@ describe("store projection", () => {
           threadId,
           status: "ready",
           providerName: "codex",
-          runtimeMode: "full-access",
           activeTurnId: null,
           lastError: null,
           updatedAt: completedAt,
@@ -1932,7 +1924,6 @@ describe("store projection", () => {
           threadId,
           status: "ready",
           providerName: "codex",
-          runtimeMode: "full-access",
           activeTurnId: null,
           lastError: null,
           updatedAt: completedAt,
@@ -2014,7 +2005,6 @@ describe("store projection", () => {
           threadId,
           status: "ready",
           providerName: "codex",
-          runtimeMode: "full-access",
           activeTurnId: null,
           lastError: null,
           updatedAt: sharedUpdatedAt,
@@ -2053,7 +2043,6 @@ describe("store projection", () => {
           threadId,
           status,
           providerName: "codex",
-          runtimeMode: "full-access",
           activeTurnId: withRunningTurn ? turnId : null,
           lastError: null,
           updatedAt: activeAt,
@@ -2073,7 +2062,6 @@ describe("store projection", () => {
           threadId,
           status: "ready",
           providerName: "codex",
-          runtimeMode: "full-access",
           activeTurnId: null,
           lastError: null,
           updatedAt: staleAt,
@@ -2100,6 +2088,13 @@ describe("store projection", () => {
     const threadId = ThreadId.makeUnsafe("thread-sidebar-partial-ready");
     const turnId = TurnId.makeUnsafe("turn-sidebar-partial-ready");
     const runningAt = "2026-02-27T00:00:02.000Z";
+    const row = makeThreadSummary({
+      id: threadId,
+      state: "running",
+      lastMessagePreview: "Working on the hotfix",
+      lastActivityAt: runningAt,
+    });
+    applyThreadRow(row);
     const activeState = syncServerReadModel(
       makeState(makeThread({ id: threadId })),
       makeReadModel(
@@ -2117,7 +2112,6 @@ describe("store projection", () => {
             threadId,
             status: "running",
             providerName: "codex",
-            runtimeMode: "full-access",
             activeTurnId: turnId,
             lastError: null,
             updatedAt: runningAt,
@@ -2132,7 +2126,6 @@ describe("store projection", () => {
         threadId,
         status: "ready",
         providerName: "codex",
-        runtimeMode: "full-access",
         activeTurnId: null,
         lastError: null,
         updatedAt: "2026-02-27T00:00:03.000Z",
@@ -2149,25 +2142,28 @@ describe("store projection", () => {
     expect(next.sidebarThreadSummaryById[threadId]?.session?.orchestrationStatus).toBe("running");
   });
 
-  it("preserves persisted sidebar rollups through full and shell normalization", () => {
+  it("keeps canonical sidebar rollups out of full and shell normalization", () => {
     const threadId = ThreadId.makeUnsafe("thread-sidebar-rollups");
     const runningAt = "2026-02-27T00:00:02.000Z";
+    const row = makeThreadSummary({
+      id: threadId,
+      state: "running",
+      lastMessagePreview: "Working on the hotfix",
+      lastActivityAt: runningAt,
+    });
+    applyThreadRow(row);
     const initial = syncServerReadModel(
       makeState(makeThread({ id: threadId })),
       makeReadModel(
         makeReadModelThread({
           id: threadId,
           workStatus: "running",
-          lastMessagePreview: "Working on the hotfix",
-          lastActivityAt: runningAt,
         }),
       ),
     );
 
     expect(initial.threadShellById?.[threadId]).toMatchObject({
       workStatus: "running",
-      lastMessagePreview: "Working on the hotfix",
-      lastActivityAt: runningAt,
     });
     expect(initial.sidebarThreadSummaryById[threadId]).toMatchObject({
       workStatus: "running",
@@ -2180,8 +2176,6 @@ describe("store projection", () => {
         makeReadModelThread({
           id: threadId,
           workStatus: "done",
-          lastMessagePreview: "Hotfix complete",
-          lastActivityAt: completedAt,
           updatedAt: completedAt,
         }),
       ),
@@ -2189,12 +2183,13 @@ describe("store projection", () => {
 
     expect(next.threadShellById?.[threadId]).toMatchObject({
       workStatus: "done",
-      lastMessagePreview: "Hotfix complete",
-      lastActivityAt: completedAt,
     });
     expect(next.sidebarThreadSummaryById[threadId]).toMatchObject({
       workStatus: "done",
     });
+    expect(getThreadListById().get(threadId)).toBe(row);
+    expect(next.threadShellById?.[threadId]).not.toHaveProperty("lastActivityAt");
+    expect(next.threadShellById?.[threadId]).not.toHaveProperty("lastMessagePreview");
   });
 
   it("keeps sidebar summaries shell-owned during hot-path thread detail syncs", () => {
@@ -2511,7 +2506,6 @@ describe("store projection", () => {
           provider: "codex",
           model: "gpt-5.3-codex",
         },
-        runtimeMode: DEFAULT_RUNTIME_MODE,
         latestTurn: null,
         createdAt: "2026-02-27T00:00:00.000Z",
         updatedAt: "2026-02-27T00:00:30.000Z",
@@ -2552,7 +2546,6 @@ describe("store projection", () => {
           provider: "codex",
           model: "gpt-5.3-codex",
         },
-        runtimeMode: DEFAULT_RUNTIME_MODE,
         latestTurn: null,
         createdAt: "2026-02-27T00:00:00.000Z",
         updatedAt: "2026-02-27T00:00:30.000Z",
@@ -2699,7 +2692,6 @@ describe("deletion tombstone retirement", () => {
         folderId,
         title,
         modelSelection: { provider: "codex", model: "gpt-5.3-codex" },
-        runtimeMode: DEFAULT_RUNTIME_MODE,
         latestTurn: null,
         createdAt: "2026-02-27T00:00:00.000Z",
         updatedAt: "2026-02-27T00:00:30.000Z",
@@ -2899,7 +2891,6 @@ describe("deletion tombstone retirement", () => {
       folderId,
       title: "Base",
       modelSelection: { provider: "codex", model: "gpt-5.3-codex" },
-      runtimeMode: DEFAULT_RUNTIME_MODE,
       latestTurn: null,
       createdAt: "2026-02-27T00:00:00.000Z",
       updatedAt: "2026-02-27T00:00:30.000Z",
@@ -3001,7 +2992,6 @@ describe("deletion tombstone retirement", () => {
           provider: "codex",
           model: "gpt-5.3-codex",
         },
-        runtimeMode: DEFAULT_RUNTIME_MODE,
         subagentAgentId: null,
         subagentNickname: null,
         subagentRole: null,

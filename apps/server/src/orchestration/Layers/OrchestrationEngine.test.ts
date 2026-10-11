@@ -293,6 +293,7 @@ describe("OrchestrationEngine", () => {
       const slow = system.run(
         system.engine.dispatch({
           type: "thread.turn.recover",
+          runtimeMode: "full-access",
           reason: "restart",
           commandId: CommandId.makeUnsafe("slow-read-11118"),
           threadId: threadA,
@@ -324,6 +325,7 @@ describe("OrchestrationEngine", () => {
         .run(
           system.engine.dispatch({
             type: "thread.turn.recover",
+            runtimeMode: "full-access",
             reason: "restart",
             commandId: CommandId.makeUnsafe("slow-read-11921"),
             threadId: threadA,
@@ -530,6 +532,7 @@ describe("OrchestrationEngine", () => {
             system.run(
               system.engine.dispatch({
                 type: "thread.turn.recover",
+                runtimeMode: "full-access",
                 reason: "play",
                 commandId: CommandId.makeUnsafe("play-after-assistant-order"),
                 threadId,
@@ -706,7 +709,6 @@ describe("OrchestrationEngine", () => {
             threadId,
             status: "running",
             providerName: "codex",
-            runtimeMode: "full-access",
             activeTurnId: turnId,
             lastError: null,
             updatedAt: startedAt,
@@ -755,7 +757,6 @@ describe("OrchestrationEngine", () => {
             threadId,
             status: "interrupted",
             providerName: "codex",
-            runtimeMode: "full-access",
             activeTurnId: null,
             lastError: null,
             updatedAt: stoppedAt,
@@ -793,6 +794,7 @@ describe("OrchestrationEngine", () => {
         system.run(
           system.engine.dispatch({
             type: "thread.turn.recover",
+            runtimeMode: "approval-required",
             reason: "play",
             commandId: CommandId.makeUnsafe("cmd-play-stop-recover"),
             threadId,
@@ -809,6 +811,18 @@ describe("OrchestrationEngine", () => {
         SELECT state FROM queued_turn_promotions WHERE thread_id = ${threadId}
       `);
       expect(stillQueued).toEqual([{ state: "queued" }]);
+      const recoveryEvents = Array.from(
+        await system.run(Stream.runCollect(system.engine.readEvents(0))),
+      );
+      expect(
+        recoveryEvents.find(
+          (event) =>
+            event.commandId === "cmd-play-stop-recover" &&
+            event.type === "thread.turn-start-requested",
+        ),
+      ).toMatchObject({
+        payload: { runtimeMode: "full-access" },
+      });
     } finally {
       await system.dispose();
     }
@@ -882,6 +896,7 @@ describe("OrchestrationEngine", () => {
         system.run(
           system.engine.dispatch({
             type: "thread.turn.recover",
+            runtimeMode: "full-access",
             reason: "play",
             commandId: CommandId.makeUnsafe(`cmd-play-blocked-${blocker}`),
             threadId,
@@ -959,6 +974,7 @@ describe("OrchestrationEngine", () => {
         system.run(
           system.engine.dispatch({
             type: "thread.turn.recover",
+            runtimeMode: "full-access",
             reason: "play",
             commandId: CommandId.makeUnsafe(`cmd-concurrent-play-${index}`),
             threadId,
@@ -974,6 +990,7 @@ describe("OrchestrationEngine", () => {
         system.run(
           system.engine.dispatch({
             type: "thread.turn.recover",
+            runtimeMode: "full-access",
             reason: "play",
             commandId: CommandId.makeUnsafe("cmd-concurrent-play-stale-binding"),
             threadId,

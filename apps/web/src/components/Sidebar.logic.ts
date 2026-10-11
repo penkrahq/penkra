@@ -71,7 +71,7 @@ type SidebarThreadSortInput = {
   sidebarSortOrder?: number | null | undefined;
   updatedAt?: string | undefined;
   latestTurn?: Thread["latestTurn"] | undefined;
-  lastVisitedAt?: Thread["lastVisitedAt"] | null | undefined;
+  lastVisitedAt?: string | null | undefined;
   hasPendingApprovals?: boolean | undefined;
   hasPendingUserInput?: boolean | undefined;
   session?: Thread["session"] | undefined;
@@ -205,8 +205,9 @@ export function resolveVisibleThreadWorkStatus(input: {
 
 type ThreadStatusInput = Pick<
   Thread,
-  "latestTurn" | "lastVisitedAt" | "pendingTurnStartMessageId" | "session" | "updatedAt"
+  "latestTurn" | "pendingTurnStartMessageId" | "session" | "updatedAt"
 > & {
+  lastVisitedAt?: string | null | undefined;
   dismissedStatusKey?: string | undefined;
 };
 

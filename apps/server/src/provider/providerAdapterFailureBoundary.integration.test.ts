@@ -597,7 +597,6 @@ async function makeProviderRuntime(
         threadId: THREAD_ID,
         status: "ready",
         providerName: "codex",
-        runtimeMode: "full-access",
         activeTurnId: TURN_ID,
         lastError: null,
         updatedAt: now,

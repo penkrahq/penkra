@@ -216,6 +216,16 @@ export const makeAgentGateway = Effect.gen(function* () {
       ),
     );
 
+  const requireCanonicalThread = (id: string) =>
+    lifecycle.get(ThreadId.makeUnsafe(id)).pipe(
+      Effect.mapError((error) => new ToolInputError(errorText(error))),
+      Effect.flatMap((row) =>
+        row === null || row.deletedAt !== null
+          ? Effect.fail(new ToolInputError(`Thread "${id}" was not found.`))
+          : Effect.succeed(row),
+      ),
+    );
+
   // Privilege boundary shared by every tool that makes another thread execute
   // work or mutates another thread's state: a caller must not drive a thread
   // that runs with more privileges than the user granted the caller itself —
@@ -270,7 +280,6 @@ export const makeAgentGateway = Effect.gen(function* () {
     providerDiscovery,
     providerTurnSelectionResolver,
     loadProviderAvailabilities,
-    requireThreadShell,
     onThreadCreated: (creatorThreadId, childThreadId) =>
       Effect.tryPromise(() =>
         requestAppRuntimeBridge("thread.home.inherit", { creatorThreadId, childThreadId }),
@@ -397,8 +406,8 @@ export const makeAgentGateway = Effect.gen(function* () {
           );
         }
         const now = input.now ?? false;
-        const caller = yield* requireThreadShell(context.callerThreadId);
-        const target = yield* requireThreadShell(threadId);
+        const caller = yield* requireCanonicalThread(context.callerThreadId);
+        const target = yield* requireCanonicalThread(threadId);
         yield* assertCallerMayDriveThread(caller, target);
         const result = yield* sender.send({
           threadId: target.id,
@@ -449,14 +458,14 @@ export const makeAgentGateway = Effect.gen(function* () {
         const messageId = readStringArg(args, "messageId");
         if (!requestedThreadId && !messageId)
           throw new ToolInputError("Supply threadId or messageId.");
-        const caller = yield* requireThreadShell(context.callerThreadId);
+        const caller = yield* requireCanonicalThread(context.callerThreadId);
         const threadId =
           requestedThreadId === undefined
             ? yield* sender.queuedThread(messageId!)
             : ThreadId.makeUnsafe(requestedThreadId);
         if (threadId === null)
           return mcpToolResultJson({ threadId: null, messageId, removed: false });
-        const target = yield* requireThreadShell(threadId);
+        const target = yield* requireCanonicalThread(threadId);
         yield* assertCallerMayDriveThread(caller, target);
         const result =
           messageId === undefined
@@ -494,8 +503,8 @@ export const makeAgentGateway = Effect.gen(function* () {
     handler: (args, context) =>
       Effect.gen(function* () {
         const threadId = readStringArg(args, "threadId", { required: true })!;
-        const caller = yield* requireThreadShell(context.callerThreadId);
-        const target = yield* requireThreadShell(threadId);
+        const caller = yield* requireCanonicalThread(context.callerThreadId);
+        const target = yield* requireCanonicalThread(threadId);
         yield* assertCallerMayDriveThread(caller, target);
         const updatedAt = new Date().toISOString();
         yield* lifecycle
@@ -565,7 +574,7 @@ export const makeAgentGateway = Effect.gen(function* () {
           if (!requestedPaths?.length) {
             return yield* Effect.fail(new ToolInputError("At least one --path is required."));
           }
-          const caller = yield* requireThreadShell(context.callerThreadId);
+          const caller = yield* requireCanonicalThread(context.callerThreadId);
           const folder = yield* snapshotQuery.getFolderShellById(caller.folderId);
           const cwd = resolvePresentFileCwd({
             threadId: caller.id,
@@ -707,7 +716,7 @@ export const makeAgentGateway = Effect.gen(function* () {
           });
         }
 
-        const caller = yield* requireThreadShell(context.callerThreadId);
+        const caller = yield* requireCanonicalThread(context.callerThreadId);
         const callerSpaceId = yield* requireThreadSpaceId(snapshotQuery, caller);
         if (!context.callerCapabilities.has("thread:write")) {
           return yield* Effect.fail(

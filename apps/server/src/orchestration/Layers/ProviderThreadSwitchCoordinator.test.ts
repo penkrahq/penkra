@@ -244,7 +244,6 @@ const dependencies = Layer.mergeAll(
           return Option.some({
             ...shell,
             latestTurnId: "historical-turn",
-            latestUserMessageAt: timestamp,
           });
         }
         projectionSettlementReadCount += 1;
@@ -908,6 +907,8 @@ layer("ProviderThreadSwitchCoordinator", (it) => {
     Effect.gen(function* () {
       hasBinding = false;
       projectedHistoricalThread = true;
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`UPDATE threads SET last_user_message_at = ${timestamp} WHERE id = ${command.threadId}`;
       operation = undefined;
       const coordinator = yield* ProviderThreadSwitchCoordinator;
       const result = yield* Effect.exit(
