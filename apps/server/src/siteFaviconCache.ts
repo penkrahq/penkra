@@ -12,8 +12,6 @@ import { outboundHttp } from "@penkra/shared/outboundHttp";
 const FAVICON_CACHE_MAX = 500;
 const FAVICON_SUCCESS_TTL_MS = 24 * 60 * 60 * 1000; // 24 h
 const FAVICON_FAILURE_TTL_MS = 60 * 60 * 1000; // 1 h (negative cache)
-const REMOTE_FETCH_TIMEOUT_MS = 5_000;
-const DIRECT_FETCH_TIMEOUT_MS = 3_000;
 const MAX_FAVICON_BYTES = 512 * 1024; // 512 KB — favicons are tiny; cap rogue responses.
 
 export interface CachedFavicon {
@@ -75,16 +73,12 @@ function isPublicHttpHost(host: string): boolean {
   return true;
 }
 
-async function fetchImage(
-  url: string,
-  timeoutMs: number,
-): Promise<{ bytes: Uint8Array; contentType: string } | null> {
+async function fetchImage(url: string): Promise<{ bytes: Uint8Array; contentType: string } | null> {
   try {
     const response = await outboundHttp.request({
       policy: {
         service: "site-favicon",
         allowedOrigins: [new URL(url).origin],
-        timeoutMs,
         maxRequestBytes: 0,
         maxResponseBytes: MAX_FAVICON_BYTES,
         maxRedirects: 2,
@@ -111,20 +105,18 @@ async function fetchFaviconForHost(
   // 1) Google S2 — best coverage, returns a clean PNG (a generic globe for unknown sites).
   const google = await fetchImage(
     `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64`,
-    REMOTE_FETCH_TIMEOUT_MS,
   );
   if (google) return google;
 
   // 2) DuckDuckGo — no API key, good coverage.
   const duckDuckGo = await fetchImage(
     `https://icons.duckduckgo.com/ip3/${encodeURIComponent(host)}.ico`,
-    REMOTE_FETCH_TIMEOUT_MS,
   );
   if (duckDuckGo) return duckDuckGo;
 
   // 3) Direct /favicon.ico — last resort, only for publicly routable hosts.
   if (isPublicHttpHost(host)) {
-    const direct = await fetchImage(`https://${host}/favicon.ico`, DIRECT_FETCH_TIMEOUT_MS);
+    const direct = await fetchImage(`https://${host}/favicon.ico`);
     if (direct) return direct;
   }
 

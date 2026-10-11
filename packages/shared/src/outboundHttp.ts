@@ -26,8 +26,7 @@ export type OutboundHttpErrorCode =
   | "json"
   | "request"
   | "request-too-large"
-  | "response-too-large"
-  | "timeout";
+  | "response-too-large";
 
 export class OutboundHttpError extends Error {
   readonly code: OutboundHttpErrorCode;
@@ -44,7 +43,6 @@ export class OutboundHttpError extends Error {
 export interface OutboundHttpPolicy {
   readonly service: string;
   readonly allowedOrigins: ReadonlyArray<string>;
-  readonly timeoutMs: number;
   readonly maxRequestBytes: number;
   readonly maxResponseBytes: number;
   readonly maxRedirects: number;
@@ -450,17 +448,7 @@ export class OutboundHttpClient {
     const abortFromCaller = () => controller.abort(input.signal?.reason);
     if (input.signal?.aborted) abortFromCaller();
     else input.signal?.addEventListener("abort", abortFromCaller, { once: true });
-    const timeout = setTimeout(
-      () =>
-        controller.abort(
-          new OutboundHttpError(
-            "timeout",
-            `Outbound request exceeded its ${policy.timeoutMs}ms deadline.`,
-          ),
-        ),
-      policy.timeoutMs,
-    );
-    timeout.unref?.();
+    // Completion comes from the response, a network error, or caller cancellation.
 
     let releaseGlobal: (() => void) | undefined;
     let releaseService: (() => void) | undefined;
@@ -509,12 +497,10 @@ export class OutboundHttpClient {
     } catch (cause) {
       if (controller.signal.aborted) {
         const reason = controller.signal.reason;
-        if (reason instanceof OutboundHttpError && reason.code === "timeout") throw reason;
         throw abortedError(reason);
       }
       throw cause;
     } finally {
-      clearTimeout(timeout);
       input.signal?.removeEventListener("abort", abortFromCaller);
       releaseService?.();
       releaseGlobal?.();

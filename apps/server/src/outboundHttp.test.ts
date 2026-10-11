@@ -2,6 +2,7 @@ import {
   encodeOutboundMultipart,
   invokePinnedDnsLookup,
   OutboundHttpError,
+  OutboundHttpClient,
 } from "@penkra/shared/outboundHttp";
 import {
   assertJsonWithinLimits,
@@ -9,7 +10,11 @@ import {
   isPublicIpAddress,
   OutboundPolicyError,
 } from "@penkra/shared/outboundHttpPolicy";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { EventEmitter } from "node:events";
+import * as Http from "node:http";
+import Https from "node:https";
+import { syncBuiltinESMExports } from "node:module";
 
 describe("outbound HTTP policy", () => {
   it.each([
@@ -109,5 +114,111 @@ describe("invokePinnedDnsLookup", () => {
       address: [{ address: "1.2.3.4", family: 4 }],
       family: undefined,
     });
+  });
+});
+
+describe("outbound request completion", () => {
+  const input = {
+    policy: {
+      service: "event-completion-test",
+      allowedOrigins: ["https://8.8.8.8"],
+      maxRequestBytes: 1_024,
+      maxResponseBytes: 1_024,
+      maxRedirects: 0,
+      maxConcurrent: 1,
+      maxQueued: 1,
+    },
+    url: "https://8.8.8.8/usage",
+  };
+
+  function transport() {
+    const request = Object.assign(new EventEmitter(), {
+      write: vi.fn(),
+      destroy: vi.fn(),
+      end: vi.fn(),
+    });
+    const response = Object.assign(new EventEmitter(), {
+      statusCode: 200,
+      headers: { "content-type": "application/json" },
+      destroy: vi.fn(),
+    });
+    let respond!: (response: Http.IncomingMessage) => void;
+    let started!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    request.end.mockImplementation(() => started());
+    const start = (
+      _url: unknown,
+      options: { signal: AbortSignal },
+      callback: (response: Http.IncomingMessage) => void,
+    ) => {
+      respond = callback;
+      options.signal.addEventListener("abort", () => request.emit("error", options.signal.reason), {
+        once: true,
+      });
+      return request as unknown as Http.ClientRequest;
+    };
+    vi.spyOn(Https, "request").mockImplementation(start as typeof Https.request);
+    syncBuiltinESMExports();
+    return {
+      request,
+      response,
+      ready,
+      respond: () => respond(response as unknown as Http.IncomingMessage),
+    };
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    syncBuiltinESMExports();
+  });
+
+  it("waits for the complete response body before returning", async () => {
+    const wire = transport();
+    let completed = false;
+    const result = new OutboundHttpClient().request(input).then((response) => {
+      completed = true;
+      return response;
+    });
+    await wire.ready;
+    wire.respond();
+    wire.response.emit("data", Buffer.from('{"usage":'));
+    await Promise.resolve();
+    expect(completed).toBe(false);
+    wire.response.emit("data", Buffer.from("42}"));
+    wire.response.emit("end");
+    expect(new TextDecoder().decode((await result).body)).toBe('{"usage":42}');
+  });
+
+  it("surfaces a network failure instead of waiting for a deadline", async () => {
+    const wire = transport();
+    const result = new OutboundHttpClient().request(input);
+    const rejected = expect(result).rejects.toMatchObject({
+      code: "request",
+      cause: { message: "connection reset" },
+    });
+    await wire.ready;
+    wire.request.emit("error", new Error("connection reset"));
+    await rejected;
+  });
+
+  it("cancels on the caller's abort and releases admission for the next request", async () => {
+    const wire = transport();
+    const controller = new AbortController();
+    const result = new OutboundHttpClient().request({ ...input, signal: controller.signal });
+    const rejected = expect(result).rejects.toMatchObject({
+      code: "aborted",
+      cause: "user cancelled",
+    });
+    await wire.ready;
+    controller.abort("user cancelled");
+    await rejected;
+    const next = transport();
+    const response = new OutboundHttpClient().request(input);
+    await next.ready;
+    next.respond();
+    next.response.emit("end");
+    expect((await response).status).toBe(200);
   });
 });
