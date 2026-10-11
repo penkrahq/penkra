@@ -31,7 +31,6 @@ export interface FeedbackThreadContext {
   latestTurnState: string | null;
   messageCount: number;
   activityCount: number;
-  hasPendingApproval: boolean;
   hasPendingUserInput: boolean;
   hasThreadError: boolean;
 }
@@ -58,7 +57,6 @@ const FEEDBACK_REQUEST_TIMEOUT_MS = 20_000;
 function formatStateFlags(diagnostics: FeedbackThreadContext): string {
   const flags: string[] = [];
   if (diagnostics.hasThreadError) flags.push("the thread was in an error state");
-  if (diagnostics.hasPendingApproval) flags.push("an approval was pending");
   if (diagnostics.hasPendingUserInput) flags.push("the agent was waiting for input");
   return flags.length > 0 ? `${flags.join(", ")}.` : "nothing pending.";
 }

@@ -22,7 +22,6 @@ const CONTEXT: FeedbackThreadContext = {
   latestTurnState: "error",
   messageCount: 12,
   activityCount: 8,
-  hasPendingApproval: false,
   hasPendingUserInput: true,
   hasThreadError: true,
 };
@@ -74,7 +73,6 @@ describe("formatFeedbackSummary", () => {
         projectKind: null,
         sessionStatus: null,
         latestTurnState: null,
-        hasPendingApproval: false,
         hasPendingUserInput: false,
         hasThreadError: false,
       },

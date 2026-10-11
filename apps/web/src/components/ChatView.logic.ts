@@ -601,19 +601,13 @@ export function hasServerAcknowledgedLocalDispatch(input: {
   latestTurn: Thread["latestTurn"] | null;
   session: Thread["session"] | null;
   messages?: ReadonlyArray<Pick<ChatMessage, "id" | "role" | "delivery">>;
-  hasPendingApproval: boolean;
   hasPendingUserInput: boolean;
   threadError: string | null | undefined;
 }): boolean {
   if (!input.localDispatch) {
     return false;
   }
-  if (
-    input.phase === "running" ||
-    input.hasPendingApproval ||
-    input.hasPendingUserInput ||
-    Boolean(input.threadError)
-  ) {
+  if (input.phase === "running" || input.hasPendingUserInput || Boolean(input.threadError)) {
     return true;
   }
   // A first-send startup failure can settle the exact message before a provider
