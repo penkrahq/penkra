@@ -5820,7 +5820,6 @@ function ChatViewContent({
     );
     const turnAttachmentsPromise = stageUploadComposerAttachments({
       threadId: threadIdForSend,
-      trace: sendTrace,
       images: composerImagesSnapshot,
       files: composerFilesSnapshot,
       assistantSelections: composerAssistantSelectionsSnapshot,
