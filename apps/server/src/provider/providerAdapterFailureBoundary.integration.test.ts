@@ -959,6 +959,7 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
           successorText: "Keep this queued",
           commandPrefix: "cmd-auth-circuit",
         });
+        await harness.runtime.runPromise(harness.reactor.drain);
         expect(manager.sendInputs).toHaveLength(1);
         manager.emitNativeNotification({
           eventId: "evt-auth-circuit-401",
@@ -981,7 +982,9 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
             ).length === 1,
         );
         manager.emitNativeTurnCompleted("evt-auth-circuit-failed", "failed");
+        await waitFor(async () => (await projectedThread(harness!))?.latestTurn?.state === "error");
         await harness.runtime.runPromise(harness.ingestion.drain);
+        await harness.runtime.runPromise(harness.reactor.drain);
         await waitFor(
           async () =>
             (await projectedThread(harness!))?.session?.lastError?.startsWith(
@@ -1017,6 +1020,7 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
             createdAt: "2026-09-07T10:02:04.000Z",
           }),
         );
+        await harness.runtime.runPromise(harness.reactor.drain);
         await waitFor(
           async () =>
             (await projectedThread(harness!))?.messages.find((m) => m.id === newMessageId)?.delivery

@@ -852,6 +852,43 @@ const make = Effect.gen(function* () {
   const hasLiveProviderTurn = (threadId: ThreadId) =>
     resolveLiveProviderTurnId(threadId).pipe(Effect.map((turnId) => turnId !== undefined));
 
+  const rejectAuthBlockedTurn = Effect.fnUntraced(function* (event: QueuedTurnSourceEvent) {
+    const selectedConnectionId =
+      event.payload.connectionId ??
+      (yield* authCircuits.connectionForThread(event.payload.threadId))[0]?.connectionId;
+    const openCircuit = selectedConnectionId
+      ? (yield* authCircuits.get(selectedConnectionId))[0]
+      : undefined;
+    if (openCircuit) {
+      const refusal = `${openCircuit.detail}\nSign in again or retry this Connection to clear the block.`;
+      threadPublisher.publishDispatch({
+        type: "failed",
+        threadId: event.payload.threadId,
+        messageId: event.payload.messageId,
+        error: refusal,
+      });
+      yield* orchestrationEngine.dispatch({
+        type: "thread.message.delivery.set",
+        commandId: replaySafeServerCommandId("message-auth-rejected", event.eventId),
+        threadId: event.payload.threadId,
+        messageId: event.payload.messageId,
+        state: "failed",
+        failurePhase: "before-provider-dispatch",
+        failureDetail: refusal,
+        createdAt: new Date().toISOString(),
+      });
+      if (!(yield* hasLiveProviderTurn(event.payload.threadId))) {
+        yield* setThreadSessionError({
+          threadId: event.payload.threadId,
+          detail: `${openCircuit.summary}\nProvider detail: ${refusal}`,
+          createdAt: new Date().toISOString(),
+        });
+      }
+      return true;
+    }
+    return false;
+  });
+
   const editResendTurnStartKey = (threadId: ThreadId, messageId: string) =>
     `${threadId}:${messageId}`;
 
@@ -1904,39 +1941,7 @@ const make = Effect.gen(function* () {
         });
         yield* enqueueQueuedTurnStart(event);
       });
-      const selectedConnectionId =
-        event.payload.connectionId ??
-        (yield* authCircuits.connectionForThread(event.payload.threadId))[0]?.connectionId;
-      const openCircuit = selectedConnectionId
-        ? (yield* authCircuits.get(selectedConnectionId))[0]
-        : undefined;
-      if (openCircuit) {
-        const refusal = `${openCircuit.detail}\nSign in again or retry this Connection to clear the block.`;
-        threadPublisher.publishDispatch({
-          type: "failed",
-          threadId: event.payload.threadId,
-          messageId: event.payload.messageId,
-          error: refusal,
-        });
-        yield* orchestrationEngine.dispatch({
-          type: "thread.message.delivery.set",
-          commandId: replaySafeServerCommandId("message-auth-rejected", event.eventId),
-          threadId: event.payload.threadId,
-          messageId: event.payload.messageId,
-          state: "failed",
-          failurePhase: "before-provider-dispatch",
-          failureDetail: refusal,
-          createdAt: new Date().toISOString(),
-        });
-        if (!(yield* hasLiveProviderTurn(event.payload.threadId))) {
-          yield* setThreadSessionError({
-            threadId: event.payload.threadId,
-            detail: `${openCircuit.summary}\nProvider detail: ${refusal}`,
-            createdAt: new Date().toISOString(),
-          });
-        }
-        return;
-      }
+      if (yield* rejectAuthBlockedTurn(event)) return;
       // A claimed queue head owns the provider-session lane before its adapter
       // has necessarily exposed a live turn id. A newer normal send must append
       // behind that reservation even if projection and provider both look idle
@@ -2293,6 +2298,7 @@ const make = Effect.gen(function* () {
   const processTurnQueued = Effect.fnUntraced(function* (
     event: Extract<ProviderIntentEvent, { type: "thread.turn-queued" }>,
   ) {
+    if (yield* rejectAuthBlockedTurn(event)) return;
     const isEditResend = editResendTurnStartKeys.has(
       editResendTurnStartKey(event.payload.threadId, event.payload.messageId),
     );

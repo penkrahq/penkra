@@ -415,3 +415,67 @@ Audit evidence remains outside the repository under `~/penkra-rehearsal`:
 `disk-cleanup-2026-10-11.json`, the disk surveys and space reports, and
 `run-7-transient-sql-files.log`. The temporary repository harness and disposable
 run database/native tree were removed; the immutable source was preserved.
+
+## Addendum (g): desktop build and native-watcher baseline (2026-10-11)
+
+The desktop production compile succeeds after commit `37335ba8d`:
+`bun run build:desktop`, 6 successful / 6 total tasks, 1m15.17s. The React
+Compiler contract still verifies all four hot paths. Commit `bea25fd60`
+introduced two `(BuildHIR::lowerStatement) Support ThrowStatement inside of
+try/catch` bailouts in ChatView; compiling its parent with the actual compiler
+reported none. Moving synchronous rejection into a module helper preserves
+existing errors, catches and toasts. No packaging, signing or installation
+was performed.
+
+The full server suite on `930607429` reported 2,897 passed, 2 failed and
+3 skipped tests (740.52s). The failures were the auth credential-release
+interleaving and the native recursive workspace watcher. The full web suite
+initially reported 2,401 passed and one MessagesTimeline import timeout;
+after fixing import setup and deferred storage teardown, all 2,402 tests in
+248 files passed with no unhandled errors (93.78s).
+
+The unchanged watcher test was also run in a temporary detached worktree at
+`v0.14.3` (`445bc9b8c`), with its own installed dependencies:
+`bun run --cwd /tmp/penkra-r143-watcher-baseline/apps/server test src/workspaceWatcher.test.ts`.
+It reported 5 passed and 1 failed (5.70s), with exactly the same
+`Error: workspace watcher did not publish` at test line 105. Node was
+`v24.19.0`. Plain Node probes using `node:fs.watch` independently missed
+notifications after creating a root and writing `src/index.ts`, including
+recursive and nonrecursive watches, canonical and symlinked roots, and a
+repository-local root. These probes used no sleeps or polling. Resolving the
+watch path did not make the test pass, so that experiment was reverted.
+
+The operator found that `fseventsd` had been stuck at 100% CPU for 14 days
+and restarted it with `sudo killall fseventsd`. The operator reported that
+three of three plain-node immediate-write probes then received events.
+After that repair, the unchanged HEAD watcher test passed all six tests:
+`bun run --cwd apps/server test src/workspaceWatcher.test.ts`, 463ms total
+(168ms tests). This was a host-environment failure reproduced at the release
+baseline, not a rebuild regression. Watcher code and assertions remain
+unchanged. The implementation agent changed no host services or system
+settings; the operator performed the restart. The temporary worktree and
+this investigation's own probes were cleaned up. Logs:
+`/tmp/penkra-r143-watcher-baseline.log`,
+`/tmp/penkra-930607429-full-server.log`,
+`/tmp/penkra-chatview-compiler-history.log`,
+`/tmp/penkra-chatview-build-fixed.log`, and
+`/tmp/penkra-chatview-fixed-final-web.log`.
+
+The auth failure exposed an admission interleaving: a new send can become a
+`thread.turn-queued` event after a failed predecessor when a queued head
+already exists. That handler bypassed the refusal check used by
+`thread.turn-start-requested`. Both now use one refusal check. The four
+release cases retain their assertions and wait for completed reactor work
+before changing the auth circuit. The complete boundary file passes all
+13 tests (16.92s). The full web suite passes 2,402 tests in 248 files
+(46.34s); root typecheck reports 11 successful tasks (6.871s), and lint
+reports 615 warnings and zero errors.
+
+After the host repair and auth fix, the fresh full server suite reports
+**2,899 passed, 3 pre-existing skipped, zero failed** tests in 363 passed
+files and one skipped file (528.31s), with exit status 0:
+`bun run --cwd apps/server test`. Log:
+`/tmp/penkra-auth-host-fixed-full-server.log`. No test was removed, weakened,
+or newly skipped. The earlier full run which had already recorded the
+pre-repair watcher failure was interrupted when the operator fixed the host;
+its partial results are not presented as a passing run.
