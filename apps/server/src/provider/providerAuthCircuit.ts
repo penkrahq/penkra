@@ -1,5 +1,5 @@
 import type { ProviderConnectionId, ProviderKind, ThreadId } from "@penkra/contracts";
-import { Effect, Layer, ServiceMap } from "effect";
+import { Effect, Layer, PubSub, ServiceMap } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import type { ProviderAuthFailure } from "./providerAuthFailure.ts";
@@ -13,7 +13,7 @@ export interface ProviderAuthCircuit extends ProviderAuthFailure {
   readonly credentialRef: string | null;
 }
 
-function makeCircuits(sql: SqlClient.SqlClient) {
+function makeCircuits(sql: SqlClient.SqlClient, releases: PubSub.PubSub<ProviderAuthCircuit>) {
   const circuits = new Map<ProviderConnectionId, ProviderAuthCircuit>();
   const readConnection = (connectionId: ProviderConnectionId) =>
     sql<{
@@ -24,7 +24,15 @@ function makeCircuits(sql: SqlClient.SqlClient) {
       SELECT harness_kind AS harness, profile_ref AS "profileRef", credential_ref AS "credentialRef"
       FROM provider_connections WHERE connection_id = ${connectionId} AND lifecycle = 'active'
     `;
+  const close = (connectionId: ProviderConnectionId) =>
+    Effect.gen(function* () {
+      const circuit = circuits.get(connectionId);
+      if (!circuit) return;
+      circuits.delete(connectionId);
+      yield* PubSub.publish(releases, circuit);
+    });
   return {
+    subscribeReleases: PubSub.subscribe(releases),
     connectionForThread: (threadId: ThreadId) =>
       sql<{
         readonly connectionId: ProviderConnectionId;
@@ -49,7 +57,7 @@ function makeCircuits(sql: SqlClient.SqlClient) {
           connection.profileRef !== circuit.profileRef ||
           connection.credentialRef !== circuit.credentialRef
         ) {
-          circuits.delete(connectionId);
+          yield* close(connectionId);
           return [];
         }
         return [circuit];
@@ -83,10 +91,7 @@ function makeCircuits(sql: SqlClient.SqlClient) {
         if (circuit)
           circuits.set(connectionId, { ...circuit, failureCount: circuit.failureCount + 1 });
       }),
-    close: (connectionId: ProviderConnectionId) =>
-      Effect.sync(() => {
-        circuits.delete(connectionId);
-      }),
+    close,
   };
 }
 
@@ -98,5 +103,9 @@ export class ProviderAuthCircuits extends ServiceMap.Service<
 
 export const ProviderAuthCircuitsLive = Layer.effect(
   ProviderAuthCircuits,
-  Effect.map(Effect.service(SqlClient.SqlClient), makeCircuits),
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const releases = yield* PubSub.unbounded<ProviderAuthCircuit>();
+    return makeCircuits(sql, releases);
+  }),
 );

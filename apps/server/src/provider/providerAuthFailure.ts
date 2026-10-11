@@ -30,7 +30,7 @@ export function classifyProviderAuthFailure(input: {
   return {
     kind,
     summary: providerRejected
-      ? "The provider is rejecting this Connection. This may be temporary. New turns are paused, and Penkra will retry automatically."
+      ? "The provider is rejecting this Connection. This may be temporary. New turns are paused until you sign in again or retry."
       : "This Connection needs you to sign in again. New turns are paused until you sign in again or retry.",
     detail: input.detail,
   };

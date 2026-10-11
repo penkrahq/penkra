@@ -3,6 +3,15 @@ import { describe, expect, it } from "vitest";
 import { classifyProviderAuthFailure } from "./providerAuthFailure.ts";
 
 describe("classifyProviderAuthFailure", () => {
+  it("explains the action that releases a rejected Connection", () => {
+    const failure = classifyProviderAuthFailure({
+      detail: "401 Unauthorized",
+      authenticationMethodId: "chatgpt",
+    });
+    expect(failure?.summary).toContain("sign in again or retry");
+    expect(failure?.summary).not.toContain("automatically");
+  });
+
   it("recognizes a rejected service token on ChatGPT sign-in as provider rejection", () => {
     expect(
       classifyProviderAuthFailure({

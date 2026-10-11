@@ -20,8 +20,19 @@ import {
   type ProviderTurnStartResult,
 } from "@penkra/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { Duration, Effect, Exit, Layer, ManagedRuntime, Option, Scope } from "effect";
+import {
+  Clock,
+  Deferred,
+  Duration,
+  Effect,
+  Exit,
+  Layer,
+  ManagedRuntime,
+  Option,
+  Scope,
+} from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { TestClock } from "effect/testing";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -283,6 +294,7 @@ async function makeProviderRuntime(
   manager: ControlledCodexManager,
   initialize = true,
   probe?: () => Effect.Effect<boolean, Error>,
+  startReactor = true,
 ) {
   const fixtureProfileRoot = path.join(path.dirname(dbPath), "profile");
   const fixtureNativeStateRoot = path.join(path.dirname(dbPath), "native");
@@ -446,6 +458,42 @@ async function makeProviderRuntime(
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
     Layer.provideMerge(NodeServices.layer),
   );
+  const freezeClock = await Effect.runPromise(Deferred.make<void>());
+  const thawClock = await Effect.runPromise(Deferred.make<void>());
+  let thawed = false;
+  let frozen = false;
+  let frozenClock: Clock.Clock;
+  const reactorClock = Layer.effect(
+    Clock.Clock,
+    Effect.gen(function* () {
+      const live = yield* Clock.Clock;
+      const fake = yield* TestClock.make();
+      frozenClock = fake;
+      return {
+        currentTimeMillisUnsafe: () =>
+          frozen ? fake.currentTimeMillisUnsafe() : live.currentTimeMillisUnsafe(),
+        currentTimeNanosUnsafe: () =>
+          frozen ? fake.currentTimeNanosUnsafe() : live.currentTimeNanosUnsafe(),
+        currentTimeMillis: Effect.suspend(() =>
+          frozen ? fake.currentTimeMillis : live.currentTimeMillis,
+        ),
+        currentTimeNanos: Effect.suspend(() =>
+          frozen ? fake.currentTimeNanos : live.currentTimeNanos,
+        ),
+        sleep: (duration: Duration.Duration) =>
+          Effect.suspend(() => {
+            if (thawed) return live.sleep(duration);
+            const frozenSleep = Effect.raceFirst(fake.sleep(duration), Deferred.await(thawClock));
+            return frozen
+              ? frozenSleep
+              : Effect.raceFirst(
+                  live.sleep(duration),
+                  Deferred.await(freezeClock).pipe(Effect.andThen(frozenSleep)),
+                );
+          }),
+      };
+    }),
+  );
   const reactorLayer = makeProviderCommandReactorLive({
     queuedTurnRecoveryInterval: Duration.millis(10),
   }).pipe(
@@ -470,6 +518,7 @@ async function makeProviderRuntime(
     Layer.provideMerge(NodeServices.layer),
     Layer.provideMerge(OrchestrationEventDeliveryRepositoryLive),
     Layer.provideMerge(persistence),
+    Layer.provideMerge(reactorClock),
   );
   const runtime = ManagedRuntime.make(
     Layer.merge(
@@ -497,6 +546,16 @@ async function makeProviderRuntime(
       reactor,
       orchestrationEvents,
       outbox,
+      freezeReactorClock: () => {
+        frozen = true;
+        return runtime.runPromise(Deferred.succeed(freezeClock, undefined));
+      },
+      thawReactorClock: () => {
+        frozen = false;
+        thawed = true;
+        return runtime.runPromise(Deferred.succeed(thawClock, undefined));
+      },
+      frozenTime: () => frozenClock.currentTimeMillisUnsafe(),
       workerScope: undefined,
     };
   }
@@ -608,7 +667,7 @@ async function makeProviderRuntime(
   );
   const workerScope = await Effect.runPromise(Scope.make("sequential"));
   await runtime.runPromise(ingestion.start.pipe(Scope.provide(workerScope)));
-  await runtime.runPromise(reactor.start.pipe(Scope.provide(workerScope)));
+  if (startReactor) await runtime.runPromise(reactor.start.pipe(Scope.provide(workerScope)));
   return {
     runtime,
     provider,
@@ -619,6 +678,16 @@ async function makeProviderRuntime(
     reactor,
     orchestrationEvents,
     outbox,
+    freezeReactorClock: () => {
+      frozen = true;
+      return runtime.runPromise(Deferred.succeed(freezeClock, undefined));
+    },
+    thawReactorClock: () => {
+      frozen = false;
+      thawed = true;
+      return runtime.runPromise(Deferred.succeed(thawClock, undefined));
+    },
+    frozenTime: () => frozenClock.currentTimeMillisUnsafe(),
     workerScope,
   };
 }
@@ -787,7 +856,10 @@ async function closeBoundaryHarnesses(
 ): Promise<void> {
   const cleanupFailures: unknown[] = [];
   for (const harness of harnesses) {
-    if (harness) cleanupFailures.push(...(await disposeBoundaryHarness(harness)));
+    if (harness) {
+      await harness.thawReactorClock();
+      cleanupFailures.push(...(await disposeBoundaryHarness(harness)));
+    }
   }
   try {
     await rm(fixtureRoot, { recursive: true, force: true });
@@ -802,35 +874,22 @@ async function closeBoundaryHarnesses(
 }
 
 describe("CodexAdapter -> ProviderService failure boundary", () => {
-  it("pauses queued and newly admitted turns after a terminal 401, then resumes after recovery", async () => {
-    const fixtureRoot = await mkdtemp(path.join(tmpdir(), "penkra-provider-auth-circuit-"));
-    const dbPath = path.join(fixtureRoot, "provider-runtime.sqlite");
+  it("ingestion alone opens the block shared by a subsequently started reactor", async () => {
+    const fixtureRoot = await mkdtemp(path.join(tmpdir(), "penkra-auth-shared-layer-"));
     const manager = new ControlledCodexManager();
     let harness: BoundaryHarness | undefined;
-    let recovered = false;
-    let probeCalls = 0;
-    const predecessor = MessageId.makeUnsafe("message-auth-predecessor");
-    const successor = MessageId.makeUnsafe("message-auth-successor");
     try {
-      harness = await makeProviderRuntime(dbPath, manager, true, () => {
-        probeCalls += 1;
-        return recovered ? Effect.succeed(true) : Effect.fail(new Error("401 Unauthorized"));
-      });
-      await establishRunningPredecessorAndQueuedSuccessor(harness, manager, {
-        predecessorMessageId: predecessor,
-        predecessorText: "Auth predecessor",
-        successorMessageId: successor,
-        successorText: "Keep this queued",
-        commandPrefix: "cmd-auth-circuit",
-      });
-      expect(manager.sendInputs).toHaveLength(1);
+      harness = await makeProviderRuntime(
+        path.join(fixtureRoot, "runtime.sqlite"),
+        manager,
+        true,
+        () => Effect.succeed(false),
+        false,
+      );
       manager.emitNativeNotification({
-        eventId: "evt-auth-circuit-401",
+        eventId: "ingestion-only-auth-error",
         createdAt: "2026-09-07T10:02:02.000Z",
-        error: {
-          message: "401 Incorrect API key provided: sk-svcac…",
-          codexErrorInfo: "unauthorized",
-        },
+        error: { message: "401 Incorrect API key provided", codexErrorInfo: "unauthorized" },
         willRetry: false,
       });
       await waitFor(
@@ -844,59 +903,208 @@ describe("CodexAdapter -> ProviderService failure boundary", () => {
             )
           ).length === 1,
       );
-      manager.emitNativeTurnCompleted("evt-auth-circuit-failed", "failed");
       await harness.runtime.runPromise(harness.ingestion.drain);
-      await harness.runtime.runPromise(harness.reactor.drain);
-      expect(probeCalls).toBe(0);
-      expect(manager.sendInputs).toHaveLength(1);
-      expect(
-        (await projectedThread(harness))?.messages.find((m) => m.id === successor)?.delivery,
-      ).toMatchObject({ state: "queued", queued: true });
-      expect((await projectedThread(harness))?.session?.lastError).toContain(
-        "The provider is rejecting this Connection.",
-      );
-
-      const newMessageId = MessageId.makeUnsafe("message-auth-new-during-outage");
+      const messageId = MessageId.makeUnsafe("blocked-ingestion-only-message");
       await harness.runtime.runPromise(
         harness.engine.dispatch({
           type: "thread.turn.start",
+          commandId: CommandId.makeUnsafe("blocked-ingestion-only-send"),
+          threadId: THREAD_ID,
           connectionId: CONNECTION_ID,
           bindingRevision: 0,
-          commandId: CommandId.makeUnsafe("cmd-auth-new-during-outage"),
-          threadId: THREAD_ID,
-          message: { messageId: newMessageId, role: "user", text: "New message", attachments: [] },
-          dispatchMode: "queue",
+          message: { messageId, role: "user", text: "A refused send", attachments: [] },
           modelSelection: MODEL_SELECTION,
           runtimeMode: "full-access",
           createdAt: "2026-09-07T10:02:04.000Z",
         }),
       );
+      await harness.runtime.runPromise(
+        harness.reactor.start.pipe(Scope.provide(harness.workerScope!)),
+      );
       await waitFor(
         async () =>
-          (await projectedThread(harness!))?.messages.find((m) => m.id === newMessageId)?.delivery
-            ?.state === "queued",
+          (await projectedThread(harness!))?.messages.find((message) => message.id === messageId)
+            ?.delivery?.state === "failed",
       );
-      await harness.runtime.runPromise(harness.reactor.drain);
-      expect(manager.sendInputs).toHaveLength(1);
-
-      await harness.runtime.runPromise(harness.reactor.retryAuthConnection(CONNECTION_ID));
-      expect(probeCalls).toBe(1);
-      const stillOpen = await harness.runtime.runPromise(
-        Effect.gen(function* () {
-          const circuits = yield* ProviderAuthCircuits;
-          return yield* circuits.get(CONNECTION_ID);
-        }),
-      );
-      expect(stillOpen[0]?.failureCount).toBeGreaterThanOrEqual(2);
-      expect(manager.sendInputs).toHaveLength(1);
-      recovered = true;
-      await harness.runtime.runPromise(harness.reactor.retryAuthConnection(CONNECTION_ID));
-      await waitFor(async () => manager.sendInputs.length === 2);
-      expect(manager.sendInputs[1]?.input).toBe("Keep this queued");
+      expect(manager.sendInputs).toHaveLength(0);
+      expect(
+        (await projectedThread(harness))?.messages.find((message) => message.id === messageId)
+          ?.delivery?.failureDetail,
+      ).toContain("Sign in again or retry");
     } finally {
       await closeBoundaryHarnesses(fixtureRoot, [harness]);
     }
   });
+
+  it.each(["retry", "sign-in", "credential", "profile"] as const)(
+    "releases blocked queued turns on %s without a timed probe",
+    async (releaseKind) => {
+      const fixtureRoot = await mkdtemp(path.join(tmpdir(), "penkra-provider-auth-circuit-"));
+      const dbPath = path.join(fixtureRoot, "provider-runtime.sqlite");
+      const manager = new ControlledCodexManager();
+      let harness: BoundaryHarness | undefined;
+      let recovered = false;
+      let probeCalls = 0;
+      const predecessor = MessageId.makeUnsafe("message-auth-predecessor");
+      const successor = MessageId.makeUnsafe("message-auth-successor");
+      try {
+        harness = await makeProviderRuntime(dbPath, manager, true, () => {
+          probeCalls += 1;
+          return recovered ? Effect.succeed(true) : Effect.fail(new Error("401 Unauthorized"));
+        });
+        await establishRunningPredecessorAndQueuedSuccessor(harness, manager, {
+          predecessorMessageId: predecessor,
+          predecessorText: "Auth predecessor",
+          successorMessageId: successor,
+          successorText: "Keep this queued",
+          commandPrefix: "cmd-auth-circuit",
+        });
+        expect(manager.sendInputs).toHaveLength(1);
+        manager.emitNativeNotification({
+          eventId: "evt-auth-circuit-401",
+          createdAt: "2026-09-07T10:02:02.000Z",
+          error: {
+            message: "401 Incorrect API key provided: sk-svcac…",
+            codexErrorInfo: "unauthorized",
+          },
+          willRetry: false,
+        });
+        await waitFor(
+          async () =>
+            (
+              await harness!.runtime.runPromise(
+                Effect.gen(function* () {
+                  const circuits = yield* ProviderAuthCircuits;
+                  return yield* circuits.get(CONNECTION_ID);
+                }),
+              )
+            ).length === 1,
+        );
+        manager.emitNativeTurnCompleted("evt-auth-circuit-failed", "failed");
+        await harness.runtime.runPromise(harness.ingestion.drain);
+        await waitFor(
+          async () =>
+            (await projectedThread(harness!))?.session?.lastError?.startsWith(
+              "The provider is rejecting this Connection.",
+            ) === true,
+        );
+        expect(probeCalls).toBe(0);
+        expect(manager.sendInputs).toHaveLength(1);
+        expect(
+          (await projectedThread(harness))?.messages.find((m) => m.id === successor)?.delivery,
+        ).toMatchObject({ state: "queued", queued: true });
+        expect((await projectedThread(harness))?.session?.lastError).toContain(
+          "The provider is rejecting this Connection.",
+        );
+
+        const newMessageId = MessageId.makeUnsafe("message-auth-new-during-outage");
+        await harness.runtime.runPromise(
+          harness.engine.dispatch({
+            type: "thread.turn.start",
+            connectionId: CONNECTION_ID,
+            bindingRevision: 0,
+            commandId: CommandId.makeUnsafe("cmd-auth-new-during-outage"),
+            threadId: THREAD_ID,
+            message: {
+              messageId: newMessageId,
+              role: "user",
+              text: "New message",
+              attachments: [],
+            },
+            dispatchMode: "queue",
+            modelSelection: MODEL_SELECTION,
+            runtimeMode: "full-access",
+            createdAt: "2026-09-07T10:02:04.000Z",
+          }),
+        );
+        await waitFor(
+          async () =>
+            (await projectedThread(harness!))?.messages.find((m) => m.id === newMessageId)?.delivery
+              ?.state === "failed",
+        );
+        await waitFor(
+          async () =>
+            (await projectedThread(harness!))?.session?.lastError?.startsWith(
+              "The provider is rejecting this Connection.",
+            ) === true,
+        );
+        expect(manager.sendInputs).toHaveLength(1);
+        expect(
+          (await projectedThread(harness))?.messages.find((message) => message.id === newMessageId)
+            ?.delivery?.failureDetail,
+        ).toContain("Sign in again or retry");
+
+        await harness.runtime.runPromise(harness.reactor.retryAuthConnection(CONNECTION_ID));
+        expect(probeCalls).toBe(1);
+        const stillOpen = await harness.runtime.runPromise(
+          Effect.gen(function* () {
+            const circuits = yield* ProviderAuthCircuits;
+            return yield* circuits.get(CONNECTION_ID);
+          }),
+        );
+        expect(stillOpen[0]?.failureCount).toBeGreaterThanOrEqual(2);
+        expect(manager.sendInputs).toHaveLength(1);
+        await harness.freezeReactorClock();
+        const frozenTime = harness.frozenTime();
+        const releaseSequence = await harness.runtime.runPromise(
+          harness.orchestrationEvents.getThreadHighWaterSequence(THREAD_ID),
+        );
+        recovered = true;
+        await harness.runtime.runPromise(
+          Effect.gen(function* () {
+            const circuits = yield* ProviderAuthCircuits;
+            if (releaseKind === "retry") {
+              yield* harness!.reactor.retryAuthConnection(CONNECTION_ID);
+            } else if (releaseKind === "profile") {
+              const sql = yield* SqlClient.SqlClient;
+              yield* sql`UPDATE provider_connections SET profile_ref = 'replacement-profile' WHERE connection_id = ${CONNECTION_ID}`;
+              yield* circuits.get(CONNECTION_ID);
+            } else {
+              // These are the same release notifications emitted after a successful
+              // login commit or verified credential save, including an unchanged ref.
+              yield* circuits.close(CONNECTION_ID);
+            }
+          }),
+        );
+        await waitFor(async () =>
+          harness!.runtime.runPromise(
+            Effect.gen(function* () {
+              const sql = yield* SqlClient.SqlClient;
+              const rows = yield* sql<{
+                readonly state: string;
+              }>`SELECT state FROM queued_turn_promotions WHERE thread_id = ${THREAD_ID} AND message_id = ${successor}`;
+              return rows[0]?.state === "promoted";
+            }),
+          ),
+        );
+        expect(harness.frozenTime()).toBe(frozenTime);
+        const through = await harness.runtime.runPromise(
+          harness.orchestrationEvents.getThreadHighWaterSequence(THREAD_ID),
+        );
+        const events = await harness.runtime.runPromise(
+          harness.orchestrationEvents.readThreadEvents({
+            threadId: THREAD_ID,
+            throughSequenceInclusive: through,
+            limit: 200,
+          }),
+        );
+        expect(
+          events.some(
+            (event) =>
+              event.sequence > releaseSequence &&
+              event.type === "thread.session-set" &&
+              event.payload.session.status === "ready" &&
+              event.payload.session.lastError === null,
+          ),
+        ).toBe(true);
+        await harness.thawReactorClock();
+        await waitFor(async () => manager.sendInputs.length === 2);
+        expect(manager.sendInputs[1]?.input).toBe("Keep this queued");
+      } finally {
+        await closeBoundaryHarnesses(fixtureRoot, [harness]);
+      }
+    },
+  );
   it("journals the adapter-normalized terminal contract and retains it after offline restart", async () => {
     const fixtureRoot = await mkdtemp(path.join(tmpdir(), "penkra-provider-boundary-"));
     const dbPath = path.join(fixtureRoot, "provider-runtime.sqlite");

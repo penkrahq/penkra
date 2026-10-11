@@ -8,7 +8,7 @@ import {
   ThreadId,
 } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
-import { Deferred, Effect, Layer, Option } from "effect";
+import { Deferred, Effect, Layer, Option, PubSub } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { access, mkdir, readFile, readlink, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -439,6 +439,7 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
         now: timestamp,
       });
       assert.lengthOf(yield* circuits.get(first.connectionId), 1);
+      const releases = yield* circuits.subscribeReleases;
       const releasedBeforeSignIn = releasedAuthBlocks.length;
       const duplicate = yield* coordinator.begin({
         harness: "codex",
@@ -460,6 +461,7 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
       const completed = yield* waitForCompleted(duplicate.operationId);
       assert.deepStrictEqual(releasedAuthBlocks.slice(releasedBeforeSignIn), [first.connectionId]);
       assert.lengthOf(yield* circuits.get(first.connectionId), 0);
+      assert.strictEqual((yield* PubSub.take(releases)).connectionId, first.connectionId);
 
       assert.strictEqual(completed.connectionId, first.connectionId);
       assert.strictEqual(completed.connection?.providerIdentityId, "same@example.com");
