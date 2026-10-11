@@ -10,7 +10,6 @@ export interface ThreadSummaryState extends ThreadSummaryMetadata {
 }
 
 export interface PendingThreadRequestIds {
-  approvalRequestIds: ReadonlyArray<string>;
   userInputRequestIds: ReadonlyArray<string>;
 }
 
@@ -133,46 +132,18 @@ function hasStructuredUserInputQuestions(payload: Record<string, unknown> | null
   });
 }
 
-// Tracks the open human-request lifecycles from timeline activities.
+// Tracks the open question lifecycles from timeline activities.
 export function derivePendingThreadRequestIds(input: {
   readonly activities: ReadonlyArray<
     Pick<OrchestrationThreadActivity, "createdAt" | "id" | "kind" | "payload" | "sequence">
   >;
 }): PendingThreadRequestIds {
-  const openApprovals = new Map<string, string>();
   const openUserInputs = new Map<string, string>();
   const orderedActivities = [...input.activities].toSorted(compareActivitiesByOrder);
   for (const activity of orderedActivities) {
     const payload = toPayloadRecord(activity.payload);
     const requestId = typeof payload?.requestId === "string" ? payload.requestId : null;
     const lifecycleGeneration = lifecycleGenerationFromPayload(payload);
-
-    if (activity.kind === "approval.requested" && requestId) {
-      const requestKind =
-        payload?.requestKind === "command" ||
-        payload?.requestKind === "file-read" ||
-        payload?.requestKind === "file-change"
-          ? payload.requestKind
-          : approvalRequestKindFromRequestType(payload?.requestType);
-      if (requestKind) {
-        replaceOpenRequest(openApprovals, requestId, lifecycleGeneration);
-      }
-      continue;
-    }
-
-    if (activity.kind === "approval.resolved" && requestId) {
-      deleteOpenRequest(openApprovals, requestId, lifecycleGeneration);
-      continue;
-    }
-
-    if (
-      activity.kind === "provider.approval.respond.failed" &&
-      requestId &&
-      isPendingInteractionNotFoundFailure(payload)
-    ) {
-      deleteOpenRequest(openApprovals, requestId, lifecycleGeneration);
-      continue;
-    }
 
     if (activity.kind === "user-input.requested" && requestId) {
       if (hasStructuredUserInputQuestions(payload)) {
@@ -196,7 +167,6 @@ export function derivePendingThreadRequestIds(input: {
   }
 
   return {
-    approvalRequestIds: [...openApprovals.values()],
     userInputRequestIds: [...openUserInputs.values()],
   };
 }
