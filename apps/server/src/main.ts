@@ -40,7 +40,6 @@ import { ThreadPublisherLive } from "./cleanCore/ThreadPublisher.ts";
 import { ProviderHealth } from "./provider/Services/ProviderHealth";
 import { startAutomaticProviderUpdates } from "./provider/providerUpdateCoordinator";
 import { ProviderInstallationRepository } from "./persistence/Services/ProviderInstallations";
-import { ProviderConnectionLifecycle } from "./provider/Services/ProviderConnectionLifecycle";
 import { ProviderConnectionLoginCoordinator } from "./provider/Services/ProviderConnectionLoginCoordinator";
 import { ProviderNativeStateDeletionCoordinator } from "./provider/Services/ProviderNativeStateDeletionCoordinator";
 import { Server } from "./effectServer";
@@ -383,7 +382,6 @@ const makeServerProgram = (input: CliInput) => {
     const serverSettings = yield* ServerSettingsService;
     const providerHealth = yield* ProviderHealth;
     const installationRepository = yield* ProviderInstallationRepository;
-    const providerConnectionLifecycle = yield* ProviderConnectionLifecycle;
     const providerConnectionLoginCoordinator = yield* ProviderConnectionLoginCoordinator;
     const providerNativeStateDeletionCoordinator = yield* ProviderNativeStateDeletionCoordinator;
     yield* cliConfig.fixPath;
@@ -411,10 +409,6 @@ const makeServerProgram = (input: CliInput) => {
     yield* runStartupStage(
       "provider-native-state-deletion.recover",
       providerNativeStateDeletionCoordinator.recover,
-    );
-    yield* runStartupStage(
-      "provider-connection-lifecycle.recover",
-      providerConnectionLifecycle.recover,
     );
     yield* runStartupStage(
       "provider-connection-login.recover",

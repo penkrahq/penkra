@@ -1,12 +1,9 @@
-import { ProviderConnectionId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
-import { Effect, Layer, Option } from "effect";
+import { Deferred, Effect, Fiber, Layer, Option } from "effect";
 
-import { ProviderConnectionOperationRepositoryLive } from "../../persistence/Layers/ProviderConnectionOperations.ts";
 import { ProviderConnectionRepositoryLive } from "../../persistence/Layers/ProviderConnections.ts";
 import { runMigrations } from "../../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../../persistence/NodeSqliteClient.ts";
-import { ProviderConnectionOperationRepository } from "../../persistence/Services/ProviderConnectionOperations.ts";
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 import {
   ProviderCredentialBroker,
@@ -46,11 +43,11 @@ const broker: ProviderCredentialBrokerShape = {
 let idCounter = 0;
 let validationFailure: Error | null = null;
 const sqlLayer = NodeSqliteClient.layerMemory();
-const repositories = Layer.mergeAll(
-  ProviderConnectionRepositoryLive.pipe(Layer.provide(sqlLayer)),
-  ProviderConnectionOperationRepositoryLive.pipe(Layer.provide(sqlLayer)),
+const connectionRepositoryLayer = ProviderConnectionRepositoryLive.pipe(Layer.provide(sqlLayer));
+const dependencies = Layer.mergeAll(
+  connectionRepositoryLayer,
+  Layer.succeed(ProviderCredentialBroker, broker),
 );
-const dependencies = Layer.mergeAll(repositories, Layer.succeed(ProviderCredentialBroker, broker));
 const lifecycleLayer = Layer.effect(
   ProviderConnectionLifecycle,
   makeProviderConnectionLifecycle({
@@ -149,46 +146,10 @@ layer("ProviderConnectionLifecycle", (it) => {
     }),
   );
 
-  it.effect("recovers a vault write whose acknowledgement was lost", () =>
-    Effect.gen(function* () {
-      yield* runMigrations();
-      const operations = yield* ProviderConnectionOperationRepository;
-      const connections = yield* ProviderConnectionRepository;
-      const lifecycle = yield* ProviderConnectionLifecycle;
-      const connectionId = ProviderConnectionId.makeUnsafe("recovered-connection");
-      const credentialRef = `provider-secret:${connectionId}`;
-      secrets.set(credentialRef, "recovered-secret");
-      yield* operations.begin({
-        id: "recovered-operation",
-        connectionId,
-        kind: "create-static",
-        state: "pending",
-        credentialRef,
-        payloadJson: JSON.stringify({
-          harness: "claudeAgent",
-          authenticationTargetId: "claude-subscription",
-          authenticationMethodId: "token",
-          label: "Recovered",
-          providerIdentityId: null,
-          createdAt: "2026-08-08T00:00:00.000Z",
-        }),
-        failureReason: null,
-        createdAt: "2026-08-08T00:00:00.000Z",
-        updatedAt: "2026-08-08T00:00:00.000Z",
-      });
-
-      yield* lifecycle.recover;
-      const recovered = Option.getOrThrow(yield* connections.getRecord(connectionId));
-      assert.strictEqual(recovered.label, "Recovered");
-      assert.deepStrictEqual(yield* operations.listOpen(), []);
-    }),
-  );
-
   it.effect("allows independent credentials with the same derived display suffix", () =>
     Effect.gen(function* () {
       yield* runMigrations();
       const lifecycle = yield* ProviderConnectionLifecycle;
-      const operations = yield* ProviderConnectionOperationRepository;
       const first = yield* lifecycle.createStatic({
         harness: "opencode",
         authenticationTargetId: "opencode-go",
@@ -207,7 +168,119 @@ layer("ProviderConnectionLifecycle", (it) => {
       assert.strictEqual(second.label, first.label);
       assert.notStrictEqual(second.id, first.id);
       assert.strictEqual(secrets.size, before + 1);
-      assert.deepStrictEqual(yield* operations.listOpen(), []);
+    }),
+  );
+  it.effect("blocks overlapping Connection work and releases it on interruption", () =>
+    Effect.gen(function* () {
+      yield* runMigrations();
+      const base = yield* ProviderConnectionLifecycle;
+      const request = {
+        harness: "opencode" as const,
+        authenticationTargetId: "opencode-go",
+        authenticationMethodId: "api-key",
+        secret: "interrupt-progress-A7F2",
+      };
+      const connection = yield* base.createStatic(request);
+      const entered = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+      let stores = 0;
+      const controlled = yield* makeProviderConnectionLifecycle({
+        validateSecret: async () => {},
+      }).pipe(
+        Effect.provideService(ProviderCredentialBroker, {
+          ...broker,
+          store: (secret, reference) =>
+            Effect.gen(function* () {
+              stores += 1;
+              yield* Deferred.succeed(entered, undefined);
+              yield* Deferred.await(release);
+              return yield* broker.store(secret, reference);
+            }),
+        }),
+      );
+      const pending = yield* controlled.createStatic(request).pipe(Effect.forkChild);
+      yield* Deferred.await(entered);
+      const overlap = yield* controlled.createStatic(request).pipe(Effect.flip);
+      assert.strictEqual(overlap.detail, "Could not begin Connection creation.");
+      assert.strictEqual(stores, 1);
+      yield* Fiber.interrupt(pending);
+      yield* Deferred.succeed(release, undefined);
+      const result = yield* controlled.createStatic(request);
+      assert.strictEqual(result.id, connection.id);
+      assert.strictEqual(stores, 2);
+    }),
+  );
+
+  it.effect("releases failed in-flight work and preserves a lost credential acknowledgement", () =>
+    Effect.gen(function* () {
+      yield* runMigrations();
+      const base = yield* ProviderConnectionLifecycle;
+      const request = {
+        harness: "opencode" as const,
+        authenticationTargetId: "opencode-go",
+        authenticationMethodId: "api-key",
+        secret: "failed-progress-B7F2",
+      };
+      const connection = yield* base.createStatic(request);
+      let failing = true;
+      const controlled = yield* makeProviderConnectionLifecycle({
+        validateSecret: async () => {},
+      }).pipe(
+        Effect.provideService(ProviderCredentialBroker, {
+          ...broker,
+          store: (secret, reference) =>
+            Effect.gen(function* () {
+              if (!failing) yield* broker.store(secret, reference);
+              return yield* Effect.fail(
+                new ProviderCredentialBrokerError({ message: "acknowledgement lost" }),
+              );
+            }),
+          has: (reference) =>
+            failing
+              ? Effect.fail(new ProviderCredentialBrokerError({ message: "desktop disconnected" }))
+              : broker.has(reference),
+        }),
+      );
+      const error = yield* controlled.createStatic(request).pipe(Effect.flip);
+      assert.strictEqual(error.detail, "Could not determine whether credential storage committed.");
+      failing = false;
+      const result = yield* controlled.createStatic(request);
+      assert.strictEqual(result.id, connection.id);
+    }),
+  );
+
+  it.effect("a new server lifetime does not replay or retain an interrupted setup", () =>
+    Effect.gen(function* () {
+      yield* runMigrations();
+      const base = yield* ProviderConnectionLifecycle;
+      const request = {
+        harness: "opencode" as const,
+        authenticationTargetId: "opencode-go",
+        authenticationMethodId: "api-key",
+        secret: "restart-progress-C7F2",
+      };
+      const connection = yield* base.createStatic(request);
+      const entered = yield* Deferred.make<void>();
+      const oldLifetime = yield* makeProviderConnectionLifecycle({
+        validateSecret: async () => {},
+      }).pipe(
+        Effect.provideService(ProviderCredentialBroker, {
+          ...broker,
+          store: () =>
+            Effect.gen(function* () {
+              yield* Deferred.succeed(entered, undefined);
+              return yield* Effect.never;
+            }),
+        }),
+      );
+      const pending = yield* oldLifetime.createStatic(request).pipe(Effect.forkChild);
+      yield* Deferred.await(entered);
+      const newLifetime = yield* makeProviderConnectionLifecycle({
+        validateSecret: async () => {},
+      });
+      const result = yield* newLifetime.createStatic(request);
+      assert.strictEqual(result.id, connection.id);
+      yield* Fiber.interrupt(pending);
     }),
   );
 });

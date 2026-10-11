@@ -25,7 +25,6 @@ export interface ProviderConnectionLifecycleShape {
     readonly connectionId: ProviderConnectionId;
     readonly reason: ProviderConnectionTerminationReason;
   }) => Effect.Effect<ProviderConnection, ProviderConnectionLifecycleError>;
-  readonly recover: Effect.Effect<void, ProviderConnectionLifecycleError>;
 }
 
 export class ProviderConnectionLifecycle extends ServiceMap.Service<

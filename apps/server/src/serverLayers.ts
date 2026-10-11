@@ -33,7 +33,6 @@ import { ProviderRuntimeEventRepositoryLive } from "./persistence/Layers/Provide
 import { ProviderInstallationRepositoryLive } from "./persistence/Layers/ProviderInstallations";
 import { ProviderConnectionRepositoryLive } from "./persistence/Layers/ProviderConnections";
 import { ConnectionUsageFactRepositoryLive } from "./persistence/Layers/ConnectionUsageFacts";
-import { ProviderConnectionOperationRepositoryLive } from "./persistence/Layers/ProviderConnectionOperations";
 import { ProviderConnectionLoginRepositoryLive } from "./persistence/Layers/ProviderConnectionLogins";
 import { ThreadProviderBindingRepositoryLive } from "./persistence/Layers/ThreadProviderBindings";
 import { ProviderThreadSwitchOperationRepositoryLive } from "./persistence/Layers/ProviderThreadSwitchOperations";
@@ -65,7 +64,6 @@ export function makeServerRuntimeServicesLayer(
   const providerConnectionPersistenceLayer = Layer.mergeAll(
     ProviderConnectionRepositoryLive,
     ConnectionUsageFactRepositoryLive,
-    ProviderConnectionOperationRepositoryLive,
     ProviderConnectionLoginRepositoryLive,
     ThreadProviderBindingRepositoryLive,
     ProviderThreadSwitchOperationRepositoryLive,
