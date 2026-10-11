@@ -337,7 +337,6 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           capabilities: {
             threadRead: context.callerCapabilities.has("thread:read"),
             threadCreate: turnId !== null && context.callerCapabilities.has("thread:write"),
-            diagnostics: context.callerCapabilities.has("diagnostics:read"),
           },
         });
       }).pipe(Effect.catch((error) => Effect.succeed(gatewayMcpToolErrorResult(error)))),

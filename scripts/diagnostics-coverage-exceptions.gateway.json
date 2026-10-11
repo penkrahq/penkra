@@ -253,37 +253,6 @@
     "reviewer": "desktop-gateway-0143"
   },
   {
-    "file": "apps/server/src/agentGateway/diagnosticCursor.ts",
-    "line": 52,
-    "column": 7,
-    "kind": "throw",
-    "disposition": "validation",
-    "reason": "This guard rejects invalid input, unavailable targets, or a stale caller authority before dispatch.",
-    "reviewer": "desktop-gateway-0143"
-  },
-  {
-    "file": "apps/server/src/agentGateway/diagnosticCursor.ts",
-    "line": 55,
-    "column": 5,
-    "kind": "catch",
-    "disposition": "propagates",
-    "reason": "The caught failure is converted to a gateway response or handled locally, with a content-free incident at that boundary.",
-    "reviewer": "desktop-gateway-0143",
-    "boundary": {
-      "code": "COMMAND_REJECTED",
-      "where": "agent.mcp_write"
-    }
-  },
-  {
-    "file": "apps/server/src/agentGateway/diagnosticCursor.ts",
-    "line": 56,
-    "column": 5,
-    "kind": "throw",
-    "disposition": "validation",
-    "reason": "This guard rejects invalid input, unavailable targets, or a stale caller authority before dispatch.",
-    "reviewer": "desktop-gateway-0143"
-  },
-  {
     "file": "apps/server/src/agentGateway/httpRoute.ts",
     "line": 53,
     "column": 25,
@@ -762,89 +731,6 @@
     "kind": "throw",
     "disposition": "rethrow",
     "reason": "Unexpected option validation errors are rethrown to the gateway tool response boundary.",
-    "reviewer": "desktop-gateway-0143",
-    "boundary": {
-      "code": "APP_OPERATION_FAILED",
-      "where": "agent.mcp_write"
-    }
-  },
-  {
-    "file": "apps/server/src/agentGateway/threadDiagnosticTools.ts",
-    "line": 150,
-    "column": 22,
-    "kind": "catch",
-    "disposition": "propagates",
-    "reason": "The caught failure is converted to a gateway response or handled locally, with a content-free incident at that boundary.",
-    "reviewer": "desktop-gateway-0143",
-    "boundary": {
-      "code": "APP_OPERATION_FAILED",
-      "where": "agent.mcp_write"
-    }
-  },
-  {
-    "file": "apps/server/src/agentGateway/threadDiagnosticTools.ts",
-    "line": 206,
-    "column": 11,
-    "kind": "throw",
-    "disposition": "validation",
-    "reason": "This guard rejects invalid input, unavailable targets, or a stale caller authority before dispatch.",
-    "reviewer": "desktop-gateway-0143"
-  },
-  {
-    "file": "apps/server/src/agentGateway/threadDiagnosticTools.ts",
-    "line": 270,
-    "column": 22,
-    "kind": "catch",
-    "disposition": "propagates",
-    "reason": "The caught failure is converted to a gateway response or handled locally, with a content-free incident at that boundary.",
-    "reviewer": "desktop-gateway-0143",
-    "boundary": {
-      "code": "APP_OPERATION_FAILED",
-      "where": "agent.mcp_write"
-    }
-  },
-  {
-    "file": "apps/server/src/agentGateway/threadDiagnosticTools.ts",
-    "line": 372,
-    "column": 22,
-    "kind": "catch",
-    "disposition": "propagates",
-    "reason": "The caught failure is converted to a gateway response or handled locally, with a content-free incident at that boundary.",
-    "reviewer": "desktop-gateway-0143",
-    "boundary": {
-      "code": "APP_OPERATION_FAILED",
-      "where": "agent.mcp_write"
-    }
-  },
-  {
-    "file": "apps/server/src/agentGateway/threadDiagnosticTools.ts",
-    "line": 404,
-    "column": 26,
-    "kind": "rejection",
-    "disposition": "validation",
-    "reason": "This guard rejects invalid input, unavailable targets, or a stale caller authority before dispatch.",
-    "reviewer": "desktop-gateway-0143"
-  },
-  {
-    "file": "apps/server/src/agentGateway/threadDiagnosticTools.ts",
-    "line": 578,
-    "column": 22,
-    "kind": "catch",
-    "disposition": "propagates",
-    "reason": "The caught failure is converted to a gateway response or handled locally, with a content-free incident at that boundary.",
-    "reviewer": "desktop-gateway-0143",
-    "boundary": {
-      "code": "APP_OPERATION_FAILED",
-      "where": "agent.mcp_write"
-    }
-  },
-  {
-    "file": "apps/server/src/agentGateway/threadDiagnosticTools.ts",
-    "line": 617,
-    "column": 22,
-    "kind": "catch",
-    "disposition": "propagates",
-    "reason": "The caught failure is converted to a gateway response or handled locally, with a content-free incident at that boundary.",
     "reviewer": "desktop-gateway-0143",
     "boundary": {
       "code": "APP_OPERATION_FAILED",

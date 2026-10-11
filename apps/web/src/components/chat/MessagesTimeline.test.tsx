@@ -2661,19 +2661,19 @@ describe("MessagesTimeline", () => {
     expect(readThreadMarkup).not.toContain("mcp__penkra__penkra_read_thread:");
     expect(readThreadMarkup).not.toContain("threadId");
 
-    const diagnoseMarkup = renderSingleToolRow({
-      id: "work-penkra-diagnose-args",
+    const listThreadsMarkup = renderSingleToolRow({
+      id: "work-penkra-list-args",
       createdAt: "2026-03-17T19:12:28.000Z",
       label: "MCP tool call",
       tone: "tool",
       itemType: "mcp_tool_call",
-      toolName: "mcp__penkra__penkra_diagnose_thread",
-      detail: 'mcp__penkra__penkra_diagnose_thread: {"threadId":"09a1615d-084f-40b9"}',
+      toolName: "mcp__penkra__penkra_list_threads",
+      detail: 'mcp__penkra__penkra_list_threads: {"threadId":"09a1615d-084f-40b9"}',
       activityKind: "tool.completed",
     });
-    expect(diagnoseMarkup).toContain("Penkra diagnosed a thread");
-    expect(diagnoseMarkup).not.toContain("mcp__penkra__penkra_diagnose_thread:");
-    expect(diagnoseMarkup).not.toContain("threadId");
+    expect(listThreadsMarkup).toContain("Penkra listed threads");
+    expect(listThreadsMarkup).not.toContain("mcp__penkra__penkra_list_threads:");
+    expect(listThreadsMarkup).not.toContain("threadId");
 
     const dynamicToolMarkup = renderSingleToolRow({
       id: "work-dynamic-tool-args",
@@ -2683,7 +2683,7 @@ describe("MessagesTimeline", () => {
       itemType: "dynamic_tool_call",
       toolName: "ToolSearch",
       toolTitle: "ToolSearch",
-      detail: 'ToolSearch: {"query":"select:mcp__penkra__penkra_read_thread_events"}',
+      detail: 'ToolSearch: {"query":"select:mcp__penkra__penkra_read_thread"}',
       activityKind: "tool.completed",
     });
     expect(dynamicToolMarkup).toContain("ToolSearch");

@@ -9,6 +9,7 @@ describe("AgentGatewaySessionRegistry", () => {
     const registry = makeAgentGatewaySessionRegistry({ randomId: () => String(++nextId) });
     const threadId = ThreadId.makeUnsafe("thread-1");
     const issued = registry.issue(threadId, "claudeAgent", "generation-1");
+    assert.deepEqual([...issued.capabilities].sort(), ["thread:read", "thread:write"]);
     assert.isNull(registry.bindWriteAuthority(issued.token));
 
     registry.beginTurn(threadId, "claudeAgent", "turn-1", "generation-1");

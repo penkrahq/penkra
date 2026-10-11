@@ -54,7 +54,7 @@ async function withGatewayServer(
               provider: "opencode",
               issuedAt: 1,
               activeTurnId,
-              capabilities: new Set(["thread:read", "thread:write", "diagnostics:read"]),
+              capabilities: new Set(["thread:read", "thread:write"]),
             }
           : null,
       bindWriteAuthority: () => {

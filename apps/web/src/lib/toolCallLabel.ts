@@ -150,31 +150,6 @@ const PENKRA_MCP_TOOL_PRESENTATIONS = {
     completed: "Penkra read a thread",
     failed: "Penkra couldn't read a thread",
   },
-  penkra_read_thread_activity: {
-    running: "Penkra is reading thread activity",
-    completed: "Penkra read thread activity",
-    failed: "Penkra couldn't read thread activity",
-  },
-  penkra_read_thread_events: {
-    running: "Penkra is reading thread events",
-    completed: "Penkra read thread events",
-    failed: "Penkra couldn't read thread events",
-  },
-  penkra_read_thread_runtime_events: {
-    running: "Penkra is reading thread runtime events",
-    completed: "Penkra read thread runtime events",
-    failed: "Penkra couldn't read thread runtime events",
-  },
-  penkra_diagnose_thread: {
-    running: "Penkra is diagnosing a thread",
-    completed: "Penkra diagnosed a thread",
-    failed: "Penkra couldn't diagnose a thread",
-  },
-  penkra_retry_thread_projection: {
-    running: "Penkra is retrying thread projection",
-    completed: "Penkra retried thread projection",
-    failed: "Penkra couldn't retry thread projection",
-  },
   penkra_create_thread: {
     running: "Penkra is creating a thread",
     completed: "Penkra created a thread",
