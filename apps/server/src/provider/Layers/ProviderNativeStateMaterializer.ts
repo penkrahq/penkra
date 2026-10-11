@@ -6,8 +6,6 @@ import * as Path from "node:path";
 import { randomUUID } from "node:crypto";
 import { backup as backupSqlite, DatabaseSync } from "node:sqlite";
 import { Effect, Layer } from "effect";
-import { startDiagnosticTrace } from "@penkra/shared/traceContext";
-import { recordDiagnosticIncident } from "../../diagnostics/recorder.ts";
 
 import { ServerConfig } from "../../config.ts";
 import { providerNativeStateRoot } from "../providerNativeStatePaths.ts";
@@ -24,15 +22,6 @@ import {
 } from "../Services/ProviderNativeStateMaterializer.ts";
 
 const failure = (detail: string, cause?: unknown) => {
-  recordDiagnosticIncident({
-    ...startDiagnosticTrace(),
-    kind: "external.failed",
-    code: "EXTERNAL_CALL_FAILED",
-    where: "provider.native_state",
-    severity: "error",
-    expected: { accepted: true },
-    actual: { accepted: false },
-  });
   return new ProviderNativeStateMaterializationError({
     detail,
     ...(cause === undefined ? {} : { cause }),
