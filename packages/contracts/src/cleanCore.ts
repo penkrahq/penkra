@@ -357,6 +357,24 @@ export const CleanCoreSendResult = Schema.Union([
 ]);
 export type CleanCoreSendResult = typeof CleanCoreSendResult.Type;
 
+export const CleanCoreCreateAndSendThreadInput = Schema.Struct({
+  thread: CleanCoreCreateThreadInput,
+  message: CleanCoreSendMessageInput.fields.message,
+  dispatchMode: CleanCoreSendMessageInput.fields.dispatchMode,
+  modelSelection: CleanCoreSendMessageInput.fields.modelSelection,
+  connectionId: CleanCoreSendMessageInput.fields.connectionId,
+  providerOptions: CleanCoreSendMessageInput.fields.providerOptions,
+  assistantDeliveryMode: CleanCoreSendMessageInput.fields.assistantDeliveryMode,
+  skills: CleanCoreSendMessageInput.fields.skills,
+  mentions: CleanCoreSendMessageInput.fields.mentions,
+});
+export type CleanCoreCreateAndSendThreadInput = typeof CleanCoreCreateAndSendThreadInput.Type;
+export const CleanCoreCreateAndSendThreadResponse = Schema.Struct({
+  ...CleanCoreCreateThreadResponse.fields,
+  sendResult: CleanCoreSendResult,
+});
+export type CleanCoreCreateAndSendThreadResponse = typeof CleanCoreCreateAndSendThreadResponse.Type;
+
 export const CleanCoreThreadRuntimeInput = Schema.Struct({ threadId: ThreadId });
 export type CleanCoreThreadRuntimeInput = typeof CleanCoreThreadRuntimeInput.Type;
 export const CleanCoreThreadRuntime = Schema.Struct({

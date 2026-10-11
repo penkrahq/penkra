@@ -39,8 +39,7 @@ function ChatIndexRouteView() {
   // A Space landing reuses the stored home-chat draft instead of minting one (same reasoning as
   // the stored-draft flow): a fresh draft per visit would litter the Chats container every time
   // someone clicked through their empty Spaces.
-  const createFreshChat = () =>
-    landingSpaceKey === undefined ? handleNewChat({ fresh: true }) : handleNewChat();
+  const createFreshChat = () => handleNewChat();
 
   const workspacePaths = { homeDir, chatWorkspaceRoot };
   // Only plain, still-unsent chat drafts qualify as restore targets: a non-"chat" entry point

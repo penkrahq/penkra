@@ -158,7 +158,6 @@ function CanonicalFolderTabs(props: FolderTabsProps & { folderId: FolderId }) {
   const draftThreadsByThreadId = useComposerDraftStore((state) => state.draftThreadsByThreadId);
   const composerDraftsByThreadId = useComposerDraftStore((state) => state.draftsByThreadId);
   const localSendOwnerThreadIds = useComposerSendActivityThreadIds();
-  const clearDraftThread = useComposerDraftStore((state) => state.clearDraftThread);
   const recordingThreadId = useVoiceSessionCoordinatorStore(
     (state) => state.capture?.origin.threadId ?? null,
   );
@@ -298,23 +297,20 @@ function CanonicalFolderTabs(props: FolderTabsProps & { folderId: FolderId }) {
   };
 
   const archive = async (threadId: ThreadId) => {
-    const draftThread = draftThreadsByThreadId[threadId];
-    if (!draftThread) {
-      const thread = rowsById.get(threadId);
-      if (!thread) return;
-      if (tabs.find((tab) => tab.id === threadId)?.workStatus === "running") {
-        toastManager.add({
-          type: "error",
-          title: "Could not archive thread",
-          description: "This thread is still running. Stop it before archiving.",
-        });
-        return;
-      }
-      const api = readNativeApi();
-      if (!api) return;
-      const confirmed = await api.dialogs.confirm(`Archive thread "${thread.title}"?`);
-      if (!confirmed) return;
+    const thread = rowsById.get(threadId);
+    if (!thread) return;
+    if (tabs.find((tab) => tab.id === threadId)?.workStatus === "running") {
+      toastManager.add({
+        type: "error",
+        title: "Could not archive thread",
+        description: "This thread is still running. Stop it before archiving.",
+      });
+      return;
     }
+    const api = readNativeApi();
+    if (!api) return;
+    const confirmed = await api.dialogs.confirm(`Archive thread "${thread.title}"?`);
+    if (!confirmed) return;
 
     await removeFolderThreadPreservingNavigation({
       threadIds: tabs.map((tab) => tab.id),
@@ -323,10 +319,6 @@ function CanonicalFolderTabs(props: FolderTabsProps & { folderId: FolderId }) {
       isVisible: () => true,
       activate,
       remove: async (removedThreadId) => {
-        if (draftThread) {
-          clearDraftThread(removedThreadId);
-          return;
-        }
         const api = readNativeApi();
         if (!api) return;
         await api.cleanCore.updateThread({
@@ -398,7 +390,7 @@ function CanonicalFolderTabs(props: FolderTabsProps & { folderId: FolderId }) {
                   }
                   closeIcon={<ArchiveIcon className="size-3.5" />}
                   closeLabel={`Archive ${tab.title}`}
-                  onClose={() => void archive(tab.id)}
+                  onClose={rowsById.has(tab.id) ? () => void archive(tab.id) : undefined}
                   onSelect={() => activate(tab.id)}
                   onSelectPointerCancel={() => setOptimisticActiveThreadId(null)}
                   onSelectPointerDown={(event) => primeThreadActivation(event, tab.id)}
@@ -415,7 +407,7 @@ function CanonicalFolderTabs(props: FolderTabsProps & { folderId: FolderId }) {
             tooltip="New thread"
             tooltipSide="bottom"
             className="ml-1 !size-7 shrink-0 rounded-lg"
-            onClick={() => void handleNewThread(folderId, { entryPoint: "chat", fresh: true })}
+            onClick={() => void handleNewThread(folderId, { entryPoint: "chat" })}
           >
             <PlusIcon className="size-3.5" />
           </IconButton>

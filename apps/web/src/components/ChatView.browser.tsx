@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 import { promoteThreadCreate } from "../lib/threadCreatePromotion";
 import { toastManager } from "./ui/toast";
-import { getThreadList, resetThreadListForTests } from "../threadListStore";
+import { getThreadList, getThreadListById, resetThreadListForTests } from "../threadListStore";
 // Production CSS is part of the behavior under test because row height depends on it.
 import "../index.css";
 
@@ -137,7 +137,9 @@ let fixtureSocketConnectionCount = 0;
 // Clean-core change emitters, keyed by thread id, captured from the mock WS
 // subscribe stream so tests can push an item refresh after updating the fixture.
 const cleanCoreThreadChangeEmitters = new Map<ThreadId, () => void>();
-const cleanCoreSidebarChangeEmitters = new Set<(threadId: ThreadId) => void>();
+const cleanCoreSidebarChangeEmitters = new Set<
+  (threadId: ThreadId, kind: "thread" | "thread.created") => void
+>();
 let unsubscribeCoreFixtureStore: (() => void) | undefined;
 
 function closeFixtureSockets(): void {
@@ -626,7 +628,7 @@ function createThreadItemsPageFromFixtureSnapshot(threadId: ThreadId) {
 /** Push a clean-core thread change so mounted transcripts re-read thread_items. */
 function pushCleanCoreThreadChange(threadId: ThreadId): void {
   cleanCoreThreadChangeEmitters.get(threadId)?.();
-  for (const emit of cleanCoreSidebarChangeEmitters) emit(threadId);
+  for (const emit of cleanCoreSidebarChangeEmitters) emit(threadId, "thread");
 }
 
 function publishThreadToFixture(): void {
@@ -1489,6 +1491,20 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
       return { state: running ? "running" : "idle", activeTurnId: turnId };
     return { threadId, interruptRequested: running, interruptedTurnId: turnId };
   }
+  if (tag === WS_METHODS.cleanCoreCreateAndSendThread) {
+    const input = body as unknown as import("@penkra/contracts").CleanCoreCreateAndSendThreadInput;
+    const created = resolveWsRpc({
+      _tag: WS_METHODS.cleanCoreCreateThread,
+      ...input.thread,
+    }) as import("@penkra/contracts").CleanCoreCreateThreadResponse;
+    const { thread, ...send } = input;
+    const sendResult = resolveWsRpc({
+      _tag: WS_METHODS.cleanCoreSendMessage,
+      ...send,
+      threadId: thread.threadId,
+    });
+    return { ...created, sendResult };
+  }
   if (tag === WS_METHODS.cleanCoreCreateThread) {
     const input = body as unknown as CleanCoreCreateThreadInput;
     const existing = fixture.snapshot.threads.find((thread) => thread.id === input.threadId);
@@ -2019,6 +2035,26 @@ function installDeterministicSendNativeApi(options?: {
       },
       cleanCore: {
         ...wsNativeApi.cleanCore,
+        createAndSendThread: async (
+          input: Parameters<typeof wsNativeApi.cleanCore.createAndSendThread>[0],
+        ) => {
+          wsRequests.push({ _tag: WS_METHODS.cleanCoreCreateAndSendThread, ...input });
+          const created = resolveWsRpc({
+            _tag: WS_METHODS.cleanCoreCreateThread,
+            ...input.thread,
+          }) as import("@penkra/contracts").CleanCoreCreateThreadResponse;
+          for (const emit of cleanCoreSidebarChangeEmitters)
+            emit(input.thread.threadId, "thread.created");
+          await options?.dispatchGate;
+          if (options?.dispatchError) throw options.dispatchError;
+          const { thread, ...send } = input;
+          const sendResult = resolveWsRpc({
+            _tag: WS_METHODS.cleanCoreSendMessage,
+            ...send,
+            threadId: thread.threadId,
+          }) as import("@penkra/contracts").CleanCoreSendResult;
+          return { ...created, sendResult };
+        },
         sendMessage: async (input: Parameters<typeof wsNativeApi.cleanCore.sendMessage>[0]) => {
           wsRequests.push({ _tag: WS_METHODS.cleanCoreSendMessage, ...input });
           await options?.dispatchGate;
@@ -2161,8 +2197,8 @@ const worker = setupWorker(
         return;
       }
       if (method === WS_METHODS.cleanCoreSubscribeSidebar) {
-        cleanCoreSidebarChangeEmitters.add((threadId) =>
-          sendEffectRpcChunk(client, parsed.request.id, { kind: "thread", threadId }),
+        cleanCoreSidebarChangeEmitters.add((threadId, kind) =>
+          sendEffectRpcChunk(client, parsed.request.id, { kind, threadId }),
         );
         return;
       }
@@ -2470,6 +2506,17 @@ async function waitForSendButton(): Promise<HTMLButtonElement> {
 }
 
 function readDispatchedCommand(request: WsRequestEnvelope["body"]): Record<string, unknown> | null {
+  if (request._tag === WS_METHODS.cleanCoreCreateAndSendThread) {
+    const input =
+      request as unknown as import("@penkra/contracts").CleanCoreCreateAndSendThreadInput;
+    return {
+      ...input,
+      threadId: input.thread.threadId,
+      type: "thread.turn.start",
+      message: { ...input.message, role: "user" },
+      createdAt: input.message.queuedAt,
+    };
+  }
   if (request._tag === WS_METHODS.cleanCoreSendMessage) {
     const input = request as unknown as import("@penkra/contracts").CleanCoreSendMessageInput;
     return {
@@ -3725,14 +3772,26 @@ describe("ChatView timeline estimator parity (full app)", () => {
         const drafts = Object.entries(
           useComposerDraftStore.getState().draftThreadsByThreadId,
         ).filter(([, draft]) => draft.folderId === PROJECT_ID);
-        expect(drafts).toHaveLength(2);
-        expect(mounted.router.state.location.pathname).not.toBe(`/${draftThreadId}`);
+        expect(drafts).toHaveLength(1);
+        expect(mounted.router.state.location.pathname).toBe(`/${draftThreadId}`);
         expect(
           useComposerDraftStore.getState().draftsByThreadId[draftThreadId as ThreadId]?.prompt,
         ).toBe("First tab draft");
         expect(
           document.querySelectorAll(`[data-folder-tabs-id='${PROJECT_ID}'] button[aria-pressed]`),
-        ).toHaveLength(5);
+        ).toHaveLength(4);
+        expect(draftTabChip()?.querySelector("button[aria-label^='Archive']")).toBeNull();
+        expect(fixture.snapshot.threads.some((thread) => thread.id === draftThreadId)).toBe(false);
+        expect(
+          wsRequests.some(
+            (request) =>
+              request._tag === WS_METHODS.cleanCoreCreateThread ||
+              request._tag === WS_METHODS.cleanCoreCreateAndSendThread ||
+              ((request._tag === WS_METHODS.cleanCoreGetThreadDraft ||
+                request._tag === WS_METHODS.cleanCoreSetThreadDraft) &&
+                request.threadId === draftThreadId),
+          ),
+        ).toBe(false);
       });
     } finally {
       await mounted.cleanup();
@@ -5547,6 +5606,80 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("leaves no server row when a window with an unused draft closes", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "draft-window-baseline" as MessageId,
+        targetText: "Existing chat",
+      }),
+    });
+    let draftThreadId: ThreadId;
+    try {
+      ({ threadId: draftThreadId } = await createProjectThreadWithShortcut(mounted));
+      useComposerDraftStore.getState().setPrompt(draftThreadId, "Unsent window draft");
+      expect(fixture.snapshot.threads.some((thread) => thread.id === draftThreadId)).toBe(false);
+      expect(
+        wsRequests.some(
+          (request) =>
+            request._tag === WS_METHODS.cleanCoreCreateThread ||
+            request._tag === WS_METHODS.cleanCoreCreateAndSendThread ||
+            ((request._tag === WS_METHODS.cleanCoreGetThreadDraft ||
+              request._tag === WS_METHODS.cleanCoreSetThreadDraft) &&
+              request.threadId === draftThreadId),
+        ),
+      ).toBe(false);
+    } finally {
+      await mounted.cleanup();
+    }
+    expect(fixture.snapshot.threads.some((thread) => thread.id === draftThreadId)).toBe(false);
+  });
+
+  it("creates exactly one thread on the first send from an in-memory draft", async () => {
+    useComposerDraftStore.setState({
+      draftThreadsByThreadId: {
+        [THREAD_ID]: {
+          folderId: PROJECT_ID,
+          createdAt: NOW_ISO,
+          runtimeMode: "full-access",
+          entryPoint: "chat",
+        },
+      },
+      projectDraftThreadIdByFolderId: { [PROJECT_ID]: THREAD_ID },
+    });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createDraftOnlySnapshot(),
+    });
+    try {
+      expect(fixture.snapshot.threads.filter((thread) => thread.id === THREAD_ID)).toHaveLength(0);
+      useComposerDraftStore.getState().setPrompt(THREAD_ID, "One first message");
+      (await waitForSendButton()).click();
+      await vi.waitFor(() => {
+        expect(fixture.snapshot.threads.filter((thread) => thread.id === THREAD_ID)).toHaveLength(
+          1,
+        );
+        expect(
+          fixture.snapshot.threads
+            .find((thread) => thread.id === THREAD_ID)
+            ?.messages.filter((message) => message.text === "One first message"),
+        ).toHaveLength(1);
+      });
+      expect(
+        wsRequests.filter((request) => request._tag === WS_METHODS.cleanCoreCreateAndSendThread),
+      ).toHaveLength(1);
+      expect(
+        wsRequests.filter(
+          (request) =>
+            request._tag === WS_METHODS.cleanCoreCreateThread ||
+            request._tag === WS_METHODS.cleanCoreSendMessage,
+        ),
+      ).toHaveLength(0);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("does not delete a promoted local thread after an uncertain start RPC", async () => {
     useComposerDraftStore.setState({
       draftThreadsByThreadId: {
@@ -5577,9 +5710,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
         ...nativeApi,
         cleanCore: {
           ...nativeApi.cleanCore,
-          sendMessage: vi.fn(
-            async (input: import("@penkra/contracts").CleanCoreSendMessageInput) => {
-              wsRequests.push({ _tag: WS_METHODS.cleanCoreSendMessage, ...input });
+          createAndSendThread: vi.fn(
+            async (input: import("@penkra/contracts").CleanCoreCreateAndSendThreadInput) => {
+              wsRequests.push({ _tag: WS_METHODS.cleanCoreCreateAndSendThread, ...input });
+              resolveWsRpc({ _tag: WS_METHODS.cleanCoreCreateThread, ...input.thread });
               throw new Error("fixture uncertain start transport failure");
             },
           ),
@@ -5610,7 +5744,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       (await waitForSendButton()).click();
       await vi.waitFor(() => {
         expect(
-          wsRequests.some((command) => command._tag === WS_METHODS.cleanCoreCreateThread),
+          wsRequests.some((command) => command._tag === WS_METHODS.cleanCoreCreateAndSendThread),
         ).toBe(true);
         expect(
           wsRequests
@@ -7015,7 +7149,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("keeps the optimistic first message visible while a new thread detail page reconciles", async () => {
+  it("keeps the optimistic first message visible across the creation broadcast and first-send response", async () => {
+    let releaseSend!: () => void;
+    const sendGate = new Promise<void>((resolve) => {
+      releaseSend = resolve;
+    });
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
@@ -7023,116 +7161,74 @@ describe("ChatView timeline estimator parity (full app)", () => {
         targetText: "new thread hydration baseline",
       }),
     });
-    const previousNativeApi = window.nativeApi;
-    const nativeApi = readNativeApi();
-    expect(nativeApi).toBeDefined();
-    let releaseDetailPage!: () => void;
-    const detailPageGate = new Promise<void>((resolve) => {
-      releaseDetailPage = resolve;
+    const restoreNativeApi = installDeterministicSendNativeApi({ dispatchGate: sendGate });
+    let releaseDetail!: () => void;
+    const detailGate = new Promise<void>((resolve) => {
+      releaseDetail = resolve;
     });
-    let releaseTurnStart!: () => void;
-    const turnStartGate = new Promise<void>((resolve) => {
-      releaseTurnStart = resolve;
-    });
-
+    const api = readNativeApi();
+    if (!api) throw new Error("The test native API must exist.");
     try {
       const { threadId: newThreadId } = await createProjectThreadWithShortcut(mounted);
       Object.defineProperty(window, "nativeApi", {
         configurable: true,
         value: {
-          ...nativeApi,
+          ...api,
           orchestration: {
-            ...nativeApi?.orchestration,
-            dispatchCommand: vi.fn(async (command: unknown) => {
-              wsRequests.push({
-                _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
-                command,
-              });
-              if (
-                command !== null &&
-                typeof command === "object" &&
-                "type" in command &&
-                command.type === "thread.turn.start"
-              ) {
-                await turnStartGate;
-              }
-              return { sequence: fixture.snapshot.snapshotSequence };
-            }),
-            getThreadTurnsPage: vi.fn(async ({ threadId }: { threadId: ThreadId }) => {
-              if (threadId === newThreadId) {
-                useStore.setState((state) => {
-                  const { [newThreadId]: _syntheticKnownEmpty, ...threadDetailSyncById } =
-                    state.threadDetailSyncById ?? {};
-                  return { threadDetailSyncById };
-                });
-                await detailPageGate;
-              }
+            ...api.orchestration,
+            getThreadTurnsPage: async ({ threadId }: { threadId: ThreadId }) => {
+              if (threadId === newThreadId) await detailGate;
               return createThreadTurnsPageFromFixtureSnapshot(threadId);
-            }),
+            },
           },
         },
       });
-
       const prompt = "first message must not become a loading placeholder";
       await page.getByTestId("composer-editor").fill(prompt);
-      await expect.element(page.getByTestId("composer-editor")).toHaveTextContent(prompt);
-      await vi.waitFor(() => {
-        expect(useComposerDraftStore.getState().draftsByThreadId[newThreadId]?.prompt).toBe(prompt);
-      });
+      await vi.waitFor(() =>
+        expect(useComposerDraftStore.getState().draftsByThreadId[newThreadId]?.prompt).toBe(prompt),
+      );
       const sendButton = await waitForSendButton();
       await vi.waitFor(() => expect(sendButton.disabled).toBe(false));
-      let observedPrompt = false;
-      let disappearedAfterObservation = false;
-      const continuityProbe = window.setInterval(() => {
-        const present = document.body.textContent?.includes(prompt) ?? false;
-        if (observedPrompt && !present) disappearedAfterObservation = true;
-        observedPrompt ||= present;
-      }, 8);
+      let disappeared = false;
+      const probe = new MutationObserver(() => {
+        if (!document.body.textContent?.includes(prompt)) disappeared = true;
+      });
       sendButton.click();
-
+      await vi.waitFor(() => {
+        expect(
+          wsRequests.some((request) => request._tag === WS_METHODS.cleanCoreCreateAndSendThread),
+        ).toBe(true);
+        expect(getThreadListById().has(newThreadId)).toBe(true);
+        expect(document.body.textContent).toContain(prompt);
+        expect(document.body.textContent).not.toContain("Loading conversation");
+      });
+      probe.observe(document.body, { childList: true, subtree: true, characterData: true });
+      expect(
+        wsRequests.some(
+          (request) =>
+            request._tag === WS_METHODS.cleanCoreGetThreadShell && request.threadId === newThreadId,
+        ),
+      ).toBe(false);
+      releaseSend();
       try {
         await vi.waitFor(() => {
-          expect(
-            wsRequests.some((request) => request._tag === WS_METHODS.cleanCoreCreateThread),
-          ).toBe(true);
-          expect(hasDispatchedCommandType("thread.turn.start")).toBe(true);
+          expect(useStore.getState().threadShellById?.[newThreadId]).toBeDefined();
+          expect(document.body.textContent).toContain(prompt);
+          expect(document.body.textContent).not.toContain("Loading conversation");
         });
-        useStore.setState((state) => {
-          const { [newThreadId]: _syntheticKnownEmpty, ...threadDetailSyncById } =
-            state.threadDetailSyncById ?? {};
-          return { threadDetailSyncById };
-        });
-        await vi.waitFor(
-          () => {
-            expect(useStore.getState().threadDetailSyncById?.[newThreadId] ?? null).toBeNull();
-            expect(document.body.textContent).toContain(prompt);
-            expect(document.body.textContent).toContain("Thinking");
-            expect(document.body.textContent).not.toContain("Loading conversation");
-          },
-          { timeout: 8_000, interval: 16 },
+        releaseDetail();
+        await vi.waitFor(() =>
+          expect(useStore.getState().threadDetailSyncById?.[newThreadId]).toBe("synced"),
         );
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 160));
-        expect(disappearedAfterObservation).toBe(false);
+        expect(disappeared).toBe(false);
       } finally {
-        window.clearInterval(continuityProbe);
+        probe.disconnect();
       }
-
-      releaseTurnStart();
-      releaseDetailPage();
-      await vi.waitFor(() => {
-        expect(useStore.getState().threadDetailSyncById?.[newThreadId]).toBe("synced");
-      });
     } finally {
-      releaseTurnStart();
-      releaseDetailPage();
-      if (previousNativeApi) {
-        Object.defineProperty(window, "nativeApi", {
-          configurable: true,
-          value: previousNativeApi,
-        });
-      } else {
-        Reflect.deleteProperty(window, "nativeApi");
-      }
+      releaseSend();
+      releaseDetail();
+      restoreNativeApi();
       await mounted.cleanup();
     }
   });

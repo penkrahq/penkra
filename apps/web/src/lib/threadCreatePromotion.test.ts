@@ -11,7 +11,7 @@ import { useComposerDraftStore } from "../composerDraftStore";
 import { useStore } from "../store";
 import { getThreadFromState } from "../threadDerivation";
 import { getThreadListById, resetThreadListForTests } from "../threadListStore";
-import { promoteThreadCreate } from "./threadCreatePromotion";
+import { promoteThreadCreate, applyThreadCreationResponse } from "./threadCreatePromotion";
 const initialStoreState = useStore.getState();
 const initialDraftState = useComposerDraftStore.getState();
 afterEach(() => {
@@ -105,6 +105,21 @@ function makeShellSnapshot(threadId: ThreadId, snapshotSequence = 1) {
 }
 
 describe("clean-core draft promotion", () => {
+  it("installs a first-send response without marking its transcript empty", () => {
+    const request = input();
+    useComposerDraftStore.getState().setProjectDraftThreadId(request.folderId, request.threadId);
+    applyThreadCreationResponse({
+      thread: makeCanonicalThread(request),
+      shell: makeShellSnapshot(request.threadId).threads[0]!,
+      created: true,
+    });
+    expect(getThreadListById().get(request.threadId)).toEqual(makeCanonicalThread(request));
+    expect(getThreadFromState(useStore.getState(), request.threadId)?.id).toBe(request.threadId);
+    expect(useStore.getState().threadDetailSyncById?.[request.threadId]).toBeUndefined();
+    expect(useComposerDraftStore.getState().getDraftThread(request.threadId)?.promotedTo).toBe(
+      request.threadId,
+    );
+  });
   it("creates through the clean-core API and installs the stored shell before admission", async () => {
     const request = input();
     const createThread = vi.fn().mockResolvedValue({

@@ -798,10 +798,10 @@ export default function Sidebar() {
     [focusMostRecentThreadForProject, handleNewThread, sidebarThreads],
   );
 
-  // Opens a fresh draft in the Space's default folder.
+  // Selects the unused draft or opens one in the Space's default folder.
   const handleCreateSpaceThread = useCallback(
     async (spaceId: SpaceId) => {
-      await handleNewChat({ fresh: true, spaceId });
+      await handleNewChat({ spaceId });
     },
     [handleNewChat],
   );
@@ -1412,7 +1412,6 @@ export default function Sidebar() {
         // stream installs the Folder in the canonical store independently; the
         // draft only needs the known parent Space to open immediately.
         await handleNewThread(folderId, {
-          fresh: true,
           spaceId: value.spaceId,
         });
       } catch (error) {

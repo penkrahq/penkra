@@ -6,6 +6,7 @@ import {
   QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR,
   QueuedEditDraftNotEmptyError,
   type CleanCoreThreadSummary,
+  type CleanCoreSendMessageInput,
   type ApprovalRequestId,
   DEFAULT_MODEL_BY_PROVIDER,
   MessageId,
@@ -241,7 +242,7 @@ import {
 import { runProjectCommandInTerminal } from "~/projectTerminalRunner";
 import { newCommandId, newMessageId, newFolderId, newThreadId } from "~/lib/utils";
 import { readNativeApi, ensureNativeApi } from "~/nativeApi";
-import { promoteThreadCreate } from "~/lib/threadCreatePromotion";
+import { applyThreadCreationResponse } from "~/lib/threadCreatePromotion";
 import { requireNewThreadSpaceId } from "~/lib/threadBootstrap";
 import { readFavoriteModelSlugs } from "~/lib/modelFavorites";
 import {
@@ -739,9 +740,12 @@ interface LateComposerSendHandlers {
 
 export default function ChatView(props: ChatViewProps) {
   const row = useThreadSummary(props.threadId);
+  const hasFirstSend = useHasComposerSendActivity(props.threadId);
+  const localDraft = useComposerDraftStore((state) => state.draftThreadsByThreadId[props.threadId]);
   const hasServerThread = useStore(
     (state) => state.threadShellById?.[props.threadId] !== undefined,
   );
+  const awaitingCreationResponse = hasFirstSend && localDraft !== undefined && !hasServerThread;
   const [rowReadFailed, setRowReadFailed] = useState(false);
   const shellReads = useRef(new Map<ThreadId, Promise<void>>());
   const readRow = useCallback(() => {
@@ -778,9 +782,12 @@ export default function ChatView(props: ChatViewProps) {
     });
   }, [props.threadId]);
   useEffect(() => {
-    if (row !== null && !hasServerThread) readShell();
-  }, [props.threadId, row !== null, hasServerThread, readShell]);
-  if ((hasServerThread && row === null) || (row !== null && !hasServerThread))
+    if (row !== null && !hasServerThread && !awaitingCreationResponse) readShell();
+  }, [props.threadId, row !== null, hasServerThread, awaitingCreationResponse, readShell]);
+  if (
+    (hasServerThread && row === null) ||
+    (row !== null && !hasServerThread && !awaitingCreationResponse)
+  )
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center">
         <ThreadDetailHydrationState
@@ -792,7 +799,9 @@ export default function ChatView(props: ChatViewProps) {
   return (
     <ChatViewContent
       {...props}
-      context={row === null ? { kind: "draft" } : { kind: "persisted", row }}
+      context={
+        row === null || awaitingCreationResponse ? { kind: "draft" } : { kind: "persisted", row }
+      }
     />
   );
 }
@@ -873,7 +882,7 @@ function ChatViewContent({
   // Keep the one per-thread composer draft on the clean core (0.14.4 design 2.6).
   const applyServerThreadDraft = useComposerDraftStore((store) => store.applyServerThreadDraft);
   useComposerDraftSync({
-    threadId,
+    threadId: canonicalThread === null ? null : threadId,
     draft: composerDraft,
     applyServerDraft: applyServerThreadDraft,
   });
@@ -1564,7 +1573,7 @@ function ChatViewContent({
   const activeThreadId = activeThread?.id ?? null;
   // Clean-core transcript source (0.14.4 design 2.1): the transcript renders
   // strictly from thread_items, paged by seq.
-  const { state: threadItemsState } = useThreadItems(activeThreadId);
+  const { state: threadItemsState } = useThreadItems(isServerThread ? activeThreadId : null);
   const threadItems = threadItemsState.items;
   const activeLatestTurn = activeThread?.latestTurn ?? null;
   const activeLatestTurnId = activeLatestTurn?.turnId ?? null;
@@ -1636,7 +1645,7 @@ function ChatViewContent({
         });
         useComposerDraftStore.getState().clearDraftThread(terminalThreadId);
         useTerminalStateStore.getState().clearTerminalState(terminalThreadId);
-        await handleNewChat({ fresh: true });
+        await handleNewChat();
       };
 
       try {
@@ -1765,7 +1774,7 @@ function ChatViewContent({
     });
   }, [hasThreadStarted, providerConnectionsQuery.data]);
   const threadProviderBindingQuery = useQuery(
-    threadProviderBindingQueryOptions(activeThread?.id ?? null),
+    threadProviderBindingQueryOptions(isServerThread ? activeThreadId : null),
   );
   type PendingConnectionSelection = Partial<Record<ProviderKind, ProviderConnectionId | null>>;
   const [selectedConnectionByThread, setSelectedConnectionByThread] = useState<
@@ -4683,13 +4692,16 @@ function ChatViewContent({
     terminalWorkspaceOpen,
   ]);
 
-  const { stopping, stop: stopProviderTurn } = useThreadStop(activeThreadId, (error) => {
-    if (activeThreadId !== null)
-      setThreadError(
-        activeThreadId,
-        error instanceof Error ? error.message : "Failed to interrupt the provider turn.",
-      );
-  });
+  const { stopping, stop: stopProviderTurn } = useThreadStop(
+    isServerThread ? activeThreadId : null,
+    (error) => {
+      if (activeThreadId !== null)
+        setThreadError(
+          activeThreadId,
+          error instanceof Error ? error.message : "Failed to interrupt the provider turn.",
+        );
+    },
+  );
   const onInterrupt = useCallback(async () => {
     if (!activeThread) return;
     const preparationOwner = getActiveComposerSendPreparation(activeThread.id);
@@ -5889,25 +5901,6 @@ function ChatViewContent({
         selectedModelSelectionForSend.options,
       );
 
-      if (isLocalDraftThread) {
-        await promoteThreadCreate(
-          {
-            creator: { kind: "user" },
-            connection:
-              selectedConnectionIdForSend === undefined
-                ? { kind: "default" }
-                : { kind: "selected", connectionId: selectedConnectionIdForSend },
-            threadId: threadIdForSend,
-            folderId: targetFolderIdForSend,
-            title,
-            modelSelection: threadCreateModelSelection,
-            runtimeMode: nextRuntimeModeForSend,
-            createdAt: activeThread.createdAt,
-          },
-          api,
-        );
-      }
-
       if (isServerThread) {
         await persistThreadSettingsForNextTurn({
           threadId: threadIdForSend,
@@ -5927,9 +5920,8 @@ function ChatViewContent({
         providerOptions: providerOptionsForDispatchForSend,
       });
       const sendResult = await stagedTurnAttachments.runWithDispatch((attachments) => {
-        return sendDiagnostics.dispatch(threadIdForSend, () => {
-          return api.cleanCore.sendMessage({
-            threadId: threadIdForSend,
+        return sendDiagnostics.dispatch(threadIdForSend, async () => {
+          const send: Omit<CleanCoreSendMessageInput, "threadId"> = {
             message: {
               messageId: messageIdForSend,
               text: outgoingMessageText,
@@ -5957,7 +5949,27 @@ function ChatViewContent({
               ? {}
               : { connectionId: selectedConnectionIdForSend }),
             dispatchMode,
+          };
+          if (!isLocalDraftThread)
+            return api.cleanCore.sendMessage({ ...send, threadId: threadIdForSend });
+          const result = await api.cleanCore.createAndSendThread({
+            ...send,
+            thread: {
+              creator: { kind: "user" },
+              connection:
+                selectedConnectionIdForSend === undefined
+                  ? { kind: "default" }
+                  : { kind: "selected", connectionId: selectedConnectionIdForSend },
+              threadId: threadIdForSend,
+              folderId: targetFolderIdForSend,
+              title,
+              modelSelection: threadCreateModelSelection,
+              runtimeMode: nextRuntimeModeForSend,
+              createdAt: activeThread.createdAt,
+            },
           });
+          applyThreadCreationResponse(result);
+          return result.sendResult;
         });
       });
       if (sendResult.delivery === "failed") throw new Error(sendResult.error);

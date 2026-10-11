@@ -1,6 +1,7 @@
 import { listArchivedNavigation, listArchivedThreads, restoreThread } from "./cleanCore/archive.ts";
 import { ensureDurableThreadWorkspace } from "./scratchWorkspaces.ts";
 import { setThreadConnection, setThreadModel, renameThread } from "./cleanCore/threadStore.ts";
+import { createAndSendThread } from "./cleanCore/createAndSendThread.ts";
 import { createThreadFromClient, ThreadLifecycle } from "./cleanCore/threadLifecycle.ts";
 import { ThreadSender } from "./cleanCore/ThreadSender.ts";
 import { execFile } from "node:child_process";
@@ -1423,6 +1424,20 @@ const makeWsRpcHandlersLayer = () =>
               query.getThreadShellById(input.threadId).pipe(Effect.map(Option.getOrNull)),
             ),
             "Failed to read the thread shell",
+          ),
+        [WS_METHODS.cleanCoreCreateAndSendThread]: (input) =>
+          rpcEffect(
+            runtimeStartup.enqueueCommand(
+              Effect.gen(function* () {
+                const result = yield* createAndSendThread(input);
+                const query = yield* ProjectionSnapshotQuery;
+                const shell = yield* query.getThreadShellById(result.thread.id);
+                if (Option.isNone(shell))
+                  return yield* Effect.fail(new Error("The created thread is not available."));
+                return { ...result, shell: shell.value };
+              }),
+            ),
+            "Failed to create and send the thread",
           ),
         [WS_METHODS.cleanCoreCreateThread]: (input) =>
           rpcEffect(
