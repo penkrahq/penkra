@@ -22,6 +22,7 @@ import {
   mcpToolResultError,
   parseMcpMessage,
   type JsonRpcRequest,
+  mcpToolErrorResult,
 } from "./protocol.ts";
 import {
   GatewayToolError,
@@ -30,11 +31,6 @@ import {
   type ToolEntry,
 } from "./toolRuntime.ts";
 import { errorText } from "./toolInput.ts";
-
-import {
-  gatewayMcpToolErrorResult,
-  recordGatewayConsumedFailure,
-} from "./gatewayFailureDiagnostics.ts";
 
 const MCP_MAX_BATCH_MESSAGES = 50;
 
@@ -141,7 +137,6 @@ export function makeAgentGatewayMcpTransport(input: {
           }
           const result = yield* Effect.suspend(() => tool.handler(args, invocationContext)).pipe(
             Effect.catchDefect((defect) => {
-              recordGatewayConsumedFailure(defect);
               return Effect.succeed(mcpToolResultError(errorText(defect)));
             }),
           );
@@ -184,8 +179,7 @@ export function makeAgentGatewayMcpTransport(input: {
       const callerThread = yield* input.snapshotQuery
         .getThreadShellById(ThreadId.makeUnsafe(callerThreadId))
         .pipe(
-          Effect.catch((error) => {
-            recordGatewayConsumedFailure(error);
+          Effect.catch(() => {
             return Effect.succeed(Option.none());
           }),
         );
@@ -400,9 +394,7 @@ export function makeAgentGatewayMcpTransport(input: {
             responses.push(
               yield* handleRequest(parsed.request, context).pipe(
                 Effect.catch((error) =>
-                  Effect.succeed(
-                    jsonRpcResult(parsed.request.id, gatewayMcpToolErrorResult(error)),
-                  ),
+                  Effect.succeed(jsonRpcResult(parsed.request.id, mcpToolErrorResult(error))),
                 ),
               ),
             );

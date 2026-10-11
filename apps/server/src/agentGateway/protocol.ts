@@ -72,6 +72,10 @@ export function mcpToolResultText(text: string): McpToolCallResult {
   return { content: [{ type: "text", text }] };
 }
 
+export function mcpToolErrorResult(error: unknown): McpToolCallResult {
+  return mcpToolResultError(error instanceof Error ? error.message : String(error));
+}
+
 export function mcpToolResultError(text: string): McpToolCallResult {
   return { content: [{ type: "text", text }], isError: true };
 }

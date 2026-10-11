@@ -12,7 +12,6 @@ import {
 import { Effect } from "effect";
 
 import type { ProviderDiscoveryServiceShape } from "../provider/Services/ProviderDiscoveryService.ts";
-import { recordGatewayConsumedFailure } from "./gatewayFailureDiagnostics.ts";
 
 export type AgentGatewayTargetErrorCode =
   | "provider_unavailable"
@@ -250,7 +249,6 @@ export function loadAgentGatewayProviderCatalog(input: {
         ...(result.source ? { source: result.source } : {}),
       })),
       Effect.catch((error) => {
-        recordGatewayConsumedFailure(error);
         return Effect.succeed({
           provider: input.provider,
           defaultModel,
