@@ -13,6 +13,8 @@ import type {
   DesktopAppTabDescriptor,
 } from "@penkra/contracts";
 
+import type { AppBrowserSessionState } from "@penkra/sdk";
+
 import type { AppOperationBroker } from "./appOperationBroker";
 import type { AppOperationCatalog } from "./appOperationCatalog";
 import type { AppRegistryClient } from "./appRegistryClient";
@@ -163,6 +165,7 @@ export class AppCommandPipeServer {
   readonly #broker: AppOperationBroker;
   readonly #tabs: {
     list(): ReadonlyArray<DesktopAppTabDescriptor>;
+    hostedPageState(tabId: string): Pick<AppBrowserSessionState, "page">;
     current(): DesktopAppTabDescriptor | null;
     close(tabId: string): void | Promise<void>;
     currentFor?(
@@ -175,12 +178,10 @@ export class AppCommandPipeServer {
   readonly #activate:
     | ((tab: DesktopAppTabDescriptor, threadId: string, signal: AbortSignal) => Promise<unknown>)
     | null;
-  readonly #presentation:
-    | ((
-        tab: DesktopAppTabDescriptor,
-        threadId: string,
-      ) => { state: "active" | "background" | "window-hidden" })
-    | null;
+  readonly #presentation: (
+    tab: DesktopAppTabDescriptor,
+    threadId: string,
+  ) => { state: "active" | "background" | "window-hidden" };
   readonly #runOnThread: (<T>(threadId: string, operation: () => Promise<T>) => Promise<T>) | null;
   readonly #inheritThreadHome: ((creatorThreadId: string, childThreadId: string) => void) | null;
   readonly #observer: AppTabObserverBridge;
@@ -227,6 +228,7 @@ export class AppCommandPipeServer {
     broker: AppOperationBroker;
     tabs: {
       list(): ReadonlyArray<DesktopAppTabDescriptor>;
+      hostedPageState(tabId: string): Pick<AppBrowserSessionState, "page">;
       current(): DesktopAppTabDescriptor | null;
       close(tabId: string): void | Promise<void>;
       currentFor?(
@@ -241,7 +243,7 @@ export class AppCommandPipeServer {
       threadId: string,
       signal: AbortSignal,
     ) => Promise<unknown>;
-    presentation?: (
+    presentation: (
       tab: DesktopAppTabDescriptor,
       threadId: string,
     ) => { state: "active" | "background" | "window-hidden" };
@@ -291,7 +293,7 @@ export class AppCommandPipeServer {
     this.#open = input.open ?? null;
     this.#observationSurface = input.observationSurface ?? null;
     this.#activate = input.activate ?? null;
-    this.#presentation = input.presentation ?? null;
+    this.#presentation = input.presentation;
     this.#providerCredentialVault = input.providerCredentialVault;
     this.#thread =
       input.thread ??
@@ -460,12 +462,18 @@ export class AppCommandPipeServer {
         return {
           ok: true,
           id: request.id,
-          result: this.#scopedTabs(params).map((tab) => ({
-            ...tab,
-            ...(this.#presentation
-              ? { presentation: this.#presentation(tab, this.#scope(params).threadId) }
-              : {}),
-          })),
+          result: this.#scopedTabs(params).map((tab) => {
+            const page = this.#tabs.hostedPageState(tab.id).page;
+            return {
+              tabId: tab.id,
+              appId: tab.appId,
+              appName: tab.name,
+              title: tab.presentationTitle ?? tab.name,
+              status: tab.status,
+              visible: this.#presentation(tab, this.#scope(params).threadId).state === "active",
+              ...(page ? { url: page.url } : {}),
+            };
+          }),
         };
       case "tabs.activate": {
         const tab = this.#tab(params);

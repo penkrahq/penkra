@@ -609,6 +609,14 @@ describe("penkra_exec_command discovery", () => {
 
     expect(help).toContain("# Penkra tabs");
     expect(help).toContain("`penkra tabs list`");
+    const listHelp = await executePenkraExecCommand(
+      command("penkra", "tabs", "list", "--help"),
+      context,
+      {},
+      async () => [],
+    );
+    expect(listHelp).toContain("tabId, appId, appName, title, status and visible");
+    expect(listHelp).not.toContain("presentation.state");
     expect(help).toContain("`penkra tabs snapshot`");
     expect(help).toContain("`penkra tabs screenshot`");
     expect(help).toContain("`penkra tabs act`");

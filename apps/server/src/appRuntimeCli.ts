@@ -206,7 +206,7 @@ const TAB_OPERATIONS: Readonly<Record<string, HostOperationDeclaration>> = {
     command: "penkra tabs list",
     summary: "List retained App tabs in the caller's folder and Space.",
     instructions:
-      "Use the exact returned tab ID for semantic observation and interaction. A retained tab remains readable when another tab is visible. presentation.state reports active, background or window-hidden. Activate before interacting.",
+      "Use the exact returned tab ID for semantic observation and interaction. A retained tab remains readable when another tab is visible. visible reports whether the tab is currently shown. Each row contains tabId, appId, appName, title, status and visible, plus url only for a hosted web page. Activate before interacting.",
     input: { type: "object", properties: {}, additionalProperties: false },
     output: GENERIC_RESULT_SCHEMA,
     examples: [{ name: "List retained App tabs", command: "penkra tabs list" }],
