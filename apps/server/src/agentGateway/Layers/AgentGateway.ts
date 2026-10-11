@@ -719,6 +719,7 @@ export const makeAgentGateway = Effect.gen(function* () {
 
   const tools: ReadonlyArray<ToolEntry> = [penkraExecCommand];
   const handleMcpPost = makeAgentGatewayMcpTransport({
+    stateDir: serverConfig.stateDir,
     credentials,
     snapshotQuery,
     tools,

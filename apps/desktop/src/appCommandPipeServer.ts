@@ -30,7 +30,6 @@ export const PENKRA_APP_COMMAND_PIPE_ENV = "PENKRA_APP_COMMAND_PIPE";
 export const PENKRA_APP_COMMAND_TOKEN_ENV = "PENKRA_APP_COMMAND_TOKEN";
 export const PENKRA_APP_COMMAND_ADMIN_TOKEN_ENV = "PENKRA_APP_COMMAND_ADMIN_TOKEN";
 const MAX_REQUEST_BYTES = 1024 * 1024;
-export const APP_COMMAND_MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
 
 export function assertAppTabAgentAddressable(
   tab: Pick<DesktopAppTabDescriptor, "agentAddressable" | "name">,
@@ -1012,38 +1011,7 @@ export function serializeFailureResponse(error: unknown): string {
     ),
   };
   const response = { ok: false as const, error: bridgeError };
-  let serialized = `${JSON.stringify(response)}\n`;
-  while (Buffer.byteLength(serialized) > APP_COMMAND_MAX_RESPONSE_BYTES) {
-    const removable = deepestRemovableBranch(bridgeError.failure);
-    if (!removable) break;
-    removable.branches.pop();
-    removable.owner.truncation = {
-      ...removable.owner.truncation,
-      secondaryBranchesRemoved: (removable.owner.truncation?.secondaryBranchesRemoved ?? 0) + 1,
-    };
-    serialized = `${JSON.stringify(response)}\n`;
-  }
-  if (Buffer.byteLength(serialized) <= APP_COMMAND_MAX_RESPONSE_BYTES) return serialized;
-
-  bridgeError.truncation = { totalBytesExceeded: true };
-  const messages = collectMessages(bridgeError);
-  for (const target of messages) {
-    if (Buffer.byteLength(serialized) <= APP_COMMAND_MAX_RESPONSE_BYTES) break;
-    target.owner[target.field] = fitMessage(target.owner[target.field], (candidate) => {
-      target.owner[target.field] = candidate;
-      serialized = `${JSON.stringify(response)}\n`;
-      return Buffer.byteLength(serialized) <= APP_COMMAND_MAX_RESPONSE_BYTES;
-    });
-    target.failure.truncation = {
-      ...target.failure.truncation,
-      messageCut: true,
-    };
-    serialized = `${JSON.stringify(response)}\n`;
-  }
-  if (Buffer.byteLength(serialized) > APP_COMMAND_MAX_RESPONSE_BYTES) {
-    throw new Error("The minimal App command failure response exceeds the bridge byte ceiling.");
-  }
-  return serialized;
+  return `${JSON.stringify(response)}\n`;
 }
 
 function readBoolean(value: unknown, key: string): boolean | undefined {
@@ -1056,62 +1024,6 @@ function readNumber(value: unknown, key: string): number | undefined {
   if (!value || (typeof value !== "object" && typeof value !== "function")) return undefined;
   const candidate = (value as Record<string, unknown>)[key];
   return typeof candidate === "number" && Number.isFinite(candidate) ? candidate : undefined;
-}
-
-function deepestRemovableBranch(failure: AppRuntimeFailureDto | undefined): {
-  owner: Extract<AppRuntimeFailureDto, { kind: "operation" | "group" }>;
-  branches: Array<unknown>;
-} | null {
-  if (!failure || failure.kind === "leaf") return null;
-  const branches = failure.kind === "operation" ? failure.secondary : failure.failures;
-  for (const branch of branches.toReversed()) {
-    const nested = deepestRemovableBranch(branch.failure);
-    if (nested) return nested;
-  }
-  if (failure.kind === "operation") {
-    const nested = deepestRemovableBranch(failure.primary);
-    if (nested) return nested;
-  }
-  return branches.length > 0 ? { owner: failure, branches } : null;
-}
-
-function collectMessages(error: AppRuntimeBridgeError): Array<{
-  owner: { message: string };
-  field: "message";
-  failure: AppRuntimeFailureDto;
-}> {
-  const messages: Array<{
-    owner: { message: string };
-    field: "message";
-    failure: AppRuntimeFailureDto;
-  }> = [];
-  const visit = (failure: AppRuntimeFailureDto): void => {
-    if (failure.kind === "operation") {
-      visit(failure.primary);
-      for (const branch of failure.secondary) visit(branch.failure);
-    } else if (failure.kind === "group") {
-      for (const branch of failure.failures) visit(branch.failure);
-    }
-    messages.push({ owner: failure, field: "message", failure });
-  };
-  if (error.failure) {
-    messages.push({ owner: error, field: "message", failure: error.failure });
-    visit(error.failure);
-  }
-  return messages;
-}
-
-function fitMessage(message: string, fits: (candidate: string) => boolean): string {
-  let low = 0;
-  let high = message.length;
-  let best = "";
-  while (low <= high) {
-    const middle = Math.floor((low + high) / 2);
-    best = middle === message.length ? message : `${message.slice(0, middle)}…`;
-    if (fits(best)) low = middle + 1;
-    else high = middle - 1;
-  }
-  return high >= message.length ? message : `${message.slice(0, Math.max(0, high))}…`;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

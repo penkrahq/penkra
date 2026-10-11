@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { ThreadId, type OrchestrationThreadShell } from "@penkra/contracts";
 import { Effect, Option } from "effect";
 
@@ -25,9 +27,12 @@ import {
 } from "./toolRuntime.ts";
 import { errorText } from "./toolInput.ts";
 
+import { boundMcpToolResult } from "./toolResultFiles.ts";
+
 const MCP_MAX_BATCH_MESSAGES = 50;
 
 export function makeAgentGatewayMcpTransport(input: {
+  readonly stateDir: string;
   readonly credentials: AgentGatewayCredentialsShape;
   readonly snapshotQuery: ProjectionSnapshotQueryShape;
   readonly tools: ReadonlyArray<ToolEntry>;
@@ -127,7 +132,17 @@ export function makeAgentGatewayMcpTransport(input: {
               return Effect.succeed(mcpToolResultError(errorText(defect)));
             }),
           );
-          return jsonRpcResult(request.id, result);
+          const bounded = yield* Effect.tryPromise({
+            try: () =>
+              boundMcpToolResult({
+                stateDir: input.stateDir,
+                threadId: context.callerThreadId,
+                opId: randomUUID(),
+                result,
+              }),
+            catch: (error) => error,
+          }).pipe(Effect.catch((error) => Effect.succeed(mcpToolErrorResult(error))));
+          return jsonRpcResult(request.id, bounded);
         }
         default:
           return jsonRpcError(

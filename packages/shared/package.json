@@ -235,6 +235,10 @@
     "./requiredAppsRelease": {
       "types": "./src/requiredAppsRelease.ts",
       "import": "./src/requiredAppsRelease.ts"
+    },
+    "./toolResults": {
+      "types": "./src/toolResults.ts",
+      "import": "./src/toolResults.ts"
     }
   },
   "scripts": {

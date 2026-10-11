@@ -35,6 +35,7 @@ import {
   type UserInputQuestion,
 } from "@penkra/contracts";
 import { getModelSelectionBooleanOptionValue, normalizeModelSlug } from "@penkra/shared/model";
+import { INLINE_TOOL_RESULT_BYTES } from "@penkra/shared/toolResults";
 import { PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE } from "@penkra/shared/threadSummary";
 import { decodeSubagentReceiverThreadIds } from "@penkra/shared/subagents";
 import { prepareWindowsSafeProcess } from "@penkra/shared/windowsProcess";
@@ -686,7 +687,13 @@ function spawnCodexAppServer(input: {
   // 0.14.4: subagents are disabled; agents use `penkra threads` instead.
   const prepared = prepareWindowsSafeProcess(
     input.binaryPath,
-    ["app-server", "-c", "features.multi_agent=false"],
+    [
+      "app-server",
+      "-c",
+      "features.multi_agent=false",
+      "-c",
+      `tool_output_token_limit=${INLINE_TOOL_RESULT_BYTES}`,
+    ],
     {
       cwd: input.cwd,
       env: input.env,

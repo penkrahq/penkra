@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import { INLINE_TOOL_RESULT_BYTES } from "@penkra/shared/toolResults";
 import { describe, expect, it } from "vitest";
 
 import { loadOpenCodeConfigContent } from "./openCodeSharedMcpConfig.ts";
@@ -30,6 +31,7 @@ describe("loadOpenCodeConfigContent", () => {
     expect(JSON.parse(await loadOpenCodeConfigContent(home))).toEqual({
       mcp: { pencil: { type: "local", command: ["pencil", "mcp"] } },
       plugin: [openCodeImageTransformPluginPath(home)],
+      tool_output: { max_bytes: INLINE_TOOL_RESULT_BYTES, max_lines: INLINE_TOOL_RESULT_BYTES },
     });
   });
 
@@ -37,6 +39,7 @@ describe("loadOpenCodeConfigContent", () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "penkra-opencode-shared-mcp-"));
     expect(JSON.parse(await loadOpenCodeConfigContent(home))).toEqual({
       plugin: [openCodeImageTransformPluginPath(home)],
+      tool_output: { max_bytes: INLINE_TOOL_RESULT_BYTES, max_lines: INLINE_TOOL_RESULT_BYTES },
     });
   });
 });

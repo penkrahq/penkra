@@ -6,6 +6,7 @@
  *
  * @module ClaudeAdapterLive
  */
+
 import { spawn as spawnChildProcess } from "node:child_process";
 import type {
   AgentInfo,
@@ -155,6 +156,7 @@ import {
   type ClaudeWorkflowRuntimeState,
 } from "../claudeWorkflowRuntime.ts";
 import { positiveFiniteNumber } from "../tokenUsage.ts";
+import { INLINE_TOOL_RESULT_BYTES } from "@penkra/shared/toolResults";
 import { PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE } from "@penkra/shared/threadSummary";
 import {
   ProviderAdapterProcessError,
@@ -4695,6 +4697,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         const claudeSdkEnv = input.managedLaunch
           ? input.managedLaunch.childEnvironment(process.env)
           : yield* resolveClaudeSdkEnv;
+        claudeSdkEnv.MAX_MCP_OUTPUT_TOKENS = String(INLINE_TOOL_RESULT_BYTES);
         if (input.managedLaunch) {
           const targetConfigDir = claudeSdkEnv.CLAUDE_CONFIG_DIR?.trim();
           if (!targetConfigDir) {
@@ -5150,6 +5153,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
 
         const processOwner: ClaudeProcessOwner = {};
         const claudeSdkEnv = input.managedLaunch.childEnvironment(process.env);
+        claudeSdkEnv.MAX_MCP_OUTPUT_TOKENS = String(INLINE_TOOL_RESULT_BYTES);
         return yield* Effect.acquireUseRelease(
           Effect.tryPromise({
             try: () =>
