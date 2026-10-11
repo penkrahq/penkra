@@ -667,9 +667,19 @@ describe("ProviderRuntimeIngestion", () => {
       const pending = derivePendingThreadRequestIds({
         activities: thread?.activities ?? [],
       });
-      expect(
-        kind === "question" ? pending.userInputRequestIds : pending.approvalRequestIds,
-      ).toEqual(expires && state !== "successor-reused-request" ? [] : ["question-before-crash"]);
+      const pendingRequestIds =
+        kind === "question"
+          ? pending.userInputRequestIds
+          : (
+              await Effect.runPromise(harness.sql<{ requestId: string }>`
+                SELECT request_id AS "requestId" FROM projection_pending_interactions
+                WHERE thread_id = ${threadId} AND interaction_kind = 'approval' AND status = 'pending'
+                ORDER BY request_id
+              `)
+            ).map((row) => row.requestId);
+      expect(pendingRequestIds).toEqual(
+        expires && state !== "successor-reused-request" ? [] : ["question-before-crash"],
+      );
       if (state === "successor-reused-request") {
         const rows = await Effect.runPromise(
           harness.sql`SELECT lifecycle_generation, status FROM projection_pending_interactions WHERE thread_id = 'thread-1' AND request_id = 'question-before-crash'`,

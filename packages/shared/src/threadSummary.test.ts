@@ -7,7 +7,11 @@ import {
 } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
-import { approvalRequestKindFromRequestType, deriveThreadSummaryMetadata } from "./threadSummary";
+import {
+  approvalRequestKindFromRequestType,
+  derivePendingThreadRequestIds,
+  deriveThreadSummaryMetadata,
+} from "./threadSummary";
 
 describe("approvalRequestKindFromRequestType", () => {
   it.each([
@@ -304,5 +308,39 @@ describe("deriveThreadSummaryMetadata", () => {
       latestUserMessageAt: null,
       hasPendingUserInput: false,
     });
+  });
+});
+
+describe("derivePendingThreadRequestIds", () => {
+  it("tracks questions without exposing obsolete approval lifecycles", () => {
+    const at = "2026-10-11T00:00:00.000Z";
+    expect(
+      derivePendingThreadRequestIds({
+        activities: [
+          {
+            id: EventId.makeUnsafe("approval"),
+            kind: "approval.requested",
+            createdAt: at,
+            payload: { requestId: "approval-id", requestKind: "command" },
+          },
+          {
+            id: EventId.makeUnsafe("question"),
+            kind: "user-input.requested",
+            createdAt: at,
+            payload: {
+              requestId: "question-id",
+              questions: [
+                {
+                  id: "choice",
+                  header: "Choice",
+                  question: "Which?",
+                  options: [{ label: "One", description: "First choice" }],
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    ).toEqual({ userInputRequestIds: ["question-id"] });
   });
 });
