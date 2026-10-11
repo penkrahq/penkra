@@ -40,7 +40,7 @@ async function exists(path: string): Promise<boolean> {
 async function copyEntry(sourceRoot: string, targetRoot: string, source: string): Promise<void> {
   const relative = Path.relative(sourceRoot, source);
   if (relative === "" || relative.startsWith("..") || Path.isAbsolute(relative)) {
-    throw new Error("Provider-native state entry escaped its generation.");
+    throw new Error("Provider-native state entry escaped its native-state folder.");
   }
   const target = Path.join(targetRoot, relative);
   await mkdir(Path.dirname(target), { recursive: true, mode: 0o700 });
@@ -116,45 +116,39 @@ export const makeProviderNativeStateMaterializer = Effect.gen(function* () {
     Effect.gen(function* () {
       return yield* Effect.tryPromise({
         try: async () => {
-          if (input.sourceGenerationId === input.targetGenerationId) {
-            throw new Error("source and target generations are identical");
+          if (input.sourceNativeStateId === input.targetNativeStateId) {
+            throw new Error("source and target native-state folders are identical");
           }
-          const generationSource =
-            input.sourceGenerationId === null
+          const source =
+            input.sourceNativeStateId === null
               ? null
-              : providerNativeStateRoot(config.stateDir, input.sourceGenerationId);
-          const target = providerNativeStateRoot(config.stateDir, input.targetGenerationId);
+              : providerNativeStateRoot(config.stateDir, input.sourceNativeStateId);
+          const target = providerNativeStateRoot(config.stateDir, input.targetNativeStateId);
           const parent = Path.dirname(target);
           const staging = Path.join(parent, `.staging-${Path.basename(target)}-${randomUUID()}`);
           await mkdir(parent, { recursive: true, mode: 0o700 });
           try {
             await lstat(target);
-            throw new Error("target generation already exists");
+            throw new Error("target native-state folder already exists");
           } catch (cause) {
             if ((cause as NodeJS.ErrnoException).code !== "ENOENT") {
               throw cause;
             }
           }
-          const sourceExists = generationSource !== null && (await exists(generationSource));
-          if (
-            generationSource !== null &&
-            sourceExists &&
-            !(await lstat(generationSource)).isDirectory()
-          ) {
-            throw new Error("source generation is not a directory");
+          const sourceExists = source !== null && (await exists(source));
+          if (source !== null && sourceExists && !(await lstat(source)).isDirectory()) {
+            throw new Error("source native-state folder is not a directory");
           }
           let providerSessionId = input.providerSessionId;
           try {
             await mkdir(staging, { mode: 0o700 });
-            if (!sourceExists || generationSource === null || providerSessionId === null) {
+            if (!sourceExists || source === null || providerSessionId === null) {
               providerSessionId = null;
               await rename(staging, target);
               return { root: target, providerSessionId };
             }
             const sourceRoot =
-              input.harness === "claudeAgent"
-                ? await claudeNativeProjectRoot(generationSource)
-                : generationSource;
+              input.harness === "claudeAgent" ? await claudeNativeProjectRoot(source) : source;
             const copyTarget =
               input.harness === "claudeAgent" ? Path.join(staging, "claude") : staging;
             const missingConversation =
@@ -168,8 +162,7 @@ export const makeProviderNativeStateMaterializer = Effect.gen(function* () {
                   sourceRoot,
                 });
             if (entries !== null) {
-              if (input.harness === "opencode")
-                await snapshotOpenCodeDatabase(generationSource, staging);
+              if (input.harness === "opencode") await snapshotOpenCodeDatabase(source, staging);
               for (const entry of entries) await copyEntry(sourceRoot, copyTarget, entry);
             }
             if (missingConversation || entries === null) providerSessionId = null;
@@ -181,7 +174,7 @@ export const makeProviderNativeStateMaterializer = Effect.gen(function* () {
           return { root: target, providerSessionId };
         },
         catch: (cause) =>
-          failure("Could not materialize the exact provider-native state generation.", cause),
+          failure("Could not materialize the exact provider-native state folder.", cause),
       });
     });
 

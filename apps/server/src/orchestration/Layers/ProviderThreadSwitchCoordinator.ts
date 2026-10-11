@@ -164,8 +164,8 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           .clone({
             harness: selection.harness,
             providerSessionId: thread.providerSessionId,
-            sourceGenerationId: thread.nativeStateId,
-            targetGenerationId: id,
+            sourceNativeStateId: thread.nativeStateId,
+            targetNativeStateId: id,
           })
           .pipe(
             Effect.mapError((cause) =>

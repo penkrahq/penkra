@@ -1,5 +1,4 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ProviderNativeStateGenerationId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import * as Path from "node:path";
@@ -18,16 +17,16 @@ const materializerLayer = ProviderNativeStateMaterializerLive.pipe(Layer.provide
 const layer = it.layer(Layer.mergeAll(NodeServices.layer, configLayer, materializerLayer));
 
 layer("ProviderNativeStateMaterializer", (it) => {
-  it.effect("rejects cloning native state onto its source generation", () =>
+  it.effect("rejects cloning native state onto its source folder", () =>
     Effect.gen(function* () {
       const materializer = yield* ProviderNativeStateMaterializer;
-      const generation = ProviderNativeStateGenerationId.makeUnsafe("same-generation");
+      const nativeStateId = "same-native-state";
       const failed = yield* Effect.exit(
         materializer.clone({
           harness: "codex",
           providerSessionId: "session-secret",
-          sourceGenerationId: generation,
-          targetGenerationId: generation,
+          sourceNativeStateId: nativeStateId,
+          targetNativeStateId: nativeStateId,
         }),
       );
       assert.strictEqual(failed._tag, "Failure");
@@ -38,8 +37,8 @@ layer("ProviderNativeStateMaterializer", (it) => {
     Effect.gen(function* () {
       const config = yield* ServerConfig;
       const materializer = yield* ProviderNativeStateMaterializer;
-      const source = ProviderNativeStateGenerationId.makeUnsafe("materializer-source");
-      const target = ProviderNativeStateGenerationId.makeUnsafe("materializer-target");
+      const source = "materializer-source";
+      const target = "materializer-target";
       const sourceRoot = providerNativeStateRoot(config.stateDir, source);
       yield* Effect.promise(() => mkdir(sourceRoot, { recursive: true, mode: 0o700 }));
       const sessionId = "codex-session-exact";
@@ -51,8 +50,8 @@ layer("ProviderNativeStateMaterializer", (it) => {
       const { root: targetRoot } = yield* materializer.clone({
         harness: "codex",
         providerSessionId: sessionId,
-        sourceGenerationId: source,
-        targetGenerationId: target,
+        sourceNativeStateId: source,
+        targetNativeStateId: target,
       });
       assert.strictEqual(
         yield* Effect.promise(() =>
@@ -76,8 +75,8 @@ layer("ProviderNativeStateMaterializer", (it) => {
         materializer.clone({
           harness: "codex",
           providerSessionId: sessionId,
-          sourceGenerationId: source,
-          targetGenerationId: target,
+          sourceNativeStateId: source,
+          targetNativeStateId: target,
         }),
       );
       assert.strictEqual(duplicate._tag, "Failure");
@@ -102,8 +101,8 @@ layer("ProviderNativeStateMaterializer", (it) => {
         const config = yield* ServerConfig;
         const materializer = yield* ProviderNativeStateMaterializer;
         const sessionId = "550e8400-e29b-41d4-a716-446655440000";
-        const source = ProviderNativeStateGenerationId.makeUnsafe("claude-switch-source");
-        const target = ProviderNativeStateGenerationId.makeUnsafe("claude-switch-target");
+        const source = "claude-switch-source";
+        const target = "claude-switch-target";
         const sourceRoot = providerNativeStateRoot(config.stateDir, source);
         const transcript = Path.join(sourceRoot, "claude", "project", `${sessionId}.jsonl`);
         yield* Effect.promise(async () => {
@@ -116,8 +115,8 @@ layer("ProviderNativeStateMaterializer", (it) => {
         const { root: targetRoot, providerSessionId: copiedSessionId } = yield* materializer.clone({
           harness: "claudeAgent",
           providerSessionId: sessionId,
-          sourceGenerationId: source,
-          targetGenerationId: target,
+          sourceNativeStateId: source,
+          targetNativeStateId: target,
         });
         assert.strictEqual(
           yield* Effect.promise(() => readFile(transcript, "utf8")),
@@ -152,8 +151,8 @@ layer("ProviderNativeStateMaterializer", (it) => {
       Effect.gen(function* () {
         const config = yield* ServerConfig;
         const materializer = yield* ProviderNativeStateMaterializer;
-        const source = ProviderNativeStateGenerationId.makeUnsafe("claude-scoped-source");
-        const target = ProviderNativeStateGenerationId.makeUnsafe("claude-scoped-target");
+        const source = "claude-scoped-source";
+        const target = "claude-scoped-target";
         const root = Path.join(providerNativeStateRoot(config.stateDir, source), "claude");
         const owner = {
           authenticationMethodId: "claude-account",
@@ -185,8 +184,8 @@ layer("ProviderNativeStateMaterializer", (it) => {
         const { root: targetRoot } = yield* materializer.clone({
           harness: "claudeAgent",
           providerSessionId: "scoped-session",
-          sourceGenerationId: source,
-          targetGenerationId: target,
+          sourceNativeStateId: source,
+          targetNativeStateId: target,
         });
         assert.strictEqual(
           yield* Effect.promise(() =>
@@ -237,7 +236,7 @@ layer("ProviderNativeStateMaterializer", (it) => {
         Effect.gen(function* () {
           const config = yield* ServerConfig;
           const materializer = yield* ProviderNativeStateMaterializer;
-          const source = ProviderNativeStateGenerationId.makeUnsafe(`missing-${missing}-source`);
+          const source = `missing-${missing}-source`;
           if (missing === "session")
             yield* Effect.promise(() =>
               mkdir(providerNativeStateRoot(config.stateDir, source), { recursive: true }),
@@ -245,10 +244,8 @@ layer("ProviderNativeStateMaterializer", (it) => {
           const target = yield* materializer.clone({
             harness: "claudeAgent",
             providerSessionId: "missing-session",
-            sourceGenerationId: source,
-            targetGenerationId: ProviderNativeStateGenerationId.makeUnsafe(
-              `missing-${missing}-target`,
-            ),
+            sourceNativeStateId: source,
+            targetNativeStateId: `missing-${missing}-target`,
           });
           assert.strictEqual(target.providerSessionId, null);
           assert.strictEqual(
@@ -280,8 +277,8 @@ layer("ProviderNativeStateMaterializer", (it) => {
         const copied = yield* materializer.clone({
           harness,
           providerSessionId: "missing-session",
-          sourceGenerationId: source,
-          targetGenerationId: `empty-${harness}-target`,
+          sourceNativeStateId: source,
+          targetNativeStateId: `empty-${harness}-target`,
         });
         assert.strictEqual(copied.providerSessionId, null);
         yield* Effect.promise(() => access(copied.root));
@@ -294,8 +291,8 @@ layer("ProviderNativeStateMaterializer", (it) => {
     Effect.gen(function* () {
       const config = yield* ServerConfig;
       const materializer = yield* ProviderNativeStateMaterializer;
-      const source = ProviderNativeStateGenerationId.makeUnsafe("materializer-opencode-source");
-      const target = ProviderNativeStateGenerationId.makeUnsafe("materializer-opencode-target");
+      const source = "materializer-opencode-source";
+      const target = "materializer-opencode-target";
       const sourceRoot = providerNativeStateRoot(config.stateDir, source);
       yield* Effect.promise(() =>
         mkdir(`${sourceRoot}/xdg-data/opencode/storage`, {
@@ -318,8 +315,8 @@ layer("ProviderNativeStateMaterializer", (it) => {
       const { root: targetRoot } = yield* materializer.clone({
         harness: "opencode",
         providerSessionId: "ses_exact",
-        sourceGenerationId: source,
-        targetGenerationId: target,
+        sourceNativeStateId: source,
+        targetNativeStateId: target,
       });
       assert.isFalse(
         yield* Effect.promise(() =>

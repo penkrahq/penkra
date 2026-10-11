@@ -4,7 +4,6 @@
 import {
   ProviderConnectionId,
   ProviderInstallationId,
-  ProviderNativeStateGenerationId,
   ThreadId,
   ProviderKind,
 } from "@penkra/contracts";
@@ -45,8 +44,6 @@ export interface ProviderLaunchResolverShape {
     readonly threadId: ThreadId;
     readonly connectionId: ProviderConnectionId | null;
     readonly internalProviderId: string | null;
-    /** New, not-yet-committed generation used by transactional switch preflight. */
-    readonly nativeStateGenerationId?: ProviderNativeStateGenerationId;
   }) => Effect.Effect<ProviderLaunchSpec, ProviderLaunchResolutionError>;
 }
 
