@@ -1,12 +1,7 @@
 import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 
-import {
-  AGENT_CURSOR_SOURCE,
-  boundPageContent,
-  compactSnapshot,
-  diffSnapshots,
-} from "./appTabAgentSurface";
+import { AGENT_CURSOR_SOURCE, boundPageContent, compactSnapshot } from "./appTabAgentSurface";
 
 describe("App tab agent surface helpers", () => {
   it("wraps untrusted page text in an unpredictable matching boundary", () => {
@@ -24,16 +19,6 @@ describe("App tab agent surface helpers", () => {
         false,
       ),
     ).toBe('- document "Root"\n  - generic "Wrapper"\n    - button "Save" [ref=d1:e1]');
-  });
-
-  it("produces a Myers-style unified line diff with counts", () => {
-    expect(diffSnapshots("one\ntwo\nthree", "one\nchanged\nthree")).toMatchObject({
-      additions: 1,
-      removals: 1,
-      unchanged: 2,
-      changed: true,
-      diff: expect.stringContaining("-two\n+changed"),
-    });
   });
 });
 

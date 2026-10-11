@@ -196,7 +196,6 @@ describe("AppCommandPipeServer", () => {
       observer: {
         runOnSurface,
         snapshot,
-        diff: vi.fn(async () => ({ added: [], removed: [] })),
         act,
         evaluate: vi.fn(async () => ({ value: null })),
         screenshot,

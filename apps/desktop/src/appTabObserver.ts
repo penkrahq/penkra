@@ -11,12 +11,7 @@ import { existsSync } from "node:fs";
 import { delimiter, dirname, extname, join } from "node:path";
 import { spawn } from "node:child_process";
 import { appTabKeyDefinition } from "./appTabKeyboard";
-import {
-  AGENT_CURSOR_SOURCE,
-  boundPageContent,
-  compactSnapshot,
-  diffSnapshots,
-} from "./appTabAgentSurface";
+import { AGENT_CURSOR_SOURCE, boundPageContent, compactSnapshot } from "./appTabAgentSurface";
 
 const MAX_VALUE_LENGTH = 2_000;
 const MAX_INLINE_SCREENSHOT_BYTES = 12 * 1024 * 1024;
@@ -482,18 +477,6 @@ export class AppTabObserver {
     }
     const { snapshot: _snapshot, ...metadata } = observation;
     return { ...metadata, query, matches };
-  }
-
-  async diff(tabId: string, document: AppTabDocument = "d1"): Promise<unknown> {
-    const before = this.#states.get(`${tabId}:${document}`)?.lastSnapshot ?? "";
-    const observation = (await this.snapshot(tabId, { document })) as Record<string, unknown> & {
-      snapshot: string;
-    };
-    const after = this.#states.get(`${tabId}:${document}`)?.lastSnapshot ?? "";
-    return {
-      ...observation,
-      ...diffSnapshots(before, after),
-    };
   }
 
   async evaluate(tabId: string, document: AppTabDocument, expression: string): Promise<unknown> {

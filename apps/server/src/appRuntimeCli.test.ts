@@ -613,6 +613,7 @@ describe("penkra_exec_command discovery", () => {
     expect(help).toContain("`penkra tabs screenshot`");
     expect(help).toContain("`penkra tabs act`");
     expect(help).not.toContain("`penkra tabs click`");
+    expect(help).not.toContain("`penkra tabs diff`");
 
     const actHelp = await executePenkraExecCommand(
       command("penkra", "tabs", "act", "--help"),
