@@ -54,7 +54,10 @@ it.effect(
       const items = yield* sql`SELECT * FROM thread_items`;
       const events = yield* sql`SELECT * FROM provider_runtime_events`;
       const cursors = yield* sql`SELECT * FROM provider_runtime_thread_cursors`;
-      assert.deepStrictEqual(yield* runMigrations(), [[193, "DropRuntimeGlobalConsumerLedger"]]);
+      assert.deepStrictEqual(yield* runMigrations(), [
+        [193, "DropRuntimeGlobalConsumerLedger"],
+        [194, "RemoveApprovalDecisionColumn"],
+      ]);
       assert.deepStrictEqual(yield* sql`SELECT * FROM threads`, threads);
       assert.deepStrictEqual(yield* sql`SELECT * FROM thread_items`, items);
       assert.deepStrictEqual(yield* sql`SELECT * FROM provider_runtime_events`, events);

@@ -19,7 +19,6 @@ function makePendingInteraction(
     turnId: null,
     lifecycleGeneration: "generation-settlement",
     status,
-    decision: null,
     responseCommandId: null,
     responseRequestedAt: null,
     createdAt: "2026-02-23T00:00:01.000Z",

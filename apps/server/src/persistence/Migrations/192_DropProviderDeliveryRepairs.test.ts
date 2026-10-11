@@ -54,6 +54,7 @@ it.effect(
       assert.deepStrictEqual(yield* runMigrations(), [
         [192, "DropProviderDeliveryRepairs"],
         [193, "DropRuntimeGlobalConsumerLedger"],
+        [194, "RemoveApprovalDecisionColumn"],
       ]);
       assert.deepStrictEqual(yield* sql`SELECT * FROM threads`, threads);
       assert.deepStrictEqual(yield* sql`SELECT * FROM thread_items`, items);

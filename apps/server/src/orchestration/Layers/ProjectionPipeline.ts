@@ -1323,8 +1323,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             ) {
               return;
             }
-            const resolvedDecisionRaw =
-              interactionKind === "approval" ? payloadRecord(activity.payload)?.decision : null;
             nextRow = {
               interactionKind,
               requestId,
@@ -1334,13 +1332,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
                 ? existingRow.value.lifecycleGeneration
                 : lifecycleGeneration,
               status: "confirmed",
-              decision:
-                resolvedDecisionRaw === "accept" ||
-                resolvedDecisionRaw === "acceptForSession" ||
-                resolvedDecisionRaw === "decline" ||
-                resolvedDecisionRaw === "cancel"
-                  ? resolvedDecisionRaw
-                  : null,
               responseCommandId: Option.isSome(existingRow)
                 ? existingRow.value.responseCommandId
                 : null,
@@ -1419,7 +1410,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               turnId: activity.turnId,
               lifecycleGeneration,
               status: "pending",
-              decision: null,
               responseCommandId: null,
               responseRequestedAt: null,
               createdAt:
