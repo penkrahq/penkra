@@ -5,14 +5,20 @@ Status: DRAFT, 2026-10-11. Nothing here is built until the operator approves it 
 ## Decided (operator)
 Native iPhone app only. Tailscale is embedded in both the Mac and the phone; there is no separate install. We run our own Headscale and relay on the Penkra backend server (`connect.penkra.com`, `relay.penkra.com`). Sign-in uses Penkra accounts (`api.penkra.com/auth`). Push notifications ship in v1.
 
-## Screens (`readme-assets/mobile-v1-screens.png`)
-1. **Sign in** with the Penkra account.
-2. **Pick your Mac** from the Macs signed in to the same account. The first time, the Mac shows an approval request.
-3. **Threads** for the chosen Mac, filtered by folder, with a status dot: working, needs your answer, or idle.
-4. **Chat:** a live transcript with tool rows shown compact. The composer steers or queues using the same five send results as the Mac (TODO 2.4). It also has an interrupt button.
-5. **Answer a question:** the open questions from TODO 2.5.
-6. **Push notifications** for "needs your answer" and "finished".
-7. **Mac offline:** a banner while the Mac is asleep or offline, with the last loaded state shown read-only. Sending is disabled until the Mac is back.
+## Screens (`readme-assets/mobile-v1-screens.png`, source `mobile-mocks/`)
+Same look as the desktop app: dark theme, Penkra mark, provider icons, the sidebar's status marks (spinner working, amber ? needs you, blue check done).
+1. **Sign in:** Penkra account by email. "Sign in with Apple" is shown but not functional in v1 (operator).
+2. **Choose your Mac:** Macs on the account; first time, approve on the Mac.
+3. **Spaces, folders, threads:** the desktop sidebar on the phone. Space headers (collapsible), folders, threads with provider icon and status, Show more, search, new thread. Tabs: Threads, Needs you, Settings.
+4. **New thread:** "What should we do in <folder>?" with the desktop composer: folder and Mac, access mode, model, effort, voice, send.
+5. **Chat (live):** transcript, compact tool rows, queued messages, steer/queue composer, stop.
+6. **Answer a question** (TODO 2.5).
+7. **Model and effort sheet:** models from the Mac's Connections, effort, access.
+8. **Push:** needs your answer, finished.
+9. **Mac offline:** last loaded state read-only, sending disabled.
+10. **Settings:** account, Mac, notifications, sign out.
+
+Goal: TestFlight with all of the above working (operator, 2026-10-11).
 
 ## Not in v1
 Right-panel Apps, the diff viewer, terminals, settings beyond sign-out and choosing a Mac, iPad, Android, and attachments other than photos.
@@ -35,6 +41,4 @@ Right-panel Apps, the diff viewer, terminals, settings beyond sign-out and choos
   - Headscale's users map to Penkra accounts.
 
 ## Open for the operator
-1. Is "Sign in with Apple" wanted? Its availability in our Better Auth setup is not verified.
-2. Is v1 limited to the screens above?
-3. Does the Apple Developer account and App Store, or TestFlight only, cover v1 distribution?
+None. Distribution: TestFlight first (operator).
