@@ -142,6 +142,9 @@ const PersistedComposerThreadDraftState = Schema.Struct({
   modelSelectionByProvider: Schema.optionalKey(
     Schema.Record(ProviderKind, Schema.optionalKey(ModelSelection)),
   ),
+  connectionSelectionByProvider: Schema.optionalKey(
+    Schema.Record(ProviderKind, Schema.optionalKey(Schema.NullOr(ProviderConnectionId))),
+  ),
   activeProvider: Schema.optionalKey(Schema.NullOr(ProviderKind)),
   runtimeMode: Schema.optionalKey(RuntimeMode),
 });
@@ -607,10 +610,13 @@ function normalizePersistedDraftsByThreadId(
       activeProvider = modelSelection?.provider ?? null;
     }
 
+    const connectionSelectionByProvider = draftCandidate.connectionSelectionByProvider ?? {};
     // The server owns queue admission and recovery. Local snapshots may only
     // contain stale speculative rows; never revive one without server proof.
     const hasModelData =
-      Object.keys(modelSelectionByProvider).length > 0 || activeProvider !== null;
+      Object.keys(modelSelectionByProvider).length > 0 ||
+      activeProvider !== null ||
+      Object.keys(connectionSelectionByProvider).length > 0;
     const hasReferenceData = skills.length > 0 || mentions.length > 0;
     if (
       promptCandidate.length === 0 &&
@@ -638,7 +644,9 @@ function normalizePersistedDraftsByThreadId(
       ...(pastedTexts.length > 0 ? { pastedTexts } : {}),
       ...(skills.length > 0 ? { skills } : {}),
       ...(mentions.length > 0 ? { mentions } : {}),
-      ...(hasModelData ? { modelSelectionByProvider, activeProvider } : {}),
+      ...(hasModelData
+        ? { modelSelectionByProvider, activeProvider, connectionSelectionByProvider }
+        : {}),
       ...(runtimeMode ? { runtimeMode } : {}),
     };
   }
@@ -783,6 +791,7 @@ export function toHydratedThreadDraft(
     skills: [...(persistedDraft.skills ?? [])],
     mentions: [...(persistedDraft.mentions ?? [])],
     modelSelectionByProvider,
+    connectionSelectionByProvider: { ...persistedDraft.connectionSelectionByProvider },
     activeProvider,
     runtimeMode: persistedDraft.runtimeMode ?? null,
   };
@@ -835,6 +844,7 @@ export interface ComposerDraftServerPayload {
   readonly skills?: PersistedComposerThreadDraftState["skills"];
   readonly mentions?: PersistedComposerThreadDraftState["mentions"];
   readonly modelSelectionByProvider?: PersistedComposerThreadDraftState["modelSelectionByProvider"];
+  readonly connectionSelectionByProvider?: PersistedComposerThreadDraftState["connectionSelectionByProvider"];
   readonly activeProvider?: PersistedComposerThreadDraftState["activeProvider"];
   readonly runtimeMode?: PersistedComposerThreadDraftState["runtimeMode"];
 }
@@ -883,7 +893,9 @@ export function serializeComposerThreadDraft(
     text: selection.text,
   }));
   const hasModelData =
-    Object.keys(draft.modelSelectionByProvider).length > 0 || draft.activeProvider !== null;
+    Object.keys(draft.modelSelectionByProvider).length > 0 ||
+    draft.activeProvider !== null ||
+    Object.keys(draft.connectionSelectionByProvider).length > 0;
   const isEmpty =
     draft.prompt.length === 0 &&
     attachments.length === 0 &&
@@ -912,6 +924,7 @@ export function serializeComposerThreadDraft(
     ...(hasModelData
       ? {
           modelSelectionByProvider: draft.modelSelectionByProvider,
+          connectionSelectionByProvider: draft.connectionSelectionByProvider,
           activeProvider: draft.activeProvider,
         }
       : {}),
@@ -954,6 +967,9 @@ export async function hydrateComposerThreadDraftFromServer(
     ...(payload.mentions ? { mentions: payload.mentions } : {}),
     ...(payload.modelSelectionByProvider
       ? { modelSelectionByProvider: payload.modelSelectionByProvider }
+      : {}),
+    ...(payload.connectionSelectionByProvider
+      ? { connectionSelectionByProvider: payload.connectionSelectionByProvider }
       : {}),
     ...(payload.activeProvider !== undefined ? { activeProvider: payload.activeProvider } : {}),
     ...(payload.runtimeMode ? { runtimeMode: payload.runtimeMode } : {}),

@@ -1740,14 +1740,6 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
               return { ...thread, archivedAt: input.archivedAt, updatedAt: input.updatedAt };
             case "delete":
               return { ...thread, deletedAt: input.deletedAt, updatedAt: input.updatedAt };
-            case "model":
-              return {
-                ...thread,
-                modelSelection: input.modelSelection,
-                updatedAt: input.updatedAt,
-              };
-            case "connection":
-              return { ...thread, connectionId: input.connectionId, updatedAt: input.updatedAt };
             case "visit":
               return { ...thread, lastVisitedAt: input.visitedAt, updatedAt: input.updatedAt };
             case "runtimeMode":
@@ -2004,7 +1996,6 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
 function installDeterministicSendNativeApi(options?: {
   dispatchError?: Error;
   dispatchGate?: Promise<void>;
-  threadUpdateGate?: Promise<void>;
   pendingStartOutcome?:
     | "accepted"
     | "cancelled"
@@ -2069,15 +2060,6 @@ function installDeterministicSendNativeApi(options?: {
           return resolveWsRpc({ _tag: WS_METHODS.cleanCoreSendMessage, ...input }) as Awaited<
             ReturnType<typeof wsNativeApi.cleanCore.sendMessage>
           >;
-        },
-        updateThread: async (input: Parameters<typeof wsNativeApi.cleanCore.updateThread>[0]) => {
-          if (options?.threadUpdateGate) {
-            wsRequests.push({ _tag: WS_METHODS.cleanCoreUpdateThread, ...input });
-            await options.threadUpdateGate;
-            resolveWsRpc({ _tag: WS_METHODS.cleanCoreUpdateThread, ...input });
-            return;
-          }
-          return wsNativeApi.cleanCore.updateThread(input);
         },
       },
       orchestration: {
@@ -5228,12 +5210,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("sends through a newly selected Connection before the thread update projects", async () => {
+  it("persists a Connection pick in the draft without changing the thread, and carries it on send", async () => {
     fixtureHasAlternateCodexConnection = true;
-    let releaseThreadUpdate!: () => void;
-    const threadUpdateGate = new Promise<void>((resolve) => {
-      releaseThreadUpdate = resolve;
-    });
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
@@ -5241,34 +5219,32 @@ describe("ChatView timeline estimator parity (full app)", () => {
         targetText: "previous turn",
       }),
     });
-    const restoreNativeApi = installDeterministicSendNativeApi({ threadUpdateGate });
+    const restoreNativeApi = installDeterministicSendNativeApi();
 
     try {
       await waitForServerConfigToApply();
+      const previousConnectionId = fixture.snapshot.threads.find(
+        (thread) => thread.id === THREAD_ID,
+      )?.connectionId;
       await page.getByRole("button", { name: "Change connection" }).click();
       await page.getByText("personal@example.com", { exact: true }).click();
       await page.getByText("alternate@example.com", { exact: true }).click();
       await vi.waitFor(() => {
         expect(
-          wsRequests.map(readCleanCoreUpdate).find((command) => command?.action === "connection"),
-        ).toMatchObject({ connectionId: ALTERNATE_CONNECTION_ID });
+          useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]
+            ?.connectionSelectionByProvider.codex,
+        ).toBe(ALTERNATE_CONNECTION_ID);
       });
-      // The fixture intentionally keeps the old shell and binding projection.
-      // A real user can submit before the update appears in that projection.
+      expect(fixture.snapshot.threads.find((thread) => thread.id === THREAD_ID)?.connectionId).toBe(
+        previousConnectionId,
+      );
+      expect(hasCleanCoreAction("connection")).toBe(false);
       useComposerDraftStore.getState().setPrompt(THREAD_ID, "send immediately after switching");
       const composerForm = await waitForElement(
         () => document.querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]'),
         "Unable to find composer form.",
       );
       composerForm.requestSubmit();
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      expect(
-        wsRequests
-          .map(readDispatchedCommand)
-          .some((command) => command?.type === "thread.turn.start"),
-      ).toBe(false);
-      releaseThreadUpdate();
-
       await vi.waitFor(
         () => {
           const command = wsRequests
@@ -5287,7 +5263,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
     } finally {
-      releaseThreadUpdate();
       await mounted.cleanup();
       restoreNativeApi();
     }
@@ -5733,11 +5708,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await dispatchModelCycleShortcutWhenReady(composerEditor, "]");
       await vi.waitFor(() => {
         expect(
-          wsRequests
-            .map(readCleanCoreUpdate)
-            .filter((command) => command?.action === "model")
-            .at(-1),
-        ).toMatchObject({ modelSelection: { provider: "codex", model: "gpt-5.5" } });
+          useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.modelSelectionByProvider
+            .codex,
+        ).toMatchObject({ provider: "codex", model: "gpt-5.5" });
+        expect(hasCleanCoreAction("model")).toBe(false);
       });
       expect(document.querySelector('[data-slot="menu-popup"]')).toBeNull();
     } finally {

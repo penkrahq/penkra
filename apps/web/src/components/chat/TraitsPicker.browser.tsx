@@ -165,6 +165,7 @@ async function mountClaudePicker(props?: {
       pastedTexts: [],
       skills: [],
       mentions: [],
+      connectionSelectionByProvider: {},
       modelSelectionByProvider: props?.skipDraftModelOptions
         ? {}
         : {
@@ -435,6 +436,7 @@ async function mountCodexPicker(props: { model?: string; options?: CodexModelOpt
       pastedTexts: [],
       skills: [],
       mentions: [],
+      connectionSelectionByProvider: {},
       modelSelectionByProvider: {
         codex: {
           provider: "codex",
@@ -662,6 +664,7 @@ async function mountOpenCodePicker(props?: {
       skills: [],
       mentions: [],
       assistantSelections: [],
+      connectionSelectionByProvider: {},
       modelSelectionByProvider: {
         opencode: {
           provider: "opencode",

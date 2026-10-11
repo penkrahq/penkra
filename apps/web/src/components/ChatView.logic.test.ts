@@ -56,7 +56,7 @@ describe("composer Continue eligibility", () => {
     thread,
     isServerThread: true,
     hydration: "ready" as const,
-    binding: { modelId: "gpt-5-codex" },
+    model: "gpt-5-codex",
     hiddenTurnId: null,
     continueInFlight: false,
     sendBusy: false,
@@ -87,7 +87,7 @@ describe("composer Continue eligibility", () => {
     ["in-flight send", { sendBusy: true }],
     ["send preflight", { sendPreflight: true }],
     ["hydration", { hydration: "loading" as const }],
-    ["binding", { binding: null }],
+    ["model", { model: null }],
     ["connecting", { connecting: true }],
     ["stale rejection", { hiddenTurnId: turnId }],
   ] as const)("hides Play during %s", (_name, change) => {

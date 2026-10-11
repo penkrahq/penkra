@@ -311,7 +311,7 @@ export function shouldShowComposerContinue(input: {
   readonly thread: Thread | undefined;
   readonly isServerThread: boolean;
   readonly hydration: ThreadDetailHydration;
-  readonly binding: { readonly modelId: string | null } | null | undefined;
+  readonly model: string | null | undefined;
   readonly hiddenTurnId: string | null;
   readonly continueInFlight: boolean;
   readonly sendBusy: boolean;
@@ -326,7 +326,7 @@ export function shouldShowComposerContinue(input: {
     input.thread !== undefined &&
     turnId !== undefined &&
     turnId !== input.hiddenTurnId &&
-    input.binding?.modelId != null &&
+    input.model != null &&
     !input.continueInFlight &&
     !input.sendBusy &&
     !input.sendPreflight &&

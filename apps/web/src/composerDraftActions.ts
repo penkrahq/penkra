@@ -885,6 +885,24 @@ export const createComposerDraftStoreState =
         return { draftsByThreadId: nextDraftsByThreadId };
       });
     },
+    setConnectionSelection: (threadId, provider, connectionId) => {
+      set((state) => {
+        const base = state.draftsByThreadId[threadId] ?? createEmptyThreadDraft();
+        if (base.connectionSelectionByProvider[provider] === connectionId) return state;
+        return {
+          draftsByThreadId: {
+            ...state.draftsByThreadId,
+            [threadId]: {
+              ...base,
+              connectionSelectionByProvider: {
+                ...base.connectionSelectionByProvider,
+                [provider]: connectionId,
+              },
+            },
+          },
+        };
+      });
+    },
     setModelSelection: (threadId, modelSelection) => {
       if (threadId.length === 0) {
         return;

@@ -281,25 +281,6 @@ export type CleanCoreSidebarChange = typeof CleanCoreSidebarChange.Type;
 
 export const CleanCoreThreadUpdate = Schema.Union([
   Schema.Struct({
-    action: Schema.Literal("connection"),
-    threadId: ThreadId,
-    connectionId: Schema.NullOr(ProviderConnectionId),
-    updatedAt: IsoDateTime,
-  }),
-  Schema.Struct({
-    action: Schema.Literal("model"),
-    threadId: ThreadId,
-    modelSelection: ModelSelection,
-    connection: Schema.Union([
-      Schema.Struct({ kind: Schema.Literal("keep") }),
-      Schema.Struct({
-        kind: Schema.Literal("selected"),
-        connectionId: Schema.NullOr(ProviderConnectionId),
-      }),
-    ]),
-    updatedAt: IsoDateTime,
-  }),
-  Schema.Struct({
     action: Schema.Literal("rename"),
     threadId: ThreadId,
     title: Schema.String,

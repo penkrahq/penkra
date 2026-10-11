@@ -8,6 +8,7 @@ import {
 import { Deferred, Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
+import { draftAfterSend } from "./threadDraft.ts";
 import { PROVIDER_CUTOFF_NOTICE } from "./providerStreamConsumer.ts";
 import { enqueueMessage, planSend, readThreadQueue, type QueuedMessage } from "./threadQueue.ts";
 import { upsertThreadItem, type ThreadPublisher } from "./threadStore.ts";
@@ -17,7 +18,12 @@ export const PLAY_TURN_RECOVERY_PROMPT =
 
 export interface SendMessageInput extends Pick<
   CleanCoreSendMessageInput,
-  "providerOptions" | "assistantDeliveryMode" | "skills" | "mentions"
+  | "providerOptions"
+  | "assistantDeliveryMode"
+  | "skills"
+  | "mentions"
+  | "modelSelection"
+  | "connectionId"
 > {
   readonly threadId: string;
   readonly message: QueuedMessage;
@@ -126,7 +132,12 @@ export const deliverMessage = (
             createdAt: confirmed.at,
             updatedAt: confirmed.at,
           });
-          yield* sql`UPDATE threads SET draft = NULL, draft_updated_at = ${confirmed.at}, updated_at = ${confirmed.at} WHERE id = ${input.threadId}`;
+          const drafts = yield* sql<{
+            draft: string | null;
+            provider: string;
+          }>`SELECT draft, provider FROM threads WHERE id=${input.threadId}`;
+          const draft = draftAfterSend(drafts[0]!.draft, drafts[0]!.provider, undefined);
+          yield* sql`UPDATE threads SET draft = ${draft}, draft_updated_at = ${confirmed.at}, updated_at = ${confirmed.at} WHERE id = ${input.threadId}`;
         }),
       );
       publisher.publish({ threadId: input.threadId });
@@ -180,7 +191,7 @@ export const sendMessage = (
     const queued = yield* sql.withTransaction(
       Effect.gen(function* () {
         yield* driver.claimAttachments(input);
-        return yield* enqueueMessage(input.threadId, input.message);
+        return yield* enqueueMessage(input.threadId, input.message, input);
       }),
     );
     publisher.publish({ threadId: input.threadId });

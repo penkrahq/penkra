@@ -1,11 +1,12 @@
 import { seedThreadFolderFixture } from "./threadFixtures.ts";
 import { assert, it } from "@effect/vitest";
-import { ThreadId } from "@penkra/contracts";
+import { MessageId, ProviderConnectionId, ThreadId } from "@penkra/contracts";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { getThreadDraft, setThreadDraft } from "./threadDraft.ts";
+import { draftAfterSend, getThreadDraft, setThreadDraft } from "./threadDraft.ts";
 import { makeThreadPublisher } from "./threadStore.ts";
+import { enqueueMessage } from "./threadQueue.ts";
 import { createThread } from "./threadStore.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
@@ -55,6 +56,92 @@ it.effect("keeps one draft per thread, last write wins by draft_updated_at", () 
       assert.equal(stale.draft, "hello world");
       // Each accepted save publishes so other windows update live.
       assert.equal(changes, 3);
+    }),
+  ),
+);
+
+for (const state of ["idle", "running"]) {
+  it.effect(
+    `an account/model pick in the draft leaves the ${state} thread ownership unchanged`,
+    () =>
+      withDb(
+        Effect.gen(function* () {
+          yield* runMigrations();
+          yield* seedThreadFolderFixture("core-test-folder", "space-1");
+          yield* createThread(baseThread);
+          const sql = yield* SqlClient.SqlClient;
+          yield* sql`UPDATE threads SET connection_id='old-account', native_state_id='old-native', provider_session_id='old-session', state=${state}, active_turn_id=${state === "running" ? "old-turn" : null} WHERE id='thread-1'`;
+          const before =
+            yield* sql`SELECT connection_id, model, model_options, native_state_id, provider_session_id, state, active_turn_id FROM threads WHERE id='thread-1'`;
+          const draft = JSON.stringify({
+            prompt: "",
+            attachments: [],
+            files: [],
+            modelSelectionByProvider: { codex: { provider: "codex", model: "model-B" } },
+            connectionSelectionByProvider: { codex: "new-account" },
+            activeProvider: "codex",
+          });
+          yield* setThreadDraft(
+            makeThreadPublisher(),
+            "thread-1",
+            draft,
+            "2026-10-11T00:00:00.000Z",
+          );
+          assert.deepStrictEqual(
+            yield* sql`SELECT connection_id, model, model_options, native_state_id, provider_session_id, state, active_turn_id FROM threads WHERE id='thread-1'`,
+            before,
+          );
+          assert.equal((yield* getThreadDraft("thread-1")).draft, draft);
+        }),
+      ),
+  );
+}
+
+it.effect("queue admission keeps a newer draft pick, while consuming only composed content", () =>
+  withDb(
+    Effect.gen(function* () {
+      yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
+      yield* createThread(baseThread);
+      const publisher = makeThreadPublisher();
+      const choice = {
+        modelSelectionByProvider: { codex: { provider: "codex", model: "model-B" } },
+        connectionSelectionByProvider: { codex: "account-B" },
+        activeProvider: "codex",
+      };
+      const draft = JSON.stringify({
+        prompt: "queued content",
+        attachments: [],
+        files: [],
+        ...choice,
+      });
+      yield* setThreadDraft(publisher, "thread-1", draft, "2099-10-11T00:00:02.000Z");
+      yield* enqueueMessage(
+        "thread-1",
+        {
+          messageId: MessageId.makeUnsafe("queued-pick"),
+          text: "captured content",
+          attachments: [],
+          senderThreadId: null,
+          dispatchOrigin: "user",
+          queuedAt: "2099-10-11T00:00:01.000Z",
+        },
+        {
+          modelSelection: { provider: "codex", model: "model-A" },
+          connectionId: ProviderConnectionId.makeUnsafe("account-A"),
+        },
+      );
+      const saved = (yield* getThreadDraft("thread-1")).draft!;
+      assert.deepStrictEqual(JSON.parse(saved), {
+        prompt: "",
+        attachments: [],
+        files: [],
+        ...choice,
+      });
+      assert.deepStrictEqual(
+        JSON.parse(draftAfterSend(saved, "codex", undefined)!),
+        JSON.parse(saved),
+      );
     }),
   ),
 );
