@@ -1,105 +1,74 @@
 // FILE: ProviderConnectionLogins.ts
-// Purpose: SQLite journal for provider-owned Connection login.
+// Purpose: In-process sign-in progress; credential profiles remain durable.
 
-import { Effect, Layer, Option, Schema } from "effect";
+import { Effect, Layer, Option } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
-import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 
 import { toPersistenceSqlOrDecodeError } from "../Errors.ts";
 import {
-  ProviderConnectionLoginRecord,
+  type ProviderConnectionLoginRecord,
   ProviderConnectionLoginRepository,
   type ProviderConnectionLoginRepositoryShape,
 } from "../Services/ProviderConnectionLogins.ts";
 
-const make = Effect.gen(function* () {
+export const makeProviderConnectionLogins = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
-  const select = SqlSchema.findOneOption({
-    Request: Schema.Struct({ operationId: Schema.String }),
-    Result: ProviderConnectionLoginRecord,
-    execute: ({ operationId }) => sql`
-      SELECT operation_id AS "operationId", connection_id AS "connectionId",
-        committed_connection_id AS "committedConnectionId",
-        harness_kind AS harness, authentication_target_id AS "authenticationTargetId",
-        authentication_method_id AS "authenticationMethodId", label,
-        profile_ref AS "profileRef", provider_login_id AS "providerLoginId",
-        operation_state AS state, provider_identity_id AS "providerIdentityId",
-        failure_reason AS "failureReason", created_at AS "createdAt", updated_at AS "updatedAt"
-      FROM provider_connection_logins WHERE operation_id = ${operationId}
-    `,
-  });
-  const mapped = <A>(name: string, effect: Effect.Effect<A, unknown>) =>
-    effect.pipe(Effect.mapError(toPersistenceSqlOrDecodeError(`${name}:query`, `${name}:decode`)));
+  const records = new Map<string, ProviderConnectionLoginRecord>();
   return {
     begin: (record) =>
-      mapped(
-        "ProviderConnectionLoginRepository.begin",
-        sql.withTransaction(
-          sql`
-            INSERT INTO provider_credential_profiles (
-              profile_ref, harness_kind, authentication_target_id, authentication_method_id,
-              lifecycle, connection_id, login_operation_id, created_at, updated_at, retired_at
-            ) VALUES (
-              ${record.profileRef}, ${record.harness}, ${record.authenticationTargetId},
-              ${record.authenticationMethodId}, 'staging', NULL, ${record.operationId},
-              ${record.createdAt}, ${record.updatedAt}, NULL
-            )
-          `.pipe(
-            Effect.andThen(sql`
-              INSERT INTO provider_connection_logins (
-                operation_id, connection_id, committed_connection_id, harness_kind,
-                authentication_target_id, authentication_method_id, label, profile_ref,
-                provider_login_id, operation_state, provider_identity_id, failure_reason,
-                created_at, updated_at
-              ) VALUES (
-                ${record.operationId}, ${record.connectionId}, ${record.committedConnectionId ?? null},
-                ${record.harness}, ${record.authenticationTargetId}, ${record.authenticationMethodId},
-                ${record.label}, ${record.profileRef}, ${record.providerLoginId}, ${record.state},
-                ${record.providerIdentityId}, ${record.failureReason}, ${record.createdAt},
-                ${record.updatedAt}
-              )
-            `),
-            Effect.asVoid,
+      sql`
+        INSERT INTO provider_credential_profiles (
+          profile_ref, harness_kind, authentication_target_id, authentication_method_id,
+          lifecycle, connection_id, login_operation_id, created_at, updated_at, retired_at
+        ) VALUES (
+          ${record.profileRef}, ${record.harness}, ${record.authenticationTargetId},
+          ${record.authenticationMethodId}, 'staging', NULL, ${record.operationId},
+          ${record.createdAt}, ${record.updatedAt}, NULL
+        )
+      `.pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "ProviderConnectionLoginRepository.begin:query",
+            "ProviderConnectionLoginRepository.begin:decode",
           ),
         ),
+        Effect.tap(() =>
+          Effect.sync(() => {
+            records.set(record.operationId, record);
+          }),
+        ),
+        Effect.asVoid,
+        Effect.uninterruptible,
       ),
-    get: (operationId) => mapped("ProviderConnectionLoginRepository.get", select({ operationId })),
+    get: (operationId) => Effect.sync(() => Option.fromUndefinedOr(records.get(operationId))),
     listOpen: () =>
-      mapped(
-        "ProviderConnectionLoginRepository.listOpen",
-        SqlSchema.findAll({
-          Request: Schema.Void,
-          Result: ProviderConnectionLoginRecord,
-          execute: () => sql`
-            SELECT operation_id AS "operationId", connection_id AS "connectionId",
-              committed_connection_id AS "committedConnectionId",
-              harness_kind AS harness, authentication_target_id AS "authenticationTargetId",
-              authentication_method_id AS "authenticationMethodId", label,
-              profile_ref AS "profileRef", provider_login_id AS "providerLoginId",
-              operation_state AS state, provider_identity_id AS "providerIdentityId",
-              failure_reason AS "failureReason", created_at AS "createdAt", updated_at AS "updatedAt"
-            FROM provider_connection_logins
-            WHERE operation_state IN ('starting', 'awaiting-user', 'verified')
-            ORDER BY created_at ASC
-          `,
-        })(),
+      Effect.sync(() =>
+        [...records.values()].filter(
+          (record) =>
+            record.state === "starting" ||
+            record.state === "awaiting-user" ||
+            record.state === "verified",
+        ),
       ),
     transition: (input) =>
-      mapped(
-        "ProviderConnectionLoginRepository.transition",
-        sql`
-          UPDATE provider_connection_logins
-          SET operation_state = ${input.state}, provider_login_id = ${input.providerLoginId},
-            provider_identity_id = ${input.providerIdentityId}, failure_reason = ${input.failureReason},
-            committed_connection_id = COALESCE(${input.committedConnectionId ?? null}, committed_connection_id),
-            updated_at = ${input.updatedAt}
-          WHERE operation_id = ${input.operationId}
-        `.pipe(Effect.andThen(select({ operationId: input.operationId }))),
-      ),
+      Effect.sync(() => {
+        const record = records.get(input.operationId);
+        if (record === undefined) return Option.none();
+        const next = {
+          ...record,
+          ...input,
+          committedConnectionId:
+            input.committedConnectionId === undefined
+              ? record.committedConnectionId
+              : input.committedConnectionId,
+        };
+        records.set(input.operationId, next);
+        return Option.some(next);
+      }),
   } satisfies ProviderConnectionLoginRepositoryShape;
 });
 
 export const ProviderConnectionLoginRepositoryLive = Layer.effect(
   ProviderConnectionLoginRepository,
-  make,
+  makeProviderConnectionLogins,
 );

@@ -411,8 +411,8 @@ const makeServerProgram = (input: CliInput) => {
       providerNativeStateDeletionCoordinator.recover,
     );
     yield* runStartupStage(
-      "provider-connection-login.recover",
-      providerConnectionLoginCoordinator.recover,
+      "provider-connection-login.initialize",
+      providerConnectionLoginCoordinator.initialize,
     );
     yield* runStartupStage("default-spaces.ensure", ensureDefaultSpaces(orchestrationEngine));
     const startedServer = yield* runStartupStage("http-runtime.start", start);

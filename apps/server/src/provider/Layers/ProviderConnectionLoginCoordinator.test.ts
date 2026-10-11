@@ -8,13 +8,13 @@ import {
   ThreadId,
 } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
-import { Effect, Layer, Option } from "effect";
+import { Deferred, Effect, Layer, Option } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { access, mkdir, readFile, readlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { ServerConfig } from "../../config.ts";
-import { ProviderConnectionLoginRepositoryLive } from "../../persistence/Layers/ProviderConnectionLogins.ts";
+import { makeProviderConnectionLogins } from "../../persistence/Layers/ProviderConnectionLogins.ts";
 import { ProviderConnectionRepositoryLive } from "../../persistence/Layers/ProviderConnections.ts";
 import { ConnectionUsageFactRepositoryLive } from "../../persistence/Layers/ConnectionUsageFacts.ts";
 import { ProviderInstallationRepositoryLive } from "../../persistence/Layers/ProviderInstallations.ts";
@@ -131,8 +131,34 @@ const sqlLayer = NodeSqliteClient.layerMemory();
 const configLayer = ServerConfig.layerTest(process.cwd(), {
   prefix: "penkra-connection-login-test-",
 }).pipe(Layer.provide(NodeServices.layer));
+const completedLogins = new Map<string, Deferred.Deferred<void>>();
+const completedLogin = (operationId: string) => {
+  const existing = completedLogins.get(operationId);
+  if (existing !== undefined) return existing;
+  const signal = Deferred.makeUnsafe<void>();
+  completedLogins.set(operationId, signal);
+  return signal;
+};
+const loginLayer = Layer.effect(
+  ProviderConnectionLoginRepository,
+  makeProviderConnectionLogins.pipe(
+    Effect.map((repository) => ({
+      ...repository,
+      transition: (input: Parameters<typeof repository.transition>[0]) =>
+        repository
+          .transition(input)
+          .pipe(
+            Effect.tap((record) =>
+              Option.isSome(record) && record.value.state === "completed"
+                ? Deferred.succeed(completedLogin(input.operationId), undefined)
+                : Effect.void,
+            ),
+          ),
+    })),
+  ),
+).pipe(Layer.provide(sqlLayer));
 const repositories = Layer.mergeAll(
-  ProviderConnectionLoginRepositoryLive.pipe(Layer.provide(sqlLayer)),
+  loginLayer,
   ProviderConnectionRepositoryLive.pipe(Layer.provide(sqlLayer)),
   ProviderInstallationRepositoryLive.pipe(Layer.provide(sqlLayer)),
   ConnectionUsageFactRepositoryLive.pipe(Layer.provide(sqlLayer)),
@@ -232,24 +258,11 @@ const activateClaude = Effect.gen(function* () {
 
 const waitForCompleted = (operationId: string) =>
   Effect.gen(function* () {
+    yield* Deferred.await(completedLogin(operationId));
     const coordinator = yield* ProviderConnectionLoginCoordinator;
-    for (let attempt = 0; attempt < 100; attempt += 1) {
-      const snapshot = yield* coordinator.get({ operationId });
-      if (snapshot.state === "completed") return snapshot;
-      yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 5)));
-    }
-    return yield* Effect.die("managed login did not complete");
-  });
-
-const waitForFailed = (operationId: string) =>
-  Effect.gen(function* () {
-    const coordinator = yield* ProviderConnectionLoginCoordinator;
-    for (let attempt = 0; attempt < 100; attempt += 1) {
-      const snapshot = yield* coordinator.get({ operationId });
-      if (snapshot.state === "failed") return snapshot;
-      yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 5)));
-    }
-    return yield* Effect.die("managed login did not fail");
+    const snapshot = yield* coordinator.get({ operationId });
+    assert.strictEqual(snapshot.state, "completed");
+    return snapshot;
   });
 
 layer("ProviderConnectionLoginCoordinator", (it) => {
@@ -339,92 +352,6 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
     }),
   );
 
-  it.effect("recovers an interrupted login only from the exact isolated account state", () =>
-    Effect.gen(function* () {
-      yield* runMigrations();
-      yield* activateCodex;
-      const coordinator = yield* ProviderConnectionLoginCoordinator;
-      const logins = yield* ProviderConnectionLoginRepository;
-      const connections = yield* ProviderConnectionRepository;
-      const connectionId = ProviderConnectionId.makeUnsafe("recovered-managed-connection");
-      probeFailure = null;
-      yield* logins.begin({
-        operationId: "recovered-managed-login",
-        connectionId,
-        harness: "codex",
-        authenticationTargetId: "openai-first-party",
-        authenticationMethodId: "chatgpt",
-        label: "Recovered",
-        profileRef: `provider-profile:${connectionId}`,
-        providerLoginId: "native-login",
-        state: "awaiting-user",
-        providerIdentityId: null,
-        failureReason: null,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      });
-      probedAccount = {
-        type: "chatgpt",
-        email: "recovered@example.com",
-        planType: "pro",
-        rateLimitsSnapshot: null,
-      };
-      yield* coordinator.recover;
-      const recovered = Option.getOrThrow(yield* connections.getRecord(connectionId));
-      assert.strictEqual(recovered.label, "recovered@example.com");
-      assert.strictEqual(recovered.providerIdentityId, "recovered@example.com");
-      assert.deepStrictEqual(yield* logins.listOpen(), []);
-    }),
-  );
-
-  it.effect("fails an unverifiable interrupted login without blocking server recovery", () =>
-    Effect.gen(function* () {
-      yield* runMigrations();
-      yield* activateCodex;
-      const coordinator = yield* ProviderConnectionLoginCoordinator;
-      const logins = yield* ProviderConnectionLoginRepository;
-      const connections = yield* ProviderConnectionRepository;
-      const sql = yield* SqlClient.SqlClient;
-      const connectionId = ProviderConnectionId.makeUnsafe("unverifiable-managed-connection");
-      yield* logins.begin({
-        operationId: "unverifiable-managed-login",
-        connectionId,
-        harness: "codex",
-        authenticationTargetId: "openai-first-party",
-        authenticationMethodId: "chatgpt",
-        label: "Unverifiable",
-        profileRef: `provider-profile:${connectionId}`,
-        providerLoginId: "native-login",
-        state: "awaiting-user",
-        providerIdentityId: null,
-        failureReason: null,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      });
-      probeFailure = new Error("native status failed");
-
-      yield* coordinator.recover;
-
-      const failed = yield* coordinator.get({
-        operationId: "unverifiable-managed-login",
-      });
-      assert.strictEqual(failed.state, "failed");
-      assert.strictEqual(
-        failed.failureReason,
-        "The isolated provider profile could not be verified.",
-      );
-      assert.strictEqual(Option.isNone(yield* connections.getRecord(connectionId)), true);
-      assert.deepStrictEqual(
-        yield* sql<{ readonly lifecycle: string }>`
-          SELECT lifecycle FROM provider_credential_profiles
-          WHERE profile_ref = ${`provider-profile:${connectionId}`}
-        `,
-        [{ lifecycle: "removed" }],
-      );
-      probeFailure = null;
-    }),
-  );
-
   it.effect("repairs and removes an active profile left behind by a terminated Connection", () =>
     Effect.gen(function* () {
       yield* runMigrations();
@@ -460,7 +387,7 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
         terminatedAt: timestamp,
       });
 
-      yield* coordinator.recover;
+      yield* coordinator.initialize;
 
       assert.deepStrictEqual(
         yield* sql<{ readonly lifecycle: string }>`
@@ -904,7 +831,7 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
         retiredAt: timestamp,
       });
 
-      yield* coordinator.recover;
+      yield* coordinator.initialize;
 
       assert.strictEqual(
         yield* Effect.promise(() => readFile(transcript, "utf8")),
@@ -956,7 +883,7 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
         createdAt: timestamp,
       });
       probedAccount = null;
-      yield* coordinator.recover;
+      yield* coordinator.initialize;
       const recovered = Option.getOrThrow(yield* connections.getRecord(connectionId));
       assert.strictEqual(recovered.lifecycle, "terminated");
       assert.strictEqual(recovered.terminationReason, "signed-out");
@@ -987,7 +914,7 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
         planType: "pro",
         rateLimitsSnapshot: null,
       };
-      yield* coordinator.recover;
+      yield* coordinator.initialize;
       const recovered = Option.getOrThrow(yield* connections.getRecord(connectionId));
       assert.strictEqual(recovered.lifecycle, "active");
       assert.strictEqual(recovered.label, "active@example.com");

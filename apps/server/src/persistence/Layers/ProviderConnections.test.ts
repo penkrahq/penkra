@@ -14,26 +14,11 @@ const layer = it.layer(
 );
 
 layer("ProviderConnectionRepository", (it) => {
-  it.effect("queues retired and terminal staging profiles for durable cleanup", () =>
+  it.effect("queues retired and abandoned staging profiles without removing a live login", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       const repository = yield* ProviderConnectionRepository;
       yield* runMigrations();
-      yield* sql`
-        INSERT INTO provider_connection_logins (
-          operation_id, connection_id, committed_connection_id, harness_kind,
-          authentication_target_id, authentication_method_id, label, profile_ref,
-          provider_login_id, operation_state, provider_identity_id, failure_reason,
-          created_at, updated_at
-        ) VALUES
-          ('failed-login', 'failed-connection', NULL, 'codex', 'openai-first-party',
-            'chatgpt', 'Failed', 'provider-profile:failed', NULL, 'failed', NULL,
-            'Provider stopped', '2026-08-08T00:00:00.000Z',
-            '2026-08-08T00:02:00.000Z'),
-          ('open-login', 'open-connection', NULL, 'codex', 'openai-first-party',
-            'chatgpt', 'Open', 'provider-profile:open', NULL, 'awaiting-user', NULL,
-            NULL, '2026-08-08T00:00:00.000Z', '2026-08-08T00:03:00.000Z')
-      `;
       yield* sql`
         INSERT INTO provider_connections (
           connection_id, harness_kind, authentication_target_id,
@@ -68,7 +53,9 @@ layer("ProviderConnectionRepository", (it) => {
       `;
 
       assert.deepStrictEqual(
-        (yield* repository.listManagedProfilesPendingCleanup()).map((profile) => ({
+        (yield* repository.listManagedProfilesPendingCleanup({
+          activeLoginOperationIds: ["open-login"],
+        })).map((profile) => ({
           profileRef: profile.profileRef,
           lifecycle: profile.lifecycle,
         })),
