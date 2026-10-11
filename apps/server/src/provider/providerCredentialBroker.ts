@@ -7,7 +7,6 @@ import { Data, Effect, Layer, ServiceMap } from "effect";
 
 const PIPE_ENV = "PENKRA_APP_COMMAND_PIPE";
 const TOKEN_ENV = "PENKRA_APP_COMMAND_TOKEN";
-const TIMEOUT_MS = 10_000;
 const MAX_RESPONSE_BYTES = 128 * 1024;
 
 export class ProviderCredentialBrokerError extends Data.TaggedError(
@@ -76,10 +75,6 @@ function request(input: {
   return new Promise((resolve, reject) => {
     const socket = Net.createConnection(path);
     let bytes = Buffer.alloc(0);
-    const timer = setTimeout(
-      () => socket.destroy(new Error("Provider credential request timed out.")),
-      TIMEOUT_MS,
-    );
     socket.once("connect", () => {
       socket.write(
         `${JSON.stringify({ id, token, method: input.method, params: input.params })}\n`,
@@ -93,7 +88,6 @@ function request(input: {
       }
       const newline = bytes.indexOf(10);
       if (newline < 0) return;
-      clearTimeout(timer);
       socket.destroy();
       try {
         resolve(JSON.parse(bytes.subarray(0, newline).toString("utf8")) as BridgeResponse);
@@ -101,9 +95,9 @@ function request(input: {
         reject(new Error("Desktop returned an invalid provider credential response.", { cause }));
       }
     });
-    socket.once("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
+    socket.once("error", reject);
+    socket.once("close", () => {
+      reject(new Error("Desktop closed the provider credential request without a response."));
     });
   });
 }
