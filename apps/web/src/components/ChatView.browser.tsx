@@ -4034,11 +4034,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
       expect(
         wsRequests
           .map(readDispatchedCommand)
-          .filter(
-            (command) =>
-              command?.type === "thread.turn.start" ||
-              command?.type === "thread.user-input.respond",
-          ),
+          .filter((command) => command?.type === "thread.turn.start"),
+      ).toEqual([]);
+      expect(
+        wsRequests.filter((request) => request.method === WS_METHODS.cleanCoreAnswerThreadQuestion),
       ).toEqual([]);
     } finally {
       await mounted.cleanup();

@@ -56,17 +56,12 @@ import {
   formatProviderDeliveryBlockDetail,
   PROVIDER_DELIVERY_BLOCK_SUMMARY,
 } from "@penkra/shared/providerDeliveryBlock";
-import {
-  buildStalePendingRequestFailureDetail,
-  PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE,
-} from "@penkra/shared/threadSummary";
+import { PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE } from "@penkra/shared/threadSummary";
 
 import {
   ProviderAdapterRequestError,
   ProviderAdapterProcessError,
-  ProviderValidationError,
   ProviderAdapterValidationError,
-  ProviderServiceError,
 } from "../../provider/Errors.ts";
 import {
   buildProviderTurnInput,
@@ -102,10 +97,8 @@ import { ProviderIntentOutbox } from "../../persistence/Services/ProviderIntentO
 import { ProviderRuntimeEventRepository } from "../../persistence/Services/ProviderRuntimeEvents.ts";
 import { ProviderSessionDirectory } from "../../provider/Services/ProviderSessionDirectory.ts";
 import type { ProviderIntentOutboxJob } from "../../persistence/Services/ProviderIntentOutbox.ts";
-import { ProjectionPendingInteractionRepositoryLive } from "../../persistence/Layers/ProjectionPendingInteractions.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { QueuedTurnPromotionRepositoryLive } from "../../persistence/Layers/QueuedTurnPromotions.ts";
-import { ProjectionPendingInteractionRepository } from "../../persistence/Services/ProjectionPendingInteractions.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import {
   OrchestrationEventDeliveryRepository,
@@ -200,13 +193,6 @@ const isStoppedQueueAdmission = (failure: unknown): boolean => {
   }
   return false;
 };
-
-type InteractionResponseEvent = Extract<
-  ProviderIntentEvent,
-  {
-    type: "thread.user-input-response-requested";
-  }
->;
 
 type ProviderAttemptOutcome =
   | { readonly _tag: "accepted" }
@@ -410,29 +396,6 @@ function availableThreadMentionContextChars(messageText: string): number {
   );
 }
 
-function isUnknownPendingInteractionError(cause: Cause.Cause<ProviderServiceError>): boolean {
-  const error = Cause.squash(cause);
-  return (
-    (Schema.is(ProviderAdapterRequestError)(error) || Schema.is(ProviderValidationError)(error)) &&
-    error.code === PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE
-  );
-}
-
-function interactionFailureSettlementStatus(
-  cause: Cause.Cause<ProviderServiceError>,
-  isUnknownPendingRequest: boolean,
-): "retryable" | "uncertain" {
-  return Option.match(Cause.findErrorOption(cause), {
-    onNone: () => "uncertain" as const,
-    onSome: (error) =>
-      isUnknownPendingRequest ||
-      error._tag === "ProviderAdapterRequestError" ||
-      error._tag === "ProviderAdapterProcessError"
-        ? ("uncertain" as const)
-        : ("retryable" as const),
-  });
-}
-
 function isStaleClaudeResumeError(error: unknown): boolean {
   if (Schema.is(ProviderAdapterRequestError)(error)) {
     return (
@@ -477,7 +440,6 @@ const make = Effect.gen(function* () {
   const providerRuntimeIngestion = yield* ProviderRuntimeIngestionService;
   const providerTurnSelectionResolver = yield* ProviderTurnSelectionResolver;
   const providerLaunchResolver = yield* ProviderLaunchResolver;
-  const pendingInteractions = yield* ProjectionPendingInteractionRepository;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
   const textGeneration = yield* TextGeneration;
   const serverSettings = yield* ServerSettingsService;
@@ -854,17 +816,6 @@ const make = Effect.gen(function* () {
     }
     return false;
   });
-
-  const clearThreadRuntimeCaches = (threadId: ThreadId) =>
-    Effect.sync(() => {
-      threadProviderOptions.delete(threadId);
-      threadSessionModelSelections.delete(threadId);
-      quarantinedThreads.delete(threadId);
-      // NOTE: `drainingQueuedTurns` is intentionally NOT cleared here. It is a
-      // turn-scoped in-flight guard that each drain self-clears when it settles;
-      // deleting it here would let a concurrent second drain start for the same
-      // thread while the first is still running.
-    });
 
   const rollbackProviderConversation = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
@@ -2869,106 +2820,6 @@ const make = Effect.gen(function* () {
       );
   });
 
-  const appendInteractionResponseFailure = (
-    event: InteractionResponseEvent,
-    input: {
-      readonly detail: string;
-      readonly settlementStatus: "retryable" | "uncertain";
-      readonly failureCode?: typeof PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE;
-    },
-  ) =>
-    event.commandId === null
-      ? Effect.void
-      : appendProviderFailureActivity({
-          threadId: event.payload.threadId,
-          kind: "provider.user-input.respond.failed",
-          summary: "Provider user input response failed",
-          detail: input.detail,
-          turnId: null,
-          createdAt: event.payload.createdAt,
-          requestId: event.payload.requestId,
-          responseCommandId: event.commandId,
-          answers: event.payload.answers,
-          settlementStatus: input.settlementStatus,
-          ...(input.failureCode ? { failureCode: input.failureCode } : {}),
-          ...(event.payload.lifecycleGeneration === undefined
-            ? {}
-            : { lifecycleGeneration: event.payload.lifecycleGeneration }),
-        }).pipe(Effect.asVoid);
-
-  const claimInteractionResponse = Effect.fnUntraced(function* (input: {
-    readonly event: InteractionResponseEvent;
-    readonly decision: Parameters<typeof pendingInteractions.claimResponse>[0]["decision"];
-  }) {
-    const { event } = input;
-    if (event.commandId === null) return null;
-    const claimed = yield* pendingInteractions.claimResponse({
-      threadId: event.payload.threadId,
-      interactionKind: "userInput",
-      requestId: event.payload.requestId,
-      lifecycleGeneration: event.payload.lifecycleGeneration ?? null,
-      responseCommandId: event.commandId,
-      decision: input.decision,
-      requestedAt: event.payload.createdAt,
-    });
-    const pending = yield* pendingInteractions.getByIdentity({
-      threadId: event.payload.threadId,
-      interactionKind: "userInput",
-      requestId: event.payload.requestId,
-    });
-    if (
-      !claimed &&
-      (Option.isNone(pending) ||
-        pending.value.status !== "responding" ||
-        pending.value.responseCommandId !== event.commandId)
-    ) {
-      return null;
-    }
-    const providerThread = yield* resolveProviderSessionThread(event.payload.threadId);
-    if (!providerThread) return null;
-    if (providerThread.session?.status !== "stopped") return providerThread.id;
-    yield* appendInteractionResponseFailure(event, {
-      detail: "No active provider session is bound to this thread.",
-      settlementStatus: "retryable",
-    });
-    return null;
-  });
-
-  const processUserInputResponseRequested = Effect.fnUntraced(function* (
-    event: Extract<ProviderIntentEvent, { type: "thread.user-input-response-requested" }>,
-  ) {
-    const providerThreadId = yield* claimInteractionResponse({
-      event,
-      decision: null,
-    });
-    if (providerThreadId === null) return;
-
-    yield* providerService
-      .respondToUserInput({
-        threadId: providerThreadId,
-        requestId: event.payload.requestId,
-        ...(event.payload.lifecycleGeneration !== undefined
-          ? { lifecycleGeneration: event.payload.lifecycleGeneration }
-          : {}),
-        answers: event.payload.answers,
-      })
-      .pipe(
-        Effect.asVoid,
-        Effect.catchCause((cause) => {
-          const unknownPendingRequest = isUnknownPendingInteractionError(cause);
-          return appendInteractionResponseFailure(event, {
-            detail: unknownPendingRequest
-              ? buildStalePendingRequestFailureDetail("user-input", event.payload.requestId)
-              : Cause.pretty(cause),
-            settlementStatus: interactionFailureSettlementStatus(cause, unknownPendingRequest),
-            ...(unknownPendingRequest
-              ? { failureCode: PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE }
-              : {}),
-          });
-        }),
-      );
-  });
-
   const processConversationRollbackRequestedWithoutLease = Effect.fnUntraced(function* (
     event: Extract<ProviderIntentEvent, { type: "thread.conversation-rollback-requested" }>,
   ) {
@@ -3171,9 +3022,6 @@ const make = Effect.gen(function* () {
           return;
         case "thread.task-background-requested":
           yield* processTaskBackgroundRequested(event);
-          return;
-        case "thread.user-input-response-requested":
-          yield* processUserInputResponseRequested(event);
           return;
         case "thread.conversation-rollback-requested":
           yield* processConversationRollbackRequested(event);
@@ -4003,7 +3851,6 @@ export const makeProviderCommandReactorLive = (options?: ProviderCommandReactorL
       ProviderSessionDirectoryLive.pipe(Layer.provide(ProviderSessionRuntimeRepositoryLive)),
     ),
     Layer.provideMerge(QueuedTurnPromotionRepositoryLive),
-    Layer.provideMerge(ProjectionPendingInteractionRepositoryLive),
     Layer.provideMerge(ProjectionTurnRepositoryLive),
   );
 

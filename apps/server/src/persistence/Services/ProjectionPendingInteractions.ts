@@ -39,16 +39,6 @@ export const GetProjectionPendingInteractionInput = Schema.Struct({
   requestId: ApprovalRequestId,
 });
 
-export const ClaimProjectionPendingInteractionResponseInput = Schema.Struct({
-  threadId: ThreadId,
-  interactionKind: ProjectionPendingInteractionKind,
-  requestId: ApprovalRequestId,
-  lifecycleGeneration: Schema.NullOr(Schema.String),
-  responseCommandId: CommandId,
-  decision: ProjectionPendingInteractionDecision,
-  requestedAt: IsoDateTime,
-});
-
 export const DeleteProjectionPendingInteractionInput = GetProjectionPendingInteractionInput;
 
 export interface ProjectionPendingInteractionRepositoryShape {
@@ -66,10 +56,6 @@ export interface ProjectionPendingInteractionRepositoryShape {
   readonly getByIdentity: (
     input: typeof GetProjectionPendingInteractionInput.Type,
   ) => Effect.Effect<Option.Option<ProjectionPendingInteraction>, ProjectionRepositoryError>;
-  /** Atomically assigns a pending/retryable interaction to exactly one response command. */
-  readonly claimResponse: (
-    input: typeof ClaimProjectionPendingInteractionResponseInput.Type,
-  ) => Effect.Effect<boolean, ProjectionRepositoryError>;
   readonly deleteByIdentity: (
     input: typeof DeleteProjectionPendingInteractionInput.Type,
   ) => Effect.Effect<void, ProjectionRepositoryError>;

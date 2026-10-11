@@ -4,7 +4,6 @@ import { Effect, Layer, Schema } from "effect";
 
 import { toPersistenceSqlError } from "../Errors.ts";
 import {
-  ClaimProjectionPendingInteractionResponseInput,
   DeleteProjectionPendingInteractionInput,
   GetProjectionPendingInteractionInput,
   ListProjectionPendingInteractionsInput,
@@ -107,40 +106,6 @@ const makeProjectionPendingInteractionRepository = Effect.gen(function* () {
     `,
   });
 
-  const claimRow = SqlSchema.findAll({
-    Request: ClaimProjectionPendingInteractionResponseInput,
-    Result: ProjectionPendingInteraction,
-    execute: (input) => sql`
-      UPDATE projection_pending_interactions
-      SET
-        status = 'responding',
-        decision = ${input.decision},
-        response_command_id = ${input.responseCommandId},
-        response_requested_at = ${input.requestedAt},
-        resolved_at = NULL
-      WHERE thread_id = ${input.threadId}
-        AND interaction_kind = ${input.interactionKind}
-        AND request_id = ${input.requestId}
-        AND status IN ('pending', 'retryable')
-        AND (
-          (${input.lifecycleGeneration} IS NULL AND lifecycle_generation IS NULL)
-          OR lifecycle_generation = ${input.lifecycleGeneration}
-        )
-      RETURNING
-        interaction_kind AS "interactionKind",
-        request_id AS "requestId",
-        thread_id AS "threadId",
-        turn_id AS "turnId",
-        lifecycle_generation AS "lifecycleGeneration",
-        status,
-        decision,
-        response_command_id AS "responseCommandId",
-        response_requested_at AS "responseRequestedAt",
-        created_at AS "createdAt",
-        resolved_at AS "resolvedAt"
-    `,
-  });
-
   const deleteRow = SqlSchema.void({
     Request: DeleteProjectionPendingInteractionInput,
     execute: ({ threadId, interactionKind, requestId }) => sql`
@@ -172,13 +137,6 @@ const makeProjectionPendingInteractionRepository = Effect.gen(function* () {
       getRow(input).pipe(
         Effect.mapError(
           toPersistenceSqlError("ProjectionPendingInteractionRepository.getByIdentity"),
-        ),
-      ),
-    claimResponse: (input) =>
-      claimRow(input).pipe(
-        Effect.map((rows) => rows.length === 1),
-        Effect.mapError(
-          toPersistenceSqlError("ProjectionPendingInteractionRepository.claimResponse"),
         ),
       ),
     deleteByIdentity: (input) =>

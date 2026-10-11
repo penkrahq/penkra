@@ -156,14 +156,13 @@ function shouldApplyThreadTurnsProjection(event: OrchestrationEvent): boolean {
 
 function shouldApplyPendingInteractionsProjection(event: OrchestrationEvent): boolean {
   return (
-    event.type === "thread.user-input-response-requested" ||
-    (event.type === "thread.activity-appended" &&
-      (event.payload.activity.kind === "approval.requested" ||
-        event.payload.activity.kind === "approval.resolved" ||
-        event.payload.activity.kind === "provider.approval.respond.failed" ||
-        event.payload.activity.kind === "user-input.requested" ||
-        event.payload.activity.kind === "user-input.resolved" ||
-        event.payload.activity.kind === "provider.user-input.respond.failed"))
+    event.type === "thread.activity-appended" &&
+    (event.payload.activity.kind === "approval.requested" ||
+      event.payload.activity.kind === "approval.resolved" ||
+      event.payload.activity.kind === "provider.approval.respond.failed" ||
+      event.payload.activity.kind === "user-input.requested" ||
+      event.payload.activity.kind === "user-input.resolved" ||
+      event.payload.activity.kind === "provider.user-input.respond.failed")
   );
 }
 
@@ -1432,34 +1431,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             } as const;
           }
           yield* projectionPendingInteractionRepository.upsert(nextRow);
-          return;
-        }
-
-        case "thread.user-input-response-requested": {
-          if (event.commandId === null) {
-            return;
-          }
-          const interactionKind = "userInput";
-          const existingRow = yield* projectionPendingInteractionRepository.getByIdentity({
-            threadId: event.payload.threadId,
-            interactionKind,
-            requestId: event.payload.requestId,
-          });
-          if (Option.isNone(existingRow)) {
-            return;
-          }
-          if (
-            yield* projectionPendingInteractionRepository.claimResponse({
-              threadId: event.payload.threadId,
-              interactionKind,
-              requestId: event.payload.requestId,
-              lifecycleGeneration: event.payload.lifecycleGeneration ?? null,
-              responseCommandId: event.commandId,
-              decision: null,
-              requestedAt: event.payload.createdAt,
-            })
-          ) {
-          }
           return;
         }
 

@@ -103,22 +103,6 @@ const serverProviderStatusesUpdatedListeners =
 const serverMaintenanceUpdatedListeners = createListenerRegistry<ServerLifecycleStreamEvent>();
 const serverSettingsUpdatedListeners = createListenerRegistry<ServerSettingsUpdatedPayload>();
 
-function omitNullUserInputAnswers(
-  command: Parameters<NativeApi["orchestration"]["dispatchCommand"]>[0],
-) {
-  if (command.type !== "thread.user-input.respond") {
-    return command;
-  }
-
-  return {
-    ...command,
-    answers: Object.fromEntries(
-      Object.entries(command.answers).filter(
-        ([, answer]) => answer !== null && answer !== undefined,
-      ),
-    ),
-  };
-}
 const terminalEventListeners = createListenerRegistry<TerminalEvent>();
 const projectDevServerEventListeners = createListenerRegistry<ProjectDevServerEvent>();
 const projectWorkspaceChangeListeners = createListenerRegistry<ProjectWorkspaceChangeEvent>();
@@ -590,14 +574,10 @@ export function createWsNativeApi(): NativeApi {
       acknowledgeSync: (input) =>
         transport.request<void>(ORCHESTRATION_WS_METHODS.acknowledgeSync, input),
       dispatchCommand: (command) => {
-        return transport.request(
-          ORCHESTRATION_WS_METHODS.dispatchCommand,
-          omitNullUserInputAnswers(command),
-          {
-            timeoutMs: null,
-            retryOnReconnect: true,
-          },
-        );
+        return transport.request(ORCHESTRATION_WS_METHODS.dispatchCommand, command, {
+          timeoutMs: null,
+          retryOnReconnect: true,
+        });
       },
       importThread: (input) => transport.request(ORCHESTRATION_WS_METHODS.importThread, input),
       subscribeShell: () => transport.request<void>(ORCHESTRATION_WS_METHODS.subscribeShell, {}),

@@ -14,7 +14,6 @@ const THREAD_PROJECTION_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
 ]);
 
 const OTHER_THREAD_SHELL_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
-  "thread.user-input-response-requested",
   "thread.conversation-rolled-back",
   "thread.turn-start-cancelled",
   "thread.session-set",
@@ -28,7 +27,6 @@ export function shouldRefreshThreadShellSummary(event: OrchestrationEvent): bool
   switch (event.type) {
     case "thread.message-sent":
       return event.payload.role === "user";
-    case "thread.user-input-response-requested":
     case "thread.conversation-rolled-back":
     case "thread.turn-start-cancelled":
     case "thread.session-set":
@@ -51,10 +49,7 @@ export function shouldApplyDeferredThreadShellSummary(event: OrchestrationEvent)
   if (!shouldRefreshThreadShellSummary(event)) {
     return false;
   }
-  return (
-    event.type !== "thread.activity-appended" &&
-    event.type !== "thread.user-input-response-requested"
-  );
+  return event.type !== "thread.activity-appended";
 }
 
 /** True only when an event can change the persisted thread shell sent to sidebar clients. */

@@ -77,62 +77,6 @@ layer("ProjectionPendingInteractionRepository", (it) => {
     }),
   );
 
-  it.effect("lets exactly one command claim each interaction response", () =>
-    Effect.gen(function* () {
-      const repository = yield* ProjectionPendingInteractionRepository;
-      const threadId = ThreadId.makeUnsafe("thread-claim-response");
-      const requestId = ApprovalRequestId.makeUnsafe("request-claim-response");
-      yield* repository.upsert({
-        interactionKind: "userInput",
-        requestId,
-        threadId,
-        turnId: null,
-        lifecycleGeneration: "generation-claim",
-        status: "pending",
-        decision: null,
-        responseCommandId: null,
-        responseRequestedAt: null,
-        createdAt: "2026-07-14T12:10:00.000Z",
-        resolvedAt: null,
-      });
-
-      assert.strictEqual(
-        yield* repository.claimResponse({
-          threadId,
-          interactionKind: "userInput",
-          requestId,
-          lifecycleGeneration: "generation-claim",
-          responseCommandId: "command-claim-a" as never,
-          decision: null,
-          requestedAt: "2026-07-14T12:10:01.000Z",
-        }),
-        true,
-      );
-      assert.strictEqual(
-        yield* repository.claimResponse({
-          threadId,
-          interactionKind: "userInput",
-          requestId,
-          lifecycleGeneration: "generation-claim",
-          responseCommandId: "command-claim-b" as never,
-          decision: null,
-          requestedAt: "2026-07-14T12:10:02.000Z",
-        }),
-        false,
-      );
-      const row = yield* repository.getByIdentity({
-        threadId,
-        interactionKind: "userInput",
-        requestId,
-      });
-      assert.strictEqual(row._tag, "Some");
-      if (row._tag === "Some") {
-        assert.strictEqual(row.value.status, "responding");
-        assert.strictEqual(row.value.responseCommandId, "command-claim-a");
-      }
-    }),
-  );
-
   it.effect("lists every nonterminal interaction for process-boundary cleanup", () =>
     Effect.gen(function* () {
       const repository = yield* ProjectionPendingInteractionRepository;
