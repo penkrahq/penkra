@@ -90,7 +90,7 @@ describe("ProviderSessionReaperLive", () => {
       interruptTurn: () => unsupported(),
       stopTask: () => unsupported(),
       backgroundTask: () => unsupported(),
-      respondToRequest: () => unsupported(),
+
       respondToUserInput: () => unsupported(),
       stopSession,
       listSessions: () => Effect.succeed([]),
@@ -154,7 +154,7 @@ describe("ProviderSessionReaperLive", () => {
       interruptTurn: () => unsupported(),
       stopTask: () => unsupported(),
       backgroundTask: () => unsupported(),
-      respondToRequest: () => unsupported(),
+
       respondToUserInput: () => unsupported(),
       stopSession,
       listSessions: () => Effect.succeed([]),

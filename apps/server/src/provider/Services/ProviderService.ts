@@ -15,7 +15,6 @@ import type {
   ProviderBackgroundTaskInput,
   ProviderInterruptTurnInput,
   ProviderKind,
-  ProviderRespondToRequestInput,
   ProviderRespondToUserInputInput,
   ProviderRuntimeEvent,
   ProviderSendTurnInput,
@@ -114,13 +113,6 @@ export interface ProviderServiceShape {
    */
   readonly backgroundTask: (
     input: ProviderBackgroundTaskInput,
-  ) => Effect.Effect<void, ProviderServiceError>;
-
-  /**
-   * Respond to a provider approval request.
-   */
-  readonly respondToRequest: (
-    input: ProviderRespondToRequestInput,
   ) => Effect.Effect<void, ProviderServiceError>;
 
   /**

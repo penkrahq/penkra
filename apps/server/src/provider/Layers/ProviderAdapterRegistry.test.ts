@@ -16,7 +16,7 @@ const baseAdapter = {
   startSession: vi.fn(),
   sendTurn: vi.fn(),
   interruptTurn: vi.fn(),
-  respondToRequest: vi.fn(),
+
   respondToUserInput: vi.fn(),
   stopSession: vi.fn(),
   listSessions: vi.fn(),

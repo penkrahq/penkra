@@ -18,7 +18,6 @@ import {
   ProviderInterruptTurnInput,
   ProviderStopTaskInput,
   ProviderBackgroundTaskInput,
-  ProviderRespondToRequestInput,
   ProviderRespondToUserInputInput,
   ProviderSendTurnInput,
   ProviderStartReviewInput,
@@ -196,13 +195,6 @@ const ClearSessionResumeCursorInput = Schema.Struct({
 type StopRuntimeSession = NonNullable<ProviderServiceShape["stopRuntimeSession"]>;
 type StopRuntimeSessionInput = Parameters<StopRuntimeSession>[0];
 type StopRuntimeSessionEffect = ReturnType<StopRuntimeSession>;
-type InteractionResponse =
-  | { readonly kind: "approval"; readonly input: ProviderRespondToRequestInput }
-  | {
-      readonly kind: "userInput";
-      readonly input: ProviderRespondToUserInputInput;
-    };
-
 /**
  * Hard deadlines for provider lifecycle calls. Every caller of these paths
  * holds a serialized resource (the per-thread lifecycle lock, an orchestration
@@ -1909,84 +1901,62 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         ),
       );
 
-    const respondToInteraction = (response: InteractionResponse) => {
-      const { input } = response;
-      const operation =
-        response.kind === "approval"
-          ? "ProviderService.respondToRequest"
-          : "ProviderService.respondToUserInput";
-      return lifecycle.runCurrent(input.threadId, (currentGeneration) =>
-        Effect.gen(function* () {
-          const routed = yield* resolveRoutableSession({
-            threadId: input.threadId,
-            operation,
-            allowRecovery: false,
-            missingBindingFailureCode: PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE,
-          });
-          if (!routed.isActive) {
-            return yield* toValidationError(
-              operation,
-              `Cannot respond to request '${input.requestId}' because the provider runtime is not active.`,
-              undefined,
-              PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE,
-            );
-          }
-          const routedGeneration = routed.lifecycleGeneration ?? currentGeneration;
-          if (
-            routedGeneration !== undefined &&
-            routedGeneration !== "legacy" &&
-            input.lifecycleGeneration === undefined
-          ) {
-            return yield* toValidationError(
-              operation,
-              `Cannot respond to request '${input.requestId}' without its provider lifecycle generation.`,
-            );
-          }
-          if (
-            input.lifecycleGeneration !== undefined &&
-            input.lifecycleGeneration !== routedGeneration
-          ) {
-            return yield* toValidationError(
-              operation,
-              `Cannot respond to stale request '${input.requestId}' from provider generation '${input.lifecycleGeneration}'.`,
-              undefined,
-              PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE,
-            );
-          }
-          if (response.kind === "approval") {
-            yield* routed.adapter.respondToRequest(
-              input.threadId,
-              input.requestId,
-              response.input.decision,
-            );
-            yield* analytics.record("provider.request.responded", {
-              provider: routed.adapter.provider,
-              decision: response.input.decision,
-            });
-            return;
-          }
-          yield* routed.adapter.respondToUserInput(
-            input.threadId,
-            input.requestId,
-            response.input.answers,
-          );
-        }),
-      );
-    };
-
-    const respondToRequest: ProviderServiceShape["respondToRequest"] = (rawInput) =>
-      decodeInputOrValidationError({
-        operation: "ProviderService.respondToRequest",
-        schema: ProviderRespondToRequestInput,
-        payload: rawInput,
-      }).pipe(Effect.flatMap((input) => respondToInteraction({ kind: "approval", input })));
-
-    const respondToUserInput: ProviderServiceShape["respondToUserInput"] = (rawInput) =>
-      decodeInputOrValidationError({
-        operation: "ProviderService.respondToUserInput",
+    const respondToUserInput: ProviderServiceShape["respondToUserInput"] = (rawInput) => {
+      const operation = "ProviderService.respondToUserInput";
+      return decodeInputOrValidationError({
+        operation,
         schema: ProviderRespondToUserInputInput,
         payload: rawInput,
-      }).pipe(Effect.flatMap((input) => respondToInteraction({ kind: "userInput", input })));
+      }).pipe(
+        Effect.flatMap((input) =>
+          lifecycle.runCurrent(input.threadId, (currentGeneration) =>
+            Effect.gen(function* () {
+              const routed = yield* resolveRoutableSession({
+                threadId: input.threadId,
+                operation,
+                allowRecovery: false,
+                missingBindingFailureCode: PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE,
+              });
+              if (!routed.isActive) {
+                return yield* toValidationError(
+                  operation,
+                  `Cannot respond to request '${input.requestId}' because the provider runtime is not active.`,
+                  undefined,
+                  PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE,
+                );
+              }
+              const routedGeneration = routed.lifecycleGeneration ?? currentGeneration;
+              if (
+                routedGeneration !== undefined &&
+                routedGeneration !== "legacy" &&
+                input.lifecycleGeneration === undefined
+              ) {
+                return yield* toValidationError(
+                  operation,
+                  `Cannot respond to request '${input.requestId}' without its provider lifecycle generation.`,
+                );
+              }
+              if (
+                input.lifecycleGeneration !== undefined &&
+                input.lifecycleGeneration !== routedGeneration
+              ) {
+                return yield* toValidationError(
+                  operation,
+                  `Cannot respond to stale request '${input.requestId}' from provider generation '${input.lifecycleGeneration}'.`,
+                  undefined,
+                  PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE,
+                );
+              }
+              yield* routed.adapter.respondToUserInput(
+                input.threadId,
+                input.requestId,
+                input.answers,
+              );
+            }),
+          ),
+        ),
+      );
+    };
 
     const stopSession: ProviderServiceShape["stopSession"] = (rawInput) =>
       Effect.gen(function* () {
@@ -2488,7 +2458,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       interruptTurn,
       stopTask,
       backgroundTask,
-      respondToRequest,
       respondToUserInput,
       stopSession,
       stopRuntimeSession,

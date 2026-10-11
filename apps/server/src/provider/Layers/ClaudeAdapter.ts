@@ -17,7 +17,6 @@ import type {
   McpServerStatus,
   PermissionMode,
   PermissionResult,
-  PermissionUpdate,
   SDKMessage,
   SDKResultMessage,
   SDKControlGetContextUsageResponse,
@@ -31,9 +30,7 @@ import type {
 import {
   type CanonicalItemType,
   type ClaudeApiEffort,
-  type CanonicalRequestType,
   EventId,
-  type ProviderApprovalDecision,
   ProviderItemId,
   type ProviderRuntimeEvent,
   type ProviderRuntimeTurnStatus,
@@ -171,6 +168,7 @@ import {
   teardownProviderProcessTree,
   type ProcessExitHandle,
 } from "../supervisedProcessTeardown.ts";
+import { providerPermissionDecision } from "../providerPermissionPolicy.ts";
 
 const PROVIDER = "claudeAgent" as const;
 const CLAUDE_COMMAND_DISCOVERY_THREAD_ID = ThreadId.makeUnsafe("claude:command-discovery");
@@ -241,13 +239,6 @@ interface AssistantTextBlockState {
   fallbackText: string;
   streamClosed: boolean;
   completionEmitted: boolean;
-}
-
-interface PendingApproval {
-  readonly requestType: CanonicalRequestType;
-  readonly detail?: string;
-  readonly suggestions?: ReadonlyArray<PermissionUpdate>;
-  readonly decision: Deferred.Deferred<ProviderApprovalDecision>;
 }
 
 interface PendingUserInput {
@@ -332,7 +323,6 @@ interface ClaudeSessionContext {
   firstTurnSpawnModeAuthoritative: boolean;
   currentApiModelId: string | undefined;
   resumeSessionId: string | undefined;
-  readonly pendingApprovals: Map<string, PendingApproval>;
   readonly pendingUserInputs: Map<string, PendingUserInput>;
   readonly turns: Array<{
     id: TurnId;
@@ -822,18 +812,6 @@ function isReadOnlyToolName(toolName: string): boolean {
     normalized.includes("glob") ||
     normalized.includes("search")
   );
-}
-
-function classifyRequestType(toolName: string): CanonicalRequestType {
-  if (isReadOnlyToolName(toolName)) {
-    return "file_read_approval";
-  }
-  const itemType = classifyToolItemType(toolName);
-  return itemType === "command_execution"
-    ? "command_execution_approval"
-    : itemType === "file_change"
-      ? "file_change_approval"
-      : "dynamic_tool_call";
 }
 
 function summarizeToolRequest(toolName: string, input: Record<string, unknown>): string {
@@ -2524,7 +2502,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           firstTurnSpawnModeAuthoritative: false,
           currentApiModelId: undefined,
           resumeSessionId: undefined,
-          pendingApprovals: new Map(),
           pendingUserInputs: new Map(),
           turns: [],
           inFlightTools: new Map(),
@@ -4123,26 +4100,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         context.stopped = true;
         context.gatewaySessionLease?.release();
 
-        for (const [requestId, pending] of context.pendingApprovals) {
-          yield* Deferred.succeed(pending.decision, "cancel");
-          const stamp = yield* makeEventStamp();
-          yield* offerRuntimeEvent(context, {
-            type: "request.resolved",
-            eventId: stamp.eventId,
-            provider: PROVIDER,
-            createdAt: stamp.createdAt,
-            threadId: context.session.threadId,
-            ...(context.turnState ? { turnId: asCanonicalTurnId(context.turnState.turnId) } : {}),
-            requestId: asRuntimeRequestId(requestId),
-            payload: {
-              requestType: pending.requestType,
-              decision: "cancel",
-            },
-            providerRefs: nativeProviderRefs(context),
-          });
-        }
-        context.pendingApprovals.clear();
-
         for (const run of context.subagentRuns.values()) {
           if (run.context.turnState) {
             yield* completeTurn(run.context, "interrupted", "Session stopped.");
@@ -4286,7 +4243,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           Stream.toAsyncIterable,
         );
 
-        const pendingApprovals = new Map<string, PendingApproval>();
         const pendingUserInputs = new Map<string, PendingUserInput>();
         const inFlightTools = new Map<number, ToolInFlight>();
         const trackedTasks = new Map<string, ClaudeTrackedTask>();
@@ -4436,127 +4392,14 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 return yield* handleAskUserQuestion(context, toolInput, callbackOptions);
               }
 
-              const runtimeMode = input.runtimeMode ?? "full-access";
-              if (runtimeMode === "full-access") {
-                return {
-                  behavior: "allow",
-                  updatedInput: toolInput,
-                } satisfies PermissionResult;
-              }
-
-              const requestId = yield* Random.nextUUIDv4;
-              const requestType = classifyRequestType(toolName);
-              const detail = summarizeToolRequest(toolName, toolInput);
-              const decisionDeferred = yield* Deferred.make<ProviderApprovalDecision>();
-              const pendingApproval: PendingApproval = {
-                requestType,
-                detail,
-                decision: decisionDeferred,
-                ...(callbackOptions.suggestions
-                  ? { suggestions: callbackOptions.suggestions }
-                  : {}),
-              };
-
-              const requestedStamp = yield* makeEventStamp();
-              yield* offerRuntimeEvent(context, {
-                type: "request.opened",
-                eventId: requestedStamp.eventId,
-                provider: PROVIDER,
-                createdAt: requestedStamp.createdAt,
-                threadId: context.session.threadId,
-                ...(context.turnState
-                  ? { turnId: asCanonicalTurnId(context.turnState.turnId) }
-                  : {}),
-                requestId: asRuntimeRequestId(requestId),
-                payload: {
-                  requestType,
-                  detail,
-                  args: {
-                    toolName,
-                    input: toolInput,
-                    ...(callbackOptions.toolUseID ? { toolUseId: callbackOptions.toolUseID } : {}),
-                  },
-                },
-                providerRefs: nativeProviderRefs(context, {
-                  providerItemId: callbackOptions.toolUseID,
-                }),
-                raw: {
-                  source: "claude.sdk.permission",
-                  method: "canUseTool/request",
-                  payload: {
-                    toolName,
-                    input: toolInput,
-                  },
-                },
-              });
-
-              pendingApprovals.set(requestId, pendingApproval);
-
-              const onAbort = () => {
-                if (!pendingApprovals.has(requestId)) {
-                  return;
-                }
-                pendingApprovals.delete(requestId);
-                Effect.runFork(Deferred.succeed(decisionDeferred, "cancel"));
-              };
-
-              callbackOptions.signal.addEventListener("abort", onAbort, {
-                once: true,
-              });
-
-              const decision = yield* Deferred.await(decisionDeferred).pipe(
-                Effect.ensuring(
-                  Effect.sync(() => {
-                    callbackOptions.signal.removeEventListener("abort", onAbort);
-                  }),
-                ),
-              );
-              pendingApprovals.delete(requestId);
-
-              const resolvedStamp = yield* makeEventStamp();
-              yield* offerRuntimeEvent(context, {
-                type: "request.resolved",
-                eventId: resolvedStamp.eventId,
-                provider: PROVIDER,
-                createdAt: resolvedStamp.createdAt,
-                threadId: context.session.threadId,
-                ...(context.turnState
-                  ? { turnId: asCanonicalTurnId(context.turnState.turnId) }
-                  : {}),
-                requestId: asRuntimeRequestId(requestId),
-                payload: {
-                  requestType,
-                  decision,
-                },
-                providerRefs: nativeProviderRefs(context, {
-                  providerItemId: callbackOptions.toolUseID,
-                }),
-                raw: {
-                  source: "claude.sdk.permission",
-                  method: "canUseTool/decision",
-                  payload: {
-                    decision,
-                  },
-                },
-              });
-
-              if (decision === "accept" || decision === "acceptForSession") {
-                return {
-                  behavior: "allow",
-                  updatedInput: toolInput,
-                  ...(decision === "acceptForSession" && pendingApproval.suggestions
-                    ? { updatedPermissions: [...pendingApproval.suggestions] }
-                    : {}),
-                } satisfies PermissionResult;
-              }
-
-              return {
-                behavior: "deny",
-                message:
-                  decision === "cancel"
-                    ? "User cancelled tool execution."
-                    : "User declined tool execution.",
-              } satisfies PermissionResult;
+              return (
+                providerPermissionDecision(context.session.runtimeMode) === "accept"
+                  ? { behavior: "allow", updatedInput: toolInput }
+                  : {
+                      behavior: "deny",
+                      message: "Tool execution is not allowed in this runtime mode.",
+                    }
+              ) satisfies PermissionResult;
             }),
           );
 
@@ -4588,7 +4431,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         // not pre-approved"), so no request reaches the UI or waits.
         const permissionMode =
           toPermissionMode(providerOptions?.permissionMode) ??
-          (input.runtimeMode === "full-access" ? "bypassPermissions" : "dontAsk");
+          (providerPermissionDecision(input.runtimeMode) === "accept"
+            ? "bypassPermissions"
+            : "dontAsk");
         const settings = {
           // Native 1M models otherwise compact near their full model limit. Keep
           // Penkra's safer 200k budget explicit unless the thread opts into 1M.
@@ -4898,7 +4743,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             firstTurnSpawnModeAuthoritative: true,
             currentApiModelId: apiModelId,
             resumeSessionId: existingResumeSessionId,
-            pendingApprovals,
             pendingUserInputs,
             turns: [],
             inFlightTools,
@@ -5366,27 +5210,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           issue: `Claude cannot roll back thread '${threadId}' through exact native session state.`,
         }),
       );
-
-    const respondToRequest: ClaudeAdapterShape["respondToRequest"] = (
-      threadId,
-      requestId,
-      decision,
-    ) =>
-      Effect.gen(function* () {
-        const context = yield* requireSession(threadId);
-        const pending = context.pendingApprovals.get(requestId);
-        if (!pending) {
-          return yield* new ProviderAdapterRequestError({
-            provider: PROVIDER,
-            method: "item/requestApproval/decision",
-            code: PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE,
-            detail: `Unknown pending approval request: ${requestId}`,
-          });
-        }
-
-        context.pendingApprovals.delete(requestId);
-        yield* Deferred.succeed(pending.decision, decision);
-      });
 
     const respondToUserInput: ClaudeAdapterShape["respondToUserInput"] = (
       threadId,
@@ -5883,7 +5706,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       backgroundTask,
       readThread,
       rollbackThread,
-      respondToRequest,
       respondToUserInput,
       stopSession,
       listSessions,

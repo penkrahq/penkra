@@ -70,7 +70,6 @@ import {
   parseOpenCodeModelSlug,
   runOpenCodeSdk,
   toOpenCodeFileParts,
-  toOpenCodePermissionReply,
   toOpenCodeQuestionAnswers,
   type OpenCodeServerConnection,
 } from "../opencodeRuntime.ts";
@@ -88,6 +87,7 @@ import {
   resolvePreferredOpenCodeModelProviders,
 } from "../OpenCodeDiscovery.ts";
 import { nonNegativeFiniteNumber, nonNegativeInteger, positiveInteger } from "../tokenUsage.ts";
+import { providerPermissionDecision } from "../providerPermissionPolicy.ts";
 
 export { flattenOpenCodeCliModels, flattenOpenCodeModels, resolvePreferredOpenCodeModelProviders };
 
@@ -171,7 +171,6 @@ interface OpenCodeSessionContext {
   readonly server: OpenCodeServerConnection;
   readonly directory: string;
   readonly openCodeSessionId: string;
-  readonly pendingPermissions: Map<string, PermissionRequest>;
   /** Permission request ids resolved by Penkra policy and never surfaced to the UI. */
   readonly policyResolvedPermissionIds: Set<string>;
   readonly pendingQuestions: Map<string, QuestionRequest>;
@@ -2394,68 +2393,69 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           }
 
           case "permission.asked": {
-            if (
-              context.pendingPermissions.has(event.properties.id) ||
-              context.policyResolvedPermissionIds.has(event.properties.id)
-            ) {
+            if (context.policyResolvedPermissionIds.has(event.properties.id)) {
               break;
             }
-            // 0.14.4: approvals are removed, so answer every permission request
-            // automatically; it must never reach the UI or wait. Full access
-            // allows once; any other mode fails closed.
-            const policyReply =
-              context.activeTurnId === undefined
-                ? "reject"
-                : context.session.runtimeMode === "full-access"
-                  ? "once"
-                  : "reject";
-            context.policyResolvedPermissionIds.add(event.properties.id);
-            const replyExit = yield* Effect.exit(
-              runOpenCodeSdk("permission.reply", () =>
-                context.client.permission.reply({
-                  requestID: event.properties.id,
-                  reply: policyReply,
-                }),
-              ),
-            );
-            if (Exit.isSuccess(replyExit)) {
-              break;
-            }
-            context.policyResolvedPermissionIds.delete(event.properties.id);
-            const detail = openCodeRuntimeErrorDetail(Cause.squash(replyExit.cause));
-            yield* Effect.logWarning(
-              `${adapterConfig.displayName} permission policy reply failed`,
-              Cause.squash(replyExit.cause),
-            );
-            // Full Access must never degrade into a human approval. Abort the
-            // provider turn and surface an actionable failure instead.
-            yield* runOpenCodeSdk("session.abort", () =>
-              context.client.session.abort({
-                sessionID: context.openCodeSessionId,
-              }),
-            ).pipe(Effect.ignore({ log: true }));
-            if (turnId !== undefined && context.activeTurnId === turnId) {
-              yield* completeOpenCodeTurn(context, {
-                turnId,
-                raw: event,
-                errorMessage: `${adapterConfig.displayName} could not apply ${policyReply === "reject" ? "Plan-mode" : "Full-access"} permission policy: ${detail}`,
-              });
-            } else {
-              yield* emit(context, {
-                ...buildEventBase({
-                  threadId: context.session.threadId,
-                  raw: event,
-                }),
-                type: "runtime.warning",
-                payload: {
-                  message: openCodeActionableWarningMessage(
-                    OPENCODE_ACTIONABLE_WARNING_CLASSES.permissionPolicyFailure,
-                    `${adapterConfig.displayName} could not apply its permission policy.`,
+            const replyPermission = (policyReply: "once" | "reject") =>
+              Effect.gen(function* () {
+                context.policyResolvedPermissionIds.add(event.properties.id);
+                const replyExit = yield* Effect.exit(
+                  runOpenCodeSdk("permission.reply", () =>
+                    context.client.permission.reply({
+                      requestID: event.properties.id,
+                      reply: policyReply,
+                    }),
                   ),
-                  detail,
-                },
+                );
+                if (Exit.isSuccess(replyExit)) {
+                  return;
+                }
+                context.policyResolvedPermissionIds.delete(event.properties.id);
+                const detail = openCodeRuntimeErrorDetail(Cause.squash(replyExit.cause));
+                yield* Effect.logWarning(
+                  `${adapterConfig.displayName} permission policy reply failed`,
+                  Cause.squash(replyExit.cause),
+                );
+                // Full Access must never degrade into a human approval. Abort the
+                // provider turn and surface an actionable failure instead.
+                yield* runOpenCodeSdk("session.abort", () =>
+                  context.client.session.abort({
+                    sessionID: context.openCodeSessionId,
+                  }),
+                ).pipe(Effect.ignore({ log: true }));
+                if (turnId !== undefined && context.activeTurnId === turnId) {
+                  yield* completeOpenCodeTurn(context, {
+                    turnId,
+                    raw: event,
+                    errorMessage: `${adapterConfig.displayName} could not apply ${policyReply === "reject" ? "Plan-mode" : "Full-access"} permission policy: ${detail}`,
+                  });
+                } else {
+                  yield* emit(context, {
+                    ...buildEventBase({
+                      threadId: context.session.threadId,
+                      raw: event,
+                    }),
+                    type: "runtime.warning",
+                    payload: {
+                      message: openCodeActionableWarningMessage(
+                        OPENCODE_ACTIONABLE_WARNING_CLASSES.permissionPolicyFailure,
+                        `${adapterConfig.displayName} could not apply its permission policy.`,
+                      ),
+                      detail,
+                    },
+                  });
+                }
               });
+            if (context.activeTurnId === undefined) {
+              // A persistent OpenCode server can replay a permission after its turn ended.
+              yield* replyPermission("reject");
+              break;
             }
+            yield* replyPermission(
+              providerPermissionDecision(context.session.runtimeMode) === "accept"
+                ? "once"
+                : "reject",
+            );
             break;
           }
 
@@ -3587,7 +3587,6 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                   server: started.server,
                   directory,
                   openCodeSessionId: started.openCodeSessionId,
-                  pendingPermissions: new Map(),
                   policyResolvedPermissionIds: new Set(),
                   pendingQuestions: new Map(),
                   pendingTextDeltasByPartId: new Map(),
@@ -3872,27 +3871,6 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           }
         },
       );
-
-      const respondToRequest: OpenCodeAdapterShape["respondToRequest"] = Effect.fn(
-        "respondToRequest",
-      )(function* (threadId, requestId, decision) {
-        const context = ensureAdapterSessionContext(threadId);
-        if (!context.pendingPermissions.has(requestId)) {
-          return yield* new ProviderAdapterRequestError({
-            provider,
-            method: "permission.reply",
-            code: PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE,
-            detail: `Unknown pending permission request: ${requestId}`,
-          });
-        }
-
-        yield* runOpenCodeSdk("permission.reply", () =>
-          context.client.permission.reply({
-            requestID: requestId,
-            reply: toOpenCodePermissionReply(decision),
-          }),
-        ).pipe(Effect.mapError(toAdapterRequestError));
-      });
 
       const respondToUserInput: OpenCodeAdapterShape["respondToUserInput"] = Effect.fn(
         "respondToUserInput",
@@ -4421,7 +4399,6 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         startSession,
         sendTurn,
         interruptTurn,
-        respondToRequest,
         respondToUserInput,
         stopSession,
         listSessions,

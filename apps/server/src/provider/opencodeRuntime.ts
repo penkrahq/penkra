@@ -7,7 +7,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import type { ChatAttachment, ProviderApprovalDecision, RuntimeMode } from "@penkra/contracts";
+import type { ChatAttachment, RuntimeMode } from "@penkra/contracts";
 import {
   type ConsoleState,
   createOpencodeClient,
@@ -800,21 +800,6 @@ export function buildOpenCodeServerProcessEnv(input: {
     baseEnv: input.baseEnv ?? process.env,
     overrides: input.experimentalWebSockets ? { OPENCODE_EXPERIMENTAL_WEBSOCKETS: "true" } : {},
   });
-}
-
-export function toOpenCodePermissionReply(
-  decision: ProviderApprovalDecision,
-): "once" | "always" | "reject" {
-  switch (decision) {
-    case "accept":
-      return "once";
-    case "acceptForSession":
-      return "always";
-    case "decline":
-    case "cancel":
-    default:
-      return "reject";
-  }
 }
 
 export function toOpenCodeQuestionAnswers(

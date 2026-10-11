@@ -3428,6 +3428,110 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     });
   });
 
+  it("rejects a restricted turn's permission request without waiting for a human", async () => {
+    const eventQueue = createSubscribedEventQueue();
+    const replied = Deferred.makeUnsafe<Record<string, unknown>>();
+    const runtime = createMockOpenCodeRuntime({
+      events: eventQueue.stream,
+      permissionReply: async (input) => {
+        Effect.runSync(Deferred.succeed(replied, input));
+        return {};
+      },
+    });
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const adapter = yield* OpenCodeAdapter;
+        const threadId = asThreadId("thread-restricted-permission");
+        const session = yield* adapter.startSession({
+          provider: "opencode",
+          threadId,
+          runtimeMode: "approval-required",
+        });
+        yield* adapter.sendTurn({
+          threadId,
+          input: "Inspect the workspace",
+          attachments: [],
+          modelSelection: { provider: "opencode", model: "openai/gpt-5.4" },
+        });
+        const sessionId = (session.resumeCursor as { openCodeSessionId: string }).openCodeSessionId;
+        eventQueue.push({
+          type: "permission.asked",
+          properties: {
+            id: "restricted-permission",
+            sessionID: sessionId,
+            permission: "external_directory",
+            patterns: ["/tmp/**"],
+            metadata: {},
+            always: [],
+          },
+        });
+        expect(yield* Deferred.await(replied)).toEqual({
+          requestID: "restricted-permission",
+          reply: "reject",
+        });
+        eventQueue.close();
+      }).pipe(
+        Effect.provide(
+          makeOpenCodeAdapterLive({ runtime: runtime.runtime }).pipe(
+            Layer.provideMerge(
+              ServerConfig.layerTest(process.cwd(), { prefix: "opencode-restricted-policy-test-" }),
+            ),
+            Layer.provideMerge(NodeServices.layer),
+          ),
+        ),
+      ),
+    );
+  });
+
+  it("rejects a stale permission request on a full-access server after its turn ended", async () => {
+    const eventQueue = createSubscribedEventQueue();
+    const replied = Deferred.makeUnsafe<Record<string, unknown>>();
+    const runtime = createMockOpenCodeRuntime({
+      events: eventQueue.stream,
+      permissionReply: async (input) => {
+        Effect.runSync(Deferred.succeed(replied, input));
+        return {};
+      },
+    });
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const adapter = yield* OpenCodeAdapter;
+        const threadId = asThreadId("thread-stale-permission");
+        const session = yield* adapter.startSession({
+          provider: "opencode",
+          threadId,
+          runtimeMode: "full-access",
+        });
+        const sessionId = (session.resumeCursor as { openCodeSessionId: string }).openCodeSessionId;
+        eventQueue.push({
+          type: "permission.asked",
+          properties: {
+            id: "stale-permission",
+            sessionID: sessionId,
+            permission: "external_directory",
+            patterns: ["/tmp/**"],
+            metadata: {},
+            always: [],
+          },
+        });
+        expect(yield* Deferred.await(replied)).toEqual({
+          requestID: "stale-permission",
+          reply: "reject",
+        });
+        eventQueue.close();
+      }).pipe(
+        Effect.provide(
+          makeOpenCodeAdapterLive({ runtime: runtime.runtime }).pipe(
+            Layer.provideMerge(
+              ServerConfig.layerTest(process.cwd(), { prefix: "opencode-stale-permission-test-" }),
+            ),
+            Layer.provideMerge(NodeServices.layer),
+          ),
+        ),
+      ),
+    );
+  });
+
   it("auto-approves OpenCode permission asks in full access without surfacing approvals", async () => {
     const eventQueue = createSubscribedEventQueue();
     const runtime = createMockOpenCodeRuntime();

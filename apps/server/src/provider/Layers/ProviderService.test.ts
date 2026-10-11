@@ -8,7 +8,6 @@ import os from "node:os";
 import path from "node:path";
 
 import type {
-  ProviderApprovalDecision,
   ProviderRuntimeEvent,
   ProviderSendTurnInput,
   ProviderSession,
@@ -200,14 +199,6 @@ function makeFakeCodexAdapter(
       Effect.void,
   );
 
-  const respondToRequest = vi.fn(
-    (
-      _threadId: ThreadId,
-      _requestId: string,
-      _decision: ProviderApprovalDecision,
-    ): Effect.Effect<void, ProviderAdapterError> => Effect.void,
-  );
-
   const respondToUserInput = vi.fn(
     (
       _threadId: ThreadId,
@@ -282,7 +273,7 @@ function makeFakeCodexAdapter(
     steerTurn,
     startReview,
     interruptTurn,
-    respondToRequest,
+
     respondToUserInput,
     stopSession,
     listSessions,
@@ -328,7 +319,7 @@ function makeFakeCodexAdapter(
     steerTurn,
     startReview,
     interruptTurn,
-    respondToRequest,
+
     respondToUserInput,
     stopSession,
     listSessions,
@@ -984,25 +975,6 @@ routing.layer("ProviderServiceLive routing", (it) => {
       assert.equal(typeof secondGeneration, "string");
       assert.notEqual(secondGeneration, firstGeneration);
 
-      const responseCallCount = routing.codex.respondToRequest.mock.calls.length;
-      const staleResponse = yield* Effect.result(
-        provider.respondToRequest({
-          threadId,
-          requestId: "request-from-old-generation",
-          lifecycleGeneration: String(firstGeneration),
-          decision: "accept",
-        }),
-      );
-      assertFailure(
-        staleResponse,
-        new ProviderValidationError({
-          operation: "ProviderService.respondToRequest",
-          code: "PENDING_INTERACTION_NOT_FOUND",
-          issue: `Cannot respond to stale request 'request-from-old-generation' from provider generation '${String(firstGeneration)}'.`,
-        }),
-      );
-      assert.equal(routing.codex.respondToRequest.mock.calls.length, responseCallCount);
-
       const userInputResponseCallCount = routing.codex.respondToUserInput.mock.calls.length;
       const staleUserInputResponse = yield* Effect.result(
         provider.respondToUserInput({
@@ -1289,24 +1261,6 @@ routing.layer("ProviderServiceLive routing", (it) => {
       const lifecycleGeneration = binding?.lifecycleGeneration;
       assert.equal(typeof lifecycleGeneration, "string");
 
-      const approvalCallCount = routing.claude.respondToRequest.mock.calls.length;
-      const missingApprovalGeneration = yield* Effect.result(
-        provider.respondToRequest({
-          threadId,
-          requestId: "claude-approval-without-generation",
-          decision: "accept",
-        }),
-      );
-      assertFailure(
-        missingApprovalGeneration,
-        new ProviderValidationError({
-          operation: "ProviderService.respondToRequest",
-          issue:
-            "Cannot respond to request 'claude-approval-without-generation' without its provider lifecycle generation.",
-        }),
-      );
-      assert.equal(routing.claude.respondToRequest.mock.calls.length, approvalCallCount);
-
       const userInputCallCount = routing.claude.respondToUserInput.mock.calls.length;
       const missingUserInputGeneration = yield* Effect.result(
         provider.respondToUserInput({
@@ -1324,24 +1278,16 @@ routing.layer("ProviderServiceLive routing", (it) => {
         }),
       );
       assert.equal(routing.claude.respondToUserInput.mock.calls.length, userInputCallCount);
-
-      yield* provider.respondToRequest({
-        threadId,
-        requestId: "claude-approval-current-generation",
-        lifecycleGeneration,
-        decision: "accept",
-      });
       yield* provider.respondToUserInput({
         threadId,
         requestId: "claude-user-input-current-generation",
         lifecycleGeneration,
         answers: { answer: "continue" },
       });
-      assert.equal(routing.claude.respondToRequest.mock.calls.length, approvalCallCount + 1);
       assert.equal(routing.claude.respondToUserInput.mock.calls.length, userInputCallCount + 1);
       yield* provider.stopSession({ threadId });
       routing.claude.startSession.mockClear();
-      routing.claude.respondToRequest.mockClear();
+
       routing.claude.respondToUserInput.mockClear();
       routing.claude.stopSession.mockClear();
     }),
@@ -1353,7 +1299,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
       const directory = yield* ProviderSessionDirectory;
       routing.codex.sendTurn.mockClear();
       routing.codex.interruptTurn.mockClear();
-      routing.codex.respondToRequest.mockClear();
+
       routing.codex.respondToUserInput.mockClear();
 
       const session = yield* provider.startSession(asThreadId("thread-1"), {
@@ -1380,16 +1326,6 @@ routing.layer("ProviderServiceLive routing", (it) => {
       yield* provider.interruptTurn({ threadId: session.threadId });
       assert.deepEqual(routing.codex.interruptTurn.mock.calls, [
         [session.threadId, asTurnId("turn-thread-1")],
-      ]);
-
-      yield* provider.respondToRequest({
-        threadId: session.threadId,
-        requestId: "req-1",
-        lifecycleGeneration,
-        decision: "accept",
-      });
-      assert.deepEqual(routing.codex.respondToRequest.mock.calls, [
-        [session.threadId, "req-1", "accept"],
       ]);
 
       yield* provider.respondToUserInput({
@@ -1457,51 +1393,38 @@ routing.layer("ProviderServiceLive routing", (it) => {
     }),
   );
 
-  it.effect(
-    "routes early approval and user-input responses to live sessions before persistence",
-    () =>
-      Effect.gen(function* () {
-        const provider = yield* ProviderService;
-        const directory = yield* ProviderSessionDirectory;
-        const threadId = asThreadId("thread-live-startup-prompt");
+  it.effect("routes early user-input responses to live sessions before persistence", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const directory = yield* ProviderSessionDirectory;
+      const threadId = asThreadId("thread-live-startup-prompt");
 
-        routing.codex.respondToRequest.mockClear();
-        routing.codex.respondToUserInput.mockClear();
-        yield* routing.codex.adapter.startSession({
-          provider: "codex",
-          threadId,
-          runtimeMode: "approval-required",
-        });
+      routing.codex.respondToUserInput.mockClear();
+      yield* routing.codex.adapter.startSession({
+        provider: "codex",
+        threadId,
+        runtimeMode: "approval-required",
+      });
 
-        const bindingBeforeResponse = yield* directory.getBinding(threadId);
-        assert.equal(Option.isNone(bindingBeforeResponse), true);
-
-        yield* provider.respondToRequest({
+      const bindingBeforeResponse = yield* directory.getBinding(threadId);
+      assert.equal(Option.isNone(bindingBeforeResponse), true);
+      yield* provider.respondToUserInput({
+        threadId,
+        requestId: "req-live-user-input",
+        answers: {
+          answer: "continue",
+        },
+      });
+      assert.deepEqual(routing.codex.respondToUserInput.mock.calls, [
+        [
           threadId,
-          requestId: "req-live-approval",
-          decision: "accept",
-        });
-        yield* provider.respondToUserInput({
-          threadId,
-          requestId: "req-live-user-input",
-          answers: {
+          "req-live-user-input",
+          {
             answer: "continue",
           },
-        });
-
-        assert.deepEqual(routing.codex.respondToRequest.mock.calls, [
-          [threadId, "req-live-approval", "accept"],
-        ]);
-        assert.deepEqual(routing.codex.respondToUserInput.mock.calls, [
-          [
-            threadId,
-            "req-live-user-input",
-            {
-              answer: "continue",
-            },
-          ],
-        ]);
-      }),
+        ],
+      ]);
+    }),
   );
 
   it.effect("recovers stale persisted sessions for rollback by resuming thread identity", () =>

@@ -5,7 +5,6 @@ import path from "node:path";
 import {
   EventId,
   ProviderItemId,
-  type ProviderApprovalDecision,
   type ProviderEvent,
   type ProviderListModelsResult,
   type ProviderSession,
@@ -91,14 +90,6 @@ class FakeCodexManager extends CodexAppServerManager {
     turns: [],
   }));
 
-  public respondToRequestImpl = vi.fn(
-    async (
-      _threadId: ThreadId,
-      _requestId: string,
-      _decision: ProviderApprovalDecision,
-    ): Promise<void> => undefined,
-  );
-
   public respondToUserInputImpl = vi.fn(
     async (
       _threadId: ThreadId,
@@ -144,14 +135,6 @@ class FakeCodexManager extends CodexAppServerManager {
 
   override revertThread(threadId: ThreadId, beforeTurnId: TurnId) {
     return this.revertThreadImpl(threadId, beforeTurnId);
-  }
-
-  override respondToRequest(
-    threadId: ThreadId,
-    requestId: string,
-    decision: ProviderApprovalDecision,
-  ): Promise<void> {
-    return this.respondToRequestImpl(threadId, requestId, decision);
   }
 
   override respondToUserInput(
@@ -1342,78 +1325,6 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         fingerprint: "paper",
         state: "active",
       });
-    }),
-  );
-
-  it.effect("preserves request type when mapping serverRequest/resolved", () =>
-    Effect.gen(function* () {
-      const adapter = yield* CodexAdapter;
-      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
-
-      const event: ProviderEvent = {
-        id: asEventId("evt-request-resolved"),
-        kind: "notification",
-        provider: "codex",
-        threadId: asThreadId("thread-1"),
-        createdAt: new Date().toISOString(),
-        method: "serverRequest/resolved",
-        requestId: "req-1",
-        payload: {
-          request: {
-            method: "item/commandExecution/requestApproval",
-          },
-          decision: "accept",
-        },
-      };
-
-      lifecycleManager.emit("event", event);
-      const firstEvent = yield* Fiber.join(firstEventFiber);
-
-      assert.equal(firstEvent._tag, "Some");
-      if (firstEvent._tag !== "Some") {
-        return;
-      }
-      assert.equal(firstEvent.value.type, "request.resolved");
-      if (firstEvent.value.type !== "request.resolved") {
-        return;
-      }
-      assert.equal(firstEvent.value.payload.requestType, "command_execution_approval");
-    }),
-  );
-
-  it.effect("preserves file-read request type when mapping serverRequest/resolved", () =>
-    Effect.gen(function* () {
-      const adapter = yield* CodexAdapter;
-      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
-
-      const event: ProviderEvent = {
-        id: asEventId("evt-file-read-request-resolved"),
-        kind: "notification",
-        provider: "codex",
-        threadId: asThreadId("thread-1"),
-        createdAt: new Date().toISOString(),
-        method: "serverRequest/resolved",
-        requestId: "req-file-read-1",
-        payload: {
-          request: {
-            method: "item/fileRead/requestApproval",
-          },
-          decision: "accept",
-        },
-      };
-
-      lifecycleManager.emit("event", event);
-      const firstEvent = yield* Fiber.join(firstEventFiber);
-
-      assert.equal(firstEvent._tag, "Some");
-      if (firstEvent._tag !== "Some") {
-        return;
-      }
-      assert.equal(firstEvent.value.type, "request.resolved");
-      if (firstEvent.value.type !== "request.resolved") {
-        return;
-      }
-      assert.equal(firstEvent.value.payload.requestType, "file_read_approval");
     }),
   );
 

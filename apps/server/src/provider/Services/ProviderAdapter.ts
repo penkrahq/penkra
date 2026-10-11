@@ -10,7 +10,6 @@
 import type {
   ProviderComposerCapabilities,
   ProviderConnectionId,
-  ProviderApprovalDecision,
   ProviderKind,
   ProviderListAgentsInput,
   ProviderListAgentsResult,
@@ -167,15 +166,6 @@ export interface ProviderAdapterShape<TError> {
    * Move one in-flight foreground task to the background when the adapter supports it.
    */
   readonly backgroundTask?: (threadId: ThreadId, toolUseId: string) => Effect.Effect<void, TError>;
-
-  /**
-   * Respond to an interactive approval request.
-   */
-  readonly respondToRequest: (
-    threadId: ThreadId,
-    requestId: string,
-    decision: ProviderApprovalDecision,
-  ) => Effect.Effect<void, TError>;
 
   /**
    * Respond to a structured user-input request.

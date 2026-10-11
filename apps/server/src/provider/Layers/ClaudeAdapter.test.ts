@@ -6439,110 +6439,52 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
     );
   });
 
-  it.effect("bridges approval request/response lifecycle through canUseTool", () => {
+  it.effect("allows full-access tool calls without a human prompt", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
+      const canUseTool = harness.getLastCreateQueryInput()?.options.canUseTool;
+      assert.isDefined(canUseTool);
+      const input = { command: "pwd" };
+      const reply = yield* Effect.promise(() =>
+        canUseTool!("Bash", input, {
+          signal: new AbortController().signal,
+          toolUseID: "tool",
+          requestId: "callback",
+        }),
+      );
+      assert.deepEqual(reply, { behavior: "allow", updatedInput: input });
+    }).pipe(Effect.provide(harness.layer));
+  });
 
-      const session = yield* adapter.startSession({
+  it.effect("declines restricted tool calls without a human prompt", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      yield* adapter.startSession({
         threadId: THREAD_ID,
         provider: "claudeAgent",
         runtimeMode: "approval-required",
       });
-
-      yield* Stream.take(adapter.streamEvents, 3).pipe(Stream.runDrain);
-
-      yield* adapter.sendTurn({
-        threadId: session.threadId,
-        input: "approve this",
-        attachments: [],
-      });
-      yield* Stream.take(adapter.streamEvents, 1).pipe(Stream.runDrain);
-
-      harness.query.emit({
-        type: "stream_event",
-        session_id: "sdk-session-approval-1",
-        uuid: "stream-approval-thread",
-        parent_tool_use_id: null,
-        event: {
-          type: "message_start",
-          message: {
-            id: "msg-approval-thread",
-          },
-        },
-      } as unknown as SDKMessage);
-
-      const threadStarted = yield* Stream.runHead(adapter.streamEvents);
-      assert.equal(threadStarted._tag, "Some");
-      if (threadStarted._tag !== "Some" || threadStarted.value.type !== "thread.started") {
-        return;
-      }
-
-      const createInput = harness.getLastCreateQueryInput();
-      const canUseTool = createInput?.options.canUseTool;
-      assert.equal(typeof canUseTool, "function");
-      if (!canUseTool) {
-        return;
-      }
-
-      const permissionPromise = canUseTool(
-        "Bash",
-        { command: "pwd" },
-        {
-          signal: new AbortController().signal,
-          suggestions: [
-            {
-              type: "setMode",
-              mode: "default",
-              destination: "session",
-            },
-          ],
-          toolUseID: "tool-use-1",
-          requestId: "request-tool-use-1",
-        },
+      const canUseTool = harness.getLastCreateQueryInput()?.options.canUseTool;
+      assert.isDefined(canUseTool);
+      const reply = yield* Effect.promise(() =>
+        canUseTool!(
+          "Bash",
+          { command: "pwd" },
+          { signal: new AbortController().signal, toolUseID: "tool", requestId: "callback" },
+        ),
       );
-
-      const requested = yield* Stream.runHead(adapter.streamEvents);
-      assert.equal(requested._tag, "Some");
-      if (requested._tag !== "Some") {
-        return;
-      }
-      assert.equal(requested.value.type, "request.opened");
-      if (requested.value.type !== "request.opened") {
-        return;
-      }
-      assert.deepEqual(requested.value.providerRefs, {
-        providerItemId: ProviderItemId.makeUnsafe("tool-use-1"),
+      assert.deepEqual(reply, {
+        behavior: "deny",
+        message: "Tool execution is not allowed in this runtime mode.",
       });
-      const runtimeRequestId = requested.value.requestId;
-      assert.equal(typeof runtimeRequestId, "string");
-      if (runtimeRequestId === undefined) {
-        return;
-      }
-
-      yield* adapter.respondToRequest(session.threadId, runtimeRequestId, "accept");
-
-      const resolved = yield* Stream.runHead(adapter.streamEvents);
-      assert.equal(resolved._tag, "Some");
-      if (resolved._tag !== "Some") {
-        return;
-      }
-      assert.equal(resolved.value.type, "request.resolved");
-      if (resolved.value.type !== "request.resolved") {
-        return;
-      }
-      assert.equal(resolved.value.requestId, requested.value.requestId);
-      assert.equal(resolved.value.payload.decision, "accept");
-      assert.deepEqual(resolved.value.providerRefs, {
-        providerItemId: ProviderItemId.makeUnsafe("tool-use-1"),
-      });
-
-      const permissionResult = yield* Effect.promise(() => permissionPromise);
-      assert.equal((permissionResult as PermissionResult).behavior, "allow");
-    }).pipe(
-      Effect.provideService(Random.Random, makeDeterministicRandomService()),
-      Effect.provide(harness.layer),
-    );
+    }).pipe(Effect.provide(harness.layer));
   });
 
   it.effect("registers model-neutral worker definitions with the SDK query options", () => {
@@ -6609,81 +6551,6 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       );
     },
   );
-
-  it.effect("classifies Agent tools and read-only Claude tools correctly for approvals", () => {
-    const harness = makeHarness();
-    return Effect.gen(function* () {
-      const adapter = yield* ClaudeAdapter;
-
-      const session = yield* adapter.startSession({
-        threadId: THREAD_ID,
-        provider: "claudeAgent",
-        runtimeMode: "approval-required",
-      });
-
-      yield* Stream.take(adapter.streamEvents, 3).pipe(Stream.runDrain);
-
-      const createInput = harness.getLastCreateQueryInput();
-      const canUseTool = createInput?.options.canUseTool;
-      assert.equal(typeof canUseTool, "function");
-      if (!canUseTool) {
-        return;
-      }
-
-      const agentPermissionPromise = canUseTool(
-        "Agent",
-        {},
-        {
-          signal: new AbortController().signal,
-          toolUseID: "tool-agent-1",
-          requestId: "request-tool-agent-1",
-        },
-      );
-
-      const agentRequested = yield* Stream.runHead(adapter.streamEvents);
-      assert.equal(agentRequested._tag, "Some");
-      if (agentRequested._tag !== "Some" || agentRequested.value.type !== "request.opened") {
-        return;
-      }
-      assert.equal(agentRequested.value.payload.requestType, "dynamic_tool_call");
-
-      yield* adapter.respondToRequest(
-        session.threadId,
-        String(agentRequested.value.requestId),
-        "accept",
-      );
-      yield* Stream.runHead(adapter.streamEvents);
-      yield* Effect.promise(() => agentPermissionPromise);
-
-      const grepPermissionPromise = canUseTool(
-        "Grep",
-        { pattern: "foo", path: "src" },
-        {
-          signal: new AbortController().signal,
-          toolUseID: "tool-grep-approval-1",
-          requestId: "request-tool-grep-approval-1",
-        },
-      );
-
-      const grepRequested = yield* Stream.runHead(adapter.streamEvents);
-      assert.equal(grepRequested._tag, "Some");
-      if (grepRequested._tag !== "Some" || grepRequested.value.type !== "request.opened") {
-        return;
-      }
-      assert.equal(grepRequested.value.payload.requestType, "file_read_approval");
-
-      yield* adapter.respondToRequest(
-        session.threadId,
-        String(grepRequested.value.requestId),
-        "accept",
-      );
-      yield* Stream.runHead(adapter.streamEvents);
-      yield* Effect.promise(() => grepPermissionPromise);
-    }).pipe(
-      Effect.provideService(Random.Random, makeDeterministicRandomService()),
-      Effect.provide(harness.layer),
-    );
-  });
 
   it.effect("passes Claude resume ids without pinning a stale assistant checkpoint", () => {
     const harness = makeHarness();

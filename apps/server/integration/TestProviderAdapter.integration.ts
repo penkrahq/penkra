@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 
 import {
   EventId,
-  ProviderApprovalDecision,
   ProviderRuntimeEvent,
   RuntimeRequestId,
   RuntimeSessionId,
@@ -193,11 +192,6 @@ export interface TestProviderAdapterHarness {
   readonly getRollbackCalls: (threadId: ThreadId) => ReadonlyArray<number>;
   readonly getInterruptCalls: (threadId: ThreadId) => ReadonlyArray<TurnId | undefined>;
   readonly listActiveSessionIds: () => ReadonlyArray<ThreadId>;
-  readonly getApprovalResponses: (threadId: ThreadId) => ReadonlyArray<{
-    readonly threadId: ThreadId;
-    readonly requestId: string;
-    readonly decision: ProviderApprovalDecision;
-  }>;
 }
 
 interface MakeTestProviderAdapterHarnessOptions {
@@ -233,14 +227,6 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
     const sessions = new Map<ThreadId, SessionState>();
     const queuedResponsesForNextSession: TestTurnResponse[] = [];
     const interruptCallsBySession = new Map<ThreadId, Array<TurnId | undefined>>();
-    const approvalResponsesBySession = new Map<
-      ThreadId,
-      Array<{
-        readonly threadId: ThreadId;
-        readonly requestId: string;
-        readonly decision: ProviderApprovalDecision;
-      }>
-    >();
 
     const emit = (event: ProviderRuntimeEvent) => PubSub.publish(runtimeEvents, event);
 
@@ -406,46 +392,6 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
           })
         : missingSessionEffect(provider, threadId);
 
-    const respondToRequest: ProviderAdapterShape<ProviderAdapterError>["respondToRequest"] = (
-      threadId,
-      requestId,
-      decision,
-    ) => {
-      const state = sessions.get(threadId);
-      if (!state) {
-        return missingSessionEffect(provider, threadId);
-      }
-      return Effect.gen(function* () {
-        yield* Effect.sync(() => {
-          const existing = approvalResponsesBySession.get(threadId) ?? [];
-          existing.push({
-            threadId,
-            requestId,
-            decision,
-          });
-          approvalResponsesBySession.set(threadId, existing);
-        });
-        yield* emit({
-          type: "request.resolved",
-          eventId: EventId.makeUnsafe(randomUUID()),
-          provider,
-          createdAt: nowIso(),
-          threadId,
-          requestId: RuntimeRequestId.makeUnsafe(requestId),
-          ...(state.lifecycleGeneration !== undefined
-            ? { lifecycleGeneration: state.lifecycleGeneration }
-            : {}),
-          payload: {
-            requestType: "unknown",
-            decision,
-          },
-        });
-        const deferredCompletionEvents = state.deferredCompletionEvents;
-        state.deferredCompletionEvents = [];
-        yield* Effect.forEach(deferredCompletionEvents, emit, { discard: true });
-      });
-    };
-
     const respondToUserInput: ProviderAdapterShape<ProviderAdapterError>["respondToUserInput"] = (
       threadId,
       _requestId,
@@ -513,7 +459,6 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
       startSession,
       sendTurn,
       interruptTurn,
-      respondToRequest,
       respondToUserInput,
       stopSession,
       listSessions,
@@ -567,20 +512,6 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
     const listActiveSessionIds = (): ReadonlyArray<ThreadId> =>
       Array.from(sessions.values(), (state) => state.session.threadId);
 
-    const getApprovalResponses = (
-      threadId: ThreadId,
-    ): ReadonlyArray<{
-      readonly threadId: ThreadId;
-      readonly requestId: string;
-      readonly decision: ProviderApprovalDecision;
-    }> => {
-      const responses = approvalResponsesBySession.get(threadId);
-      if (!responses) {
-        return [];
-      }
-      return [...responses];
-    };
-
     return {
       adapter,
       provider,
@@ -590,6 +521,5 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
       getRollbackCalls,
       getInterruptCalls,
       listActiveSessionIds,
-      getApprovalResponses,
     } satisfies TestProviderAdapterHarness;
   });
