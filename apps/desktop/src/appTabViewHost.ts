@@ -559,13 +559,6 @@ export class AppTabViewHost implements AppTabHost {
   ): Promise<DesktopAppTabDescriptor> {
     const origin = [...this.#records.values()].find((record) => record.rendererId === rendererId);
     if (!origin) throw new Error("The originating App tab is unavailable.");
-    const existing = this.presentExisting({
-      appId: input.appId,
-      spaceId: origin.descriptor.spaceId,
-      folderId: origin.descriptor.folderId,
-      initiator,
-    });
-    if (existing) return this.#require(existing.id).descriptor;
     return this.openInstalled({
       appId: input.appId,
       spaceId: origin.descriptor.spaceId,
@@ -602,23 +595,6 @@ export class AppTabViewHost implements AppTabHost {
       ...(input.state === undefined ? {} : { state: input.state }),
     });
     return { tabId: descriptor.id };
-  }
-
-  presentExisting(input: {
-    appId: string;
-    spaceId: string;
-    folderId: string;
-    initiator?: "agent" | "user";
-  }): AppTabEndpoint | null {
-    const record = [...this.#records.values()].find(
-      (candidate) =>
-        candidate.app.appId === input.appId &&
-        candidate.descriptor.spaceId === input.spaceId &&
-        candidate.descriptor.folderId === input.folderId,
-    );
-    if (!record) return null;
-    this.present(record.descriptor.id, undefined, undefined, false, undefined, input.initiator);
-    return record.endpoint;
   }
 
   list(): ReadonlyArray<DesktopAppTabDescriptor> {

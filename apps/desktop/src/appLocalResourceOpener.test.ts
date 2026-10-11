@@ -18,69 +18,52 @@ afterEach(async () => {
 });
 
 describe("openLocalAppResource", () => {
-  it("hands Explorer an absolute path when its controller requests path input", async () => {
-    const directory = await temporaryDirectory();
-    const path = Path.join(directory, "AGENTS.md");
-    await FS.promises.writeFile(path, "# Instructions\n");
-    const fileHandles = new AppScopedFileHandleStore();
-    const invoke = vi.fn().mockResolvedValue({ tabId: "explorer-tab" });
-    const present = vi.fn();
+  it.each([undefined, "explorer-tab"])(
+    "hands Explorer its path with only the explicit tab id (%s)",
+    async (tabId) => {
+      const directory = await temporaryDirectory();
+      const path = Path.join(directory, "AGENTS.md");
+      await FS.promises.writeFile(path, "# Instructions\n");
+      const fileHandles = new AppScopedFileHandleStore();
+      const invoke = vi.fn().mockResolvedValue({ tabId: "explorer-tab" });
 
-    const result = await openLocalAppResource({
-      appTabs: {
-        currentFor: () => null,
-        list: () => [
-          {
-            id: "explorer-tab",
+      const result = await openLocalAppResource({
+        broker: { invoke },
+        fileHandles,
+        intents: {
+          resolve: () => ({
             appId: "com.penkra.explorer",
-            spaceId: "personal",
-            folderId: "folder-1",
-            threadId: "thread-1",
-          },
-        ],
-        present,
-      },
-      broker: { invoke },
-      fileHandles,
-      intents: {
-        resolve: () => ({
-          appId: "com.penkra.explorer",
-          slug: "explorer",
-          name: "Explorer",
-          operation: "resources.open",
-          resourceInput: "path",
-        }),
-      } as never,
-      openSystem: vi.fn(),
-      openWith: { get: () => undefined } as never,
-      path,
-      spaceId: "personal",
-      folderId: "folder-1",
-      threadId: "thread-1",
-      callerKind: "user",
-    });
-
-    const operationInput = invoke.mock.calls[0]![0];
-    expect(operationInput).toMatchObject({
-      app: "explorer",
-      operation: "resources.open",
-      tabId: "explorer-tab",
-      callerKind: "user",
-      input: {
+            slug: "explorer",
+            name: "Explorer",
+            operation: "resources.open",
+            resourceInput: "path",
+          }),
+        } as never,
+        openSystem: vi.fn(),
+        openWith: { get: () => undefined } as never,
         path,
-      },
-    });
-    expect(fileHandles.list("com.penkra.explorer", "personal")).toEqual([]);
-    expect(present).toHaveBeenCalledWith(
-      "explorer-tab",
-      undefined,
-      undefined,
-      false,
-      undefined,
-      "user",
-    );
-    expect(result).toMatchObject({ destination: "app", appId: "com.penkra.explorer" });
-  });
+        spaceId: "personal",
+        folderId: "folder-1",
+        threadId: "thread-1",
+        callerKind: "user",
+        ...(tabId === undefined ? {} : { tabId }),
+      });
+
+      const operationInput = invoke.mock.calls[0]![0];
+      expect(operationInput).toMatchObject({
+        app: "explorer",
+        operation: "resources.open",
+        callerKind: "user",
+        input: {
+          path,
+        },
+      });
+      expect(fileHandles.list("com.penkra.explorer", "personal")).toEqual([]);
+      if (tabId === undefined) expect(operationInput).not.toHaveProperty("tabId");
+      else expect(operationInput.tabId).toBe(tabId);
+      expect(result).toMatchObject({ destination: "app", appId: "com.penkra.explorer" });
+    },
+  );
 
   it("uses the operating system when no App handles the exact extension", async () => {
     const directory = await temporaryDirectory();
@@ -89,7 +72,6 @@ describe("openLocalAppResource", () => {
     const openSystem = vi.fn().mockResolvedValue(undefined);
 
     const result = await openLocalAppResource({
-      appTabs: { currentFor: () => null, list: () => [], present: vi.fn() },
       broker: { invoke: vi.fn() },
       fileHandles: new AppScopedFileHandleStore(),
       intents: { resolve: () => null } as never,
