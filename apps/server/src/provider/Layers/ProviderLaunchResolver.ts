@@ -8,7 +8,8 @@ import { ServerConfig } from "../../config.ts";
 import { prepareManagedCodexProfileConfig } from "../../codexProcessEnv.ts";
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
-import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
+import { readThreadNativeState } from "../../cleanCore/threadNativeState.ts";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { buildProviderChildEnvironment } from "../../providerChildEnvironment.ts";
 import { ProviderCredentialBroker } from "../providerCredentialBroker.ts";
 import { qaFixtureLaunchAllowed } from "../qaFixtureLaunch.ts";
@@ -44,7 +45,7 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
   const config = yield* ServerConfig;
   const connections = yield* ProviderConnectionRepository;
   const installations = yield* ProviderInstallationRepository;
-  const threads = yield* ThreadProviderBindingRepository;
+  const sql = yield* SqlClient.SqlClient;
   const credentials = yield* ProviderCredentialBroker;
 
   const resolveProfile: ProviderLaunchResolverShape["resolveProfile"] = (input) =>
@@ -233,7 +234,8 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
 
   const resolve: ProviderLaunchResolverShape["resolve"] = (input) =>
     Effect.gen(function* () {
-      const state = yield* threads.getHarnessState(input.threadId).pipe(
+      const state = yield* readThreadNativeState(input.threadId).pipe(
+        Effect.provideService(SqlClient.SqlClient, sql),
         Effect.mapError(
           (cause) =>
             new ProviderLaunchResolutionError({
@@ -244,9 +246,10 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
       );
       if (Option.isNone(state))
         return yield* fail("The thread has not started a provider harness.");
-      const nativeStateGenerationId =
-        input.nativeStateGenerationId ?? state.value.nativeStateGenerationId;
-      const activeInstallation = yield* installations.getActiveRecord(state.value.harness).pipe(
+      const nativeStateGenerationId = input.nativeStateGenerationId ?? state.value.nativeStateId;
+      if (nativeStateGenerationId === null)
+        return yield* fail("The thread has no native-state folder.");
+      const activeInstallation = yield* installations.getActiveRecord(state.value.provider).pipe(
         Effect.mapError(
           (cause) =>
             new ProviderLaunchResolutionError({
@@ -258,7 +261,7 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
       if (Option.isNone(activeInstallation))
         return yield* fail("No active managed installation exists for this harness.");
       const launch = yield* resolveProfile({
-        harness: state.value.harness,
+        harness: state.value.provider,
         connectionId: input.connectionId,
         installationId: activeInstallation.value.id,
         internalProviderId: input.internalProviderId,

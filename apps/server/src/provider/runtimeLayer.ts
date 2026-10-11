@@ -78,7 +78,6 @@ export function makeServerProviderLayer(
         ProviderLaunchResolverLive.pipe(
           Layer.provideMerge(ProviderConnectionRepositoryLive),
           Layer.provideMerge(ProviderInstallationRepositoryLive),
-          Layer.provideMerge(ThreadProviderBindingRepositoryLive),
           Layer.provideMerge(ProviderCredentialBrokerLive),
         ),
       ),
@@ -91,7 +90,6 @@ export function makeServerProviderLayer(
         ProviderLaunchResolverLive.pipe(
           Layer.provideMerge(ProviderConnectionRepositoryLive),
           Layer.provideMerge(ProviderInstallationRepositoryLive),
-          Layer.provideMerge(ThreadProviderBindingRepositoryLive),
           Layer.provideMerge(ProviderCredentialBrokerLive),
         ),
       ),
