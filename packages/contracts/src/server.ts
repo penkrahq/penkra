@@ -166,7 +166,6 @@ export type ServerGetProviderUsageSnapshotResult = typeof ServerGetProviderUsage
 // provider-scoped usage chips. Unfiltered requests return one entry per supported provider
 // (including needs-auth/error) so the UI can render a row each.
 export const ServerListProviderUsageInput = Schema.Struct({
-  forceRefresh: Schema.optional(Schema.Boolean),
   provider: Schema.optional(ProviderKind),
   connectionIds: Schema.optional(Schema.Array(ProviderConnectionId)),
 });

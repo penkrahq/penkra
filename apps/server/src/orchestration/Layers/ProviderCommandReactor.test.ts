@@ -3,6 +3,7 @@
 // Layer: Orchestration integration tests
 // Depends on: ProviderCommandReactorLive with in-memory provider and persistence services.
 
+import { ConnectionRateLimitsLive } from "../../providerUsage/ConnectionRateLimits.ts";
 import { updateThreadFixture } from "../../cleanCore/threadFixtures.ts";
 import { createThreadFixture } from "../../cleanCore/threadFixtures.ts";
 
@@ -596,6 +597,7 @@ describe("ProviderCommandReactor", () => {
       Layer.provideMerge(persistenceLayer),
     );
     const ingestionLayer = ProviderRuntimeIngestionLive.pipe(
+      Layer.provideMerge(ConnectionRateLimitsLive),
       Layer.provideMerge(ThreadPublisherLive),
       Layer.provideMerge(orchestrationLayer),
       Layer.provideMerge(OrchestrationProjectionSnapshotQueryLive),

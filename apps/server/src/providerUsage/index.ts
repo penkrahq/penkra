@@ -17,10 +17,7 @@ import {
   ProviderConnectionRepository,
   type ProviderConnectionRecord,
 } from "../persistence/Services/ProviderConnections";
-import {
-  ConnectionUsageFactRepository,
-  type ConnectionRateLimitFactRecord,
-} from "../persistence/Services/ConnectionUsageFacts";
+import { ConnectionRateLimits, type ConnectionRateLimitObservation } from "./ConnectionRateLimits";
 import { buildProviderChildEnvironment, type ProviderChildKind } from "../providerChildEnvironment";
 import {
   providerConnectionProfileRoot,
@@ -39,13 +36,6 @@ import type { ProviderUsageContext } from "./types";
 
 // Providers whose live snapshot is enriched with on-disk token-total lines (24h/7d/30d).
 const LOCAL_ARCHIVE_PROVIDERS: ReadonlySet<ProviderKind> = new Set(["codex", "claudeAgent"]);
-const CONNECTION_USAGE_CACHE_TTL_MS = 60_000;
-const connectionUsageCache = new Map<
-  string,
-  { readonly expiresAtMs: number; readonly snapshot: ServerProviderUsageSnapshot }
->();
-const connectionUsageInFlight = new Map<string, Promise<ServerProviderUsageSnapshot>>();
-
 const providerChildKind = (provider: ProviderKind): ProviderChildKind =>
   provider === "claudeAgent" ? "claude" : provider;
 
@@ -56,10 +46,6 @@ function buildContext(): ProviderUsageContext {
     platform: process.platform,
     nowMs: Date.now(),
   };
-}
-
-function connectionUsageCacheKey(connection: ProviderConnectionRecord): string {
-  return `${connection.id}:${connection.updatedAt}`;
 }
 
 function withConnectionId(
@@ -182,66 +168,21 @@ async function fetchConnectionUsage(input: {
   return withConnectionId(snapshot, input.connection.id);
 }
 
-async function cachedConnectionUsage(input: {
-  connection: ProviderConnectionRecord;
-  stateDir: string;
-  base: ProviderUsageContext;
-  forceRefresh: boolean;
-}): Promise<ServerProviderUsageSnapshot> {
-  const key = connectionUsageCacheKey(input.connection);
-  for (const existingKey of connectionUsageCache.keys()) {
-    if (existingKey.startsWith(`${input.connection.id}:`) && existingKey !== key) {
-      connectionUsageCache.delete(existingKey);
-      connectionUsageInFlight.delete(existingKey);
-    }
-  }
-  const cached = connectionUsageCache.get(key);
-  if (!input.forceRefresh && cached && cached.expiresAtMs > input.base.nowMs) {
-    return cached.snapshot;
-  }
-  const existing = connectionUsageInFlight.get(key);
-  if (existing) return existing;
-
-  const pending = fetchConnectionUsage(input).then((snapshot) => {
-    const previous = cached?.snapshot;
-    const resolved =
-      snapshot.status === "error" && previous && (previous.status ?? "ok") === "ok"
-        ? {
-            ...previous,
-            detail: "Usage is temporarily unavailable. Showing the last available value.",
-          }
-        : snapshot;
-    connectionUsageCache.set(key, {
-      expiresAtMs: input.base.nowMs + CONNECTION_USAGE_CACHE_TTL_MS,
-      snapshot: resolved,
-    });
-    return resolved;
-  });
-  connectionUsageInFlight.set(key, pending);
-  try {
-    return await pending;
-  } finally {
-    connectionUsageInFlight.delete(key);
-  }
-}
-
 /** Plain async Connection batch used by the RPC layer and isolation tests. Never throws. */
 export async function collectProviderConnectionUsageSnapshots(input: {
   connections: ReadonlyArray<ProviderConnectionRecord>;
   stateDir: string;
   ctx: ProviderUsageContext;
-  forceRefresh?: boolean;
-  rateLimitFacts?: ReadonlyMap<ProviderConnectionId, ConnectionRateLimitFactRecord>;
+  rateLimitFacts?: ReadonlyMap<ProviderConnectionId, ConnectionRateLimitObservation>;
 }): Promise<ServerProviderUsageSnapshot[]> {
   return Promise.all(
     input.connections.map(async (connection) => {
       const fact = input.rateLimitFacts?.get(connection.id);
       const runtimeSnapshot = fact ? snapshotFromConnectionRateLimitFact(fact) : null;
-      const fetchedSnapshot = await cachedConnectionUsage({
+      const fetchedSnapshot = await fetchConnectionUsage({
         connection,
         stateDir: input.stateDir,
         base: input.ctx,
-        forceRefresh: input.forceRefresh === true,
       });
       return mergeConnectionUsageSnapshots({
         runtime: runtimeSnapshot,
@@ -249,12 +190,6 @@ export async function collectProviderConnectionUsageSnapshots(input: {
       });
     }),
   );
-}
-
-/** Test-only reset so module-level cache state cannot cross test cases. */
-export function __resetConnectionUsageCache(): void {
-  connectionUsageCache.clear();
-  connectionUsageInFlight.clear();
 }
 
 async function fetchProviderUsage(
@@ -300,7 +235,7 @@ async function enrichWithLocalUsage(
 /** Plain async batch fetch for supported providers. Never throws. */
 export async function collectProviderUsageSnapshots(
   ctx: ProviderUsageContext,
-  options: { forceRefresh?: boolean; provider?: ProviderKind } = {},
+  options: { provider?: ProviderKind } = {},
 ): Promise<ServerProviderUsageSnapshot[]> {
   const providers = options.provider
     ? ([options.provider] as ProviderKind[])
@@ -321,7 +256,7 @@ export const listProviderUsage = Effect.fn(function* (input: ServerListProviderU
   const serverConfig = yield* ServerConfig;
   if (input.connectionIds !== undefined) {
     const connections = yield* ProviderConnectionRepository;
-    const usageFacts = yield* ConnectionUsageFactRepository;
+    const usageFacts = yield* ConnectionRateLimits;
     const context = { ...buildContext(), homeDir: serverConfig.homeDir };
     const uniqueConnectionIds = [...new Set(input.connectionIds)];
     const records = yield* Effect.forEach(uniqueConnectionIds, (connectionId) =>
@@ -335,12 +270,12 @@ export const listProviderUsage = Effect.fn(function* (input: ServerListProviderU
     );
     const facts = yield* Effect.forEach(activeRecords, (record) =>
       usageFacts
-        .getRateLimits(record.id)
+        .get(record.id)
         .pipe(Effect.map((fact) => [record.id, Option.getOrNull(fact)] as const)),
     );
     const rateLimitFacts = new Map(
       facts.filter(
-        (entry): entry is readonly [ProviderConnectionId, ConnectionRateLimitFactRecord] =>
+        (entry): entry is readonly [ProviderConnectionId, ConnectionRateLimitObservation] =>
           entry[1] !== null,
       ),
     );
@@ -350,7 +285,6 @@ export const listProviderUsage = Effect.fn(function* (input: ServerListProviderU
           connections: activeRecords,
           stateDir: serverConfig.stateDir,
           ctx: context,
-          forceRefresh: input.forceRefresh === true,
           rateLimitFacts,
         }),
       catch: () => [] as unknown as ServerListProviderUsageResult,
@@ -364,7 +298,6 @@ export const listProviderUsage = Effect.fn(function* (input: ServerListProviderU
           homeDir: serverConfig.homeDir,
         },
         {
-          forceRefresh: input.forceRefresh === true,
           ...(input.provider ? { provider: input.provider } : {}),
         },
       ),

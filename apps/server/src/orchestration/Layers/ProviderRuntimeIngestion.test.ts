@@ -1,3 +1,4 @@
+import { ConnectionRateLimitsLive } from "../../providerUsage/ConnectionRateLimits.ts";
 import { findThread } from "../../cleanCore/threadList.ts";
 import { updateThreadFixture } from "../../cleanCore/threadFixtures.ts";
 import { createThreadFixture } from "../../cleanCore/threadFixtures.ts";
@@ -279,6 +280,7 @@ describe("ProviderRuntimeIngestion", () => {
       Layer.provideMerge(SqlitePersistenceMemory),
     );
     const layer = ProviderRuntimeIngestionLive.pipe(
+      Layer.provideMerge(ConnectionRateLimitsLive),
       Layer.provideMerge(ThreadPublisherLive),
       Layer.provideMerge(observedOrchestrationLayer),
       Layer.provideMerge(OrchestrationProjectionSnapshotQueryLive),

@@ -14,7 +14,7 @@ import { ServerConfig } from "../../config.ts";
 import { prepareManagedCodexProfileConfig } from "../../codexProcessEnv.ts";
 import { ProviderConnectionLoginRepository } from "../../persistence/Services/ProviderConnectionLogins.ts";
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
-import { ConnectionUsageFactRepository } from "../../persistence/Services/ConnectionUsageFacts.ts";
+import { ConnectionRateLimits } from "../../providerUsage/ConnectionRateLimits.ts";
 import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { buildProviderChildEnvironment } from "../../providerChildEnvironment.ts";
@@ -131,7 +131,7 @@ export function makeProviderConnectionLoginCoordinator(
     const config = yield* ServerConfig;
     const logins = yield* ProviderConnectionLoginRepository;
     const connections = yield* ProviderConnectionRepository;
-    const usageFacts = yield* ConnectionUsageFactRepository;
+    const usageFacts = yield* ConnectionRateLimits;
     const installations = yield* ProviderInstallationRepository;
     const threadBindings = yield* ThreadProviderBindingRepository;
     const credentials = yield* ProviderCredentialBroker;
@@ -205,7 +205,7 @@ export function makeProviderConnectionLoginCoordinator(
         });
       });
 
-    const persistCodexRateLimits = (input: {
+    const observeCodexRateLimits = (input: {
       readonly connectionId: ProviderConnectionId;
       readonly operationId: string;
       readonly snapshot: unknown;
@@ -221,7 +221,7 @@ export function makeProviderConnectionLoginCoordinator(
           }),
       }).pipe(
         Effect.flatMap((limitsJson) =>
-          usageFacts.putRateLimits({
+          usageFacts.update({
             connectionId: input.connectionId,
             provider: "codex",
             limitsJson,
@@ -231,7 +231,7 @@ export function makeProviderConnectionLoginCoordinator(
           }),
         ),
         Effect.catch((cause) =>
-          Effect.logWarning("provider.connection_login.usage_snapshot_persist_failed", {
+          Effect.logWarning("provider.connection_login.usage_snapshot_update_failed", {
             operationId: input.operationId,
             connectionId: input.connectionId,
             cause,
@@ -503,7 +503,7 @@ export function makeProviderConnectionLoginCoordinator(
             ),
           );
         if (record.harness === "codex") {
-          yield* persistCodexRateLimits({
+          yield* observeCodexRateLimits({
             connectionId: committed.connection.id,
             operationId: `provider-login:${record.operationId}`,
             snapshot: record.accountSnapshot,
@@ -1139,7 +1139,7 @@ export function makeProviderConnectionLoginCoordinator(
                     });
                     if (account !== null) {
                       if (record.harness === "codex") {
-                        yield* persistCodexRateLimits({
+                        yield* observeCodexRateLimits({
                           connectionId: record.id,
                           operationId: `provider-recovery:${record.id}`,
                           snapshot: account,

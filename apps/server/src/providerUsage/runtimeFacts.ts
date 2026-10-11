@@ -1,9 +1,9 @@
 // FILE: runtimeFacts.ts
-// Purpose: Normalize provider-native rate-limit events persisted for a managed Connection.
+// Purpose: Normalize provider-native rate-limit observations for a managed Connection.
 
 import type { ServerProviderUsageLimit, ServerProviderUsageSnapshot } from "@penkra/contracts";
 
-import type { ConnectionRateLimitFactRecord } from "../persistence/Services/ConnectionUsageFacts";
+import type { ConnectionRateLimitObservation } from "./ConnectionRateLimits";
 import { asFiniteNumber, asRecord, clampPercent, isoFromUnixSeconds } from "./parse";
 import { codexQuotaObservations } from "./codexQuotaBuckets";
 
@@ -107,7 +107,7 @@ function extractLimits(value: unknown): ServerProviderUsageLimit[] {
 }
 
 export function snapshotFromConnectionRateLimitFact(
-  fact: ConnectionRateLimitFactRecord,
+  fact: ConnectionRateLimitObservation,
 ): ServerProviderUsageSnapshot | null {
   let payload: unknown;
   try {
