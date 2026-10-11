@@ -226,13 +226,6 @@ beforeEach(() => {
   harness.stopDevServer.mockResolvedValue(undefined);
   harness.listDevServers.mockResolvedValue({ servers: [] });
   harness.dispatchCommand.mockResolvedValue(undefined);
-  vi.stubGlobal("window", {
-    setTimeout: (callback: () => void) => {
-      callback();
-      return 1;
-    },
-    clearTimeout: vi.fn(),
-  });
 });
 
 describe("useSidebarProjectRunController", () => {
@@ -411,6 +404,21 @@ describe("useSidebarProjectRunController", () => {
     expect(harness.toast).toHaveBeenCalledWith(
       expect.objectContaining({ type: "error", description: "shell unavailable" }),
     );
+  });
+
+  it("initializes the first dialog render and resets its draft only when reopened", () => {
+    let controller = render();
+    controller.openProjectRunDialog(PROJECT_ID);
+    controller = render();
+    expect(controller.projectRunDialogCommandDraft).toBe("bun dev");
+    controller.setProjectRunDialogCommandDraft("bun custom");
+    controller = render();
+    expect(controller.projectRunDialogCommandDraft).toBe("bun custom");
+    controller.closeProjectRunDialog();
+    controller = render();
+    controller.openProjectRunDialog(PROJECT_ID);
+    controller = render();
+    expect(controller.projectRunDialogCommandDraft).toBe("bun dev");
   });
 
   it("seeds and trims dialog commands while persistence failure does not block launch", async () => {

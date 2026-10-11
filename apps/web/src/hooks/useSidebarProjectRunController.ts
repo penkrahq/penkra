@@ -256,19 +256,12 @@ export function useSidebarProjectRunController(input: {
   );
 
   const openProjectRunDialog = useCallback((folderId: FolderId) => {
+    setDialogCommandDraft(commandByFolderIdRef.current.get(folderId)?.command ?? "");
     setDialogFolderId(folderId);
   }, []);
   const closeProjectRunDialog = useCallback(() => {
     setDialogFolderId(null);
   }, []);
-  useEffect(() => {
-    if (dialogFolderId === null) return;
-    const defaultCommand = commandByFolderIdRef.current.get(dialogFolderId)?.command ?? "";
-    const settle = window.setTimeout(() => {
-      setDialogCommandDraft(defaultCommand);
-    }, 0);
-    return () => window.clearTimeout(settle);
-  }, [dialogFolderId]);
   const confirmProjectRun = useCallback(() => {
     if (!dialogFolderId) return;
     const command = dialogCommandDraft.trim();
