@@ -19,7 +19,7 @@ import { isGenericChatThreadTitle } from "@penkra/shared/chatThreads";
 import { BsChat } from "react-icons/bs";
 import { HiOutlineFolderOpen } from "react-icons/hi2";
 import { LuArrowDownToLine, LuArrowLeft } from "react-icons/lu";
-import { type ComponentType, useEffect, useState } from "react";
+import { type ComponentType, useState } from "react";
 import { SidebarThreadPageEnd } from "./SidebarThreadPageEnd";
 import { FolderClosed } from "./FolderClosed";
 import { ProviderIcon as SharedProviderIcon } from "./ProviderIcon";
@@ -324,20 +324,16 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
   const importProvider = props.importProviders.includes(importProviderState)
     ? importProviderState
     : (props.importProviders[0] ?? "codex");
-  useEffect(() => {
-    if (props.open) {
-      return;
-    }
-    // Timeout-0 keeps the reset writes asynchronous (the palette is already
-    // hidden), which keeps this component eligible for React Compiler.
-    const timeoutId = window.setTimeout(() => {
+  const [wasOpen, setWasOpen] = useState(props.open);
+  if (wasOpen !== props.open) {
+    setWasOpen(props.open);
+    if (!props.open) {
       setImportProvider(props.importProviders[0] ?? "codex");
       setImportId("");
       setImportError(null);
       setIsImporting(false);
-    }, 0);
-    return () => window.clearTimeout(timeoutId);
-  }, [props.importProviders, props.open]);
+    }
+  }
 
   const visibleActions =
     props.importProviders.length === 0
