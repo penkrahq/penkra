@@ -317,9 +317,6 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
         return yield* fail("The thread does not exist.", "thread_binding_missing");
 
       const modelId = input.modelSelection?.model ?? state.value.model;
-      if (modelId === null) {
-        return yield* fail("This thread has no model set.", "model_unavailable");
-      }
       const connectionId =
         input.connectionId === undefined ? state.value.connectionId : input.connectionId;
       const selectionChanged =
