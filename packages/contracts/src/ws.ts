@@ -204,7 +204,6 @@ export const WS_METHODS = {
   providerCreateStaticConnection: "provider.createStaticConnection",
   providerBeginConnectionLogin: "provider.beginConnectionLogin",
   providerSubscribeConnectionLogin: "provider.subscribeConnectionLogin",
-  providerGetConnectionLogin: "provider.getConnectionLogin",
   providerCancelConnectionLogin: "provider.cancelConnectionLogin",
   providerTerminateConnection: "provider.terminateConnection",
 } as const;
@@ -349,7 +348,6 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.providerRetryAuthConnection, RetryProviderAuthConnectionInput),
   tagRequestBody(WS_METHODS.providerCreateStaticConnection, CreateStaticProviderConnectionInput),
   tagRequestBody(WS_METHODS.providerBeginConnectionLogin, BeginProviderConnectionLoginInput),
-  tagRequestBody(WS_METHODS.providerGetConnectionLogin, GetProviderConnectionLoginInput),
   tagRequestBody(WS_METHODS.providerCancelConnectionLogin, GetProviderConnectionLoginInput),
   tagRequestBody(WS_METHODS.providerTerminateConnection, TerminateProviderConnectionInput),
 ]);

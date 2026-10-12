@@ -1088,9 +1088,6 @@ export interface NativeApi {
       onSnapshot: (snapshot: ProviderConnectionLoginSnapshot) => void,
       onError: (error: Error) => void,
     ) => () => void;
-    getConnectionLogin: (
-      input: GetProviderConnectionLoginInput,
-    ) => Promise<ProviderConnectionLoginSnapshot>;
     cancelConnectionLogin: (
       input: GetProviderConnectionLoginInput,
     ) => Promise<ProviderConnectionLoginSnapshot>;
