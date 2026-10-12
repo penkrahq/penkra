@@ -23,10 +23,9 @@ export function usePreloadRouteChunks() {
     };
 
     if (typeof requestIdleCallback === "function") {
-      const idleCallbackId = requestIdleCallback(preload, { timeout: 5000 });
+      const idleCallbackId = requestIdleCallback(preload);
       return () => cancelIdleCallback(idleCallbackId);
     }
-    const timeoutId = setTimeout(preload, 1500);
-    return () => clearTimeout(timeoutId);
+    preload();
   }, [router]);
 }
