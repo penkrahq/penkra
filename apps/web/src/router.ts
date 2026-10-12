@@ -1,14 +1,15 @@
 import { createElement } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { createRouter } from "@tanstack/react-router";
 
 import { routeTree } from "./routeTree.gen";
 import { StoreProvider } from "./store";
+import { createAppQueryClient } from "./lib/appQueryClient";
 
 type RouterHistory = NonNullable<Parameters<typeof createRouter>[0]["history"]>;
 
 export function getRouter(history: RouterHistory) {
-  const queryClient = new QueryClient();
+  const queryClient = createAppQueryClient();
 
   return createRouter({
     routeTree,

@@ -1,5 +1,7 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
+
+import { createAppQueryClient } from "../../../lib/appQueryClient";
 
 import { ButtonBack } from "~/components/foundations/button-back/ButtonBack";
 import { SettingsAgentsPage } from "~/components/settings/pages/agents/SettingsAgentsPage";
@@ -14,9 +16,7 @@ export interface OnboardingConnectAgentProps {
 }
 
 export function OnboardingConnectAgent({ onBack, onContinue }: OnboardingConnectAgentProps) {
-  const [queryClient] = useState(
-    () => new QueryClient({ defaultOptions: { queries: { retry: false } } }),
-  );
+  const [queryClient] = useState(() => createAppQueryClient());
 
   return (
     <QueryClientProvider client={queryClient}>

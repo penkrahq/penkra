@@ -4,7 +4,7 @@
 // Layer: Web data fetching tests
 
 import type { NativeApi } from "@penkra/contracts";
-import { QueryClient } from "@tanstack/react-query";
+import { createAppQueryClient } from "./appQueryClient";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -81,7 +81,9 @@ describe("providerModelsQueryOptions", () => {
 
   it("requests the picker-only presentation catalog", async () => {
     const listModels = mockListModels(vi.fn().mockResolvedValue({ models: [] }));
-    await new QueryClient().fetchQuery(providerModelsQueryOptions({ provider: "claudeAgent" }));
+    await createAppQueryClient().fetchQuery(
+      providerModelsQueryOptions({ provider: "claudeAgent" }),
+    );
     expect(listModels).toHaveBeenCalledWith({
       provider: "claudeAgent",
       presentation: "picker",
@@ -89,7 +91,7 @@ describe("providerModelsQueryOptions", () => {
   });
 
   it("invalidates a cached Claude catalog on server welcome without touching other providers", async () => {
-    const queryClient = new QueryClient();
+    const queryClient = createAppQueryClient();
     const claude = providerModelsQueryOptions({ provider: "claudeAgent" });
     const codex = providerModelsQueryOptions({ provider: "codex" });
     const result = { models: [{ slug: "old", name: "Old" }], source: "test", cached: true };
@@ -110,21 +112,20 @@ describe("providerModelsQueryOptions", () => {
       vi.fn().mockRejectedValueOnce(new Error("discovery exploded")).mockResolvedValueOnce(catalog),
     );
     const options = providerModelsQueryOptions({ provider: "codex" });
-    const client = new QueryClient();
+    const client = createAppQueryClient();
     await expect(client.fetchQuery(options)).rejects.toThrow("discovery exploded");
     expect(listModels).toHaveBeenCalledTimes(1);
     expect(client.getQueryState(options.queryKey)?.error?.message).toBe("discovery exploded");
     await expect(client.fetchQuery(options)).resolves.toEqual(catalog);
     expect(listModels).toHaveBeenCalledTimes(2);
     client.clear();
-    expect(providerModelsQueryOptions({ provider: "opencode" }).retry).toBe(false);
   });
 
   it("surfaces real errors instead of masking them as empty catalogs", async () => {
     mockListModels(vi.fn().mockRejectedValue(new Error("discovery exploded")));
     const options = providerModelsQueryOptions({ provider: "opencode", enabled: true });
 
-    const queryClient = new QueryClient();
+    const queryClient = createAppQueryClient();
     await expect(queryClient.fetchQuery(options)).rejects.toThrow("discovery exploded");
     expect(queryClient.getQueryData(options.queryKey)).toBeUndefined();
   });
@@ -140,7 +141,7 @@ describe("providerModelsQueryOptions", () => {
     );
     const options = providerModelsQueryOptions({ provider: "opencode", enabled: true });
 
-    const queryClient = new QueryClient();
+    const queryClient = createAppQueryClient();
     await expect(queryClient.fetchQuery(options)).resolves.toEqual(catalog);
     await queryClient.refetchQueries({ queryKey: options.queryKey });
 
@@ -159,7 +160,7 @@ describe("providerModelsQueryOptions", () => {
     const input = { provider: "opencode" as const, cwd: "/repo", enabled: true };
 
     const firstOptions = providerModelsQueryOptions(input);
-    await expect(new QueryClient().fetchQuery(firstOptions)).resolves.toEqual(catalog);
+    await expect(createAppQueryClient().fetchQuery(firstOptions)).resolves.toEqual(catalog);
 
     const cachedOptions = providerModelsQueryOptions(input);
     const initialData =
@@ -186,9 +187,9 @@ describe("providerModelsQueryOptions", () => {
         .mockResolvedValueOnce({ models: [], source: "managed-connections", cached: false }),
     );
 
-    await new QueryClient().fetchQuery(providerModelsQueryOptions(input));
+    await createAppQueryClient().fetchQuery(providerModelsQueryOptions(input));
     expect(storage.size).toBe(1);
-    await new QueryClient().fetchQuery(providerModelsQueryOptions(input));
+    await createAppQueryClient().fetchQuery(providerModelsQueryOptions(input));
 
     expect(listModels).toHaveBeenCalledTimes(2);
     expect(storage.size).toBe(0);
@@ -209,7 +210,7 @@ describe("providerModelsQueryOptions", () => {
     mockListModels(vi.fn().mockResolvedValue(catalog));
     const options = providerModelsQueryOptions({ provider: "codex", enabled: true });
 
-    const queryClient = new QueryClient();
+    const queryClient = createAppQueryClient();
     await expect(queryClient.fetchQuery(options)).resolves.toEqual(catalog);
   });
 });

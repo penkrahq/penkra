@@ -219,7 +219,6 @@ export function serverProviderUsageSnapshotQueryOptions(input: {
     staleTime: 30_000,
     refetchInterval: 30_000,
     refetchOnWindowFocus: false,
-    retry: false,
     queryFn: async () => {
       if (!input.provider) return null;
       const api = ensureNativeApi();
@@ -255,7 +254,6 @@ export function serverAllProviderUsageQueryOptions(
     staleTime: 60_000,
     refetchInterval: false,
     refetchOnWindowFocus: false,
-    retry: false,
     queryFn: async () =>
       fetchAllProviderUsage({
         ...(provider ? { provider } : {}),

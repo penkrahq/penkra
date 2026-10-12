@@ -32,7 +32,6 @@ export function openUsageProviderSnapshotQueryOptions(
     staleTime: 15_000,
     refetchInterval: 15_000,
     refetchOnWindowFocus: false,
-    retry: false,
     queryFn: async (): Promise<unknown | null> => {
       if (!providerId) return null;
 
