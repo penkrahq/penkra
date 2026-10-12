@@ -30,6 +30,8 @@ vi.mock("@xterm/xterm", () => ({
       this.writes.push({ text, ...(done ? { done } : {}) });
     }
     open() {}
+    scrollToBottom() {}
+    refresh() {}
     loadAddon() {}
     attachCustomKeyEventHandler() {}
     dispose() {}
@@ -51,6 +53,7 @@ afterEach(() => {
   if (entry) disposeRuntimeEntry(entry);
   entry = undefined;
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   document.body.replaceChildren();
 });
 function runtime() {
@@ -187,4 +190,74 @@ it("accepts an empty open snapshot then streamed output without a timed second o
   expect(writes.some((write) => write.text === "final output")).toBe(true);
   expect(entry!.runtimeStatus).toBe("ready");
   expect(api.terminal.open).toHaveBeenCalledTimes(1);
+});
+
+async function nextFrame() {
+  await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+}
+async function visibleRuntime() {
+  let deliver!: ResizeObserverCallback;
+  const disconnect = vi.fn();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor(callback: ResizeObserverCallback) {
+        deliver = callback;
+      }
+      observe() {}
+      disconnect = disconnect;
+    },
+  );
+  const { api } = runtime();
+  const fit = vi.spyOn(entry!.fitAddon, "fit").mockImplementation(() => {});
+  const refresh = vi.spyOn(entry!.terminal, "refresh");
+  const container = document.createElement("div");
+  container.style.width = "800px";
+  container.style.height = "400px";
+  document.body.appendChild(container);
+  attachRuntimeToContainer(entry!, { isVisible: true, autoFocus: false }, container);
+  await api.terminal.open.mock.results[0]!.value;
+  await nextFrame();
+  await nextFrame();
+  fit.mockClear();
+  refresh.mockClear();
+  const resize = () =>
+    deliver(
+      [{ contentRect: container.getBoundingClientRect() } as ResizeObserverEntry],
+      entry!.resizeObserver!,
+    );
+  return { fit, refresh, resize, disconnect };
+}
+it("coalesces resize observations on one fit frame", async () => {
+  const { fit, resize } = await visibleRuntime();
+  resize();
+  resize();
+  resize();
+  expect(fit).not.toHaveBeenCalled();
+  await nextFrame();
+  expect(fit).toHaveBeenCalledTimes(1);
+});
+it("coalesces focus and visible events on one recovery frame", async () => {
+  const { fit, refresh } = await visibleRuntime();
+  window.dispatchEvent(new Event("focus"));
+  document.dispatchEvent(new Event("visibilitychange"));
+  window.dispatchEvent(new Event("focus"));
+  expect(refresh).not.toHaveBeenCalled();
+  await nextFrame();
+  expect(fit).toHaveBeenCalledTimes(1);
+  expect(refresh).toHaveBeenCalledTimes(1);
+});
+it.each(["detach", "dispose"])("%s cancels pending fit and recovery frames", async (action) => {
+  const { fit, refresh, resize, disconnect } = await visibleRuntime();
+  resize();
+  window.dispatchEvent(new Event("focus"));
+  if (action === "detach") detachRuntimeFromContainer(entry!);
+  else {
+    disposeRuntimeEntry(entry!);
+    entry = undefined;
+  }
+  await nextFrame();
+  expect(disconnect).toHaveBeenCalledTimes(1);
+  expect(fit).not.toHaveBeenCalled();
+  expect(refresh).not.toHaveBeenCalled();
 });

@@ -73,8 +73,6 @@ export interface TerminalRuntimeEntry {
   resizeObserver: ResizeObserver | null;
   resizeInFlight: boolean;
   visualResizeFrame: number | null;
-  visualResizeTimer: number | null;
-  lastVisualResizeAt: number;
   lastSentResize: { cols: number; rows: number } | null;
   pendingResize: { cols: number; rows: number } | null;
   writeRafHandle: number | null;
