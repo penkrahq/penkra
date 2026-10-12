@@ -18,7 +18,6 @@ function makeControllerInput(
   openChatThreadPage: ReturnType<typeof vi.fn>;
   openTerminalThreadPage: ReturnType<typeof vi.fn>;
   rememberLastThreadRouteNow: ReturnType<typeof vi.fn>;
-  setOptimisticActiveThreadId: ReturnType<typeof vi.fn>;
   setSelectionAnchor: ReturnType<typeof vi.fn>;
 } {
   return {
@@ -29,7 +28,6 @@ function makeControllerInput(
     rememberLastThreadRouteNow: vi.fn(),
     routeThreadId: THREAD_A,
     selectedThreadCount: 0,
-    setOptimisticActiveThreadId: vi.fn(),
     setSelectionAnchor: vi.fn(),
     sidebarThreadSummaryById: {
       [THREAD_A]: { id: THREAD_A, folderId: PROJECT_ID },
@@ -43,7 +41,6 @@ function makeControllerInput(
     openChatThreadPage: ReturnType<typeof vi.fn>;
     openTerminalThreadPage: ReturnType<typeof vi.fn>;
     rememberLastThreadRouteNow: ReturnType<typeof vi.fn>;
-    setOptimisticActiveThreadId: ReturnType<typeof vi.fn>;
     setSelectionAnchor: ReturnType<typeof vi.fn>;
   };
 }

@@ -148,7 +148,7 @@ afterEach(async () => {
   else Reflect.deleteProperty(Element.prototype, "getAnimations");
 });
 
-it("converges with collapsed paging, dismissed statuses and optimistic activation, then stays stable on unchanged renders", async () => {
+it("converges with collapsed paging, dismissed statuses and route activation, then stays stable on unchanged renders", async () => {
   const route = createRootRoute();
   const threadRoute = createRoute({
     getParentRoute: () => route,
@@ -189,6 +189,15 @@ it("converges with collapsed paging, dismissed statuses and optimistic activatio
       }),
     );
   });
+  expect(target!.getAttribute("data-state")).toBe("default");
+  expect(
+    container
+      .querySelector('[data-thread-item][aria-label="Previous"]')
+      ?.getAttribute("data-state"),
+  ).toBe("active");
+  await act(async () => {
+    await router.navigate({ to: "/$threadId", params: { threadId: targetId } });
+  });
   expect(target!.getAttribute("data-state")).toBe("active");
   await act(async () => {
     useStore.setState({ folders: [{ ...folder, expanded: false }] });
@@ -197,7 +206,6 @@ it("converges with collapsed paging, dismissed statuses and optimistic activatio
       archivedAt: "2026-10-11T00:00:01.000Z",
       updatedAt: "2026-10-11T00:00:01.000Z",
     });
-    await router.navigate({ to: "/$threadId", params: { threadId: targetId } });
   });
   expect(readSidebarUiState().projectThreadListExtraPagesByCwd).toEqual({});
   expect(readSidebarUiState().dismissedThreadStatusKeyByThreadId).toEqual({

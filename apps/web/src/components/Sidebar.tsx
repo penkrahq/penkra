@@ -36,7 +36,6 @@ import {
   useRef,
   useState,
   type MouseEvent,
-  type PointerEvent as ReactPointerEvent,
 } from "react";
 import { useCopyPathToClipboard, useCopyThreadIdToClipboard } from "~/hooks/useCopyToClipboard";
 import {
@@ -74,7 +73,6 @@ import {
 } from "../keybindings";
 import { useLatestProjectStore } from "../latestProjectStore";
 import { deferThreadReadAcknowledgementIfActive } from "../threadReadAcknowledgement";
-import { isPrimaryThreadActivationIntent } from "../threadActivation.logic";
 import {
   resolveCurrentProjectTargetId,
   resolveLatestProjectTargetIdWithFallback,
@@ -498,7 +496,6 @@ export default function Sidebar() {
   const [lastThreadRoute, setLastThreadRoute] = useState(
     () => readSidebarUiState().lastThreadRoute,
   );
-  const [optimisticActiveThreadId, setOptimisticActiveThreadId] = useState<ThreadId | null>(null);
   const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
   const [installingDesktopUpdate, setInstallingDesktopUpdate] = useState(false);
   // Dedupes the manual-download fallback toast so a single failure surfaced by
@@ -535,9 +532,7 @@ export default function Sidebar() {
     routeDraftFolderThreads.some((row) => row.id === lastRoutedSidebarThreadId)
       ? lastRoutedSidebarThreadId
       : (routeDraftFolderThreads.at(-1)?.id ?? null);
-  const routeActiveSidebarThreadId = routedSidebarThreadId ?? retainedFolderSidebarThreadId;
-  const activeSidebarThreadId = optimisticActiveThreadId ?? routeActiveSidebarThreadId;
-  const visualActiveSidebarThreadId = activeSidebarThreadId;
+  const activeSidebarThreadId = routedSidebarThreadId ?? retainedFolderSidebarThreadId;
   const sidebarThreads = useMemo(
     () => canonicalSidebarRows.filter((row) => row.archivedAt === null),
     [canonicalSidebarRows],
@@ -591,7 +586,7 @@ export default function Sidebar() {
       .filter(([, draft]) => draft.promotedTo !== undefined)
       .map(([threadId]) => threadId as ThreadId);
     const diagnosticThreadIds = new Set([
-      ...(visualActiveSidebarThreadId ? [visualActiveSidebarThreadId] : []),
+      ...(activeSidebarThreadId ? [activeSidebarThreadId] : []),
       ...localSendOwnerThreadIds,
       ...promotedDraftIds,
       ...sidebarThreads
@@ -615,7 +610,7 @@ export default function Sidebar() {
       recordSidebarLifecycleDiagnostic({
         threadId,
         summaryPresent: thread !== undefined,
-        activeSidebarThreadId: visualActiveSidebarThreadId,
+        activeSidebarThreadId: activeSidebarThreadId,
         draftPromotedTo: draftThreadsByThreadId[threadId]?.promotedTo ?? null,
         projectedWorkStatus: thread?.workStatus ?? null,
         sessionStatus: thread?.session?.status ?? null,
@@ -637,26 +632,9 @@ export default function Sidebar() {
     localSendOwnerThreadIds,
     resolveThreadStatusForSidebar,
     sidebarThreads,
-    visualActiveSidebarThreadId,
+    activeSidebarThreadId,
     voiceRecordingThreadId,
   ]);
-
-  if (optimisticActiveThreadId && routeActiveSidebarThreadId === optimisticActiveThreadId) {
-    setOptimisticActiveThreadId(null);
-  }
-
-  useEffect(() => {
-    if (!optimisticActiveThreadId || routeActiveSidebarThreadId === optimisticActiveThreadId) {
-      return;
-    }
-
-    const timeout = window.setTimeout(() => {
-      setOptimisticActiveThreadId((current) =>
-        current === optimisticActiveThreadId ? null : current,
-      );
-    }, 1_500);
-    return () => window.clearTimeout(timeout);
-  }, [optimisticActiveThreadId, routeActiveSidebarThreadId]);
 
   const clearThreadNotification = useCallback(
     (threadId: ThreadId) => {
@@ -1041,16 +1019,6 @@ export default function Sidebar() {
     [updateFolderIcon],
   );
 
-  const primeThreadActivation = useCallback(
-    (event: ReactPointerEvent<HTMLElement>, threadId: ThreadId) => {
-      if (!isPrimaryThreadActivationIntent(event)) {
-        return;
-      }
-      setOptimisticActiveThreadId(threadId);
-    },
-    [],
-  );
-
   const copyThreadIdToClipboard = useCopyThreadIdToClipboard();
   const copyPathToClipboard = useCopyPathToClipboard();
   const handleThreadContextMenu = useCallback(
@@ -1250,7 +1218,6 @@ export default function Sidebar() {
     rememberLastThreadRouteNow,
     routeThreadId,
     selectedThreadCount: selectedThreadIds.size,
-    setOptimisticActiveThreadId,
     setSelectionAnchor,
     sidebarThreadSummaryById,
     terminalStateByThreadId,
@@ -2161,7 +2128,7 @@ export default function Sidebar() {
             headerState={resolveProjectHeaderState({
               folderId: project.id,
               activeDraftFolderId:
-                visualActiveSidebarThreadId === null ? activeDraftThread?.folderId : null,
+                activeSidebarThreadId === null ? activeDraftThread?.folderId : null,
               activeDraftPromotedTo: activeDraftThread?.promotedTo,
             })}
             header={
@@ -2228,7 +2195,7 @@ export default function Sidebar() {
     orderedProjectThreadIds: readonly ThreadId[],
     sortablePosition: { index: number; parent: SidebarItemParent },
   ) {
-    const isActive = visualActiveSidebarThreadId === thread.id;
+    const isActive = activeSidebarThreadId === thread.id;
     const isSelected = selectedThreadIds.has(thread.id);
     const threadStatus = resolveThreadStatusForSidebar(thread);
     // The server rollup is intentionally coarse and can remain `done` until its
@@ -2287,7 +2254,6 @@ export default function Sidebar() {
           event.preventDefault();
           activateThreadFromSidebarIntent(thread.id);
         }}
-        onPointerDown={(event) => primeThreadActivation(event, thread.id)}
         harness={harness}
         level="nested"
         state={isActive ? "active" : "default"}
