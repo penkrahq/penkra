@@ -917,6 +917,8 @@ const CLAUDE_SETTING_SOURCES = [
   "local",
 ] as const satisfies ReadonlyArray<SettingSource>;
 const CLAUDE_CONTEXT_USAGE_TIMEOUT_MS = 1_000;
+// Result or exit normally settles the probe; a live, silent process has no completion event.
+const CLAUDE_CONNECTIVITY_PROBE_DEADLINE_MS = 20_000;
 // The SDK's interrupt resolves only once the CLI acknowledges it; a wedged CLI
 // would otherwise stall the caller (and the provider command reactor) forever.
 const CLAUDE_INTERRUPT_TIMEOUT = Duration.seconds(10);
@@ -5536,7 +5538,10 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           await Effect.runPromise(teardownFailedCommandDiscoveryProcesses());
           const processOwner: ClaudeProcessOwner = {};
           const abortController = new AbortController();
-          const timeout = setTimeout(() => abortController.abort(), 20_000);
+          const timeout = setTimeout(
+            () => abortController.abort(),
+            CLAUDE_CONNECTIVITY_PROBE_DEADLINE_MS,
+          );
           let probe: ClaudeQueryRuntime | undefined;
           try {
             probe = await createQuery({
