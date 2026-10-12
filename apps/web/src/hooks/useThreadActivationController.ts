@@ -21,7 +21,6 @@ export type ThreadActivationControllerInput = {
   rememberLastThreadRouteNow: (nextLastThreadRoute: LastThreadRoute) => void;
   routeThreadId: ThreadId | null | undefined;
   selectedThreadCount: number;
-  setOptimisticActiveThreadId: (threadId: ThreadId) => void;
   setSelectionAnchor: (threadId: ThreadId) => void;
   sidebarThreadSummaryById: Readonly<Partial<Record<ThreadId, SidebarThreadActivationSummary>>>;
   terminalStateByThreadId: ThreadTerminalStateById;
@@ -38,7 +37,6 @@ export function activateThreadFromSidebarIntent(
   });
   if (activation.kind === "ignore") return;
 
-  input.setOptimisticActiveThreadId(threadId);
   if (input.selectedThreadCount > 0) input.clearSelection();
   input.setSelectionAnchor(threadId);
   input.rememberLastThreadRouteNow({ threadId });
