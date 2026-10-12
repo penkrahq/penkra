@@ -2,11 +2,6 @@ import { Effect, Layer } from "effect";
 
 import { AgentGatewayCredentialsWithSecretsLive } from "../agentGateway/Layers/AgentGatewayCredentials";
 import { ServerConfig } from "../config";
-import {
-  makeProviderServerPasswordResolver,
-  ProviderCredentials,
-  ProviderCredentialsLive,
-} from "../providerCredentials";
 import { ServerSettingsLive } from "../serverSettings";
 import { makeClaudeAdapterLive } from "./Layers/ClaudeAdapter";
 import { makeCodexAdapterLive } from "./Layers/CodexAdapter";
@@ -29,8 +24,6 @@ export function makeServerProviderLayer(
   } = {},
 ) {
   return Effect.gen(function* () {
-    const credentials = yield* ProviderCredentials;
-    const resolveProviderServerPassword = makeProviderServerPasswordResolver(credentials);
     const { logProviderEvents, providerEventLogPath } = yield* ServerConfig;
     const nativeEventLogger = logProviderEvents
       ? yield* makeEventNdjsonLogger(providerEventLogPath, {
@@ -55,10 +48,9 @@ export function makeServerProviderLayer(
     const claudeAdapterLayer = makeClaudeAdapterLive(
       nativeEventLogger ? { nativeEventLogger } : undefined,
     ).pipe(Layer.provide(agentGatewayCredentialsLayer));
-    const openCodeAdapterLayer = makeOpenCodeAdapterLive({
-      ...(nativeEventLogger ? { nativeEventLogger } : {}),
-      resolveServerPassword: resolveProviderServerPassword,
-    }).pipe(Layer.provide(agentGatewayCredentialsLayer));
+    const openCodeAdapterLayer = makeOpenCodeAdapterLive(
+      nativeEventLogger ? { nativeEventLogger } : {},
+    ).pipe(Layer.provide(agentGatewayCredentialsLayer));
     const adapterRegistryLayer = ProviderAdapterRegistryLive.pipe(
       Layer.provide(codexAdapterLayer),
       Layer.provide(claudeAdapterLayer),
@@ -101,5 +93,5 @@ export function makeServerProviderLayer(
       adapterRegistryLayer,
       providerSessionDirectoryLayer,
     );
-  }).pipe(Effect.provide(ProviderCredentialsLive.pipe(Layer.orDie)), Layer.unwrap);
+  }).pipe(Layer.unwrap);
 }
