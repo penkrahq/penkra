@@ -2775,6 +2775,17 @@ async function waitForMountedChatReady(options: {
   await waitForLayout();
 }
 
+function dispatchComposerImageDragEnter(editor: HTMLElement): void {
+  const dataTransfer = new DataTransfer();
+  dataTransfer.items.add(new File(["image"], "image.png", { type: "image/png" }));
+  editor.dispatchEvent(new DragEvent("dragenter", { dataTransfer, bubbles: true }));
+}
+function readComposerDragTint(): HTMLElement | undefined {
+  return Array.from(document.querySelectorAll<HTMLElement>("[aria-hidden]")).find((element) =>
+    element.classList.contains("bg-info/8"),
+  );
+}
+
 async function mountChatView(options: {
   viewport: ViewportSpec;
   snapshot: OrchestrationReadModel;
@@ -5150,28 +5161,23 @@ describe("ChatView timeline estimator parity (full app)", () => {
       { title: "Next composer state thread" },
     );
     const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
-    const dragIntoComposer = (editor: HTMLElement) => {
-      const dataTransfer = new DataTransfer();
-      dataTransfer.items.add(new File(["image"], "image.png", { type: "image/png" }));
-      editor.dispatchEvent(new DragEvent("dragenter", { dataTransfer, bubbles: true }));
-    };
-    const overlay = () =>
-      Array.from(document.querySelectorAll<HTMLElement>("[aria-hidden]")).find((element) =>
-        element.classList.contains("bg-info/8"),
-      );
     try {
       const firstEditor = await waitForComposerEditor();
-      dragIntoComposer(firstEditor);
-      await vi.waitFor(() => expect(overlay()?.classList.contains("opacity-100")).toBe(true));
+      dispatchComposerImageDragEnter(firstEditor);
+      await vi.waitFor(() =>
+        expect(readComposerDragTint()?.classList.contains("opacity-100")).toBe(true),
+      );
       useComposerDraftStore.getState().setPrompt(OTHER_THREAD_ID, "Next thread draft");
       await mounted.router.navigate({ to: "/$threadId", params: { threadId: OTHER_THREAD_ID } });
       const nextEditor = await waitForComposerEditor();
       await vi.waitFor(() => {
-        expect(overlay()?.classList.contains("opacity-0")).toBe(true);
+        expect(readComposerDragTint()?.classList.contains("opacity-0")).toBe(true);
         expect(nextEditor.textContent).toBe("Next thread draft");
       });
-      dragIntoComposer(nextEditor);
-      await vi.waitFor(() => expect(overlay()?.classList.contains("opacity-100")).toBe(true));
+      dispatchComposerImageDragEnter(nextEditor);
+      await vi.waitFor(() =>
+        expect(readComposerDragTint()?.classList.contains("opacity-100")).toBe(true),
+      );
       expect(nextEditor.textContent).toBe("Next thread draft");
     } finally {
       await mounted.cleanup();
