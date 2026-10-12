@@ -65,6 +65,43 @@ it("refreshes on real focus and reconciles the resolved probe", async () => {
   });
   expect(harness.reconcile).toHaveBeenCalledWith(client, []);
 });
+it("refreshes again after completion without waiting for a time window", async () => {
+  const first = probe();
+  mount();
+  act(() => window.dispatchEvent(new Event("focus")));
+  await act(async () => {
+    first.resolve({ providers: [] });
+    await first.promise;
+  });
+  expect(harness.reconcile).toHaveBeenCalledOnce();
+  const second = probe();
+  act(() => window.dispatchEvent(new Event("focus")));
+  expect(harness.refresh).toHaveBeenCalledTimes(2);
+  await act(async () => {
+    second.resolve({ providers: [] });
+    await second.promise;
+  });
+  expect(harness.reconcile).toHaveBeenCalledTimes(2);
+});
+it("releases the in-flight probe on rejection", async () => {
+  let reject!: (cause: Error) => void;
+  harness.refresh.mockReturnValue(
+    new Promise((_resolve, fail) => {
+      reject = fail;
+    }),
+  );
+  mount();
+  act(() => window.dispatchEvent(new Event("focus")));
+  await act(async () => reject(new Error("probe failed")));
+  const next = probe();
+  act(() => window.dispatchEvent(new Event("focus")));
+  expect(harness.refresh).toHaveBeenCalledTimes(2);
+  await act(async () => {
+    next.resolve({ providers: [] });
+    await next.promise;
+  });
+  expect(harness.reconcile).toHaveBeenCalledOnce();
+});
 it("does not reconcile a late probe or refresh again after unmount", async () => {
   const request = probe();
   mount();

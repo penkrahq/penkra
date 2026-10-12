@@ -7,13 +7,8 @@
 
 import { useProviderStatusRefresh } from "./useProviderStatusRefresh";
 
-// Minimum gap between window-focus-triggered provider auth re-probes, so rapid
-// focus/visibility changes can't spawn redundant CLI probes on the server.
-const PROVIDER_AUTH_REFRESH_MIN_INTERVAL_MS = 15_000;
-
 export function useProviderAuthRefreshOnFocus(): void {
   useProviderStatusRefresh({
-    minIntervalMs: PROVIDER_AUTH_REFRESH_MIN_INTERVAL_MS,
     refreshOnFocus: true,
   });
 }
