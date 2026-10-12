@@ -438,7 +438,6 @@ function TranscriptVirtualListInner<TItem>(
     },
     [virtualizer],
   );
-  const diagnosticTimeoutsRef = useRef<number[]>([]);
   const isAtRenderedTail = useCallback(
     (threshold = END_THRESHOLD_PX) => {
       if (data.length === 0) return true;
@@ -496,7 +495,7 @@ function TranscriptVirtualListInner<TItem>(
     },
     [onNearStart, recordDiagnostic, viewportMemoryKey],
   );
-  const scheduleDiagnosticCheckpoints = useCallback(
+  const scheduleFrameDiagnosticCheckpoint = useCallback(
     (source: string) => {
       if (!areChatScrollDiagnosticsEnabled()) return;
       window.requestAnimationFrame(() => {
@@ -505,15 +504,6 @@ function TranscriptVirtualListInner<TItem>(
           checkpoint: "next-frame",
         });
       });
-      for (const delayMs of [80, 260, 1_000, 2_000]) {
-        const timeoutId = window.setTimeout(() => {
-          recordDiagnostic("scroll-checkpoint", {
-            source,
-            checkpoint: `${delayMs}ms`,
-          });
-        }, delayMs);
-        diagnosticTimeoutsRef.current.push(timeoutId);
-      }
     },
     [recordDiagnostic],
   );
@@ -569,14 +559,14 @@ function TranscriptVirtualListInner<TItem>(
         source,
       });
       resolveInitialPlacement("initial-end-follow-tail-visible");
-      scheduleDiagnosticCheckpoints("initial-end-follow-tail-visible");
+      scheduleFrameDiagnosticCheckpoint("initial-end-follow-tail-visible");
     },
     [
       isAtRenderedTail,
       paddingEnd,
       recordDiagnostic,
       resolveInitialPlacement,
-      scheduleDiagnosticCheckpoints,
+      scheduleFrameDiagnosticCheckpoint,
       virtualizer,
     ],
   );
@@ -640,10 +630,6 @@ function TranscriptVirtualListInner<TItem>(
         window.clearTimeout(initialAnchorRestoreTimerRef.current);
         initialAnchorRestoreTimerRef.current = null;
       }
-      for (const timeoutId of diagnosticTimeoutsRef.current) {
-        window.clearTimeout(timeoutId);
-      }
-      diagnosticTimeoutsRef.current = [];
     };
   }, []);
 
@@ -714,7 +700,7 @@ function TranscriptVirtualListInner<TItem>(
           beforeTop,
           afterTop,
         });
-        scheduleDiagnosticCheckpoints("imperative-scroll-to-end");
+        scheduleFrameDiagnosticCheckpoint("imperative-scroll-to-end");
       },
       scrollToIndex: (options) => {
         // Search/jump navigation is an explicit request to leave the tail.
@@ -741,7 +727,7 @@ function TranscriptVirtualListInner<TItem>(
       keyExtractor,
       paddingEnd,
       recordDiagnostic,
-      scheduleDiagnosticCheckpoints,
+      scheduleFrameDiagnosticCheckpoint,
       viewportMemoryKey,
       virtualizer,
     ],
@@ -851,7 +837,7 @@ function TranscriptVirtualListInner<TItem>(
               frames: initialEndFrameCountRef.current,
             });
             resolveInitialPlacement("initial-end-follow-tail-visible");
-            scheduleDiagnosticCheckpoints("initial-end-follow-tail-visible");
+            scheduleFrameDiagnosticCheckpoint("initial-end-follow-tail-visible");
           } else {
             recordDiagnostic("initial-end-follow:tail-maintained");
           }
@@ -874,7 +860,7 @@ function TranscriptVirtualListInner<TItem>(
       paddingEnd,
       recordDiagnostic,
       resolveInitialPlacement,
-      scheduleDiagnosticCheckpoints,
+      scheduleFrameDiagnosticCheckpoint,
       virtualizer,
     ],
   );
@@ -1016,14 +1002,7 @@ function TranscriptVirtualListInner<TItem>(
       prependedRowCount: preservedFirstIndex > 0 ? preservedFirstIndex : 0,
     });
     previousDataKeysRef.current = currentKeys;
-  }, [
-    data,
-    hasLeadingPrepend,
-    keyExtractor,
-    recordDiagnostic,
-    shouldEndAnchor,
-    viewportMemoryKey,
-  ]);
+  }, [data, hasLeadingPrepend, keyExtractor, recordDiagnostic, shouldEndAnchor, viewportMemoryKey]);
 
   useLayoutEffect(() => {
     if (!initialAnchorRestoreActiveRef.current || data.length === 0) return;
