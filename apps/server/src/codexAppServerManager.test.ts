@@ -23,6 +23,7 @@ import { buildCodexProcessEnv } from "./codexProcessEnv";
 import {
   buildCodexInitializeParams,
   buildCodexDynamicTools,
+  buildCodexThreadMcpConfig,
   CODEX_MODEL_DISCOVERY_CACHE_TTL_MS,
   CODEX_DEVELOPER_INSTRUCTIONS,
   CodexSessionStoppedRequestError,
@@ -172,14 +173,12 @@ describe("Codex Penkra harness policy", () => {
       });
       const env = await (
         manager as unknown as {
-          buildSessionProcessEnv: (
-            homePath: string | undefined,
-            token: string | undefined,
-          ) => Promise<NodeJS.ProcessEnv>;
+          buildSessionProcessEnv: (homePath: string | undefined) => Promise<NodeJS.ProcessEnv>;
         }
-      ).buildSessionProcessEnv(homePath, "token");
+      ).buildSessionProcessEnv(homePath);
       const configPath = path.join(env.CODEX_HOME ?? homePath, "config.toml");
       expect(readFileSync(configPath, "utf8")).not.toContain("mcp_servers.penkra");
+      expect(env.PENKRA_AGENT_GATEWAY_TOKEN).toBeUndefined();
     } finally {
       if (previousPenkraHome === undefined) {
         delete process.env.PENKRA_HOME;
@@ -188,6 +187,25 @@ describe("Codex Penkra harness policy", () => {
       }
       rmSync(homePath, { recursive: true, force: true });
     }
+  });
+
+  it("builds distinct thread-scoped MCP headers from each lease", () => {
+    expect(
+      buildCodexThreadMcpConfig({ url: "http://gateway.test/mcp", bearerToken: "start-lease" }),
+    ).toEqual({
+      "mcp_servers.penkra": {
+        url: "http://gateway.test/mcp",
+        http_headers: { Authorization: "Bearer start-lease" },
+      },
+    });
+    expect(
+      buildCodexThreadMcpConfig({ url: "http://gateway.test/mcp", bearerToken: "sibling-lease" }),
+    ).toEqual({
+      "mcp_servers.penkra": {
+        url: "http://gateway.test/mcp",
+        http_headers: { Authorization: "Bearer sibling-lease" },
+      },
+    });
   });
 
   it("maps the canonical host tool to Codex's exact dynamic-tool shape", () => {
@@ -2548,6 +2566,10 @@ describe("startSession", () => {
           model: "gpt-5.5",
           cwd: "/workspace",
           approvalPolicy: "never",
+          config: buildCodexThreadMcpConfig({
+            url: "http://gateway.test/mcp",
+            bearerToken: "resume-lease",
+          }),
         },
         request,
       }),
@@ -2559,6 +2581,12 @@ describe("startSession", () => {
       cwd: "/workspace",
       approvalPolicy: "never",
       threadId: "provider-thread",
+      config: {
+        "mcp_servers.penkra": {
+          url: "http://gateway.test/mcp",
+          http_headers: { Authorization: "Bearer resume-lease" },
+        },
+      },
       excludeTurns: true,
     });
   });

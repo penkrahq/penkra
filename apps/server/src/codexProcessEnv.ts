@@ -294,23 +294,6 @@ export function appendCodexConfigSection(config: string, section: string): strin
   return base.length > 0 ? `${base}\n\n${trimmedSection}\n` : `${trimmedSection}\n`;
 }
 
-export const PENKRA_MANAGED_CODEX_CONFIG_BEGIN = "# >>> penkra managed config >>>";
-export const PENKRA_MANAGED_CODEX_CONFIG_END = "# <<< penkra managed config <<<";
-
-export function extractManagedCodexConfigSection(config: string): string | undefined {
-  const begin = config.indexOf(PENKRA_MANAGED_CODEX_CONFIG_BEGIN);
-  if (begin === -1) {
-    return undefined;
-  }
-  const contentStart = begin + PENKRA_MANAGED_CODEX_CONFIG_BEGIN.length;
-  const end = config.indexOf(PENKRA_MANAGED_CODEX_CONFIG_END, contentStart);
-  if (end === -1) {
-    return undefined;
-  }
-  const content = config.slice(contentStart, end).trim();
-  return content.length > 0 ? content : undefined;
-}
-
 function normalizeTomlTableHeaderName(line: string): string | undefined {
   const match = /^\s*\[\s*(.*?)\s*\]\s*(?:#.*)?$/.exec(line);
   if (!match) {
@@ -394,188 +377,6 @@ function normalizeTomlTableHeaderName(line: string): string | undefined {
   return parts.length > 0 ? JSON.stringify(parts) : undefined;
 }
 
-function findTomlTableHeader(config: string, header: string) {
-  const target = normalizeTomlTableHeaderName(header);
-  if (!target) {
-    return undefined;
-  }
-  let offset = 0;
-  for (const rawLine of config.split("\n")) {
-    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
-    if (normalizeTomlTableHeaderName(line) === target) {
-      return { index: offset, end: offset + line.length };
-    }
-    offset += rawLine.length + 1;
-  }
-  return undefined;
-}
-
-function findNextTomlTableHeaderIndex(config: string, start: number): number {
-  const tail = config.slice(start);
-  let offset = 0;
-  for (const rawLine of tail.split("\n")) {
-    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
-    if (normalizeTomlTableHeaderName(line) !== undefined) {
-      return start + offset;
-    }
-    offset += rawLine.length + 1;
-  }
-  return config.length;
-}
-
-export function configHasTomlTableHeader(config: string, header: string): boolean {
-  return findTomlTableHeader(config, header) !== undefined;
-}
-
-function splitTomlTables(snippet: string): string[] {
-  const tables: string[] = [];
-  let current: string[] = [];
-  for (const line of snippet.split("\n")) {
-    if (/^\s*\[/.test(line) && current.length > 0) {
-      tables.push(current.join("\n").trim());
-      current = [];
-    }
-    current.push(line);
-  }
-  if (current.length > 0) {
-    tables.push(current.join("\n").trim());
-  }
-  return tables.filter((table) => table.length > 0);
-}
-
-function maskTomlComments(input: string): string {
-  let result = "";
-  let quote: '"' | "'" | undefined;
-  let escaped = false;
-  let inComment = false;
-
-  for (const character of input) {
-    if (inComment) {
-      if (character === "\n" || character === "\r") {
-        inComment = false;
-        result += character;
-      } else {
-        result += " ";
-      }
-      continue;
-    }
-
-    if (quote) {
-      result += character;
-      if (quote === '"' && escaped) {
-        escaped = false;
-      } else if (quote === '"' && character === "\\") {
-        escaped = true;
-      } else if (character === quote) {
-        quote = undefined;
-      }
-      continue;
-    }
-
-    if (character === '"' || character === "'") {
-      quote = character;
-      result += character;
-    } else if (character === "#") {
-      inComment = true;
-      result += " ";
-    } else {
-      result += character;
-    }
-  }
-
-  return result;
-}
-
-function findTomlArrayEnd(input: string, openBracketIndex: number): number | undefined {
-  let quote: '"' | "'" | undefined;
-  let escaped = false;
-  let depth = 0;
-
-  for (let index = openBracketIndex; index < input.length; index += 1) {
-    const character = input[index];
-    if (quote) {
-      if (quote === '"' && escaped) {
-        escaped = false;
-      } else if (quote === '"' && character === "\\") {
-        escaped = true;
-      } else if (character === quote) {
-        quote = undefined;
-      }
-      continue;
-    }
-
-    if (character === '"' || character === "'") {
-      quote = character;
-    } else if (character === "[") {
-      depth += 1;
-    } else if (character === "]") {
-      depth -= 1;
-      if (depth === 0) {
-        return index;
-      }
-    }
-  }
-
-  return undefined;
-}
-
-function mergeTomlStringArrayValues(
-  config: string,
-  tableHeader: string,
-  key: string,
-  values: readonly string[],
-): string {
-  const additions = [...new Set(values.filter(Boolean))];
-  if (additions.length === 0) {
-    return config;
-  }
-  const headerMatch = findTomlTableHeader(config, tableHeader);
-  if (!headerMatch) {
-    return appendCodexConfigSection(
-      config,
-      `${tableHeader}\n${key} = [${additions.map((value) => JSON.stringify(value)).join(", ")}]`,
-    );
-  }
-  const tableStart = headerMatch.end;
-  const tableEnd = findNextTomlTableHeaderIndex(config, tableStart);
-  const tableBody = config.slice(tableStart, tableEnd);
-  const activeTableBody = maskTomlComments(tableBody);
-  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const arrayPattern = new RegExp(`(^[\\t ]*${escapedKey}[\\t ]*=[\\t ]*\\[)`, "m");
-  const arrayMatch = arrayPattern.exec(activeTableBody);
-
-  if (arrayMatch) {
-    const openBracketIndex = arrayMatch.index + arrayMatch[0].lastIndexOf("[");
-    const closeBracketIndex = findTomlArrayEnd(activeTableBody, openBracketIndex);
-    if (closeBracketIndex === undefined) {
-      return config;
-    }
-    const activeArray = activeTableBody.slice(openBracketIndex + 1, closeBracketIndex);
-    const missing = additions.filter((value) => {
-      const escapedValue = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      return !new RegExp(`(["'])${escapedValue}\\1`).test(activeArray);
-    });
-    if (missing.length === 0) {
-      return config;
-    }
-
-    const insertAt = tableStart + openBracketIndex + 1;
-    const separator = activeArray.trim().length > 0 ? ", " : "";
-    return `${config.slice(0, insertAt)}${missing.map((value) => JSON.stringify(value)).join(", ")}${separator}${config.slice(insertAt)}`;
-  }
-
-  return `${config.slice(0, tableStart)}\n${key} = [${additions.map((value) => JSON.stringify(value)).join(", ")}]${config.slice(tableStart)}`;
-}
-
-export function mergeShellEnvPolicyExclude(config: string, envVarName: string): string {
-  return mergeTomlStringArrayValues(
-    config,
-    "[shell_environment_policy]",
-    "exclude",
-    envVarName ? [envVarName] : [],
-  );
-}
-
 function setRootTomlString(config: string, key: string, value: string): string {
   const lines = config.split(/\r?\n/);
   const assignment = `${key} = ${JSON.stringify(value)}`;
@@ -599,20 +400,6 @@ function setRootTomlString(config: string, key: string, value: string): string {
     lines.splice(firstTableIndex, 0, assignment, "");
   }
   return lines.join("\n");
-}
-
-function appendManagedCodexConfigSection(config: string, section: string): string {
-  const tables = splitTomlTables(section.trim()).filter((table) => {
-    const header = table.split("\n")[0]?.trim();
-    return header === undefined || !configHasTomlTableHeader(config, header);
-  });
-  if (tables.length === 0) {
-    return config;
-  }
-  return appendCodexConfigSection(
-    config,
-    `${PENKRA_MANAGED_CODEX_CONFIG_BEGIN}\n${tables.join("\n\n")}\n${PENKRA_MANAGED_CODEX_CONFIG_END}`,
-  );
 }
 
 async function serializeCodexOverlayPreparation<A>(
@@ -663,7 +450,6 @@ export async function prepareOptionalCodexOverlayEntries(input: {
 async function preparePenkraCodexHomeOverlayUnlocked(input: {
   readonly env: NodeJS.ProcessEnv;
   readonly homePath?: string;
-  readonly appendConfigToml?: string;
 }): Promise<string | undefined> {
   const sourceHomePath = resolveBaseCodexHomePath(input.env, input.homePath);
   const overlayHomePath = resolvePenkraCodexHomeOverlayPath(input.env, sourceHomePath);
@@ -687,27 +473,8 @@ async function preparePenkraCodexHomeOverlayUnlocked(input: {
     throw cause;
   });
   const overlayConfigPath = path.join(overlayHomePath, "config.toml");
-  // Provider plugins and MCP servers retain their normal Codex configuration.
-  // Penkra owns only its reserved gateway entry, which is appended below.
-  let overlayConfig = prepareEffectiveCodexConfig(sourceConfig);
-  const managedSection =
-    input.appendConfigToml ??
-    (await fs
-      .readFile(overlayConfigPath, "utf8")
-      .then(extractManagedCodexConfigSection)
-      .catch((cause: unknown) => {
-        if ((cause as NodeJS.ErrnoException).code === "ENOENT") {
-          return undefined;
-        }
-        throw cause;
-      }));
-  if (managedSection) {
-    overlayConfig = appendManagedCodexConfigSection(overlayConfig, managedSection);
-    const tokenEnvVar = /bearer_token_env_var\s*=\s*"([^"]+)"/.exec(managedSection)?.[1];
-    if (tokenEnvVar) {
-      overlayConfig = mergeShellEnvPolicyExclude(overlayConfig, tokenEnvVar);
-    }
-  }
+  // Thread-scoped gateway headers never belong in the shared profile config.
+  const overlayConfig = prepareEffectiveCodexConfig(sourceConfig);
   await writeCodexConfigIfChanged(overlayConfigPath, overlayConfig);
 
   return overlayHomePath;
@@ -716,7 +483,6 @@ async function preparePenkraCodexHomeOverlayUnlocked(input: {
 async function preparePenkraCodexHomeOverlay(input: {
   readonly env: NodeJS.ProcessEnv;
   readonly homePath?: string;
-  readonly appendConfigToml?: string;
 }): Promise<string | undefined> {
   const sourceHomePath = resolveBaseCodexHomePath(input.env, input.homePath);
   const overlayHomePath = resolvePenkraCodexHomeOverlayPath(input.env, sourceHomePath);
@@ -737,7 +503,6 @@ async function preparePenkraCodexHomeOverlay(input: {
 export async function prepareManagedCodexProfileConfig(input: {
   readonly env: NodeJS.ProcessEnv;
   readonly sourceHomePath?: string;
-  readonly appendConfigToml?: string;
   readonly cliAuthCredentialsStore?: "file" | "keyring";
 }): Promise<void> {
   const codexHome = input.env.CODEX_HOME?.trim();
@@ -778,11 +543,6 @@ export async function prepareManagedCodexProfileConfig(input: {
         input.cliAuthCredentialsStore,
       );
     }
-    if (input.appendConfigToml) {
-      config = appendManagedCodexConfigSection(config, input.appendConfigToml);
-      const tokenEnvVar = /bearer_token_env_var\s*=\s*"([^"]+)"/.exec(input.appendConfigToml)?.[1];
-      if (tokenEnvVar) config = mergeShellEnvPolicyExclude(config, tokenEnvVar);
-    }
     await writeCodexConfigIfChanged(configPath, config, existing);
   });
 }
@@ -793,14 +553,12 @@ export async function buildCodexProcessEnv(
     readonly homePath?: string;
     readonly platform?: NodeJS.Platform;
     readonly readEnvironment?: ShellEnvironmentReader;
-    readonly appendConfigToml?: string;
   } = {},
 ): Promise<NodeJS.ProcessEnv> {
   const baseEnv = { ...(input.env ?? process.env) };
   const overlayHomePath = await preparePenkraCodexHomeOverlay({
     env: baseEnv,
     ...(input.homePath ? { homePath: input.homePath } : {}),
-    ...(input.appendConfigToml ? { appendConfigToml: input.appendConfigToml } : {}),
   });
   const configuredEnv =
     overlayHomePath || input.homePath

@@ -835,6 +835,18 @@ export function classifyCodexStderrRecord(
   };
 }
 
+export function buildCodexThreadMcpConfig(connection: {
+  readonly url: string;
+  readonly bearerToken: string;
+}) {
+  return {
+    "mcp_servers.penkra": {
+      url: connection.url,
+      http_headers: { Authorization: `Bearer ${connection.bearerToken}` },
+    },
+  };
+}
+
 export function resumeCodexThreadWithoutHistoryReplay(input: {
   readonly threadId: string;
   readonly sessionOverrides: Readonly<Record<string, unknown>>;
@@ -1033,12 +1045,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     this.stateDir = options?.stateDir ?? Path.join(process.cwd(), ".penkra");
   }
 
-  // The Penkra MCP server rides on the shared overlay config (no secrets),
-  // while the per-thread bearer token travels through the app-server process
-  // env referenced by `bearer_token_env_var`.
+  // The shared process has no thread credential. MCP headers belong to thread config.
   private async buildSessionProcessEnv(
     homePath: string | undefined,
-    gatewayBearerToken: string | undefined,
     managedLaunch?: ProviderManagedLaunchContext,
   ) {
     const env = managedLaunch
@@ -1046,9 +1055,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       : await buildCodexProcessEnv({
           ...(homePath ? { homePath } : {}),
         });
-    if (gatewayBearerToken) {
-      env[PENKRA_AGENT_GATEWAY_TOKEN_ENV] = gatewayBearerToken;
-    }
+    delete env[PENKRA_AGENT_GATEWAY_TOKEN_ENV];
     return env;
   }
 
@@ -1184,11 +1191,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const child = spawnCodexAppServer({
         binaryPath: codexBinaryPath,
         cwd: resolvedCwd,
-        env: await this.buildSessionProcessEnv(
-          codexHomePath,
-          gatewaySessionLease?.connection.bearerToken,
-          input.managedLaunch,
-        ),
+        env: await this.buildSessionProcessEnv(codexHomePath, input.managedLaunch),
       });
 
       context = {
@@ -1276,6 +1279,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         context.account,
       );
       const sessionOverrides = {
+        ...(gatewaySessionLease
+          ? { config: buildCodexThreadMcpConfig(gatewaySessionLease.connection) }
+          : {}),
         model: normalizedModel ?? null,
         ...(input.serviceTier !== undefined ? { serviceTier: input.serviceTier } : {}),
         cwd: resolvedCwd,
