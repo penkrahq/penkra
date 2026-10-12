@@ -155,6 +155,46 @@ describe("FindCoordinator", () => {
     });
   });
 
+  it("releases a silent search at its deadline so queued surfaces are searched", async () => {
+    const coordinator = new FindCoordinator();
+    const silent = {
+      ...surface("silent", 0, 0),
+      search: vi.fn(() => new Promise<FindSurfaceResult>(() => {})),
+      searchTimeoutMs: 5,
+    };
+    let onCompletedActivated!: () => void;
+    const completedActivated = new Promise<void>((resolve) => {
+      onCompletedActivated = resolve;
+    });
+    const completed = surface("completed", 1, 2);
+    completed.activate.mockImplementation(() => onCompletedActivated());
+    coordinator.register(silent);
+    coordinator.register(completed);
+    coordinator.setQuery("needle");
+    await completedActivated;
+    expect(coordinator.getSnapshot().total).toBe(2);
+    const refreshed = new Promise<void>((resolve) => {
+      const unsubscribe = coordinator.subscribe(() => {
+        if (coordinator.getSnapshot().total !== 5) return;
+        unsubscribe();
+        resolve();
+      });
+    });
+    const late = surface("late", 2, 3);
+    coordinator.register(late);
+    await refreshed;
+    expect(coordinator.getSnapshot()).toEqual({
+      query: "needle",
+      current: 1,
+      total: 5,
+      pending: false,
+    });
+    expect(silent.search).toHaveBeenCalledTimes(2);
+    expect(completed.search).toHaveBeenCalledTimes(2);
+    expect(late.search).toHaveBeenCalledOnce();
+    coordinator.dispose();
+  });
+
   it("coalesces invalidations and refreshes when the current search completes", async () => {
     const callbacks: {
       resolveSearch?: (value: FindSurfaceResult) => void;

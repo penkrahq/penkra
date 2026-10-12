@@ -5,7 +5,12 @@
 
 import fs from "node:fs/promises";
 
+import { OutboundHttpError } from "@penkra/shared/outboundHttp";
+
 import { fetchJson } from "./http";
+
+// Bound a silent token endpoint; a deadline is a usage error, not a rejected credential (3b).
+export const OAUTH_REFRESH_DEADLINE_MS = 15_000;
 
 export interface OAuthRefreshAccessTokenResult {
   readonly accessToken: string;
@@ -43,6 +48,7 @@ export async function refreshOAuthAccessToken(input: {
   try {
     response = await fetchJson({
       service: input.service,
+      deadlineMs: OAUTH_REFRESH_DEADLINE_MS,
       url: input.refreshUrl,
       allowedOrigins: input.allowedOrigins,
       method: "POST",
@@ -52,7 +58,8 @@ export async function refreshOAuthAccessToken(input: {
       },
       body,
     });
-  } catch {
+  } catch (cause) {
+    if (cause instanceof OutboundHttpError && cause.code === "timeout") throw cause;
     return null;
   }
 

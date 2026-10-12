@@ -9,6 +9,11 @@
 
 import { outboundHttp } from "@penkra/shared/outboundHttp";
 
+// Bound each third-party source so a silent host releases admission and permits the next source (3b).
+export const FAVICON_SOURCE_DEADLINE_MS = 5_000;
+// Bound the last direct-origin attempt so a silent site cannot hold the icon lookup indefinitely (3b).
+export const FAVICON_DIRECT_SOURCE_DEADLINE_MS = 3_000;
+
 const FAVICON_CACHE_MAX = 500;
 const FAVICON_SUCCESS_TTL_MS = 24 * 60 * 60 * 1000; // 24 h
 const FAVICON_FAILURE_TTL_MS = 60 * 60 * 1000; // 1 h (negative cache)
@@ -73,11 +78,15 @@ function isPublicHttpHost(host: string): boolean {
   return true;
 }
 
-async function fetchImage(url: string): Promise<{ bytes: Uint8Array; contentType: string } | null> {
+async function fetchImage(
+  url: string,
+  deadlineMs: number,
+): Promise<{ bytes: Uint8Array; contentType: string } | null> {
   try {
     const response = await outboundHttp.request({
       policy: {
         service: "site-favicon",
+        deadlineMs,
         allowedOrigins: [new URL(url).origin],
         maxRequestBytes: 0,
         maxResponseBytes: MAX_FAVICON_BYTES,
@@ -105,18 +114,23 @@ async function fetchFaviconForHost(
   // 1) Google S2 — best coverage, returns a clean PNG (a generic globe for unknown sites).
   const google = await fetchImage(
     `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64`,
+    FAVICON_SOURCE_DEADLINE_MS,
   );
   if (google) return google;
 
   // 2) DuckDuckGo — no API key, good coverage.
   const duckDuckGo = await fetchImage(
     `https://icons.duckduckgo.com/ip3/${encodeURIComponent(host)}.ico`,
+    FAVICON_SOURCE_DEADLINE_MS,
   );
   if (duckDuckGo) return duckDuckGo;
 
   // 3) Direct /favicon.ico — last resort, only for publicly routable hosts.
   if (isPublicHttpHost(host)) {
-    const direct = await fetchImage(`https://${host}/favicon.ico`);
+    const direct = await fetchImage(
+      `https://${host}/favicon.ico`,
+      FAVICON_DIRECT_SOURCE_DEADLINE_MS,
+    );
     if (direct) return direct;
   }
 

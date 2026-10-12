@@ -7,6 +7,9 @@ import type { PDFDocumentProxy } from "../pdf/pdfEngine";
 import type { FindSurface } from "./findCoordinator";
 import { isFindSurfaceVisible } from "./findVisibility";
 
+// Bound a PDF engine that never completes text extraction so cross-surface find can settle (3b).
+const PDF_SEARCH_DEADLINE_MS = 15_000;
+
 interface PdfMatch {
   readonly pageNumber: number;
   readonly occurrence: number;
@@ -44,7 +47,7 @@ export function createPdfFindSurface(input: {
   return {
     id: input.id,
     order: input.order,
-    searchTimeoutMs: 15_000,
+    searchTimeoutMs: PDF_SEARCH_DEADLINE_MS,
     isVisible: () => isFindSurfaceVisible(input.root),
     search: async (nextQuery) => {
       query = nextQuery;

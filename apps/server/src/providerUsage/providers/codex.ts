@@ -6,10 +6,12 @@
 
 import nodePath from "node:path";
 
+import { OutboundHttpError } from "@penkra/shared/outboundHttp";
+
 import type { ServerProviderUsageLimit, ServerProviderUsageLine } from "@penkra/contracts";
 
 import { readJsonFile } from "../credentials";
-import { fetchJson, isAuthFailureStatus } from "../http";
+import { fetchJson, isAuthFailureStatus, USAGE_FETCH_DEADLINE_MS } from "../http";
 import {
   asFiniteNumber,
   asRecord,
@@ -166,6 +168,7 @@ export const codexUsageFetcher: ProviderUsageFetcher = {
     try {
       const result = await fetchJson({
         service: "provider-usage-codex",
+        deadlineMs: USAGE_FETCH_DEADLINE_MS,
         url: USAGE_URL,
         allowedOrigins: [new URL(USAGE_URL).origin],
         headers: {
@@ -191,8 +194,15 @@ export const codexUsageFetcher: ProviderUsageFetcher = {
         headers: Object.fromEntries(result.headers),
         nowMs: ctx.nowMs,
       });
-    } catch {
-      return errorSnapshot("codex", ctx.nowMs, SOURCE, "Could not reach the Codex usage endpoint.");
+    } catch (cause) {
+      return errorSnapshot(
+        "codex",
+        ctx.nowMs,
+        SOURCE,
+        cause instanceof OutboundHttpError && cause.code === "timeout"
+          ? cause.message
+          : "Could not reach the Codex usage endpoint.",
+      );
     }
   },
 };

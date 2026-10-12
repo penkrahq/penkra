@@ -8,7 +8,7 @@ import nodePath from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { outboundHttp } from "@penkra/shared/outboundHttp";
+import { outboundHttp, OutboundHttpError } from "@penkra/shared/outboundHttp";
 import {
   __resetClaudeUsageRateLimitState,
   claudeUsageFetcher,
@@ -129,6 +129,38 @@ describe("parseClaudeCliUsage", () => {
 });
 
 describe("claudeUsageFetcher", () => {
+  it.each(["expired", "rejected"])(
+    "shows an OAuth timeout as an error for a %s token, never needs-auth",
+    async (tokenState) => {
+      const { homeDir } = makeClaudeHome({
+        accessToken: "stale-access-token",
+        refreshToken: "refresh-token",
+        expiresAt: tokenState === "expired" ? NOW_MS - 1 : NOW_MS + 60 * 60 * 1000,
+        scopes: ["user:profile"],
+      });
+      const timeout = new OutboundHttpError("timeout", "OAuth refresh exceeded its deadline.");
+      const request = vi.spyOn(outboundHttp, "request").mockImplementation(async (input) => {
+        if (String(input.url).includes("/oauth/token")) throw timeout;
+        return {
+          status: 401,
+          headers: new Headers(),
+          body: new Uint8Array(),
+          url: String(input.url),
+        };
+      });
+      const snapshot = await claudeUsageFetcher.fetch({
+        homeDir,
+        env: {},
+        platform: "linux",
+        nowMs: NOW_MS,
+      });
+      expect(snapshot.status).toBe("error");
+      expect(snapshot.detail).toBe(timeout.message);
+      expect(snapshot.detail).not.toContain("Reconnect");
+      expect(request).toHaveBeenCalledTimes(tokenState === "expired" ? 1 : 2);
+    },
+  );
+
   it("refreshes expired file credentials in memory before fetching live usage", async () => {
     const originalExpiresAt = NOW_MS - 60_000;
     const { homeDir, credentialsPath } = makeClaudeHome({

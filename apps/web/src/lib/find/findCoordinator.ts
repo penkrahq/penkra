@@ -39,6 +39,7 @@ const EMPTY_STATE: FindState = {
   pending: false,
 };
 
+// A remote/native search surface may never answer; let the remaining surfaces complete (3b).
 const DEFAULT_SEARCH_TIMEOUT_MS = 3_000;
 
 function isSurfaceVisible(surface: FindSurface): boolean {

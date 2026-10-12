@@ -26,7 +26,8 @@ export type OutboundHttpErrorCode =
   | "json"
   | "request"
   | "request-too-large"
-  | "response-too-large";
+  | "response-too-large"
+  | "timeout";
 
 export class OutboundHttpError extends Error {
   readonly code: OutboundHttpErrorCode;
@@ -43,6 +44,7 @@ export class OutboundHttpError extends Error {
 export interface OutboundHttpPolicy {
   readonly service: string;
   readonly allowedOrigins: ReadonlyArray<string>;
+  readonly deadlineMs: number;
   readonly maxRequestBytes: number;
   readonly maxResponseBytes: number;
   readonly maxRedirects: number;
@@ -430,6 +432,12 @@ function isRedirectStatus(status: number): boolean {
 export class OutboundHttpClient {
   async request(input: OutboundHttpRequest): Promise<OutboundHttpResponse> {
     const policy = input.policy;
+    if (!Number.isSafeInteger(policy.deadlineMs) || policy.deadlineMs <= 0) {
+      throw new OutboundHttpError(
+        "request",
+        "Outbound request deadline must be a positive integer.",
+      );
+    }
     const allowedOrigins = policy.allowedOrigins.map(normalizeOutboundOrigin);
     let url = assertOutboundUrlAllowed({ url: input.url, allowedOrigins });
     let method = input.method ?? "GET";
@@ -448,7 +456,17 @@ export class OutboundHttpClient {
     const abortFromCaller = () => controller.abort(input.signal?.reason);
     if (input.signal?.aborted) abortFromCaller();
     else input.signal?.addEventListener("abort", abortFromCaller, { once: true });
-    // Completion comes from the response, a network error, or caller cancellation.
+    const deadline = setTimeout(
+      () =>
+        controller.abort(
+          new OutboundHttpError(
+            "timeout",
+            `Outbound request exceeded its ${policy.deadlineMs}ms deadline.`,
+          ),
+        ),
+      policy.deadlineMs,
+    );
+    deadline.unref?.();
 
     let releaseGlobal: (() => void) | undefined;
     let releaseService: (() => void) | undefined;
@@ -497,10 +515,12 @@ export class OutboundHttpClient {
     } catch (cause) {
       if (controller.signal.aborted) {
         const reason = controller.signal.reason;
+        if (reason instanceof OutboundHttpError && reason.code === "timeout") throw reason;
         throw abortedError(reason);
       }
       throw cause;
     } finally {
+      clearTimeout(deadline);
       input.signal?.removeEventListener("abort", abortFromCaller);
       releaseService?.();
       releaseGlobal?.();

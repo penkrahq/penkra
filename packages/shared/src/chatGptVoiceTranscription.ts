@@ -8,6 +8,9 @@ import { encodeOutboundMultipart, outboundHttp, type OutboundHttpResponse } from
 
 export const CHATGPT_VOICE_TRANSCRIPTION_URL = "https://chatgpt.com/backend-api/transcribe";
 
+// Bound an accepted but silent voice upload so its slot and transcription UI are released (3b).
+export const VOICE_TRANSCRIBE_DEADLINE_MS = 30_000;
+
 const MAX_MULTIPART_BYTES = SERVER_VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES + 64 * 1024;
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 
@@ -33,6 +36,7 @@ export function requestChatGptVoiceTranscription(input: {
   return outboundHttp.request({
     policy: {
       service: "chatgpt-voice-transcription",
+      deadlineMs: VOICE_TRANSCRIBE_DEADLINE_MS,
       allowedOrigins: [new URL(CHATGPT_VOICE_TRANSCRIPTION_URL).origin],
       maxRequestBytes: MAX_MULTIPART_BYTES,
       maxResponseBytes: MAX_RESPONSE_BYTES,
