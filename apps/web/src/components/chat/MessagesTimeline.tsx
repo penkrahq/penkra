@@ -37,11 +37,7 @@ import {
 import { recordChatLifecycleUiDiagnostic } from "../../chatLifecycleDiagnostics";
 import ChatMarkdown from "../ChatMarkdown";
 import { InlineLinkChip } from "../InlineLinkChip";
-import {
-  BotIcon,
-  type LucideIcon,
-  SteerIcon,
-} from "~/lib/icons";
+import { BotIcon, type LucideIcon, SteerIcon } from "~/lib/icons";
 import { CrossTaskOriginLabel, type CrossTaskOrigin } from "./CrossTaskOriginLabel";
 import { useStore } from "../../store";
 import { PenkraThreadCreationCard } from "./PenkraThreadCreationCard";
@@ -147,6 +143,8 @@ const MESSAGE_HOVER_REVEAL_CLASS_NAME =
   "opacity-0 transition-opacity pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto";
 // How long a jumped-to message keeps its highlight tint before fading back out.
 const JUMP_HIGHLIGHT_DURATION_MS = 1200;
+// Elapsed labels show whole seconds, so their leaf clock updates once per second (decision 6b).
+const WORKING_TIMER_TICK_MS = 1_000;
 const MESSAGE_SEND_ENTER_ANIMATION_MS = 180;
 const MESSAGE_SEND_ENTER_CLEANUP_BUFFER_MS = 60;
 const EMPTY_MESSAGE_ID_SET: ReadonlySet<MessageId> = new Set();
@@ -1203,9 +1201,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   />
                 ) : null}
                 <div className="flex w-full justify-end">
-                  <div
-                    className={cn("group flex flex-col items-end gap-px", "max-w-[80%]")}
-                  >
+                  <div className={cn("group flex flex-col items-end gap-px", "max-w-[80%]")}>
                     {/* Keep user-message chrome outside the bubble so the message reads as one simple block. */}
                     {/* The cross-task origin label already attributes this turn to another Penkra thread,
                       so suppress the dispatch chip here to avoid a duplicate "Sent by …" marker. */}
@@ -1873,7 +1869,7 @@ function WorkingTimer({ createdAt }: { createdAt: string }) {
       }
     };
     updateText();
-    const id = window.setInterval(updateText, 1000);
+    const id = window.setInterval(updateText, WORKING_TIMER_TICK_MS);
     return () => {
       window.clearInterval(id);
     };
