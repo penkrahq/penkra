@@ -3,7 +3,7 @@
 // Layer: Web transport tests
 // Depends on: the global WebSocket constructor shim and desktop bridge URL contract.
 
-import { Cause, Effect, Exit, Scope } from "effect";
+import { Cause, Effect, Exit, Scope, Queue, Stream } from "effect";
 import { RpcClientError } from "effect/unstable/rpc";
 import * as Socket from "effect/unstable/socket/Socket";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -1184,5 +1184,81 @@ describe("WsTransport", () => {
     ).rejects.toBe(rejection);
     expect(reconnect).not.toHaveBeenCalled();
     await transport.dispose();
+  });
+});
+
+describe("provider sign-in subscriptions", () => {
+  it("delivers pushed snapshots and cancels the stream on cleanup", async () => {
+    const { transport } = makeBareTransport();
+    const queue = await Effect.runPromise(Queue.unbounded<unknown>());
+    const subscribe = vi.fn(() => Stream.fromQueue(queue));
+    const cancel = vi.fn();
+    Object.assign(transport, {
+      getClient: async () => ({ [WS_METHODS.providerSubscribeConnectionLogin]: subscribe }),
+      getClientRuntime: () => ({
+        runCallback: (
+          effect: Effect.Effect<void>,
+          options: { onExit: (exit: Exit.Exit<void>) => void },
+        ) => {
+          const stop = Effect.runCallback(effect, options);
+          return () => {
+            cancel();
+            stop();
+          };
+        },
+      }),
+    });
+    const pushed = new Promise<unknown>((resolve) => {
+      const unsubscribe = transport.subscribeConnectionLogin(
+        { operationId: "login-one" },
+        (snapshot) => {
+          resolve(snapshot);
+          unsubscribe();
+        },
+        (error) => {
+          throw error;
+        },
+      );
+    });
+    const snapshot = { operationId: "login-one", state: "completed" };
+    await Effect.runPromise(Queue.offer(queue, snapshot));
+    expect(await pushed).toEqual(snapshot);
+    expect(subscribe).toHaveBeenCalledWith({ operationId: "login-one" });
+    expect(cancel).toHaveBeenCalledOnce();
+    await Effect.runPromise(Queue.shutdown(queue));
+  });
+
+  it("does not register a stream when cleaned up before the client arrives", async () => {
+    const { transport } = makeBareTransport();
+    let resolve!: (client: unknown) => void;
+    const client = new Promise((ready) => {
+      resolve = ready;
+    });
+    const runtime = vi.fn();
+    Object.assign(transport, { getClient: () => client, getClientRuntime: runtime });
+    const unsubscribe = transport.subscribeConnectionLogin(
+      { operationId: "login-one" },
+      vi.fn(),
+      vi.fn(),
+    );
+    unsubscribe();
+    resolve({});
+    await client;
+    expect(runtime).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a failed subscription instead of polling or retrying", async () => {
+    const { transport } = makeBareTransport();
+    const error = new WsRpcError({ message: "Sign in no longer exists." });
+    const subscribe = vi.fn(() => Stream.fail(error));
+    Object.assign(transport, {
+      getClient: async () => ({ [WS_METHODS.providerSubscribeConnectionLogin]: subscribe }),
+      getClientRuntime: () => ({ runCallback: Effect.runCallback }),
+    });
+    const failure = await new Promise<Error>((resolve) => {
+      transport.subscribeConnectionLogin({ operationId: "login-one" }, vi.fn(), resolve);
+    });
+    expect(failure.message).toContain(error.message);
+    expect(subscribe).toHaveBeenCalledOnce();
   });
 });

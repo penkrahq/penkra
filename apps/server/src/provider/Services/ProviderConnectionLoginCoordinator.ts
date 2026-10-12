@@ -6,7 +6,7 @@ import {
   ProviderConnectionTerminationReason,
   ProviderConnectionId,
 } from "@penkra/contracts";
-import { Data, Effect, ServiceMap } from "effect";
+import { Data, Effect, ServiceMap, type Stream } from "effect";
 
 export class ProviderConnectionLoginError extends Data.TaggedError("ProviderConnectionLoginError")<{
   readonly detail: string;
@@ -24,6 +24,9 @@ export interface ProviderConnectionLoginCoordinatorShape {
   readonly get: (
     input: GetProviderConnectionLoginInput,
   ) => Effect.Effect<ProviderConnectionLoginSnapshot, ProviderConnectionLoginError>;
+  readonly subscribe: (
+    input: GetProviderConnectionLoginInput,
+  ) => Stream.Stream<ProviderConnectionLoginSnapshot, ProviderConnectionLoginError>;
   readonly cancel: (
     input: GetProviderConnectionLoginInput,
   ) => Effect.Effect<ProviderConnectionLoginSnapshot, ProviderConnectionLoginError>;

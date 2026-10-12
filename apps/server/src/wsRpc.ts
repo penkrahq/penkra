@@ -1254,6 +1254,16 @@ const makeWsRpcHandlersLayer = () =>
             providerConnectionLoginCoordinator.begin(input),
             "Failed to begin Connection sign in",
           ),
+        [WS_METHODS.providerSubscribeConnectionLogin]: (input, { clientId }) =>
+          streamAdmission.guard(
+            clientId,
+            { key: `provider.login:${input.operationId}` },
+            providerConnectionLoginCoordinator
+              .subscribe(input)
+              .pipe(
+                Stream.mapError((cause) => toWsRpcError(cause, "Could not subscribe to sign in")),
+              ),
+          ),
         [WS_METHODS.providerGetConnectionLogin]: (input) =>
           rpcEffect(
             providerConnectionLoginCoordinator.get(input),

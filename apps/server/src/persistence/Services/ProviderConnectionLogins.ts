@@ -7,7 +7,7 @@ import {
   ProviderKind,
   TrimmedNonEmptyString,
 } from "@penkra/contracts";
-import { Effect, Option, Schema, ServiceMap } from "effect";
+import { Effect, Option, Schema, ServiceMap, type PubSub, type Scope } from "effect";
 
 import type { PersistenceDecodeError, PersistenceSqlError } from "../Errors.ts";
 
@@ -42,6 +42,11 @@ export type ProviderConnectionLoginRecord = typeof ProviderConnectionLoginRecord
 type Error = PersistenceSqlError | PersistenceDecodeError;
 
 export interface ProviderConnectionLoginRepositoryShape {
+  readonly subscribeChanges: Effect.Effect<
+    PubSub.Subscription<ProviderConnectionLoginRecord>,
+    never,
+    Scope.Scope
+  >;
   readonly begin: (record: ProviderConnectionLoginRecord) => Effect.Effect<void, Error>;
   readonly get: (
     operationId: string,

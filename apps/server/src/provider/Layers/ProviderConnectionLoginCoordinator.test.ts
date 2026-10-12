@@ -3,7 +3,7 @@ import { createThreadFixture } from "../../cleanCore/threadFixtures.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderConnectionId, ProviderInstallationId, ThreadId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
-import { Deferred, Effect, Layer, Option, PubSub } from "effect";
+import { Deferred, Effect, Fiber, Layer, Option, PubSub, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { access, mkdir, readFile, readlink, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -324,6 +324,40 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
       assert.strictEqual(failure.detail, "This provider credential is already configured.");
       assert.strictEqual(importedApiKey, null);
     }),
+  );
+
+  it.effect("pushes native sign-in completion and snapshots an already completed operation", () =>
+    Effect.gen(function* () {
+      yield* runMigrations();
+      yield* activateCodex;
+      const coordinator = yield* ProviderConnectionLoginCoordinator;
+      const started = yield* coordinator.begin({
+        harness: "codex",
+        authenticationTargetId: "openai-first-party",
+        authenticationMethodId: "chatgpt",
+      });
+      const listening = yield* Deferred.make<void>();
+      const updates = yield* coordinator.subscribe({ operationId: started.operationId }).pipe(
+        Stream.tap(() => Deferred.succeed(listening, undefined)),
+        Stream.takeUntil((snapshot) => snapshot.state === "completed"),
+        Stream.runCollect,
+        Effect.forkScoped,
+      );
+      yield* Deferred.await(listening);
+      pendingLogin?.resolve({
+        type: "chatgpt",
+        email: "push@example.com",
+        planType: "pro",
+        rateLimitsSnapshot: null,
+      });
+      const snapshots = yield* Fiber.join(updates);
+      assert.strictEqual(snapshots[0]?.state, "awaiting-user");
+      assert.strictEqual(snapshots.at(-1)?.connection?.label, "push@example.com");
+      const latest = yield* coordinator
+        .subscribe({ operationId: started.operationId })
+        .pipe(Stream.take(1), Stream.runCollect);
+      assert.strictEqual(latest[0]?.state, "completed");
+    }).pipe(Effect.scoped),
   );
 
   it.effect("commits a Connection only after the native login verifies the account", () =>

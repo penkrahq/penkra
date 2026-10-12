@@ -10,6 +10,7 @@ const nativeApi = vi.hoisted(() => ({
   cancelConnectionLogin: vi.fn(),
   createStaticConnection: vi.fn(),
   getConnectionLogin: vi.fn(),
+  subscribeConnectionLogin: vi.fn(),
   getConnections: vi.fn(),
   openExternal: vi.fn(),
   terminateConnection: vi.fn(),
@@ -24,6 +25,7 @@ vi.mock("~/nativeApi", () => ({
       cancelConnectionLogin: nativeApi.cancelConnectionLogin,
       createStaticConnection: nativeApi.createStaticConnection,
       getConnectionLogin: nativeApi.getConnectionLogin,
+      subscribeConnectionLogin: nativeApi.subscribeConnectionLogin,
       getConnections: nativeApi.getConnections,
       terminateConnection: nativeApi.terminateConnection,
     },
@@ -146,6 +148,7 @@ async function renderPage() {
 
 describe("Settings Agents Connections", () => {
   beforeEach(() => {
+    nativeApi.subscribeConnectionLogin.mockReturnValue(() => undefined);
     nativeApi.getConnections.mockResolvedValue(snapshot());
     nativeApi.beginConnectionLogin.mockResolvedValue({
       operationId: "login-codex-work",
@@ -197,6 +200,25 @@ describe("Settings Agents Connections", () => {
       authenticationMethodId: "api-key",
       secret: "secret-key",
     });
+  });
+
+  it("finishes sign-in on the pushed completion and releases the subscription", async () => {
+    const unsubscribe = vi.fn();
+    nativeApi.subscribeConnectionLogin.mockReturnValue(unsubscribe);
+    await renderPage();
+    await page.getByRole("button", { name: "ChatGPT agent" }).click();
+    await page.getByRole("button", { name: "Sign in for ChatGPT" }).click();
+    await vi.waitFor(() => expect(nativeApi.subscribeConnectionLogin).toHaveBeenCalledOnce());
+    const [input, onSnapshot] = nativeApi.subscribeConnectionLogin.mock.calls[0]!;
+    expect(input).toEqual({ operationId: "login-codex-work" });
+    expect(nativeApi.getConnectionLogin).not.toHaveBeenCalled();
+    onSnapshot({
+      operationId: input.operationId,
+      state: "completed",
+      connection: snapshot().connections[0],
+    });
+    await vi.waitFor(() => expect(unsubscribe).toHaveBeenCalledOnce());
+    expect(nativeApi.getConnectionLogin).not.toHaveBeenCalled();
   });
 
   it("starts ChatGPT account sign-in directly from the inline card", async () => {

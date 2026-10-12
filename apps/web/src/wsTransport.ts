@@ -22,6 +22,8 @@ import {
   WsCompatibilityError,
   WsFeatureRpcGroup,
   WsRpcError,
+  type GetProviderConnectionLoginInput,
+  type ProviderConnectionLoginSnapshot,
   type OrchestrationEvent,
   type OrchestrationShellStreamItem,
   type OrchestrationSyncStreamItem,
@@ -427,6 +429,43 @@ export function shouldKeepServerLifecycleStream(activeChannels: ReadonlySet<stri
 }
 
 export class WsTransport {
+  subscribeConnectionLogin(
+    input: GetProviderConnectionLoginInput,
+    onSnapshot: (snapshot: ProviderConnectionLoginSnapshot) => void,
+    onError: (error: Error) => void,
+  ): () => void {
+    let stopped = false;
+    let cancel: (() => void) | undefined;
+    void this.getClient()
+      .then((client) => {
+        if (stopped || this.disposed) return;
+        const registeredCancel = this.getClientRuntime(client).runCallback(
+          Stream.runForEach(
+            client[WS_METHODS.providerSubscribeConnectionLogin](input),
+            (snapshot) =>
+              Effect.sync(() => {
+                if (!stopped) onSnapshot(snapshot);
+              }),
+          ),
+          {
+            onExit: (exit) => {
+              if (!stopped && Exit.isFailure(exit) && !Cause.hasInterruptsOnly(exit.cause))
+                onError(causeToError(exit.cause));
+            },
+          },
+        );
+        cancel = registeredCancel;
+        if (stopped) cancel();
+      })
+      .catch((error) => {
+        if (!stopped) onError(error instanceof Error ? error : new Error(String(error)));
+      });
+    return () => {
+      stopped = true;
+      cancel?.();
+    };
+  }
+
   private readonly explicitUrl: string | null;
   private readonly listeners = new Map<string, Set<(message: WsPush) => void>>();
   private readonly stateListeners = new Set<(state: WsTransportState) => void>();
