@@ -84,7 +84,6 @@ export class FindCoordinator {
   #activeLocalIndex = -1;
   #runningGeneration: number | null = null;
   #refreshQueued = false;
-  #refreshTimer: ReturnType<typeof setTimeout> | null = null;
   #disposed = false;
 
   getSnapshot = (): FindState => this.#state;
@@ -104,28 +103,24 @@ export class FindCoordinator {
       this.#surfaceInvalidationCleanups.set(
         surface.id,
         surface.subscribeInvalidation(() => {
-          this.#scheduleRefresh();
+          this.#requestRefresh();
         }),
       );
     }
-    this.#scheduleRefresh();
+    this.#requestRefresh();
 
     return () => {
       this.#surfaceInvalidationCleanups.get(surface.id)?.();
       this.#surfaceInvalidationCleanups.delete(surface.id);
       this.#surfaces.delete(surface.id);
       surface.clear();
-      this.#scheduleRefresh();
+      this.#requestRefresh();
     };
   }
 
   setQuery(query: string): void {
     if (query === this.#state.query) return;
     this.#refreshQueued = false;
-    if (this.#refreshTimer !== null) {
-      clearTimeout(this.#refreshTimer);
-      this.#refreshTimer = null;
-    }
     this.#activeSurfaceId = null;
     this.#activeLocalIndex = -1;
     if (!query) {
@@ -153,8 +148,6 @@ export class FindCoordinator {
   dispose(): void {
     this.#disposed = true;
     this.#generation += 1;
-    if (this.#refreshTimer !== null) clearTimeout(this.#refreshTimer);
-    this.#refreshTimer = null;
     this.#refreshQueued = false;
     for (const cleanup of this.#surfaceInvalidationCleanups.values()) cleanup();
     for (const surface of this.#surfaces.values()) surface.clear();
@@ -258,22 +251,18 @@ export class FindCoordinator {
       this.#runningGeneration = null;
       if (this.#refreshQueued) {
         this.#refreshQueued = false;
-        this.#scheduleRefresh();
+        this.#requestRefresh();
       }
     }
   }
 
-  #scheduleRefresh(): void {
+  #requestRefresh(): void {
     if (this.#disposed || !this.#state.query) return;
     if (this.#runningGeneration !== null) {
       this.#refreshQueued = true;
       return;
     }
-    if (this.#refreshTimer !== null) return;
-    this.#refreshTimer = setTimeout(() => {
-      this.#refreshTimer = null;
-      if (this.#state.query) void this.#runSearch(this.#state.query, true);
-    }, 16);
+    void this.#runSearch(this.#state.query, true);
   }
 
   async #move(direction: 1 | -1): Promise<void> {

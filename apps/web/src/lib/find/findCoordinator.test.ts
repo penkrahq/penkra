@@ -155,52 +155,61 @@ describe("FindCoordinator", () => {
     });
   });
 
-  it("coalesces invalidations while a search is pending", async () => {
-    vi.useFakeTimers();
-    try {
-      const callbacks: {
-        resolveSearch?: (value: FindSurfaceResult) => void;
-        invalidate?: () => void;
-      } = {};
-      const search = vi.fn(
-        () =>
-          new Promise<FindSurfaceResult>((resolve) => {
-            callbacks.resolveSearch = resolve;
-          }),
-      );
-      const coordinator = new FindCoordinator();
-      coordinator.register({
-        id: "live",
-        order: 0,
-        isVisible: () => true,
-        search,
-        activate: vi.fn(),
-        clear: vi.fn(),
-        subscribeInvalidation: (listener) => {
-          callbacks.invalidate = listener;
-          return () => {};
-        },
+  it("coalesces invalidations and refreshes when the current search completes", async () => {
+    const callbacks: {
+      resolveSearch?: (value: FindSurfaceResult) => void;
+      invalidate?: () => void;
+    } = {};
+    let onSecondStarted!: () => void;
+    const secondStarted = new Promise<void>((resolve) => {
+      onSecondStarted = resolve;
+    });
+    const search = vi.fn(() => {
+      if (search.mock.calls.length === 2) onSecondStarted();
+      return new Promise<FindSurfaceResult>((resolve) => {
+        callbacks.resolveSearch = resolve;
       });
+    });
+    const coordinator = new FindCoordinator();
+    coordinator.register({
+      id: "live",
+      order: 0,
+      isVisible: () => true,
+      search,
+      activate: vi.fn(),
+      clear: vi.fn(),
+      subscribeInvalidation: (listener) => {
+        callbacks.invalidate = listener;
+        return () => {};
+      },
+    });
 
-      coordinator.setQuery("needle");
-      callbacks.invalidate?.();
-      callbacks.invalidate?.();
-      callbacks.invalidate?.();
-      expect(search).toHaveBeenCalledTimes(1);
+    coordinator.setQuery("needle");
+    callbacks.invalidate?.();
+    callbacks.invalidate?.();
+    callbacks.invalidate?.();
+    expect(search).toHaveBeenCalledTimes(1);
 
-      callbacks.resolveSearch?.({ count: 1 });
-      await settle();
-      expect(coordinator.getSnapshot()).toEqual({
-        query: "needle",
-        current: 1,
-        total: 1,
-        pending: false,
+    callbacks.resolveSearch?.({ count: 1 });
+    await secondStarted;
+    expect(search).toHaveBeenCalledTimes(2);
+    expect(coordinator.getSnapshot()).toEqual({
+      query: "needle",
+      current: 1,
+      total: 1,
+      pending: false,
+    });
+
+    const refreshed = new Promise<void>((resolve) => {
+      const unsubscribe = coordinator.subscribe(() => {
+        if (coordinator.getSnapshot().total !== 2) return;
+        unsubscribe();
+        resolve();
       });
-
-      await vi.advanceTimersByTimeAsync(16);
-      expect(search).toHaveBeenCalledTimes(2);
-    } finally {
-      vi.useRealTimers();
-    }
+    });
+    callbacks.resolveSearch?.({ count: 2 });
+    await refreshed;
+    expect(coordinator.getSnapshot().total).toBe(2);
+    coordinator.dispose();
   });
 });
