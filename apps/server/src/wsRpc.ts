@@ -1264,11 +1264,6 @@ const makeWsRpcHandlersLayer = () =>
                 Stream.mapError((cause) => toWsRpcError(cause, "Could not subscribe to sign in")),
               ),
           ),
-        [WS_METHODS.providerGetConnectionLogin]: (input) =>
-          rpcEffect(
-            providerConnectionLoginCoordinator.get(input),
-            "Failed to read Connection sign in",
-          ),
         [WS_METHODS.providerCancelConnectionLogin]: (input) =>
           rpcEffect(
             providerConnectionLoginCoordinator.cancel(input),

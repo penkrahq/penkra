@@ -515,8 +515,6 @@ export function createWsNativeApi(): NativeApi {
         transport.request(WS_METHODS.providerBeginConnectionLogin, input),
       subscribeConnectionLogin: (input, onSnapshot, onError) =>
         transport.subscribeConnectionLogin(input, onSnapshot, onError),
-      getConnectionLogin: (input) =>
-        transport.request(WS_METHODS.providerGetConnectionLogin, input),
       cancelConnectionLogin: (input) =>
         transport.request(WS_METHODS.providerCancelConnectionLogin, input),
       terminateConnection: (input) =>

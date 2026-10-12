@@ -339,7 +339,6 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
       const listening = yield* Deferred.make<void>();
       const updates = yield* coordinator.subscribe({ operationId: started.operationId }).pipe(
         Stream.tap(() => Deferred.succeed(listening, undefined)),
-        Stream.takeUntil((snapshot) => snapshot.state === "completed"),
         Stream.runCollect,
         Effect.forkScoped,
       );
@@ -355,7 +354,7 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
       assert.strictEqual(snapshots.at(-1)?.connection?.label, "push@example.com");
       const latest = yield* coordinator
         .subscribe({ operationId: started.operationId })
-        .pipe(Stream.take(1), Stream.runCollect);
+        .pipe(Stream.runCollect);
       assert.strictEqual(latest[0]?.state, "completed");
     }).pipe(Effect.scoped),
   );
@@ -1096,12 +1095,21 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
         authenticationTargetId: "openai-first-party",
         authenticationMethodId: "chatgpt",
       });
+      const listening = yield* Deferred.make<void>();
+      const updates = yield* coordinator.subscribe({ operationId: started.operationId }).pipe(
+        Stream.tap(() => Deferred.succeed(listening, undefined)),
+        Stream.runCollect,
+        Effect.forkScoped,
+      );
+      yield* Deferred.await(listening);
       const cancelled = yield* coordinator.cancel({
         operationId: started.operationId,
       });
       assert.strictEqual(cancelled.state, "cancelled");
       assert.strictEqual(logoutCount, 1);
-    }),
+      const snapshots = yield* Fiber.join(updates);
+      assert.strictEqual(snapshots.at(-1)?.state, "cancelled");
+    }).pipe(Effect.scoped),
   );
 
   it.effect("terminalizes a native startup failure before returning the error", () =>

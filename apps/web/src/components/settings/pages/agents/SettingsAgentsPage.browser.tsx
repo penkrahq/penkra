@@ -9,7 +9,6 @@ const nativeApi = vi.hoisted(() => ({
   beginConnectionLogin: vi.fn(),
   cancelConnectionLogin: vi.fn(),
   createStaticConnection: vi.fn(),
-  getConnectionLogin: vi.fn(),
   subscribeConnectionLogin: vi.fn(),
   getConnections: vi.fn(),
   openExternal: vi.fn(),
@@ -24,7 +23,6 @@ vi.mock("~/nativeApi", () => ({
       beginConnectionLogin: nativeApi.beginConnectionLogin,
       cancelConnectionLogin: nativeApi.cancelConnectionLogin,
       createStaticConnection: nativeApi.createStaticConnection,
-      getConnectionLogin: nativeApi.getConnectionLogin,
       subscribeConnectionLogin: nativeApi.subscribeConnectionLogin,
       getConnections: nativeApi.getConnections,
       terminateConnection: nativeApi.terminateConnection,
@@ -158,14 +156,6 @@ describe("Settings Agents Connections", () => {
       connection: null,
       failureReason: null,
     });
-    nativeApi.getConnectionLogin.mockResolvedValue({
-      operationId: "login-codex-work",
-      connectionId: "connection-codex-work",
-      state: "starting",
-      authUrl: "https://auth.example.test/codex",
-      connection: null,
-      failureReason: null,
-    });
     nativeApi.createStaticConnection.mockResolvedValue(snapshot().connections[0]);
     nativeApi.terminateConnection.mockResolvedValue(snapshot().connections[0]);
     nativeApi.confirm.mockResolvedValue(true);
@@ -211,14 +201,12 @@ describe("Settings Agents Connections", () => {
     await vi.waitFor(() => expect(nativeApi.subscribeConnectionLogin).toHaveBeenCalledOnce());
     const [input, onSnapshot] = nativeApi.subscribeConnectionLogin.mock.calls[0]!;
     expect(input).toEqual({ operationId: "login-codex-work" });
-    expect(nativeApi.getConnectionLogin).not.toHaveBeenCalled();
     onSnapshot({
       operationId: input.operationId,
       state: "completed",
       connection: snapshot().connections[0],
     });
     await vi.waitFor(() => expect(unsubscribe).toHaveBeenCalledOnce());
-    expect(nativeApi.getConnectionLogin).not.toHaveBeenCalled();
   });
 
   it("starts ChatGPT account sign-in directly from the inline card", async () => {

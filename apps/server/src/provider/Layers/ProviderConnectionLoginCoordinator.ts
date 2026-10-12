@@ -1372,6 +1372,13 @@ export function makeProviderConnectionLoginCoordinator(
                 Stream.filter((record) => record.operationId === input.operationId),
                 Stream.mapEffect(() => get(input)),
               ),
+            ).pipe(
+              Stream.takeUntil(
+                (snapshot) =>
+                  snapshot.state === "completed" ||
+                  snapshot.state === "failed" ||
+                  snapshot.state === "cancelled",
+              ),
             );
           }),
         ),
