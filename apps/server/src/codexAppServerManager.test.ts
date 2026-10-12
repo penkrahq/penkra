@@ -19,12 +19,12 @@ import path from "node:path";
 import { PassThrough } from "node:stream";
 import { MessageId, type ProviderEvent, ThreadId, TurnId } from "@penkra/contracts";
 
+import * as executableLookup from "./executableLookup.ts";
 import { buildCodexProcessEnv } from "./codexProcessEnv";
 import {
   buildCodexInitializeParams,
   buildCodexDynamicTools,
   buildCodexThreadMcpConfig,
-  CODEX_MODEL_DISCOVERY_CACHE_TTL_MS,
   CODEX_DEVELOPER_INSTRUCTIONS,
   CodexSessionStoppedRequestError,
   __codexCliVersionGateTesting,
@@ -2002,13 +2002,38 @@ describe("codex CLI version gate", () => {
       ).rejects.toThrow(formatMissingCodexWorkingDirectoryError(path.join(dir, "missing")));
       expect(probeCount()).toBe(1);
 
-      // An expired verdict re-probes.
+      // Explicit invalidation re-probes.
       reset();
       await assertSupportedCodexCliVersion({ binaryPath, cwd: dir, homePath });
       expect(probeCount()).toBe(2);
     } finally {
       reset();
       vi.unstubAllEnvs();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not cache a successful version probe without a binary fingerprint", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "penkra-codex-no-fingerprint-"));
+    const binaryPath = path.join(dir, process.platform === "win32" ? "codex.cmd" : "codex.sh");
+    const counterPath = path.join(dir, "calls.log");
+    writeFileSync(
+      binaryPath,
+      process.platform === "win32"
+        ? `@echo off\necho x>>"${counterPath}"\necho codex-cli 9.9.9\n`
+        : `#!/bin/sh\necho x >> "${counterPath}"\necho "codex-cli 9.9.9"\n`,
+      { mode: 0o755 },
+    );
+    const identity = vi.spyOn(executableLookup, "executableIdentity").mockReturnValue(null);
+    const { assertSupportedCodexCliVersion, reset } = __codexCliVersionGateTesting;
+    reset();
+    try {
+      await assertSupportedCodexCliVersion({ binaryPath, cwd: dir });
+      await assertSupportedCodexCliVersion({ binaryPath, cwd: dir });
+      expect(readFileSync(counterPath, "utf8").trim().split("\n")).toHaveLength(2);
+    } finally {
+      identity.mockRestore();
+      reset();
       rmSync(dir, { recursive: true, force: true });
     }
   });
@@ -3561,126 +3586,138 @@ describe("CodexAppServerManager discovery", () => {
     });
   });
 
-  it("refreshes a cached model catalog after one day", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-09-04T00:00:00.000Z"));
-    try {
-      const manager = new CodexAppServerManager();
-      const context = {
-        transport: {
-          key: "test-account",
-          cwd: "test-cwd",
-          connectionIds: new Set(),
-          token: Symbol("test-account"),
-          threads: new Set<unknown>(),
-          probes: new Map(),
-          pendingCloses: new Map(),
-          stopping: false,
-          account: { type: "unknown", planType: null, sparkEnabled: true },
-        },
-        session: {
-          provider: "codex",
-          status: "ready",
-          threadId: "thread_1",
-          runtimeMode: "full-access",
-          model: "gpt-5.6-sol",
-        },
-        collabReceiverTurns: new Map(),
-        collabReceiverParents: new Map(),
-      };
-      context.transport.threads.add(context);
-      vi.spyOn(
-        manager as unknown as { resolveProcessForDiscovery: () => unknown },
-        "resolveProcessForDiscovery",
-      ).mockReturnValue(context.transport);
-      const sendRequest = vi
-        .spyOn(
-          manager as unknown as {
-            sendRequest: (...args: unknown[]) => Promise<unknown>;
-          },
-          "sendRequest",
-        )
-        .mockResolvedValueOnce({
-          result: { items: [{ id: "gpt-5.6-sol", name: "Sol" }] },
-        })
-        .mockResolvedValueOnce({
-          result: {
-            items: [{ id: "gpt-6-astra", name: "Astra", isDefault: true }],
-          },
-        });
-
-      await expect(manager.listModels("thread_1")).resolves.toMatchObject({
-        models: [{ slug: "gpt-5.6-sol" }],
-        cached: false,
+  it("coalesces only concurrent model discovery requests", async () => {
+    const manager = new CodexAppServerManager();
+    const transport = {};
+    vi.spyOn(
+      manager as unknown as { resolveProcessForDiscovery: () => unknown },
+      "resolveProcessForDiscovery",
+    ).mockReturnValue(transport);
+    let started!: () => void;
+    const requestStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let complete!: (value: unknown) => void;
+    const reply = new Promise<unknown>((resolve) => {
+      complete = resolve;
+    });
+    const sendRequest = vi
+      .spyOn(
+        manager as unknown as { sendRequest: (...args: unknown[]) => Promise<unknown> },
+        "sendRequest",
+      )
+      .mockImplementation(() => {
+        started();
+        return reply;
       });
-      vi.advanceTimersByTime(CODEX_MODEL_DISCOVERY_CACHE_TTL_MS - 1);
-      await expect(manager.listModels("thread_1")).resolves.toMatchObject({
-        models: [{ slug: "gpt-5.6-sol" }],
-        cached: true,
-      });
-      vi.advanceTimersByTime(1);
-      await expect(manager.listModels("thread_1")).resolves.toMatchObject({
-        models: [{ slug: "gpt-6-astra", isDefault: true }],
-        cached: false,
-      });
-      expect(sendRequest).toHaveBeenCalledTimes(2);
-    } finally {
-      vi.useRealTimers();
-    }
+    const first = manager.listModels("thread_1");
+    const second = manager.listModels("thread_1");
+    await requestStarted;
+    expect(sendRequest).toHaveBeenCalledTimes(1);
+    complete({ result: { items: [{ id: "gpt-5.6-sol", name: "Sol" }] } });
+    const results = await Promise.all([first, second]);
+    expect(results[0]).toEqual(results[1]);
+    expect(results[0]).toMatchObject({ models: [{ slug: "gpt-5.6-sol" }], cached: false });
   });
 
-  it("retains an expired model catalog when automatic refresh fails", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-09-04T00:00:00.000Z"));
-    try {
-      const manager = new CodexAppServerManager();
-      const context = {
-        transport: {
-          key: "test-account",
-          cwd: "test-cwd",
-          connectionIds: new Set(),
-          token: Symbol("test-account"),
-          threads: new Set<unknown>(),
-          probes: new Map(),
-          pendingCloses: new Map(),
-          stopping: false,
-          account: { type: "unknown", planType: null, sparkEnabled: true },
-        },
-        session: {
-          provider: "codex",
-          status: "ready",
-          threadId: "thread_1",
-          runtimeMode: "full-access",
-          model: "gpt-5.6-sol",
-        },
-        collabReceiverTurns: new Map(),
-        collabReceiverParents: new Map(),
-      };
-      context.transport.threads.add(context);
-      vi.spyOn(
-        manager as unknown as { resolveProcessForDiscovery: () => unknown },
-        "resolveProcessForDiscovery",
-      ).mockReturnValue(context.transport);
-      vi.spyOn(
+  it("reads models on each explicit discovery request", async () => {
+    const manager = new CodexAppServerManager();
+    const context = {
+      transport: {
+        key: "test-account",
+        cwd: "test-cwd",
+        connectionIds: new Set(),
+        token: Symbol("test-account"),
+        threads: new Set<unknown>(),
+        probes: new Map(),
+        pendingCloses: new Map(),
+        stopping: false,
+        account: { type: "unknown", planType: null, sparkEnabled: true },
+      },
+      session: {
+        provider: "codex",
+        status: "ready",
+        threadId: "thread_1",
+        runtimeMode: "full-access",
+        model: "gpt-5.6-sol",
+      },
+      collabReceiverTurns: new Map(),
+      collabReceiverParents: new Map(),
+    };
+    context.transport.threads.add(context);
+    vi.spyOn(
+      manager as unknown as { resolveProcessForDiscovery: () => unknown },
+      "resolveProcessForDiscovery",
+    ).mockReturnValue(context.transport);
+    const sendRequest = vi
+      .spyOn(
         manager as unknown as {
           sendRequest: (...args: unknown[]) => Promise<unknown>;
         },
         "sendRequest",
       )
-        .mockResolvedValueOnce({
-          result: { items: [{ id: "gpt-5.6-sol", name: "Sol" }] },
-        })
-        .mockRejectedValueOnce(new Error("provider unavailable"));
-
-      await manager.listModels("thread_1");
-      vi.advanceTimersByTime(CODEX_MODEL_DISCOVERY_CACHE_TTL_MS);
-      await expect(manager.listModels("thread_1")).resolves.toMatchObject({
-        models: [{ slug: "gpt-5.6-sol" }],
-        cached: true,
+      .mockResolvedValueOnce({
+        result: { items: [{ id: "gpt-5.6-sol", name: "Sol" }] },
+      })
+      .mockResolvedValueOnce({
+        result: {
+          items: [{ id: "gpt-6-astra", name: "Astra", isDefault: true }],
+        },
       });
-    } finally {
-      vi.useRealTimers();
-    }
+
+    await expect(manager.listModels("thread_1")).resolves.toMatchObject({
+      models: [{ slug: "gpt-5.6-sol" }],
+      cached: false,
+    });
+    await expect(manager.listModels("thread_1")).resolves.toMatchObject({
+      models: [{ slug: "gpt-6-astra", isDefault: true }],
+      cached: false,
+    });
+    expect(sendRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it("surfaces a failed explicit discovery instead of retaining a server catalog", async () => {
+    const manager = new CodexAppServerManager();
+    const context = {
+      transport: {
+        key: "test-account",
+        cwd: "test-cwd",
+        connectionIds: new Set(),
+        token: Symbol("test-account"),
+        threads: new Set<unknown>(),
+        probes: new Map(),
+        pendingCloses: new Map(),
+        stopping: false,
+        account: { type: "unknown", planType: null, sparkEnabled: true },
+      },
+      session: {
+        provider: "codex",
+        status: "ready",
+        threadId: "thread_1",
+        runtimeMode: "full-access",
+        model: "gpt-5.6-sol",
+      },
+      collabReceiverTurns: new Map(),
+      collabReceiverParents: new Map(),
+    };
+    context.transport.threads.add(context);
+    vi.spyOn(
+      manager as unknown as { resolveProcessForDiscovery: () => unknown },
+      "resolveProcessForDiscovery",
+    ).mockReturnValue(context.transport);
+    vi.spyOn(
+      manager as unknown as {
+        sendRequest: (...args: unknown[]) => Promise<unknown>;
+      },
+      "sendRequest",
+    )
+      .mockResolvedValueOnce({
+        result: { items: [{ id: "gpt-5.6-sol", name: "Sol" }] },
+      })
+      .mockRejectedValueOnce(new Error("provider unavailable"));
+
+    await manager.listModels("thread_1");
+    await expect(manager.listModels("thread_1")).rejects.toThrow("provider unavailable");
   });
 
   it("rejects discovery instead of reusing an unrelated active Connection session", async () => {

@@ -7440,10 +7440,15 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
 
   it.effect("closes an uninstalled Claude query when post-spawn setup fails", () => {
     const query = new FakeClaudeQuery();
-    (query as { supportedModels: () => Promise<ModelInfo[]> }).supportedModels = () => {
-      throw new Error("simulated post-spawn setup failure");
-    };
-    const layer = makeClaudeAdapterLive({ createQuery: () => query }).pipe(
+    let queryCreated = false;
+    let failedSetup = false;
+    const random = makeDeterministicRandomService();
+    const layer = makeClaudeAdapterLive({
+      createQuery: () => {
+        queryCreated = true;
+        return query;
+      },
+    }).pipe(
       Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-adapter-test", "/tmp")),
       Layer.provideMerge(NodeServices.layer),
     );
@@ -7463,10 +7468,90 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       assert.equal(yield* adapter.hasSession(THREAD_ID), false);
       assert.equal((yield* adapter.listSessions()).length, 0);
     }).pipe(
-      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provideService(Random.Random, {
+        ...random,
+        nextIntUnsafe: () => {
+          if (queryCreated && !failedSetup) {
+            failedSetup = true;
+            throw new Error("simulated post-spawn event setup failure");
+          }
+          return random.nextIntUnsafe();
+        },
+      }),
       Effect.provide(layer),
     );
   });
+
+  it.effect(
+    "coalesces concurrent Claude discovery and surfaces a later failure without a cache",
+    () => {
+      const query = new FakeClaudeQuery();
+      const failedQuery = new FakeClaudeQuery();
+      let started!: () => void;
+      const requestStarted = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      let complete!: (models: ModelInfo[]) => void;
+      const response = new Promise<ModelInfo[]>((resolve) => {
+        complete = resolve;
+      });
+      (query as { supportedModels: () => Promise<ModelInfo[]> }).supportedModels = () => {
+        started();
+        return response;
+      };
+      (failedQuery as { supportedModels: () => Promise<ModelInfo[]> }).supportedModels =
+        async () => {
+          throw new Error("Claude discovery failed");
+        };
+      let creations = 0;
+      const layer = makeClaudeAdapterLive({
+        createQuery: () => (++creations === 1 ? query : failedQuery),
+      }).pipe(
+        Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-adapter-test", "/tmp")),
+        Layer.provideMerge(NodeServices.layer),
+      );
+      return Effect.gen(function* () {
+        const adapter = yield* ClaudeAdapter;
+        const listModels = adapter.listModels;
+        if (!listModels) throw new Error("Expected Claude model discovery.");
+        const input = {
+          provider: "claudeAgent" as const,
+          managedLaunch: {
+            binaryPath: "/managed/claude",
+            isolationKey: "discovery-test",
+            profileRoot: "/isolated/profile",
+            nativeStateRoot: "/isolated/native",
+            childEnvironment: () => ({}),
+          },
+        };
+        const discovery = yield* Effect.all([listModels(input), listModels(input)], {
+          concurrency: "unbounded",
+        }).pipe(Effect.forkChild);
+        yield* Effect.promise(() => requestStarted);
+        assert.equal(creations, 1);
+        complete([
+          {
+            value: claudeDefaultModelId,
+            resolvedModel: claudeDefaultModelId,
+            displayName: "Default",
+            description: "",
+          },
+        ]);
+        const results = yield* Fiber.join(discovery);
+        assert.deepEqual(results[0], results[1]);
+        assert.equal(query.closeCalls, 1);
+        const failure = yield* Effect.flip(listModels(input));
+        if (failure._tag !== "ProviderAdapterProcessError")
+          throw new Error("Expected a discovery process error.");
+        assert.include(failure.detail, "Claude discovery failed");
+        assert.equal(creations, 2);
+        assert.equal(failedQuery.closeCalls, 1);
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(layer),
+      );
+    },
+  );
 
   it.effect("discovers canonical future Claude models before a session starts", () => {
     const query = new FakeClaudeQuery();
