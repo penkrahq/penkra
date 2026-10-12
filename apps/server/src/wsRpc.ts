@@ -322,13 +322,7 @@ const makeWsRpcHandlersLayer = () =>
       });
 
       const importThread = makeImportThreadHandler({
-        fileSystem,
-        orchestrationEngine,
-        path,
-        platform: process.platform,
         projectionSnapshotQuery: projectionReadModelQuery,
-        providerAdapterRegistry,
-        providerService,
       });
 
       const dispatchOrchestrationCommand = (command: OrchestrationCommand) =>
