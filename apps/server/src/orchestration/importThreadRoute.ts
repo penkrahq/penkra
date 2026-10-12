@@ -2,26 +2,16 @@
 // Purpose: Fail-closed boundary while exact Connection-scoped native import is implemented.
 
 import type { OrchestrationImportThreadInput } from "@penkra/contracts";
-import type { FileSystem, Path } from "effect";
 import { Data, Effect, Option } from "effect";
 
-import type { OrchestrationEngineShape } from "./Services/OrchestrationEngine";
 import type { ProjectionSnapshotQueryShape } from "./Services/ProjectionSnapshotQuery";
-import type { ProviderAdapterRegistryShape } from "../provider/Services/ProviderAdapterRegistry";
-import type { ProviderServiceShape } from "../provider/Services/ProviderService";
 
 class ImportThreadError extends Data.TaggedError("ImportThreadError")<{
   readonly message: string;
 }> {}
 
 export interface ImportThreadHandlerOptions {
-  readonly fileSystem: FileSystem.FileSystem;
-  readonly orchestrationEngine: OrchestrationEngineShape;
-  readonly path: Path.Path;
-  readonly platform: NodeJS.Platform;
-  readonly projectionSnapshotQuery: ProjectionSnapshotQueryShape;
-  readonly providerAdapterRegistry: ProviderAdapterRegistryShape;
-  readonly providerService: ProviderServiceShape;
+  readonly projectionSnapshotQuery: Pick<ProjectionSnapshotQueryShape, "getThreadDetailById">;
 }
 
 /**
