@@ -1,11 +1,16 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import type { ServerProviderStatus } from "@penkra/contracts";
-import { DEFAULT_SERVER_SETTINGS, ServerProviderUpdateError } from "@penkra/contracts";
+import {
+  DEFAULT_SERVER_SETTINGS,
+  ServerProviderUpdateError,
+  ServerSettingsError,
+} from "@penkra/contracts";
 import { describe, it, assert } from "@effect/vitest";
 import { Deferred, Duration, Effect, Fiber, FileSystem, Layer, Path, Sink, Stream } from "effect";
 import * as PlatformError from "effect/PlatformError";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import { vi } from "vitest";
+import { TestClock } from "effect/testing";
 
 import { PENKRA_CODEX_HOME_OVERLAY_DIR } from "../../codexHomePaths";
 import { ServerConfig } from "../../config";
@@ -449,6 +454,64 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
             );
           }).pipe(Effect.provide(layer));
         }),
+    );
+
+    it.effect("keeps the daily schedule alive after settings fail on its first iteration", () =>
+      Effect.gen(function* () {
+        const failed = yield* Deferred.make<void>();
+        const lookedUp = yield* Deferred.make<void>();
+        let readyCalls = 0;
+        const settingsLayer = Layer.effect(
+          ServerSettingsService,
+          Effect.gen(function* () {
+            const settings = yield* ServerSettingsService;
+            return {
+              ...settings,
+              ready: Effect.suspend(() => {
+                readyCalls += 1;
+                return readyCalls === 1
+                  ? Deferred.succeed(failed, undefined).pipe(
+                      Effect.andThen(
+                        Effect.fail(
+                          new ServerSettingsError({
+                            settingsPath: "<memory>",
+                            detail: "first iteration fails",
+                          }),
+                        ),
+                      ),
+                    )
+                  : Effect.void;
+              }),
+            };
+          }),
+        ).pipe(
+          Layer.provide(
+            ServerSettingsService.layerTest({
+              ...allProvidersDisabledSettings,
+              providers: { ...allProvidersDisabledSettings.providers, codex: { enabled: true } },
+            }),
+          ),
+        );
+        const layer = makeProviderHealthLive({
+          resolveManagedArtifact: () =>
+            Deferred.succeed(lookedUp, undefined).pipe(
+              Effect.andThen(Effect.fail(new Error("fixture metadata failure"))),
+            ),
+        }).pipe(
+          Layer.provideMerge(settingsLayer),
+          Layer.provideMerge(
+            ServerConfig.layerTest(process.cwd(), { prefix: "provider-release-failed-iteration-" }),
+          ),
+        );
+        yield* Effect.gen(function* () {
+          yield* ProviderHealth;
+          yield* Deferred.await(failed);
+          assert.strictEqual(yield* Deferred.isDone(lookedUp), false);
+          yield* TestClock.adjust(PROVIDER_RELEASE_CHECK_INTERVAL);
+          yield* Deferred.await(lookedUp);
+          assert.strictEqual(readyCalls, 2);
+        }).pipe(Effect.provide(layer));
+      }).pipe(Effect.provide(TestClock.layer())),
     );
 
     it.effect("serves cached statuses without spawning provider CLIs on layer startup", () =>
