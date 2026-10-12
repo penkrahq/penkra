@@ -1471,6 +1471,9 @@ export function makeProviderHealthLive(options?: {
         yield* publishProjectedStatuses();
       });
       yield* checkLatestReleases.pipe(
+        Effect.catch((cause) =>
+          Effect.logWarning("provider release-check iteration failed", { cause }),
+        ),
         Effect.repeat(Schedule.spaced(PROVIDER_RELEASE_CHECK_INTERVAL)),
         Effect.forkIn(refreshScope),
       );
