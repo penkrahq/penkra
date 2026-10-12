@@ -371,13 +371,6 @@ export interface CodexThreadSnapshot {
 
 const CODEX_VERSION_CHECK_TIMEOUT_MS = 4_000;
 const CODEX_VERSION_CHECK_MAX_OUTPUT_BYTES = 1024 * 1024;
-/**
- * How long a successful `codex --version` verdict stays valid. Session start and
- * resume both gate on it, so without memoization every one of those paths spawned a
- * fresh Codex process. Failures are never cached, so installing or upgrading Codex
- * takes effect immediately.
- */
-const CODEX_VERSION_CHECK_CACHE_TTL_MS = 10 * 60 * 1000;
 
 const ANSI_ESCAPE_CHAR = String.fromCharCode(27);
 const ANSI_ESCAPE_REGEX = new RegExp(`${ANSI_ESCAPE_CHAR}\\[[0-9;]*m`, "g");
@@ -913,7 +906,6 @@ export interface CodexAppServerManagerEvents {
 // A connectivity probe can stall without a turn-end event; bound only that probe.
 const CODEX_AUTH_PROBE_DEADLINE_MS = 20_000;
 const CODEX_DISCOVERY_CACHE_MAX_ENTRIES = 128;
-export const CODEX_MODEL_DISCOVERY_CACHE_TTL_MS = 24 * 60 * 60_000;
 const CODEX_TEMPORARY_RESOURCE_MAX_BYTES = 16 * 1024 * 1024;
 
 function safeTemporaryResourceName(value: string | undefined): string {
@@ -923,11 +915,6 @@ function safeTemporaryResourceName(value: string | undefined): string {
     .slice(0, 160);
   return safe && safe !== "." && safe !== ".." ? safe : "attachment";
 }
-
-type TimedDiscoveryCacheEntry<T> = {
-  readonly result: T;
-  readonly cachedAtMs: number;
-};
 
 function getRecentCacheEntry<K, V>(cache: Map<K, V>, key: K): V | undefined {
   const value = cache.get(key);
@@ -965,10 +952,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   private readonly skillsCache = new Map<string, ProviderListSkillsResult>();
   private readonly pluginsCache = new Map<string, ProviderListPluginsResult>();
   private readonly pluginDetailCache = new Map<string, ProviderReadPluginResult>();
-  private readonly modelCache = new Map<
-    string,
-    TimedDiscoveryCacheEntry<ProviderListModelsResult>
-  >();
+  private readonly pendingModelDiscoveries = new Map<string, Promise<ProviderListModelsResult>>();
 
   private runPromise: (effect: Effect.Effect<unknown, never>) => Promise<unknown>;
   private readonly penkraSkillsDir: string | undefined;
@@ -2525,15 +2509,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     const cacheKey = managedDiscovery
       ? `managed:${managedDiscovery.managedLaunch.isolationKey}:${managedDiscovery.cwd ?? ""}`
       : threadId?.trim() || "__default__";
-    const cached = getRecentCacheEntry(this.modelCache, cacheKey);
-    if (cached && Date.now() - cached.cachedAtMs < CODEX_MODEL_DISCOVERY_CACHE_TTL_MS) {
-      return {
-        ...cached.result,
-        cached: true,
-      };
-    }
-
-    try {
+    const existing = this.pendingModelDiscoveries.get(cacheKey);
+    if (existing) return existing;
+    const pending = (async (): Promise<ProviderListModelsResult> => {
       const transport = managedDiscovery
         ? await this.getOrCreateManagedProcess(
             managedDiscovery.cwd?.trim() || process.cwd(),
@@ -2544,34 +2522,20 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         transport,
         null,
         "model/list",
-        {
-          cursor: null,
-          limit: 50,
-          includeHidden: false,
-        },
+        { cursor: null, limit: 50, includeHidden: false },
       );
-      const models = parseCodexModelListResponse(response);
-      const result: ProviderListModelsResult = {
-        models,
+      return {
+        models: parseCodexModelListResponse(response),
         source: "codex-app-server",
         cached: false,
       };
-      setRecentCacheEntry(this.modelCache, cacheKey, {
-        result,
-        cachedAtMs: Date.now(),
-      });
-      return result;
-    } catch (error) {
-      if (!cached) throw error;
-      log.warn("model/list refresh failed; retaining stale catalog", {
-        cacheKey,
-        cachedAtMs: cached.cachedAtMs,
-        error,
-      });
-      return {
-        ...cached.result,
-        cached: true,
-      };
+    })();
+    this.pendingModelDiscoveries.set(cacheKey, pending);
+    try {
+      return await pending;
+    } finally {
+      if (this.pendingModelDiscoveries.get(cacheKey) === pending)
+        this.pendingModelDiscoveries.delete(cacheKey);
     }
   }
 
@@ -4531,14 +4495,13 @@ async function runCodexCliVersionGate(input: {
 
 interface CodexCliVersionGateEntry {
   promise: Promise<void>;
-  /** 0 until the probe resolves successfully; failed verdicts are never reused. */
-  expiresAt: number;
+  inFlight: boolean;
   /**
    * The file the successful probe ran, or null when it could not be located.
    *
    * The path alone does not identify a binary: `npm i -g @openai/codex`, a downgrade or a local
    * rebuild all leave the path untouched, so a purely path-keyed cache would keep serving the
-   * pre-upgrade verdict for the rest of the TTL — long enough to swallow a downgrade below the
+   * pre-upgrade verdict indefinitely, swallowing a downgrade below the
    * supported floor. Re-stat'ing this exact file on a cache hit costs one syscall and needs no
    * environment, which is why the fingerprint lives on the entry instead of in the key.
    */
@@ -4587,37 +4550,27 @@ async function assertSupportedCodexCliVersion(input: {
   }
 
   const key = codexCliVersionGateKey(input.binaryPath, input.homePath);
-  const now = Date.now();
   const existing = codexCliVersionGates.get(key);
   if (existing) {
-    // expiresAt === 0 means the probe is still in flight: concurrent session
-    // starts share it instead of each spawning their own Codex process.
-    if (existing.expiresAt === 0) {
-      await existing.promise;
-      return;
-    }
-    if (existing.expiresAt > now && !isCodexCliVersionGateStale(existing)) {
+    if (existing.inFlight || !isCodexCliVersionGateStale(existing)) {
       await existing.promise;
       return;
     }
     codexCliVersionGates.delete(key);
   }
 
-  for (const [otherKey, entry] of codexCliVersionGates) {
-    if (entry.expiresAt !== 0 && entry.expiresAt <= now) {
-      codexCliVersionGates.delete(otherKey);
-    }
-  }
-
   const entry: CodexCliVersionGateEntry = {
     promise: Promise.resolve(),
-    expiresAt: 0,
+    inFlight: true,
     fingerprint: null,
   };
   entry.promise = runCodexCliVersionGate(input).then(
     (fingerprint) => {
       entry.fingerprint = fingerprint;
-      entry.expiresAt = Date.now() + CODEX_VERSION_CHECK_CACHE_TTL_MS;
+      entry.inFlight = false;
+      // Without a file identity there is no change event that could invalidate the verdict.
+      if (fingerprint === null && codexCliVersionGates.get(key) === entry)
+        codexCliVersionGates.delete(key);
     },
     (error: unknown) => {
       // Never cache a failure: the user may install or upgrade Codex at any time.
@@ -4634,7 +4587,6 @@ async function assertSupportedCodexCliVersion(input: {
 export const __codexCliVersionGateTesting = {
   assertSupportedCodexCliVersion,
   reset: () => codexCliVersionGates.clear(),
-  cacheTtlMs: CODEX_VERSION_CHECK_CACHE_TTL_MS,
 };
 
 function readResumeCursorThreadId(resumeCursor: unknown): string | undefined {

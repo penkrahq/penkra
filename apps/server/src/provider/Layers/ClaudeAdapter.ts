@@ -1585,20 +1585,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
     const failedStartupProcessOwners = new Map<ThreadId, ClaudeProcessOwner>();
     const failedCommandDiscoveryProcessOwners = new Set<ClaudeProcessOwner>();
     const sessionLifecycleLocks = new Map<ThreadId, Semaphore.Semaphore>();
-    const cachedModels = new Map<
-      string,
-      {
-        readonly result: ProviderListModelsResult;
-        readonly cachedAtMs: number;
-      }
-    >();
-    const cachedAgents = new Map<
-      string,
-      {
-        readonly result: ProviderListAgentsResult;
-        readonly cachedAtMs: number;
-      }
-    >();
     const runtimeEventQueue = yield* Queue.bounded<ProviderRuntimeEvent>(
       PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY,
     );
@@ -4658,47 +4644,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         let installationComplete = false;
 
         return yield* Effect.gen(function* () {
-          // Populate model cache in background from first session
-          const sessionDiscoveryIdentity =
-            input.managedLaunch?.isolationKey ?? providerOptions?.binaryPath ?? "claude";
-          if (!cachedModels.has(sessionDiscoveryIdentity)) {
-            queryRuntime
-              .supportedModels()
-              .then((models) => {
-                cachedModels.set(sessionDiscoveryIdentity, {
-                  result: mapSupportedModels(models),
-                  cachedAtMs: Date.now(),
-                });
-              })
-              .catch(() => {
-                /* ignore discovery failures */
-              });
-          }
-
-          // Populate agent cache in background from first session
-          if (!cachedAgents.has(sessionDiscoveryIdentity)) {
-            queryRuntime
-              .supportedAgents()
-              .then((agents) => {
-                cachedAgents.set(sessionDiscoveryIdentity, {
-                  result: {
-                    agents: agents.map((a) => ({
-                      name: a.name,
-                      displayName: a.name,
-                      ...(a.description ? { description: a.description } : {}),
-                      ...(a.model ? { model: a.model } : {}),
-                    })),
-                    source: "sdk",
-                    cached: false,
-                  },
-                  cachedAtMs: Date.now(),
-                });
-              })
-              .catch(() => {
-                /* ignore discovery failures */
-              });
-          }
-
           const session: ProviderSession = {
             threadId,
             provider: PROVIDER,
@@ -5456,7 +5401,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       });
 
     const pendingModelDiscoveries = new Map<string, Promise<ProviderListModelsResult>>();
-    const MODEL_DISCOVERY_CACHE_TTL_MS = 24 * 60 * 60_000;
 
     async function discoverModelsViaTemporaryProcess(
       cwd: string,
@@ -5547,14 +5491,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       Effect.gen(function* () {
         const binaryPath = input.managedLaunch?.binaryPath ?? input.binaryPath ?? "claude";
         const discoveryIdentity = input.managedLaunch?.isolationKey ?? binaryPath;
-        const cachedModelResult = cachedModels.get(discoveryIdentity);
-        if (
-          cachedModelResult &&
-          Date.now() - cachedModelResult.cachedAtMs < MODEL_DISCOVERY_CACHE_TTL_MS
-        ) {
-          return { ...cachedModelResult.result, cached: true };
-        }
-
         const claudeSdkEnv = input.managedLaunch
           ? input.managedLaunch.childEnvironment(process.env)
           : yield* resolveClaudeSdkEnv;
@@ -5579,20 +5515,18 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         }).pipe(
           Effect.tap(() =>
             Effect.sync(() => {
-              pendingModelDiscoveries.delete(discoveryIdentity);
+              if (pendingModelDiscoveries.get(discoveryIdentity) === pending)
+                pendingModelDiscoveries.delete(discoveryIdentity);
             }),
           ),
           Effect.tapError(() =>
             Effect.sync(() => {
-              pendingModelDiscoveries.delete(discoveryIdentity);
+              if (pendingModelDiscoveries.get(discoveryIdentity) === pending)
+                pendingModelDiscoveries.delete(discoveryIdentity);
             }),
           ),
         );
 
-        cachedModels.set(discoveryIdentity, {
-          result,
-          cachedAtMs: Date.now(),
-        });
         return result;
       });
 
@@ -5659,14 +5593,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
     const listAgents: NonNullable<ClaudeAdapterShape["listAgents"]> = (input) =>
       Effect.gen(function* () {
         const binaryPath = input.managedLaunch?.binaryPath ?? input.binaryPath ?? "claude";
-        const discoveryIdentity = input.managedLaunch?.isolationKey ?? binaryPath;
-        const cachedAgentResult = cachedAgents.get(discoveryIdentity);
-        if (
-          cachedAgentResult &&
-          Date.now() - cachedAgentResult.cachedAtMs < MODEL_DISCOVERY_CACHE_TTL_MS
-        ) {
-          return { ...cachedAgentResult.result, cached: true };
-        }
         const env = input.managedLaunch
           ? input.managedLaunch.childEnvironment(process.env)
           : yield* resolveClaudeSdkEnv;
@@ -5681,7 +5607,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               cause,
             }),
         });
-        cachedAgents.set(discoveryIdentity, { result, cachedAtMs: Date.now() });
         return result;
       });
 
