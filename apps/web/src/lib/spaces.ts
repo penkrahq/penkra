@@ -110,12 +110,11 @@ export async function reorderSpaces(input: {
   const movedIndex = input.orderedSpaceIds.indexOf(input.movedSpaceId);
   if (movedIndex < 0) return;
   const previous = input.orderedSpaceIds[movedIndex - 1];
-  await input.api.cleanCore.updateThread({
+  await input.api.cleanCore.updateNavigation({
     update: {
-      action: "moveSpace",
+      action: "space.move",
       spaceId: input.movedSpaceId,
       position: previous === undefined ? { type: "start" } : { type: "after", itemId: previous },
-      updatedAt: new Date().toISOString(),
     },
   });
 }

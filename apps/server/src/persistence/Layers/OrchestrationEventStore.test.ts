@@ -1,4 +1,4 @@
-import { CommandId, EventId, FolderId, ThreadId } from "@penkra/contracts";
+import { CommandId, EventId, ThreadId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Schema, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -207,10 +207,10 @@ layer("OrchestrationEventStore", (it) => {
         )
         VALUES (
           ${EventId.makeUnsafe("evt-store-invalid-json")},
-          ${"folder"},
-          ${FolderId.makeUnsafe("project-invalid-json")},
+          ${"thread"},
+          ${ThreadId.makeUnsafe("thread-invalid-json")},
           ${0},
-          ${"folder.created"},
+          ${"thread.session-stop-requested"},
           ${now},
           ${CommandId.makeUnsafe("cmd-store-invalid-json")},
           ${null},
@@ -229,7 +229,7 @@ layer("OrchestrationEventStore", (it) => {
         assert.ok(Schema.is(PersistenceDecodeError)(replayResult.failure));
         assert.match(
           replayResult.failure.operation,
-          /OrchestrationEventStore\.readFromSequence:rowToEvent\(sequence=\d+, type=folder\.created\)/,
+          /OrchestrationEventStore\.readFromSequence:rowToEvent\(sequence=\d+, type=thread\.session-stop-requested\)/,
         );
       }
     }),
@@ -259,23 +259,18 @@ layer("OrchestrationEventStore", (it) => {
         )
         VALUES (
           ${EventId.makeUnsafe("evt-store-future-schema")},
-          ${"folder"},
-          ${FolderId.makeUnsafe("project-future-schema")},
+          ${"thread"},
+          ${ThreadId.makeUnsafe("thread-future-schema")},
           ${0},
-          ${"folder.created"},
+          ${"thread.session-stop-requested"},
           ${now},
           ${CommandId.makeUnsafe("cmd-store-future-schema")},
           ${null},
           ${null},
           ${"server"},
           ${JSON.stringify({
-            folderId: "project-future-schema",
-            title: "Future schema",
-            workspaceRoot: "/tmp/project-future-schema",
-            defaultModelSelection: null,
-            scripts: [],
+            threadId: "thread-future-schema",
             createdAt: now,
-            updatedAt: now,
           })},
           ${JSON.stringify({ persistedEventSchemaVersion: 3 })}
         )
@@ -287,7 +282,10 @@ layer("OrchestrationEventStore", (it) => {
       assert.equal(replayResult._tag, "Failure");
       if (replayResult._tag === "Failure") {
         assert.ok(Schema.is(PersistenceDecodeError)(replayResult.failure));
-        assert.match(replayResult.failure.operation, /sequence=\d+, type=folder\.created/);
+        assert.match(
+          replayResult.failure.operation,
+          /sequence=\d+, type=thread\.session-stop-requested/,
+        );
         assert.ok(
           replayResult.failure.issue.includes("Unsupported persisted event schema version 3"),
           replayResult.failure.issue,

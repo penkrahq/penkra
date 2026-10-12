@@ -17,7 +17,7 @@ function makeApi(
   getFolders: ReturnType<typeof vi.fn> = vi.fn().mockRejectedValue(new Error("offline")),
 ): NativeApi {
   return {
-    cleanCore: { updateThread: dispatchCommand, getFolders },
+    cleanCore: { updateNavigation: dispatchCommand, getFolders },
     orchestration: {
       dispatchCommand,
     },
@@ -134,10 +134,9 @@ describe("reorderSpaces", () => {
     expect(dispatchCommand).toHaveBeenCalledWith(
       expect.objectContaining({
         update: {
-          action: "moveSpace",
+          action: "space.move",
           spaceId: third,
           position: { type: "start" },
-          updatedAt: expect.any(String),
         },
       }),
     );

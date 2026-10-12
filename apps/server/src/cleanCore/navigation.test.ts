@@ -334,3 +334,36 @@ it.effect("moving a folder moves its saved chats and publishes each change after
     }),
   ),
 );
+
+it.effect("positioned navigation moves reorder folders and spaces", () =>
+  withDb(
+    Effect.gen(function* () {
+      yield* runMigrations();
+      yield* ensureDefaultSpaces;
+      yield* updateNavigation({ update: updates[5]! });
+      const result = yield* updateNavigation({
+        update: {
+          action: "folder.move",
+          folderId: folder,
+          spaceId: personal,
+          position: { type: "before", itemId: "penkra-personal-default" },
+        },
+      });
+      assert.deepStrictEqual(
+        result.folders.filter((row) => row.spaceId === personal).map((row) => row.id),
+        [folder, "penkra-personal-default"],
+      );
+      const reordered = yield* updateNavigation({
+        update: {
+          action: "space.move",
+          spaceId: work,
+          position: { type: "before", itemId: personal },
+        },
+      });
+      assert.deepStrictEqual(
+        reordered.spaces.map((row) => row.id),
+        [work, personal],
+      );
+    }),
+  ),
+);

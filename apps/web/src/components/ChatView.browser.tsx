@@ -1752,7 +1752,27 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
     return { spaces, folders };
   }
   if (tag === WS_METHODS.cleanCoreUpdateNavigation) {
-    if (!recordSpaceCreateUpdate(body.update) && !recordFolderCreateUpdate(body.update))
+    const update = body.update as import("@penkra/contracts").CleanCoreNavigationUpdate;
+    if (update.action === "folder.move" && "folderId" in update) {
+      const moved = fixture.snapshot.folders.find((row) => row.id === update.folderId)!;
+      const siblings = fixture.snapshot.folders.filter((row) => row.id !== moved.id);
+      const position = update.position;
+      const anchor =
+        position.type === "before" || position.type === "after"
+          ? siblings.findIndex((row) => row.id === position.itemId)
+          : 0;
+      siblings.splice(anchor + (update.position.type === "after" ? 1 : 0), 0, {
+        ...moved,
+        spaceId: update.spaceId,
+      });
+      fixture = {
+        ...fixture,
+        snapshot: {
+          ...fixture.snapshot,
+          folders: siblings.map((row, index) => ({ ...row, sidebarSortOrder: index })),
+        },
+      };
+    } else if (!recordSpaceCreateUpdate(body.update) && !recordFolderCreateUpdate(body.update))
       throw new Error("Unexpected navigation fixture update");
     for (const emit of cleanCoreNavigationChangeEmitters) emit();
     const navigation = createStartupSnapshotFromReadModel(fixture.snapshot, []);
@@ -6643,6 +6663,52 @@ describe("ChatView timeline estimator parity (full app)", () => {
         },
         { timeout: 8_000, interval: 16 },
       );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("reorders folders through the positioned navigation RPC on drag", async () => {
+    const snapshot = createSnapshotForTargetUser({
+      targetMessageId: "folder-drag-user" as MessageId,
+      targetText: "folder drag",
+    });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: {
+        ...snapshot,
+        folders: [
+          ...snapshot.folders,
+          {
+            ...snapshot.folders[0]!,
+            id: OTHER_PROJECT_ID,
+            title: "Folder drag source",
+            workspaceRoot: "/repo/other",
+            sidebarSortOrder: 1,
+          },
+        ],
+      },
+    });
+    try {
+      const source = page.getByRole("button", { name: "Folder drag source", exact: true });
+      const target = page.getByRole("button", { name: "Project", exact: true });
+      await expect.element(source).toBeVisible();
+      await dragWithPointerFrames(source.element(), target.element(), 0.2);
+      await vi.waitFor(() => {
+        const requests = wsRequests.filter(
+          (request) => request._tag === WS_METHODS.cleanCoreUpdateNavigation,
+        );
+        expect(requests).toHaveLength(1);
+        expect(requests[0]?.update).toEqual({
+          action: "folder.move",
+          folderId: OTHER_PROJECT_ID,
+          spaceId: TEST_SPACE_ID,
+          position: { type: "before", itemId: PROJECT_ID },
+        });
+        expect(source.element().getBoundingClientRect().top).toBeLessThan(
+          target.element().getBoundingClientRect().top,
+        );
+      });
     } finally {
       await mounted.cleanup();
     }
