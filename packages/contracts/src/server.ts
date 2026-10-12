@@ -3,7 +3,6 @@ import {
   IsoDateTime,
   NonNegativeInt,
   ProviderConnectionId,
-  PositiveInt,
   FolderId,
   SpaceId,
   ThreadId,

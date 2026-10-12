@@ -179,6 +179,81 @@ export function TaskCompletionNotifications() {
     };
   }, [navigate]);
 
+  useEffect(() => {
+    if (!threadsHydrated) {
+      return;
+    }
+
+    if (!readyRef.current) {
+      previousThreadsRef.current = threads;
+      readyRef.current = true;
+      return;
+    }
+
+    const completions = collectCompletedThreadCandidates(
+      previousThreadsRef.current,
+      threads,
+    ).filter((candidate) =>
+      isNotificationRuntimeFreshTimestamp(candidate.completedAt, runtimeStartedAtMs),
+    );
+    const inputNeededCandidates = collectInputNeededThreadCandidates(
+      previousThreadsRef.current,
+      threads,
+    ).filter((candidate) =>
+      isNotificationRuntimeFreshTimestamp(candidate.createdAt, runtimeStartedAtMs),
+    );
+    previousThreadsRef.current = threads;
+
+    if (completions.length === 0 && inputNeededCandidates.length === 0) {
+      return;
+    }
+
+    const shouldAttemptSystemNotification =
+      settings.enableSystemTaskCompletionNotifications &&
+      (window.desktopBridge ? true : !isWindowForeground());
+
+    for (const completion of completions) {
+      const copy = buildTaskCompletionCopy(completion);
+      if (
+        settings.enableTaskCompletionToasts &&
+        shouldShowThreadNotificationToast({
+          threadId: completion.threadId,
+          visibleThreadIds,
+        })
+      ) {
+        showThreadToast(copy, completion.threadId, "success", navigate);
+      }
+
+      if (shouldAttemptSystemNotification) {
+        void showSystemThreadNotification(copy, completion.threadId, navigate);
+      }
+    }
+
+    for (const candidate of inputNeededCandidates) {
+      const copy = buildInputNeededCopy(candidate);
+      if (
+        settings.enableTaskCompletionToasts &&
+        shouldShowThreadNotificationToast({
+          threadId: candidate.threadId,
+          visibleThreadIds,
+        })
+      ) {
+        showThreadToast(copy, candidate.threadId, "warning", navigate);
+      }
+
+      if (shouldAttemptSystemNotification) {
+        void showSystemThreadNotification(copy, candidate.threadId, navigate);
+      }
+    }
+  }, [
+    navigate,
+    settings.enableSystemTaskCompletionNotifications,
+    settings.enableTaskCompletionToasts,
+    threads,
+    threadsHydrated,
+    visibleThreadIds,
+  ]);
+
   return null;
 }
 

@@ -1,6 +1,6 @@
 import { FolderId, type ModelSelection, SpaceId, ThreadId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
-import { type ComposerThreadDraftState, type DraftThreadState } from "../composerDraftStore";
+import { type DraftThreadState } from "../composerDraftStore";
 import {
   buildDraftThreadContextPatch,
   createActiveDraftThreadSnapshot,
@@ -35,32 +35,6 @@ function makeDraftThread(partial?: Partial<DraftThreadState>): DraftThreadState 
     spaceId: null,
     createdAt: "2026-04-05T10:00:00.000Z",
     runtimeMode: "approval-required",
-    ...partial,
-  };
-}
-
-function makeComposerDraftState(
-  partial?: Partial<ComposerThreadDraftState>,
-): ComposerThreadDraftState {
-  return {
-    prompt: "",
-    promptHistorySavedDraft: null,
-    images: [],
-    files: [],
-    nonPersistedImageIds: [],
-    persistedAttachments: [],
-    assistantSelections: [],
-    terminalContexts: [],
-    fileComments: [],
-    pastedTexts: [],
-    skills: [],
-    mentions: [],
-    connectionSelectionByProvider: {},
-    modelSelectionByProvider: {
-      claudeAgent: modelSelection("claudeAgent", "claude-opus-4-6", { effort: "max" }),
-    },
-    activeProvider: "claudeAgent",
-    runtimeMode: null,
     ...partial,
   };
 }

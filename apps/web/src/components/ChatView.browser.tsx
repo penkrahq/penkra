@@ -1483,9 +1483,9 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
     }) as import("@penkra/contracts").CleanCoreCreateThreadResponse;
     const { thread, ...send } = input;
     const sendResult = resolveWsRpc({
-      _tag: WS_METHODS.cleanCoreSendMessage,
       ...send,
       threadId: thread.threadId,
+      _tag: WS_METHODS.cleanCoreSendMessage,
     });
     return { ...created, sendResult };
   }
@@ -2569,10 +2569,6 @@ function dispatchAddProjectShortcut(): void {
   dispatchThreadShortcut("o", true);
 }
 
-function dispatchTerminalThreadShortcut(): void {
-  dispatchThreadShortcut("t", true);
-}
-
 function dispatchThreadShortcut(key: string, shiftKey = false): void {
   const useMetaForMod = isMacPlatform(navigator.platform);
   window.dispatchEvent(
@@ -2593,19 +2589,6 @@ async function triggerChatNewShortcutUntilPath(
   errorMessage: string,
 ): Promise<string> {
   return triggerThreadShortcutUntilPath(router, dispatchChatNewShortcut, predicate, errorMessage);
-}
-
-async function triggerTerminalThreadShortcutUntilPath(
-  router: ReturnType<typeof getRouter>,
-  predicate: (pathname: string) => boolean,
-  errorMessage: string,
-): Promise<string> {
-  return triggerThreadShortcutUntilPath(
-    router,
-    dispatchTerminalThreadShortcut,
-    predicate,
-    errorMessage,
-  );
 }
 
 async function triggerThreadShortcutUntilPath(
@@ -2961,7 +2944,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           reason: "play",
           turnId,
           interruptedTurnId: turnId,
-          connectionId: snapshot.threads[0]!.connectionId,
+          connectionId: snapshot.threads[0]!.connectionId ?? null,
         });
         expect(command).not.toHaveProperty("bindingRevision");
         expect(wsRequests.some((request) => request._tag === "provider.getThreadBinding")).toBe(

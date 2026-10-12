@@ -180,10 +180,6 @@ function whenAnd(left: KeybindingWhenNode, right: KeybindingWhenNode): Keybindin
   return { type: "and", left, right };
 }
 
-function whenOr(left: KeybindingWhenNode, right: KeybindingWhenNode): KeybindingWhenNode {
-  return { type: "or", left, right };
-}
-
 interface TestBinding {
   shortcut: KeybindingShortcut;
   command: KeybindingCommand;
@@ -1051,6 +1047,89 @@ describe("plus key parsing", () => {
       resolveShortcutCommand(event({ key: "+", ctrlKey: true }), plusBindings, {
         platform: "Linux",
       }) === "sidebar.toggle",
+    );
+  });
+});
+
+describe("kept non-terminal shortcut actions", () => {
+  it("opens usage settings with Cmd+Shift+U", () => {
+    assert.equal(
+      resolveShortcutCommand(event({ key: "u", metaKey: true, shiftKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+      }),
+      "settings.usage",
+    );
+  });
+  it("toggles composer focus with Cmd+L", () => {
+    assert.equal(
+      resolveShortcutCommand(event({ key: "l", metaKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+      }),
+      "composer.focus.toggle",
+    );
+  });
+  it("resolves Ctrl+Tab in both directions", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "Tab", ctrlKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+      }),
+      "view.recent.next",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: "Tab", ctrlKey: true, shiftKey: true }),
+        DEFAULT_BINDINGS,
+        { platform: "MacIntel" },
+      ),
+      "view.recent.previous",
+    );
+  });
+  it("resolves numbered thread jumps", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "3", metaKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+      }),
+      "thread.jump.3",
+    );
+  });
+});
+
+describe("kept sidebar and model shortcuts", () => {
+  it("matches the sidebar toggle shortcut", () => {
+    assert.isTrue(
+      isSidebarToggleShortcut(event({ key: "b", metaKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+      }),
+    );
+  });
+  it("resolves sidebar search", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "k", metaKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+      }),
+      "sidebar.search",
+    );
+  });
+  it("resolves model cycle commands including physical keys", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "]", altKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+      }),
+      "model.next",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "[", altKey: true }), DEFAULT_BINDINGS, {
+        platform: "MacIntel",
+      }),
+      "model.previous",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: "‘", code: "BracketRight", altKey: true }),
+        DEFAULT_BINDINGS,
+        { platform: "MacIntel" },
+      ),
+      "model.next",
     );
   });
 });

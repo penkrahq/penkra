@@ -1,3 +1,8 @@
+// FILE: taskCompletion.logic.ts
+// Purpose: Detects new thread lifecycle notifications and builds alert copy.
+// Layer: Notification logic
+// Exports: lifecycle detection helpers and notification copy helpers
+
 import type { Thread, ThreadSession } from "../types";
 import type { AppState } from "../storeState";
 import { isPersistedThreadOpenable } from "../storeSelectors";

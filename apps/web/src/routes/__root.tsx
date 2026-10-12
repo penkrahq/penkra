@@ -9,7 +9,6 @@ import {
   type ServerConfig,
   type WsCompatibilityError,
 } from "@penkra/contracts";
-import {} from "@penkra/shared/terminalThreads";
 import {
   Outlet,
   createRootRouteWithContext,
@@ -31,7 +30,6 @@ import ShortcutsDialog from "../components/ShortcutsDialog";
 import WhatsNewDialog from "../components/WhatsNewDialog";
 import { useWhatsNew } from "../whatsNew/useWhatsNew";
 import { WhatsNewPopoutCard } from "../whatsNew/WhatsNewPopoutCard";
-import {} from "../components/ChatView.logic";
 import { Button, dialogActionButtonClassName } from "../components/ui/button";
 import { AnchoredToastProvider, ToastProvider, toastManager } from "../components/ui/toast";
 import { ServerConfigUpdateNotifications } from "../components/ServerConfigUpdateNotifications";
@@ -255,7 +253,6 @@ function TransportCompatibilityView({ issue }: { issue: WsCompatibilityError }) 
 
 function GlobalShortcutsDialog() {
   const [open, setOpen] = useState(false);
-  const { focusedThreadId, activeProject } = useFocusedChatContext();
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
   const keybindings = serverConfigQuery.data?.keybindings ?? [];
   const platform = typeof navigator === "undefined" ? "" : navigator.platform;
@@ -445,6 +442,25 @@ function EventRouter() {
       }),
     [],
   );
+  useEffect(
+    () =>
+      subscribeThreadRowChanges(
+        (change, row) => {
+          if (change.kind === "thread.created")
+            markPromotedDraftThreads(new Set([change.threadId]));
+          if (row === null || row.archivedAt !== null || row.deletedAt !== null) {
+            useStore.getState().syncServerThreadShell(change.threadId, null);
+          }
+        },
+        (error: unknown) =>
+          toastManager.add({
+            type: "error",
+            title: "Could not update thread",
+            description: error instanceof Error ? error.message : String(error),
+          }),
+      ),
+    [],
+  );
   const syncServerStartupSnapshot = useStore((store) => store.syncServerStartupSnapshot);
   const syncServerThreadTurnsPage = useStore((store) => store.syncServerThreadTurnsPage);
   const applyOrchestrationEvents = useStore((store) => store.applyOrchestrationEvents);
@@ -471,6 +487,355 @@ function EventRouter() {
     pathnameRef.current = pathname;
     setVisibleThreadDetailIds(visibleThreadIds);
   }, [pathname, visibleThreadIds]);
+
+  useEffect(() => {
+    const api = readNativeApi();
+    if (!api) return;
+
+    let disposed = false;
+    let pendingSyncDeliveries: OrchestrationSyncStreamItem[] = [];
+    let syncDeliveryFlushTimer: ReturnType<typeof setTimeout> | null = null;
+    let syncApplicationFailed = false;
+    let syncApplicationRecoveryAttempts = 0;
+    let syncApplicationRecoveryTimer: ReturnType<typeof setTimeout> | null = null;
+    let unsubscribeSyncEvent: (() => void) | null = null;
+    let subscribeToSyncEvents: () => void = () => undefined;
+    let pendingSyncAcknowledgement: {
+      readonly deliveryId: string;
+      readonly appliedSequence: number;
+    } | null = null;
+    let syncAcknowledgementWorker: Promise<void> | null = null;
+
+    const startSyncAcknowledgementWorker = () => {
+      if (syncAcknowledgementWorker || disposed) return;
+      syncAcknowledgementWorker = (async () => {
+        while (!disposed && pendingSyncAcknowledgement) {
+          const acknowledgement = pendingSyncAcknowledgement;
+          pendingSyncAcknowledgement = null;
+          try {
+            await api.orchestration.acknowledgeSync(acknowledgement);
+          } catch (error) {
+            if (!disposed) {
+              console.error("Failed to acknowledge orchestration synchronization", error);
+            }
+          }
+        }
+      })().finally(() => {
+        syncAcknowledgementWorker = null;
+        if (!disposed && pendingSyncAcknowledgement) {
+          startSyncAcknowledgementWorker();
+        }
+      });
+    };
+
+    const acknowledgeAppliedSyncSequence = (input: {
+      readonly deliveryId: string;
+      readonly appliedSequence: number;
+    }) => {
+      const pending = pendingSyncAcknowledgement;
+      pendingSyncAcknowledgement =
+        pending?.deliveryId === input.deliveryId && pending.appliedSequence >= input.appliedSequence
+          ? pending
+          : input;
+      startSyncAcknowledgementWorker();
+    };
+    let providerDiscoveryInvalidationFingerprint: string | null = null;
+
+    const flushSyncDeliveries = (
+      reason: "delivery" | "visible-timer" | "visibility-hidden" | "window-blur" = "visible-timer",
+    ) => {
+      syncDeliveryFlushTimer = null;
+      if (disposed || syncApplicationFailed || pendingSyncDeliveries.length === 0) return;
+      const deliveries = pendingSyncDeliveries;
+      pendingSyncDeliveries = [];
+      const publicationRanges = new Map<
+        string,
+        { firstOrchestrationSequence: number; lastOrchestrationSequence: number }
+      >();
+      for (const item of deliveries) {
+        const threadId =
+          item.kind === "event" && item.event.aggregateKind === "thread"
+            ? String(item.event.aggregateId)
+            : "*";
+        const orchestrationSequence =
+          item.kind === "event" ? item.event.sequence : item.snapshot.snapshotSequence;
+        const existing = publicationRanges.get(threadId);
+        publicationRanges.set(threadId, {
+          firstOrchestrationSequence: Math.min(
+            existing?.firstOrchestrationSequence ?? orchestrationSequence,
+            orchestrationSequence,
+          ),
+          lastOrchestrationSequence: Math.max(
+            existing?.lastOrchestrationSequence ?? orchestrationSequence,
+            orchestrationSequence,
+          ),
+        });
+      }
+      const recordPublicationBatch = (
+        event:
+          | "sync-publication-flushed"
+          | "sync-publication-apply-failed"
+          | "sync-publication-recovery-scheduled"
+          | "sync-publication-recovered"
+          | "sync-publication-recovery-exhausted",
+        options?: { readonly failureName?: string; readonly recoveryAttempt?: number },
+      ) => {
+        for (const [threadId, range] of publicationRanges) {
+          recordChatSyncPublicationDiagnostic({
+            event,
+            threadId,
+            rendererVisibility: document.visibilityState,
+            rendererHasFocus: document.hasFocus(),
+            reason,
+            queuedDeliveryCount: deliveries.length,
+            ...range,
+            ...(options?.failureName === undefined ? {} : { failureName: options.failureName }),
+            ...(options?.recoveryAttempt === undefined
+              ? {}
+              : { recoveryAttempt: options.recoveryAttempt }),
+          });
+        }
+      };
+      let latestApplied:
+        | { readonly deliveryId: string; readonly appliedSequence: number }
+        | undefined;
+      try {
+        for (let index = 0; index < deliveries.length; index += 1) {
+          const item = deliveries[index]!;
+          if (item.kind === "snapshot") {
+            syncServerStartupSnapshot(item.snapshot);
+            for (const row of item.snapshot.runningThreads) applyThreadRow(row);
+            latestApplied = {
+              deliveryId: item.deliveryId,
+              appliedSequence: item.snapshot.snapshotSequence,
+            };
+            continue;
+          }
+
+          const eventDeliveries = [item];
+          while (deliveries[index + 1]?.kind === "event") {
+            eventDeliveries.push(
+              deliveries[(index += 1)] as Extract<OrchestrationSyncStreamItem, { kind: "event" }>,
+            );
+          }
+          const events = eventDeliveries.map((delivery) => delivery.event);
+          applyOrchestrationEvents(events);
+          for (const event of events) recordChatLifecycleSyncDiagnostic(event, "applied");
+          const affectedThreadIds = new Set(
+            eventDeliveries.flatMap((delivery) =>
+              delivery.event.aggregateKind === "thread"
+                ? [ThreadId.makeUnsafe(String(delivery.event.aggregateId))]
+                : [],
+            ),
+          );
+          for (const threadId of affectedThreadIds) {
+            const thread = getThreadFromState(useStore.getState(), threadId);
+            if (thread) reconcilePromotedDraftFromThreadDetail(thread);
+          }
+          const latestEventDelivery = eventDeliveries.at(-1)!;
+          latestApplied = {
+            deliveryId: latestEventDelivery.deliveryId,
+            appliedSequence: latestEventDelivery.event.sequence,
+          };
+        }
+      } catch (error) {
+        syncApplicationFailed = true;
+        recordPublicationBatch("sync-publication-apply-failed", {
+          failureName: error instanceof Error ? error.name : "UnknownError",
+        });
+        console.error("Failed to apply orchestration synchronization delivery", error);
+        const recoveryDelay =
+          ORCHESTRATION_SYNC_APPLICATION_RECOVERY_DELAYS_MS[syncApplicationRecoveryAttempts];
+        if (recoveryDelay !== undefined && syncApplicationRecoveryTimer === null) {
+          syncApplicationRecoveryAttempts += 1;
+          recordPublicationBatch("sync-publication-recovery-scheduled", {
+            failureName: error instanceof Error ? error.name : "UnknownError",
+            recoveryAttempt: syncApplicationRecoveryAttempts,
+          });
+          syncApplicationRecoveryTimer = setTimeout(() => {
+            syncApplicationRecoveryTimer = null;
+            if (disposed) return;
+            // Do not acknowledge or retry the failed batch in place. Closing its
+            // lease makes the server replace it with an authoritative snapshot,
+            // which is the only safe boundary after a client projection error.
+            unsubscribeSyncEvent?.();
+            unsubscribeSyncEvent = null;
+            pendingSyncDeliveries = [];
+            syncApplicationFailed = false;
+            subscribeToSyncEvents();
+          }, recoveryDelay);
+        } else if (recoveryDelay === undefined) {
+          recordPublicationBatch("sync-publication-recovery-exhausted", {
+            failureName: error instanceof Error ? error.name : "UnknownError",
+            recoveryAttempt: syncApplicationRecoveryAttempts,
+          });
+        }
+        return;
+      }
+
+      recordPublicationBatch("sync-publication-flushed");
+      if (
+        syncApplicationRecoveryAttempts > 0 &&
+        deliveries.some((delivery) => delivery.kind === "snapshot")
+      ) {
+        recordPublicationBatch("sync-publication-recovered", {
+          recoveryAttempt: syncApplicationRecoveryAttempts,
+        });
+        syncApplicationRecoveryAttempts = 0;
+      }
+
+      if (latestApplied) {
+        advanceComposerSendPreflightAppliedSequence(latestApplied.appliedSequence);
+        acknowledgeAppliedSyncSequence(latestApplied);
+      }
+    };
+
+    subscribeToSyncEvents = () => {
+      unsubscribeSyncEvent = api.orchestration.onSyncEvent((item) => {
+        if (disposed || syncApplicationFailed) return;
+        if (item.kind === "event") recordChatLifecycleSyncDiagnostic(item.event, "received");
+        pendingSyncDeliveries.push(item);
+        const orchestrationSequence =
+          item.kind === "event" ? item.event.sequence : item.snapshot.snapshotSequence;
+        recordChatSyncPublicationDiagnostic({
+          event: "sync-publication-queued",
+          threadId:
+            item.kind === "event" && item.event.aggregateKind === "thread"
+              ? String(item.event.aggregateId)
+              : "*",
+          rendererVisibility: document.visibilityState,
+          rendererHasFocus: document.hasFocus(),
+          reason: "delivery",
+          queuedDeliveryCount: pendingSyncDeliveries.length,
+          firstOrchestrationSequence: orchestrationSequence,
+          lastOrchestrationSequence: orchestrationSequence,
+        });
+        if (document.visibilityState !== "visible" || !document.hasFocus()) {
+          if (syncDeliveryFlushTimer !== null) {
+            clearTimeout(syncDeliveryFlushTimer);
+            syncDeliveryFlushTimer = null;
+          }
+          flushSyncDeliveries("delivery");
+          return;
+        }
+        if (syncDeliveryFlushTimer !== null) return;
+        // Provider deltas commonly arrive in separate socket tasks. Publish their
+        // ordered projection at a bounded interactive cadence instead of committing React
+        // work for every delivery; persistence and server admission remain immediate.
+        syncDeliveryFlushTimer = setTimeout(
+          () => flushSyncDeliveries("visible-timer"),
+          ORCHESTRATION_SYNC_PUBLICATION_INTERVAL_MS,
+        );
+      });
+    };
+    subscribeToSyncEvents();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible" || pendingSyncDeliveries.length === 0) return;
+      if (syncDeliveryFlushTimer !== null) {
+        clearTimeout(syncDeliveryFlushTimer);
+        syncDeliveryFlushTimer = null;
+      }
+      flushSyncDeliveries("visibility-hidden");
+    };
+    const onWindowBlur = () => {
+      if (pendingSyncDeliveries.length === 0) return;
+      if (syncDeliveryFlushTimer !== null) {
+        clearTimeout(syncDeliveryFlushTimer);
+        syncDeliveryFlushTimer = null;
+      }
+      flushSyncDeliveries("window-blur");
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("blur", onWindowBlur);
+    const unsubWorkspaceChange = api.folders.onWorkspaceChange((event) => {
+      void invalidateProjectQueriesForWorkspaceChange(queryClient, event);
+    });
+
+    const unsubWelcome = onServerWelcome((payload) => {
+      // A server restart may change installations or account discovery data.
+      void invalidateProviderData(queryClient);
+      void (async () => {
+        setServerWorkspacePaths({
+          homeDir: payload.homeDir,
+          chatWorkspaceRoot: payload.chatWorkspaceRoot,
+        });
+        if (disposed || !payload.bootstrapFolderId || !payload.bootstrapThreadId) return;
+        setProjectExpanded(payload.bootstrapFolderId, true);
+        if (
+          pathnameRef.current !== "/" ||
+          handledBootstrapThreadIdRef.current === payload.bootstrapThreadId
+        ) {
+          return;
+        }
+        await navigate({
+          to: "/$threadId",
+          params: { threadId: payload.bootstrapThreadId },
+          replace: true,
+        });
+        handledBootstrapThreadIdRef.current = payload.bootstrapThreadId;
+      })().catch(() => undefined);
+    });
+
+    const unsubProviderStatusesUpdated = onServerProviderStatusesUpdated((payload) => {
+      const nextProviderDiscoveryFingerprint = providerModelDiscoveryInvalidationFingerprint(
+        payload.providers,
+      );
+      const currentConfig = queryClient.getQueryData<ServerConfig>(serverQueryKeys.config());
+      const previousProviderDiscoveryFingerprint =
+        providerDiscoveryInvalidationFingerprint ??
+        (currentConfig
+          ? providerModelDiscoveryInvalidationFingerprint(currentConfig.providers)
+          : null);
+      const shouldInvalidateProviderDiscovery =
+        previousProviderDiscoveryFingerprint !== null &&
+        previousProviderDiscoveryFingerprint !== nextProviderDiscoveryFingerprint;
+      providerDiscoveryInvalidationFingerprint = nextProviderDiscoveryFingerprint;
+
+      void reconcileServerProviderStatuses(queryClient, payload.providers).catch(() => undefined);
+      if (shouldInvalidateProviderDiscovery) void invalidateProviderData(queryClient);
+    });
+    const unsubWsTransportState = addWsTransportStateListener(
+      (state) => {
+        if (state !== "open") return;
+        void refreshServerConfigAfterTransportOpen(queryClient).catch(() => undefined);
+      },
+      { replayCurrent: true },
+    );
+    const unsubServerSettingsUpdated = onServerSettingsUpdated((payload) => {
+      queryClient.setQueryData(serverQueryKeys.settings(), payload.settings);
+      void queryClient.invalidateQueries({
+        queryKey: serverSettingsQueryOptions().queryKey,
+      });
+    });
+    return () => {
+      disposed = true;
+      pendingSyncDeliveries = [];
+      if (syncDeliveryFlushTimer !== null) {
+        clearTimeout(syncDeliveryFlushTimer);
+        syncDeliveryFlushTimer = null;
+      }
+      if (syncApplicationRecoveryTimer !== null) {
+        clearTimeout(syncApplicationRecoveryTimer);
+        syncApplicationRecoveryTimer = null;
+      }
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("blur", onWindowBlur);
+      unsubscribeSyncEvent?.();
+      unsubWorkspaceChange();
+      unsubWelcome();
+      unsubProviderStatusesUpdated();
+      unsubWsTransportState();
+      unsubServerSettingsUpdated();
+    };
+  }, [
+    applyOrchestrationEvents,
+    navigate,
+    queryClient,
+    setProjectExpanded,
+    setServerWorkspacePaths,
+    syncServerStartupSnapshot,
+    syncServerThreadTurnsPage,
+  ]);
 
   useLayoutEffect(() => {
     const api = readNativeApi();

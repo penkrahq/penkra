@@ -1,7 +1,6 @@
 import { getFolderAppTabs, updateFolderAppTabs } from "./cleanCore/folderAppTabs.ts";
 import { listArchivedNavigation, listArchivedThreads, restoreThread } from "./cleanCore/archive.ts";
 import { ensureDurableThreadWorkspace } from "./scratchWorkspaces.ts";
-import { renameThread } from "./cleanCore/threadStore.ts";
 import { createAndSendThread } from "./cleanCore/createAndSendThread.ts";
 import { createThreadFromClient, ThreadLifecycle } from "./cleanCore/threadLifecycle.ts";
 import { ThreadSender } from "./cleanCore/ThreadSender.ts";
@@ -30,7 +29,7 @@ import {
   type ServerConfigStreamEvent,
   type ServerLifecycleStreamEvent,
 } from "@penkra/contracts";
-import { Effect, FileSystem, Layer, Option, Path, Queue, Schema, Scope, Stream } from "effect";
+import { Effect, FileSystem, Layer, Option, Path, Schema, Scope, Stream } from "effect";
 import { Headers, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { RpcMiddleware, RpcSchema, RpcSerialization, RpcServer } from "effect/unstable/rpc";
 import * as SqlClient from "effect/unstable/sql/SqlClient";

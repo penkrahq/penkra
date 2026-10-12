@@ -1,11 +1,7 @@
-import { Schema } from "effect";
-import { RuntimeMode } from "@penkra/contracts";
-import { getThreadListById } from "../threadListStore";
-import { ProviderKind, type FolderId, ThreadId } from "@penkra/contracts";
+import { type FolderId, ThreadId } from "@penkra/contracts";
 import { getDefaultModel } from "@penkra/shared/model";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { startTransition } from "react";
-import { useAppSettings } from "../appSettings";
 import {
   type ComposerThreadDraftState,
   type DraftThreadState,
@@ -13,27 +9,22 @@ import {
 } from "../composerDraftStore";
 import {
   buildDraftThreadContextPatch,
-  createActiveDraftThreadSnapshot,
-  createActiveThreadSnapshot,
   createFreshDraftThreadSeed,
   resolveThreadBootstrapPlan,
   scopeNewThreadOptionsToContainer,
   type NewThreadOptions,
 } from "../lib/threadBootstrap";
-import { promoteThreadCreate } from "../lib/threadCreatePromotion";
 import {
   draftNavigationSlotKey,
   runDraftNavigationOnce,
   stageDraftNavigation,
 } from "../lib/stagedDraftNavigation";
 import { newCommandId, newThreadId } from "../lib/utils";
-import { readNativeApi } from "../nativeApi";
 import { useFocusedChatContext } from "../focusedChatContext";
 import { useStore } from "../store";
 
 export function useHandleNewThread() {
   const folders = useStore((store) => store.folders);
-  const { settings } = useAppSettings();
   const navigate = useNavigate();
   const router = useRouter();
   const { activeDraftThread, activeFolderId, activeThread, focusedThreadId, routeThreadId } =
@@ -110,10 +101,6 @@ export function useHandleNewThread() {
       folderId,
       routeThreadId: focusedThreadId,
     });
-    // Read from the store at call time so post-sync sidebar flows can use the latest project defaults.
-    const projectDefaultModelSelection =
-      useStore.getState().folders.find((project) => project.id === folderId)
-        ?.defaultModelSelection ?? null;
     if (bootstrapPlan.kind === "stored") {
       return (async (): Promise<ThreadId> => {
         const preservedComposerDraft =

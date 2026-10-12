@@ -7,7 +7,6 @@ import {
   type ServerProviderAuthStatus,
 } from "@penkra/contracts";
 import { isGenericChatThreadTitle } from "@penkra/shared/chatThreads";
-import { isGenericTerminalThreadTitle } from "@penkra/shared/terminalThreads";
 import { canContinueLatestTurn } from "@penkra/shared/turnContinuation";
 import { type ChatMessage, type SessionPhase, type Thread } from "../types";
 import { type DraftThreadState } from "../composerDraftStore";

@@ -7,12 +7,7 @@ import {
   type SpaceId,
   type ThreadId,
 } from "@penkra/contracts";
-import {
-  type ComposerThreadDraftState,
-  type DraftThreadState,
-  resolvePreferredComposerModelSelection,
-} from "../composerDraftStore";
-import type {} from "../types";
+import { type DraftThreadState } from "../composerDraftStore";
 
 export interface NewThreadOptions {
   spaceId?: SpaceId | null;
