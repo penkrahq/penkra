@@ -45,7 +45,7 @@ import {
 import { DESKTOP_TOP_BAR_TRAFFIC_LIGHT_GUTTER_CLASS } from "~/hooks/useDesktopTopBarGutter";
 import { useDesktopWindowState } from "~/hooks/useDesktopWindowState";
 import { createCentralIconComponent } from "~/lib/central-icons";
-import { PlayIcon, TriangleAlertIcon } from "~/lib/icons";
+import { TriangleAlertIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { useAppSettings } from "../appSettings";
 import type { LastThreadRoute } from "../chatRouteRestore";
@@ -101,7 +101,6 @@ import type { Space } from "../types";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
 import { useVoiceSessionCoordinatorStore } from "../voiceSessionCoordinator";
 import { subscribeToSpaceUiActions } from "../spaceUiEvents";
-import {} from "./ChatView.logic";
 import {
   DEBUG_FEATURE_FLAGS_MENU_STORAGE_KEY,
   beginInlineFolderCreation,
@@ -186,16 +185,6 @@ import {
 import { ThreadRowInlineEdit } from "./left-rail/thread-row-inline-edit/ThreadRowInlineEdit";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "./ui/alert";
 import { Button } from "./ui/button";
-import {
-  Dialog,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogPanel,
-  DialogPopup,
-  DialogTitle,
-} from "./ui/dialog";
-import { Input } from "./ui/input";
 import { SidebarFooter, SidebarHeader, SidebarTrigger, useSidebar } from "./ui/sidebar";
 import { toastManager } from "./ui/toast";
 import { useSpacesController } from "./useSpacesController";

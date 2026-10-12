@@ -1,11 +1,5 @@
 import { Schema } from "effect";
-import {
-  NonNegativeInt,
-  PositiveInt,
-  ProcessEnvRecord,
-  FolderId,
-  TrimmedNonEmptyString,
-} from "./baseSchemas";
+import { PositiveInt, TrimmedNonEmptyString } from "./baseSchemas";
 
 const PROJECT_SEARCH_ENTRIES_MAX_LIMIT = 200;
 const PROJECT_SEARCH_LOCAL_ENTRIES_MAX_LIMIT = 100;

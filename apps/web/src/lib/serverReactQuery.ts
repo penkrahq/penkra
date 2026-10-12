@@ -5,7 +5,7 @@ import type {
   ServerListProviderUsageInput,
   ServerProviderStatus,
 } from "@penkra/contracts";
-import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
+import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import { ensureNativeApi } from "~/nativeApi";
 
 export const serverQueryKeys = {

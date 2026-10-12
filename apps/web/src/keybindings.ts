@@ -51,22 +51,6 @@ function commandShortcut(
   };
 }
 
-function whenIdentifier(name: string): KeybindingWhenNode {
-  return { type: "identifier", name };
-}
-
-function whenNot(node: KeybindingWhenNode): KeybindingWhenNode {
-  return { type: "not", node };
-}
-
-function whenAnd(left: KeybindingWhenNode, right: KeybindingWhenNode): KeybindingWhenNode {
-  return { type: "and", left, right };
-}
-
-function whenOr(left: KeybindingWhenNode, right: KeybindingWhenNode): KeybindingWhenNode {
-  return { type: "or", left, right };
-}
-
 export const DEFAULT_SHORTCUT_FALLBACKS: ResolvedKeybindingsConfig = [
   {
     command: "sidebar.addProject",

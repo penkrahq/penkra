@@ -2,7 +2,7 @@ import { assert, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 
 import { ORCHESTRATION_WS_CHANNELS, ORCHESTRATION_WS_METHODS } from "./orchestration";
-import { WebSocketRequest, WsResponse, WS_CHANNELS, WS_METHODS } from "./ws";
+import { WsResponse, WS_CHANNELS } from "./ws";
 
 const decode = <S extends Schema.Top>(
   schema: S,

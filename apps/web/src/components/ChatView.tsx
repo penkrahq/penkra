@@ -16,7 +16,6 @@ import {
   type ProviderKind,
   type ProviderConnectionId,
   type ProjectEntry,
-  type FolderId,
   type ProviderMentionReference,
   type ProviderNativeCommandDescriptor,
   type ProviderPluginDescriptor,
@@ -29,7 +28,6 @@ import {
   type ServerProviderStatus,
   ThreadId,
   type TurnId,
-  type KeybindingCommand,
   OrchestrationThreadActivity,
   RuntimeMode,
 } from "@penkra/contracts";
@@ -127,8 +125,6 @@ import {
   readFileAsDataUrl,
 } from "../lib/composerSend";
 import { persistComposerAsset } from "../lib/composerAssetStore";
-import { reconcileDeletedThreadFromClient } from "../lib/deletedThreadClientReconciliation";
-import { useHandleNewChat } from "../hooks/useHandleNewChat";
 import { splitComposerDropzoneFiles, useComposerDropzone } from "../hooks/useComposerDropzone";
 import {
   buildTranscriptAutoFollowSignal,
@@ -389,7 +385,6 @@ import {
   deriveComposerSendState,
   hasServerAcknowledgedLocalDispatch,
   resolveNextLocalDispatchSnapshot,
-  LAST_INVOKED_SCRIPT_BY_PROJECT_KEY,
   type LocalDispatchSnapshot,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
@@ -550,7 +545,6 @@ function canHandleComposerPickerShortcut(
 const EMPTY_PROVIDER_STATUSES: ServerProviderStatus[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 const MAX_DISMISSED_PROVIDER_HEALTH_BANNERS = 50;
-const EMPTY_LAST_INVOKED_SCRIPT_BY_PROJECT: Record<string, string> = {};
 const EMPTY_DISMISSED_PROVIDER_HEALTH_BANNERS: ReadonlyArray<string> = [];
 
 function getThreadProviderCustomBinaryPathKey(threadId: Thread["id"], provider: ProviderKind) {
@@ -796,7 +790,6 @@ function ChatViewContent({
   const timestampFormat = settings.timestampFormat;
   const navigate = useNavigate();
   const { handleNewThread } = useHandleNewThread();
-  const { handleNewChat } = useHandleNewChat();
   const { resolvedTheme } = useTheme();
   const queryClient = useQueryClient();
   const threadResourceOpener = useThreadResourceOpener();
@@ -1119,7 +1112,6 @@ function ChatViewContent({
   const localDirectoryMenuRef = useRef<ComposerLocalDirectoryMenuHandle | null>(null);
   const sendInFlightRef = useRef(false);
   const dragDepthRef = useRef(0);
-  const activatedThreadIdRef = useRef<ThreadId | null>(null);
   useEffect(() => {
     promptHistoryNavigationRef.current = null;
     applyingPromptHistoryNavigationRef.current = false;

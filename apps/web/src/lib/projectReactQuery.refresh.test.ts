@@ -7,7 +7,6 @@ import { QueryObserver } from "@tanstack/react-query";
 import { afterEach, expect, it, vi } from "vitest";
 import { createAppQueryClient } from "./appQueryClient";
 import {
-  invalidateProjectQueriesForWorkspaceChange,
   projectReadFileQueryOptions,
   projectSearchLocalEntriesQueryOptions,
 } from "./projectReactQuery";
