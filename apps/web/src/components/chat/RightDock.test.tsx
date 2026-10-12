@@ -92,11 +92,6 @@ it("ends opening presentation only on the dock's own width transition and clears
     render(true);
     const dock = container.querySelector('[data-slot="sidebar-container"]')!;
     const content = container.querySelector("[data-entrance]")!;
-    expect(content.getAttribute("data-entrance")).toBe("false");
-    transition(content, "width", "transitionrun");
-    transition(dock, "visibility", "transitionrun");
-    expect(content.getAttribute("data-entrance")).toBe("false");
-    transition(dock, "width", "transitionrun");
     expect(content.getAttribute("data-entrance")).toBe("true");
     transition(content, "width");
     transition(dock, "visibility");
@@ -106,7 +101,6 @@ it("ends opening presentation only on the dock's own width transition and clears
     render(false);
     render(true);
     const reopenedDock = container.querySelector('[data-slot="sidebar-container"]')!;
-    transition(reopenedDock, "width", "transitionrun");
     expect(container.querySelector("[data-entrance]")?.getAttribute("data-entrance")).toBe("true");
     transition(reopenedDock, "width", "transitioncancel");
     expect(container.querySelector("[data-entrance]")?.getAttribute("data-entrance")).toBe("false");
@@ -121,17 +115,22 @@ it("ends opening presentation only on the dock's own width transition and clears
 });
 
 it.each([
-  ["reduced motion", "none", "0s"],
-  ["suppressed motion", "width", "0s"],
-  ["unchanged width", "width", "0.2s"],
+  ["reduced motion", "none", "0s", 0],
+  ["suppressed motion", "width", "0s", 0],
+  ["unchanged width", "width", "0.2s", 320],
 ])(
   "leaves entrance presentation inactive with %s",
-  (_name, transitionProperty, transitionDuration) => {
+  (_name, transitionProperty, transitionDuration, fromWidth) => {
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     vi.spyOn(window, "getComputedStyle").mockReturnValue({
       transitionProperty,
       transitionDuration,
     } as CSSStyleDeclaration);
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        return new DOMRect(0, 0, this.dataset.slot === "sidebar-container" ? fromWidth : 0, 0);
+      },
+    );
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);

@@ -117,46 +117,9 @@ export function RightDock(props: RightDockProps) {
     startedAt: null as number | null,
   });
   useLayoutEffect(() => {
-    const wasOpen = previousOpenRef.current;
+    let openingPending = props.state.open && !previousOpenRef.current;
     previousOpenRef.current = props.state.open;
     setOpeningMotion({ active: false, startedAt: null });
-    if (!props.state.open || wasOpen) return;
-    const container = contentRef.current?.closest<HTMLElement>("[data-slot='sidebar-container']");
-    if (!container) return;
-    const style = window.getComputedStyle(container);
-    const properties = style.transitionProperty.split(",").map((property) => property.trim());
-    const durations = style.transitionDuration
-      .split(",")
-      .map((duration) => Number.parseFloat(duration));
-    const canTransitionWidth = properties.some(
-      (property, index) =>
-        (property === "width" || property === "all") && durations[index % durations.length]! > 0,
-    );
-    if (!canTransitionWidth) return;
-    const isOwnWidth = (event: TransitionEvent) =>
-      event.target === container && event.propertyName === "width";
-    const onRun = (event: TransitionEvent) => {
-      // A positive CSS duration alone does not mean the width actually changed.
-      if (!isOwnWidth(event)) return;
-      container.removeEventListener("transitionrun", onRun);
-      setOpeningMotion({ active: true, startedAt: Date.now() });
-    };
-    const onFinished = (event: TransitionEvent) => {
-      if (!isOwnWidth(event)) return;
-      releaseListeners();
-      setOpeningMotion({ active: false, startedAt: null });
-    };
-    const releaseListeners = () => {
-      container.removeEventListener("transitionrun", onRun);
-      container.removeEventListener("transitionend", onFinished);
-      container.removeEventListener("transitioncancel", onFinished);
-    };
-    container.addEventListener("transitionrun", onRun);
-    container.addEventListener("transitionend", onFinished);
-    container.addEventListener("transitioncancel", onFinished);
-    return releaseListeners;
-  }, [props.state.open]);
-  useLayoutEffect(() => {
     const wrapper = contentRef.current?.closest<HTMLElement>("[data-slot='sidebar-wrapper']");
     const shell = wrapper?.parentElement;
     if (!wrapper || !shell) {
@@ -167,12 +130,49 @@ export function RightDock(props: RightDockProps) {
       return () => shell.style.removeProperty("--right-dock-overlay-inset");
     }
     let resizeFrameId: number | null = null;
+    let releaseOpeningListeners: (() => void) | undefined;
     const applyAvailableWidth = () => {
       const shellWidth = wrapper.parentElement?.clientWidth ?? window.innerWidth;
       const preferredWidth = props.state.width ?? Math.round(shellWidth / 2);
       const maximumWidth = Math.max(minWidth, shellWidth - (props.contentMinWidth ?? 0));
       const nextWidth = Math.max(minWidth, Math.min(preferredWidth, maximumWidth));
       if (nextWidth > 0) {
+        if (openingPending) {
+          openingPending = false;
+          const container = contentRef.current?.closest<HTMLElement>(
+            "[data-slot='sidebar-container']",
+          );
+          if (container) {
+            // Read the actual from-width before writing the target CSS variable.
+            const fromWidth = container.getBoundingClientRect().width;
+            const style = window.getComputedStyle(container);
+            const properties = style.transitionProperty
+              .split(",")
+              .map((property) => property.trim());
+            const durations = style.transitionDuration
+              .split(",")
+              .map((duration) => Number.parseFloat(duration));
+            const canTransitionWidth = properties.some(
+              (property, index) =>
+                (property === "width" || property === "all") &&
+                durations[index % durations.length]! > 0,
+            );
+            if (canTransitionWidth && fromWidth !== nextWidth) {
+              const onFinished = (event: TransitionEvent) => {
+                if (event.target !== container || event.propertyName !== "width") return;
+                releaseOpeningListeners?.();
+                setOpeningMotion({ active: false, startedAt: null });
+              };
+              container.addEventListener("transitionend", onFinished);
+              container.addEventListener("transitioncancel", onFinished);
+              releaseOpeningListeners = () => {
+                container.removeEventListener("transitionend", onFinished);
+                container.removeEventListener("transitioncancel", onFinished);
+              };
+              setOpeningMotion({ active: true, startedAt: Date.now() });
+            }
+          }
+        }
         publishNativeAppBoundsForWidth(wrapper, nextWidth);
         wrapper.style.setProperty("--sidebar-width", `${nextWidth}px`);
         shell.style.setProperty("--right-dock-overlay-inset", `${nextWidth}px`);
@@ -198,6 +198,7 @@ export function RightDock(props: RightDockProps) {
       scheduleAvailableWidth(),
     );
     return () => {
+      releaseOpeningListeners?.();
       resizeObserver.disconnect();
       window.removeEventListener("resize", scheduleAvailableWidth);
       removeWindowStateListener?.();
