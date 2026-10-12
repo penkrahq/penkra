@@ -71,7 +71,7 @@ export interface TerminalRuntimeEntry {
   opened: boolean;
   disposed: boolean;
   resizeObserver: ResizeObserver | null;
-  resizeDispatchTimer: number | null;
+  resizeInFlight: boolean;
   visualResizeFrame: number | null;
   visualResizeTimer: number | null;
   lastVisualResizeAt: number;
