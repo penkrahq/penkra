@@ -11,7 +11,7 @@ import { normalizeEntityName } from "@penkra/shared/entityNames";
 import { Effect, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { ThreadPublisher } from "./ThreadPublisher";
-import { moveFolder } from "./threadStore";
+import { moveFolder, moveSpace } from "./threadStore";
 
 type SpaceRow = OrchestrationSpaceShell & { deletedAt: string | null };
 type FolderRow = Omit<OrchestrationFolderShell, "defaultModelSelection"> & {
@@ -179,21 +179,36 @@ export const updateNavigation = (input: CleanCoreUpdateNavigationInput) =>
           case "folder.move": {
             yield* requireSpace(update.spaceId);
             let moved = false;
-            for (const id of new Set(update.folderIds)) {
+            for (const id of new Set(
+              "folderIds" in update ? update.folderIds : [update.folderId],
+            )) {
               const row = folders.find((row) => row.id === id);
               if (!row) return yield* fail(`Folder '${id}' is not available.`);
-              if (row.deletedAt !== null || row.spaceId === update.spaceId) continue;
+              if (
+                row.deletedAt !== null ||
+                (row.spaceId === update.spaceId && update.position === undefined)
+              )
+                continue;
               const changed = yield* moveFolder({
                 folderId: id,
                 spaceId: update.spaceId,
-                position: { type: "end" },
+                position: update.position ?? { type: "end" },
                 updatedAt: now,
               });
               moved ||= changed.folderIds.length > 0;
               changedThreadIds.push(...changed.threadIds);
             }
-            if (!moved)
+            if (!moved && update.position === undefined)
               return yield* fail("None of the selected folders need to be assigned to this space.");
+            break;
+          }
+          case "space.move": {
+            yield* requireSpace(update.spaceId);
+            yield* moveSpace({
+              spaceId: update.spaceId,
+              position: update.position,
+              updatedAt: now,
+            });
             break;
           }
           case "folder.delete": {

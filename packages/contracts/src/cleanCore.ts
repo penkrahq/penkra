@@ -315,10 +315,22 @@ export const CleanCoreNavigationUpdate = Schema.Union([
   Schema.Struct({
     action: Schema.Literal("folder.move"),
     spaceId: SpaceId,
+    position: Schema.optional(CleanCoreThreadMovePosition),
     folderIds: Schema.Array(FolderId).check(
       Schema.isMinLength(1),
       Schema.isMaxLength(FOLDER_MOVE_MAX_COUNT),
     ),
+  }),
+  Schema.Struct({
+    action: Schema.Literal("folder.move"),
+    folderId: FolderId,
+    spaceId: SpaceId,
+    position: CleanCoreThreadMovePosition,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("space.move"),
+    spaceId: SpaceId,
+    position: CleanCoreThreadMovePosition,
   }),
   Schema.Struct({
     action: Schema.Literal("folder.delete"),
@@ -353,19 +365,6 @@ export const CleanCoreThreadUpdate = Schema.Union([
     action: Schema.Literal("delete"),
     threadId: ThreadId,
     deletedAt: IsoDateTime,
-    updatedAt: IsoDateTime,
-  }),
-  Schema.Struct({
-    action: Schema.Literal("moveFolder"),
-    folderId: FolderId,
-    spaceId: SpaceId,
-    position: CleanCoreThreadMovePosition,
-    updatedAt: IsoDateTime,
-  }),
-  Schema.Struct({
-    action: Schema.Literal("moveSpace"),
-    spaceId: SpaceId,
-    position: CleanCoreThreadMovePosition,
     updatedAt: IsoDateTime,
   }),
   Schema.Struct({

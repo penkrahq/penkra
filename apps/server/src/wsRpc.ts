@@ -87,8 +87,6 @@ import { findThread, listThreads, searchThreads } from "./cleanCore/threadList.t
 import { getThreadDraft, setThreadDraft } from "./cleanCore/threadDraft.ts";
 import {
   markThreadVisited,
-  moveFolder,
-  moveSpace,
   moveSidebarItem,
   setThreadRuntimeMode,
 } from "./cleanCore/threadStore.ts";
@@ -858,18 +856,6 @@ const makeWsRpcHandlersLayer = () =>
                     lifecycle.update(update),
                   );
                   return;
-                case "moveFolder": {
-                  const changed = yield* moveFolder(update);
-                  if (changed.folderIds.length > 0)
-                    threadPublisher.publishSidebar({ kind: "navigation" });
-                  for (const threadId of changed.threadIds) publish(threadId);
-                  return;
-                }
-                case "moveSpace": {
-                  if ((yield* moveSpace(update)).length > 0)
-                    threadPublisher.publishSidebar({ kind: "navigation" });
-                  return;
-                }
                 case "visit": {
                   if (yield* markThreadVisited(update)) publish(update.threadId);
                   return;

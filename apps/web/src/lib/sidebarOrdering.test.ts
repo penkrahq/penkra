@@ -56,20 +56,20 @@ describe("resolveSidebarMovePosition", () => {
 
 it("writes each sidebar action through its clean-core input", async () => {
   const updateThread = vi.fn().mockResolvedValue(undefined);
-  const api = { cleanCore: { updateThread } } as unknown as NativeApi;
+  const updateNavigation = vi.fn().mockResolvedValue(undefined);
+  const api = { cleanCore: { updateThread, updateNavigation } } as unknown as NativeApi;
   await moveSidebarItem({
     api,
     item: { kind: "folder", id: "folder" as never },
     target: { kind: "space", spaceId: "space" as never },
     position: { type: "start" },
   });
-  expect(updateThread).toHaveBeenLastCalledWith({
+  expect(updateNavigation).toHaveBeenLastCalledWith({
     update: {
-      action: "moveFolder",
+      action: "folder.move",
       folderId: "folder",
       spaceId: "space",
       position: { type: "start" },
-      updatedAt: expect.any(String),
     },
   });
   await moveSidebarItem({

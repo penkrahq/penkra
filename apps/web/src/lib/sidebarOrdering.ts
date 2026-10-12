@@ -41,13 +41,12 @@ export async function moveSidebarItem(input: {
       : { type: input.position.type, itemId: input.position.item.id };
   const updatedAt = new Date().toISOString();
   if (input.item.kind === "folder" && input.target.kind === "space") {
-    await input.api.cleanCore.updateThread({
+    await input.api.cleanCore.updateNavigation({
       update: {
-        action: "moveFolder",
+        action: "folder.move",
         folderId: input.item.id,
         spaceId: input.target.spaceId,
         position,
-        updatedAt,
       },
     });
   } else if (input.item.kind === "thread" && input.target.kind === "folder") {
