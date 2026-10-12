@@ -5,7 +5,7 @@ import {
   type ProviderKind,
   type ServerProviderStatus,
 } from "@penkra/contracts";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
@@ -246,8 +246,10 @@ describe("ProviderModelPicker", () => {
     }
   });
 
-  it("notifies after a model selection commits so the composer can refocus", async () => {
-    const onSelectionCommitted = vi.fn();
+  it("focuses the composer editor after a model selection closes the menu", async () => {
+    const editor = document.createElement("textarea");
+    document.body.append(editor);
+    const onSelectionCommitted = vi.fn(() => editor.focus());
     const mounted = await mountPicker({
       provider: "claudeAgent",
       model: "claude-opus-4-6",
@@ -258,14 +260,46 @@ describe("ProviderModelPicker", () => {
     try {
       await page.getByRole("button").click();
       await page.getByRole("menuitemradio", { name: "Claude Sonnet 4.6" }).click();
-
-      await vi.waitFor(() => {
-        expect(onSelectionCommitted).toHaveBeenCalledTimes(1);
-      });
+      await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
+      expect(onSelectionCommitted).toHaveBeenCalledTimes(1);
+      expect(document.activeElement).toBe(editor);
     } finally {
       await mounted.cleanup();
+      editor.remove();
     }
   });
+
+  it.each(["Escape", "outside click"])(
+    "keeps default focus without a selection callback after %s",
+    async (dismissal) => {
+      const editor = document.createElement("textarea");
+      editor.setAttribute("aria-label", "Composer editor");
+      document.body.append(editor);
+      const onSelectionCommitted = vi.fn(() => editor.focus());
+      const mounted = await mountPicker({
+        provider: "claudeAgent",
+        model: "claude-opus-4-6",
+        lockedProvider: "claudeAgent",
+        onSelectionCommitted,
+      });
+      try {
+        const trigger = page.getByRole("button");
+        await trigger.click();
+        await expect.element(page.getByRole("menu")).toBeInTheDocument();
+        if (dismissal === "Escape") {
+          await userEvent.keyboard("{Escape}");
+        } else {
+          await page.getByRole("textbox", { name: "Composer editor" }).click();
+        }
+        await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
+        expect(onSelectionCommitted).not.toHaveBeenCalled();
+        expect(document.activeElement).toBe(dismissal === "Escape" ? trigger.element() : editor);
+      } finally {
+        await mounted.cleanup();
+        editor.remove();
+      }
+    },
+  );
 
   it("groups upstream OpenCode models by provider label", async () => {
     const mounted = await mountPicker({

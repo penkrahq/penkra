@@ -11,7 +11,7 @@ import {
   type ThreadId,
 } from "@penkra/contracts";
 import { applyClaudePromptEffortPrefix } from "@penkra/shared/model";
-import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useRef, useState, type ReactNode } from "react";
 import { ChevronDownIcon, FastModeIcon, FastModeOutlineIcon, SettingsIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
@@ -506,7 +506,7 @@ export const TraitsPicker = memo(function TraitsPicker({
   const includeFastMode = includeFastModeProp ?? true;
   const hideLabel = hideLabelProp ?? false;
   const [uncontrolledMenuOpen, setUncontrolledMenuOpen] = useState(false);
-  const selectionCommitTimerRef = useRef<number | null>(null);
+  const selectionPendingRef = useRef(false);
   const isMenuOpen = open ?? uncontrolledMenuOpen;
   const setMenuOpen = useCallback(
     (nextOpen: boolean) => {
@@ -517,27 +517,10 @@ export const TraitsPicker = memo(function TraitsPicker({
     },
     [onOpenChange, open],
   );
-  const scheduleSelectionCommitted = useCallback(() => {
-    if (selectionCommitTimerRef.current !== null) {
-      window.clearTimeout(selectionCommitTimerRef.current);
-    }
-    selectionCommitTimerRef.current = window.setTimeout(() => {
-      selectionCommitTimerRef.current = null;
-      onSelectionCommitted?.();
-    }, 0);
-  }, [onSelectionCommitted]);
-  useEffect(
-    () => () => {
-      if (selectionCommitTimerRef.current !== null) {
-        window.clearTimeout(selectionCommitTimerRef.current);
-      }
-    },
-    [],
-  );
   const handleSelectionComplete = useCallback(() => {
+    selectionPendingRef.current = true;
     setMenuOpen(false);
-    scheduleSelectionCommitted();
-  }, [scheduleSelectionCommitted, setMenuOpen]);
+  }, [setMenuOpen]);
   const { caps, effortLevels, thinkingEnabled, contextWindowOptions, fastModeDescriptor } =
     getComposerTraitSelection(provider, model, prompt, modelOptions, runtimeModel);
   const hasVisibleControls = hasVisibleComposerTraitControls(
@@ -659,6 +642,12 @@ export const TraitsPicker = memo(function TraitsPicker({
   return (
     <ComposerPickerMenu
       open={isMenuOpen}
+      onOpenChangeComplete={(nextOpen) => {
+        if (!nextOpen && selectionPendingRef.current) {
+          selectionPendingRef.current = false;
+          onSelectionCommitted?.();
+        }
+      }}
       onOpenChange={(open) => {
         setMenuOpen(open);
       }}

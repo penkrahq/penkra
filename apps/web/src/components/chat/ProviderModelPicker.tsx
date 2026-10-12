@@ -12,7 +12,7 @@ import {
 } from "@penkra/contracts";
 import { resolveSelectableModel } from "@penkra/shared/model";
 import * as Schema from "effect/Schema";
-import { useDeferredValue, useEffect, useRef, useState } from "react";
+import { useDeferredValue, useRef, useState } from "react";
 import { type ProviderPickerKind, PROVIDER_OPTIONS } from "../../session-logic";
 import { formatProviderModelOptionName } from "../../providerModelOptions";
 import { compareProvidersByOrder } from "../../providerOrdering";
@@ -515,7 +515,7 @@ type ProviderModelPickerProps = {
 export const ProviderModelPicker = function ProviderModelPicker(props: ProviderModelPickerProps) {
   const { onOpenChange, onSelectionCommitted, open } = props;
   const [uncontrolledMenuOpen, setUncontrolledMenuOpen] = useState(false);
-  const selectionCommitTimerRef = useRef<number | null>(null);
+  const selectionPendingRef = useRef(false);
   const isMenuOpen = open ?? uncontrolledMenuOpen;
   const activeProvider = props.lockedProvider ?? props.provider;
   const selectedModelLabel = resolveProviderModelLabel({
@@ -536,28 +536,9 @@ export const ProviderModelPicker = function ProviderModelPicker(props: ProviderM
     }
     onOpenChange?.(nextOpen);
   };
-  const scheduleSelectionCommitted = () => {
-    if (selectionCommitTimerRef.current !== null) {
-      window.clearTimeout(selectionCommitTimerRef.current);
-    }
-    // Base UI restores focus to the trigger while closing; refocus callers after that tick.
-    selectionCommitTimerRef.current = window.setTimeout(() => {
-      selectionCommitTimerRef.current = null;
-      onSelectionCommitted?.();
-    }, 0);
-  };
-  useEffect(
-    () => () => {
-      if (selectionCommitTimerRef.current !== null) {
-        window.clearTimeout(selectionCommitTimerRef.current);
-      }
-    },
-    [],
-  );
-
   const handleAfterSelection = () => {
+    selectionPendingRef.current = true;
     setMenuOpen(false);
-    scheduleSelectionCommitted();
   };
 
   const triggerButton = (
@@ -585,6 +566,12 @@ export const ProviderModelPicker = function ProviderModelPicker(props: ProviderM
   return (
     <ComposerPickerMenu
       open={isMenuOpen}
+      onOpenChangeComplete={(nextOpen) => {
+        if (!nextOpen && selectionPendingRef.current) {
+          selectionPendingRef.current = false;
+          onSelectionCommitted?.();
+        }
+      }}
       onOpenChange={(nextOpen) => {
         if (props.disabled) {
           setMenuOpen(false);
