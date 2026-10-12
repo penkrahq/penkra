@@ -20,19 +20,12 @@ const LOOKBACK_DAYS = 30;
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const LOOKBACK_7D_MS = 7 * ONE_DAY_MS;
 const LOOKBACK_30D_MS = LOOKBACK_DAYS * ONE_DAY_MS;
-const USAGE_CACHE_TTL_MS = 30_000;
 // Keep enough recent archives to make the 30d summary materially different from 7d
 // for heavy local usage without scanning the full historical archive every refresh.
 const MAX_RECENT_USAGE_FILES = 2_000;
 const PROVIDER_USAGE_FILE_READ_CONCURRENCY = 16;
 
 type UsageSnapshot = Exclude<ServerGetProviderUsageSnapshotResult, null>;
-
-interface CachedUsageSnapshot {
-  expiresAtMs: number;
-  value: ServerGetProviderUsageSnapshotResult;
-  pending: Promise<ServerGetProviderUsageSnapshotResult> | null;
-}
 
 interface CodexSessionSummary {
   timestampMs: number;
@@ -47,7 +40,7 @@ interface ClaudeUsageSample {
   model: string | null;
 }
 
-const usageSnapshotCache = new Map<string, CachedUsageSnapshot>();
+const pendingUsageSnapshots = new Map<string, Promise<ServerGetProviderUsageSnapshotResult>>();
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
@@ -608,39 +601,25 @@ async function loadProviderUsageSnapshot(input: {
   }
 }
 
-async function getCachedProviderUsageSnapshot(input: {
+async function loadCoalescedProviderUsageSnapshot(input: {
   provider: ProviderKind;
   homeDir: string;
   homePath?: string;
 }): Promise<ServerGetProviderUsageSnapshotResult> {
-  const cacheKey = `${input.provider}:${input.homeDir}:${input.homePath?.trim() ?? ""}:${process.env.CLAUDE_CONFIG_DIR?.trim() ?? ""}`;
-  const nowMs = Date.now();
-  const existing = usageSnapshotCache.get(cacheKey);
-
-  if (existing && existing.expiresAtMs > nowMs) {
-    return existing.value;
-  }
-  if (existing?.pending) {
-    return existing.pending;
+  const key = `${input.provider}:${input.homeDir}:${input.homePath?.trim() ?? ""}:${process.env.CLAUDE_CONFIG_DIR?.trim() ?? ""}`;
+  const existing = pendingUsageSnapshots.get(key);
+  if (existing) {
+    return existing;
   }
 
   const pending = loadProviderUsageSnapshot(input)
     .catch(() => null)
-    .then((value) => {
-      usageSnapshotCache.set(cacheKey, {
-        expiresAtMs: Date.now() + USAGE_CACHE_TTL_MS,
-        value,
-        pending: null,
-      });
-      return value;
+    .finally(() => {
+      if (pendingUsageSnapshots.get(key) === pending) {
+        pendingUsageSnapshots.delete(key);
+      }
     });
-
-  usageSnapshotCache.set(cacheKey, {
-    expiresAtMs: existing?.expiresAtMs ?? 0,
-    value: existing?.value ?? null,
-    pending,
-  });
-
+  pendingUsageSnapshots.set(key, pending);
   return pending;
 }
 
@@ -650,7 +629,7 @@ export const getProviderUsageSnapshot = Effect.fn(function* (
   const serverConfig = yield* ServerConfig;
   return yield* Effect.tryPromise({
     try: () =>
-      getCachedProviderUsageSnapshot({
+      loadCoalescedProviderUsageSnapshot({
         provider: input.provider,
         homeDir: serverConfig.homeDir,
         ...(input.homePath ? { homePath: input.homePath } : {}),
@@ -667,7 +646,7 @@ export async function loadLocalProviderUsageLines(input: {
   homePath?: string;
 }): Promise<ReadonlyArray<ServerProviderUsageLine>> {
   try {
-    const snapshot = await getCachedProviderUsageSnapshot(input);
+    const snapshot = await loadCoalescedProviderUsageSnapshot(input);
     return snapshot?.usageLines ?? [];
   } catch {
     return [];
