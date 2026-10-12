@@ -231,7 +231,7 @@ export const WorkspaceWatcherLive = Layer.effect(
       () => Effect.promise(() => manager.close()),
     );
     const domainEventsFiber = yield* engine.streamDomainEvents.pipe(
-      Stream.filter((event) => event.type.startsWith("project.")),
+      Stream.filter((event) => event.type.startsWith("folder.")),
       Stream.runForEach(() =>
         Effect.promise(() => manager.reconcile()).pipe(
           Effect.catch((cause) =>
