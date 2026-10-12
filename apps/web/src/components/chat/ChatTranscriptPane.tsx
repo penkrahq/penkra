@@ -181,8 +181,6 @@ function ChatTranscriptPaneImpl({
             recordViewportCheckpoint("second-frame");
           });
         });
-        window.setTimeout(() => recordViewportCheckpoint("100ms"), 100);
-        window.setTimeout(() => recordViewportCheckpoint("500ms"), 500);
       })
       .catch((error) => {
         recordChatPaginationDiagnostic({
