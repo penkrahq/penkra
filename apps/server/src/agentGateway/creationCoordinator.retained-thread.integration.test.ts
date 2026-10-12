@@ -46,6 +46,7 @@ it.effect(
       yield* sql`INSERT INTO projection_folders (folder_id, space_id, title, workspace_root, default_model_selection_json, scripts_json, created_at, updated_at) VALUES (${folderId}, 'penkra-personal', 'Folder', NULL, NULL, '[]', ${at}, ${at})`;
       const publisher = makeThreadPublisher();
       const resolver: typeof ProviderTurnSelectionResolver.Service = {
+        authorizeConnection: () => Effect.die("not used in creation"),
         resolveNewThreadConnection: () => Effect.sync(() => defaultConnection),
         resolveExisting: () => Effect.die("unused existing resolver"),
       };

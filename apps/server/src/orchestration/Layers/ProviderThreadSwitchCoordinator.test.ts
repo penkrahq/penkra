@@ -431,6 +431,35 @@ layer("canonical turn selection", (it) => {
       }),
     );
   }
+  it.effect("pre-authorizes a running account switch without reading a model catalog", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture("codex", { running: true });
+      const before = modelDiscoveryCalls;
+      const waiting = yield* f.send().pipe(Effect.forkChild);
+      yield* Deferred.await(f.subscribed);
+      assert.equal(modelDiscoveryCalls - before, 0);
+      yield* f.settle();
+      yield* Fiber.join(waiting);
+      assert.equal(modelDiscoveryCalls - before, 1);
+      assert.strictEqual((yield* f.read()).connectionId, targetConnectionId);
+    }),
+  );
+
+  it.effect("verifies the selection against a row changed while admission waits for idle", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture("opencode", { running: true });
+      const discoveryCallsBefore = modelDiscoveryCalls;
+      const waiting = yield* f.send({ connectionId: sourceConnectionId }).pipe(Effect.forkChild);
+      yield* Deferred.await(f.subscribed);
+      yield* f.sql`UPDATE threads SET model=${modelFor("opencode", true)} WHERE id=${f.threadId}`;
+      yield* f.settle();
+      yield* Fiber.join(waiting);
+      assert.equal(modelDiscoveryCalls - discoveryCallsBefore, 1);
+      assert.deepStrictEqual(f.order, ["stop", "dispatch"]);
+      assert.strictEqual((yield* f.read()).model, modelFor("opencode"));
+    }),
+  );
+
   it.effect("native steer keeps the running turn's account and model", () =>
     Effect.gen(function* () {
       const f = yield* fixture("codex", { running: true });

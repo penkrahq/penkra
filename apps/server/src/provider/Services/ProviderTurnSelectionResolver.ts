@@ -8,7 +8,12 @@ import {
   ThreadId as ThreadIdSchema,
   TrimmedNonEmptyString as TrimmedNonEmptyStringSchema,
 } from "@penkra/contracts";
-import type { ModelSelection, ProviderConnectionId, ThreadId } from "@penkra/contracts";
+import type {
+  ModelSelection,
+  ProviderConnectionId,
+  ProviderKind,
+  ThreadId,
+} from "@penkra/contracts";
 import { Data, Effect, Schema, ServiceMap } from "effect";
 
 export const ResolvedProviderTurnSelection = Schema.Struct({
@@ -64,6 +69,12 @@ export class ProviderTurnSelectionResolutionError extends ProviderTurnSelectionR
 }
 
 export interface ProviderTurnSelectionResolverShape {
+  /** Check installation and account authorization without discovery or writing a thread. */
+  readonly authorizeConnection: (input: {
+    readonly harness: ProviderKind;
+    readonly modelSelection: ModelSelection;
+    readonly connectionId: ProviderConnectionId | null;
+  }) => Effect.Effect<void, ProviderTurnSelectionResolutionError>;
   /** Resolve an exact selection or the host-owned default for a new thread. */
   readonly resolveNewThreadConnection: (input: {
     readonly modelSelection: ModelSelection;

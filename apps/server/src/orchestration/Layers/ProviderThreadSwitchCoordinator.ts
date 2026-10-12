@@ -104,6 +104,46 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           ...(thread.modelOptions === null ? {} : { options: JSON.parse(thread.modelOptions) }),
         })
       : input.command.modelSelection;
+
+    if (!nativeSteer && thread.state === "running") {
+      yield* resolver
+        .authorizeConnection({
+          harness: thread.provider,
+          modelSelection:
+            input.command.modelSelection ??
+            Schema.decodeUnknownSync(ModelSelection)({
+              provider: thread.provider,
+              model: thread.model,
+            }),
+          connectionId:
+            input.command.connectionId === undefined
+              ? thread.connectionId
+              : input.command.connectionId,
+        })
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new ProviderThreadSwitchCoordinatorError({
+                code: cause.code,
+                detail: cause.message,
+                cause,
+              }),
+          ),
+        );
+
+      if (input.command.dispatchMode === "steer") {
+        yield* provider
+          .interruptTurn({ threadId: input.command.threadId })
+          .pipe(
+            Effect.mapError((cause) =>
+              failure("Could not interrupt the running turn before switching.", cause),
+            ),
+          );
+      }
+      yield* waitForIdle(input.command.threadId);
+      thread = yield* readThread(input.command.threadId);
+    }
+
     const selection = yield* resolver
       .resolveExisting({
         threadId: input.command.threadId,
@@ -124,20 +164,6 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
             }),
         ),
       );
-
-    if (!nativeSteer && thread.state === "running") {
-      if (input.command.dispatchMode === "steer") {
-        yield* provider
-          .interruptTurn({ threadId: input.command.threadId })
-          .pipe(
-            Effect.mapError((cause) =>
-              failure("Could not interrupt the running turn before switching.", cause),
-            ),
-          );
-      }
-      yield* waitForIdle(input.command.threadId);
-      thread = yield* readThread(input.command.threadId);
-    }
 
     let nativeState: { id: string; providerSessionId: string | null } | undefined;
     if (
