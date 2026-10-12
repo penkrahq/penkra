@@ -1,6 +1,7 @@
 import type { TerminalEvent, NativeApi } from "@penkra/contracts";
 import { afterEach, expect, it, vi } from "vitest";
 import * as nativeApi from "../../nativeApi";
+import * as appearance from "./terminalRuntimeAppearance";
 import {
   attachRuntimeToContainer,
   createRuntimeEntry,
@@ -45,7 +46,7 @@ vi.mock("@xterm/xterm", () => ({
 }));
 vi.mock("./terminalRuntimeAppearance", async (original) => ({
   ...(await original<typeof import("./terminalRuntimeAppearance")>()),
-  getTerminalFontFamily: () => "",
+  getTerminalFontFamily: vi.fn(() => ""),
   terminalThemeFromApp: () => ({}),
 }));
 let entry: TerminalRuntimeEntry | undefined;
@@ -54,6 +55,7 @@ afterEach(() => {
   entry = undefined;
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.mocked(appearance.getTerminalFontFamily).mockReturnValue("");
   document.body.replaceChildren();
 });
 function runtime() {
@@ -208,7 +210,7 @@ async function visibleRuntime() {
       disconnect = disconnect;
     },
   );
-  const { api } = runtime();
+  const { api, event, writes } = runtime();
   const fit = vi.spyOn(entry!.fitAddon, "fit").mockImplementation(() => {});
   const refresh = vi.spyOn(entry!.terminal, "refresh");
   const container = document.createElement("div");
@@ -217,8 +219,11 @@ async function visibleRuntime() {
   document.body.appendChild(container);
   attachRuntimeToContainer(entry!, { isVisible: true, autoFocus: false }, container);
   await api.terminal.open.mock.results[0]!.value;
+  const openingFits = [fit.mock.calls.length];
   await nextFrame();
+  openingFits.push(fit.mock.calls.length);
   await nextFrame();
+  openingFits.push(fit.mock.calls.length);
   fit.mockClear();
   refresh.mockClear();
   const resize = () =>
@@ -226,7 +231,7 @@ async function visibleRuntime() {
       [{ contentRect: container.getBoundingClientRect() } as ResizeObserverEntry],
       entry!.resizeObserver!,
     );
-  return { fit, refresh, resize, disconnect };
+  return { fit, refresh, resize, disconnect, openingFits, api, event, writes };
 }
 it("coalesces resize observations on one fit frame", async () => {
   const { fit, resize } = await visibleRuntime();
@@ -260,4 +265,52 @@ it.each(["detach", "dispose"])("%s cancels pending fit and recovery frames", asy
   expect(disconnect).toHaveBeenCalledTimes(1);
   expect(fit).not.toHaveBeenCalled();
   expect(refresh).not.toHaveBeenCalled();
+});
+
+it("opens with one first-frame refit and no guessed second-frame refit", async () => {
+  const { openingFits } = await visibleRuntime();
+  // openTerminal fits synchronously; visibility adds exactly one frame refit.
+  expect(openingFits).toEqual([1, 2, 2]);
+});
+it.each(["resolve", "reject"])(
+  "%s of font readiness refits and clears the atlas",
+  async (result) => {
+    let resolve!: (fonts: FontFace[]) => void;
+    let reject!: (error: Error) => void;
+    const load = new Promise<FontFace[]>((yes, no) => {
+      resolve = yes;
+      reject = no;
+    });
+    vi.spyOn(document.fonts, "load").mockReturnValue(load);
+    vi.mocked(appearance.getTerminalFontFamily).mockReturnValue("monospace");
+    const { fit, refresh, openingFits } = await visibleRuntime();
+    expect(openingFits).toEqual([1, 2, 2]);
+    const clearTextureAtlas = vi.fn();
+    entry!.webglAddon?.dispose();
+    entry!.webglAddon = { clearTextureAtlas, dispose: vi.fn() } as unknown as NonNullable<
+      TerminalRuntimeEntry["webglAddon"]
+    >;
+    if (result === "resolve") resolve([]);
+    else reject(new Error("Invalid font specification"));
+    await load.catch(() => {});
+    // Await the native load -> waitForTerminalFontReady -> refit promise chain.
+    await Promise.resolve();
+    expect(fit).toHaveBeenCalledTimes(1);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(clearTextureAtlas).toHaveBeenCalledTimes(1);
+  },
+);
+it("a pending font load leaves the first-fit terminal open and accepting output", async () => {
+  vi.spyOn(document.fonts, "load").mockReturnValue(new Promise<FontFace[]>(() => {}));
+  vi.mocked(appearance.getTerminalFontFamily).mockReturnValue("monospace");
+  const { fit, openingFits, api, event, writes } = await visibleRuntime();
+  expect(openingFits).toEqual([1, 2, 2]);
+  expect(api.terminal.open).toHaveBeenCalledTimes(1);
+  expect(entry!.opened).toBe(true);
+  writes.forEach((write) => write.done?.());
+  expect(entry!.runtimeStatus).toBe("ready");
+  event("output");
+  await nextFrame();
+  expect(writes.some((write) => write.text === "final output")).toBe(true);
+  expect(fit).not.toHaveBeenCalled();
 });

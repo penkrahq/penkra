@@ -1,5 +1,5 @@
 // FILE: terminalRuntime.ts
-// Purpose: Own the long-lived xterm runtime lifecycle behind the terminal runtime registry.
+// Purpose: Own xterm lifecycle, with visual refits driven by frames, size changes and font readiness.
 // Layer: Terminal runtime infrastructure
 
 import { ClipboardAddon } from "@xterm/addon-clipboard";
@@ -518,7 +518,6 @@ function applyInitialVisualResize(entry: TerminalRuntimeEntry): void {
   if (!entry.viewState.isVisible) return;
 
   let firstFrame = 0;
-  let secondFrame = 0;
 
   firstFrame = window.requestAnimationFrame(() => {
     cancelScheduledVisualResize(entry);
@@ -526,18 +525,11 @@ function applyInitialVisualResize(entry: TerminalRuntimeEntry): void {
       clearTextureAtlas: true,
       refresh: true,
     });
-
-    secondFrame = window.requestAnimationFrame(() => {
-      runTerminalResize(entry, { refresh: true });
-    });
   });
 
   entry.attachDisposables.push(() => {
     if (firstFrame !== 0) {
       window.cancelAnimationFrame(firstFrame);
-    }
-    if (secondFrame !== 0) {
-      window.cancelAnimationFrame(secondFrame);
     }
   });
 }
