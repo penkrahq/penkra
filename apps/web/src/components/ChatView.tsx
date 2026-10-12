@@ -4226,30 +4226,17 @@ function ChatViewContent({
     setExpandedImage(null);
   }, [threadId]);
 
+  const [composerStateThreadId, setComposerStateThreadId] = useState(threadId);
+  if (composerStateThreadId !== threadId) {
+    setComposerStateThreadId(threadId);
+    setLocalDispatch(null);
+    setComposerHighlightedItemId(null);
+    setComposerCursor(collapseExpandedComposerCursor(prompt, prompt.length));
+    setComposerTrigger(detectComposerTrigger(prompt, prompt.length));
+    setIsDragOverComposer(false);
+  }
   useEffect(() => {
     dragDepthRef.current = 0;
-    // Async setState (post-paint) keeps this thread-change reset out of the
-    // render->effect->render cascade. The pre-paint overlay clear (optimistic
-    // messages, expanded image) lives in the layout effect above, so deferring
-    // these residual resets by a tick is imperceptible.
-    const settle = window.setTimeout(() => {
-      setOptimisticUserMessages((existing) => {
-        if (existing.length === 0) return existing;
-        for (const message of existing) {
-          revokeUserMessagePreviewUrls(message);
-        }
-        return [];
-      });
-      setLocalDispatch(null);
-      setComposerHighlightedItemId(null);
-      setComposerCursor(
-        collapseExpandedComposerCursor(promptRef.current, promptRef.current.length),
-      );
-      setComposerTrigger(detectComposerTrigger(promptRef.current, promptRef.current.length));
-      setIsDragOverComposer(false);
-      setExpandedImage(null);
-    }, 0);
-    return () => window.clearTimeout(settle);
   }, [threadId]);
 
   useEffect(() => {
