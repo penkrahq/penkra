@@ -279,7 +279,6 @@ The harness is not committed. External audit evidence remains in
 - `result-183-failure.json`, `run-5.log`: rollback counts, injected cause and hashes.
 - `MigrationRehearsal.183.local.test.ts`: audit copy of the deleted harness.
 
-
 ## Addendum (e): native-folder rehearsal stopped on migration failure (2026-10-11)
 
 This attempted rehearsal used the same valid, immutable `state-copy.sqlite`
@@ -336,7 +335,6 @@ Audit evidence is outside the repository in
   hashing was changed to an equivalent streaming SHA-256 implementation after
   this run started, for a future run only.
 
-
 ## Addendum (f): native-folder rehearsal and disk cleanup (2026-10-11)
 
 This successful rerun supersedes addendum (e)'s stopped native-folder attempt.
@@ -346,14 +344,14 @@ The immutable `state-copy.sqlite` (8,331,603,968 bytes) was opened read-only for
 8,289,067,008 bytes, with integrity `ok`. The real migration runner executed
 176 through 187 inside the native-folder backfill transaction.
 
-| Check | Before | After |
-|---|---:|---:|
-| Source projection threads / canonical threads | 581 | 581 |
-| Source user+assistant messages / user+text items | 86,052 | 86,052 |
-| Open pending interactions / open question items | 0 | 0 |
-| Total canonical items | absent | 634,498 |
-| Parent links removed (migration 182 log) | 75 | 75 removed |
-| Claude native folders moved | 9 staged copies | 9 canonical folders |
+| Check                                            |          Before |               After |
+| ------------------------------------------------ | --------------: | ------------------: |
+| Source projection threads / canonical threads    |             581 |                 581 |
+| Source user+assistant messages / user+text items |          86,052 |              86,052 |
+| Open pending interactions / open question items  |               0 |                   0 |
+| Total canonical items                            |          absent |             634,498 |
+| Parent links removed (migration 182 log)         |              75 |          75 removed |
+| Claude native folders moved                      | 9 staged copies | 9 canonical folders |
 
 All per-thread message counts matched; mismatch list was empty. All nine native
 folder file hashes matched after moving; five folders used account-scoped project
@@ -386,13 +384,13 @@ sampled guarantee of the absolute peak. The copy row means the disposable
 rehearsal copy in addition to the retained source; this harness created no
 Production pre-upgrade backup (that startup work is assigned to step 11).
 
-| Extra data | Bytes | Multiple of starting database |
-|---|---:|---:|
-| Fresh rehearsal database copy | 8,289,067,008 | 1.000000× |
-| WAL | 0 | 0.000000× |
-| SQLite TEMP (`etilqs`), highest observed aggregate | 10,652,899,305 | 1.285175× |
-| Disposable native-folder copies (regular-file bytes) | 8,173,811,173 | 0.986095× |
-| Sum of the four observed category maxima | 27,115,777,486 | 3.271270× |
+| Extra data                                           |          Bytes | Multiple of starting database |
+| ---------------------------------------------------- | -------------: | ----------------------------: |
+| Fresh rehearsal database copy                        |  8,289,067,008 |                     1.000000× |
+| WAL                                                  |              0 |                     0.000000× |
+| SQLite TEMP (`etilqs`), highest observed aggregate   | 10,652,899,305 |                     1.285175× |
+| Disposable native-folder copies (regular-file bytes) |  8,173,811,173 |                     0.986095× |
+| Sum of the four observed category maxima             | 27,115,777,486 |                     3.271270× |
 
 SQLite used a rollback journal rather than WAL in this harness; its highest
 observed journal size was 22,016 bytes (0.000003×), outside the WAL row.

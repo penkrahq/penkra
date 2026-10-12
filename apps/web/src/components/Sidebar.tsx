@@ -57,10 +57,6 @@ import { useFeedbackDialogStore } from "../feedbackDialogStore";
 import { useFocusedChatContext } from "../focusedChatContext";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
-import {
-  firstLocalServerUrl,
-  useSidebarProjectRunController,
-} from "../hooks/useSidebarProjectRunController";
 import { useSidebarThreadActions } from "../hooks/useSidebarThreadActions";
 import { useThreadActivationController } from "../hooks/useThreadActivationController";
 import {
@@ -93,21 +89,19 @@ import {
 import { SquareImageError, compressSquareImage } from "../lib/squareImage";
 import { isOrdinarySpaceProject } from "../lib/spaces";
 import { archiveProject } from "../lib/projectArchive";
-import { isTerminalFocused } from "../lib/terminalFocus";
 import { dispatchThreadRename } from "../lib/threadRename";
 import { isMacPlatform, newCommandId, newFolderId, newThreadId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import { useSpacesUiStore } from "../spacesUiStore";
 import { useSidebarInlineRenameStore } from "../sidebarInlineRenameStore";
 import { persistAppStateNow, useStore } from "../store";
-import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { retainThreadDetailSubscription } from "../threadDetailSubscriptionRetention";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import type { Space } from "../types";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
 import { useVoiceSessionCoordinatorStore } from "../voiceSessionCoordinator";
 import { subscribeToSpaceUiActions } from "../spaceUiEvents";
-import { shouldRenderTerminalWorkspace } from "./ChatView.logic";
+import {} from "./ChatView.logic";
 import {
   DEBUG_FEATURE_FLAGS_MENU_STORAGE_KEY,
   beginInlineFolderCreation,
@@ -303,7 +297,6 @@ function threadJumpLabelMapsEqual(
 function buildThreadJumpLabelMap(input: {
   keybindings: ResolvedKeybindingsConfig;
   platform: string;
-  terminalOpen: boolean;
   threadJumpCommandByThreadId: ReadonlyMap<
     ThreadId,
     NonNullable<ReturnType<typeof threadJumpCommandForIndex>>
@@ -315,10 +308,7 @@ function buildThreadJumpLabelMap(input: {
 
   const shortcutLabelOptions = {
     platform: input.platform,
-    context: {
-      terminalFocus: false,
-      terminalOpen: input.terminalOpen,
-    },
+    context: {},
   } as const;
   const mapping = new Map<ThreadId, string>();
   for (const [threadId, command] of input.threadJumpCommandByThreadId) {
@@ -379,10 +369,6 @@ export default function Sidebar() {
   );
   const toggleProject = useStore((store) => store.toggleProject);
   const setProjectExpanded = useStore((store) => store.setProjectExpanded);
-  const terminalStateByThreadId = useTerminalStateStore((state) => state.terminalStateByThreadId);
-  const clearTerminalState = useTerminalStateStore((state) => state.clearTerminalState);
-  const openChatThreadPage = useTerminalStateStore((state) => state.openChatThreadPage);
-  const openTerminalThreadPage = useTerminalStateStore((state) => state.openTerminalThreadPage);
   const draftThreadsByThreadId = useComposerDraftStore((store) => store.draftThreadsByThreadId);
   const localSendOwnerThreadIds = useComposerSendActivityThreadIds();
   const homeDir = useWorkspacePathsStore((store) => store.homeDir);
@@ -660,14 +646,6 @@ export default function Sidebar() {
       sidebarThreadSummaryById,
     ],
   );
-  const routeTerminalState = routeThreadId
-    ? selectThreadTerminalState(terminalStateByThreadId, routeThreadId)
-    : null;
-  const terminalOpen = routeTerminalState?.terminalOpen ?? false;
-  const terminalWorkspaceOpen = shouldRenderTerminalWorkspace({
-    presentationMode: routeTerminalState?.presentationMode ?? "drawer",
-    terminalOpen,
-  });
   const projectById = useMemo(
     () => new Map(folders.map((project) => [project.id, project] as const)),
     [folders],
@@ -675,7 +653,6 @@ export default function Sidebar() {
   const { confirmAndDeleteThread, archiveThread, confirmAndArchiveThread } =
     useSidebarThreadActions({
       appSettings,
-      clearTerminalState,
       handleNewChat,
       projectById,
       routeThreadId,
@@ -684,26 +661,6 @@ export default function Sidebar() {
       sidebarThreadSummaryById,
       threadsHydrated,
     });
-  const {
-    projectRunsByFolderId,
-    projectRunServerByFolderId,
-    projectRunDialogFolderId,
-    projectRunDialogProject,
-    projectRunDialogExistingRun,
-    projectRunDialogCommandDraft,
-    setProjectRunDialogCommandDraft,
-    projectRunDialogCommandIsValid,
-    openProjectRunDialog,
-    closeProjectRunDialog,
-    handleConfirmProjectRun,
-    handleStopProjectRun,
-    handleOpenProjectRunServer,
-  } = useSidebarProjectRunController({
-    folders,
-    projectById,
-    homeDir,
-    chatWorkspaceRoot,
-  });
   const activeRouteFolderId = routeThreadId
     ? (sidebarThreadSummaryById[routeThreadId]?.folderId ??
       draftThreadsByThreadId[routeThreadId]?.folderId ??
@@ -812,7 +769,7 @@ export default function Sidebar() {
       }
 
       const draftStore = useComposerDraftStore.getState();
-      const draftThread = draftStore.getDraftThreadByFolderId(folderId, "chat");
+      const draftThread = draftStore.getDraftThreadByFolderId(folderId);
       const draftComposer = draftThread
         ? (draftStore.draftsByThreadId[draftThread.threadId] ?? null)
         : null;
@@ -1213,14 +1170,11 @@ export default function Sidebar() {
   const { activateThreadFromSidebarIntent } = useThreadActivationController({
     clearSelection,
     navigate,
-    openChatThreadPage,
-    openTerminalThreadPage,
     rememberLastThreadRouteNow,
     routeThreadId,
     selectedThreadCount: selectedThreadIds.size,
     setSelectionAnchor,
     sidebarThreadSummaryById,
-    terminalStateByThreadId,
   });
 
   const {
@@ -1409,18 +1363,6 @@ export default function Sidebar() {
         if (physicalPath) copyPathToClipboard(physicalPath);
         return;
       }
-      if (clicked === "start-dev") {
-        openProjectRunDialog(folderId);
-        return;
-      }
-      if (clicked === "stop-dev") {
-        await handleStopProjectRun(folderId);
-        return;
-      }
-      if (clicked === "open-dev-server") {
-        await handleOpenProjectRunServer(folderId);
-        return;
-      }
       if (clicked === "rename") {
         startFolderInlineRename(folderId, project.name);
         return;
@@ -1479,10 +1421,7 @@ export default function Sidebar() {
     },
     [
       copyPathToClipboard,
-      handleOpenProjectRunServer,
-      handleStopProjectRun,
       handleFolderIconFile,
-      openProjectRunDialog,
       projectById,
       sidebarThreads,
       startFolderInlineRename,
@@ -1497,10 +1436,6 @@ export default function Sidebar() {
 
     const projectThreads = sidebarThreads.filter((thread) => thread.folderId === folderId);
     const physicalPath = project.cwd;
-    const isRunning = Boolean(projectRunsByFolderId[folderId]);
-    const projectRunServer = projectRunServerByFolderId.get(folderId) ?? null;
-    const hasOpenServer =
-      projectRunServer !== null && firstLocalServerUrl(projectRunServer) !== null;
     const canArchive = canArchiveSidebarFolder(
       projectThreads.map((thread) =>
         resolveVisibleThreadWorkStatus({
@@ -1523,16 +1458,6 @@ export default function Sidebar() {
         { id: "open-in-finder", label: "Open in Finder" },
         { id: "copy-path", label: "Copy Path" },
       );
-    }
-    if (project.cwd) {
-      items.push({
-        id: isRunning ? "stop-dev" : "start-dev",
-        label: isRunning ? "Stop dev" : "Start dev",
-        separatorBefore: physicalPath !== null,
-      });
-      if (hasOpenServer) {
-        items.push({ id: "open-dev-server", label: "Open dev server" });
-      }
     }
     moveTargets.forEach((space, index) => {
       items.push({
@@ -2015,14 +1940,7 @@ export default function Sidebar() {
     () => [...threadJumpCommandByThreadId.keys()],
     [threadJumpCommandByThreadId],
   );
-  const getCurrentSidebarShortcutContext = useCallback(
-    () => ({
-      terminalFocus: isTerminalFocused(),
-      terminalOpen,
-      terminalWorkspaceOpen,
-    }),
-    [terminalOpen, terminalWorkspaceOpen],
-  );
+  const getCurrentSidebarShortcutContext = useCallback(() => ({}), []);
   const [threadJumpLabelByThreadId, setThreadJumpLabelByThreadId] =
     useState<ReadonlyMap<ThreadId, string>>(EMPTY_THREAD_JUMP_LABELS);
   const threadJumpLabelsRef = useRef<ReadonlyMap<ThreadId, string>>(EMPTY_THREAD_JUMP_LABELS);
@@ -2342,7 +2260,6 @@ export default function Sidebar() {
             const nextLabelMap = buildThreadJumpLabelMap({
               keybindings,
               platform: navigator.platform,
-              terminalOpen: shortcutContext.terminalOpen,
               threadJumpCommandByThreadId,
             });
             return threadJumpLabelMapsEqual(current, nextLabelMap) ? current : nextLabelMap;
@@ -2469,7 +2386,6 @@ export default function Sidebar() {
         const nextLabelMap = buildThreadJumpLabelMap({
           keybindings,
           platform: navigator.platform,
-          terminalOpen: shortcutContext.terminalOpen,
           threadJumpCommandByThreadId,
         });
         return threadJumpLabelMapsEqual(current, nextLabelMap) ? current : nextLabelMap;
@@ -3147,70 +3063,6 @@ export default function Sidebar() {
           {...(showDesktopUpdateButton ? { onUpdate: handleDesktopUpdateButtonClick } : {})}
         />
       </SidebarFooter>
-
-      <Dialog
-        open={projectRunDialogFolderId !== null}
-        onOpenChange={(open) => {
-          if (!open) {
-            closeProjectRunDialog();
-          }
-        }}
-      >
-        <DialogPopup className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-[length:calc(var(--app-font-size-base,12px)*1.3333)]">
-              <PlayIcon className="size-4 text-emerald-500" />
-              Start dev
-            </DialogTitle>
-            <DialogDescription>
-              {projectRunDialogProject ? projectRunDialogProject.name : "Folder"}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogPanel className="space-y-2">
-            <label
-              htmlFor="project-run-command-input"
-              className="block text-[length:var(--app-font-size-ui-xs,10px)] font-medium text-[var(--color-text-foreground-secondary)]"
-            >
-              Command
-            </label>
-            <Input
-              id="project-run-command-input"
-              autoFocus
-              spellCheck={false}
-              autoComplete="off"
-              autoCapitalize="off"
-              autoCorrect="off"
-              placeholder="e.g. npm run dev"
-              value={projectRunDialogCommandDraft}
-              aria-invalid={projectRunDialogCommandIsValid ? undefined : true}
-              onChange={(event) => setProjectRunDialogCommandDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  handleConfirmProjectRun();
-                }
-              }}
-            />
-            {projectRunDialogCommandIsValid ? null : (
-              <p className="text-[length:var(--app-font-size-ui-sm,11px)] text-destructive">
-                Enter a command to run.
-              </p>
-            )}
-          </DialogPanel>
-          <DialogFooter>
-            <Button variant="outline" onClick={closeProjectRunDialog}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleConfirmProjectRun}
-              disabled={!projectRunDialogCommandIsValid || Boolean(projectRunDialogExistingRun)}
-            >
-              <PlayIcon className="size-4" />
-              Run
-            </Button>
-          </DialogFooter>
-        </DialogPopup>
-      </Dialog>
 
       {searchPaletteOpen ? (
         <SidebarSearchPaletteController

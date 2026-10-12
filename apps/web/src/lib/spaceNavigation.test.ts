@@ -30,7 +30,6 @@ function project(input: { id: string; spaceId?: SpaceId }): Project {
     defaultModelSelection: null,
     expanded: false,
     spaceId: input.spaceId ?? personalSpaceId,
-    scripts: [],
   };
 }
 

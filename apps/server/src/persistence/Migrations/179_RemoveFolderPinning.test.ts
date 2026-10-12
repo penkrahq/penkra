@@ -12,7 +12,7 @@ it.effect("drops folder pinning, preserves folder metadata, and survives lineage
     yield* sql`INSERT INTO projection_folders
       (folder_id, title, workspace_root, scripts_json, space_id, is_pinned, sidebar_sort_order, created_at, updated_at)
       VALUES ('folder', 'Folder', '/repo', '[]', 'penkra-personal', 1, 2, '2026-10-10T00:00:00.000Z', '2026-10-10T00:00:01.000Z')`;
-    const read = sql`SELECT folder_id, title, workspace_root, scripts_json, space_id, sidebar_sort_order, created_at, updated_at FROM projection_folders WHERE folder_id = 'folder'`;
+    const read = sql`SELECT folder_id, title, workspace_root, space_id, sidebar_sort_order, created_at, updated_at FROM projection_folders WHERE folder_id = 'folder'`;
     const before = yield* read;
     yield* runMigrations();
     assert.deepStrictEqual(yield* read, before);

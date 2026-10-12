@@ -347,7 +347,6 @@ export function projectEvent(
             title: payload.title,
             workspaceRoot: payload.workspaceRoot,
             defaultModelSelection: payload.defaultModelSelection,
-            scripts: payload.scripts,
             iconDataUrl: payload.iconDataUrl ?? null,
             spaceId: payload.spaceId,
             sidebarSortOrder: payload.sidebarSortOrder ?? 0,
@@ -383,7 +382,6 @@ export function projectEvent(
                   ...(payload.defaultModelSelection !== undefined
                     ? { defaultModelSelection: payload.defaultModelSelection }
                     : {}),
-                  ...(payload.scripts !== undefined ? { scripts: payload.scripts } : {}),
                   ...(payload.iconDataUrl !== undefined
                     ? { iconDataUrl: payload.iconDataUrl }
                     : {}),

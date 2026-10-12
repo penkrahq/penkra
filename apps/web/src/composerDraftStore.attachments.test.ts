@@ -287,7 +287,6 @@ describe("composerDraftStore prompt history saved draft", () => {
     expect(restoredDraft.mentions).toEqual([selectedMention]);
   });
 
-
   it("syncs persisted images into an existing prompt-history snapshot", async () => {
     const store = useComposerDraftStore.getState();
     const image = makeImage({ id: "img-sync-history", previewUrl: "blob:sync-history" });

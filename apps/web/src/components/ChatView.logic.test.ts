@@ -22,18 +22,14 @@ import {
   resolveActiveThreadTitle,
   resolveCommittedProviderModel,
   resolveCycledModelSlug,
-  resolveProjectScriptTerminalTarget,
   resolveThreadDetailHydration,
   shouldShowComposerContinue,
   shouldRenderTranscriptDuringHydration,
   sanitizeVoiceErrorMessage,
   buildExpiredTerminalContextToastCopy,
-  shouldAutoDeleteTerminalThreadOnLastClose,
   shouldConsumePendingCustomBinaryConfirmation,
   shouldEnableComposerPastedTextCollapse,
   shouldHandlePromptHistoryNavigationKey,
-  shouldRenderProviderHealthBanner,
-  shouldRenderTerminalWorkspace,
 } from "./ChatView.logic";
 
 describe("composer Continue eligibility", () => {
@@ -928,118 +924,6 @@ describe("buildExpiredTerminalContextToastCopy", () => {
   });
 });
 
-describe("shouldRenderTerminalWorkspace", () => {
-  it("renders the workspace shell before the active project has hydrated", () => {
-    expect(
-      shouldRenderTerminalWorkspace({
-        presentationMode: "workspace",
-        terminalOpen: true,
-      }),
-    ).toBe(true);
-  });
-
-  it("renders only for an open workspace terminal", () => {
-    expect(
-      shouldRenderTerminalWorkspace({
-        presentationMode: "workspace",
-        terminalOpen: true,
-      }),
-    ).toBe(true);
-    expect(
-      shouldRenderTerminalWorkspace({
-        presentationMode: "drawer",
-        terminalOpen: true,
-      }),
-    ).toBe(false);
-  });
-});
-
-describe("resolveProjectScriptTerminalTarget", () => {
-  it("reuses the base terminal only when no terminal is open or running", () => {
-    const target = resolveProjectScriptTerminalTarget({
-      baseTerminalId: "default",
-      createTerminalId: () => "new-terminal",
-      hasRunningTerminal: false,
-      terminalOpen: false,
-    });
-
-    expect(target).toEqual({
-      shouldCreateNewTerminal: false,
-      terminalId: "default",
-    });
-  });
-
-  it("creates a fresh terminal when a live terminal could keep stale cwd or env", () => {
-    expect(
-      resolveProjectScriptTerminalTarget({
-        baseTerminalId: "default",
-        createTerminalId: () => "visible-script-terminal",
-        hasRunningTerminal: false,
-        terminalOpen: true,
-      }),
-    ).toEqual({
-      shouldCreateNewTerminal: true,
-      terminalId: "visible-script-terminal",
-    });
-
-    expect(
-      resolveProjectScriptTerminalTarget({
-        baseTerminalId: "default",
-        createTerminalId: () => "running-script-terminal",
-        hasRunningTerminal: true,
-        terminalOpen: false,
-      }),
-    ).toEqual({
-      shouldCreateNewTerminal: true,
-      terminalId: "running-script-terminal",
-    });
-  });
-
-  it("honors explicit requests for a new terminal", () => {
-    const target = resolveProjectScriptTerminalTarget({
-      baseTerminalId: "default",
-      createTerminalId: () => "forced-script-terminal",
-      hasRunningTerminal: false,
-      preferNewTerminal: true,
-      terminalOpen: false,
-    });
-
-    expect(target).toEqual({
-      shouldCreateNewTerminal: true,
-      terminalId: "forced-script-terminal",
-    });
-  });
-});
-
-describe("shouldRenderProviderHealthBanner", () => {
-  it("does not show chat provider health while a terminal thread is active", () => {
-    expect(
-      shouldRenderProviderHealthBanner({
-        threadEntryPoint: "terminal",
-        terminalWorkspaceTerminalTabActive: false,
-      }),
-    ).toBe(false);
-  });
-
-  it("does not show chat provider health while the terminal workspace tab is active", () => {
-    expect(
-      shouldRenderProviderHealthBanner({
-        threadEntryPoint: "chat",
-        terminalWorkspaceTerminalTabActive: true,
-      }),
-    ).toBe(false);
-  });
-
-  it("shows chat provider health only on the chat surface", () => {
-    expect(
-      shouldRenderProviderHealthBanner({
-        threadEntryPoint: "chat",
-        terminalWorkspaceTerminalTabActive: false,
-      }),
-    ).toBe(true);
-  });
-});
-
 describe("hasServerAcknowledgedLocalDispatch", () => {
   const localDispatch: LocalDispatchSnapshot = {
     startedAt: "2026-04-13T00:00:00.000Z",
@@ -1238,65 +1122,6 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
         threadError: "provider failed",
       }),
     ).toBe(true);
-  });
-});
-
-describe("shouldAutoDeleteTerminalThreadOnLastClose", () => {
-  it("deletes untouched terminal-first placeholder threads when the last terminal closes", () => {
-    expect(
-      shouldAutoDeleteTerminalThreadOnLastClose({
-        isLastTerminal: true,
-        isServerThread: true,
-        terminalEntryPoint: "terminal",
-        thread: {
-          title: "New terminal",
-          messages: [],
-          latestTurn: null,
-          session: null,
-          activities: [],
-        },
-      }),
-    ).toBe(true);
-  });
-
-  it("keeps non-placeholder or already-used threads", () => {
-    expect(
-      shouldAutoDeleteTerminalThreadOnLastClose({
-        isLastTerminal: true,
-        isServerThread: true,
-        terminalEntryPoint: "terminal",
-        thread: {
-          title: "Manual rename",
-          messages: [],
-          latestTurn: null,
-          session: null,
-          activities: [],
-        },
-      }),
-    ).toBe(false);
-
-    expect(
-      shouldAutoDeleteTerminalThreadOnLastClose({
-        isLastTerminal: true,
-        isServerThread: true,
-        terminalEntryPoint: "terminal",
-        thread: {
-          title: "New terminal",
-          messages: [
-            {
-              id: "msg-1" as never,
-              role: "user",
-              text: "hello",
-              createdAt: "2026-04-06T12:00:00.000Z",
-              streaming: false,
-            },
-          ],
-          latestTurn: null,
-          session: null,
-          activities: [],
-        },
-      }),
-    ).toBe(false);
   });
 });
 

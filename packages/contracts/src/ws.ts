@@ -48,27 +48,13 @@ import {
   ORCHESTRATION_WS_METHODS,
   OrchestrationGetSnapshotInput,
 } from "./orchestration";
-import {
-  TerminalAckOutputInput,
-  TerminalClearInput,
-  TerminalCloseInput,
-  TerminalEvent,
-  TerminalOpenInput,
-  TerminalResizeInput,
-  TerminalRestartInput,
-  TerminalWriteInput,
-} from "./terminal";
 import { KeybindingRule } from "./keybindings";
 import {
   ProjectCreateLocalFilePreviewGrantInput,
-  ProjectDevServerEvent,
-  ProjectDiscoverScriptsInput,
   ProjectListDirectoriesInput,
   ProjectReadFileInput,
-  ProjectRunDevServerInput,
   ProjectSearchEntriesInput,
   ProjectSearchLocalEntriesInput,
-  ProjectStopDevServerInput,
   ProjectWriteFileInput,
   ProjectWorkspaceChangeEvent,
 } from "./project";
@@ -83,7 +69,6 @@ import {
   ServerListProviderUsageInput,
   ServerProviderStatusesUpdatedPayload,
   ServerSettingsUpdatedPayload,
-  ServerStopLocalServerInput,
   ServerVoiceTranscriptionInput,
 } from "./server";
 import {
@@ -110,18 +95,12 @@ import {
 // ── WebSocket RPC Method Names ───────────────────────────────────────
 
 export const WS_METHODS = {
-  // Project registry methods
-  projectsDiscoverScripts: "folders.discoverScripts",
   projectsListDirectories: "folders.listDirectories",
   projectsSearchEntries: "folders.searchEntries",
   projectsSearchLocalEntries: "folders.searchLocalEntries",
   projectsReadFile: "folders.readFile",
   projectsCreateLocalFilePreviewGrant: "folders.createLocalFilePreviewGrant",
   projectsWriteFile: "folders.writeFile",
-  projectsRunDevServer: "folders.runDevServer",
-  projectsStopDevServer: "folders.stopDevServer",
-  projectsListDevServers: "folders.listDevServers",
-  subscribeProjectDevServerEvents: "folders.subscribeDevServerEvents",
   subscribeProjectWorkspaceChanges: "folders.subscribeWorkspaceChanges",
 
   // Filesystem browse methods
@@ -129,15 +108,6 @@ export const WS_METHODS = {
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
-
-  // Terminal methods
-  terminalOpen: "terminal.open",
-  terminalWrite: "terminal.write",
-  terminalAckOutput: "terminal.ackOutput",
-  terminalResize: "terminal.resize",
-  terminalClear: "terminal.clear",
-  terminalRestart: "terminal.restart",
-  terminalClose: "terminal.close",
 
   // Server meta
   cleanCoreGetThreadRuntime: "cleanCore.getThreadRuntime",
@@ -173,8 +143,6 @@ export const WS_METHODS = {
   serverGetSpaceNavigationState: "server.getSpaceNavigationState",
   serverUpdateSpaceNavigationState: "server.updateSpaceNavigationState",
   serverRefreshProviders: "server.refreshProviders",
-  serverListLocalServers: "server.listLocalServers",
-  serverStopLocalServer: "server.stopLocalServer",
   serverGetProviderUsageSnapshot: "server.getProviderUsageSnapshot",
   serverListProviderUsage: "server.listProviderUsage",
   serverTranscribeVoice: "server.transcribeVoice",
@@ -183,9 +151,6 @@ export const WS_METHODS = {
   subscribeServerConfig: "server.subscribeConfig",
   subscribeServerProviderStatuses: "server.subscribeProviderStatuses",
   subscribeServerSettings: "server.subscribeSettings",
-
-  // Streaming subscriptions
-  subscribeTerminalEvents: "terminal.subscribeEvents",
   subscribeOrchestrationDomainEvents: "orchestration.subscribeDomainEvents",
 
   // Provider discovery
@@ -211,8 +176,6 @@ export const WS_METHODS = {
 // ── Push Event Channels ──────────────────────────────────────────────
 
 export const WS_CHANNELS = {
-  terminalEvent: "terminal.event",
-  projectDevServerEvent: "project.devServerEvent",
   projectWorkspaceChange: "project.workspaceChange",
   serverWelcome: "server.welcome",
   serverMaintenanceUpdated: "server.maintenanceUpdated",
@@ -258,9 +221,6 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(ORCHESTRATION_WS_METHODS.unsubscribeShell, OrchestrationUnsubscribeShellInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.subscribeThread, OrchestrationSubscribeThreadInput),
   tagRequestBody(ORCHESTRATION_WS_METHODS.unsubscribeThread, OrchestrationUnsubscribeThreadInput),
-
-  // Project Search
-  tagRequestBody(WS_METHODS.projectsDiscoverScripts, ProjectDiscoverScriptsInput),
   tagRequestBody(WS_METHODS.projectsListDirectories, ProjectListDirectoriesInput),
   tagRequestBody(WS_METHODS.projectsSearchEntries, ProjectSearchEntriesInput),
   tagRequestBody(WS_METHODS.projectsSearchLocalEntries, ProjectSearchLocalEntriesInput),
@@ -270,10 +230,6 @@ const WebSocketRequestBody = Schema.Union([
     ProjectCreateLocalFilePreviewGrantInput,
   ),
   tagRequestBody(WS_METHODS.projectsWriteFile, ProjectWriteFileInput),
-  tagRequestBody(WS_METHODS.projectsRunDevServer, ProjectRunDevServerInput),
-  tagRequestBody(WS_METHODS.projectsStopDevServer, ProjectStopDevServerInput),
-  tagRequestBody(WS_METHODS.projectsListDevServers, Schema.Struct({})),
-  tagRequestBody(WS_METHODS.subscribeProjectDevServerEvents, Schema.Struct({})),
   tagRequestBody(WS_METHODS.subscribeProjectWorkspaceChanges, Schema.Struct({})),
 
   // Filesystem browse
@@ -281,15 +237,6 @@ const WebSocketRequestBody = Schema.Union([
 
   // Shell methods
   tagRequestBody(WS_METHODS.shellOpenInEditor, OpenInEditorInput),
-
-  // Terminal methods
-  tagRequestBody(WS_METHODS.terminalOpen, TerminalOpenInput),
-  tagRequestBody(WS_METHODS.terminalWrite, TerminalWriteInput),
-  tagRequestBody(WS_METHODS.terminalAckOutput, TerminalAckOutputInput),
-  tagRequestBody(WS_METHODS.terminalResize, TerminalResizeInput),
-  tagRequestBody(WS_METHODS.terminalClear, TerminalClearInput),
-  tagRequestBody(WS_METHODS.terminalRestart, TerminalRestartInput),
-  tagRequestBody(WS_METHODS.terminalClose, TerminalCloseInput),
 
   // Server meta
   tagRequestBody(WS_METHODS.serverGetConfig, Schema.Struct({})),
@@ -326,8 +273,6 @@ const WebSocketRequestBody = Schema.Union([
     ServerUpdateSpaceNavigationStateInput,
   ),
   tagRequestBody(WS_METHODS.serverRefreshProviders, Schema.Struct({})),
-  tagRequestBody(WS_METHODS.serverListLocalServers, Schema.Struct({})),
-  tagRequestBody(WS_METHODS.serverStopLocalServer, ServerStopLocalServerInput),
   tagRequestBody(WS_METHODS.serverGetProviderUsageSnapshot, ServerGetProviderUsageSnapshotInput),
   tagRequestBody(WS_METHODS.serverListProviderUsage, ServerListProviderUsageInput),
   tagRequestBody(WS_METHODS.serverTranscribeVoice, ServerVoiceTranscriptionInput),
@@ -388,8 +333,6 @@ export interface WsPushPayloadByChannel {
   readonly [WS_CHANNELS.serverConfigUpdated]: typeof ServerConfigUpdatedPayload.Type;
   readonly [WS_CHANNELS.serverProviderStatusesUpdated]: typeof ServerProviderStatusesUpdatedPayload.Type;
   readonly [WS_CHANNELS.serverSettingsUpdated]: typeof ServerSettingsUpdatedPayload.Type;
-  readonly [WS_CHANNELS.terminalEvent]: typeof TerminalEvent.Type;
-  readonly [WS_CHANNELS.projectDevServerEvent]: typeof ProjectDevServerEvent.Type;
   readonly [WS_CHANNELS.projectWorkspaceChange]: typeof ProjectWorkspaceChangeEvent.Type;
   readonly [ORCHESTRATION_WS_CHANNELS.domainEvent]: OrchestrationEvent;
   readonly [ORCHESTRATION_WS_CHANNELS.syncEvent]: OrchestrationSyncStreamItem;
@@ -430,11 +373,6 @@ export const WsPushServerSettingsUpdated = makeWsPushSchema(
   WS_CHANNELS.serverSettingsUpdated,
   ServerSettingsUpdatedPayload,
 );
-export const WsPushTerminalEvent = makeWsPushSchema(WS_CHANNELS.terminalEvent, TerminalEvent);
-export const WsPushProjectDevServerEvent = makeWsPushSchema(
-  WS_CHANNELS.projectDevServerEvent,
-  ProjectDevServerEvent,
-);
 export const WsPushProjectWorkspaceChange = makeWsPushSchema(
   WS_CHANNELS.projectWorkspaceChange,
   ProjectWorkspaceChangeEvent,
@@ -471,8 +409,6 @@ export const WsPushChannelSchema = Schema.Literals([
   WS_CHANNELS.serverConfigUpdated,
   WS_CHANNELS.serverProviderStatusesUpdated,
   WS_CHANNELS.serverSettingsUpdated,
-  WS_CHANNELS.terminalEvent,
-  WS_CHANNELS.projectDevServerEvent,
   WS_CHANNELS.projectWorkspaceChange,
   ORCHESTRATION_WS_CHANNELS.domainEvent,
   ORCHESTRATION_WS_CHANNELS.syncEvent,
@@ -489,8 +425,6 @@ export const WsPush = Schema.Union([
   WsPushServerConfigUpdated,
   WsPushServerProviderStatusesUpdated,
   WsPushServerSettingsUpdated,
-  WsPushTerminalEvent,
-  WsPushProjectDevServerEvent,
   WsPushProjectWorkspaceChange,
   WsPushOrchestrationDomainEvent,
   WsPushOrchestrationSyncEvent,

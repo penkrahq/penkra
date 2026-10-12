@@ -72,16 +72,13 @@ const PROJECT_ID = FolderId.makeUnsafe("project-1");
 const SPACE_ID = SpaceId.makeUnsafe("space-personal");
 const CONNECTION_ID = ProviderConnectionId.makeUnsafe("connection-default");
 
-function makeProjectShell(
-  scripts: OrchestrationFolderShell["scripts"] = [],
-): OrchestrationFolderShell {
+function makeProjectShell(): OrchestrationFolderShell {
   return {
     id: PROJECT_ID,
     spaceId: SPACE_ID,
     title: "Demo project",
     workspaceRoot: "/tmp/demo",
     defaultModelSelection: null,
-    scripts,
     createdAt: NOW,
     updatedAt: NOW,
   };
@@ -254,7 +251,6 @@ function makeHarnessLayer(
       readonly turnId: string;
       readonly state?: "running" | "completed" | "interrupted";
     };
-    readonly projectScripts?: OrchestrationFolderShell["scripts"];
     readonly extraFolders?: ReadonlyArray<OrchestrationFolderShell>;
     readonly endParentTurnOnSecondShellRead?: boolean;
     readonly replaceParentTurnOnFirstShellRead?: boolean;
@@ -466,7 +462,7 @@ function makeHarnessLayer(
   const snapshotLayer = Layer.succeed(ProjectionSnapshotQuery, {
     listFolderShellPage: (after: ProjectionFolderPageCursor | null) =>
       Effect.sync(() => {
-        const matching = [makeProjectShell(options.projectScripts), ...(options.extraFolders ?? [])]
+        const matching = [makeProjectShell(), ...(options.extraFolders ?? [])]
           .filter(
             (folder) =>
               after === null ||
@@ -489,7 +485,7 @@ function makeHarnessLayer(
       }),
     listThreadShellPage: (input: ProjectionThreadShellPageInput) =>
       Effect.sync(() => {
-        const folders = [makeProjectShell(options.projectScripts), ...(options.extraFolders ?? [])];
+        const folders = [makeProjectShell(), ...(options.extraFolders ?? [])];
         const matching = [...threadsById.values()]
           .filter(
             (thread) =>
@@ -567,7 +563,7 @@ function makeHarnessLayer(
     getFolderShellById: (folderId: string) =>
       Effect.succeed(
         Option.fromNullishOr(
-          [makeProjectShell(options.projectScripts), ...(options.extraFolders ?? [])].find(
+          [makeProjectShell(), ...(options.extraFolders ?? [])].find(
             (folder) => folder.id === folderId,
           ),
         ),
@@ -637,7 +633,7 @@ function makeHarnessLayer(
     searchThreadMessages: (input: ProjectionTranscriptSearchInput) =>
       Effect.sync(() => {
         const direction = input.order === "recent" ? -1 : 1;
-        const folders = [makeProjectShell(options.projectScripts), ...(options.extraFolders ?? [])];
+        const folders = [makeProjectShell(), ...(options.extraFolders ?? [])];
         const messages = [...threadsById.values()]
           .filter(
             (thread) =>

@@ -1,4 +1,4 @@
-import { seedThreadFolderFixture } from "../../cleanCore/threadFixtures.ts";
+import { seedHistoricalFolderFixture } from "./historicalFolderFixture.ts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Exit } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -11,7 +11,7 @@ it.effect(
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations({ toMigrationInclusive: 176 });
-      yield* seedThreadFolderFixture("folder", "space");
+      yield* seedHistoricalFolderFixture({ folderId: "folder", spaceId: "space" });
       const now = "2026-10-10T00:00:00.000Z";
       yield* sql`INSERT INTO projection_threads (thread_id, folder_id, title, created_at, updated_at)
       VALUES ('retained', 'folder', 'Retained', ${now}, ${now}), ('orphan', 'folder', 'Orphan', ${now}, ${now})`;

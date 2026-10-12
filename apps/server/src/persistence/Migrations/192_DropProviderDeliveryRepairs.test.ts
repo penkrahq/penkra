@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { createThread, upsertThreadItem } from "../../cleanCore/threadStore.ts";
-import { seedThreadFolderFixture } from "../../cleanCore/threadFixtures.ts";
+import { seedHistoricalFolderFixture } from "./historicalFolderFixture.ts";
 import { runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 import dropRepairs from "./192_DropProviderDeliveryRepairs.ts";
@@ -12,7 +12,7 @@ const seed = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   yield* runMigrations({ toMigrationInclusive: 191 });
   const at = "2026-10-11T00:00:00.000Z";
-  yield* seedThreadFolderFixture("folder", "space");
+  yield* seedHistoricalFolderFixture({ folderId: "folder", spaceId: "space" });
   yield* createThread({
     id: "thread",
     folderId: "folder",
@@ -55,6 +55,7 @@ it.effect(
         [192, "DropProviderDeliveryRepairs"],
         [193, "DropRuntimeGlobalConsumerLedger"],
         [194, "RemoveApprovalDecisionColumn"],
+        [195, "RemoveFolderScripts"],
       ]);
       assert.deepStrictEqual(yield* sql`SELECT * FROM threads`, threads);
       assert.deepStrictEqual(yield* sql`SELECT * FROM thread_items`, items);

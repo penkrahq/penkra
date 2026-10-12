@@ -8,67 +8,12 @@ import { afterEach, expect, it, vi } from "vitest";
 import { createAppQueryClient } from "./appQueryClient";
 import {
   invalidateProjectQueriesForWorkspaceChange,
-  projectDiscoverScriptsQueryOptions,
   projectReadFileQueryOptions,
   projectSearchLocalEntriesQueryOptions,
 } from "./projectReactQuery";
 import * as nativeApi from "../nativeApi";
 
 afterEach(() => vi.restoreAllMocks());
-
-it("refreshes script discovery on the production filesChanged handler without a clock advance", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "penkra-script-events-"));
-  const file = join(cwd, "package.json");
-  await writeFile(file, JSON.stringify({ scripts: { start: "node index.js" } }));
-  const discoverScripts = vi.fn(async () => {
-    const { scripts } = JSON.parse(await readFile(file, "utf8")) as {
-      scripts: Record<string, string>;
-    };
-    return {
-      targets: [
-        {
-          cwd,
-          relativePath: "",
-          packageJsonPath: file,
-          scripts: Object.entries(scripts).map(([name, command]) => ({ name, command })),
-        },
-      ],
-    };
-  });
-  vi.spyOn(nativeApi, "ensureNativeApi").mockReturnValue({
-    folders: { discoverScripts },
-  } as unknown as NativeApi);
-  const client = createAppQueryClient();
-  const options = projectDiscoverScriptsQueryOptions({ cwd });
-  const observer = new QueryObserver(client, options);
-  const unsubscribe = observer.subscribe(() => {});
-  try {
-    await client.fetchQuery(options);
-    expect(discoverScripts).toHaveBeenCalledTimes(1);
-    await writeFile(file, JSON.stringify({ scripts: { test: "bun test" } }));
-    await invalidateProjectQueriesForWorkspaceChange(client, {
-      cwd,
-      filesChanged: true,
-      gitChanged: false,
-      lostSync: false,
-    });
-    expect(discoverScripts).toHaveBeenCalledTimes(2);
-    expect(observer.getCurrentResult().data?.targets[0]?.scripts).toEqual([
-      { name: "test", command: "bun test" },
-    ]);
-    await invalidateProjectQueriesForWorkspaceChange(client, {
-      cwd,
-      filesChanged: false,
-      gitChanged: true,
-      lostSync: false,
-    });
-    expect(discoverScripts).toHaveBeenCalledTimes(2);
-  } finally {
-    unsubscribe();
-    client.clear();
-    await rm(cwd, { recursive: true, force: true });
-  }
-});
 
 it("refetches an Infinity-fresh file read on a real window focus after an external edit", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "penkra-file-focus-"));

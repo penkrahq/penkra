@@ -41,30 +41,6 @@ async function withTestSpace(now: string) {
 }
 
 describe("decider project scripts", () => {
-  it("emits empty scripts on folder.create", async () => {
-    const now = new Date().toISOString();
-    const readModel = await withTestSpace(now);
-
-    const result = await Effect.runPromise(
-      decideOrchestrationCommand({
-        command: {
-          type: "folder.create",
-          commandId: CommandId.makeUnsafe("cmd-project-create-scripts"),
-          folderId: asFolderId("project-scripts"),
-          title: "Scripts",
-          workspaceRoot: null,
-          spaceId: TEST_SPACE_ID,
-          createdAt: now,
-        },
-        readModel,
-      }),
-    );
-
-    const event = Array.isArray(result) ? result[0] : result;
-    expect(event.type).toBe("folder.created");
-    expect((event.payload as { scripts: unknown[] }).scripts).toEqual([]);
-  });
-
   it("allows folders to share a directory", async () => {
     const now = new Date().toISOString();
     const initial = await withTestSpace(now);
@@ -85,7 +61,6 @@ describe("decider project scripts", () => {
           title: "Stale A",
           workspaceRoot: "/tmp/recreate-root",
           defaultModelSelection: null,
-          scripts: [],
           spaceId: TEST_SPACE_ID,
           createdAt: now,
           updatedAt: now,
@@ -109,7 +84,6 @@ describe("decider project scripts", () => {
           title: "Stale B",
           workspaceRoot: "/tmp/recreate-root",
           defaultModelSelection: null,
-          scripts: [],
           spaceId: TEST_SPACE_ID,
           createdAt: now,
           updatedAt: now,
@@ -158,7 +132,6 @@ describe("decider project scripts", () => {
           title: "Mixed Stale",
           workspaceRoot: "/tmp/mixed-root",
           defaultModelSelection: null,
-          scripts: [],
           spaceId: TEST_SPACE_ID,
           createdAt: now,
           updatedAt: now,
@@ -182,7 +155,6 @@ describe("decider project scripts", () => {
           title: "Mixed Active",
           workspaceRoot: "/tmp/mixed-root",
           defaultModelSelection: null,
-          scripts: [],
           spaceId: TEST_SPACE_ID,
           createdAt: now,
           updatedAt: now,
@@ -226,61 +198,6 @@ describe("decider project scripts", () => {
       payload: { workspaceRoot: "/tmp/mixed-root" },
     });
   });
-
-  it("propagates scripts in folder.update payload", async () => {
-    const now = new Date().toISOString();
-    const initial = await withTestSpace(now);
-    const readModel = await Effect.runPromise(
-      projectEvent(initial, {
-        sequence: 1,
-        eventId: asEventId("evt-project-create-scripts"),
-        aggregateKind: "folder",
-        aggregateId: asFolderId("project-scripts"),
-        type: "folder.created",
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-project-create-scripts"),
-        causationEventId: null,
-        correlationId: CommandId.makeUnsafe("cmd-project-create-scripts"),
-        metadata: {},
-        payload: {
-          folderId: asFolderId("project-scripts"),
-          title: "Scripts",
-          workspaceRoot: "/tmp/scripts",
-          defaultModelSelection: null,
-          scripts: [],
-          spaceId: TEST_SPACE_ID,
-          createdAt: now,
-          updatedAt: now,
-        },
-      }),
-    );
-
-    const scripts = [
-      {
-        id: "lint",
-        name: "Lint",
-        command: "bun run lint",
-        icon: "lint",
-        runOnWorktreeCreate: false,
-      },
-    ] as const;
-
-    const result = await Effect.runPromise(
-      decideOrchestrationCommand({
-        command: {
-          type: "folder.update",
-          commandId: CommandId.makeUnsafe("cmd-project-update-scripts"),
-          folderId: asFolderId("project-scripts"),
-          scripts: Array.from(scripts),
-        },
-        readModel,
-      }),
-    );
-
-    const event = Array.isArray(result) ? result[0] : result;
-    expect(event.type).toBe("folder.updated");
-    expect((event.payload as { scripts?: unknown[] }).scripts).toEqual(scripts);
-  });
   it("emits user message and turn-start-requested events for thread.turn.start", async () => {
     const now = new Date().toISOString();
     const initial = createEmptyReadModel(now);
@@ -301,7 +218,6 @@ describe("decider project scripts", () => {
           title: "Project",
           workspaceRoot: "/tmp/project",
           defaultModelSelection: null,
-          scripts: [],
           spaceId: TEST_SPACE_ID,
           createdAt: now,
           updatedAt: now,

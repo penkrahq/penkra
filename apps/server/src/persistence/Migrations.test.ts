@@ -1,3 +1,4 @@
+import { seedHistoricalProjectFixture } from "./Migrations/historicalFolderFixture.ts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -63,15 +64,7 @@ layer("removed provider data migration", (it) => {
           space_id, name, icon, sort_order, created_at, updated_at
         ) VALUES ('space-migration-test', 'Migration test', 'bag', 0, ${now}, ${now})
       `;
-      yield* sql`
-        INSERT INTO projection_projects (
-          project_id, kind, space_id, title, workspace_root, default_model_selection_json,
-          scripts_json, created_at, updated_at
-        ) VALUES (
-          'folder-removed-default', 'folder', 'space-migration-test', 'Folder', NULL,
-          '{"provider":"cursor","model":"auto"}', '[]', ${now}, ${now}
-        )
-      `;
+      yield* seedHistoricalProjectFixture(now);
       yield* sql`
         INSERT INTO projection_threads (
           thread_id, project_id, title, model_selection_json, runtime_mode, created_at, updated_at
@@ -147,6 +140,7 @@ layer("removed provider data migration", (it) => {
         [192, "DropProviderDeliveryRepairs"],
         [193, "DropRuntimeGlobalConsumerLedger"],
         [194, "RemoveApprovalDecisionColumn"],
+        [195, "RemoveFolderScripts"],
       ]);
 
       const threads = yield* sql<{ readonly threadId: string }>`
@@ -1047,6 +1041,7 @@ previousSpacesMigrationLayer("previous Spaces lineage", (it) => {
         [192, "DropProviderDeliveryRepairs"],
         [193, "DropRuntimeGlobalConsumerLedger"],
         [194, "RemoveApprovalDecisionColumn"],
+        [195, "RemoveFolderScripts"],
       ]);
 
       const tracker = yield* trackerRows(sql);
@@ -1362,6 +1357,7 @@ reservedProductionIdentitiesLayer("reserved Production migration identities", (i
           [192, "DropProviderDeliveryRepairs"],
           [193, "DropRuntimeGlobalConsumerLedger"],
           [194, "RemoveApprovalDecisionColumn"],
+          [195, "RemoveFolderScripts"],
         ],
       );
       // A database already at the reserved identities is not "too new": the

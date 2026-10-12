@@ -1,13 +1,3 @@
-// FILE: taskCompletion.logic.ts
-// Purpose: Detects new thread lifecycle notifications and builds alert copy.
-// Layer: Notification logic
-// Exports: lifecycle detection helpers and notification copy helpers
-
-import {
-  defaultTerminalTitleForCliKind,
-  type TerminalCliKind,
-  type TerminalVisualState,
-} from "@penkra/shared/terminalThreads";
 import type { Thread, ThreadSession } from "../types";
 import type { AppState } from "../storeState";
 import { isPersistedThreadOpenable } from "../storeSelectors";
@@ -29,29 +19,6 @@ export interface ThreadAttentionCandidate {
   requestId: string;
   createdAt: string;
   summary?: string;
-}
-
-interface TerminalNotificationThreadState {
-  runningTerminalIds: string[];
-  terminalAttentionStatesById: Record<string, "attention" | "review">;
-  terminalCliKindsById: Record<string, TerminalCliKind>;
-  terminalIds: string[];
-  terminalLabelsById: Record<string, string>;
-  terminalTitleOverridesById: Record<string, string>;
-}
-
-export interface CompletedTerminalCandidate {
-  cliKind: TerminalCliKind | null;
-  terminalId: string;
-  threadId: Thread["id"];
-  title: string;
-}
-
-export interface TerminalAttentionCandidate {
-  cliKind: TerminalCliKind | null;
-  terminalId: string;
-  threadId: Thread["id"];
-  title: string;
 }
 
 type ThreadSessionStatus = ThreadSession["status"];
@@ -560,70 +527,6 @@ export function collectCompletedThreadCandidates(
 
   return candidates;
 }
-function resolveTerminalNotificationState(
-  threadState: TerminalNotificationThreadState | undefined,
-  terminalId: string,
-): TerminalVisualState {
-  if (!threadState) {
-    return "idle";
-  }
-  if (threadState.terminalAttentionStatesById?.[terminalId] === "attention") {
-    return "attention";
-  }
-  if ((threadState.runningTerminalIds ?? []).includes(terminalId)) {
-    return "running";
-  }
-  if (threadState.terminalAttentionStatesById?.[terminalId] === "review") {
-    return "review";
-  }
-  return "idle";
-}
-
-function resolveTerminalNotificationTitle(
-  threadState: TerminalNotificationThreadState | undefined,
-  terminalId: string,
-): { cliKind: TerminalCliKind | null; title: string } {
-  const cliKind = threadState?.terminalCliKindsById?.[terminalId] ?? null;
-  const title =
-    threadState?.terminalTitleOverridesById?.[terminalId]?.trim() ||
-    threadState?.terminalLabelsById?.[terminalId]?.trim() ||
-    (cliKind ? defaultTerminalTitleForCliKind(cliKind) : "Terminal");
-  return { cliKind, title };
-}
-
-export function collectCompletedTerminalCandidates(
-  previousByThreadId: Record<string, TerminalNotificationThreadState>,
-  nextByThreadId: Record<string, TerminalNotificationThreadState>,
-): CompletedTerminalCandidate[] {
-  const threadIds = new Set([...Object.keys(previousByThreadId), ...Object.keys(nextByThreadId)]);
-  const candidates: CompletedTerminalCandidate[] = [];
-
-  for (const threadId of threadIds) {
-    const previousThreadState = previousByThreadId[threadId];
-    const nextThreadState = nextByThreadId[threadId];
-    const terminalIds = new Set([
-      ...(previousThreadState?.terminalIds ?? []),
-      ...(nextThreadState?.terminalIds ?? []),
-    ]);
-
-    for (const terminalId of terminalIds) {
-      const previousState = resolveTerminalNotificationState(previousThreadState, terminalId);
-      const nextState = resolveTerminalNotificationState(nextThreadState, terminalId);
-      if (nextState !== "review" || previousState === "review") {
-        continue;
-      }
-      const { cliKind, title } = resolveTerminalNotificationTitle(nextThreadState, terminalId);
-      candidates.push({
-        threadId: threadId as Thread["id"],
-        terminalId,
-        cliKind,
-        title,
-      });
-    }
-  }
-
-  return candidates;
-}
 
 // Compare consecutive activity snapshots and emit only fresh input-needed transitions.
 export function collectThreadAttentionCandidates(
@@ -663,40 +566,6 @@ export function collectThreadAttentionCandidates(
   return candidates.toSorted((left, right) => left.createdAt.localeCompare(right.createdAt));
 }
 
-export function collectTerminalAttentionCandidates(
-  previousByThreadId: Record<string, TerminalNotificationThreadState>,
-  nextByThreadId: Record<string, TerminalNotificationThreadState>,
-): TerminalAttentionCandidate[] {
-  const threadIds = new Set([...Object.keys(previousByThreadId), ...Object.keys(nextByThreadId)]);
-  const candidates: TerminalAttentionCandidate[] = [];
-
-  for (const threadId of threadIds) {
-    const previousThreadState = previousByThreadId[threadId];
-    const nextThreadState = nextByThreadId[threadId];
-    const terminalIds = new Set([
-      ...(previousThreadState?.terminalIds ?? []),
-      ...(nextThreadState?.terminalIds ?? []),
-    ]);
-
-    for (const terminalId of terminalIds) {
-      const previousState = resolveTerminalNotificationState(previousThreadState, terminalId);
-      const nextState = resolveTerminalNotificationState(nextThreadState, terminalId);
-      if (nextState !== "attention" || previousState === "attention") {
-        continue;
-      }
-      const { cliKind, title } = resolveTerminalNotificationTitle(nextThreadState, terminalId);
-      candidates.push({
-        threadId: threadId as Thread["id"],
-        terminalId,
-        cliKind,
-        title,
-      });
-    }
-  }
-
-  return candidates;
-}
-
 // Keep toast and OS notification copy aligned across browser and desktop surfaces.
 export function buildTaskCompletionCopy(candidate: CompletedThreadCandidate): {
   title: string;
@@ -722,28 +591,6 @@ export function buildThreadAttentionCopy(candidate: ThreadAttentionCandidate): {
   return {
     title: "Input needed",
     body: `${threadLabel}: ${summary}`,
-  };
-}
-
-export function buildTerminalCompletionCopy(candidate: CompletedTerminalCandidate): {
-  title: string;
-  body: string;
-} {
-  const terminalLabel = candidate.title.trim() || "Terminal";
-  return {
-    title: "Terminal task completed",
-    body: `${terminalLabel} finished working.`,
-  };
-}
-
-export function buildTerminalAttentionCopy(candidate: TerminalAttentionCandidate): {
-  title: string;
-  body: string;
-} {
-  const terminalLabel = candidate.title.trim() || "Terminal";
-  return {
-    title: "Terminal input needed",
-    body: `${terminalLabel} needs your attention.`,
   };
 }
 

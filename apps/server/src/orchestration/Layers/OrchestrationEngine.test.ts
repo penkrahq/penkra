@@ -1620,7 +1620,7 @@ describe("OrchestrationEngine", () => {
       }),
     );
     await runtime.runPromise(
-      sql`INSERT INTO projection_folders (folder_id, space_id, title, workspace_root, default_model_selection_json, scripts_json, created_at, updated_at) VALUES ('project-atomic', ${TEST_SPACE_ID}, 'Folder', NULL, NULL, '[]', ${createdAt}, ${createdAt})`,
+      sql`INSERT INTO projection_folders (folder_id, space_id, title, workspace_root, default_model_selection_json, created_at, updated_at) VALUES ('project-atomic', ${TEST_SPACE_ID}, 'Folder', NULL, NULL, ${createdAt}, ${createdAt})`,
     );
     await runtime.runPromise(
       createThreadFixture(sql, {
@@ -1897,7 +1897,7 @@ describe("OrchestrationEngine", () => {
       }),
     );
     await runtime.runPromise(
-      sql`INSERT INTO projection_folders (folder_id, space_id, title, workspace_root, default_model_selection_json, scripts_json, created_at, updated_at) VALUES ('project-sync', ${TEST_SPACE_ID}, 'Folder', NULL, NULL, '[]', ${createdAt}, ${createdAt})`,
+      sql`INSERT INTO projection_folders (folder_id, space_id, title, workspace_root, default_model_selection_json, created_at, updated_at) VALUES ('project-sync', ${TEST_SPACE_ID}, 'Folder', NULL, NULL, ${createdAt}, ${createdAt})`,
     );
     await runtime.runPromise(
       createThreadFixture(sql, {
@@ -2044,7 +2044,7 @@ describe("OrchestrationEngine", () => {
       }),
     );
     await runtime.runPromise(
-      sql`INSERT INTO projection_folders (folder_id, space_id, title, workspace_root, default_model_selection_json, scripts_json, created_at, updated_at) VALUES ('project-deferred-recovery', ${TEST_SPACE_ID}, 'Folder', NULL, NULL, '[]', ${createdAt}, ${createdAt})`,
+      sql`INSERT INTO projection_folders (folder_id, space_id, title, workspace_root, default_model_selection_json, created_at, updated_at) VALUES ('project-deferred-recovery', ${TEST_SPACE_ID}, 'Folder', NULL, NULL, ${createdAt}, ${createdAt})`,
     );
     await runtime.runPromise(
       createThreadFixture(sql, {

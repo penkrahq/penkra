@@ -16,7 +16,7 @@ const fixture = Effect.gen(function* () {
   yield* runMigrations();
   const sql = yield* SqlClient.SqlClient;
   yield* sql`INSERT INTO projection_spaces (space_id,name,icon,sort_order,created_at,updated_at,archived_at) VALUES ('archive-space','Work','bag',1,${timestamp},${timestamp},${timestamp})`;
-  yield* sql`INSERT INTO projection_folders (folder_id,title,space_id,workspace_root,scripts_json,created_at,updated_at,archived_at,icon_data_url) VALUES ('archive-folder','Notes','archive-space',NULL,'[]',${timestamp},${timestamp},${timestamp},'data:image/png;base64,aGVsbG8=')`;
+  yield* sql`INSERT INTO projection_folders (folder_id,title,space_id,workspace_root,created_at,updated_at,archived_at,icon_data_url) VALUES ('archive-folder','Notes','archive-space',NULL,${timestamp},${timestamp},${timestamp},'data:image/png;base64,aGVsbG8=')`;
   for (let i = 0; i < 120; i++) {
     yield* sql`INSERT INTO threads (id,space_id,folder_id,title,provider,model,runtime_mode,state,created_by,created_at,updated_at,archived_at) VALUES (${`chat-${String(i).padStart(3, "0")}`},'archive-space','archive-folder','Archived chat','codex','gpt-5.5','full-access','idle','user',${timestamp},${timestamp},${i < 60 ? timestamp : "2026-10-09T00:00:00.000Z"})`;
   }

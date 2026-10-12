@@ -71,7 +71,7 @@ describe("stagedDraftNavigation", () => {
         }),
     );
     const secondRun = vi.fn(async () => "second");
-    const slotKey = draftNavigationSlotKey({ kind: "folder", id: "project-folder" }, "chat");
+    const slotKey = draftNavigationSlotKey({ kind: "folder", id: "project-folder" });
 
     const first = runDraftNavigationOnce(slotKey, firstRun);
     const second = runDraftNavigationOnce(slotKey, secondRun);
@@ -88,8 +88,8 @@ describe("stagedDraftNavigation", () => {
   });
 
   it("keeps navigation ownership independent across folders", () => {
-    expect(draftNavigationSlotKey({ kind: "folder", id: "folder-a" }, "chat")).not.toBe(
-      draftNavigationSlotKey({ kind: "folder", id: "folder-b" }, "chat"),
+    expect(draftNavigationSlotKey({ kind: "folder", id: "folder-a" })).not.toBe(
+      draftNavigationSlotKey({ kind: "folder", id: "folder-b" }),
     );
   });
 });

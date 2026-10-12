@@ -5,12 +5,6 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("./terminal/terminalRuntimeRegistry", () => ({
-  terminalRuntimeRegistry: {
-    disposeTerminal: vi.fn(),
-  },
-}));
-
 describe("Sidebar module", () => {
   it("loads after project-run wiring", async () => {
     vi.stubGlobal("self", globalThis);

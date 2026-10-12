@@ -58,22 +58,14 @@ import {
 import {
   ProjectCreateLocalFilePreviewGrantInput,
   ProjectCreateLocalFilePreviewGrantResult,
-  ProjectDevServerEvent,
-  ProjectDiscoverScriptsInput,
-  ProjectDiscoverScriptsResult,
-  ProjectListDevServersResult,
   ProjectListDirectoriesInput,
   ProjectListDirectoriesResult,
   ProjectReadFileInput,
   ProjectReadFileResult,
-  ProjectRunDevServerInput,
-  ProjectRunDevServerResult,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
   ProjectSearchLocalEntriesInput,
   ProjectSearchLocalEntriesResult,
-  ProjectStopDevServerInput,
-  ProjectStopDevServerResult,
   ProjectWriteFileInput,
   ProjectWriteFileResult,
   ProjectWorkspaceChangeEvent,
@@ -88,11 +80,8 @@ import {
   ServerListProviderUsageResult,
   ServerLifecycleStreamEvent,
   ServerGetSettingsResult,
-  ServerListLocalServersResult,
   ServerListWorktreesResult,
   ServerRefreshProvidersResult,
-  ServerStopLocalServerInput,
-  ServerStopLocalServerResult,
   ServerUpdateSettingsInput,
   ServerUpdateSettingsResult,
   ServerSpaceNavigationState,
@@ -101,17 +90,6 @@ import {
   ServerVoiceTranscriptionInput,
   ServerVoiceTranscriptionResult,
 } from "./server";
-import {
-  TerminalAckOutputInput,
-  TerminalClearInput,
-  TerminalCloseInput,
-  TerminalEvent,
-  TerminalOpenInput,
-  TerminalResizeInput,
-  TerminalRestartInput,
-  TerminalSessionSnapshot,
-  TerminalWriteInput,
-} from "./terminal";
 import {
   CleanCoreThreadRuntimeInput,
   CleanCoreThreadRuntime,
@@ -285,12 +263,6 @@ export const WsFoldersListDirectoriesRpc = Rpc.make(WS_METHODS.projectsListDirec
   error: WsRpcError,
 });
 
-export const WsFoldersDiscoverScriptsRpc = Rpc.make(WS_METHODS.projectsDiscoverScripts, {
-  payload: ProjectDiscoverScriptsInput,
-  success: ProjectDiscoverScriptsResult,
-  error: WsRpcError,
-});
-
 export const WsFoldersSearchEntriesRpc = Rpc.make(WS_METHODS.projectsSearchEntries, {
   payload: ProjectSearchEntriesInput,
   success: ProjectSearchEntriesResult,
@@ -324,34 +296,6 @@ export const WsFoldersWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
   error: WsRpcError,
 });
 
-export const WsFoldersRunDevServerRpc = Rpc.make(WS_METHODS.projectsRunDevServer, {
-  payload: ProjectRunDevServerInput,
-  success: ProjectRunDevServerResult,
-  error: WsRpcError,
-});
-
-export const WsFoldersStopDevServerRpc = Rpc.make(WS_METHODS.projectsStopDevServer, {
-  payload: ProjectStopDevServerInput,
-  success: ProjectStopDevServerResult,
-  error: WsRpcError,
-});
-
-export const WsFoldersListDevServersRpc = Rpc.make(WS_METHODS.projectsListDevServers, {
-  payload: Schema.Struct({}),
-  success: ProjectListDevServersResult,
-  error: WsRpcError,
-});
-
-export const WsSubscribeProjectDevServerEventsRpc = Rpc.make(
-  WS_METHODS.subscribeProjectDevServerEvents,
-  {
-    payload: Schema.Struct({}),
-    success: ProjectDevServerEvent,
-    error: WsRpcError,
-    stream: true,
-  },
-);
-
 export const WsSubscribeProjectWorkspaceChangesRpc = Rpc.make(
   WS_METHODS.subscribeProjectWorkspaceChanges,
   {
@@ -372,55 +316,6 @@ export const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
   payload: OpenInEditorInput,
   success: Schema.Void,
   error: WsRpcError,
-});
-
-export const WsTerminalOpenRpc = Rpc.make(WS_METHODS.terminalOpen, {
-  payload: TerminalOpenInput,
-  success: TerminalSessionSnapshot,
-  error: WsRpcError,
-});
-
-export const WsTerminalWriteRpc = Rpc.make(WS_METHODS.terminalWrite, {
-  payload: TerminalWriteInput,
-  success: Schema.Void,
-  error: WsRpcError,
-});
-
-export const WsTerminalAckOutputRpc = Rpc.make(WS_METHODS.terminalAckOutput, {
-  payload: TerminalAckOutputInput,
-  success: Schema.Void,
-  error: WsRpcError,
-});
-
-export const WsTerminalResizeRpc = Rpc.make(WS_METHODS.terminalResize, {
-  payload: TerminalResizeInput,
-  success: Schema.Void,
-  error: WsRpcError,
-});
-
-export const WsTerminalClearRpc = Rpc.make(WS_METHODS.terminalClear, {
-  payload: TerminalClearInput,
-  success: Schema.Void,
-  error: WsRpcError,
-});
-
-export const WsTerminalRestartRpc = Rpc.make(WS_METHODS.terminalRestart, {
-  payload: TerminalRestartInput,
-  success: TerminalSessionSnapshot,
-  error: WsRpcError,
-});
-
-export const WsTerminalCloseRpc = Rpc.make(WS_METHODS.terminalClose, {
-  payload: TerminalCloseInput,
-  success: Schema.Void,
-  error: WsRpcError,
-});
-
-export const WsSubscribeTerminalEventsRpc = Rpc.make(WS_METHODS.subscribeTerminalEvents, {
-  payload: Schema.Struct({}),
-  success: TerminalEvent,
-  error: WsRpcError,
-  stream: true,
 });
 
 export const WsServerGetConfigRpc = Rpc.make(WS_METHODS.serverGetConfig, {
@@ -468,18 +363,6 @@ export const WsServerUpdateSpaceNavigationStateRpc = Rpc.make(
 export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProviders, {
   payload: Schema.Struct({}),
   success: ServerRefreshProvidersResult,
-  error: WsRpcError,
-});
-
-export const WsServerListLocalServersRpc = Rpc.make(WS_METHODS.serverListLocalServers, {
-  payload: Schema.Struct({}),
-  success: ServerListLocalServersResult,
-  error: WsRpcError,
-});
-
-export const WsServerStopLocalServerRpc = Rpc.make(WS_METHODS.serverStopLocalServer, {
-  payload: ServerStopLocalServerInput,
-  success: ServerStopLocalServerResult,
   error: WsRpcError,
 });
 
@@ -817,28 +700,15 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsOrchestrationSubscribeThreadRpc,
   WsOrchestrationUnsubscribeThreadRpc,
   WsOrchestrationSubscribeDomainEventsRpc,
-  WsFoldersDiscoverScriptsRpc,
   WsFoldersListDirectoriesRpc,
   WsFoldersSearchEntriesRpc,
   WsFoldersSearchLocalEntriesRpc,
   WsFoldersReadFileRpc,
   WsFoldersCreateLocalFilePreviewGrantRpc,
   WsFoldersWriteFileRpc,
-  WsFoldersRunDevServerRpc,
-  WsFoldersStopDevServerRpc,
-  WsFoldersListDevServersRpc,
-  WsSubscribeProjectDevServerEventsRpc,
   WsSubscribeProjectWorkspaceChangesRpc,
   WsFilesystemBrowseRpc,
   WsShellOpenInEditorRpc,
-  WsTerminalOpenRpc,
-  WsTerminalWriteRpc,
-  WsTerminalAckOutputRpc,
-  WsTerminalResizeRpc,
-  WsTerminalClearRpc,
-  WsTerminalRestartRpc,
-  WsTerminalCloseRpc,
-  WsSubscribeTerminalEventsRpc,
   WsServerGetConfigRpc,
   WsServerGetEnvironmentRpc,
   WsServerGetSettingsRpc,
@@ -846,8 +716,6 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsServerGetSpaceNavigationStateRpc,
   WsServerUpdateSpaceNavigationStateRpc,
   WsServerRefreshProvidersRpc,
-  WsServerListLocalServersRpc,
-  WsServerStopLocalServerRpc,
   WsServerGetProviderUsageSnapshotRpc,
   WsServerListProviderUsageRpc,
   WsServerTranscribeVoiceRpc,

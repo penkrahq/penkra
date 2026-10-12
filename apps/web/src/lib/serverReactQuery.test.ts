@@ -7,14 +7,11 @@ import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
 import {
-  LOCAL_SERVERS_VISIBLE_REFETCH_INTERVAL_MS,
   reconcileServerProviderStatuses,
   refreshServerConfigAfterTransportOpen,
   serverAllProviderUsageQueryOptions,
-  serverLocalServersQueryOptions,
   serverProviderUsageSnapshotQueryOptions,
   serverQueryKeys,
-  sidebarLocalServersQueryOptions,
 } from "./serverReactQuery";
 
 const READY_CODEX_STATUS = {
@@ -135,53 +132,6 @@ describe("server provider status reconciliation", () => {
     expect(queryClient.getQueryData<ServerConfig>(serverQueryKeys.config())?.providers).toEqual([
       READY_CODEX_STATUS,
     ]);
-  });
-});
-
-describe("serverLocalServersQueryOptions", () => {
-  it("uses the visible polling interval by default", () => {
-    const options = serverLocalServersQueryOptions(true);
-
-    expect(options.enabled).toBe(true);
-    expect(options.refetchInterval).toBe(LOCAL_SERVERS_VISIBLE_REFETCH_INTERVAL_MS);
-  });
-
-  it("disables polling when disabled", () => {
-    const options = serverLocalServersQueryOptions(false);
-
-    expect(options.enabled).toBe(false);
-    expect(options.refetchInterval).toBe(false);
-  });
-
-  it("keeps sidebar attribution enabled without idle polling", () => {
-    const options = sidebarLocalServersQueryOptions({
-      hasActiveProjectRun: false,
-      hasFolders: true,
-    });
-
-    expect(options.enabled).toBe(true);
-    expect(options.refetchInterval).toBe(false);
-    expect(options.refetchOnWindowFocus).toBe(true);
-  });
-
-  it("uses visible polling while a Penkra-owned project run is active", () => {
-    const options = sidebarLocalServersQueryOptions({
-      hasActiveProjectRun: true,
-      hasFolders: true,
-    });
-
-    expect(options.enabled).toBe(true);
-    expect(options.refetchInterval).toBe(LOCAL_SERVERS_VISIBLE_REFETCH_INTERVAL_MS);
-  });
-
-  it("disables sidebar attribution when no folders or project runs exist", () => {
-    const options = sidebarLocalServersQueryOptions({
-      hasActiveProjectRun: false,
-      hasFolders: false,
-    });
-
-    expect(options.enabled).toBe(false);
-    expect(options.refetchInterval).toBe(false);
   });
 });
 

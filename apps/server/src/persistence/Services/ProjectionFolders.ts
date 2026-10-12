@@ -6,14 +6,7 @@
  *
  * @module ProjectionFolderRepository
  */
-import {
-  IsoDateTime,
-  ModelSelection,
-  NonNegativeInt,
-  FolderId,
-  ProjectScript,
-  SpaceId,
-} from "@penkra/contracts";
+import { IsoDateTime, ModelSelection, NonNegativeInt, FolderId, SpaceId } from "@penkra/contracts";
 import { Option, Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -24,7 +17,6 @@ export const ProjectionFolder = Schema.Struct({
   title: Schema.String,
   workspaceRoot: Schema.NullOr(Schema.String),
   defaultModelSelection: Schema.NullOr(ModelSelection),
-  scripts: Schema.Array(ProjectScript),
   iconDataUrl: Schema.optional(Schema.NullOr(Schema.String)),
   spaceId: SpaceId,
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),

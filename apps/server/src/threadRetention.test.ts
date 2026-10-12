@@ -8,7 +8,6 @@ import { ServerConfig } from "./config.ts";
 import { ServerLifecycleEvents, ServerLifecycleEventsLive } from "./serverLifecycleEvents.ts";
 import { ProviderService } from "./provider/Services/ProviderService.ts";
 import { ProviderTurnSelectionResolver } from "./provider/Services/ProviderTurnSelectionResolver.ts";
-import { TerminalManager } from "./terminal/Services/Manager.ts";
 import { ThreadSender } from "./cleanCore/ThreadSender.ts";
 import { ThreadPublisher } from "./cleanCore/ThreadPublisher.ts";
 import { makeThreadLifecycle, ThreadLifecycle } from "./cleanCore/threadLifecycle.ts";
@@ -22,7 +21,7 @@ const setup = Effect.gen(function* () {
   yield* runMigrations();
   const sql = yield* SqlClient.SqlClient;
   yield* sql`INSERT OR IGNORE INTO projection_spaces (space_id,name,icon,sort_order,created_at,updated_at) VALUES ('penkra-personal','Personal','circle',0,${origin},${origin})`;
-  yield* sql`INSERT INTO projection_folders (folder_id,space_id,title,scripts_json,created_at,updated_at) VALUES ('folder','penkra-personal','Folder','[]',${origin},${origin})`;
+  yield* sql`INSERT INTO projection_folders (folder_id,space_id,title,created_at,updated_at) VALUES ('folder','penkra-personal','Folder',${origin},${origin})`;
   const publisher = makeThreadPublisher();
   const changes: string[] = [];
   publisher.subscribeAll(({ threadId }) => changes.push(threadId));
@@ -39,9 +38,6 @@ const setup = Effect.gen(function* () {
     Effect.provideService(ProviderService, {
       stopSession: () => Effect.suspend(() => beforeStop),
     } as unknown as typeof ProviderService.Service),
-    Effect.provideService(TerminalManager, {
-      close: () => Effect.void,
-    } as unknown as typeof TerminalManager.Service),
     Effect.provideService(ServerConfig, {
       stateDir: "/tmp/penkra-retention-tests-no-native-state",
     } as typeof ServerConfig.Service),

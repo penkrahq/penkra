@@ -24,7 +24,6 @@ function makeProject(id: FolderId): Project {
     cwd: `/workspace/${id}`,
     defaultModelSelection: null,
     expanded: false,
-    scripts: [],
   };
 }
 

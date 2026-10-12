@@ -3,7 +3,6 @@ export * from "./appRuntimeFailure";
 export * from "./baseSchemas";
 export * from "./cleanCore";
 export * from "./ipc";
-export * from "./terminal";
 export * from "./provider";
 export * from "./providerDiscovery";
 export * from "./providerRuntime";

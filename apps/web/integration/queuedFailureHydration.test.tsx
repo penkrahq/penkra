@@ -27,9 +27,9 @@ describe("failed queued delivery hydration", () => {
         Effect.gen(function* () {
           const sql = yield* SqlClient.SqlClient;
           yield* sql`INSERT INTO projection_folders (
-          folder_id, title, workspace_root, default_model_selection_json, scripts_json,
+          folder_id, title, workspace_root, default_model_selection_json,
           created_at, updated_at, deleted_at
-        ) VALUES ('project-1', 'Project', '/tmp/project', NULL, '[]',
+        ) VALUES ('project-1', 'Project', '/tmp/project', NULL,
           '2026-09-27T00:00:00.000Z', '2026-09-27T00:00:01.000Z', NULL)`;
           yield* sql`INSERT INTO threads (
           id, space_id, folder_id, title, provider, model, runtime_mode, state, created_by,

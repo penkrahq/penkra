@@ -1,3 +1,4 @@
+import { seedHistoricalFolderFixture } from "./Migrations/historicalFolderFixture.ts";
 import { assert, it } from "@effect/vitest";
 import { Cause, Effect, Exit } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -9,8 +10,13 @@ const seedSource = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   yield* runMigrations({ toMigrationInclusive: 175 });
   const now = "2026-10-11T00:00:00.000Z";
-  yield* sql`INSERT INTO projection_folders(folder_id, title, workspace_root, scripts_json, space_id, created_at, updated_at)
-    VALUES ('folder', 'Folder', '/repo', '[]', 'penkra-personal', ${now}, ${now})`;
+  yield* seedHistoricalFolderFixture({
+    folderId: "folder",
+    title: "Folder",
+    workspaceRoot: "/repo",
+    spaceId: "penkra-personal",
+    createdAt: now,
+  });
   yield* sql`INSERT INTO projection_threads(thread_id, folder_id, title, runtime_mode, created_at, updated_at)
     VALUES ('thread', 'folder', 'Chat', 'full-access', ${now}, ${now})`;
   yield* sql`INSERT INTO projection_thread_messages(message_id, thread_id, role, text, is_streaming, created_at, updated_at)

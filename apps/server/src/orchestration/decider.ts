@@ -384,7 +384,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           title: command.title,
           workspaceRoot: command.workspaceRoot,
           defaultModelSelection: command.defaultModelSelection ?? null,
-          scripts: [],
           iconDataUrl: null,
           spaceId: command.spaceId,
           createdAt: command.createdAt,
@@ -430,7 +429,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.defaultModelSelection !== undefined
             ? { defaultModelSelection: command.defaultModelSelection }
             : {}),
-          ...(command.scripts !== undefined ? { scripts: command.scripts } : {}),
           ...(command.iconDataUrl !== undefined ? { iconDataUrl: command.iconDataUrl } : {}),
           ...(command.archivedAt !== undefined ? { archivedAt: command.archivedAt } : {}),
           updatedAt: occurredAt,

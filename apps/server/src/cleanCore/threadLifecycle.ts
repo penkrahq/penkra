@@ -1,6 +1,5 @@
 import { rm } from "node:fs/promises";
 import { ProviderService } from "../provider/Services/ProviderService.ts";
-import { TerminalManager } from "../terminal/Services/Manager.ts";
 import { ServerConfig } from "../config.ts";
 import { providerNativeStateRoot } from "../provider/providerNativeStatePaths.ts";
 import { ThreadSender } from "./ThreadSender.ts";
@@ -126,7 +125,6 @@ export const makeThreadLifecycle = Effect.gen(function* () {
   const resolver = yield* ProviderTurnSelectionResolver;
   const sender = yield* ThreadSender;
   const provider = yield* ProviderService;
-  const terminals = yield* TerminalManager;
   const config = yield* ServerConfig;
   const update = (input: LifecycleUpdate, condition: RetentionCondition) =>
     sender.runExclusive(
@@ -143,7 +141,6 @@ export const makeThreadLifecycle = Effect.gen(function* () {
               );
               if (!applied) return false;
               yield* provider.stopSession({ threadId: input.threadId });
-              yield* terminals.close({ threadId: input.threadId, deleteHistory: false });
               return true;
             }),
           );
@@ -159,10 +156,6 @@ export const makeThreadLifecycle = Effect.gen(function* () {
           return yield* Effect.fail(new ThreadRunningError());
         if (archiving || input.action === "delete") {
           yield* provider.stopSession({ threadId: input.threadId });
-          yield* terminals.close({
-            threadId: input.threadId,
-            deleteHistory: input.action === "delete",
-          });
         }
         if (input.action === "delete") {
           const nativeRows = yield* sql<{

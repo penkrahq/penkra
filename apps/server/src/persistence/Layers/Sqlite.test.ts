@@ -1,3 +1,4 @@
+import { seedHistoricalFolderFixture } from "../Migrations/historicalFolderFixture.ts";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -78,8 +79,12 @@ describe("SQLite persistence", () => {
       Effect.gen(function* () {
         yield* runMigrations({ toMigrationInclusive: 175 });
         const sql = yield* SqlClient.SqlClient;
-        yield* sql`INSERT INTO projection_folders (folder_id, title, scripts_json, space_id, created_at, updated_at)
-        VALUES ('folder', 'Folder', '[]', 'penkra-personal', '2026-10-11T00:00:00Z', '2026-10-11T00:00:00Z')`;
+        yield* seedHistoricalFolderFixture({
+          folderId: "folder",
+          title: "Folder",
+          spaceId: "penkra-personal",
+          createdAt: "2026-10-11T00:00:00Z",
+        });
         yield* sql`INSERT INTO projection_threads (thread_id, folder_id, title, model_selection_json, created_at, updated_at)
         VALUES ('startup-thread', 'folder', 'Chat', '{"provider":"claudeAgent","model":"sonnet"}', '2026-10-11T00:00:00Z', '2026-10-11T00:00:00Z')`;
         yield* sql`INSERT INTO provider_native_state_generations (native_state_generation_id, owner_thread_id, harness_kind, adapter_schema_version, state_manifest_json, lifecycle, created_at)

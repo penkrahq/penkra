@@ -35,12 +35,10 @@ import {
   type ChatFileAttachment,
   type ChatImageAttachment,
   DEFAULT_RUNTIME_MODE,
-  type ThreadPrimarySurface,
 } from "./types";
 
 export const COMPOSER_DRAFT_STORAGE_KEY = "penkra:composer-drafts:v1";
 export const COMPOSER_DRAFT_STORAGE_VERSION = 7;
-const TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX = "::terminal";
 
 export const PersistedComposerImageAttachment = Schema.Struct({
   id: Schema.String,
@@ -135,7 +133,6 @@ export interface DraftThreadState {
   spaceId?: SpaceId | null;
   createdAt: string;
   runtimeMode: RuntimeMode;
-  entryPoint: ThreadPrimarySurface;
   promotedTo?: ThreadId;
 }
 
@@ -143,7 +140,6 @@ interface DraftThreadMutationOptions {
   spaceId?: SpaceId | null;
   createdAt?: string;
   runtimeMode?: RuntimeMode;
-  entryPoint?: ThreadPrimarySurface;
 }
 
 type DraftThreadCreatedAtMode = "accept-empty" | "preserve-existing-on-empty";
@@ -159,10 +155,7 @@ export interface ComposerDraftStoreState {
   stickyModelSelectionByProvider: Partial<Record<ProviderKind, ModelSelection>>;
   stickyConnectionByProvider: Partial<Record<ProviderKind, ProviderConnectionId | null>>;
   stickyActiveProvider: ProviderKind | null;
-  getDraftThreadByFolderId: (
-    folderId: FolderId,
-    entryPoint?: ThreadPrimarySurface,
-  ) => ProjectDraftThread | null;
+  getDraftThreadByFolderId: (folderId: FolderId) => ProjectDraftThread | null;
 
   getDraftThread: (threadId: ThreadId) => DraftThreadState | null;
   setProjectDraftThreadId: (
@@ -185,7 +178,6 @@ export interface ComposerDraftStoreState {
       spaceId?: SpaceId | null;
       createdAt?: string;
       runtimeMode?: RuntimeMode;
-      entryPoint?: ThreadPrimarySurface;
     },
   ) => void;
   setDraftThreadContext: (
@@ -201,7 +193,7 @@ export interface ComposerDraftStoreState {
     folderId: FolderId,
     options?: DraftThreadMutationOptions,
   ) => void;
-  clearProjectDraftThreadId: (folderId: FolderId, entryPoint?: ThreadPrimarySurface) => void;
+  clearProjectDraftThreadId: (folderId: FolderId) => void;
   clearProjectDraftThreads: (folderId: FolderId) => void;
   clearProjectDraftThreadById: (folderId: FolderId, threadId: ThreadId) => void;
   markDraftThreadPromoting: (threadId: ThreadId, promotedTo?: ThreadId) => void;
@@ -292,27 +284,6 @@ export interface ComposerDraftStoreState {
   ) => void;
 }
 
-export function projectDraftThreadMappingKey(
-  folderId: FolderId,
-  entryPoint: ThreadPrimarySurface = "chat",
-): string {
-  return entryPoint === "terminal"
-    ? `${folderId}${TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX}`
-    : folderId;
-}
-
-export function projectDraftThreadEntryPointFromKey(key: string): ThreadPrimarySurface {
-  return key.endsWith(TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX) ? "terminal" : "chat";
-}
-
-export function folderIdFromDraftThreadMappingKey(key: string): FolderId {
-  return (
-    key.endsWith(TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX)
-      ? key.slice(0, -TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX.length)
-      : key
-  ) as FolderId;
-}
-
 function resolveDraftThreadCreatedAt(input: {
   createdAt: string | undefined;
   existingThread: DraftThreadState | undefined;
@@ -335,10 +306,6 @@ export function buildDraftThreadState(input: {
   createdAtMode: DraftThreadCreatedAtMode;
 }): DraftThreadState {
   const { existingThread, options } = input;
-  const nextEntryPoint = normalizeDraftThreadEntryPoint(
-    options?.entryPoint,
-    existingThread?.entryPoint ?? "chat",
-  );
   const nextPromotedTo = existingThread?.promotedTo;
 
   return {
@@ -353,7 +320,6 @@ export function buildDraftThreadState(input: {
       mode: input.createdAtMode,
     }),
     runtimeMode: options?.runtimeMode ?? existingThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE,
-    entryPoint: nextEntryPoint,
     ...(nextPromotedTo ? { promotedTo: nextPromotedTo } : {}),
   };
 }
@@ -371,7 +337,6 @@ export function draftThreadStatesEqual(
     left.spaceId === right.spaceId &&
     left.createdAt === right.createdAt &&
     left.runtimeMode === right.runtimeMode &&
-    left.entryPoint === right.entryPoint &&
     left.promotedTo === right.promotedTo
   );
 }
@@ -707,13 +672,6 @@ export function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
     draft.activeProvider === null &&
     draft.runtimeMode === null
   );
-}
-
-export function normalizeDraftThreadEntryPoint(
-  value: unknown,
-  fallback: ThreadPrimarySurface = "chat",
-) {
-  return value === "terminal" || value === "chat" ? value : fallback;
 }
 
 const EMPTY_IMAGES: ComposerImageAttachment[] = [];

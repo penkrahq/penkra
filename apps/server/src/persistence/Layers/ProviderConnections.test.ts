@@ -109,8 +109,8 @@ layer("ProviderConnectionRepository", (it) => {
       `;
       yield* sql`
         INSERT INTO projection_folders (
-          folder_id, kind, title, workspace_root, scripts_json, created_at, updated_at, space_id
-        ) VALUES ('identity-project', 'project', 'Identity', NULL, '[]',
+          folder_id, kind, title, workspace_root, created_at, updated_at, space_id
+        ) VALUES ('identity-project', 'project', 'Identity', NULL,
           '2026-08-08T00:00:00.000Z', '2026-08-08T00:00:00.000Z', 'identity-space')
       `;
       yield* sql`

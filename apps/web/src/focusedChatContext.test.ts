@@ -19,7 +19,6 @@ function makeProject(): Project {
     defaultModelSelection: { provider: "codex", model: "gpt-5.4-mini" },
     expanded: true,
     spaceId: SpaceId.makeUnsafe("space-test"),
-    scripts: [],
   };
 }
 
@@ -56,7 +55,6 @@ function makeDraftThread(overrides: Partial<DraftThreadState> = {}): DraftThread
     folderId: PROJECT_ID,
     createdAt: "2026-04-07T10:00:00.000Z",
     runtimeMode: "full-access",
-    entryPoint: "chat",
     ...overrides,
   };
 }

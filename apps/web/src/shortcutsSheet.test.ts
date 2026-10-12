@@ -5,40 +5,14 @@
 import { describe, expect, it } from "vitest";
 
 import { buildShortcutSheetSections } from "./shortcutsSheet";
-import type { ProjectScript } from "./types";
-
-const PROJECT_SCRIPTS: ProjectScript[] = [
-  {
-    id: "lint",
-    name: "Lint",
-    command: "bun lint",
-    icon: "lint",
-  },
-];
+import type {} from "./types";
 
 describe("buildShortcutSheetSections", () => {
   it("includes the help shortcut and current thread jumps outside workspace mode", () => {
     const sections = buildShortcutSheetSections({
-      keybindings: [
-        {
-          command: "script.lint.run",
-          shortcut: {
-            key: "r",
-            modKey: true,
-            metaKey: false,
-            ctrlKey: false,
-            shiftKey: false,
-            altKey: false,
-          },
-        },
-      ],
-      projectScripts: PROJECT_SCRIPTS,
+      keybindings: [],
       platform: "MacIntel",
-      context: {
-        terminalFocus: false,
-        terminalOpen: false,
-        terminalWorkspaceOpen: false,
-      },
+      context: {},
     });
 
     expect(sections[0]?.entries.some((entry) => entry.id === "shortcuts.show")).toBe(true);
@@ -52,20 +26,13 @@ describe("buildShortcutSheetSections", () => {
         (entry) => entry.id === "composer.focus.toggle" && entry.shortcutLabel === "⌘L",
       ),
     ).toBe(true);
-    expect(sections[1]?.title).toBe("Folder scripts");
-    expect(sections[1]?.entries[0]?.shortcutLabel).toBe("⌘R");
   });
 
   it("does not surface removed terminal shortcuts from legacy context", () => {
     const sections = buildShortcutSheetSections({
       keybindings: [],
-      projectScripts: [],
       platform: "Linux",
-      context: {
-        terminalFocus: false,
-        terminalOpen: true,
-        terminalWorkspaceOpen: true,
-      },
+      context: {},
     });
 
     expect(
@@ -95,13 +62,8 @@ describe("buildShortcutSheetSections", () => {
           },
         },
       ],
-      projectScripts: [],
       platform: "MacIntel",
-      context: {
-        terminalFocus: false,
-        terminalOpen: false,
-        terminalWorkspaceOpen: false,
-      },
+      context: {},
     });
 
     expect(
@@ -126,13 +88,8 @@ describe("buildShortcutSheetSections", () => {
           },
         },
       ],
-      projectScripts: [],
       platform: "Linux",
-      context: {
-        terminalFocus: false,
-        terminalOpen: false,
-        terminalWorkspaceOpen: false,
-      },
+      context: {},
     });
 
     expect(sections[0]?.entries.some((entry) => entry.id === "sidebar.toggle")).toBe(true);

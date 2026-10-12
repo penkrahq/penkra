@@ -1,6 +1,6 @@
 // FILE: processTreeKiller.ts
-// Purpose: Captures and terminates PTY process trees without losing reparented children.
-// Layer: Terminal infrastructure utility
+// Purpose: Captures and terminates child process trees without losing reparented children.
+// Layer: Shared process infrastructure utility
 // Depends on: node child_process, process signals, and tree-kill.
 import { spawnSync } from "node:child_process";
 

@@ -225,7 +225,6 @@ function ChatRouteGlobalShortcuts() {
     activeFolderId !== null
       ? (folders.find((project) => project.id === activeFolderId) ?? null)
       : null;
-  const activeProjectScripts = activeProject?.scripts ?? [];
   // Shortcuts that target "a project" must stay inside the Space you are looking at, or
   // mod+alt+arrow would switch Space and the next new-thread shortcut would drop you back
   // out of it.
@@ -282,11 +281,7 @@ function ChatRouteGlobalShortcuts() {
   useEffect(() => {
     const onWindowKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
-      const shortcutContext = {
-        terminalFocus: false,
-        terminalOpen: false,
-        terminalWorkspaceOpen: false,
-      };
+      const shortcutContext = {};
 
       if (recentSwitcherState && event.key === "Escape") {
         event.preventDefault();
@@ -428,17 +423,6 @@ function ChatRouteGlobalShortcuts() {
         return;
       }
 
-      if (command === "chat.newTerminal") {
-        const target = resolveNewThreadTarget({ currentFolderId, latestUsableFolderId });
-        if (!target) return;
-        event.preventDefault();
-        event.stopPropagation();
-        void handleNewThread(target.folderId, {
-          entryPoint: "terminal",
-        });
-        return;
-      }
-
       if (command !== "chat.new") return;
       // Falls back to the most recent project when none is focused (e.g. the landing
       // view) so the primary "new thread" chord always creates a thread; on that
@@ -518,13 +502,8 @@ function ChatRouteGlobalShortcuts() {
         open={shortcutsDialogOpen}
         onOpenChange={setShortcutsDialogOpen}
         keybindings={keybindings}
-        projectScripts={activeProjectScripts}
         platform={platform}
-        context={{
-          terminalFocus: false,
-          terminalOpen: false,
-          terminalWorkspaceOpen: false,
-        }}
+        context={{}}
       />
       <ChatSearchBar
         open={chatSearchOpen}

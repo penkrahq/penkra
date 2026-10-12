@@ -35,8 +35,8 @@ it.effect("delivers a queued message on model B after the composer changes from 
   Effect.gen(function* () {
     yield* runMigrations();
     const sql = yield* SqlClient.SqlClient;
-    yield* sql`INSERT INTO projection_folders (folder_id, title, workspace_root, scripts_json, space_id, created_at, updated_at)
-      VALUES ('sender-folder', 'Sender folder', NULL, '[]', 'space-1', '2026-10-09T00:00:00.000Z', '2026-10-09T00:00:00.000Z')`;
+    yield* sql`INSERT INTO projection_folders (folder_id, title, workspace_root, space_id, created_at, updated_at)
+      VALUES ('sender-folder', 'Sender folder', NULL, 'space-1', '2026-10-09T00:00:00.000Z', '2026-10-09T00:00:00.000Z')`;
     yield* createThread({
       folderId: "sender-folder",
       id: "thread-1",
@@ -167,8 +167,8 @@ for (const workspaceRoot of [null, "/repo"]) {
       Effect.gen(function* () {
         yield* runMigrations();
         const folderSql = yield* SqlClient.SqlClient;
-        yield* folderSql`INSERT INTO projection_folders (folder_id, title, workspace_root, scripts_json, space_id, created_at, updated_at)
-      VALUES ('sender-folder', 'Sender folder', ${workspaceRoot}, '[]', 'space-1', '2026-10-09T00:00:00.000Z', '2026-10-09T00:00:00.000Z')`;
+        yield* folderSql`INSERT INTO projection_folders (folder_id, title, workspace_root, space_id, created_at, updated_at)
+      VALUES ('sender-folder', 'Sender folder', ${workspaceRoot}, 'space-1', '2026-10-09T00:00:00.000Z', '2026-10-09T00:00:00.000Z')`;
         yield* createThread({
           folderId: "sender-folder",
           id: "thread-1",
@@ -272,8 +272,8 @@ it.effect(
     Effect.gen(function* () {
       yield* runMigrations();
       const folderSql = yield* SqlClient.SqlClient;
-      yield* folderSql`INSERT INTO projection_folders (folder_id, title, workspace_root, scripts_json, space_id, created_at, updated_at)
-      VALUES ('sender-folder', 'Sender folder', NULL, '[]', 'space-1', '2026-10-09T00:00:00.000Z', '2026-10-09T00:00:00.000Z')`;
+      yield* folderSql`INSERT INTO projection_folders (folder_id, title, workspace_root, space_id, created_at, updated_at)
+      VALUES ('sender-folder', 'Sender folder', NULL, 'space-1', '2026-10-09T00:00:00.000Z', '2026-10-09T00:00:00.000Z')`;
       yield* createThread({
         folderId: "sender-folder",
         id: "thread-1",
@@ -368,8 +368,8 @@ for (const release of ["next-send", "remove-head", "edit-head"] as const) {
     Effect.gen(function* () {
       yield* runMigrations();
       const folderSql = yield* SqlClient.SqlClient;
-      yield* folderSql`INSERT INTO projection_folders (folder_id, title, workspace_root, scripts_json, space_id, created_at, updated_at)
-      VALUES ('sender-folder', 'Sender folder', NULL, '[]', 'space-1', '2026-10-09T00:00:00.000Z', '2026-10-09T00:00:00.000Z')`;
+      yield* folderSql`INSERT INTO projection_folders (folder_id, title, workspace_root, space_id, created_at, updated_at)
+      VALUES ('sender-folder', 'Sender folder', NULL, 'space-1', '2026-10-09T00:00:00.000Z', '2026-10-09T00:00:00.000Z')`;
       yield* createThread({
         folderId: "sender-folder",
         id: "thread-q",
@@ -527,8 +527,8 @@ it.effect("claims queued attachments atomically and delivers them with their ori
   Effect.gen(function* () {
     yield* runMigrations();
     const folderSql = yield* SqlClient.SqlClient;
-    yield* folderSql`INSERT INTO projection_folders (folder_id, title, workspace_root, scripts_json, space_id, created_at, updated_at)
-      VALUES ('sender-folder', 'Sender folder', NULL, '[]', 'space-1', '2026-10-09T00:00:00.000Z', '2026-10-09T00:00:00.000Z')`;
+    yield* folderSql`INSERT INTO projection_folders (folder_id, title, workspace_root, space_id, created_at, updated_at)
+      VALUES ('sender-folder', 'Sender folder', NULL, 'space-1', '2026-10-09T00:00:00.000Z', '2026-10-09T00:00:00.000Z')`;
     const sql = yield* SqlClient.SqlClient;
     yield* createThread({
       folderId: "sender-folder",
@@ -671,8 +671,8 @@ it.effect(
     Effect.gen(function* () {
       yield* runMigrations();
       const folderSql = yield* SqlClient.SqlClient;
-      yield* folderSql`INSERT INTO projection_folders (folder_id, title, workspace_root, scripts_json, space_id, created_at, updated_at)
-      VALUES ('sender-folder', 'Sender folder', NULL, '[]', 'space-1', '2026-10-09T00:00:00.000Z', '2026-10-09T00:00:00.000Z')`;
+      yield* folderSql`INSERT INTO projection_folders (folder_id, title, workspace_root, space_id, created_at, updated_at)
+      VALUES ('sender-folder', 'Sender folder', NULL, 'space-1', '2026-10-09T00:00:00.000Z', '2026-10-09T00:00:00.000Z')`;
       const sql = yield* SqlClient.SqlClient;
       const threadId = ThreadId.makeUnsafe("thread-edit");
       yield* createThread({
@@ -793,8 +793,8 @@ for (const content of [
       Effect.gen(function* () {
         yield* runMigrations();
         const folderSql = yield* SqlClient.SqlClient;
-        yield* folderSql`INSERT INTO projection_folders (folder_id, title, workspace_root, scripts_json, space_id, created_at, updated_at)
-      VALUES ('sender-folder', 'Sender folder', NULL, '[]', 'space-1', '2026-10-09T00:00:00.000Z', '2026-10-09T00:00:00.000Z')`;
+        yield* folderSql`INSERT INTO projection_folders (folder_id, title, workspace_root, space_id, created_at, updated_at)
+      VALUES ('sender-folder', 'Sender folder', NULL, 'space-1', '2026-10-09T00:00:00.000Z', '2026-10-09T00:00:00.000Z')`;
         const sql = yield* SqlClient.SqlClient;
         const threadId = ThreadId.makeUnsafe("edit-nonempty");
         yield* createThread({
@@ -871,7 +871,7 @@ for (const provider of ["codex", "claudeAgent"] as const) {
         Effect.gen(function* () {
           yield* runMigrations();
           const sql = yield* SqlClient.SqlClient;
-          yield* sql`INSERT INTO projection_folders (folder_id, title, workspace_root, scripts_json, space_id, created_at, updated_at) VALUES ('now-folder', 'Folder', NULL, '[]', 'space', '2026-10-11T00:00:00.000Z', '2026-10-11T00:00:00.000Z')`;
+          yield* sql`INSERT INTO projection_folders (folder_id, title, workspace_root, space_id, created_at, updated_at) VALUES ('now-folder', 'Folder', NULL, 'space', '2026-10-11T00:00:00.000Z', '2026-10-11T00:00:00.000Z')`;
           yield* createThread({
             id: "now-thread",
             folderId: "now-folder",

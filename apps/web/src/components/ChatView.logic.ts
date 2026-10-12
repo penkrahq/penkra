@@ -9,12 +9,7 @@ import {
 import { isGenericChatThreadTitle } from "@penkra/shared/chatThreads";
 import { isGenericTerminalThreadTitle } from "@penkra/shared/terminalThreads";
 import { canContinueLatestTurn } from "@penkra/shared/turnContinuation";
-import {
-  type ChatMessage,
-  type SessionPhase,
-  type Thread,
-  type ThreadPrimarySurface,
-} from "../types";
+import { type ChatMessage, type SessionPhase, type Thread } from "../types";
 import { type DraftThreadState } from "../composerDraftStore";
 import { Schema } from "effect";
 import {
@@ -33,13 +28,6 @@ export const PROMPT_HISTORY_MAX_ENTRIES = 100;
 
 export const LastInvokedScriptByProjectSchema = Schema.Record(FolderId, Schema.String);
 export const DismissedProviderHealthBannersSchema = Schema.Array(Schema.String);
-
-export function shouldRenderProviderHealthBanner(input: {
-  threadEntryPoint: ThreadPrimarySurface;
-  terminalWorkspaceTerminalTabActive: boolean;
-}): boolean {
-  return input.threadEntryPoint === "chat" && !input.terminalWorkspaceTerminalTabActive;
-}
 
 // Big-paste cards are sent only by the normal chat path; non-chat composer flows
 // read plain editor text, so they must let Lexical insert pasted text normally.
@@ -395,7 +383,7 @@ export function buildLocalDraftThread(
     codexThreadId: null,
     folderId: draftThread.folderId,
     spaceId: draftThread.spaceId ?? null,
-    title: draftThread.entryPoint === "terminal" ? "New terminal" : "New thread",
+    title: "New thread",
     modelSelection: fallbackModelSelection,
     session: null,
     messages: [],
@@ -694,58 +682,4 @@ export function buildExpiredTerminalContextToastCopy(
     title: `${noun} omitted from message`,
     description: "Re-add it if you want that terminal output included.",
   };
-}
-
-export function shouldRenderTerminalWorkspace(options: {
-  presentationMode: "drawer" | "workspace";
-  terminalOpen: boolean;
-}): boolean {
-  // The workspace shell should paint immediately; the terminal viewport gates the
-  // backend attach until a valid cwd is available.
-  return options.terminalOpen && options.presentationMode === "workspace";
-}
-
-export function resolveProjectScriptTerminalTarget(options: {
-  baseTerminalId: string;
-  createTerminalId: () => string;
-  hasRunningTerminal: boolean;
-  preferNewTerminal?: boolean | undefined;
-  terminalOpen: boolean;
-}): { shouldCreateNewTerminal: boolean; terminalId: string } {
-  // Project scripts require their requested cwd/env before the command write;
-  // live PTYs keep their launch context, so visible or running terminals get a new tab.
-  const shouldCreateNewTerminal =
-    Boolean(options.preferNewTerminal) || options.terminalOpen || options.hasRunningTerminal;
-
-  return {
-    shouldCreateNewTerminal,
-    terminalId: shouldCreateNewTerminal ? options.createTerminalId() : options.baseTerminalId,
-  };
-}
-
-export function shouldAutoDeleteTerminalThreadOnLastClose(options: {
-  isLastTerminal: boolean;
-  isServerThread: boolean;
-  terminalEntryPoint: ThreadPrimarySurface;
-  thread:
-    | Pick<Thread, "activities" | "latestTurn" | "messages" | "session" | "title">
-    | null
-    | undefined;
-}): boolean {
-  const { thread } = options;
-  if (
-    !options.isLastTerminal ||
-    !options.isServerThread ||
-    options.terminalEntryPoint !== "terminal" ||
-    !thread
-  ) {
-    return false;
-  }
-  return (
-    isGenericTerminalThreadTitle(thread.title) &&
-    thread.messages.length === 0 &&
-    thread.latestTurn === null &&
-    thread.session === null &&
-    thread.activities.length === 0
-  );
 }

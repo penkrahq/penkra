@@ -23,13 +23,11 @@ import {
   type CleanCoreThreadChange,
   type CleanCoreSidebarChange,
   type OrchestrationThreadStreamItem,
-  type ProjectDevServerEvent,
   type ProjectWorkspaceChangeEvent,
   type ServerProviderStatusesUpdatedPayload,
   type ServerLifecycleStreamEvent,
   type ServerSettingsUpdatedPayload,
   type ServerVoiceTranscriptionResult,
-  type TerminalEvent,
   CLEAN_CORE_WS_CHANNELS,
   ORCHESTRATION_WS_CHANNELS,
   ORCHESTRATION_WS_METHODS,
@@ -102,9 +100,6 @@ const serverProviderStatusesUpdatedListeners =
   createListenerRegistry<ServerProviderStatusesUpdatedPayload>();
 const serverMaintenanceUpdatedListeners = createListenerRegistry<ServerLifecycleStreamEvent>();
 const serverSettingsUpdatedListeners = createListenerRegistry<ServerSettingsUpdatedPayload>();
-
-const terminalEventListeners = createListenerRegistry<TerminalEvent>();
-const projectDevServerEventListeners = createListenerRegistry<ProjectDevServerEvent>();
 const projectWorkspaceChangeListeners = createListenerRegistry<ProjectWorkspaceChangeEvent>();
 const orchestrationDomainEventListeners = createListenerRegistry<OrchestrationEvent>();
 const orchestrationSyncEventListeners = createListenerRegistry<OrchestrationSyncStreamItem>();
@@ -121,8 +116,6 @@ function clearWsNativeApiListeners(): void {
   serverProviderStatusesUpdatedListeners.clear();
   serverMaintenanceUpdatedListeners.clear();
   serverSettingsUpdatedListeners.clear();
-  terminalEventListeners.clear();
-  projectDevServerEventListeners.clear();
   projectWorkspaceChangeListeners.clear();
   orchestrationDomainEventListeners.clear();
   orchestrationSyncEventListeners.clear();
@@ -311,12 +304,6 @@ export function createWsNativeApi(): NativeApi {
   transport.subscribe(WS_CHANNELS.serverSettingsUpdated, (message) => {
     serverSettingsUpdatedListeners.emit(message.data);
   });
-  transport.subscribe(WS_CHANNELS.terminalEvent, (message) => {
-    terminalEventListeners.emit(message.data);
-  });
-  transport.subscribe(WS_CHANNELS.projectDevServerEvent, (message) => {
-    projectDevServerEventListeners.emit(message.data);
-  });
   transport.subscribe(WS_CHANNELS.projectWorkspaceChange, (message) => {
     projectWorkspaceChangeListeners.emit(message.data);
   });
@@ -367,18 +354,7 @@ export function createWsNativeApi(): NativeApi {
         return showConfirmDialogFallback(message);
       },
     },
-    terminal: {
-      open: (input) => transport.request(WS_METHODS.terminalOpen, input),
-      write: (input) => transport.request(WS_METHODS.terminalWrite, input),
-      ackOutput: (input) => transport.request(WS_METHODS.terminalAckOutput, input),
-      resize: (input) => transport.request(WS_METHODS.terminalResize, input),
-      clear: (input) => transport.request(WS_METHODS.terminalClear, input),
-      restart: (input) => transport.request(WS_METHODS.terminalRestart, input),
-      close: (input) => transport.request(WS_METHODS.terminalClose, input),
-      onEvent: terminalEventListeners.subscribe,
-    },
     folders: {
-      discoverScripts: (input) => transport.request(WS_METHODS.projectsDiscoverScripts, input),
       listDirectories: (input) => transport.request(WS_METHODS.projectsListDirectories, input),
       searchEntries: (input) => transport.request(WS_METHODS.projectsSearchEntries, input),
       searchLocalEntries: (input) =>
@@ -387,10 +363,6 @@ export function createWsNativeApi(): NativeApi {
       createLocalFilePreviewGrant: (input) =>
         transport.request(WS_METHODS.projectsCreateLocalFilePreviewGrant, input),
       writeFile: (input) => transport.request(WS_METHODS.projectsWriteFile, input),
-      runDevServer: (input) => transport.request(WS_METHODS.projectsRunDevServer, input),
-      stopDevServer: (input) => transport.request(WS_METHODS.projectsStopDevServer, input),
-      listDevServers: () => transport.request(WS_METHODS.projectsListDevServers),
-      onDevServerEvent: projectDevServerEventListeners.subscribe,
       onWorkspaceChange: projectWorkspaceChangeListeners.subscribe,
     },
     filesystem: {
@@ -482,8 +454,6 @@ export function createWsNativeApi(): NativeApi {
         return result;
       },
       refreshProviders: () => transport.request(WS_METHODS.serverRefreshProviders),
-      listLocalServers: () => transport.request(WS_METHODS.serverListLocalServers),
-      stopLocalServer: (input) => transport.request(WS_METHODS.serverStopLocalServer, input),
       getProviderUsageSnapshot: (input) =>
         transport.request(WS_METHODS.serverGetProviderUsageSnapshot, input),
       listProviderUsage: (input) => transport.request(WS_METHODS.serverListProviderUsage, input),

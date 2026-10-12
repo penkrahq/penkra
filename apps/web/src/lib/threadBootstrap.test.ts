@@ -10,7 +10,6 @@ import {
   requireNewThreadSpaceId,
   scopeNewThreadOptionsToContainer,
   scopeNewThreadOptionsToParentSpace,
-  resolveTerminalThreadCreationState,
   resolveThreadBootstrapPlan,
   shouldReuseActiveDraftThread,
 } from "./threadBootstrap";
@@ -36,7 +35,6 @@ function makeDraftThread(partial?: Partial<DraftThreadState>): DraftThreadState 
     spaceId: null,
     createdAt: "2026-04-05T10:00:00.000Z",
     runtimeMode: "approval-required",
-    entryPoint: "terminal",
     ...partial,
   };
 }
@@ -103,11 +101,10 @@ describe("threadBootstrap", () => {
   });
 
   it("builds a draft patch only when overrides are provided", () => {
-    expect(buildDraftThreadContextPatch("terminal")).toBeNull();
+    expect(buildDraftThreadContextPatch()).toBeNull();
     expect(
-      buildDraftThreadContextPatch("terminal", { spaceId: SpaceId.makeUnsafe("bootstrap-space") }),
+      buildDraftThreadContextPatch({ spaceId: SpaceId.makeUnsafe("bootstrap-space") }),
     ).toEqual({
-      entryPoint: "terminal",
       spaceId: SpaceId.makeUnsafe("bootstrap-space"),
     });
   });
@@ -116,15 +113,13 @@ describe("threadBootstrap", () => {
     expect(
       shouldReuseActiveDraftThread({
         draftThread: makeDraftThread(),
-        entryPoint: "terminal",
         folderId: PROJECT_ID,
         routeThreadId: THREAD_ID,
       }),
     ).toBe(true);
     expect(
       shouldReuseActiveDraftThread({
-        draftThread: makeDraftThread({ entryPoint: "chat" }),
-        entryPoint: "terminal",
+        draftThread: makeDraftThread({ folderId: FolderId.makeUnsafe("other-folder") }),
         folderId: PROJECT_ID,
         routeThreadId: THREAD_ID,
       }),
@@ -136,7 +131,6 @@ describe("threadBootstrap", () => {
       resolveThreadBootstrapPlan({
         storedDraftThread: { threadId: ThreadId.makeUnsafe("stored-thread"), ...makeDraftThread() },
         latestActiveDraftThread: makeDraftThread({}),
-        entryPoint: "terminal",
         folderId: PROJECT_ID,
         routeThreadId: THREAD_ID,
       }),
@@ -145,7 +139,6 @@ describe("threadBootstrap", () => {
       resolveThreadBootstrapPlan({
         storedDraftThread: { threadId: THREAD_ID, ...makeDraftThread() },
         latestActiveDraftThread: null,
-        entryPoint: "terminal",
         folderId: PROJECT_ID,
         routeThreadId: null,
       }),
@@ -154,7 +147,6 @@ describe("threadBootstrap", () => {
       resolveThreadBootstrapPlan({
         storedDraftThread: null,
         latestActiveDraftThread: null,
-        entryPoint: "terminal",
         folderId: PROJECT_ID,
         routeThreadId: null,
       }),
@@ -185,56 +177,12 @@ describe("threadBootstrap", () => {
     expect(
       createFreshDraftThreadSeed({
         createdAt: "2026-04-05T10:00:00.000Z",
-        entryPoint: "terminal",
         options: {},
       }),
     ).toEqual({
       createdAt: "2026-04-05T10:00:00.000Z",
       spaceId: null,
       runtimeMode: "full-access",
-      entryPoint: "terminal",
     });
-  });
-
-  it("prefers draft state when resolving terminal creation payloads", () => {
-    expect(
-      resolveTerminalThreadCreationState({
-        activeDraftThread: null,
-        activeThread: {
-          folderId: PROJECT_ID,
-          modelSelection: modelSelection("codex", "gpt-5"),
-          runtimeMode: "full-access",
-        },
-        draftComposerState: makeComposerDraftState(),
-        draftThread: makeDraftThread(),
-        options: undefined,
-        projectDefaultModelSelection: modelSelection("codex", "gpt-5.4"),
-        folderId: PROJECT_ID,
-      }),
-    ).toEqual({
-      spaceId: null,
-      modelSelection: modelSelection("claudeAgent", "claude-opus-4-6", {
-        effort: "max",
-      }),
-      runtimeMode: "approval-required",
-    });
-  });
-
-  it("clears inherited worktree state when an explicit local env override is requested", () => {
-    expect(
-      resolveTerminalThreadCreationState({
-        activeDraftThread: null,
-        activeThread: {
-          folderId: PROJECT_ID,
-          modelSelection: modelSelection("codex", "gpt-5"),
-          runtimeMode: "full-access",
-        },
-        draftComposerState: makeComposerDraftState(),
-        draftThread: makeDraftThread(),
-        options: {},
-        projectDefaultModelSelection: modelSelection("codex", "gpt-5.4"),
-        folderId: PROJECT_ID,
-      }),
-    ).toMatchObject({});
   });
 });

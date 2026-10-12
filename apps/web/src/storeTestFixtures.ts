@@ -138,7 +138,6 @@ export function makeProject(
     },
     expanded: true,
     spaceId: TEST_SPACE_ID,
-    scripts: [],
     ...overrides,
   };
 }
@@ -186,7 +185,6 @@ export function makeReadModel(
         createdAt: "2026-02-27T00:00:00.000Z",
         updatedAt: "2026-02-27T00:00:00.000Z",
         deletedAt: null,
-        scripts: [],
         spaceId: TEST_SPACE_ID,
       },
     ],
@@ -209,7 +207,6 @@ export function makeStartupSnapshot(): OrchestrationStartupSnapshot {
         },
         createdAt: "2026-02-27T00:00:00.000Z",
         updatedAt: "2026-02-27T00:00:00.000Z",
-        scripts: [],
         spaceId: TEST_SPACE_ID,
       },
     ],
@@ -230,7 +227,6 @@ export function makeReadModelProject(
     createdAt: "2026-02-27T00:00:00.000Z",
     updatedAt: "2026-02-27T00:00:00.000Z",
     deletedAt: null,
-    scripts: [],
     spaceId: TEST_SPACE_ID,
     ...overrides,
   };

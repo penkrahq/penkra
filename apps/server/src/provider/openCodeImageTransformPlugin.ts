@@ -92,7 +92,12 @@ export const PenkraOpenCodeImageTransform = async () => ({
 `;
 
 export function openCodeImageTransformPluginPath(homeDir: string): string {
-  return path.join(homeDir, ".penkra", "opencode-plugins", OPENCODE_IMAGE_TRANSFORM_PLUGIN_FILE_NAME);
+  return path.join(
+    homeDir,
+    ".penkra",
+    "opencode-plugins",
+    OPENCODE_IMAGE_TRANSFORM_PLUGIN_FILE_NAME,
+  );
 }
 
 /** Writes the plugin file when missing or stale, and returns its path. */

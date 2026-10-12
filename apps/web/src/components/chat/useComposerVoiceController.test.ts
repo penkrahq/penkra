@@ -128,7 +128,6 @@ const PROJECT: Project = {
   cwd: "/workspace/project",
   defaultModelSelection: null,
   expanded: true,
-  scripts: [],
 };
 
 describe("useComposerVoiceController", () => {

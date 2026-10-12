@@ -36,14 +36,11 @@ import {
   fileCommentDedupKey,
   normalizeAssistantSelection,
   normalizeAssistantSelections,
-  normalizeDraftThreadEntryPoint,
   normalizeFileComment,
   normalizeFileComments,
   normalizePastedTexts,
   normalizeTerminalContextForThread,
   normalizeTerminalContextsForThread,
-  projectDraftThreadMappingKey,
-  folderIdFromDraftThreadMappingKey,
   removeProjectDraftMappingsForThread,
   shouldRemoveDraft,
   terminalContextDedupKey,
@@ -193,12 +190,11 @@ export const createComposerDraftStoreState =
     stickyModelSelectionByProvider: {},
     stickyConnectionByProvider: {},
     stickyActiveProvider: null,
-    getDraftThreadByFolderId: (folderId, entryPoint = "chat") => {
+    getDraftThreadByFolderId: (folderId) => {
       if (folderId.length === 0) {
         return null;
       }
-      const threadId =
-        get().projectDraftThreadIdByFolderId[projectDraftThreadMappingKey(folderId, entryPoint)];
+      const threadId = get().projectDraftThreadIdByFolderId[folderId];
       if (!threadId) {
         return null;
       }
@@ -206,7 +202,6 @@ export const createComposerDraftStoreState =
       if (
         !draftThread ||
         draftThread.folderId !== folderId ||
-        normalizeDraftThreadEntryPoint(draftThread.entryPoint) !== entryPoint ||
         draftThread.promotedTo !== undefined
       ) {
         return null;
@@ -235,7 +230,7 @@ export const createComposerDraftStoreState =
           options,
           createdAtMode: "accept-empty",
         });
-        const mappingKey = projectDraftThreadMappingKey(folderId, nextDraftThread.entryPoint);
+        const mappingKey = folderId;
         const previousThreadIdForProject = state.projectDraftThreadIdByFolderId[mappingKey];
         const hasSameProjectMapping = previousThreadIdForProject === threadId;
         if (hasSameProjectMapping && draftThreadStatesEqual(existingThread, nextDraftThread)) {
@@ -268,7 +263,6 @@ export const createComposerDraftStoreState =
           spaceId: options.spaceId ?? null,
           createdAt: options.createdAt ?? new Date().toISOString(),
           runtimeMode: options.runtimeMode ?? DEFAULT_RUNTIME_MODE,
-          entryPoint: options.entryPoint ?? "chat",
         };
         return {
           draftThreadsByThreadId: {
@@ -310,7 +304,7 @@ export const createComposerDraftStoreState =
                 state.projectDraftThreadIdByFolderId,
                 threadId,
               ),
-              [projectDraftThreadMappingKey(nextFolderId, nextDraftThread.entryPoint)]: threadId,
+              [nextFolderId]: threadId,
             }
           : state.projectDraftThreadIdByFolderId;
         return {
@@ -338,7 +332,7 @@ export const createComposerDraftStoreState =
           options,
           createdAtMode: "preserve-existing-on-empty",
         });
-        const targetMappingKey = projectDraftThreadMappingKey(folderId, nextDraftThread.entryPoint);
+        const targetMappingKey = folderId;
         const previousThreadIdForProject = state.projectDraftThreadIdByFolderId[targetMappingKey];
         const hasOnlyTargetMapping = Object.entries(state.projectDraftThreadIdByFolderId).every(
           ([mappingKey, mappedThreadId]) =>
@@ -382,12 +376,12 @@ export const createComposerDraftStoreState =
         };
       });
     },
-    clearProjectDraftThreadId: (folderId, entryPoint = "chat") => {
+    clearProjectDraftThreadId: (folderId) => {
       if (folderId.length === 0) {
         return;
       }
       set((state) => {
-        const mappingKey = projectDraftThreadMappingKey(folderId, entryPoint);
+        const mappingKey = folderId;
         const threadId = state.projectDraftThreadIdByFolderId[mappingKey];
         if (threadId === undefined) {
           return state;
@@ -417,7 +411,7 @@ export const createComposerDraftStoreState =
         const nextProjectDraftThreadIdByFolderId: Record<string, ThreadId> = {};
         const removedThreadIds = new Set<ThreadId>();
         for (const [mappingKey, threadId] of Object.entries(state.projectDraftThreadIdByFolderId)) {
-          if (folderIdFromDraftThreadMappingKey(mappingKey) === folderId) {
+          if (mappingKey === folderId) {
             removedThreadIds.add(threadId);
             continue;
           }
@@ -452,9 +446,7 @@ export const createComposerDraftStoreState =
       }
       set((state) => {
         const matchingMappingKey = Object.entries(state.projectDraftThreadIdByFolderId).find(
-          ([mappingKey, mappedThreadId]) =>
-            folderIdFromDraftThreadMappingKey(mappingKey) === folderId &&
-            mappedThreadId === threadId,
+          ([mappingKey, mappedThreadId]) => mappingKey === folderId && mappedThreadId === threadId,
         )?.[0];
         if (!matchingMappingKey) {
           return state;
