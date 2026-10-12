@@ -55,14 +55,12 @@ export function useRefreshProviderStatusesNow(): RefreshProviderStatusesNow {
 
 type ProviderStatusRefreshOptions = {
   readonly enabled?: boolean;
-  readonly minIntervalMs?: number;
   readonly refreshOnFocus?: boolean;
 };
 
 export function useProviderStatusRefresh(options: ProviderStatusRefreshOptions): void {
   const queryClient = useQueryClient();
   const enabled = options.enabled ?? true;
-  const minIntervalMs = options.minIntervalMs ?? 0;
   const refreshOnFocus = options.refreshOnFocus ?? false;
 
   useEffect(() => {
@@ -71,20 +69,19 @@ export function useProviderStatusRefresh(options: ProviderStatusRefreshOptions):
     }
 
     let disposed = false;
-    let lastRefreshAtMs = 0;
+    let refreshInFlight = false;
     const refreshProviderStatuses = () => {
       if (document.visibilityState !== "visible") {
         return;
       }
-      const nowMs = Date.now();
-      if (minIntervalMs > 0 && nowMs - lastRefreshAtMs < minIntervalMs) {
+      if (refreshInFlight) {
         return;
       }
       const api = readNativeApi();
       if (!api) {
         return;
       }
-      lastRefreshAtMs = nowMs;
+      refreshInFlight = true;
       void api.server
         .refreshProviders()
         .then((result) => {
@@ -93,7 +90,10 @@ export function useProviderStatusRefresh(options: ProviderStatusRefreshOptions):
           }
           return writeProviderStatusesToConfigCache(queryClient, result.providers);
         })
-        .catch(() => undefined);
+        .catch(() => undefined)
+        .finally(() => {
+          refreshInFlight = false;
+        });
     };
 
     if (refreshOnFocus) {
@@ -108,5 +108,5 @@ export function useProviderStatusRefresh(options: ProviderStatusRefreshOptions):
         document.removeEventListener("visibilitychange", refreshProviderStatuses);
       }
     };
-  }, [enabled, minIntervalMs, queryClient, refreshOnFocus]);
+  }, [enabled, queryClient, refreshOnFocus]);
 }
