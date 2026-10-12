@@ -74,8 +74,6 @@ import {
   ServerConfig,
   ServerConfigStreamEvent,
   ServerGetEnvironmentResult,
-  ServerGetProviderUsageSnapshotInput,
-  ServerGetProviderUsageSnapshotResult,
   ServerListProviderUsageInput,
   ServerListProviderUsageResult,
   ServerLifecycleStreamEvent,
@@ -365,15 +363,6 @@ export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProv
   success: ServerRefreshProvidersResult,
   error: WsRpcError,
 });
-
-export const WsServerGetProviderUsageSnapshotRpc = Rpc.make(
-  WS_METHODS.serverGetProviderUsageSnapshot,
-  {
-    payload: ServerGetProviderUsageSnapshotInput,
-    success: ServerGetProviderUsageSnapshotResult,
-    error: WsRpcError,
-  },
-);
 
 export const WsServerListProviderUsageRpc = Rpc.make(WS_METHODS.serverListProviderUsage, {
   payload: ServerListProviderUsageInput,
@@ -716,7 +705,6 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsServerGetSpaceNavigationStateRpc,
   WsServerUpdateSpaceNavigationStateRpc,
   WsServerRefreshProvidersRpc,
-  WsServerGetProviderUsageSnapshotRpc,
   WsServerListProviderUsageRpc,
   WsServerTranscribeVoiceRpc,
   WsServerUpsertKeybindingRpc,

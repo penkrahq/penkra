@@ -74,7 +74,6 @@ import { ProviderLaunchResolver } from "./provider/Services/ProviderLaunchResolv
 import { ProviderConnectionRepository } from "./persistence/Services/ProviderConnections";
 import { ProviderInstallationRepository } from "./persistence/Services/ProviderInstallations";
 import { listProviderUsage } from "./providerUsage";
-import { getProviderUsageSnapshot } from "./providerUsageSnapshot";
 import { ServerEnvironment } from "./environment/Services/ServerEnvironment";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
@@ -1136,8 +1135,6 @@ const makeWsRpcHandlersLayer = () =>
             ),
             "Failed to disconnect the Connection",
           ),
-        [WS_METHODS.serverGetProviderUsageSnapshot]: (input) =>
-          rpcEffect(getProviderUsageSnapshot(input), "Failed to load provider usage"),
         [WS_METHODS.serverListProviderUsage]: (input) =>
           rpcEffect(listProviderUsage(input), "Failed to load provider usage"),
         [WS_METHODS.serverTranscribeVoice]: (input) =>

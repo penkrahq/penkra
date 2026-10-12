@@ -2,7 +2,6 @@ import type {
   ProviderConnectionId,
   ProviderKind,
   ServerConfig,
-  ServerListProviderUsageInput,
   ServerProviderStatus,
 } from "@penkra/contracts";
 import { queryOptions, type QueryClient } from "@tanstack/react-query";
@@ -14,8 +13,6 @@ export const serverQueryKeys = {
   authSession: () => ["server", "auth", "session"] as const,
   environment: () => ["server", "environment"] as const,
   settings: () => ["server", "settings"] as const,
-  providerUsage: (provider: ProviderKind | null | undefined, homePath?: string | null) =>
-    ["server", "providerUsage", provider ?? null, homePath ?? null] as const,
   allProviderUsage: (
     provider?: ProviderKind | null,
     connectionIds?: ReadonlyArray<ProviderConnectionId>,
@@ -146,57 +143,25 @@ export function serverSettingsQueryOptions() {
   });
 }
 
-export function serverProviderUsageSnapshotQueryOptions(input: {
-  provider: ProviderKind | null | undefined;
-  homePath?: string | null;
+// Live usage for the account picker, always scoped to its listed connections.
+export function serverAllProviderUsageQueryOptions(input: {
   enabled?: boolean;
+  provider?: ProviderKind | null;
+  connectionIds: ReadonlyArray<ProviderConnectionId>;
 }) {
-  return queryOptions({
-    queryKey: serverQueryKeys.providerUsage(input.provider, input.homePath),
-    enabled: (input.enabled ?? true) && input.provider !== null && input.provider !== undefined,
-    staleTime: Infinity,
-    refetchOnMount: "always",
-    refetchOnWindowFocus: false,
-    queryFn: async () => {
-      if (!input.provider) return null;
-      const api = ensureNativeApi();
-      return api.server.getProviderUsageSnapshot({
-        provider: input.provider,
-        ...(input.homePath ? { homePath: input.homePath } : {}),
-      });
-    },
-  });
-}
-
-export async function fetchAllProviderUsage(input: ServerListProviderUsageInput = {}) {
-  const api = ensureNativeApi();
-  return api.server.listProviderUsage(input);
-}
-
-// Live remaining-usage for every provider in Settings or a single provider in active usage UI.
-export function serverAllProviderUsageQueryOptions(
-  input:
-    | boolean
-    | {
-        enabled?: boolean;
-        provider?: ProviderKind | null;
-        connectionIds?: ReadonlyArray<ProviderConnectionId>;
-      } = true,
-) {
-  const enabled = typeof input === "boolean" ? input : (input.enabled ?? true);
-  const provider = typeof input === "boolean" ? null : (input.provider ?? null);
-  const connectionIds = typeof input === "boolean" ? undefined : input.connectionIds;
+  const provider = input.provider ?? null;
+  const connectionIds = input.connectionIds;
   return queryOptions({
     queryKey: serverQueryKeys.allProviderUsage(provider, connectionIds),
-    enabled,
+    enabled: input.enabled ?? true,
     staleTime: Infinity,
     refetchOnMount: "always",
     refetchInterval: false,
     refetchOnWindowFocus: false,
     queryFn: async () =>
-      fetchAllProviderUsage({
+      ensureNativeApi().server.listProviderUsage({
         ...(provider ? { provider } : {}),
-        ...(connectionIds === undefined ? {} : { connectionIds: [...connectionIds] }),
+        connectionIds: [...connectionIds],
       }),
   });
 }

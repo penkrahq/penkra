@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeServerProviderUsageRateLimit } from "./providerUsageSnapshot";
+import { normalizeServerProviderUsageRateLimit } from "./connectionUsageDisplay";
 import { deriveVisibleRateLimitRows } from "./rateLimits";
 
 describe("connection quota bucket display", () => {

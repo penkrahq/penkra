@@ -33,7 +33,7 @@ import {
 import {
   connectionUsageEmptyMessage,
   normalizeServerProviderUsageRateLimit,
-} from "~/lib/providerUsageSnapshot";
+} from "~/lib/connectionUsageDisplay";
 import { serverAllProviderUsageQueryOptions } from "~/lib/serverReactQuery";
 import { cn } from "~/lib/utils";
 
