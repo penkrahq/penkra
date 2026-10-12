@@ -73,7 +73,7 @@ describe("chat scroll diagnostics", () => {
         ],
         isAtEnd: () => false,
       },
-      detail: { checkpoint: "1000ms" },
+      detail: { checkpoint: "next-frame" },
     });
 
     expect(getChatScrollDiagnosticSamples()).toEqual([
@@ -81,7 +81,7 @@ describe("chat scroll diagnostics", () => {
         instanceId: 7,
         event: "initial-scroll:checkpoint",
         dataCount: 193,
-        detail: { checkpoint: "1000ms" },
+        detail: { checkpoint: "next-frame" },
         dom: {
           scrollTop: 1_200,
           clientHeight: 600,
