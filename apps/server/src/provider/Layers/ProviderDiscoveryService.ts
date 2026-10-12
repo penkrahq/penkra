@@ -160,7 +160,6 @@ const make = Effect.gen(function* () {
           homeDir: serverConfig.homeDir,
           penkraBaseDir: serverConfig.baseDir,
           provider: parsed.provider,
-          ...(parsed.forceReload !== undefined ? { forceReload: parsed.forceReload } : {}),
         }),
       ).pipe(
         Effect.catchCause((cause) =>

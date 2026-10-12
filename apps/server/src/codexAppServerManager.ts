@@ -949,8 +949,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     string,
     { readonly token: symbol; readonly process: Promise<CodexAccountProcess> }
   >();
-  private readonly skillsCache = new Map<string, ProviderListSkillsResult>();
-  private readonly pluginsCache = new Map<string, ProviderListPluginsResult>();
   private readonly pluginDetailCache = new Map<string, ProviderReadPluginResult>();
   private readonly pendingModelDiscoveries = new Map<string, Promise<ProviderListModelsResult>>();
 
@@ -2206,20 +2204,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
   async listSkills(input: CodexSkillListInput): Promise<ProviderListSkillsResult> {
     const cwd = input.cwd.trim();
-    const cacheKey = JSON.stringify({
-      cwd,
-      threadId: input.threadId?.trim() || null,
-    });
-    if (!input.forceReload) {
-      const cached = getRecentCacheEntry(this.skillsCache, cacheKey);
-      if (cached) {
-        return {
-          ...cached,
-          cached: true,
-        };
-      }
-    }
-
     const transport = await this.resolveProcessForDiscovery(input.threadId, cwd);
     let response: Record<string, unknown>;
     try {
@@ -2242,27 +2226,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       source: "codex-app-server",
       cached: false,
     };
-    setRecentCacheEntry(this.skillsCache, cacheKey, result);
     return result;
   }
 
   async listPlugins(input: CodexPluginListInput): Promise<ProviderListPluginsResult> {
     const cwd = input.cwd?.trim() || null;
-    const cacheKey = JSON.stringify({
-      cwd,
-      threadId: input.threadId?.trim() || null,
-      forceRemoteSync: input.forceRemoteSync === true,
-    });
-    if (!input.forceReload) {
-      const cached = getRecentCacheEntry(this.pluginsCache, cacheKey);
-      if (cached) {
-        return {
-          ...cached,
-          cached: true,
-        };
-      }
-    }
-
     const transport = await this.resolveProcessForDiscovery(input.threadId, cwd ?? undefined);
     const response = await this.sendRequest<Record<string, unknown>>(
       transport,
@@ -2278,7 +2246,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       source: "codex-app-server",
       cached: false,
     };
-    setRecentCacheEntry(this.pluginsCache, cacheKey, result);
     return result;
   }
 

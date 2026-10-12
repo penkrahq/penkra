@@ -209,6 +209,8 @@ export function providerSkillsQueryOptions(input: {
         throw new Error("Skill discovery is unavailable.");
       }
       return api.provider.listSkills({
+        // Codex also caches skills internally; a focus refresh must re-scan disk.
+        forceReload: true,
         provider: input.provider,
         cwd: input.cwd,
         ...(input.threadId ? { threadId: input.threadId } : {}),
@@ -217,7 +219,8 @@ export function providerSkillsQueryOptions(input: {
       });
     },
     enabled: (input.enabled ?? true) && input.cwd !== null,
-    staleTime: 30_000,
+    staleTime: Infinity,
+    refetchOnWindowFocus: "always",
     placeholderData: (previous) => previous ?? EMPTY_SKILLS_RESULT,
   });
 }
@@ -234,7 +237,8 @@ export function skillsCatalogQueryOptions(input?: { cwd?: string | null; enabled
       return api.provider.listSkillsCatalog(cwd ? { cwd } : {});
     },
     enabled: input?.enabled ?? true,
-    staleTime: 30_000,
+    staleTime: Infinity,
+    refetchOnWindowFocus: "always",
     placeholderData: (previous) => previous,
   });
 }
@@ -280,7 +284,8 @@ export function providerCommandsQueryOptions(input: {
       });
     },
     enabled: (input.enabled ?? true) && input.cwd !== null,
-    staleTime: 30_000,
+    staleTime: Infinity,
+    refetchOnWindowFocus: "always",
     placeholderData: (previous) => previous ?? EMPTY_COMMANDS_RESULT,
   });
 }

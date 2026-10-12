@@ -310,8 +310,6 @@ export interface SkillsCatalogDiscoveryInput {
   readonly provider?: ProviderKind | null;
   /** Settings needs every origin; composer/provider pickers keep one winner by name. */
   readonly includeDuplicateOrigins?: boolean;
-  /** Bypass the short-lived discovery cache. */
-  readonly forceReload?: boolean;
 }
 
 export interface SkillsCatalogRootInput extends SkillsCatalogDiscoveryInput {
@@ -322,22 +320,10 @@ export interface SkillsCatalogRootInput extends SkillsCatalogDiscoveryInput {
 const HOME_ORIGIN_ORDER = ["penkra", "codex", "claude", "opencode", "agents"] as const;
 export type SkillsCatalogOrigin = (typeof HOME_ORIGIN_ORDER)[number] | "project";
 
-// Composer skill pickers refetch aggressively (per keystroke, per provider); a
-// short TTL absorbs that burst while still picking up new skill files quickly.
-const SKILLS_CATALOG_CACHE_TTL_MS = 15_000;
-const SKILLS_CATALOG_CACHE_MAX_ENTRIES = 64;
-
-interface SkillsCatalogCacheEntry {
-  readonly at: number;
-  readonly skills: ReadonlyArray<ProviderSkillDescriptor>;
-}
-
-const skillsCatalogCache = new Map<string, SkillsCatalogCacheEntry>();
 const skillsCatalogInflight = new Map<string, Promise<ReadonlyArray<ProviderSkillDescriptor>>>();
 const ensuredPenkraSkillsDirs = new Set<string>();
 
-export function clearSkillsCatalogCacheForTests(): void {
-  skillsCatalogCache.clear();
+export function resetSkillsCatalogForTests(): void {
   skillsCatalogInflight.clear();
   ensuredPenkraSkillsDirs.clear();
 }
@@ -507,13 +493,6 @@ export async function discoverSkillsCatalog(
     input.includeDuplicateOrigins ? "all-origins" : "deduped",
   ].join("\u0000");
 
-  if (!input.forceReload) {
-    const entry = skillsCatalogCache.get(cacheKey);
-    if (entry && Date.now() - entry.at <= SKILLS_CATALOG_CACHE_TTL_MS) {
-      return [...entry.skills];
-    }
-  }
-
   const inflight = skillsCatalogInflight.get(cacheKey);
   if (inflight) {
     return [...(await inflight)];
@@ -525,15 +504,6 @@ export async function discoverSkillsCatalog(
       ? await collectSkillDescriptorsFromRoots(skillsCatalogRoots(input))
       : await collectSkillsFromRoots(skillsCatalogRoots(input));
 
-    skillsCatalogCache.delete(cacheKey);
-    skillsCatalogCache.set(cacheKey, { at: Date.now(), skills });
-    while (skillsCatalogCache.size > SKILLS_CATALOG_CACHE_MAX_ENTRIES) {
-      const oldestKey = skillsCatalogCache.keys().next().value;
-      if (oldestKey === undefined) {
-        break;
-      }
-      skillsCatalogCache.delete(oldestKey);
-    }
     return skills;
   })();
 
@@ -541,7 +511,7 @@ export async function discoverSkillsCatalog(
   try {
     return [...(await scan)];
   } finally {
-    skillsCatalogInflight.delete(cacheKey);
+    if (skillsCatalogInflight.get(cacheKey) === scan) skillsCatalogInflight.delete(cacheKey);
   }
 }
 

@@ -3985,6 +3985,8 @@ describe("CodexAppServerManager discovery", () => {
       source: "codex-app-server",
       cached: false,
     });
+    await manager.listPlugins({ cwd: "/repo", threadId: "thread_1", forceRemoteSync: true });
+    expect(sendRequest).toHaveBeenCalledTimes(2);
     expect(resolveProcessForDiscovery).toHaveBeenCalledWith("thread_1", "/repo");
     expect(sendRequest).toHaveBeenCalledWith(context.transport, null, "plugin/list", {
       cwds: ["/repo"],

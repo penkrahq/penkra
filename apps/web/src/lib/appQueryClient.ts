@@ -1,4 +1,18 @@
-import { QueryClient } from "@tanstack/react-query";
+import { focusManager, QueryClient } from "@tanstack/react-query";
+
+focusManager.setEventListener((handleFocus) => {
+  if (typeof window === "undefined") return;
+  const onFocus = () => handleFocus();
+  const onVisibilityChange = () => {
+    if (document.visibilityState === "visible") handleFocus();
+  };
+  window.addEventListener("focus", onFocus);
+  document.addEventListener("visibilitychange", onVisibilityChange);
+  return () => {
+    window.removeEventListener("focus", onFocus);
+    document.removeEventListener("visibilitychange", onVisibilityChange);
+  };
+});
 
 export function createAppQueryClient(): QueryClient {
   return new QueryClient({
