@@ -255,6 +255,7 @@ function makeHarness() {
     snapshotQuery,
     providerDiscovery,
     providerTurnSelectionResolver: {
+      authorizeConnection: () => Effect.die("not used in creation"),
       resolveNewThreadConnection: () =>
         Effect.sync(() => {
           selectionCalls++;

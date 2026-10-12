@@ -215,6 +215,35 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
       ),
     );
 
+  const authorizeAccount = Effect.fnUntraced(function* (
+    input: Parameters<ProviderTurnSelectionResolverShape["authorizeConnection"]>[0],
+  ) {
+    const manifest = getProviderConnectionManifest(input.harness);
+    if (manifest === null) return yield* fail("The thread harness has no enabled managed adapter.");
+    if (input.modelSelection.provider !== input.harness) {
+      return yield* fail(
+        "This thread uses a different provider. To use another provider, start a new thread.",
+        "provider_mismatch",
+      );
+    }
+    const installation = yield* requireActiveInstallation(input.harness);
+    const internalProviderId = yield* internalProviderIdForModel(
+      input.harness,
+      input.modelSelection.model,
+    );
+    if (input.connectionId === null) {
+      if (!manifest.anonymous?.authorizesInternalProvider(internalProviderId))
+        return yield* fail("This model needs a signed-in Connection.", "connection_unauthorized");
+      return { installation, internalProviderId, connection: null };
+    }
+    const connection = yield* requireAuthorizedConnection({
+      harness: input.harness,
+      connectionId: input.connectionId,
+      internalProviderId,
+    });
+    return { installation, internalProviderId, connection };
+  });
+
   const resolveNewThreadConnection: ProviderTurnSelectionResolverShape["resolveNewThreadConnection"] =
     (input) =>
       Effect.gen(function* () {
@@ -287,31 +316,22 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
       if (Option.isNone(state))
         return yield* fail("The thread does not exist.", "thread_binding_missing");
 
-      const manifest = getProviderConnectionManifest(state.value.provider);
-      if (manifest === null) {
-        return yield* fail("The thread harness has no enabled managed adapter.");
-      }
-      if (
-        input.modelSelection !== undefined &&
-        input.modelSelection.provider !== state.value.provider
-      ) {
-        return yield* fail(
-          "This thread uses a different provider. To use another provider, start a new thread.",
-          "provider_mismatch",
-        );
-      }
-
       const modelId = input.modelSelection?.model ?? state.value.model;
       if (modelId === null) {
         return yield* fail("This thread has no model set.", "model_unavailable");
       }
-      const internalProviderId = yield* internalProviderIdForModel(state.value.provider, modelId);
       const connectionId =
         input.connectionId === undefined ? state.value.connectionId : input.connectionId;
       const selectionChanged =
         connectionId !== state.value.connectionId || modelId !== state.value.model;
 
-      const targetInstallation = yield* requireActiveInstallation(state.value.provider);
+      const account = yield* authorizeAccount({
+        harness: state.value.provider,
+        modelSelection: input.modelSelection ?? { provider: state.value.provider, model: modelId },
+        connectionId,
+      });
+      const targetInstallation = account.installation;
+      const internalProviderId = account.internalProviderId;
       const changed = selectionChanged;
       const requiresNativeStateMaterialization =
         connectionId !== state.value.connectionId &&
@@ -319,16 +339,8 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
         state.value.providerSessionId !== null;
 
       let connectionLabel: string | null = null;
-      if (connectionId === null) {
-        if (!manifest.anonymous?.authorizesInternalProvider(internalProviderId)) {
-          return yield* fail("This model needs a signed-in Connection.", "connection_unauthorized");
-        }
-      } else {
-        const connection = yield* requireAuthorizedConnection({
-          harness: state.value.provider,
-          connectionId,
-          internalProviderId,
-        });
+      if (account.connection !== null) {
+        const connection = account.connection;
         connectionLabel = connection.label;
         if (
           state.value.provider === "claudeAgent" &&
@@ -411,6 +423,9 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
     });
 
   return {
+    authorizeConnection: (
+      input: Parameters<ProviderTurnSelectionResolverShape["authorizeConnection"]>[0],
+    ) => authorizeAccount(input).pipe(Effect.asVoid),
     resolveNewThreadConnection,
     resolveExisting,
   } satisfies ProviderTurnSelectionResolverShape;
