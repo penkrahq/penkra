@@ -648,6 +648,9 @@ function CodeBlockHeaderTitle({ fence }: { fence: CodeFenceInfo }) {
   return <span className="chat-markdown-codeblock__lang">{fence.language}</span>;
 }
 
+// Keep the copy confirmation visible briefly before restoring the copy action (decision 6a).
+const CODE_BLOCK_COPIED_DISPLAY_MS = 1_200;
+
 function MarkdownCodeBlock({
   code,
   fence,
@@ -670,7 +673,7 @@ function MarkdownCodeBlock({
         copiedTimerRef.current = setTimeout(() => {
           setCopied(false);
           copiedTimerRef.current = null;
-        }, 1200);
+        }, CODE_BLOCK_COPIED_DISPLAY_MS);
       })
       .catch(() => undefined);
   };

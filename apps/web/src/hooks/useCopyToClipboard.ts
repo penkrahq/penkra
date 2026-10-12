@@ -2,6 +2,9 @@ import * as React from "react";
 
 import { toastManager } from "../components/ui/toast";
 
+// Keep copy confirmation readable before restoring the action (decision 6a).
+const COPIED_DISPLAY_MS = 2_000;
+
 function fallbackCopyTextToClipboard(value: string): boolean {
   if (typeof document === "undefined" || typeof document.execCommand !== "function") {
     return false;
@@ -85,7 +88,7 @@ export function useCopyToClipboard<TContext = void>({
   onCopy?: (ctx: TContext) => void;
   onError?: (error: Error, ctx: TContext) => void;
 } = {}): { copyToClipboard: (value: string, ctx: TContext) => void; isCopied: boolean } {
-  const timeout = timeoutProp ?? 2000;
+  const timeout = timeoutProp ?? COPIED_DISPLAY_MS;
   const [isCopied, setIsCopied] = React.useState(false);
   const timeoutIdRef = React.useRef<NodeJS.Timeout | null>(null);
   const onCopyRef = React.useRef(onCopy);

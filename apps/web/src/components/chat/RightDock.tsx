@@ -41,6 +41,9 @@ import { isFindSurfaceVisible } from "~/lib/find/findVisibility";
 export const RIGHT_DOCK_MIN_WIDTH = 26 * 16;
 export const RIGHT_DOCK_DEFAULT_WIDTH = "max(28rem, calc(50vw - 8rem))";
 
+// Match the dock CSS opening transition before ending its entrance presentation (decision 6a).
+const RIGHT_DOCK_OPENING_MOTION_MS = 300;
+
 interface RightDockProps {
   state: RightDockFolderState;
   minWidth: number;
@@ -129,7 +132,7 @@ export function RightDock(props: RightDockProps) {
     const timer = window.setTimeout(() => {
       setOpeningMotion(false);
       openingStartedAtRef.current = null;
-    }, 300);
+    }, RIGHT_DOCK_OPENING_MOTION_MS);
     return () => window.clearTimeout(timer);
   }, [props.state.open]);
   useLayoutEffect(() => {

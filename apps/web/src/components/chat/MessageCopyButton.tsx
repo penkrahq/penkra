@@ -4,6 +4,7 @@ import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { anchoredToastManager } from "../ui/toast";
 import { MessageActionButton, MESSAGE_ACTION_ICON_CLASS_NAME } from "./MessageActionButton";
 
+// Brief anchored copy feedback should not cover the message actions indefinitely (decision 6a).
 const ANCHORED_TOAST_TIMEOUT_MS = 1000;
 
 function showCopyToast(
