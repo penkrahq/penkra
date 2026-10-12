@@ -3662,6 +3662,8 @@ function ChatViewContent({
     clearTranscriptAutoFollow();
     const initialState = transcriptListRef.current?.getState?.();
     isAtEndRef.current = initialState?.isAtEnd ?? true;
+    showScrollDebouncer.current.cancel();
+    setShowScrollToBottom(!isAtEndRef.current);
   }, [activeThread?.id, clearTranscriptAutoFollow]);
   const cancelPendingInteractionAnchorAdjustment = useCallback(() => {
     const pendingFrame = pendingInteractionAnchorFrameRef.current;
@@ -3901,8 +3903,12 @@ function ChatViewContent({
     if (!composerForm) return;
 
     let previousHeight = composerForm.getBoundingClientRect().height;
-    let pendingScrollTimeout: number | null = null;
+    let pendingScrollFrame: number | null = null;
     const observer = new ResizeObserver((entries) => {
+      if (pendingScrollFrame !== null) {
+        window.cancelAnimationFrame(pendingScrollFrame);
+        pendingScrollFrame = null;
+      }
       const [entry] = entries;
       if (!entry) return;
 
@@ -3924,12 +3930,9 @@ function ChatViewContent({
         });
       if (!wasNearEndBeforeResize) return;
 
-      if (pendingScrollTimeout !== null) {
-        window.clearTimeout(pendingScrollTimeout);
-      }
-      pendingScrollTimeout = window.setTimeout(() => {
-        pendingScrollTimeout = null;
-        // Composer/approval chrome changed the viewport; no transcript item
+      pendingScrollFrame = window.requestAnimationFrame(() => {
+        pendingScrollFrame = null;
+        // Composer chrome changed the viewport; no transcript item
         // arrived. Preserve an existing tail position directly instead of
         // entering the semantic message auto-follow path.
         const beforeTop = scrollContainer.scrollTop;
@@ -3946,14 +3949,14 @@ function ChatViewContent({
           requestedTop,
           afterTop: scrollContainer.scrollTop,
         });
-      }, 0);
+      });
     });
 
     observer.observe(composerForm);
     return () => {
       observer.disconnect();
-      if (pendingScrollTimeout !== null) {
-        window.clearTimeout(pendingScrollTimeout);
+      if (pendingScrollFrame !== null) {
+        window.cancelAnimationFrame(pendingScrollFrame);
       }
     };
   }, [
@@ -3962,16 +3965,6 @@ function ChatViewContent({
     secondaryChromeReady,
     shouldRenderChatPaneContent,
   ]);
-
-  useEffect(() => {
-    showScrollDebouncer.current.cancel();
-    const settle = window.setTimeout(() => {
-      const isAtEnd = transcriptListRef.current?.getState?.().isAtEnd ?? true;
-      isAtEndRef.current = isAtEnd;
-      setShowScrollToBottom(!isAtEnd);
-    }, 0);
-    return () => window.clearTimeout(settle);
-  }, [activeThread?.id]);
 
   useEffect(() => {
     if (!composerMenuOpen) {
