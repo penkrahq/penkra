@@ -2164,28 +2164,19 @@ function ChatViewContent({
       ),
     [rawWorkLogEntries],
   );
+  const [agentActivityThreadId, setAgentActivityThreadId] = useState(activeThread?.id);
+  if (agentActivityThreadId !== activeThread?.id) {
+    setAgentActivityThreadId(activeThread?.id);
+    setOpenAgentActivityId(null);
+  } else if (
+    openAgentActivityId !== null &&
+    !agentActivityTimelineState.detailById.has(openAgentActivityId)
+  ) {
+    setOpenAgentActivityId(null);
+  }
   const openAgentActivityDetail = openAgentActivityId
     ? (agentActivityTimelineState.detailById.get(openAgentActivityId) ?? null)
     : null;
-  useEffect(() => {
-    // Async setState (post-paint) keeps this thread-change reset out of the
-    // render->effect->render cascade.
-    const settle = window.setTimeout(() => {
-      setOpenAgentActivityId(null);
-    }, 0);
-    return () => window.clearTimeout(settle);
-  }, [activeThread?.id]);
-  useEffect(() => {
-    if (!openAgentActivityId || agentActivityTimelineState.detailById.has(openAgentActivityId)) {
-      return;
-    }
-    // Async setState (post-paint) keeps this stale-detail cleanup out of the
-    // render->effect->render cascade.
-    const settle = window.setTimeout(() => {
-      setOpenAgentActivityId(null);
-    }, 0);
-    return () => window.clearTimeout(settle);
-  }, [agentActivityTimelineState.detailById, openAgentActivityId]);
   const pendingUserInputs = useMemo(
     () =>
       measureChatPerformanceWork("transcript-pending-interactions", () =>

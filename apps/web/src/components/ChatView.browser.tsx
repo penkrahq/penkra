@@ -5140,6 +5140,84 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("clears historical agent detail on navigation and when its row disappears", async () => {
+    const base = createSnapshotWithInlineToolOverflow({ active: true });
+    const source = base.threads[0]!;
+    const secondId = ThreadId.makeUnsafe("historical-agent-detail-next");
+    const historicalActivity = {
+      ...source.activities[0]!,
+      summary: "Historical agent task",
+      payload: {
+        itemType: "collab_agent_tool_call",
+        toolName: "Historical agent task",
+        detail: "Historical task output",
+      },
+    };
+    const snapshot: OrchestrationReadModel = {
+      ...base,
+      threads: [
+        {
+          ...source,
+          messages: source.messages.filter((message) => message.role === "user"),
+          activities: [historicalActivity],
+        },
+        {
+          ...source,
+          id: secondId,
+          title: "Next historical detail thread",
+          activities: [],
+          messages: source.messages.map((message) => ({
+            ...message,
+            id: MessageId.makeUnsafe(`historical-next-${message.id}`),
+          })),
+          session: { ...source.session!, threadId: secondId },
+        },
+      ],
+    };
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const openDetail = async () => {
+      await expect
+        .element(page.getByRole("button", { name: /Historical task output/u }))
+        .toBeVisible();
+      await page.getByRole("button", { name: /Historical task output/u }).click();
+      await vi.waitFor(() => {
+        expect(document.querySelector('[data-agent-activity-detail="true"]')).not.toBeNull();
+      });
+    };
+    try {
+      await openDetail();
+      await mounted.router.navigate({ to: "/$threadId", params: { threadId: secondId } });
+      await vi.waitFor(() => {
+        expect(mounted.router.state.location.pathname).toBe(`/${secondId}`);
+        expect(document.querySelector('[data-agent-activity-detail="true"]')).toBeNull();
+      });
+      await mounted.router.navigate({ to: "/$threadId", params: { threadId: THREAD_ID } });
+      await expect
+        .element(page.getByRole("button", { name: /Historical task output/u }))
+        .toBeVisible();
+      expect(document.querySelector('[data-agent-activity-detail="true"]')).toBeNull();
+      await openDetail();
+      const withoutActivity = {
+        ...snapshot,
+        threads: snapshot.threads.map((thread) =>
+          thread.id === THREAD_ID ? { ...thread, activities: [] } : thread,
+        ),
+      };
+      syncReadModelForTest(withoutActivity);
+      await vi.waitFor(() => {
+        expect(document.querySelector('[data-agent-activity-detail="true"]')).toBeNull();
+      });
+      useStore.getState().syncServerReadModel(snapshot);
+      await expect
+        .element(page.getByRole("button", { name: /Historical task output/u }))
+        .toBeVisible();
+      expect(document.querySelector('[data-agent-activity-detail="true"]')).toBeNull();
+      await openDetail();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("closes a composer picker on thread navigation and reopens it on the next thread", async () => {
     const base = createSnapshotForTargetUser({
       targetMessageId: MessageId.makeUnsafe("picker-navigation-user"),
