@@ -690,6 +690,7 @@ function formatPastedTextTitleSeed(pastedTexts: ReadonlyArray<PastedTextDraft>):
     : `${pastedTexts.length} pasted texts`;
 }
 
+// Coalesce mention-path input to keep filesystem discovery from running per keystroke.
 const COMPOSER_PATH_QUERY_DEBOUNCE_MS = 120;
 const VOICE_RECORDER_ACTION_ARM_DELAY_MS = 250;
 

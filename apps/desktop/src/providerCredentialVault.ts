@@ -8,6 +8,7 @@ import * as Path from "node:path";
 const SCHEMA_VERSION = 1 as const;
 const MAX_STATE_BYTES = 4 * 1024 * 1024;
 const MAX_SECRET_BYTES = 64 * 1024;
+// Limit the lifetime of a one-use credential token while its caller claims the secret.
 const DEFAULT_LEASE_TTL_MS = 30_000;
 const REFERENCE_PREFIX = "provider-secret:";
 
